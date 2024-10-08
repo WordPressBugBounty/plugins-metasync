@@ -1,0 +1,59 @@
+/**
+ * All of the CSS for your public-facing functionality should be
+ * included in this file.
+ */
+
+ /* Style the buttons that are used to open and close the accordion panel */
+ .metasync-accordion {
+    border: none;
+    border-radius: 8px;
+    color: #151433;
+    background-color: #F5F5F5;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    font-size: 1.2rem;
+    line-height: 30px;
+    padding: 12px 0 12px 20px;
+}
+
+.metasync-active .metasync-accordion {
+    border-radius: 8px 8px 0 0px;
+}
+
+.metasync-panel {
+    padding: 1px 18px;
+    display: none;
+    border-radius: 0 0 8px 8px;
+    background-color: #F5F5F5;
+    color: #4E5C68!important;
+}
+
+.metasync-active .metasync-panel {
+    display: block;
+    
+}
+
+.metasync-accordion:after{
+    content: '\02795'; /* Unicode character for "plus" sign (+) */
+    color: #777;
+    float: right;
+    margin-right: 15px;
+}
+
+.metasync-active .metasync-accordion:after {
+    content: "\2796"; /* Unicode character for "minus" sign (-) */
+}
+.metasyncTable th{
+    border: 1px solid rgb(193, 193, 193);
+    padding: 6px;
+    background-color: rgb(233, 233, 233);
+    text-align: center;
+}
+.metasyncTable td{
+border: 1px solid rgb(193, 193, 193);
+    padding: 6px;
+}
+.metasyncPara{
+    margin-bottom: 8px;
+}
