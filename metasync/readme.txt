@@ -1,11 +1,11 @@
 === Search Atlas SEO - Best SEO Plugin for One-Click WP Publishing & Integrated AI Optimization ===
 Contributors: shahrukhlinkgraph
-Tags: seo, sitemap, google instant indexing, schema, 404 monitor, redirection
+Tags: seo, sitemap, google instant indexing, schema, 404 monitor
 Donate link: http://linkgraph.io
 Requires at least: 5.2
-Tested up to: 6.6.3
+Tested up to: 6.6.2
 Requires PHP: 7.0
-Stable tag: 1.8.5
+Stable tag: 1.8.6
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -67,7 +67,7 @@ Search Atlas SEO plugin by Linkgraph to provide a bridge between the WordPress b
 1. General Settigs
 
 == Changelog ==
-= 1.8.5 =
+= 1.8.6 =
 * Code Improvement for server 
 
 = 1.8.4 =

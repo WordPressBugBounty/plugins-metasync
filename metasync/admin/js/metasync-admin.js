@@ -240,7 +240,8 @@
 
 		setToken();
 
-		$('body').on("click", "#wp_metasync_sync", function () {
+		$('body').on("click", "#wp_metasync_sync", function (e) {
+			e.preventDefault();
 			metasync_syncPostsAndPages();
 		});
 		$('body').on("click", "#metasync_settings_genkey_btn", function () {
