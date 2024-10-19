@@ -105,13 +105,53 @@ class Metasync_Admin
         add_filter('all_plugins',  array($this,'metasync_plugin_white_label'));
         add_filter( 'plugin_row_meta',array($this,'metasync_view_detials_url'),10,3);
         add_action('update_option_metasync_options', array($this, 'check_and_redirect_slug'), 10, 3);
+        
+        #lets try listening for update any option
+        add_action('add_option_metasync_options', array($this, 'redirect_slug_for_freshinstalls'));
+        
         add_action('admin_init', array($this, 'initialize_cookie'));
         add_action('wp', function() {
             set_error_handler(array($this,'metasync_log_php_errors'));
         });       
-        add_action('upgrader_process_complete', array($this,'metasync_plugin_updated_action'), 10, 2);
+        
+        #--------------------------
+        #   we are disabling this code
+        #   To prevent enabling debuging on every pluging Update
+        #   This causes Issue #102 on gilab
+        #--------------------------
+        #
+        # NOTE:
+        # Do not delete this as we may need it in implementing universal logging
+
+        # add_action('upgrader_process_complete', array($this,'metasync_plugin_updated_action'), 10, 2);
 
     }
+
+    #---------fixes issue : #95 ----------
+    #This function is to redirect in case client changes slug on fresh install
+    #It is called by the add_option hook
+    
+    public function redirect_slug_for_freshinstalls(){
+        #get the db menu slug
+        $plugin_menu_slug = Metasync::get_option('general')['white_label_plugin_menu_slug'] ?? '';
+        
+        #check that the slug is set or set it to the defaul class slug usually ('searchatlas')
+        $current_slug = empty($plugin_menu_slug) ? self::$page_slug : $plugin_menu_slug;
+        
+        #check if we have the cookie set and check if the slug has changed
+        if (isset($_COOKIE['metasync_previous_slug']) && $_COOKIE['metasync_previous_slug'] !== $current_slug) {
+            # the slug changed so we need to update the cookie
+            setcookie('metasync_previous_slug', $current_slug, time() + 3600, COOKIEPATH, COOKIE_DOMAIN);
+            $_COOKIE['metasync_previous_slug'] = $current_slug;
+    
+            #Redirect url to the new slug
+            $redirect_url = admin_url('admin.php?page=' . $current_slug);
+            
+            wp_redirect($redirect_url);
+            exit;
+        }
+    }
+
     public function metasync_plugin_updated_action($upgrader_object, $options){
         if ($options['action'] == 'update' && $options['type'] == 'plugin') {
             // List of plugins being updated
@@ -122,7 +162,7 @@ class Metasync_Admin
                 update_option('wp_debug_enabled', 'true');
                 update_option('wp_debug_log_enabled', 'true');
                 update_option('wp_debug_display_enabled','false');
-                $this->metasync_update_wp_config();               
+                #$this->metasync_update_wp_config();               
             }
         }
     }
@@ -224,8 +264,9 @@ class Metasync_Admin
         <th scope="row">WP_DEBUG</th>
         <td>
             <select name="wp_debug_enabled">
-                <option value="true" <?php selected('true', $wp_debug_enabled); ?>>Enabled</option>
+                 <!-- change the first option to Disable -->
                 <option value="false" <?php selected('false', $wp_debug_enabled); ?>>Disabled</option>
+                <option value="true" <?php selected('true', $wp_debug_enabled); ?>>Enabled</option>                
             </select>
         </td>
     </tr>
@@ -233,8 +274,8 @@ class Metasync_Admin
         <th scope="row">WP_DEBUG_LOG</th>
         <td>
             <select name="wp_debug_log_enabled">
-                <option value="true" <?php selected('true', $wp_debug_log_enabled); ?>>Enabled</option>
                 <option value="false" <?php selected('false', $wp_debug_log_enabled); ?>>Disabled</option>
+                <option value="true" <?php selected('true', $wp_debug_log_enabled); ?>>Enabled</option>                
             </select>
         </td>
     </tr>
@@ -242,8 +283,8 @@ class Metasync_Admin
         <th scope="row">WP_DEBUG_DISPLAY</th>
         <td>
             <select name="wp_debug_display_enabled">
-                <option value="true" <?php selected('true', $wp_debug_display_enabled); ?>>Enabled</option>
                 <option value="false" <?php selected('false', $wp_debug_display_enabled); ?>>Disabled</option>
+                <option value="true" <?php selected('true', $wp_debug_display_enabled); ?>>Enabled</option>                
             </select>
         </td>
     </tr>
@@ -325,6 +366,11 @@ class Metasync_Admin
         }else{
             self::$page_slug = Metasync::get_option('general')['white_label_plugin_menu_slug']==""  ? "searchatlas":Metasync::get_option('general')['white_label_plugin_menu_slug'];
             $redirect_url = admin_url('admin.php?page=' .  self::$page_slug);
+
+            #add redirection for when the old slug is not defined
+            #this fixes the redirect issue #
+            wp_redirect($redirect_url);
+            exit;
         }
     }
     public function metasync_view_detials_url( $plugin_meta, $plugin_file, $plugin_data ) {
@@ -556,18 +602,6 @@ class Metasync_Admin
     {
         printf('<div class="wrap">');
         printf('<h1> General Settings </h1>');
-        $menu_slug = !isset(Metasync::get_option('general')['white_label_plugin_menu_slug']) && Metasync::get_option('general')['white_label_plugin_menu_slug']==""  ?  self::$page_slug:Metasync::get_option('general')['white_label_plugin_menu_slug'];
-        $current_slug = $menu_slug;
-        if (isset($_COOKIE['metasync_previous_slug']) && $_COOKIE['metasync_previous_slug'] !== $current_slug) {
-            // Update the cookie
-            setcookie('metasync_previous_slug', $current_slug, time() + 3600, COOKIEPATH, COOKIE_DOMAIN);
-            $_COOKIE['metasync_previous_slug'] = $current_slug;
-    
-            // Redirect to the new slug
-            $redirect_url = admin_url('admin.php?page=' . $current_slug);
-            wp_redirect($redirect_url);
-            exit;
-        }
         $page_slug = self::$page_slug  . '_general';
         printf('<form method="post" action="options.php">');
         // This prints out all hidden setting fields

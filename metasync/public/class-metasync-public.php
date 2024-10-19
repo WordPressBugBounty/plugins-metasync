@@ -705,7 +705,7 @@ class Metasync_Public
 				$result['settings']['typography_font_family'] = 'Roboto';
 				$result['settings']['typography_font_weight'] = '600';
 				$result['widgetType'] = 'heading';
-			}elseif($node->nodename==='iframe'){
+			}elseif($node->nodeName==='iframe'){  // Correction in the name 
 				$result["settings"]= array('html'=> $node->ownerDocument->saveHTML($node));
 				$result['widgetType'] = 'html';
 			}elseif ($node->nodeName === 'img') {
@@ -2090,8 +2090,12 @@ class Metasync_Public
 			'description' => $get_page_meta['meta_description'][0] ?? '',
 			'robots' => $get_page_meta['meta_robots'][0] ?? 'index',
 		);
-
-		if (@Metasync::get_option('general')['enable_metadesc'] !== 'true') {
+		$metasync_option = Metasync::get_option('general');
+		/*
+		#Remove Error Suppressants
+		#Check if the "enable_metadesc" key is set
+		*/
+		if (isset($metasync_option['enable_metadesc']) && $metasync_option['enable_metadesc'] !== 'true') {
 			unset($list_page_meta['description']);
 			unset($list_page_meta['robots']);
 		}
