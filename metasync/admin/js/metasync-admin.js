@@ -504,6 +504,44 @@
 			sendCustomerParams();
 			
 		});
+		// Handle General Setting Page form Submit
+		$('#metaSyncGeneralSetting').on('submit', function(e) {
+			e.preventDefault(); // Prevent the default form submission
+			var actionField = $(this).find('input[name="action"]');
+			var optionPage= $(this).find('input[name="option_page"]');
+			var wpHttpReferer= $(this).find('input[name="_wp_http_referer"]');
+			var wpnonce= $(this).find('input[name="_wpnonce"]');
+			if(actionField.length > 0) {
+				actionField.remove(); // Remove the action field if it exists
+				optionPage.remove(); // Remove the action field if it exists
+				wpHttpReferer.remove(); // Remove the action field if it exists
+				wpnonce.remove(); // Remove the action field if it exists
+			}
+			// Gather the form data
+			var formData = $(this).serialize(); // Serialize form data
+	
+			$.ajax({
+				url: metaSync.ajax_url, // The AJAX URL provided by WordPress
+				type: 'POST',
+				data: formData + '&action=meta_sync_save_settings', // Add the action to identify the AJAX request
+				success: function(response) {
+					// Handle success response
+					//if(response.success){
+					// get value of input field white_label_plugin_menu_slug
+						const whiteLableUrl = $('#metaSyncGeneralSetting input[name="metasync_options[general][white_label_plugin_menu_slug]"]').val();
+					// check condition if it is empty or not and redirect it
+						 window.location = metaSync.admin_url+'?page='+(whiteLableUrl===''?'searchatlas':whiteLableUrl);
+						
+					//}
+					
+				},
+				error: function(error) {
+					// Handle error response
+					alert('There was an error saving the settings.');
+					console.log(error);
+				}
+			});
+		});
 
 		//hook into heartbeat-send: client will send the message 'marco' in the 'client' var inside the data array
 		jQuery(document).on('heartbeat-send', function (e, data) {

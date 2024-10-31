@@ -934,8 +934,13 @@ class Metasync_Public
 		$outputArray .='[/et_pb_column][/et_pb_row][/et_pb_section]';
 		return $outputArray;
 	}
-	
-	private function metasync_upload_post_content($item)
+	/*
+		Added $landing_page_option variable and set default value false to check 
+		if metasync_upload_post_content is called for set_landing_page by following function that are below
+		# create_item
+		# update_items
+	*/
+	private function metasync_upload_post_content($item,$landing_page_option=false) 
 	{
 		$post_content = new DOMDocument();
 		$internalErrors = libxml_use_internal_errors(true);
@@ -971,6 +976,11 @@ class Metasync_Public
 			'<body>',
 			'</body>'
 		], '', $content));
+		// If the $landing_page_option return the content with before checking the page editor
+		if($landing_page_option){
+			return array('content'=>$content); // return the content for the post
+		}
+
 		if($enabled_plugin_editor=='elementor'){
 			// Load HTML string into DOMDocument
 			$dom = new DOMDocument();
@@ -1121,8 +1131,15 @@ class Metasync_Public
 				$key = array_rand($users);
 				$post_author = $users[$key];
 			}
-
-			$content = $this->metasync_upload_post_content($item);
+			/* 
+			check if the create_item is called by set_landing_page function or not 
+			by doing this we will prevent html from going into builder page option
+			*/
+			if(!isset($item['is_landing_page']) ){
+				$content = $this->metasync_upload_post_content($item); // This will be used by create_page function
+            }elseif(isset($item['is_landing_page']) && $item['is_landing_page'] == true){
+				$content = $this->metasync_upload_post_content($item,true); // This will be used by set_landing_page function
+			}
 
 			$new_post = array(
 				'post_author' => $post_author,

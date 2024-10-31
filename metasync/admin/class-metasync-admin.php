@@ -104,15 +104,21 @@ class Metasync_Admin
         add_action('admin_init', array($this, 'settings_page_init'));
         add_filter('all_plugins',  array($this,'metasync_plugin_white_label'));
         add_filter( 'plugin_row_meta',array($this,'metasync_view_detials_url'),10,3);
-        add_action('update_option_metasync_options', array($this, 'check_and_redirect_slug'), 10, 3);
+        // removing this as we don't need it anymore because we are using wp-ajax to implement the white label 
+       // add_action('update_option_metasync_options', array($this, 'check_and_redirect_slug'), 10, 3);
         
         #lets try listening for update any option
-        add_action('add_option_metasync_options', array($this, 'redirect_slug_for_freshinstalls'));
+        #commenting out this code that redirectls fresh installs when the option is added
+        #reason : we have a new ajax implementation for this
+        #add_action('add_option_metasync_options', array($this, 'redirect_slug_for_freshinstalls'));
         
         add_action('admin_init', array($this, 'initialize_cookie'));
         add_action('wp', function() {
             set_error_handler(array($this,'metasync_log_php_errors'));
-        });       
+        });
+        // Add AJAX for saving general settings 
+        add_action( 'wp_ajax_meta_sync_save_settings', array($this,'meta_sync_save_settings') );
+       
         
         #--------------------------
         #   we are disabling this code
@@ -469,6 +475,11 @@ class Metasync_Admin
             $this->version,
             false
         );
+        // Localize the script to make the AJAX URL accessible
+        wp_localize_script( $this->plugin_name, 'metaSync', array(
+            'ajax_url' => admin_url( 'admin-ajax.php' ),
+			'admin_url'=>admin_url('admin.php')
+        ));
         add_action('admin_notices', array($this, 'permalink_structure_dashboard_warning'));
 
         wp_enqueue_script('heartbeat');
@@ -603,17 +614,59 @@ class Metasync_Admin
         printf('<div class="wrap">');
         printf('<h1> General Settings </h1>');
         $page_slug = self::$page_slug  . '_general';
-        printf('<form method="post" action="options.php">');
+        //Add "metaSyncGeneralSetting" Element ID to handle form with AJAX
+        printf('<form method="post" action="options.php" id="metaSyncGeneralSetting">');
         // This prints out all hidden setting fields
         settings_fields($this::option_group);
         do_settings_sections($page_slug);
         do_settings_sections(self::$page_slug . '_linkgraph');
+         // Add a nonce field for security
+        wp_nonce_field('meta_sync_general_setting_nonce', 'meta_sync_nonce');
+
         printf('<br/> <button tyreadonly="readonly"pe="button" class="button button-primary" id="sendAuthToken" data-toggle="tooltip" data-placement="top" title="Sync Categories and User">Sync Now</button>');
 
         // do_settings_sections(self::$page_slug . '_sitemap');
         submit_button();
         printf('</form>');
         printf('</div>');
+    }
+    /*
+        Method to handle Ajax request from "General Settings" page
+    */
+    public function meta_sync_save_settings() {
+        // Check the nonce for security
+        if ( isset($_POST['meta_sync_nonce']) AND wp_verify_nonce($_POST['meta_sync_nonce'], 'meta_sync_general_setting_nonce') ) {
+    
+        // Prepare the options array
+        $metasync_options = array(
+        'general' => array(
+            'searchatlas_api_key'           => sanitize_text_field($_POST['metasync_options']['general']['searchatlas_api_key']),
+            'apikey'                        => sanitize_text_field($_POST['metasync_options']['general']['apikey']),
+            'enable_schema'                 => filter_var($_POST['metasync_options']['general']['enable_schema'], FILTER_VALIDATE_BOOLEAN),
+            'enable_metadesc'               => filter_var($_POST['metasync_options']['general']['enable_metadesc'], FILTER_VALIDATE_BOOLEAN),
+            'enabled_plugin_editor'         => sanitize_text_field($_POST['metasync_options']['general']['enabled_plugin_editor']),
+            'white_label_plugin_name'       => sanitize_text_field($_POST['metasync_options']['general']['white_label_plugin_name']),
+            'white_label_plugin_description'=> sanitize_text_field($_POST['metasync_options']['general']['white_label_plugin_description']),
+            'white_label_plugin_author'     => sanitize_text_field($_POST['metasync_options']['general']['white_label_plugin_author']),
+            'white_label_plugin_author_uri' => esc_url_raw($_POST['metasync_options']['general']['white_label_plugin_author_uri']),
+            'white_label_plugin_uri'        => esc_url_raw($_POST['metasync_options']['general']['white_label_plugin_uri']),
+            'white_label_plugin_menu_name'  => sanitize_text_field($_POST['metasync_options']['general']['white_label_plugin_menu_name']),
+            'white_label_plugin_menu_title' => sanitize_text_field($_POST['metasync_options']['general']['white_label_plugin_menu_title']),
+            'white_label_plugin_menu_slug'  => sanitize_text_field($_POST['metasync_options']['general']['white_label_plugin_menu_slug']),
+            'white_label_plugin_menu_icon'  => sanitize_text_field($_POST['metasync_options']['general']['white_label_plugin_menu_icon']),
+            'enabled_plugin_css'            => sanitize_text_field($_POST['metasync_options']['general']['enabled_plugin_css']),
+        )
+    );
+        
+            // Save the options in the database
+            update_option('metasync_options', $metasync_options);
+            $data = Metasync::get_option('general');
+            // Send a success response  Redirect to avoid resubmission
+            wp_send_json_success( array('message' => 'Settings saved successfully!','redirect_url'=>admin_url('admin.php?page='.$data['white_label_plugin_menu_slug']) ) );
+        }
+        // if nonce is invalid
+        wp_send_json_error( array('message' => 'Invalid nonce' ) );
+    
     }
 
     /**
