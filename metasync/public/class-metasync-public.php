@@ -709,14 +709,24 @@ class Metasync_Public
 				$result["settings"]= array('html'=> $node->ownerDocument->saveHTML($node));
 				$result['widgetType'] = 'html';
 			}elseif ($node->nodeName === 'img') {
-				// Handle image elements
-				$result['settings']['image']['url'] = $node->getAttribute('src');
-				$image_id = attachment_url_to_postid($node->getAttribute('src') );
-				$image_alt = get_post_meta($image_id, '_wp_attachment_image_alt', TRUE);
-				$result['settings']['image']['id'] =$image_id; // Generate unique ID for the image
+				// Handle image elements source, title and alternative text
+				$src_url = $node->getAttribute('src');
+				$alt_text = $node->getAttribute('alt');
+				$title_text = $node->getAttribute('title');
+				// upload the image to wordpress and the id of the image and url
+				$attachment_id = $this->common->upload_image_by_url($src_url,$alt_text,$title_text);
+				$new_src_url = wp_get_attachment_url($attachment_id);
+				// use the new image url to elementor
+				$result['settings']['image']['url'] = $new_src_url;
+				
+				$result['settings']['image']['id'] =$attachment_id; // Generate unique ID for the image
 				$result['settings']['image']['size'] = '';
-				$result['settings']['image']['alt'] = $image_alt; // Set default alt text
+				$result['settings']['image']['alt'] = $alt_text; // Set default alt text
 				$result['settings']['image']['source'] = 'library';
+				// check if the title is empty or not
+				if($title_text !== ""){
+					$result['settings']['image']['title'] = $title_text;
+				}				
 				$result['widgetType'] = 'image';
 			} elseif ($node->nodeName === 'p') {
 				// Handle paragraph elements
@@ -939,8 +949,12 @@ class Metasync_Public
 		if metasync_upload_post_content is called for set_landing_page by following function that are below
 		# create_item
 		# update_items
+		Added $otto_enable variable and set default value false to check 
+		if metasync_upload_post_content is called otto AI landing page by following function that are below
+		# create_page
+		# update_page
 	*/
-	private function metasync_upload_post_content($item,$landing_page_option=false) 
+	private function metasync_upload_post_content($item,$landing_page_option=false,$otto_enable=false) 
 	{
 		$post_content = new DOMDocument();
 		$internalErrors = libxml_use_internal_errors(true);
@@ -950,6 +964,21 @@ class Metasync_Public
 		$enabled_plugin_editor = Metasync::get_option('general')['enabled_plugin_editor'] ?? '';
 		$elementor_active = did_action( 'elementor/loaded' );
         $divi_active = (wp_get_theme()->name == 'Divi'?true:false);
+
+		$content = $post_content->saveHTML();
+		$content = trim(str_replace([
+			'<html>',
+			'</html>',
+			'<head>',
+			'</head>',
+			'<body>',
+			'</body>'
+		], '', $content));
+		// If the $otto_enable return the content with before checking the page editor
+		if($otto_enable){
+			return array('content'=>$content); // return the content for the post
+		}
+
 		if(!$elementor_active && $enabled_plugin_editor=='elementor'){
 			$enabled_plugin_editor='';
 		}
@@ -993,6 +1022,8 @@ class Metasync_Public
 			// 	$figureElement->parentNode->removeChild($figureElement);
 			// }
 			$modifiedHtml = $dom->saveHTML();
+			//Check if the container is active or not on that basis use container or section structure
+			if ( \Elementor\Plugin::$instance->experiments->is_feature_active( 'container' ) ) {
 			$outputArrayData = [
 				[
 					'id' => uniqid(), 
@@ -1006,6 +1037,28 @@ class Metasync_Public
 					'isInner' => false
 				]
 			];
+		}else{
+				$outputArrayData = [
+					[
+					  "id"=> uniqid(), 
+					  "elType"=> "section",
+					  "settings"=> [],
+					  "elements"=> [
+						[
+						  "id"=> uniqid(), 
+						  "elType"=> "column",
+						  "settings"=> [
+							"_column_size"=> 100,
+							"_inline_size"=> null
+						  ],
+						 'elements' =>$this->elementorBlockData(html_entity_decode($modifiedHtml)),
+						  "isInner"=> false
+						]
+					  ],
+					  "isInner"=> false
+					]
+				];
+			}
 			//error_log(json_encode([$item['post_content'],$outputArrayData,html_entity_decode($content)]));
 		
 			$jsonOutput = wp_slash( wp_json_encode( $outputArrayData ) );
@@ -1139,6 +1192,13 @@ class Metasync_Public
 				$content = $this->metasync_upload_post_content($item); // This will be used by create_page function
             }elseif(isset($item['is_landing_page']) && $item['is_landing_page'] == true){
 				$content = $this->metasync_upload_post_content($item,true); // This will be used by set_landing_page function
+			}
+			/*
+			Check if the otto_ai_page is payload is set in the api or not.
+			If it is please set the third parameter to true.
+			*/
+			if(isset($item['otto_ai_page']) && $item['otto_ai_page']==true){
+				$content = $this->metasync_upload_post_content($item,true,true);
 			}
 
 			$new_post = array(
@@ -1375,10 +1435,18 @@ class Metasync_Public
 	public function get_items($request)
 	{
 		$get_data = sanitize_post($_GET);
-		$post_id = (int) $get_data['post_id'];
 
-		if ($post_id !== 0) {
-			return rest_ensure_response($this->elementor_getItems($post_id));
+		# let us check if request send post id and is valid int
+		if(isset($get_data['post_id']) AND intval($get_data['post_id']) > 0){
+
+			#get the post id
+			$post_id = $get_data['post_id'];
+
+			#get the elementor items of the post
+			$elementor_items = $this->elementor_getItems($post_id);
+			
+			#return the elementor items in response
+			return rest_ensure_response($elementor_items);
 		}
 
 		return rest_ensure_response(
@@ -1420,6 +1488,13 @@ class Metasync_Public
 		foreach ($elements as $element) {
 			if (in_array($element->elType, $elements_groupItems)) {
 				$this->elementor_getElement($element->elements, $data_array);
+				continue;
+			}
+
+			#check that we process only widgets
+			if($element->elType !== 'widget'){
+
+				#go to next
 				continue;
 			}
 
@@ -1766,6 +1841,19 @@ class Metasync_Public
 				$content = $this->metasync_upload_post_content($post);
 				$update_params['post_content'] = $content['content'];
 			}
+			/* 
+			check if the create_item is called by set_landing_page function or not 
+			by doing this we will prevent html from going into builder page option
+			*/
+			if(isset($post['otto_ai_page']) && $post['otto_ai_page']==true){
+				$content = $this->metasync_upload_post_content($post,true,true);
+				$update_params['post_content'] = $content['content'];
+				// delete the elementor related meta data so that it won't get proccess by elementor
+				delete_post_meta( $post_id, '_elementor_data' );
+				delete_post_meta( $post_id, '_elementor_version' );
+				delete_post_meta( $post_id, '_elementor_css' );
+				delete_post_meta( $post_id, '_elementor_page_assets' );
+			}
 
 			// Add custom field for post header section
 			if (isset($post['custom_post_header'])) { //  && !empty($post['custom_post_header'])
@@ -1907,10 +1995,42 @@ class Metasync_Public
 
 		return rest_ensure_response($data);
 	}
+	/*
+		Populate the style data into post meta or update the data
+	*/
+	private function style_meta_data($styleData,$post_id,$update = false){
+		// check if $styleData is an array
+		if(is_array($styleData)){
+			//loop through every key present in the $styleData
+			foreach($styleData as $key=> $styleItem){
+				// store the post meta on the basis of the key check if it comes from page_update or page_create function
+				if($update){
+					update_post_meta((int)$post_id, $key, json_encode($styleItem)); // update the style data
+				}else{
+					add_post_meta((int)$post_id, $key, json_encode($styleItem), true ); // store the style data					
+				}
+				
+			}
+		}
+	}
 
 	public function create_page($request)
 	{
-		$payload = $request->get_json_params()[0];
+		$payload = $request->get_json_params();
+	
+		#check if we have the params set
+		if (!isset($payload[0]) || empty($payload[0])) {
+			# Return an error response for invalid request data
+			return new WP_Error(
+				'validation_error',
+				'Invalid request data. Empty Payload Provided',
+				array('status' => 400)
+			);
+		}
+	
+		#set the payload 
+		$payload = $payload[0];
+	
 		$payload['post_type'] = "page";
 		$createPages = $this->create_item($payload); // creating page
 
@@ -1926,12 +2046,36 @@ class Metasync_Public
 		$payloadIndex = 0;
 		$pageTemplate = 'default';
 		foreach ($post_ids as $post_id) {
+			/*
+			check if the payload for style_data and otto_ai_page is set or not 
+			Also Check if the otto_ai_page is true or not if set true set Metasync Template for the page
+			*/
+			if(isset($payload['style_data'])  && isset($payload['otto_ai_page']) && $payload['otto_ai_page']==true){
+			// Change the page template from default to  Metasync Template
+			$pageTemplate = Metasync_Template::TEMPLATE_NAME;
+			// store the style_date in a variable to ease the process
+			$styleData = $payload['style_data'];
+			// check if $styleData is an array
+			if(is_array($styleData)){
+				// add the post meta by calling the style_meta_data function
+				$this->style_meta_data($styleData,$post_id);
+			}
+			// delete the elementor data so that it won't create problem in rendering 
+			delete_post_meta( $post_id, '_elementor_data' );
+			delete_post_meta( $post_id, '_elementor_version' );
+			delete_post_meta( $post_id, '_elementor_css' );
+			delete_post_meta( $post_id, '_elementor_page_assets' );
+			}
 			if (
 				isset($payload[$payloadIndex]['is_blank']) &&
 				!empty($payload[$payloadIndex]['is_blank']) &&
 				$payload[$payloadIndex]['is_blank'] != 'false'
 			) {
 				require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-template.php';
+				$pageTemplate = Metasync_Template::TEMPLATE_NAME;
+			}
+			if(isset($payload['otto_ai_page']) && $payload['otto_ai_page']){
+				// Change the page template from default to  Metasync Template
 				$pageTemplate = Metasync_Template::TEMPLATE_NAME;
 			}
 			update_post_meta($post_id, '_wp_page_template', $pageTemplate);
@@ -1972,12 +2116,34 @@ class Metasync_Public
 		$payloadIndex = 0;
 		$pageTemplate = 'default';
 		foreach ($post_ids as $post_id) {
+			/*
+			check if the payload for style_data and otto_ai_page is set or not 
+			Also Check if the otto_ai_page is true or not if set true 
+			Update the  Metasync Template for the page with css and js
+			*/
+			if(isset($payload['style_data']) && $payload['otto_ai_page']==true){
+				// Change the page template from default to  Metasync Template				
+				$pageTemplate = Metasync_Template::TEMPLATE_NAME;
+				// store the style_date in a variable to ease the process
+				$styleData = $payload['style_data'];
+				// check if $styleData is an array
+				if(is_array($styleData)){
+					// update the post meta by calling the style_meta_data function
+					$this->style_meta_data($styleData,$post_id,true); 
+				}
+				
+					
+				}
 			if (
 				isset($payload[$payloadIndex]['is_blank']) &&
 				!empty($payload[$payloadIndex]['is_blank']) &&
 				$payload[$payloadIndex]['is_blank'] != 'false'
 			) {
 				require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-template.php';
+				$pageTemplate = Metasync_Template::TEMPLATE_NAME;
+			}
+			if(isset($payload['otto_ai_page']) && $payload['otto_ai_page']){
+				// Change the page template from default to  Metasync Template
 				$pageTemplate = Metasync_Template::TEMPLATE_NAME;
 			}
 			update_post_meta($post_id, '_wp_page_template', $pageTemplate);
@@ -2263,8 +2429,21 @@ class Metasync_Public
 	public function metasync_plugin_links($links)
 	{
 		$links[] = '<a href="#" id="wp_metasync_sync">' . __('Sync') . '</a>';
-		// $links[] = '<a href="' . get_site_url(null, 'wp-sitemap.xml') . '" target="_blank">' . __('Sitemap') . '</a>';
-		$menu_slug = Metasync::get_option('general')['white_label_plugin_menu_slug']==""  ?  'searchatlas' : Metasync::get_option('general')['white_label_plugin_menu_slug'];
+		
+		# Solving Issue 103
+		# get the neneral options into a var
+		$general_options = Metasync::get_option('general');
+
+		# set the menu slug to the default 
+		$menu_slug = 'searchatlas';
+
+		#now check if the menu slug is in the general opts
+		if (is_array($general_options) && !empty($general_options['white_label_plugin_menu_slug'])) {
+			
+			#set the slug to the modified
+			$menu_slug = $general_options['white_label_plugin_menu_slug'];
+		}
+
 		$links[] = '<a href="' . get_admin_url(null, 'admin.php?page=' .$menu_slug) . '">' . __('Settings') . '</a>';
 		return $links;
 	}

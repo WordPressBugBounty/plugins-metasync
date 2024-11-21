@@ -634,40 +634,68 @@ class Metasync_Admin
         Method to handle Ajax request from "General Settings" page
     */
     public function meta_sync_save_settings() {
-        // Check the nonce for security
-        if ( isset($_POST['meta_sync_nonce']) AND wp_verify_nonce($_POST['meta_sync_nonce'], 'meta_sync_general_setting_nonce') ) {
-    
-        // Prepare the options array
-        $metasync_options = array(
-        'general' => array(
-            'searchatlas_api_key'           => sanitize_text_field($_POST['metasync_options']['general']['searchatlas_api_key']),
-            'apikey'                        => sanitize_text_field($_POST['metasync_options']['general']['apikey']),
-            'enable_schema'                 => filter_var($_POST['metasync_options']['general']['enable_schema'], FILTER_VALIDATE_BOOLEAN),
-            'enable_metadesc'               => filter_var($_POST['metasync_options']['general']['enable_metadesc'], FILTER_VALIDATE_BOOLEAN),
-            'enabled_plugin_editor'         => sanitize_text_field($_POST['metasync_options']['general']['enabled_plugin_editor']),
-            'white_label_plugin_name'       => sanitize_text_field($_POST['metasync_options']['general']['white_label_plugin_name']),
-            'white_label_plugin_description'=> sanitize_text_field($_POST['metasync_options']['general']['white_label_plugin_description']),
-            'white_label_plugin_author'     => sanitize_text_field($_POST['metasync_options']['general']['white_label_plugin_author']),
-            'white_label_plugin_author_uri' => esc_url_raw($_POST['metasync_options']['general']['white_label_plugin_author_uri']),
-            'white_label_plugin_uri'        => esc_url_raw($_POST['metasync_options']['general']['white_label_plugin_uri']),
-            'white_label_plugin_menu_name'  => sanitize_text_field($_POST['metasync_options']['general']['white_label_plugin_menu_name']),
-            'white_label_plugin_menu_title' => sanitize_text_field($_POST['metasync_options']['general']['white_label_plugin_menu_title']),
-            'white_label_plugin_menu_slug'  => sanitize_text_field($_POST['metasync_options']['general']['white_label_plugin_menu_slug']),
-            'white_label_plugin_menu_icon'  => sanitize_text_field($_POST['metasync_options']['general']['white_label_plugin_menu_icon']),
-            'enabled_plugin_css'            => sanitize_text_field($_POST['metasync_options']['general']['enabled_plugin_css']),
-        )
-    );
-        
-            // Save the options in the database
-            update_option('metasync_options', $metasync_options);
-            $data = Metasync::get_option('general');
-            // Send a success response  Redirect to avoid resubmission
-            wp_send_json_success( array('message' => 'Settings saved successfully!','redirect_url'=>admin_url('admin.php?page='.$data['white_label_plugin_menu_slug']) ) );
+        # the new validation fixes issues #143, #144, #146
+
+        # Check nonce for security and return early if invalid
+        if (!isset($_POST['meta_sync_nonce']) || !wp_verify_nonce($_POST['meta_sync_nonce'], 'meta_sync_general_setting_nonce')) {
+            
+            #send invalid nonce message
+            wp_send_json_error(array('message' => 'Invalid nonce'));
+            return;
         }
-        // if nonce is invalid
-        wp_send_json_error( array('message' => 'Invalid nonce' ) );
     
+        # text fields for sanitize text
+        $text_fields = [
+            'searchatlas_api_key', 'apikey', 'enabled_plugin_editor', 
+            'white_label_plugin_name', 'white_label_plugin_description', 
+            'white_label_plugin_author', 'white_label_plugin_menu_name', 
+            'white_label_plugin_menu_title', 'white_label_plugin_menu_slug', 
+            'white_label_plugin_menu_icon', 'enabled_plugin_css','enabled_elementor_plugin_css_color','enabled_elementor_plugin_css'
+        ];
+    
+        # Bool Fields for filter var
+        $bool_fields = ['enable_schema', 'enable_metadesc'];
+    
+        #url Fields for esc_url
+        $url_fields = ['white_label_plugin_author_uri', 'white_label_plugin_uri'];
+    
+        # Initialize the options array
+        $metasync_options = array('general' => array());
+    
+        # Process text fields
+        foreach ($text_fields as $field) {
+            if (isset($_POST['metasync_options']['general'][$field])) {
+                $metasync_options['general'][$field] = sanitize_text_field($_POST['metasync_options']['general'][$field]);
+            }
+        }
+    
+        # Process boolean fields
+        foreach ($bool_fields as $field) {
+            if (isset($_POST['metasync_options']['general'][$field])) {
+                $metasync_options['general'][$field] = filter_var($_POST['metasync_options']['general'][$field], FILTER_VALIDATE_BOOLEAN);
+            }
+        }
+    
+        # Process URL fields
+        foreach ($url_fields as $field) {
+            if (isset($_POST['metasync_options']['general'][$field])) {
+                $metasync_options['general'][$field] = esc_url_raw($_POST['metasync_options']['general'][$field]);
+            }
+        }
+    
+        # Save the options in the database
+        update_option('metasync_options', $metasync_options);
+
+        #get the fresh option data
+        $data = Metasync::get_option('general');
+    
+        # Send a success response with a redirect to avoid resubmission
+        wp_send_json_success(array(
+            'message' => 'Settings saved successfully!',
+            'redirect_url' => admin_url('admin.php?page=' . $data['white_label_plugin_menu_slug'])
+        ));
     }
+    
 
     /**
      * Dashboard page callback
@@ -1007,7 +1035,7 @@ class Metasync_Admin
                 // Output radio button for Gutenberg
                 printf(
                     '<input type="radio" id="enable_gutenberg" name="' . $this::option_key . '[general][enabled_plugin_editor]" value="gutenberg" %s  />',
-                    ($enabled_plugin_editor == 'gutenberg' || ($gutenberg_enabled && !$elementor_active &&!$divi_active)) ? 'checked' : '',
+                    ($enabled_plugin_editor == 'gutenberg' || ($gutenberg_enabled && !$elementor_active &&!$divi_active)) ? 'checked' : ''
                    
                 );
                 printf('<label for="enable_gutenberg">Gutenberg</label>');
@@ -1017,6 +1045,38 @@ class Metasync_Admin
             self::$page_slug . '_general',
             $SECTION_METASYNC
         );
+
+
+
+        /*
+        add field to save color for elementor and assign custom color to the heading
+        */
+        add_settings_field(
+            'enabled_elementor_plugin_css',
+            'Choose Elementor Font Style',
+            function() {
+                $enabled_elementor_plugin_css = Metasync::get_option('general')['enabled_elementor_plugin_css'] ?? 'default';
+                printf('<select name="' . $this::option_key . '[general][enabled_elementor_plugin_css]" id="heading_style">');
+                printf('<option value="default"'.selected($enabled_elementor_plugin_css, 'default', false).'>Default</option>');
+                printf('<option value="custom" '. selected($enabled_elementor_plugin_css, 'custom', false) . '>Custom</option>');
+                printf('</select>'); 
+            },
+            self::$page_slug . '_general',
+            $SECTION_METASYNC
+        );
+        add_settings_field(
+            'enabled_elementor_plugin_css_color',
+            'Choose Elementor Font Color',
+            function() {
+                $enabled_elementor_plugin_css_color = Metasync::get_option('general')['enabled_elementor_plugin_css_color'] ?? '#000000';                          
+                printf('<input type="color" id="elementor_default_color_metasync" name="' . $this::option_key . '[general][enabled_elementor_plugin_css_color]" value="'.$enabled_elementor_plugin_css_color.'">');       
+            },
+            self::$page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+
+
         if(is_admin()){
         add_settings_field(
             'white_label_plugin_name',
@@ -1134,7 +1194,7 @@ class Metasync_Admin
                 // Output radio button for Gutenberg
                 printf(
                     '<input type="radio" id="enable_metasync" name="' . $this::option_key . '[general][enabled_plugin_css]" value="metasync" %s  />',
-                    ($enabled_plugin_css == 'metasync' || ($enabled_plugin_css && !$enabled_plugin_css)) ? 'checked' : '',
+                    ($enabled_plugin_css == 'metasync' || ($enabled_plugin_css && !$enabled_plugin_css)) ? 'checked' : ''
                    
                 );
                 printf('<label for="enable_metasync">Metasync Style</label>');

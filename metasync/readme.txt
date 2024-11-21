@@ -4,8 +4,8 @@ Tags: seo, sitemap, google instant indexing, schema, 404 monitor
 Donate link: http://linkgraph.io
 Requires at least: 5.2
 Tested up to: 6.6.2
-Requires PHP: 7.0
-Stable tag: 1.8.9
+Requires PHP: 7.1
+Stable tag: 1.9.0
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -67,6 +67,10 @@ Search Atlas SEO plugin by Linkgraph to provide a bridge between the WordPress b
 1. General Settigs
 
 == Changelog ==
+= 1.9.0 =
+* Bug Fixes
+* Fix : Php 7.1.x compatibility problems
+
 = 1.8.9 =
 * Security Improvements
 

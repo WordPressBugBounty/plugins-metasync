@@ -89,8 +89,9 @@ class Metasync_Common
 	/**
 	 * Upload image to media library if URL is valid.
 	 * @param $url Valid URL.
+	 * add title to the image default value value is empty string
 	 */
-	public function upload_image_by_url($url,$alt='')
+	public function upload_image_by_url($url,$alt='',$title_text='')
 	{
 		require_once(ABSPATH . "/wp-load.php");
 		require_once(ABSPATH . "/wp-admin/includes/image.php");
@@ -141,6 +142,15 @@ class Metasync_Common
 		if ($get_attachment === null && empty($get_attachment)) {
 			$attachment_id 	= media_handle_sideload($args, 0, $args['name']);
 			update_post_meta($attachment_id, '_wp_attachment_image_alt', $alt);
+			// check if the title is empty or not if it's has title update the title
+			if($title_text !== ''){
+				wp_update_post(
+					array (
+						'ID'         => $attachment_id,
+						'post_title' => $title_text
+					)
+				);
+			}
 			$attach_data 	= wp_generate_attachment_metadata(
 				$attachment_id,
 				wp_get_original_image_path($attachment_id)

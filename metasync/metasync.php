@@ -15,7 +15,7 @@
  * Plugin Name:       Search Engine Labs Content
  * Plugin URI:        https://www.linkgraph.com/searchatlas-seo-software/
  * Description:       Search Engine Labs SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           1.8.9
+ * Version:           1.9.0
  * Author:            LinkGraph
  * Author URI:        https://linkgraph.io/
  * License:           GPL v3
@@ -34,7 +34,19 @@ if (!defined('WPINC')) {
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-define('METASYNC_VERSION', '1.8.9');
+define('METASYNC_VERSION', '1.9.0');
+
+/**
+ * Define the current required php version 
+ * This will be used to validate whether the user can install the plugin or not
+ */
+define('METASYNC_MIN_PHP', '7.1');
+
+/**
+ * Define the current required php version 
+ * This will be used to validate whether the user can install the plugin or not
+ */
+define('METASYNC_MIN_WP', '5.2');
 
 /**
  * The code that runs during plugin activation.
@@ -42,6 +54,67 @@ define('METASYNC_VERSION', '1.8.9');
  */
 function activate_metasync()
 {
+    # Include WordPress plugin functions to access plugin metadata
+    if (!function_exists('get_plugin_data')) {
+        require_once ABSPATH . 'wp-admin/includes/plugin.php';
+    }
+
+    # Get plugin data
+    $plugin_data = get_plugin_data(__FILE__);
+	
+	# Get the plugin name
+    $plugin_name = $plugin_data['Name']; 
+
+    # Get the current WordPress
+    global $wp_version;
+
+	# Get the current php version
+    $php_version = PHP_VERSION;
+
+    # Check for incompatible WordPress version
+    if (version_compare($wp_version, METASYNC_MIN_WP, '<')) {
+		
+		#show error
+		wp_die(
+
+			#craft the message
+            sprintf(
+                '%s requires WordPress version %s or later. You are currently using version %s. Please update WordPress to activate this plugin.',
+                esc_html($plugin_name),
+                METASYNC_MIN_WP,
+                esc_html($wp_version)
+            ),
+
+			#the plugin title as page title
+            esc_html($plugin_name).'Plugin Activation Error',
+
+			#include the back link
+            ['back_link' => true]
+        );
+    }
+
+    # Check for incompatible PHP version
+    if (version_compare($php_version, METASYNC_MIN_PHP, '<')) {
+        
+		#show error message
+		wp_die(
+
+			#craft the message
+            sprintf(
+                '%s requires PHP version %s or later. You are currently using version %s. Please update PHP to activate this plugin.',
+                esc_html($plugin_name),
+                METASYNC_MIN_PHP,
+                esc_html($php_version)
+            ),
+
+			#the plugin title as page title
+            esc_html($plugin_name).'Plugin Activation Error',
+
+			#include the back link
+            ['back_link' => true]
+        );
+    }
+
 	require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-activator.php';
 	require_once plugin_dir_path(__FILE__) . 'database/class-db-migrations.php';
 	Metasync_Activator::activate();
