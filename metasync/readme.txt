@@ -1,11 +1,11 @@
-=== Search Atlas SEO - Best SEO Plugin for One-Click WP Publishing & Integrated AI Optimization ===
+﻿=== Search Atlas SEO - Best SEO Plugin for One-Click WP Publishing & Integrated AI Optimization ===
 Contributors: shahrukhlinkgraph
 Tags: seo, sitemap, google instant indexing, schema, 404 monitor
 Donate link: http://linkgraph.io
 Requires at least: 5.2
 Tested up to: 6.6.2
 Requires PHP: 7.1
-Stable tag: 1.9.0
+Stable tag: 1.9.1
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -29,7 +29,7 @@ Save time. Optimize your site seamlessly. Produce rankable content.
 
 ### Better content AI for the best SEO
 
-Search Atlas’s **integrated AI content creator** turns the content creation process into a seamless system. From creating your **content calendar** to **keyword research** and the production of **impeccable blogs, landing pages, product descriptions**, and more, our SEO tools with built-in AI can help you **build a library of rankable published pages in a fraction of the time**.
+Search Atlasâ€™s **integrated AI content creator** turns the content creation process into a seamless system. From creating your **content calendar** to **keyword research** and the production of **impeccable blogs, landing pages, product descriptions**, and more, our SEO tools with built-in AI can help you **build a library of rankable published pages in a fraction of the time**.
 
 ### 1-click Publishing of Content to Your WordPress Site from the LinkGraph Dashboard
 - Instantly publish new blog posts, content updates, and landing pages to your WordPress site from the LinkGraph dashboard
@@ -39,7 +39,7 @@ Search Atlas’s **integrated AI content creator** turns the content creation pr
 
 ### Bulk Update Title Tags and Meta Descriptions on your WordPress Site using AI
 - Rapidly optimize meta tags for landing pages, blogs, and other webpages in-bulk
-- Uses Google’s GPT-3 AI technology to produce engaging, relevant meta tags
+- Uses Googleâ€™s GPT-3 AI technology to produce engaging, relevant meta tags
 - Automatically updates tags on your website
 
 ### Features
@@ -67,6 +67,8 @@ Search Atlas SEO plugin by Linkgraph to provide a bridge between the WordPress b
 1. General Settigs
 
 == Changelog ==
+= 1.9.1 =
+* Feature 1: Added Dynamic API key Support
 = 1.9.0 =
 * Bug Fixes
 * Fix : Php 7.1.x compatibility problems

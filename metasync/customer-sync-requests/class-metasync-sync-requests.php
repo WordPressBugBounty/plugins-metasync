@@ -27,10 +27,32 @@ class Metasync_Sync_Requests
         $users_sync_limit = 1000;
 
         $general_options = Metasync::get_option('general') ?? [];
-        $apiUrl = 'https://ca.searchatlas.com/api/wp-website-heartbeat/';
 
         if (!isset($general_options['apikey'], $general_options['searchatlas_api_key'])) {
             return;
+        }
+
+
+        # From Feature Issue #132
+        # We need to alter this url based on API key
+        # so let's fethc the api key first
+        
+        $api_key = $general_options['searchatlas_api_key'] ?? null;
+
+        #check that the api key is not empty
+
+        if ($api_key == null){
+            return false;
+        }
+
+        #the native api url
+        $apiUrl = 'https://ca.searchatlas.com/api/wp-website-heartbeat/';
+        
+        #check if the api key starts with pub
+        if(strpos($api_key, 'pub-') === 0){
+
+            #set the heart beat url to the new one
+            $apiUrl = 'https://api.searchatlas.com/api/publisher/one-click-publishing/wp-website-heartbeat/';
         }
 
         $new_categories = $this->post_categories();
