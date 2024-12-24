@@ -15,7 +15,7 @@
  * Plugin Name:       Search Engine Labs Content
  * Plugin URI:        https://www.linkgraph.com/searchatlas-seo-software/
  * Description:       Search Engine Labs SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           1.9.1
+ * Version:           1.9.2
  * Author:            LinkGraph
  * Author URI:        https://linkgraph.io/
  * License:           GPL v3
@@ -34,7 +34,7 @@ if (!defined('WPINC')) {
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-define('METASYNC_VERSION', '1.9.1');
+define('METASYNC_VERSION', '1.9.2');
 
 /**
  * Define the current required php version 
@@ -118,7 +118,8 @@ function activate_metasync()
 	require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-activator.php';
 	require_once plugin_dir_path(__FILE__) . 'database/class-db-migrations.php';
 	Metasync_Activator::activate();
-	DBMigration::activation();
+    // class name is changed at class-db-migrations.php
+	MetaSync_DBMigration::activation();
 }
 
 /**
@@ -130,7 +131,8 @@ function deactivate_metasync()
 	require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-deactivator.php';
 	require_once plugin_dir_path(__FILE__) . 'database/class-db-migrations.php';
 	Metasync_Deactivator::deactivate();
-	DBMigration::deactivation();
+    // class name is changed at class-db-migrations.php
+	MetaSync_DBMigration::deactivation();
 }
 
 register_activation_hook(__FILE__, 'activate_metasync');

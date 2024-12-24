@@ -5,7 +5,7 @@ Donate link: http://linkgraph.io
 Requires at least: 5.2
 Tested up to: 6.6.2
 Requires PHP: 7.1
-Stable tag: 1.9.1
+Stable tag: 1.9.2
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -67,8 +67,9 @@ Search Atlas SEO plugin by Linkgraph to provide a bridge between the WordPress b
 1. General Settigs
 
 == Changelog ==
-= 1.9.1 =
-* Feature 1: Stability Improvements
+= 1.9.2 =
+
+* Fix : Renamed DB Migration Class to Prevent Conflict
 
 = 1.9.0 =
 * Bug Fixes
