@@ -958,7 +958,15 @@ class Metasync_Public
 	{
 		$post_content = new DOMDocument();
 		$internalErrors = libxml_use_internal_errors(true);
-		@$post_content->loadHTML(mb_convert_encoding($item['post_content'], 'HTML-ENTITIES', 'UTF-8'), LIBXML_HTML_NODEFDTD);
+		// Check if the php version is below 8.2.0
+		if (version_compare(PHP_VERSION, '8.2.0', '<')) {
+			// Use mb_convert_encoding for PHP < 8.2
+			$post_content->loadHTML(mb_convert_encoding($item['post_content'], 'HTML-ENTITIES', 'UTF-8'), LIBXML_HTML_NODEFDTD);
+		} else {
+			// Use htmlentities for PHP >= 8.2
+			$encoded_item = mb_encode_numericentity($item['post_content'], [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
+			$post_content->loadHTML($encoded_item, LIBXML_HTML_NODEFDTD);
+		}
 		libxml_use_internal_errors($internalErrors);
 		$images = $post_content->getElementsByTagName('img');
 		$enabled_plugin_editor = Metasync::get_option('general')['enabled_plugin_editor'] ?? '';
