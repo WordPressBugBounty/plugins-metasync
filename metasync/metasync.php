@@ -15,7 +15,7 @@
  * Plugin Name:       Search Engine Labs Content
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Engine Labs SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           1.9.0
+ * Version:           2.0.0
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
  * License:           GPL v3
