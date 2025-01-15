@@ -6,7 +6,7 @@
  * @since      1.0.0
  * @package    Metasync
  * @subpackage Metasync/database
- * @author     Shah Rukh Khan <shahrukh@linkgraph.io>
+ * @author     Engineering Team <support@searchatlas.com>
  */
 // Some Plugins declare class name DBMigration to avoid conflict, renamed the class
 class MetaSync_DBMigration

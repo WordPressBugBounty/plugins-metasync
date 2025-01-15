@@ -6,7 +6,7 @@
  * @since      1.0.0
  * @package    Metasync
  * @subpackage Metasync/redirections
- * @author     Shah Rukh Khan <shahrukh@linkgraph.io>
+ * @author     Engineering Team <support@searchatlas.com>
  */
 class Metasync_Redirection_Database
 {

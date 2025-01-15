@@ -6,7 +6,7 @@
  * A class definition that includes attributes and functions used across both the
  * public-facing side of the site and the admin area.
  *
- * @link       http://linkgraph.io
+ * @link       https://searchatlas.com
  * @since      1.0.0
  *
  * @package    Metasync
@@ -25,7 +25,7 @@
  * @since      1.0.0
  * @package    Metasync
  * @subpackage Metasync/includes
- * @author     Shah Rukh Khan <shahrukh@linkgraph.io>
+ * @author     Engineering Team <support@searchatlas.com>
  */
 class Metasync
 {

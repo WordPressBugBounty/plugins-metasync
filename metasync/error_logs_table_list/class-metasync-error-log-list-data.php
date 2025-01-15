@@ -6,7 +6,7 @@
  * @since      1.0.0
  * @package    Metasync
  * @subpackage Metasync/site-error-logs
- * @author     Shah Rukh Khan <shahrukh@linkgraph.io>
+ * @author     Engineering Team <support@searchatlas.com>
  */
 class Metasync_Error_Logs_Data
 {

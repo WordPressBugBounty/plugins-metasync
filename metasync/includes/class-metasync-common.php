@@ -6,7 +6,7 @@
  * @since      1.0.0
  * @package    Metasync
  * @subpackage Metasync/404-monitor
- * @author     Shah Rukh Khan <shahrukh@linkgraph.io>
+ * @author     Engineering Team <support@searchatlas.com>
  */
 class Metasync_Common
 {
@@ -86,6 +86,26 @@ class Metasync_Common
 		return false;
 	}
 
+	public function get_media_id_from_url($url) {
+		global $wpdb;
+   
+	   // Parse the file name from the URL without the extension
+	   $filename = pathinfo(basename(parse_url($url, PHP_URL_PATH)), PATHINFO_FILENAME);
+   
+	   // Search for any attachment matching the filename, regardless of extension
+	   $query = $wpdb->prepare("
+		   SELECT ID 
+		   FROM $wpdb->posts 
+		   WHERE post_type = 'attachment' 
+		   AND guid = %s 
+		   LIMIT 1
+	   ", $url);
+   
+	   $attachment_id = $wpdb->get_var($query);
+   
+	   // Return the attachment ID if found, otherwise return false
+	   return $attachment_id ? intval($attachment_id) : false;
+   }
 	/**
 	 * Upload image to media library if URL is valid.
 	 * @param $url Valid URL.
@@ -99,7 +119,11 @@ class Metasync_Common
 		require_once(ABSPATH . "/wp-admin/includes/media.php");
 
 		$tmp = download_url($url);
-		if (is_wp_error($tmp)) return false;
+		if (is_wp_error($tmp)){
+			$attachment_id = $this->get_media_id_from_url($url);
+			error_log($attachment_id);
+			return $attachment_id;
+		}
 
 		$filename  = $this->get_file_name_by_url($url);
 		// $filename = pathinfo($url, PATHINFO_FILENAME);
@@ -161,6 +185,17 @@ class Metasync_Common
 			if (is_wp_error($attachment_id)) return false;
 			return $attachment_id;
 		} else {
+			// check if the title attribute is set on the image tag and then update the title
+			if($title_text !== ''){
+				wp_update_post(
+					array (
+						'ID'         => $get_attachment->ID,
+						'post_title' => $title_text
+					)
+				);
+			}
+			// update the alt attribute in the image
+			update_post_meta($get_attachment->ID, '_wp_attachment_image_alt', $alt);
 			return $get_attachment->ID;
 		}
 	}

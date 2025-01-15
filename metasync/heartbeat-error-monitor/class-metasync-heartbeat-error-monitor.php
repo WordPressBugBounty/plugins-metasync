@@ -6,11 +6,11 @@
  * Defines the plugin name, version, and two examples hooks for how to
  * enqueue the admin-specific stylesheet and JavaScript.
  *
- * @link       http://linkgraph.io
+ * @link       https://searchatlas.com
  * @since      1.0.0
  * @package    Metasync
  * @subpackage Metasync/404-monitor
- * @author     Shah Rukh Khan <shahrukh@linkgraph.io>
+ * @author     Engineering Team <support@searchatlas.com>
  */
 
 // Abort if this file is accessed directly.

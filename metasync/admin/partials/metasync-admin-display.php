@@ -5,7 +5,7 @@
  *
  * This file is used to markup the admin-facing aspects of the plugin.
  *
- * @link       http://linkgraph.io
+ * @link       https://searchatlas.com
  * @since      1.0.0
  *
  * @package    Metasync

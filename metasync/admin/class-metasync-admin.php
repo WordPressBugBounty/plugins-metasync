@@ -3,7 +3,7 @@
 /**
  * The admin-specific functionality of the plugin.
  *
- * @link       http://linkgraph.io
+ * @link       https://searchatlas.com
  * @since      1.0.0
  *
  * @package    Metasync
@@ -18,7 +18,7 @@
  *
  * @package    Metasync
  * @subpackage Metasync/admin
- * @author     Shah Rukh Khan <shahrukh@linkgraph.io>
+ * @author     Engineering Team <support@searchatlas.com>
  */
 class Metasync_Admin
 {
@@ -704,11 +704,11 @@ class Metasync_Admin
     {
         printf('<h1> Dashboard </h1>');
         if (!isset(Metasync::get_option('general')['linkgraph_token']) || Metasync::get_option('general')['linkgraph_token'] == '') {
-            printf('<span>Authenticate with your Link Graph account. Save your Link Graph auth token in general settings</span>');
+            printf('<span>Authenticate with your Search Atlas account. Save your Search Atlas auth token in general settings</span>');
             return;
         }
 ?>
-        <a href="https://dashboard.linkgraph.io/?jwtToken=<?php echo esc_attr(Metasync::get_option('general')['linkgraph_token']); ?>" target="_blank">Go to Link Graph Dashbord</a>
+        <a href="https://dashboard.searchatlas.com/?jwtToken=<?php echo esc_attr(Metasync::get_option('general')['linkgraph_token']); ?>" target="_blank">Go to Search Atlas Dashbord</a>
     <?php
     }
 
@@ -995,7 +995,8 @@ class Metasync_Admin
                 $current_rewrite_rules = get_option('rewrite_rules');
                 // Check if the current permalink structure is set to "Plain"
                 if (($current_permalink_structure == '/%post_id%/' || $current_permalink_structure == '') && $current_rewrite_rules == '') {
-                    printf('<span class="description" style="color:#ff0000;opacity:1;">Please revise your Permaink structure <a href="' . get_admin_url() . 'options-permalink.php">Check Setting</a> </span>');
+                    // Change the description message 
+                    printf('<span class="description" style="color:#ff0000;opacity:1;">To ensure compatibility, Please Update your Permalink structure to any option other than "plain. For any Inquiries contact support <a href="' . get_admin_url() . 'options-permalink.php">Check Setting</a> </span>');
                 } else {
                     printf('<span class="description" style="color:#008000;opacity:1;">Permalink is Okay </span>');
                 }
@@ -1974,6 +1975,10 @@ class Metasync_Admin
 
     private function time_elapsed_string($datetime, $full = false)
     {
+        // Check if the $datetime is empty and return the message
+        if(empty($datetime)){
+            return "Not Synced Yet";
+        }
         $now = new DateTime;
         $ago = new DateTime($datetime);
 
@@ -3113,9 +3118,10 @@ class Metasync_Admin
         $current_permalink_structure = get_option('permalink_structure');
         $current_rewrite_rules = get_option('rewrite_rules');
         // Check if the current permalink structure is set to "Plain"
-        if (($current_permalink_structure == '/%post_id%/' || $current_permalink_structure == '') && $current_rewrite_rules == '') {       
+        if (($current_permalink_structure == '/%post_id%/' || $current_permalink_structure == '') && $current_rewrite_rules == '') {      
+            // Change the description message to needed 
             printf( '<div class="notice notice-error is-dismissible">
-                <p>Please revise your Permaink structure to be anything besides "Plain"</p>
+                <p>To ensure compatibility, Please Update your Permalink structure to any option other than "Plain". For any Inquiries contact support</p>
             </div>');   
         }
         flush_rewrite_rules();

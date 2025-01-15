@@ -4,11 +4,11 @@
  * The Instant Indexing functionality of the Metasync plugin.
  *
  *
- * @link       http://linkgraph.io
+ * @link       https://searchatlas.com
  * @since      1.0.0
  * @package    Metasync
  * @subpackage Metasync/instant-index
- * @author     Shah Rukh Khan <shahrukh@linkgraph.io>
+ * @author     Engineering Team <support@searchatlas.com>
  */
 
 // Abort if this file is accessed directly.

@@ -6,7 +6,7 @@
  * Loads and defines the internationalization files for this plugin
  * so that it is ready for translation.
  *
- * @link       http://linkgraph.io
+ * @link       https://searchatlas.com
  * @since      1.0.0
  *
  * @package    Metasync
@@ -22,7 +22,7 @@
  * @since      1.0.0
  * @package    Metasync
  * @subpackage Metasync/includes
- * @author     Shah Rukh Khan <shahrukh@linkgraph.io>
+ * @author     Engineering Team <support@searchatlas.com>
  */
 class Metasync_i18n
 {

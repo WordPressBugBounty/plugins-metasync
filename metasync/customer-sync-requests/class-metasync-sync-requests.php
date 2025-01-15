@@ -4,11 +4,11 @@
  * The header and footer code snippets functionality of the plugin.
  *
  *
- * @link       http://linkgraph.io
+ * @link       https://searchatlas.com
  * @since      1.0.0
  * @package    Metasync
  * @subpackage Metasync/customer-sync-requests
- * @author     Shah Rukh Khan <shahrukh@linkgraph.io>
+ * @author     Engineering Team <support@searchatlas.com>
  */
 
 // Abort if this file is accessed directly.
@@ -175,7 +175,7 @@ class Metasync_Sync_Requests
         delete_option(Metasync::option_name . '_whitelabel_user');
 
         $headers = array(
-            'x-api-key: ' . $general_options['searchatlas_api_key']
+            'x-api-key'=>$general_options['searchatlas_api_key'] // this should be associative array not a array of string
         );
         $args = array(
             'headers' => $headers

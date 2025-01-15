@@ -3,7 +3,7 @@
 /**
  * The public-facing functionality of the plugin.
  *
- * @link       http://linkgraph.io
+ * @link       https://searchatlas.com
  * @since      1.0.0
  *
  * @package    Metasync
@@ -18,7 +18,7 @@
  *
  * @package    Metasync
  * @subpackage Metasync/public
- * @author     Shah Rukh Khan <shahrukh@linkgraph.io>
+ * @author     Engineering Team <support@searchatlas.com>
  */
 class Metasync_Public
 {
@@ -56,6 +56,7 @@ class Metasync_Public
 	private $common;
 	private $allowed_attributes;
 	private $schema;
+	private $metasync_option_data;
 
 	public function __construct($plugin_name, $version)
 	{
@@ -81,6 +82,8 @@ class Metasync_Public
 		$this->escapers = array("\\", "/", "\"");
 		$this->replacements = array("", "", "");
 		$this->common = new Metasync_Common();
+		// get all options
+		$this->metasync_option_data = Metasync::get_option('general');
 		add_action('wp_ajax_metasyn_otto_ajax_action', array($this,'metasyn_otto_ajax'));
 		//add_action('wp_ajax_nopriv_metasyn_otto_ajax_action', array($this,'metasyn_otto_ajax'));
 		//add_action('wp_head', array($this,'otto_header_data'));
@@ -479,19 +482,19 @@ class Metasync_Public
 				'schema' => array($this, 'get_item_schema'),
 			)
 		);
-
-		register_rest_route(
-				$this::namespace ,
-			'addSchema',
-			array(
-				array(
-					'methods' => 'POST',
-					'callback' => array($this, 'add_schema'),
-					'permission_callback' => array($this, 'rest_authorization_middleware')
-				),
-				'schema' => array($this, 'get_item_schema'),
-			)
-		);
+		// Remove the below it's not use anymore
+		// register_rest_route(
+		// 		$this::namespace ,
+		// 	'addSchema',
+		// 	array(
+		// 		array(
+		// 			'methods' => 'POST',
+		// 			'callback' => array($this, 'add_schema'),
+		// 			'permission_callback' => array($this, 'rest_authorization_middleware')
+		// 		),
+		// 		'schema' => array($this, 'get_item_schema'),
+		// 	)
+		// );
 
 		register_rest_route(
 				$this::namespace ,
@@ -700,7 +703,9 @@ class Metasync_Public
 				// Handle heading elements			
 				$result['settings']['title'] = $node->nodeValue;
 				$result['settings']['header_size'] = $node->nodeName;
-				$result['settings']['title_color'] = '#000000'; // Set default title color
+				if(isset($this->metasync_option_data['enabled_elementor_plugin_css']) && isset($this->metasync_option_data['enabled_elementor_plugin_css_color']) && $this->metasync_option_data['enabled_elementor_plugin_css']!=="default"){
+					$result['settings']['title_color'] = $this->metasync_option_data['enabled_elementor_plugin_css_color']; // Set default title color
+				}
 				$result['settings']['typography_typography'] = 'custom';
 				$result['settings']['typography_font_family'] = 'Roboto';
 				$result['settings']['typography_font_weight'] = '600';
@@ -809,14 +814,20 @@ class Metasync_Public
 				];
 			} elseif ($node->nodeName === 'img') {			
 				$src_url = $node->getAttribute('src');
-			
-					$attachment_id = $this->common->upload_image_by_url($node->getAttribute('src'),$node->getAttribute('alt'));
-					$src_url = wp_get_attachment_url($attachment_id);
+				// get alt text from the image tag
+				$alt_text = $node->getAttribute('alt');
+				//get title text from the image tag
+				$title_text = $node->getAttribute('title');
+				// upload the image to wordpress and the id of the image and url
+				$attachment_id = $this->common->upload_image_by_url($src_url,$alt_text,$title_text);
+				// get new source url after upload
+				$new_src_url = wp_get_attachment_url($attachment_id);
+
 				
 				$node->setAttribute('alt', $node->getAttribute('alt'));
 				$node->setAttribute('src', $src_url);
 				$node->setAttribute('class', "wp-image-".$attachment_id);
-				
+				//format the inner content for the image tag
 				return [
 					"blockName" => "core/image",
 					"attrs" => [
@@ -825,9 +836,13 @@ class Metasync_Public
 						"linkDestination" => "none"
 					],
 					"innerBlocks" => [],
-					"innerHTML" => '<figure class="wp-block-image size-large">'.$node->ownerDocument->saveHTML($node) .'</figure>' ,
+					"innerHTML" => '' ,
 					"innerContent" => [
-						'<figure class="wp-block-image size-large">'.$node->ownerDocument->saveHTML($node) .'</figure>'
+						sprintf('<figure class="wp-block-image size-large"><img src="%s" alt="%s" class="wp-image-%d" /></figure>', 
+						esc_url($new_src_url), 
+						esc_attr($node->getAttribute('alt')), 
+						$attachment_id
+            		),					
 					]
 				];
 			}elseif ($node->nodeName === 'iframe') {
@@ -1267,6 +1282,8 @@ class Metasync_Public
 
 			$getPostID_byURL = @get_page_by_path($item['permalink'], OBJECT, $new_post['post_type'])->ID;
 			if ($getPostID_byURL == NULL) {
+				// check if the post_title is set and not empty when called by otto_ai_page
+				if(isset($new_post['post_title']) && $new_post['post_title']!==''){
 				$getPostID_byURL = new WP_Query(
 					array(
 						'post_type' => $new_post['post_type'],
@@ -1274,6 +1291,7 @@ class Metasync_Public
 					)
 				);
 				$getPostID_byURL = $getPostID_byURL->posts[0]->ID ?? null;
+			}
 			}
 
 			// Allow HTML code for landing page

@@ -22,21 +22,21 @@ $inline_js = get_post_meta($post_id, 'inline_js',  true);
 if($css_links!==''){
 // Loop through all the css link 
 foreach (json_decode($css_links) as $css_link) {
-	printf('<link href="' . $css_link . '" rel="stylesheet"/>');
+	echo '<link href="' . $css_link . '" rel="stylesheet"/>';// use echo instead of printf because the json is not formated
 }
 }
 // check if the key inline_css exist
 if($inline_css!==''){
 // Loop through all the inline css and print it 
 foreach (json_decode($inline_css) as $css) {
-	printf('<style>' . ($css) . '</style>');
+	echo '<style>' . ($css) . '</style>'; // use echo instead of printf because the json is not formated
 }
 }
 // check if the key js_links exist
 if($js_links!==''){
 // Loop through all the js link and print it script tags
 foreach (json_decode($js_links) as $js_link) {
-	printf('<script src="' . $js_link . '"></script>');
+	echo '<script src="' . $js_link . '"></script>';// use echo instead of printf because the json is not formated
 }
 }
 ?>

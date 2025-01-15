@@ -4,11 +4,11 @@
  * The header and footer code snippets functionality of the plugin.
  *
  *
- * @link       http://linkgraph.io
+ * @link       https://searchatlas.com
  * @since      1.0.0
  * @package    Metasync
  * @subpackage Metasync/code-snippets
- * @author     Shah Rukh Khan <shahrukh@linkgraph.io>
+ * @author     Engineering Team <support@searchatlas.com>
  */
 
 // Abort if this file is accessed directly.

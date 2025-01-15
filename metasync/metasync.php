@@ -7,17 +7,17 @@
  * that starts the plugin.
  *
  * @package     Search Engine Labs SEO
- * @copyright   Copyright (C) 2021-2022, Search Engine Labs SEO - support@linkgraph.io
- * @link		https://linkgraph.io
+ * @copyright   Copyright (C) 2021-2022, Search Atlas Group - support@searchatlas.com
+ * @link		https://searchatlas.com/
  * @since		1.0.0
  *
  * @wordpress-plugin
  * Plugin Name:       Search Engine Labs Content
- * Plugin URI:        https://www.linkgraph.com/searchatlas-seo-software/
+ * Plugin URI:        https://searchatlas.com/
  * Description:       Search Engine Labs SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           1.9.3
- * Author:            LinkGraph
- * Author URI:        https://linkgraph.io/
+ * Version:           1.9.0
+ * Author:            Search Atlas
+ * Author URI:        https://searchatlas.com
  * License:           GPL v3
  * License URI:       https://www.gnu.org/licenses/gpl-3.0.txt
  * Text Domain:       metasync
@@ -34,7 +34,7 @@ if (!defined('WPINC')) {
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-define('METASYNC_VERSION', '1.9.3');
+define('METASYNC_VERSION', '2.0.0');
 
 /**
  * Define the current required php version 
@@ -121,6 +121,9 @@ function activate_metasync()
     // class name is changed at class-db-migrations.php
 	MetaSync_DBMigration::activation();
 }
+
+
+require_once plugin_dir_path(__FILE__) . 'log-sync/log-sync.php';
 
 /**
  * The code that runs during plugin deactivation.
