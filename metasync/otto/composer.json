@@ -1,0 +1,18 @@
+{
+    "name": "metasync/otto",
+    "description": "Handling the Otto SSR",
+    "autoload": {
+        "psr-4": {
+            "Metasync\\Otto\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "semakalugabriel",
+            "email": "129541873+semakalugabriel@users.noreply.github.com"
+        }
+    ],
+    "require": {
+        "simplehtmldom/simplehtmldom": "dev-master"
+    }
+}

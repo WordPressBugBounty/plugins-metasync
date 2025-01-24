@@ -630,6 +630,27 @@ class Metasync_Admin
         printf('</form>');
         printf('</div>');
     }
+
+    # method to extract uuit from the provided otto html
+    private function process_otto_uuidhtml($html){
+        
+        # unslash the html
+        $html = wp_unslash($html);
+
+        # Use a regex pattern to match the data-uuid attribute
+        $pattern = '/data-uuid="([^"]+)"/';
+
+        # Check if there's a match
+        if (preg_match($pattern, $html, $matches)) {
+            # Return the first capture group (the UUID value)
+            return $matches[1];
+        }
+
+        # Return null if no match is found
+        return null;
+    }
+
+
     /*
         Method to handle Ajax request from "General Settings" page
     */
@@ -650,11 +671,13 @@ class Metasync_Admin
             'white_label_plugin_name', 'white_label_plugin_description', 
             'white_label_plugin_author', 'white_label_plugin_menu_name', 
             'white_label_plugin_menu_title', 'white_label_plugin_menu_slug', 
-            'white_label_plugin_menu_icon', 'enabled_plugin_css','enabled_elementor_plugin_css_color','enabled_elementor_plugin_css'
+            'white_label_plugin_menu_icon', 'enabled_plugin_css',
+            'enabled_elementor_plugin_css_color','enabled_elementor_plugin_css',
+            'otto_pixel_js'
         ];
     
         # Bool Fields for filter var
-        $bool_fields = ['enable_schema', 'enable_metadesc'];
+        $bool_fields = ['enable_schema', 'enable_metadesc', 'otto_enable'];
     
         #url Fields for esc_url
         $url_fields = ['white_label_plugin_author_uri', 'white_label_plugin_uri'];
@@ -664,6 +687,28 @@ class Metasync_Admin
     
         # Process text fields
         foreach ($text_fields as $field) {
+            
+            # ignore sanitize for the otto_pixel
+            if($field == 'otto_pixel_js'){
+
+                # process the otto pixel html
+                $uuid = $this->process_otto_uuidhtml($_POST['metasync_options']['general'][$field]);
+
+                # if no uuid do not save
+                if(empty($uuid)){
+                    continue;
+                }
+
+                # save the raw html
+                $metasync_options['general'][$field] = $_POST['metasync_options']['general'][$field];
+                
+                # save the uuid too
+                $metasync_options['general']['otto_pixel_uuid'] = $uuid;
+
+                # 
+                continue;
+            }
+            
             if (isset($_POST['metasync_options']['general'][$field])) {
                 $metasync_options['general'][$field] = sanitize_text_field($_POST['metasync_options']['general'][$field]);
             }
@@ -956,6 +1001,41 @@ class Metasync_Admin
             self::$page_slug . '_general', // Page
             $SECTION_METASYNC // Section
         );
+
+        /**
+         * OTTO SETTING OPTIONS 
+         * @see Otto SSR
+         */
+
+        # check box to toggle on and off for Otto
+        add_settings_field(
+            'otto_enable',
+            'Enable Otto',
+            function() {
+                $otto_enable = Metasync::get_option('general')['otto_enable'] ?? '';
+                printf(
+                    '<input type="checkbox" id="otto_enable" name="' . $this::option_key . '[general][otto_enable]" value="true" %s />',
+                    isset($otto_enable) && $otto_enable == 'true' ? 'checked' : ''
+                );
+                printf('<span class="description"> Enable otto SSR, Ensure to insert your pixel code below</span>');
+            },
+            self::$page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        # field to accept the otto pixel
+        add_settings_field(
+            'otto_pixel_js',
+            'Otto Pixel JS',
+            function(){           
+                $value = Metasync::get_option('general')['otto_pixel_js'] ?? '';   
+                printf('<textarea cols = "50" type="text" name="' . $this::option_key . '[general][otto_pixel_js]">' . wp_unslash($value) . '</textarea>');
+            },
+            self::$page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        # END OTTO SETTINGS
 
         add_settings_field(
             'schema_enable',
