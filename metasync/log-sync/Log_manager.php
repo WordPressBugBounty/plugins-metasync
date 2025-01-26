@@ -359,6 +359,9 @@ Class Log_Manager{
         $latest_zip_file = '';
         $latest_time = 0;
 
+        # latest file name 
+        $l_file_name = '';
+
         if (is_dir($zip_folder)) {
             $files = scandir($zip_folder);
 
@@ -374,14 +377,17 @@ Class Log_Manager{
                     if ($file_time > $latest_time) {
                         $latest_time = $file_time;
                         $latest_zip_file = $file_path;
+
+                        # set latest file naem
+                        $l_file_name = $file;
                     }
                 }
             }
         }
 
         # If no file found, exit
-        if (empty($latest_zip_file)) {
-            error_log('No ZIP file found for today.');
+        if (empty($latest_zip_file) || !is_file($latest_zip_file)) {
+            error_log('Metasync : No ZIP file found for today.');
             return;
         }
 
@@ -391,28 +397,40 @@ Class Log_Manager{
         # get the log upload endpoint
         $upload_endpoint = 'https://wp-logger.api.searchatlas.com/upload/' . $site_url;
         
-        # pre the upload request
-        $request_body = [
-            'method'      => 'POST',
-            'timeout'     => 30,
-            'headers'     => [
-                'x-filename' => basename($latest_zip_file),
-            ],
-            'body'        => [
-                'file' => new CURLFile($latest_zip_file),
-            ],
-            'sslverify'   => false,
-        ];
+        $curl = curl_init();
 
-        # Prepare the file upload
-        $response = wp_remote_post($upload_endpoint, $request_body);
+        # curl datra
+        $curl_data = array(
+            CURLOPT_URL => $upload_endpoint,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING => '',
+            CURLOPT_MAXREDIRS => 10,
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST => 'POST',
+            CURLOPT_POSTFIELDS => array('file'=> new CURLFILE($latest_zip_file)),
+            CURLOPT_HTTPHEADER => array(
+              'x-filename: '.$l_file_name
+            ),
+            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_SSL_VERIFYPEER => false,
+        );
 
-        # Handle the response
-        if (is_wp_error($response)) {
-            error_log('Error uploading ZIP file: ' . $response->get_error_message());
-        } else {
-            error_log('Response: ' . wp_remote_retrieve_body($response));
+        curl_setopt_array($curl, $curl_data);
+
+        # Execute the request
+        $response = curl_exec($curl);
+
+        # Check for errors
+        if ($response === false) {
+            $error = curl_error($curl);
+            error_log("Metasync Upload Zip : cURL Error: $error");
         }
+
+        # Close the cURL handle
+        curl_close($curl);
+
     }
 
 }
