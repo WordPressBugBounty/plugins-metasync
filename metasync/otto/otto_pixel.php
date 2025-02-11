@@ -6,6 +6,9 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
+# uses the simple html dom library
+use simplehtmldom\HtmlDocument;
+
 # include the otto class file
 require_once plugin_dir_path( __FILE__ ) . '/vendor/autoload.php';
 require_once plugin_dir_path( __FILE__ ) . '/Otto_html_class.php';
@@ -25,6 +28,11 @@ add_action('wp_head', function(){
     # string value otto status
     $string_enabled = $otto_enabled ? 'true' : 'false';
 
+    # check uuid set
+    if(empty($options['general']['otto_pixel_uuid'])){
+        return;
+    }
+
     # adding the otto tag to pages
     $otto_tag = '<meta name="otto" content="uuid='.$options['general']['otto_pixel_uuid'].'; type=wordpress; enabled='.$string_enabled.'">';
 
@@ -32,8 +40,112 @@ add_action('wp_head', function(){
     echo $otto_tag;
 });
 
+/**
+ * Start end point to handle requests on page updates
+ * The Otto Crawler will call this end point once a page is updated
+ **/
+
+# function to register the route
+function otto_crawl_notify($request){
+    
+    # get request data params
+    $data = $request->get_json_params();
+
+    # fields
+    $fields = ['domain', 'urls'];
+
+    # validate the json request
+    foreach ($fields as $key => $value) {
+
+        # if the value is empty stop tehre
+        if(empty($data[$value])){
+
+            # Handle the POST request
+            return new WP_REST_Response(array(
+                'success' => false,
+                'message' => 'Invalid Field : '. $value,
+            ), 400);
+        }
+
+    }
+
+    # load otto pixel
+    $otto_pixel = new Metasync_otto_pixel(false);
+
+    # save the otto data first
+    $otto_pixel->save_crawl_data($data);
+
+    # now we have the data sets 
+    foreach($data['urls'] AS $key => $url){
+        # prepare the route
+        $route = $data['domain'] . $url;
+
+        # validate the route
+        $route = rtrim($route, '/');
+
+        # do the delete
+        $otto_pixel->refresh_cache($route);
+    }
+
+
+    # Handle the POST request
+    return new WP_REST_Response(array(
+        'success' => true,
+        'message' => 'Otto crawl notification received',
+    ), 200);
+}
+
+function clear_existing_metasync_caches(){
+
+    # option name
+    $option_name = 'metasync_refresh_all_caches';
+
+    # get the option
+    $last_change_time = get_option($option_name);
+
+    # check if last_change_time is above 10
+    if( $last_change_time > 0  ){
+        return;
+    }
+
+    # check that we have the WP_CONTENT_DIR defined
+    if(!defined('WP_CONTENT_DIR')){
+        return false;
+    }
+
+    # Get the path to the wp-content directory
+    $wp_content_dir = WP_CONTENT_DIR;
+
+    # Define the path for the metasync_caches directory
+    $cache_dir = $wp_content_dir . '/metasync_caches';
+
+    # get all files in the cache dir
+    $files = glob($cache_dir . '/*');
+
+    # loop all files and delete
+    foreach ($files as $key => $file) {
+        
+        #check that its a file
+        if(is_file($file)){
+
+            # delete it
+            unlink($file);
+        }
+    }
+    
+    # create the option
+    update_option($option_name, time());
+
+    return true;
+}
+
 
 function start_otto(){
+
+    # function to clear the caches
+    # this is to support resolving the bug shipped in the earlier version
+    clear_existing_metasync_caches();
+
     # fetch globals
     global $options, $otto_enabled;
 
@@ -70,5 +182,47 @@ function start_otto(){
     $otto->render_route_html();
 }
 
-# 
+# check that otto is not added via js to the site
+function check_otto_js(){
+
+    # get the site url
+    $site_url = site_url();
+
+    # get the html
+    $page_data = wp_remote_get($site_url);
+
+    # now get the html body
+    $body = wp_remote_retrieve_body($page_data);
+
+    # now load the body into html
+    $dom = new HtmlDocument($body);
+
+    # now check the dom for a meta tag with 
+    $script = $dom->find('script#sa-dynamic-optimization', 0);
+
+    # check script
+    if($script AND !empty($script->getAttribute('data-uuid'))){
+
+        # return 
+        return true;
+    }
+
+    # 
+    return false;
+};
+
+# add admin action to check script
+function show_otto_ssr_notice() {
+    if (!current_user_can('manage_options')) {
+        return; // Only show to admins
+    }
+
+    if (check_otto_js()) {
+        echo '<div class="notice notice-error"><p><strong>Warning:</strong> Otto JavaScript has been detected on your site. Please remove it and configure Otto for Wordpress. Contact support for help</p></div>';
+    }
+}
+
+add_action('admin_notices', 'show_otto_ssr_notice');
+
+# load otto in the wp hook 
 start_otto();

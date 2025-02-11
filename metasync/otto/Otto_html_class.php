@@ -119,7 +119,7 @@ Class Metasync_otto_html{
         );
 
         # error log
-        error_log('sending_labeld request : '. $route);
+        #error_log('sending_labeld request : '. $route);
 
         # get the associateed route html
         $route_html = wp_remote_get($request_body, [

@@ -321,6 +321,20 @@ class Metasync_Public
 			)
 		);
 
+		# add otto pixel rest route
+		register_rest_route(
+			$this::namespace ,
+			'otto_crawl_notify',
+			array(
+				array(
+					'methods' => 'POST',
+					'callback' => 'otto_crawl_notify',
+					'permission_callback' => array($this, 'rest_authorization_middleware')
+				),
+				'schema' => array($this, 'get_item_schema'),
+			)
+		);
+
 		register_rest_route(
 				$this::namespace ,
 			'createItem',

@@ -631,26 +631,6 @@ class Metasync_Admin
         printf('</div>');
     }
 
-    # method to extract uuit from the provided otto html
-    private function process_otto_uuidhtml($html){
-        
-        # unslash the html
-        $html = wp_unslash($html);
-
-        # Use a regex pattern to match the data-uuid attribute
-        $pattern = '/data-uuid="([^"]+)"/';
-
-        # Check if there's a match
-        if (preg_match($pattern, $html, $matches)) {
-            # Return the first capture group (the UUID value)
-            return $matches[1];
-        }
-
-        # Return null if no match is found
-        return null;
-    }
-
-
     /*
         Method to handle Ajax request from "General Settings" page
     */
@@ -673,7 +653,7 @@ class Metasync_Admin
             'white_label_plugin_menu_title', 'white_label_plugin_menu_slug', 
             'white_label_plugin_menu_icon', 'enabled_plugin_css',
             'enabled_elementor_plugin_css_color','enabled_elementor_plugin_css',
-            'otto_pixel_js'
+            'otto_pixel_uuid'
         ];
     
         # Bool Fields for filter var
@@ -687,27 +667,6 @@ class Metasync_Admin
     
         # Process text fields
         foreach ($text_fields as $field) {
-            
-            # ignore sanitize for the otto_pixel
-            if($field == 'otto_pixel_js'){
-
-                # process the otto pixel html
-                $uuid = $this->process_otto_uuidhtml($_POST['metasync_options']['general'][$field]);
-
-                # if no uuid do not save
-                if(empty($uuid)){
-                    continue;
-                }
-
-                # save the raw html
-                $metasync_options['general'][$field] = $_POST['metasync_options']['general'][$field];
-                
-                # save the uuid too
-                $metasync_options['general']['otto_pixel_uuid'] = $uuid;
-
-                # 
-                continue;
-            }
             
             if (isset($_POST['metasync_options']['general'][$field])) {
                 $metasync_options['general'][$field] = sanitize_text_field($_POST['metasync_options']['general'][$field]);
@@ -1025,11 +984,11 @@ class Metasync_Admin
 
         # field to accept the otto pixel
         add_settings_field(
-            'otto_pixel_js',
-            'Otto Pixel JS',
+            'otto_pixel_uuid',
+            'Otto Pixel UUID',
             function(){           
-                $value = Metasync::get_option('general')['otto_pixel_js'] ?? '';   
-                printf('<textarea cols = "50" type="text" name="' . $this::option_key . '[general][otto_pixel_js]">' . wp_unslash($value) . '</textarea>');
+                $value = Metasync::get_option('general')['otto_pixel_uuid'] ?? '';   
+                printf('<input type="text" size="40" value = "'.esc_attr($value).'" name="' . $this::option_key . '[general][otto_pixel_uuid]"/>');
             },
             self::$page_slug . '_general',
             $SECTION_METASYNC
