@@ -692,6 +692,23 @@ class Metasync_Admin
 
         #get the fresh option data
         $data = Metasync::get_option('general');
+
+        # initialize MetaSync request API class
+        $sync_request = new Metasync_Sync_Requests();
+        # Validate searchatlas_api_key
+        $response = $sync_request->SyncCustomerParams();
+        #Retrieve the response code
+        $responseCode = wp_remote_retrieve_response_code($response);
+
+        if ($responseCode == 200) { // Check if the response code is 200 (OK)
+            $dt = new DateTime(); // Create a new DateTime instance to get the current timestamp
+            // Retrieve the existing MetaSync options
+            $send_auth_token_timestamp = Metasync::get_option();        
+            // Update the 'send_auth_token_timestamp' field with the current timestamp
+            $send_auth_token_timestamp['general']['send_auth_token_timestamp'] = $dt->format('M d, Y  h:i:s A');        
+            // Save the updated options back to MetaSync
+            Metasync::set_option($send_auth_token_timestamp);           
+        }      
     
         # Send a success response with a redirect to avoid resubmission
         wp_send_json_success(array(

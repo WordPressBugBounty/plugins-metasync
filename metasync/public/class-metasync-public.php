@@ -1226,7 +1226,8 @@ class Metasync_Public
 			by doing this we will prevent html from going into builder page option
 			*/
 			if(!isset($item['is_landing_page']) ){
-				$content = $this->metasync_upload_post_content($item); // This will be used by create_page function
+				#  This will be used by create_page function
+				$content = $this->metasync_upload_post_content($item,false,false); 
             }elseif(isset($item['is_landing_page']) && $item['is_landing_page'] == true){
 				$content = $this->metasync_upload_post_content($item,true); // This will be used by set_landing_page function
 			}
@@ -1421,6 +1422,35 @@ class Metasync_Public
 			$new_post['permalink'] = $permalink;
 			$new_post['hero_image_url'] = wp_get_attachment_url($attachment_id);
 			$new_post['hero_image_alt_text'] = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
+			// get prepend content
+			$content_data = $this->append_content_if_missing_elements($post_id);
+			$item['post_content']=$content_data['content'].$item['post_content'];
+			// check if the content is added or not 
+			if(empty($item['is_landing_page']) && $content_data ){
+				# This will be used by create_page function
+				$content = $this->metasync_upload_post_content($item,false,false); 
+				# update the content
+				$postContent = array(
+					'ID' =>  $post_id,
+					'post_content' => $content['content'] ?  $content['content'] : $item['post_content'],
+				);
+				 wp_update_post($postContent );
+				 $post_meta = array();
+					if(isset($content['elementor_meta_data'])){
+						$post_meta = array_merge($post_meta,$content['elementor_meta_data']);
+					}else if(isset($content['divi_meta_data'])){
+						$post_meta = array_merge($post_meta,$content['divi_meta_data']);
+						$post_meta['_et_pb_ab_current_shortcode']='[et_pb_split_track id="'.$post_id.'" /]';
+						$post_meta['_et_pb_use_builder']='on';
+						$post_meta['_et_pb_built_for_post_type']=isset($item['post_type']) ? sanitize_text_field($item['post_type']) : 'post';
+					}
+					// add and update the post meta
+				 foreach ($post_meta as $key => $value) {
+					// if (!empty($value) && !is_null($value)) {
+						add_post_meta($post_id, $key, $value, true);
+					// }
+				}
+            }
 			$respCreatePosts[$index] = array_merge($new_post, $post_meta);
 			ksort($respCreatePosts[$index]);
 		}
@@ -1878,7 +1908,8 @@ class Metasync_Public
 			}
 
 			if (isset($post['post_content']) && !empty($post['post_content'])) {
-				$content = $this->metasync_upload_post_content($post);
+				// This will be used by update_page function
+				$content = $this->metasync_upload_post_content($post,false,false); 
 				$update_params['post_content'] = $content['content'];
 			}
 			/* 
@@ -2028,7 +2059,33 @@ class Metasync_Public
 			$update_params['hero_image_alt_text'] = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
 			$update_params['post_revisions'] = gettype($post_revisions) == 'array' ? count($post_revisions) : (int)$post_revisions;
 			$update_params['post_updated'] = $resp_update;
-
+			// get prepend content
+			$content_data = $this->append_content_if_missing_elements($post_id);
+			$post['post_content']=$content_data['content'].$post['post_content'];
+			// check if the content is added or not 
+			if(empty($post['is_landing_page']) && $content_data ){
+				# This will be used by create_page function
+				$content = $this->metasync_upload_post_content($post,false,false); 
+				# update the content
+				$postContent = array(
+					'ID' =>  $post_id,
+					'post_content' => $content['content'] ?  $content['content'] : $post['post_content'],
+				);
+				 wp_update_post($postContent );
+				 $post_meta = array();
+					if(isset($content['elementor_meta_data'])){
+						$post_meta = array_merge($post_meta,$content['elementor_meta_data']);
+					}else if(isset($content['divi_meta_data'])){
+						$post_meta = array_merge($post_meta,$content['divi_meta_data']);
+						
+					}
+					// add and update the post meta
+				 foreach ($post_meta as $key => $value) {
+					// if (!empty($value) && !is_null($value)) {
+						add_post_meta($post_id, $key, $value, true);
+					// }
+				}
+            }
 			ksort($update_params);
 			$data[] = $update_params;
 		}
@@ -2578,6 +2635,98 @@ class Metasync_Public
 		wp_reset_postdata();		
 		return new WP_REST_Response($posts_array, 200);
 	}
-	
-	
+
+	/*
+	add post title and post feature image on the content
+	*/
+	public function append_content_if_missing_elements($post_id) {
+		// Get the post title
+		$post_title = get_the_title($post_id);
+
+		// Get the featured image URL of the post
+		$featured_image_url = get_the_post_thumbnail_url($post_id, 'full');
+
+		// Get the preview URL of the post
+		$post_url = get_preview_post_link($post_id);
+
+		// Initialize cURL to fetch the post HTML
+		$ch = curl_init();
+		curl_setopt($ch, CURLOPT_URL, $post_url); // Set the URL to fetch
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); // Return the response as a string
+		curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); // Follow redirects if any
+		$html = curl_exec($ch); // Execute the request and store the HTML response
+		curl_close($ch); // Close the cURL session
+
+		// Load the HTML content into DOMDocument
+		$dom = new DOMDocument();
+		libxml_use_internal_errors(true); // Suppress HTML parsing errors
+		$dom->loadHTML($html); // Parse the HTML content
+		libxml_clear_errors(); // Clear any errors
+
+		// Use XPath to search for specific elements in the HTML
+		$xpath = new DOMXPath($dom);
+
+		// Query all heading tags (h1 - h6) and img tags
+		$elements = $xpath->query("//h1 | //h2 | //h3 | //h4 | //h5 | //h6 | //img");
+
+		// Flags to check if title or image is present
+		$title_in_headings = false;
+		$image_in_content = false;
+
+		// Arrays to store found headings and images
+		$headings = [];
+		$image_tags = [];
+
+		// Loop through all queried elements
+		foreach ($elements as $element) {
+			if (in_array($element->nodeName, ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])) {
+				// Process heading tags
+				$heading_text = trim($element->textContent); // Get the text content of the heading
+				$headings[] = [
+					'tag' => $element->nodeName, // Store the tag type (h1, h2, etc.)
+					'text' => $heading_text // Store the heading text
+				];
+
+				// Check if the post title is present in any heading
+				if (stripos($heading_text, $post_title) !== false) {
+					$title_in_headings = true;
+				}
+			} elseif ($element->nodeName === 'img') {
+				// Process image tags
+				$img_src = $element->getAttribute("src"); // Get the image source URL
+				$image_tags[] = $img_src; // Store the image URL
+
+				// Check if the featured image is already present in content
+				if ($featured_image_url && stripos($img_src, $featured_image_url) !== false) {
+					$image_in_content = true;
+				}
+			}
+		}
+
+		// Prepare HTML content to prepend if title or image is missing
+		$prepend_content = '';
+		
+		// If the post title is not found in headings, prepend it
+		if (!$title_in_headings) {
+			$prepend_content .= '<h1>' . esc_html($post_title) . '</h1>';
+		}
+
+		// If the featured image is not found in the content, prepend it
+		if (!$image_in_content && $featured_image_url) {
+			$prepend_content .= '<img src="' . esc_url($featured_image_url) . '" alt="' . esc_attr($post_title) . '" style="width:100%; display:block; margin-bottom:15px;">';
+		}
+		// add flag if content is added
+		if($title_in_headings || $image_in_content){
+			$content_prepend_in_content = true;
+		}else{
+			$content_prepend_in_content = false;
+		}
+		
+		// Return the content that needs to be prepended
+		return [
+			'content_add'=>$content_prepend_in_content,
+			'content'=>$prepend_content
+		];
+	}
+
 }

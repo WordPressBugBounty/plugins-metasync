@@ -95,19 +95,37 @@ function otto_crawl_notify($request){
     ), 200);
 }
 
-function clear_existing_metasync_caches(){
+# delete a directory
+function deleteDir($dir) {
 
-    # option name
-    $option_name = 'metasync_refresh_all_caches';
-
-    # get the option
-    $last_change_time = get_option($option_name);
-
-    # check if last_change_time is above 10
-    if( $last_change_time > 0  ){
-        return;
+    # check that it is a dir
+    if (!is_dir($dir)) {
+        return false;
     }
 
+    # get all files in the dir
+    $files = array_diff(scandir($dir), array('.', '..'));
+
+    # loops all files delete each if is dir run delete
+    foreach ($files as $file) {
+
+        # create path
+        $filePath = $dir . DIRECTORY_SEPARATOR . $file;
+        
+        # delete
+        if (is_dir($filePath)) {
+            deleteDir($filePath);
+        } 
+        else {
+            unlink($filePath);
+        }
+    }
+
+    # return result of removing dir
+    return rmdir($dir);
+}
+
+function invalidate_all_caches(){
     # check that we have the WP_CONTENT_DIR defined
     if(!defined('WP_CONTENT_DIR')){
         return false;
@@ -119,26 +137,38 @@ function clear_existing_metasync_caches(){
     # Define the path for the metasync_caches directory
     $cache_dir = $wp_content_dir . '/metasync_caches';
 
-    # get all files in the cache dir
-    $files = glob($cache_dir . '/*');
+    # if is dir remove it
+    if(is_dir($cache_dir)){
 
-    # loop all files and delete
-    foreach ($files as $key => $file) {
-        
-        #check that its a file
-        if(is_file($file)){
-
-            # delete it
-            unlink($file);
-        }
+        # delete it
+        deleteDir($cache_dir);
     }
+
+}
+
+function clear_existing_metasync_caches(){
+
+    # get the metasync
+
+    # option name
+    $option_name = 'metasync_refresh_all_caches';
+
+    # get the option
+    $last_change_time = get_option($option_name);
+
+    # check if last_change_time is above 10
+    if( $last_change_time >= 1740148054  ){
+        return;
+    }
+
+    # call the clean caches function
+    invalidate_all_caches();
     
     # create the option
     update_option($option_name, time());
 
     return true;
 }
-
 
 function start_otto(){
 
@@ -154,7 +184,7 @@ function start_otto(){
 
     # check if we are having an otto request
     if(!empty($_GET['is_otto_page_fetch']) || trim($user_agent) == 'SearchAtlas Bot (https://www.searchatlas.com)'){
-        error_log('Metasync :: Skipping Otto Route, user agent => ' . $user_agent);
+        #error_log('Metasync :: Skipping Otto Route, user agent => ' . $user_agent);
         return;
     }
 
@@ -186,7 +216,7 @@ function start_otto(){
 function check_otto_js(){
 
     # get the site url
-    $site_url = site_url();
+    $site_url = site_url() . '?is_otto_page_fetch=1';
 
     # get the html
     $page_data = wp_remote_get($site_url);
@@ -224,5 +254,6 @@ function show_otto_ssr_notice() {
 
 add_action('admin_notices', 'show_otto_ssr_notice');
 
+# staging dummy change
 # load otto in the wp hook 
 start_otto();

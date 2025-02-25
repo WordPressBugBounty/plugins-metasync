@@ -54,8 +54,11 @@ Class Metasync_otto_html{
         # get the response body
         $body = wp_remote_retrieve_body($response);
 
+        # Get the response code
+        $response_code = wp_remote_retrieve_response_code($response);
+
         # if no change data skip
-        if (empty($body)){
+        if (empty($body) || $response_code !== 200){
             return false;
         }
 
