@@ -623,7 +623,10 @@ class Metasync_Admin
          // Add a nonce field for security
         wp_nonce_field('meta_sync_general_setting_nonce', 'meta_sync_nonce');
 
-        printf('<br/> <button tyreadonly="readonly"pe="button" class="button button-primary" id="sendAuthToken" data-toggle="tooltip" data-placement="top" title="Sync Categories and User">Sync Now</button>');
+        printf('<br/> 
+            <button type ="button" class="button" id="clear_otto_caches" data-toggle="tooltip" data-placement="top" title="Clear all Otto Caches">Clear Otto Cache</button>
+            <button tyreadonly="readonly"pe="button" class="button button-primary" id="sendAuthToken" data-toggle="tooltip" data-placement="top" title="Sync Categories and User">Sync Now</button>
+        ');
 
         // do_settings_sections(self::$page_slug . '_sitemap');
         submit_button();
@@ -657,7 +660,7 @@ class Metasync_Admin
         ];
     
         # Bool Fields for filter var
-        $bool_fields = ['enable_schema', 'enable_metadesc', 'otto_enable'];
+        $bool_fields = ['enable_schema', 'enable_metadesc', 'otto_enable', 'otto_disable_on_loggedin'];
     
         #url Fields for esc_url
         $url_fields = ['white_label_plugin_author_uri', 'white_label_plugin_uri'];
@@ -993,7 +996,7 @@ class Metasync_Admin
                     '<input type="checkbox" id="otto_enable" name="' . $this::option_key . '[general][otto_enable]" value="true" %s />',
                     isset($otto_enable) && $otto_enable == 'true' ? 'checked' : ''
                 );
-                printf('<span class="description"> Enable otto SSR, Ensure to insert your pixel code below</span>');
+                printf('<span class="description"> Enable otto SSR, Ensure to insert your OTTO uuid below</span>');
             },
             self::$page_slug . '_general',
             $SECTION_METASYNC
@@ -1006,6 +1009,23 @@ class Metasync_Admin
             function(){           
                 $value = Metasync::get_option('general')['otto_pixel_uuid'] ?? '';   
                 printf('<input type="text" size="40" value = "'.esc_attr($value).'" name="' . $this::option_key . '[general][otto_pixel_uuid]"/>');
+            },
+            self::$page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+
+        # check box to toggle on and off disabling OTTO for logged in users
+        add_settings_field(
+            'otto_disable_on_loggedin',
+            'Disable Otto for Logged in Users',
+            function() {
+                $otto_enable = Metasync::get_option('general')['otto_disable_on_loggedin'] ?? '';
+                printf(
+                    '<input type="checkbox" id="otto_disable_on_loggedin" name="' . $this::option_key . '[general][otto_disable_on_loggedin]" value="true" %s />',
+                    isset($otto_enable) && $otto_enable == 'true' ? 'checked' : ''
+                );
+                printf('<span class="description"> This disables Otto when logged in to allow editing original page contents</span>');
             },
             self::$page_slug . '_general',
             $SECTION_METASYNC

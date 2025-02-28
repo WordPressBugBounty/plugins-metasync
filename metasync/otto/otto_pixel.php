@@ -179,6 +179,20 @@ function start_otto(){
     # fetch globals
     global $options, $otto_enabled;
 
+    # check for the disable otto for logged in users option
+    if(!empty($options['general']['otto_disable_on_loggedin']) AND $options['general']['otto_disable_on_loggedin'] == 'true'){
+
+        # get user 
+        $current_user = wp_get_current_user();
+
+        # check if user is logged in
+        if( !empty($current_user->ID)){
+
+            return;
+        }
+    }
+
+
     # check the user agent
     $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? false;
 
@@ -241,6 +255,26 @@ function check_otto_js(){
     return false;
 };
 
+# Handle AJAX Clear Cache request
+function clear_otto_cache_handler() {
+    if (!empty($_GET['clear_otto_cache'])) {
+
+        # call function to invalidate all cached
+        invalidate_all_caches();
+        
+        # clear the otto cache
+        wp_send_json_success(['message' => 'Otto cache cleared']);
+    } 
+    else {
+
+        # 
+        wp_send_json_error(['message' => 'Missing parameter']);
+    }
+}
+
+# Clear cache hook
+add_action('wp_ajax_clear_otto_cache', 'clear_otto_cache_handler');
+
 # add admin action to check script
 function show_otto_ssr_notice() {
     if (!current_user_can('manage_options')) {
@@ -256,4 +290,4 @@ add_action('admin_notices', 'show_otto_ssr_notice');
 
 # staging dummy change
 # load otto in the wp hook 
-start_otto();
+add_action('wp', 'start_otto');

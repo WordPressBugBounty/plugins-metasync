@@ -495,6 +495,21 @@
 		});
 	}
 
+	function clear_otto_caches() {
+		jQuery.ajax({
+			url: ajaxurl,
+			type: "GET",
+			data: {
+				action: "clear_otto_cache",
+				clear_otto_cache: 1
+			},
+			success: function (response) {
+				const now = new Date();
+				$('#clear_otto_caches').text('Cache Cleared ' + now.toLocaleTimeString());
+				console.log('Cleared Otto Caches');
+			}
+		});
+	}
 
 	jQuery(document).ready(function () {
 
@@ -504,6 +519,13 @@
 			sendCustomerParams();
 			
 		});
+
+		// handle otto clear cache button
+		$('#clear_otto_caches').on('click', function(e){
+			e.preventDefault();
+			clear_otto_caches();
+		});
+
 		// Handle General Setting Page form Submit
 		$('#metaSyncGeneralSetting').on('submit', function(e) {
 			e.preventDefault(); // Prevent the default form submission

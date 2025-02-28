@@ -1426,7 +1426,7 @@ class Metasync_Public
 			$content_data = $this->append_content_if_missing_elements($post_id);
 			$item['post_content']=$content_data['content'].$item['post_content'];
 			// check if the content is added or not 
-			if(empty($item['is_landing_page']) && $content_data ){
+			if(empty($item['is_landing_page']) && $content_data['content_add'] ){
 				# This will be used by create_page function
 				$content = $this->metasync_upload_post_content($item,false,false); 
 				# update the content
@@ -1449,6 +1449,12 @@ class Metasync_Public
 					// if (!empty($value) && !is_null($value)) {
 						add_post_meta($post_id, $key, $value, true);
 					// }
+				}
+				#check if the elementor plugin is active
+				if ( did_action( 'elementor/loaded' ) ) {
+					# Clear Elementor cache for the specified post ID
+					\Elementor\Plugin::instance()->files_manager->clear_cache();
+
 				}
             }
 			$respCreatePosts[$index] = array_merge($new_post, $post_meta);
@@ -2063,27 +2069,36 @@ class Metasync_Public
 			$content_data = $this->append_content_if_missing_elements($post_id);
 			$post['post_content']=$content_data['content'].$post['post_content'];
 			// check if the content is added or not 
-			if(empty($post['is_landing_page']) && $content_data ){
+			if(empty($post['is_landing_page']) && $content_data['content_add'] ){
 				# This will be used by create_page function
 				$content = $this->metasync_upload_post_content($post,false,false); 
 				# update the content
 				$postContent = array(
 					'ID' =>  $post_id,
-					'post_content' => $content['content'] ?  $content['content'] : $post['post_content'],
+					'post_content' => ($content['content'] ?  $content['content'] : $post['post_content']),
 				);
 				 wp_update_post($postContent );
-				 $post_meta = array();
+				 #rename the variable to avoide confusion
+				 $post_meta_data = array();
 					if(isset($content['elementor_meta_data'])){
-						$post_meta = array_merge($post_meta,$content['elementor_meta_data']);
+						$post_meta_data = array_merge($post_meta_data,$content['elementor_meta_data']);
 					}else if(isset($content['divi_meta_data'])){
-						$post_meta = array_merge($post_meta,$content['divi_meta_data']);
+						$post_meta_data = array_merge($post_meta_data,$content['divi_meta_data']);
 						
 					}
+				# update the content
 					// add and update the post meta
-				 foreach ($post_meta as $key => $value) {
+				 foreach ($post_meta_data as $key => $value) {
 					// if (!empty($value) && !is_null($value)) {
-						add_post_meta($post_id, $key, $value, true);
-					// }
+						
+					update_post_meta($post_id, $key, $value);
+					// 
+				}
+				#check if the elementor plugin is active
+				if ( did_action( 'elementor/loaded' ) ) {
+					# Clear Elementor cache for the specified post ID
+					\Elementor\Plugin::instance()->files_manager->clear_cache();
+
 				}
             }
 			ksort($update_params);
@@ -2715,8 +2730,8 @@ class Metasync_Public
 		if (!$image_in_content && $featured_image_url) {
 			$prepend_content .= '<img src="' . esc_url($featured_image_url) . '" alt="' . esc_attr($post_title) . '" style="width:100%; display:block; margin-bottom:15px;">';
 		}
-		// add flag if content is added
-		if($title_in_headings || $image_in_content){
+		# add flag if content is there or not
+		if(!$title_in_headings || !$image_in_content){
 			$content_prepend_in_content = true;
 		}else{
 			$content_prepend_in_content = false;
