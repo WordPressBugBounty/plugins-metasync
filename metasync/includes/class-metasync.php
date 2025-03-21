@@ -136,6 +136,12 @@ class Metasync
 		require_once plugin_dir_path(dirname(__FILE__)) . 'public/class-metasync-public.php';
 
 		/**
+		 * The class responsible for defining template crawling and check feture image and post_title
+		 * side of the site.
+		 */
+		require plugin_dir_path(dirname(__FILE__)) .	 'public/class-metasync-hidden-post.php';
+
+		/**
 		 * The class responsible for defining all actions that occur in the admin area.
 		 */
 		// require_once plugin_dir_path(dirname(__FILE__)) . '404-monitor/class-metasync-404-monitor-database.php';
@@ -317,6 +323,12 @@ class Metasync
 		$metasyncTemplateClass = new Metasync_Template();
 		$this->loader->add_filter('theme_page_templates', $metasyncTemplateClass, 'metasync_template_landing_page', 10, 3);
 		$this->loader->add_filter('template_include', $metasyncTemplateClass, 'metasync_template_landing_page_load', 99 );
+		$templateCrawler = new MetaSyncHiddenPostManager(); # initialize the crawler class
+
+		$this->loader->add_action('wp_trash_post', $templateCrawler , 'prevent_post_deletion'); # Prevent post deletion when moved to trash
+        $this->loader->add_action('before_delete_post', $templateCrawler , 'prevent_post_deletion'); # Prevent permanent deletion
+		$this->loader->add_filter('metasync_hidden_post_manager', $templateCrawler , 'init'); # run the crawler
+
 	}
 
 	public static function get_option($key = null, $default = null)

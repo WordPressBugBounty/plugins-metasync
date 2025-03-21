@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.6.2
 Requires PHP: 7.1
-Stable tag: 2.2.2
+Stable tag: 2.2.3
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -66,10 +66,11 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 1. General Settings
 
 == Changelog ==
-= 2.2.2 =
-* Feature 1: Clear Otto Caches Button
-* Feature 2: Option to disable Otto for logged in Users
-* Bug fix 1: Hero Image not getting Updated
+= 2.2.3 =
+
+* Bug Fix 1: Compatibility Improvements
+* Bug Fix 2: Hero Image not showing on some posts
+* Bug Fix 3: Post title missing on some posts
 = 1.9.3 =
 * Fixed: Error when publishing blog articles
 

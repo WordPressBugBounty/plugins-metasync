@@ -20,6 +20,7 @@
  * @subpackage Metasync/public
  * @author     Engineering Team <support@searchatlas.com>
  */
+
 class Metasync_Public
 {
 
@@ -983,7 +984,7 @@ class Metasync_Public
 		# create_page
 		# update_page
 	*/
-	private function metasync_upload_post_content($item,$landing_page_option=false,$otto_enable=false) 
+	public function metasync_upload_post_content($item,$landing_page_option=false,$otto_enable=false) 
 	{
 		$post_content = new DOMDocument();
 		$internalErrors = libxml_use_internal_errors(true);
@@ -1226,6 +1227,30 @@ class Metasync_Public
 			by doing this we will prevent html from going into builder page option
 			*/
 			if(!isset($item['is_landing_page']) ){
+
+				# Get Current Post type
+				$current_post_type = isset($item['post_type']) ? sanitize_text_field($item['post_type']) : 'post';
+
+				# Get the setting for the post template
+				$title_and_feature_image = $this->append_content_if_missing_elements($current_post_type);
+
+				
+
+				# Check if the post title is there in the template or not
+				if(!$title_and_feature_image['image_in_content'] && !empty($item['hero_image_url'])){
+					
+					# Prepend the feature image
+					$item['post_content'] = '<img src="'.$item['hero_image_url'].'" />'.$item['post_content'] ;
+				}
+
+				# Check if the post title is there in the template or not
+				if(!$title_and_feature_image['title_in_headings']){
+
+					# Prepend the post title
+					$item['post_content'] = '<h1>'.$item['post_title'].'</h1>'.$item['post_content'] ;
+				}
+				
+				
 				#  This will be used by create_page function
 				$content = $this->metasync_upload_post_content($item,false,false); 
             }elseif(isset($item['is_landing_page']) && $item['is_landing_page'] == true){
@@ -1422,41 +1447,7 @@ class Metasync_Public
 			$new_post['permalink'] = $permalink;
 			$new_post['hero_image_url'] = wp_get_attachment_url($attachment_id);
 			$new_post['hero_image_alt_text'] = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
-			// get prepend content
-			$content_data = $this->append_content_if_missing_elements($post_id);
-			$item['post_content']=$content_data['content'].$item['post_content'];
-			// check if the content is added or not 
-			if(empty($item['is_landing_page']) && $content_data['content_add'] ){
-				# This will be used by create_page function
-				$content = $this->metasync_upload_post_content($item,false,false); 
-				# update the content
-				$postContent = array(
-					'ID' =>  $post_id,
-					'post_content' => $content['content'] ?  $content['content'] : $item['post_content'],
-				);
-				 wp_update_post($postContent );
-				 $post_meta = array();
-					if(isset($content['elementor_meta_data'])){
-						$post_meta = array_merge($post_meta,$content['elementor_meta_data']);
-					}else if(isset($content['divi_meta_data'])){
-						$post_meta = array_merge($post_meta,$content['divi_meta_data']);
-						$post_meta['_et_pb_ab_current_shortcode']='[et_pb_split_track id="'.$post_id.'" /]';
-						$post_meta['_et_pb_use_builder']='on';
-						$post_meta['_et_pb_built_for_post_type']=isset($item['post_type']) ? sanitize_text_field($item['post_type']) : 'post';
-					}
-					// add and update the post meta
-				 foreach ($post_meta as $key => $value) {
-					// if (!empty($value) && !is_null($value)) {
-						add_post_meta($post_id, $key, $value, true);
-					// }
-				}
-				#check if the elementor plugin is active
-				if ( did_action( 'elementor/loaded' ) ) {
-					# Clear Elementor cache for the specified post ID
-					\Elementor\Plugin::instance()->files_manager->clear_cache();
 
-				}
-            }
 			$respCreatePosts[$index] = array_merge($new_post, $post_meta);
 			ksort($respCreatePosts[$index]);
 		}
@@ -1914,6 +1905,27 @@ class Metasync_Public
 			}
 
 			if (isset($post['post_content']) && !empty($post['post_content'])) {
+
+				# Above we are updating the post_type so we have to get latest value that has been change on the server 
+				$post_fresh_data = get_post($post['post_id']);
+
+				# Get the setting for the post template
+				$title_and_feature_image = $this->append_content_if_missing_elements($post_fresh_data->post_type);
+
+				# Check if the post title is there in the template or not
+				if(!$title_and_feature_image['image_in_content'] && !empty($post['hero_image_url'])){
+					
+					# Prepend the feature image
+					$post['post_content'] = '<img src="'.$post['hero_image_url'].'" />'.$post['post_content'] ;
+				}
+
+				# Check if the post title is there in the template or not
+				if(!$title_and_feature_image['title_in_headings']){
+
+					# Prepend the post title
+					$post['post_content'] = '<h1>'.$post['post_title'].'</h1>'.$post['post_content'] ;
+				}
+
 				// This will be used by update_page function
 				$content = $this->metasync_upload_post_content($post,false,false); 
 				$update_params['post_content'] = $content['content'];
@@ -2065,13 +2077,11 @@ class Metasync_Public
 			$update_params['hero_image_alt_text'] = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
 			$update_params['post_revisions'] = gettype($post_revisions) == 'array' ? count($post_revisions) : (int)$post_revisions;
 			$update_params['post_updated'] = $resp_update;
-			// get prepend content
-			$content_data = $this->append_content_if_missing_elements($post_id);
-			$post['post_content']=$content_data['content'].$post['post_content'];
+
+			
 			// check if the content is added or not 
-			if(empty($post['is_landing_page']) && $content_data['content_add'] ){
-				# This will be used by create_page function
-				$content = $this->metasync_upload_post_content($post,false,false); 
+			if(empty($post['is_landing_page']) ){
+				 
 				# update the content
 				$postContent = array(
 					'ID' =>  $post_id,
@@ -2652,96 +2662,44 @@ class Metasync_Public
 	}
 
 	/*
-	add post title and post feature image on the content
+	* Get post title and post feature image setting
+	* Add a New key to return value on the basis of post type
 	*/
-	public function append_content_if_missing_elements($post_id) {
-		// Get the post title
-		$post_title = get_the_title($post_id);
+	public function append_content_if_missing_elements($post_type) {
 
-		// Get the featured image URL of the post
-		$featured_image_url = get_the_post_thumbnail_url($post_id, 'full');
+		# Run the MetaSyncHiddenPostManager folder
+		apply_filters('metasync_hidden_post_manager', '');
+		# Get Latest Metasync Option
+		$metasyncData = Metasync::get_option();
 
-		// Get the preview URL of the post
-		$post_url = get_preview_post_link($post_id);
+		# Default value for post title setting
+		$title_in_headings = true;	
 
-		// Initialize cURL to fetch the post HTML
-		$ch = curl_init();
-		curl_setopt($ch, CURLOPT_URL, $post_url); // Set the URL to fetch
-		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); // Return the response as a string
-		curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); // Follow redirects if any
-		$html = curl_exec($ch); // Execute the request and store the HTML response
-		curl_close($ch); // Close the cURL session
+		# Default value for post feature image setting
+		$image_in_content = true;
 
-		// Load the HTML content into DOMDocument
-		$dom = new DOMDocument();
-		libxml_use_internal_errors(true); // Suppress HTML parsing errors
-		$dom->loadHTML($html); // Parse the HTML content
-		libxml_clear_errors(); // Clear any errors
+		# Check if the title setting is added in the setting
+		if(isset($metasyncData['general']['title_in_headings'])){
 
-		// Use XPath to search for specific elements in the HTML
-		$xpath = new DOMXPath($dom);
-
-		// Query all heading tags (h1 - h6) and img tags
-		$elements = $xpath->query("//h1 | //h2 | //h3 | //h4 | //h5 | //h6 | //img");
-
-		// Flags to check if title or image is present
-		$title_in_headings = false;
-		$image_in_content = false;
-
-		// Arrays to store found headings and images
-		$headings = [];
-		$image_tags = [];
-
-		// Loop through all queried elements
-		foreach ($elements as $element) {
-			if (in_array($element->nodeName, ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])) {
-				// Process heading tags
-				$heading_text = trim($element->textContent); // Get the text content of the heading
-				$headings[] = [
-					'tag' => $element->nodeName, // Store the tag type (h1, h2, etc.)
-					'text' => $heading_text // Store the heading text
-				];
-
-				// Check if the post title is present in any heading
-				if (stripos($heading_text, $post_title) !== false) {
-					$title_in_headings = true;
-				}
-			} elseif ($element->nodeName === 'img') {
-				// Process image tags
-				$img_src = $element->getAttribute("src"); // Get the image source URL
-				$image_tags[] = $img_src; // Store the image URL
-
-				// Check if the featured image is already present in content
-				if ($featured_image_url && stripos($img_src, $featured_image_url) !== false) {
-					$image_in_content = true;
-				}
-			}
+			# Change the default value from the setting
+			$title_in_headings = $metasyncData['general']['title_in_headings'][$post_type];
+				
 		}
 
-		// Prepare HTML content to prepend if title or image is missing
-		$prepend_content = '';
+		# Check if the post feature setting is added in the setting
+		if (isset($metasyncData['general']['image_in_content'])) {
+
+			# Change the default value from the setting
+			$image_in_content = $metasyncData['general']['image_in_content'][$post_type];;
+
+		}
+			# Return the array of setting
+			return array(
+				'title_in_headings'=>$title_in_headings,
+				'image_in_content'=>$image_in_content
+			);
+
 		
-		// If the post title is not found in headings, prepend it
-		if (!$title_in_headings) {
-			$prepend_content .= '<h1>' . esc_html($post_title) . '</h1>';
-		}
-
-		// If the featured image is not found in the content, prepend it
-		if (!$image_in_content && $featured_image_url) {
-			$prepend_content .= '<img src="' . esc_url($featured_image_url) . '" alt="' . esc_attr($post_title) . '" style="width:100%; display:block; margin-bottom:15px;">';
-		}
-		# add flag if content is there or not
-		if(!$title_in_headings || !$image_in_content){
-			$content_prepend_in_content = true;
-		}else{
-			$content_prepend_in_content = false;
-		}
-		
-		// Return the content that needs to be prepended
-		return [
-			'content_add'=>$content_prepend_in_content,
-			'content'=>$prepend_content
-		];
 	}
 
 }

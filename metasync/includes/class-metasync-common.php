@@ -154,16 +154,19 @@ class Metasync_Common
 
 		$args = array(
 			'name' => "$filename.$extension",
-			'post_name' => $filename."-".$extension,
+			/*
+				Generate a sanitized post_name by replacing double dashes with a single dash
+    			and appending the file extension with a hyphen
+			*/
+			'post_name' => str_replace('--', '-', $filename) ."-".$extension,
 			'tmp_name' => $tmp,
 		);
 
 		$get_attachment = $this->get_attachment_by_name($args['post_name']);
+
 		
-		if($args !== null && $args['post_name'] !== $get_attachment->post_name)
-			$get_attachment = null;
-		
-		if ($get_attachment === null && empty($get_attachment)) {
+		# remove if null logic check on 11 march 2025 for issue 264 and merge request 320
+		if (empty($get_attachment)) {
 			$attachment_id 	= media_handle_sideload($args, 0, $args['name']);
 			update_post_meta($attachment_id, '_wp_attachment_image_alt', $alt);
 			// check if the title is empty or not if it's has title update the title

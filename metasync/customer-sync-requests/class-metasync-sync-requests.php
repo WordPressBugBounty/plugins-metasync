@@ -63,10 +63,14 @@ class Metasync_Sync_Requests
         $user_count = 1;
         foreach ($users as $user) {
             if ($user_count <= $users_sync_limit) {
+
+                # Get User Data 
+                $user_data = get_userdata($user->ID);
+
                 $new_users[] = [
                     'id'            => $user->ID,
-                    'user_login'    => $user->user_login,
-                    'user_email'    => $user->user_email,
+                    'user_login'    => $user_data->user_login, # Ensure user_login is fetched
+                    'user_email'    => $user_data ? $user_data->user_email : $user->user_email, # Ensure email is fetched
                     'role'          => $user->roles[0]
                 ];
             }

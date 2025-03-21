@@ -104,6 +104,10 @@ class Metasync_Admin
         add_action('admin_init', array($this, 'settings_page_init'));
         add_filter('all_plugins',  array($this,'metasync_plugin_white_label'));
         add_filter( 'plugin_row_meta',array($this,'metasync_view_detials_url'),10,3);
+
+        #add css into admin header for icon image
+
+        add_action('admin_head', array($this,'metasync_admin_icon_style'));
         // removing this as we don't need it anymore because we are using wp-ajax to implement the white label 
        // add_action('update_option_metasync_options', array($this, 'check_and_redirect_slug'), 10, 3);
         
@@ -113,9 +117,9 @@ class Metasync_Admin
         #add_action('add_option_metasync_options', array($this, 'redirect_slug_for_freshinstalls'));
         
         add_action('admin_init', array($this, 'initialize_cookie'));
-        add_action('wp', function() {
-            set_error_handler(array($this,'metasync_log_php_errors'));
-        });
+        // add_action('wp', function() {
+        //     set_error_handler(array($this,'metasync_log_php_errors'));
+        // });
         // Add AJAX for saving general settings 
         add_action( 'wp_ajax_meta_sync_save_settings', array($this,'meta_sync_save_settings') );
        
@@ -131,6 +135,29 @@ class Metasync_Admin
 
         # add_action('upgrader_process_complete', array($this,'metasync_plugin_updated_action'), 10, 2);
 
+    }
+    /*
+        This function add css to wp admin header
+    */
+    public function metasync_admin_icon_style(){
+        # Get Metasync Option
+
+        $data= Metasync::get_option('general');
+
+        # Get white label menu slug
+        $menu_slug = empty($data['white_label_plugin_menu_slug']) ?  self::$page_slug : $data['white_label_plugin_menu_slug'];
+        
+            ?>
+            <style>
+                #toplevel_page_<?php echo esc_attr(str_replace(' ', '-',$menu_slug)); ?> .wp-menu-image.dashicons-before img {
+                    width: 36px;
+                    height: 34px;
+                    padding: 0!important;
+                    object-fit: contain;
+                    object-position: center;
+                }
+            </style>
+            <?php        
     }
 
     #---------fixes issue : #95 ----------

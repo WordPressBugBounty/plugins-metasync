@@ -15,26 +15,26 @@ require_once plugin_dir_path( __FILE__ ) . '/Otto_html_class.php';
 require_once plugin_dir_path( __FILE__ ) . '/Otto_pixel_class.php';
 
 # get the metasync options
-$options = get_option('metasync_options');
+$metasync_options = get_option('metasync_options');
 
 # check otto enabled 
-$otto_enabled = $options['general']['otto_enable'] ?? false;
+$otto_enabled = $metasync_options['general']['otto_enable'] ?? false;
 
 # add tag to wp head
 add_action('wp_head', function(){
     # load globals
-    global $options, $otto_enabled;
+    global $metasync_options, $otto_enabled;
 
     # string value otto status
     $string_enabled = $otto_enabled ? 'true' : 'false';
 
     # check uuid set
-    if(empty($options['general']['otto_pixel_uuid'])){
+    if(empty($metasync_options['general']['otto_pixel_uuid'])){
         return;
     }
 
     # adding the otto tag to pages
-    $otto_tag = '<meta name="otto" content="uuid='.$options['general']['otto_pixel_uuid'].'; type=wordpress; enabled='.$string_enabled.'">';
+    $otto_tag = '<meta name="otto" content="uuid='.$metasync_options['general']['otto_pixel_uuid'].'; type=wordpress; enabled='.$string_enabled.'">';
 
     # out the otto tag
     echo $otto_tag;
@@ -177,10 +177,10 @@ function start_otto(){
     clear_existing_metasync_caches();
 
     # fetch globals
-    global $options, $otto_enabled;
+    global $metasync_options, $otto_enabled;
 
     # check for the disable otto for logged in users option
-    if(!empty($options['general']['otto_disable_on_loggedin']) AND $options['general']['otto_disable_on_loggedin'] == 'true'){
+    if(!empty($metasync_options['general']['otto_disable_on_loggedin']) AND $metasync_options['general']['otto_disable_on_loggedin'] == 'true'){
 
         # get user 
         $current_user = wp_get_current_user();
@@ -207,7 +207,7 @@ function start_otto(){
     # And the UUID is properly set before running OTT
 
     # check that we have the option
-    if(empty($options['general']['otto_pixel_uuid'])){
+    if(empty($metasync_options['general']['otto_pixel_uuid'])){
         return;
     }
 
@@ -217,7 +217,7 @@ function start_otto(){
     }  
 
     # get the otto uuid
-    $otto_uuid = $options['general']['otto_pixel_uuid'];
+    $otto_uuid = $metasync_options['general']['otto_pixel_uuid'];
 
     # start the class
     $otto = new Metasync_otto_pixel($otto_uuid);
