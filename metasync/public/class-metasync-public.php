@@ -1226,7 +1226,7 @@ class Metasync_Public
 			check if the create_item is called by set_landing_page function or not 
 			by doing this we will prevent html from going into builder page option
 			*/
-			if(!isset($item['is_landing_page']) ){
+			if(!isset($item['is_landing_page']) && empty($item['otto_ai_page']) && empty($item['style_data']) ){
 
 				# Get Current Post type
 				$current_post_type = isset($item['post_type']) ? sanitize_text_field($item['post_type']) : 'post';
@@ -1260,7 +1260,7 @@ class Metasync_Public
 			Check if the otto_ai_page is payload is set in the api or not.
 			If it is please set the third parameter to true.
 			*/
-			if(isset($item['otto_ai_page']) && $item['otto_ai_page']==true){
+			if(isset($item['otto_ai_page']) && $item['otto_ai_page']==true && !empty($item['style_data'])){
 				$content = $this->metasync_upload_post_content($item,true,true);
 			}
 
@@ -1904,7 +1904,7 @@ class Metasync_Public
 				$update_params['meta_canonical'] = sanitize_text_field($post['meta_canonical']);
 			}
 
-			if (isset($post['post_content']) && !empty($post['post_content'])) {
+			if (isset($post['post_content']) && !empty($post['post_content']) && empty($post['otto_ai_page'])) {
 
 				# Above we are updating the post_type so we have to get latest value that has been change on the server 
 				$post_fresh_data = get_post($post['post_id']);

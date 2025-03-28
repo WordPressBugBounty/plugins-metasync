@@ -135,6 +135,12 @@ class Metasync_Admin
 
         # add_action('upgrader_process_complete', array($this,'metasync_plugin_updated_action'), 10, 2);
 
+        # Hook into post category creation and update (AFTER they are saved)
+        add_action('saved_term', array($this,'admin_crud_term'), 10, 3);
+
+        # Hook into post category deletion (AFTER it is deleted)
+        add_action('pre_delete_term', array($this,'admin_delete_term'), 10, 2);
+
     }
     /*
         This function add css to wp admin header
@@ -746,7 +752,45 @@ class Metasync_Admin
             'redirect_url' => admin_url('admin.php?page=' . $data['white_label_plugin_menu_slug'])
         ));
     }
+
+    /*
+     * Sync setting on CRUD term category
+     */
+
+    public function admin_crud_term($term_id,$term_tax_id,$taxonomy)
+    {
+        # Handle term creation, update, or deletion
+        $this->sync_term($term_id, $taxonomy);
+
+    }
+
+
+    /*
+     * Sync setting on Delete term category
+     */
+
+    public function admin_delete_term($term_id,$taxonomy)
+    {
+        # Handle term deletion
+        $this->sync_term($term_id, $taxonomy);
+    }
+
+    /*
+     * Call the SYNC API
+     */
+    private function sync_term($term_id, $taxonomy)
+    {
+        # Ensure the term belongs to the 'category' taxonomy and is not an error
+        if ($taxonomy !== 'category' ) return;
     
+        try {
+            # Initialize MetaSync API request class and trigger synchronization
+            (new Metasync_Sync_Requests())->SyncCustomerParams();
+        } catch (Exception $e) {
+            # Log any API request errors for debugging
+            error_log('Metasync API Error: ' . $e->getMessage());
+        }
+    }
 
     /**
      * Dashboard page callback
