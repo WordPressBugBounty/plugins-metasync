@@ -242,7 +242,7 @@ class Metasync_Admin
     */
 
     public function metasync_display_error_log() {
-        $log_file = WP_CONTENT_DIR . '/metasync.log';
+        $log_file = WP_CONTENT_DIR . '/metasync_data/plugin_errors.log';
         if (!current_user_can('manage_options')) {
             return;
         }

@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.6.2
 Requires PHP: 7.1
-Stable tag: 2.2.4
+Stable tag: 2.2.5
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -66,9 +66,10 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 1. General Settings
 
 == Changelog ==
-= 2.2.4 =
-* Bug fix 1: AI page builder formatting
-* Bug fix 2: Categories not syncing
+= 2.2.5 =
+
+* Bug fix 1: Critical error on metasync logs page
+* Bug fix 2: Purchase process affected on Ecommerce Sites
 = 1.9.3 =
 * Fixed: Error when publishing blog articles
 

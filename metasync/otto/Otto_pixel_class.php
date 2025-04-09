@@ -113,6 +113,23 @@ Class Metasync_otto_pixel{
         # get file path
         $file_path = $cache_dir . '/'. $file_name;
 
+        # exclude all woocommerce pages from OTTO
+		if (
+			# WooCommerce main pages
+			function_exists('is_woocommerce') && is_woocommerce() || 
+			
+			# Cart page
+			function_exists('is_cart') && is_cart() ||             
+			
+			# Checkout page
+			function_exists('is_checkout') && is_checkout() ||     
+			
+			# My Account page
+			function_exists('is_account_page') && is_account_page()
+		) {
+			return false;
+		}
+
         # if file exists show content
         if(!is_file($file_path)){
 
