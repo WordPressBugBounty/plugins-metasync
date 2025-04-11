@@ -132,10 +132,13 @@ Class Metasync_otto_html{
         # get body
         $html_body = wp_remote_retrieve_body($route_html);
 
+        # Get the response code
+        $response_code = wp_remote_retrieve_response_code($route_html);
+
         # check not empty
-        if(empty($html_body)){
+        if(empty($html_body) || $response_code !== 200){
             
-            return;
+            return false;
         }
 
         # now that the html is not empty
