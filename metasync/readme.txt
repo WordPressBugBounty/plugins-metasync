@@ -3,9 +3,9 @@ Contributors: shahrukhlinkgraph
 Tags: seo, sitemap, google instant indexing, schema, 404 monitor
 Donate link: http://searchatlas.com
 Requires at least: 5.2
-Tested up to: 6.6.2
+Tested up to: 6.7.1
 Requires PHP: 7.1
-Stable tag: 2.2.5
+Stable tag: 2.2.6
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -39,7 +39,7 @@ Search Atlas features an **integrated AI content creator** that streamlines the 
 
 ### Bulk Update Title Tags and Meta Descriptions on Your WordPress Site Using AI
 - Quickly optimize meta tags for landing pages, blogs, and other webpages in bulk
-- Utilizes Google’s GPT-3 AI technology to generate engaging, relevant meta tags
+- Utilizes Google's GPT-3 AI technology to generate engaging, relevant meta tags
 - Automatically updates tags across your website
 
 ### Features
@@ -65,13 +65,63 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 == Screenshots ==
 1. General Settings
 
-== Changelog ==
-= 2.2.5 =
+== Upgrade Notice ==
+= 1.4.1 =
+This version does not include the new APIs required by the AI Editor.
 
+== Changelog ==
+= 2.2.6 =
+* Improvement 1: Refactored CI/CD Pipelines and added releases
+
+= 2.2.5 =
 * Bug fix 1: Critical error on metasync logs page
 * Bug fix 2: Purchase process affected on Ecommerce Sites
+
+= 2.2.4 =
+* Bug fix 1: AI page builder formatting
+* Bug fix 2: Categories not syncing
+
+= 2.2.3 =
+* Bug Fix 1: Compatibility Improvements
+* Bug Fix 2: Hero Image not showing on some posts
+* Bug Fix 3: Post title missing on some posts
+
+= 2.2.2 =
+* Feature 1: Clear Otto Caches Button
+* Feature 2: Option to disable Otto for logged in Users
+* Bug fix 1: Hero Image not getting Updated
+
+= 2.2.1 =
+* Bugfix 1: Fix login Loop Issue on Sites with OTTO SSR
+* Bugfix 2: Fix Otto SSR Caching Problem on the Admin Side
+* Bugfix 3: Fix H1 rendering on published Posts
+
+= 2.2.0 =
+* Bugfix 1: Fix login Issues on Sites with OTTO SSR
+* Bugfix 2: Accepting UUID to activate OTTO on Wordpress
+* Feature 1: Alerting users to remove OTTO JS before activating OTTO SSR
+* Feature 2: Instant deployment of changes made on OTTO dashboard
+
+= 2.1.1 =
+* bugfix 1: Logging System - Fix Corrupted Zip Files
+
+= 2.1.0 =
+* Feature : Server Side Rendering of the Otto Pixel
+
+= 2.0.0 =
+* Feature 1: Metasync Specific Site Log Monitoring & Logging
+* Bugfix 1: Failed Image Syncing
+* Bugfix 2: Fix AI landing Page Visibility
+* Bugfix 3: Headings Coming over with #000000
+
 = 1.9.3 =
-* Fixed: Error when publishing blog articles
+* Fixed : Error Publishing Blog Article
+
+= 1.9.2 =
+* Fix : Renamed DB Migration Class to Prevent Conflict
+
+= 1.9.1 =
+* Feature 1: Stability Improvements
 
 = 1.9.0 =
 * Bug fixes
@@ -416,7 +466,3 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 
 = 1.0.0 =
 Initial release.
-
-== Upgrade Notice ==
-= 1.4.1 =
-This version does not include the new APIs required by the AI Editor.
