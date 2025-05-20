@@ -644,27 +644,81 @@ class Metasync_Admin
      */
     public function create_admin_settings_page()
     {
-        printf('<div class="wrap">');
-        printf('<h1> General Settings </h1>');
+
+        # white label plugin nomenclature
+        $whitelabel_otto_name = !empty(Metasync::get_option()['general']['white_label_plugin_menu_name']) ? Metasync::get_option()['general']['white_label_plugin_menu_name']: 'Otto';
+
+        # define the active tab
+        $active_tab = isset($_GET['tab']) ? $_GET['tab'] : 'general';
+        
+        # get page slug
         $page_slug = self::$page_slug  . '_general';
-        //Add "metaSyncGeneralSetting" Element ID to handle form with AJAX
-        printf('<form method="post" action="options.php" id="metaSyncGeneralSetting">');
-        // This prints out all hidden setting fields
-        settings_fields($this::option_group);
-        do_settings_sections($page_slug);
-        do_settings_sections(self::$page_slug . '_linkgraph');
-         // Add a nonce field for security
-        wp_nonce_field('meta_sync_general_setting_nonce', 'meta_sync_nonce');
+    ?>
+        <div class="wrap">
+        <h1> General Settings</h1>
 
-        printf('<br/> 
-            <button type ="button" class="button" id="clear_otto_caches" data-toggle="tooltip" data-placement="top" title="Clear all Otto Caches">Clear Otto Cache</button>
-            <button tyreadonly="readonly"pe="button" class="button button-primary" id="sendAuthToken" data-toggle="tooltip" data-placement="top" title="Sync Categories and User">Sync Now</button>
-        ');
+        <div class="notice notice-success">
+            <p>
+                <b>Clear all caches at once</b><br/>
+                This will slow down your site until caches are rebuilt
+                <button style="margin-left: 15px;" type ="button" class="button" id="clear_otto_caches" data-toggle="tooltip" data-placement="top" title="Clear all <?php echo $whitelabel_otto_name;?> Caches">Clear <?php echo $whitelabel_otto_name;?> Cache</button>
+            </p>
+        </div> 
 
-        // do_settings_sections(self::$page_slug . '_sitemap');
-        submit_button();
-        printf('</form>');
-        printf('</div>');
+        <h2 class="nav-tab-wrapper">
+            <a href="?page=<?php echo self::$page_slug; ?>&tab=general" class="nav-tab <?php echo $active_tab == 'general' ? 'nav-tab-active' : ''; ?>">Settings</a>
+            <a href="?page=<?php echo self::$page_slug; ?>&tab=otto_cache" class="nav-tab <?php echo $active_tab == 'otto_cache' ? 'nav-tab-active' : ''; ?>">Caching</a>
+        </h2>
+        <br/>
+
+            <form method="post" action="options.php?tab=<?php echo $active_tab?>" id="metaSyncGeneralSetting">
+                <?php
+                    settings_fields($this::option_group);
+
+                    if ($active_tab == 'general') {
+
+                        # do the general settings section
+                        do_settings_sections(self::$page_slug  . '_general');
+
+                        # do the whitelabe branding section
+                        do_settings_sections(self::$page_slug  . '_branding');
+                        
+                        # add sync button
+                ?>
+                        <button tyreadonly="readonly"pe="button" class="button button-primary" id="sendAuthToken" data-toggle="tooltip" data-placement="top" title="Sync Categories and User">Sync Now</button>
+                <?php
+
+                    } elseif ($active_tab == 'otto_cache') {
+                        # temporary fix 
+                        # the code below is a temporary fix to saving cache settings
+                ?>
+                    <div style ="display: none">
+                <?php
+                        # do the general settings section
+                        do_settings_sections(self::$page_slug  . '_general');
+
+                        # do the whitelabe branding section
+                        do_settings_sections(self::$page_slug  . '_branding');
+                ?>
+                    </div>
+                <?php
+
+                        # do the caching settings section
+                        do_settings_sections(self::$page_slug  . '_otto_cache');
+                    }
+
+                    # Add a nonce field for security
+                    wp_nonce_field('meta_sync_general_setting_nonce', 'meta_sync_nonce');
+
+                ?>
+                <?php
+            
+                    # do_settings_sections(self::$page_slug . '_sitemap');
+                    submit_button();
+                ?>
+            </form>
+        </div>
+    <?php
     }
 
     /*
@@ -689,7 +743,8 @@ class Metasync_Admin
             'white_label_plugin_menu_title', 'white_label_plugin_menu_slug', 
             'white_label_plugin_menu_icon', 'enabled_plugin_css',
             'enabled_elementor_plugin_css_color','enabled_elementor_plugin_css',
-            'otto_pixel_uuid'
+            'otto_pixel_uuid','periodic_clear_otto_cache','periodic_clear_ottopage_cache',
+            'periodic_clear_ottopost_cache'
         ];
     
         # Bool Fields for filter var
@@ -746,10 +801,15 @@ class Metasync_Admin
             Metasync::set_option($send_auth_token_timestamp);           
         }      
     
+        # set the redirect url
+        $redirect_url = isset($_GET['tab']) ? 
+                        admin_url('admin.php?page=' . $data['white_label_plugin_menu_slug'].'tab='.$_GET['tab']) :
+                        admin_url('admin.php?page=' . $data['white_label_plugin_menu_slug']);
+
         # Send a success response with a redirect to avoid resubmission
         wp_send_json_success(array(
             'message' => 'Settings saved successfully!',
-            'redirect_url' => admin_url('admin.php?page=' . $data['white_label_plugin_menu_slug'])
+            'redirect_url' => $redirect_url
         ));
     }
 
@@ -1021,6 +1081,9 @@ class Metasync_Admin
         $SECTION_COMMON_META_SETTINGS   = "common_meta_settings";
         $SECTION_SOCIAL_META            = "social_meta";
 
+        # white label plugin nomenclature
+        $whitelabel_otto_name = !empty(Metasync::get_option()['general']['white_label_plugin_menu_name']) ? Metasync::get_option()['general']['white_label_plugin_menu_name']: 'Otto';
+
         // Register Admin Page URL
         register_setting(
             $this::option_group, // Option group
@@ -1034,6 +1097,20 @@ class Metasync_Admin
            $this->menu_title . ' API Settings:', // Title
             function(){}, // Callback
             self::$page_slug . '_general' // Page
+        );
+
+        add_settings_section(
+            $SECTION_METASYNC, // ID
+            $this->menu_title . ' Branding', // Title
+            function(){}, // Callback
+            self::$page_slug . '_branding' // Page
+        );
+
+        add_settings_section(
+            $SECTION_METASYNC, // ID
+           $this->menu_title . ' Caching Settings:', // Title
+            function(){}, // Callback
+            self::$page_slug . '_otto_cache' // Page
         );
 
         add_settings_field(
@@ -1060,14 +1137,14 @@ class Metasync_Admin
         # check box to toggle on and off for Otto
         add_settings_field(
             'otto_enable',
-            'Enable Otto',
-            function() {
+            'Enable '.$whitelabel_otto_name,
+            function() use ($whitelabel_otto_name){
                 $otto_enable = Metasync::get_option('general')['otto_enable'] ?? '';
                 printf(
                     '<input type="checkbox" id="otto_enable" name="' . $this::option_key . '[general][otto_enable]" value="true" %s />',
                     isset($otto_enable) && $otto_enable == 'true' ? 'checked' : ''
                 );
-                printf('<span class="description"> Enable otto SSR, Ensure to insert your OTTO uuid below</span>');
+                printf('<span class="description"> Enable '.$whitelabel_otto_name.' SSR, Ensure to insert your '.$whitelabel_otto_name.' uuid below</span>');
             },
             self::$page_slug . '_general',
             $SECTION_METASYNC
@@ -1076,7 +1153,7 @@ class Metasync_Admin
         # field to accept the otto pixel
         add_settings_field(
             'otto_pixel_uuid',
-            'Otto Pixel UUID',
+            $whitelabel_otto_name . ' Pixel UUID',
             function(){           
                 $value = Metasync::get_option('general')['otto_pixel_uuid'] ?? '';   
                 printf('<input type="text" size="40" value = "'.esc_attr($value).'" name="' . $this::option_key . '[general][otto_pixel_uuid]"/>');
@@ -1089,16 +1166,93 @@ class Metasync_Admin
         # check box to toggle on and off disabling OTTO for logged in users
         add_settings_field(
             'otto_disable_on_loggedin',
-            'Disable Otto for Logged in Users',
-            function() {
+            'Disable ' . $whitelabel_otto_name . ' for Logged in Users',
+            function() use ($whitelabel_otto_name) {
                 $otto_enable = Metasync::get_option('general')['otto_disable_on_loggedin'] ?? '';
                 printf(
                     '<input type="checkbox" id="otto_disable_on_loggedin" name="' . $this::option_key . '[general][otto_disable_on_loggedin]" value="true" %s />',
                     isset($otto_enable) && $otto_enable == 'true' ? 'checked' : ''
                 );
-                printf('<span class="description"> This disables Otto when logged in to allow editing original page contents</span>');
+                printf('<span class="description"> This disables '.$whitelabel_otto_name.' when logged in to allow editing original page contents</span>');
             },
             self::$page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        add_settings_field(
+            'periodic_clear_ottopage_cache',
+            'Clear Page Cache',
+            function() {
+                $periodic_clear_ottopage_cache = Metasync::get_option('general')['periodic_clear_ottopage_cache'] ?? 'default';
+                printf('<select style = "width : 250px" name="' . $this::option_key . '[general][periodic_clear_ottopage_cache]" id="heading_style">');
+                printf('<option value="24" '. selected($periodic_clear_ottopage_cache, '24', false) . '>Clear Daily</option>');
+                printf('<option value="36" '. selected($periodic_clear_ottopage_cache, '36', false) . '>Clear Every 2 days</option>');
+                printf('<option value="40" '. selected($periodic_clear_ottopage_cache, '40', false) . '>Clear Weekly</option>');
+                printf('<option value="0"'.selected($periodic_clear_ottopage_cache, '0', false).'>Clear Monthly (Default)</option>');
+                printf('</select>'); 
+
+                # get last cleared timestamp
+                $timestamp = get_option('metasync_refresh_all_caches')['pages'] ?? false;
+                
+                if($timestamp > 0){
+                    printf(
+                        '<p class="descriptionValue">last Cleared : '.date('y-m-d H:i:s', $timestamp).'</p>'
+                    );
+                }
+
+            },
+            self::$page_slug . '_otto_cache',
+            $SECTION_METASYNC
+        );
+
+        add_settings_field(
+            'periodic_clear_ottopost_cache',
+            'Clear Post Cache',
+            function() {
+                $periodic_clear_ottopost_cache = Metasync::get_option('general')['periodic_clear_ottopost_cache'] ?? 'default';
+                printf('<select style = "width : 250px" name="' . $this::option_key . '[general][periodic_clear_ottopost_cache]" id="heading_style">');
+                printf('<option value="24" '. selected($periodic_clear_ottopost_cache, '24', false) . '>Clear Daily</option>');
+                printf('<option value="36" '. selected($periodic_clear_ottopost_cache, '36', false) . '>Clear Every 2 days</option>');
+                printf('<option value="40" '. selected($periodic_clear_ottopost_cache, '40', false) . '>Clear Weekly</option>');
+                printf('<option value="0"'.selected($periodic_clear_ottopost_cache, '0', false).'>Clear Monthly (Default)</option>');
+                printf('</select>'); 
+
+                # get last cleared timestamp
+                $timestamp = get_option('metasync_refresh_all_caches')['posts'] ?? false;
+                
+                if($timestamp > 0){
+                    printf(
+                        '<p class="descriptionValue">last Cleared : '.date('y-m-d H:i:s', $timestamp).'</p>'
+                    );
+                }
+            },
+            self::$page_slug . '_otto_cache',
+            $SECTION_METASYNC
+        );
+
+        add_settings_field(
+            'periodic_clear_otto_cache',
+            'Clear all cache',
+            function() {
+                $periodic_clear_otto_cache = Metasync::get_option('general')['periodic_clear_otto_cache'] ?? 'default';
+                printf('<select style = "width : 250px" name="' . $this::option_key . '[general][periodic_clear_otto_cache]" id="heading_style">');
+                printf('<option value="24" '. selected($periodic_clear_otto_cache, '24', false) . '>Clear Daily</option>');
+                printf('<option value="36" '. selected($periodic_clear_otto_cache, '36', false) . '>Clear Every 2 days</option>');
+                printf('<option value="40" '. selected($periodic_clear_otto_cache, '40', false) . '>Clear Weekly</option>');
+                printf('<option value="0"'.selected($periodic_clear_otto_cache, '0', false).'>Clear Monthly (Default)</option>');
+                printf('</select>'); 
+
+                # get last cleared timestamp
+                $timestamp = get_option('metasync_refresh_all_caches')['general'] ?? false;
+                
+                if($timestamp > 0){
+                    printf(
+                        '<p class="descriptionValue">last Cleared : '.date('y-m-d H:i:s', $timestamp).'</p>'
+                    );
+                }
+
+            },
+            self::$page_slug . '_otto_cache',
             $SECTION_METASYNC
         );
 
@@ -1199,32 +1353,6 @@ class Metasync_Admin
         /*
         add field to save color for elementor and assign custom color to the heading
         */
-        add_settings_field(
-            'enabled_elementor_plugin_css',
-            'Choose Elementor Font Style',
-            function() {
-                $enabled_elementor_plugin_css = Metasync::get_option('general')['enabled_elementor_plugin_css'] ?? 'default';
-                printf('<select name="' . $this::option_key . '[general][enabled_elementor_plugin_css]" id="heading_style">');
-                printf('<option value="default"'.selected($enabled_elementor_plugin_css, 'default', false).'>Default</option>');
-                printf('<option value="custom" '. selected($enabled_elementor_plugin_css, 'custom', false) . '>Custom</option>');
-                printf('</select>'); 
-            },
-            self::$page_slug . '_general',
-            $SECTION_METASYNC
-        );
-        add_settings_field(
-            'enabled_elementor_plugin_css_color',
-            'Choose Elementor Font Color',
-            function() {
-                $enabled_elementor_plugin_css_color = Metasync::get_option('general')['enabled_elementor_plugin_css_color'] ?? '#000000';                          
-                printf('<input type="color" id="elementor_default_color_metasync" name="' . $this::option_key . '[general][enabled_elementor_plugin_css_color]" value="'.$enabled_elementor_plugin_css_color.'">');       
-            },
-            self::$page_slug . '_general',
-            $SECTION_METASYNC
-        );
-
-
-
         if(is_admin()){
         add_settings_field(
             'white_label_plugin_name',
@@ -1233,7 +1361,7 @@ class Metasync_Admin
             $value = Metasync::get_option('general')['white_label_plugin_name'] ?? '';   
             printf('<input type="text" name="' . $this::option_key . '[general][white_label_plugin_name]" value="' . esc_attr($value) . '" />');
            },
-           self::$page_slug . '_general',
+           self::$page_slug . '_branding',
                 $SECTION_METASYNC
         );
         add_settings_field(
@@ -1243,7 +1371,7 @@ class Metasync_Admin
                 $value = Metasync::get_option('general')['white_label_plugin_description'] ?? '';   
                 printf('<input type="text" name="' . $this::option_key . '[general][white_label_plugin_description]" value="' . esc_attr($value) . '" />');      
                },
-            self::$page_slug . '_general',
+            self::$page_slug . '_branding',
             $SECTION_METASYNC
         );
     
@@ -1254,7 +1382,7 @@ class Metasync_Admin
             $value = Metasync::get_option('general')['white_label_plugin_author'] ?? '';   
             printf('<input type="text" name="' . $this::option_key . '[general][white_label_plugin_author]" value="' . esc_attr($value) . '" />');  
            },
-            self::$page_slug . '_general',
+            self::$page_slug . '_branding',
             $SECTION_METASYNC
         );
             
@@ -1265,7 +1393,7 @@ class Metasync_Admin
                 $value = Metasync::get_option('general')['white_label_plugin_author_uri'] ?? '';   
                 printf('<input type="text" name="' . $this::option_key . '[general][white_label_plugin_author_uri]" value="' . esc_attr($value) . '" />');
             },
-            self::$page_slug . '_general',
+            self::$page_slug . '_branding',
             $SECTION_METASYNC
         );
         add_settings_field(
@@ -1275,7 +1403,7 @@ class Metasync_Admin
                 $value = Metasync::get_option('general')['white_label_plugin_uri'] ?? ''; // New option for Plugin URI
                 printf('<input type="text" name="' . $this::option_key . '[general][white_label_plugin_uri]" value="' . esc_attr($value) . '" />');
             },
-            self::$page_slug . '_general',
+            self::$page_slug . '_branding',
             $SECTION_METASYNC
         );
             register_setting($this::option_group, // Option group
@@ -1290,7 +1418,7 @@ class Metasync_Admin
                     $value = Metasync::get_option('general')['white_label_plugin_menu_name'] ?? '';   
                     printf('<input type="text" name="' . $this::option_key . '[general][white_label_plugin_menu_name]" value="' . esc_attr($value) . '" />');
                 },
-                self::$page_slug . '_general',
+                self::$page_slug . '_branding',
                 $SECTION_METASYNC
             );
             add_settings_field(
@@ -1300,7 +1428,7 @@ class Metasync_Admin
                     $value = Metasync::get_option('general')['white_label_plugin_menu_title'] ?? '';   
                     printf('<input type="text" name="' . $this::option_key . '[general][white_label_plugin_menu_title]" value="' . esc_attr($value) . '" />');
                 },
-                self::$page_slug . '_general',
+                self::$page_slug . '_branding',
                 $SECTION_METASYNC
             );
             add_settings_field(
@@ -1310,7 +1438,7 @@ class Metasync_Admin
                     $value = Metasync::get_option('general')['white_label_plugin_menu_slug'] ?? '';   
                     printf('<input type="text" name="' . $this::option_key . '[general][white_label_plugin_menu_slug]" value="' . esc_attr($value) . '" />');        
                 },
-                self::$page_slug . '_general',
+                self::$page_slug . '_branding',
                 $SECTION_METASYNC
             );
             add_settings_field(
@@ -1320,7 +1448,7 @@ class Metasync_Admin
                     $value = Metasync::get_option('general')['white_label_plugin_menu_icon'] ?? '';   
                     printf('<input type="text" name="' . $this::option_key . '[general][white_label_plugin_menu_icon]" value="' . esc_attr($value) . '" />');
                 },
-                self::$page_slug . '_general',
+                self::$page_slug . '_branding',
                 $SECTION_METASYNC
             );
         }
@@ -1349,9 +1477,34 @@ class Metasync_Admin
         
                 printf('<p class="description"> Choose the default page Style Sheet: Default or MetaSync.</p>');
             },
-            self::$page_slug . '_general',
+            self::$page_slug . '_branding',
             $SECTION_METASYNC
         );
+
+        add_settings_field(
+            'enabled_elementor_plugin_css',
+            'Choose Elementor Font Style',
+            function() {
+                $enabled_elementor_plugin_css = Metasync::get_option('general')['enabled_elementor_plugin_css'] ?? 'default';
+                printf('<select name="' . $this::option_key . '[general][enabled_elementor_plugin_css]" id="heading_style">');
+                printf('<option value="default"'.selected($enabled_elementor_plugin_css, 'default', false).'>Default</option>');
+                printf('<option value="custom" '. selected($enabled_elementor_plugin_css, 'custom', false) . '>Custom</option>');
+                printf('</select>'); 
+            },
+            self::$page_slug . '_branding',
+            $SECTION_METASYNC
+        );
+        add_settings_field(
+            'enabled_elementor_plugin_css_color',
+            'Choose Elementor Font Color',
+            function() {
+                $enabled_elementor_plugin_css_color = Metasync::get_option('general')['enabled_elementor_plugin_css_color'] ?? '#000000';                          
+                printf('<input type="color" id="elementor_default_color_metasync" name="' . $this::option_key . '[general][enabled_elementor_plugin_css_color]" value="'.$enabled_elementor_plugin_css_color.'">');       
+            },
+            self::$page_slug . '_branding',
+            $SECTION_METASYNC
+        );
+
 
 
         // Features Section

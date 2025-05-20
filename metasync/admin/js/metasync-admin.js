@@ -461,13 +461,14 @@
 		return months[m.getMonth()] + " " + ('0' + m.getDate()).slice(-2) + ", " + m.getFullYear() + "  " + (m.getHours() > 12 ? '0' + m.getHours() % 12 : '0' + m.getHours()).slice(-2) + ":" + ('0' + m.getMinutes()).slice(-2) + ":" + ('0' + m.getSeconds()).slice(-2) + ' ' + (m.getHours() > 12 ? 'PM' : 'AM');
 	}
 
-	function sendCustomerParams() {
+	function sendCustomerParams(is_hb = false) {
 
 		jQuery.ajax({
 			type: "post",
 			url: "admin-ajax.php",
 			data: {
-				action: 'lgSendCustomerParams'
+				action: 'lgSendCustomerParams',
+				is_heart_beat : is_hb
 			},
 			success: function (response) {
 
@@ -552,8 +553,13 @@
 					// get value of input field white_label_plugin_menu_slug
 						const whiteLableUrl = $('#metaSyncGeneralSetting input[name="metasync_options[general][white_label_plugin_menu_slug]"]').val();
 					// check condition if it is empty or not and redirect it
-						 window.location = metaSync.admin_url+'?page='+(whiteLableUrl===''?'searchatlas':whiteLableUrl);
-						
+					
+					// add the tag query to the window location
+					let tabParam = new URLSearchParams(window.location.search).get('tab');
+					let tabQuery = tabParam ? '&tab=' + encodeURIComponent(tabParam) : '';
+					
+					window.location = metaSync.admin_url + '?page=' + (whiteLableUrl === '' ? 'searchatlas' : whiteLableUrl) + tabQuery;
+					
 					//}
 					
 				},
@@ -568,7 +574,9 @@
 		//hook into heartbeat-send: client will send the message 'marco' in the 'client' var inside the data array
 		jQuery(document).on('heartbeat-send', function (e, data) {
 			e.preventDefault();
-			sendCustomerParams();
+
+			// adding heart beat label
+			sendCustomerParams(true);
 		});
 
 		//hook into heartbeat-tick: client looks for a 'server' var in the data array and logs it to console

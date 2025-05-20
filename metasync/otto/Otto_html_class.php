@@ -121,14 +121,30 @@ Class Metasync_otto_html{
             $route
         );
 
-        # error log
-        #error_log('sending_labeld request : '. $route);
+		# set cookie header var
+		$cookie_header = '';
+		
+		# loop cookies to set header
+		foreach ($_COOKIE as $name => $value) {
+			
+			# add cookie to header
+			$cookie_header .= $name . '=' . $value . '; ';
+		}
+		
+		# trim the string
+		$cookie_header = rtrim($cookie_header, '; ');
 
+		# Set up the request arguments for wp_remote_get
+		$args = array(
+			'sslverify' => false,
+			'headers' => array(
+				'Cookie' => $cookie_header,
+			)
+		);
+		
         # get the associateed route html
-        $route_html = wp_remote_get($request_body, [
-            'sslverify' => false
-        ]);
-
+        $route_html = wp_remote_get($request_body, $args);
+		
         # get body
         $html_body = wp_remote_retrieve_body($route_html);
 
@@ -577,6 +593,15 @@ Class Metasync_otto_html{
             # load the modified file to the DOM
             $this->dom = new HtmlDocument($this->html_file );
         }
+
+        # this code is to be replaced in future
+        # reson for adding is to prevent caching logged in user pages
+        # why not just skip saving? it broke the DOM Library
+        # check user is logged in clear the file
+        
+		if(is_user_logged_in()) {
+			unlink($this->html_file);
+		}
     }
 
 

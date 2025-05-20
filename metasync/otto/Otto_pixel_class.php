@@ -110,8 +110,27 @@ Class Metasync_otto_pixel{
         # get md5 hash of route
         $file_name = md5($route).'.html';
 
+        # check the appropriate dir
+        if(is_page()){
+
+            # set the pages path
+            $cache_dir = $cache_dir . '/pages';
+        }
+        elseif(is_singular('post')){
+
+            # set the pages path
+            $cache_dir = $cache_dir . '/posts';
+        }
+        else{
+            # set the pages path
+            $cache_dir = $cache_dir . '/others';
+        }
+
         # get file path
         $file_path = $cache_dir . '/'. $file_name;
+
+        # real time pages
+        $real_time_page = False;
 
         # exclude all woocommerce pages from OTTO
 		if (
@@ -129,9 +148,14 @@ Class Metasync_otto_pixel{
 		) {
 			return false;
 		}
-
+		
+		# check user is logged in
+		if(is_user_logged_in()) {
+			$real_time_page = True;
+		}
+		
         # if file exists show content
-        if(!is_file($file_path)){
+        if(!is_file($file_path) || $real_time_page == True){
 
             # call the html class
             $route_html = $this->o_html->process_route($route, $file_path);
@@ -147,8 +171,29 @@ Class Metasync_otto_pixel{
         return $route_html;
     }
 
-    # enforce caching dir
+    # enforce new caching dirs
     function enforce_dirs(){
+
+        # dirs
+        $dirs = array(
+            '/metasync_caches',
+            '/metasync_caches/pages',
+            '/metasync_caches/posts',
+            '/metasync_caches/others'
+        );
+
+        # loop and enfors
+        foreach ($dirs as $key => $value) {
+            #
+            $dirs[$key] = $this->create_dirs($value);
+        }
+
+        # return the root cache dir
+        return $dirs[0];
+    }
+
+    # enforce caching dir
+    function create_dirs($the_path){
         
         # check that we have the WP_CONTENT_DIR defined
         if(!defined('WP_CONTENT_DIR')){
@@ -159,7 +204,7 @@ Class Metasync_otto_pixel{
         $wp_content_dir = WP_CONTENT_DIR;
 
         # Define the path for the metasync_caches directory
-        $cache_dir = $wp_content_dir . '/metasync_caches';
+        $cache_dir = $wp_content_dir . $the_path;
 
         # Check if the directory exists
         if (!is_dir($cache_dir)) {
@@ -168,7 +213,7 @@ Class Metasync_otto_pixel{
             if (!mkdir($cache_dir, 0755, true)) {
                 
                 # Log an error if directory creation fails
-                error_log('Failed to create directory: ' . $cache_dir);
+                error_log('Metasync : Failed to create directory: ' . $cache_dir);
                 
                 # Return false on failure
                 return false;

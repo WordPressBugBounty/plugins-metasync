@@ -26,7 +26,11 @@ class Metasync_Sync_Requests
         $categories_sync_limit = 1000;
         $users_sync_limit = 1000;
 
-        $general_options = Metasync::get_option('general') ?? [];
+        # get the metasync options array
+        $metasync_options = Metasync::get_option();
+
+        # set the general option
+        $general_options = $metasync_options['general'] ?? [];
 
         if (!isset($general_options['apikey'], $general_options['searchatlas_api_key'])) {
             return;
@@ -44,6 +48,25 @@ class Metasync_Sync_Requests
         if ($api_key == null){
             return false;
         }
+
+        # last hb request 
+        $last_hb_request_time = $metasync_options['general']['last_heart_beat'] ?? 0;
+
+        # introducing a last call time
+        # making sure requests are at least 5 min apart if hb
+        if(isset($_POST['is_heart_beat']) AND $_POST['is_heart_beat'] == true){
+            
+            # chec that we have a 5 min gap
+            if(($last_hb_request_time + (60*5)) > time()){
+
+                error_log('Metasync Enforcing 5 min gap');
+                return false;
+            }
+
+            # set the last heart beat request time
+            $metasync_options['general']['last_heart_beat'] = time();
+        }
+
 
         #the native api url
         $apiUrl = 'https://ca.searchatlas.com/api/wp-website-heartbeat/';
@@ -114,6 +137,10 @@ class Metasync_Sync_Requests
             $this->saveHeartBeatError('heartbeat', $response_code . ': Unknown error occurred', array(1), 0);
             return; //new WP_Error( $response_code, 'Unknown error occurred' );
         } else {
+
+            # update the metasync options
+            Metasync::set_option($metasync_options);
+
             return $response;//json_decode( wp_remote_retrieve_body( $response ), true );
         }
     }

@@ -125,7 +125,7 @@ function deleteDir($dir) {
     return rmdir($dir);
 }
 
-function invalidate_all_caches(){
+function invalidate_all_caches($folder = ''){
     # check that we have the WP_CONTENT_DIR defined
     if(!defined('WP_CONTENT_DIR')){
         return false;
@@ -136,6 +136,13 @@ function invalidate_all_caches(){
 
     # Define the path for the metasync_caches directory
     $cache_dir = $wp_content_dir . '/metasync_caches';
+
+    # set cache dir based on type
+    if(in_array($folder, ['posts', 'pages'])){
+
+        # set teh cache dir
+        $cache_dir = $cache_dir . '/' . $folder;
+    }
 
     # if is dir remove it
     if(is_dir($cache_dir)){
@@ -149,23 +156,91 @@ function invalidate_all_caches(){
 function clear_existing_metasync_caches(){
 
     # get the metasync
+    global $metasync_options;
 
     # option name
     $option_name = 'metasync_refresh_all_caches';
 
+    # set a duration
+    $duration = 0;
+
     # get the option
     $last_change_time = get_option($option_name);
 
-    # check if last_change_time is above 10
-    if( $last_change_time >= 1740148054  ){
-        return;
+    # ensure last change time has values
+    $last_change_time = array(
+        'general' => $last_change_time['general'] ?? 0,
+        'posts' => $last_change_time['posts'] ?? 0,
+        'pages' => $last_change_time['pages'] ?? 0,
+    );
+
+    # check if we have periodic cache clearance configured
+    if(!empty($metasync_options['general']['periodic_clear_otto_cache']) AND intval($metasync_options['general']['periodic_clear_otto_cache']) > 0){
+
+        # check that the time is not passed
+        $duration = 3600 * intval($metasync_options['general']['periodic_clear_otto_cache']);
+
+        # check time and duration
+        if(($last_change_time['general'] + $duration) <= time()){
+            # last change general
+            $last_change_time['general'] = time();
+
+            # call the clean caches function
+            invalidate_all_caches('general');
+        }
+
+    }
+    # check if we have periodic cache clearance configured
+    elseif(is_page() AND !empty($metasync_options['general']['periodic_clear_ottopage_cache']) AND intval($metasync_options['general']['periodic_clear_ottopage_cache']) > 0){
+
+        # check that the time is not passed
+        $duration = 3600 * intval($metasync_options['general']['periodic_clear_ottopage_cache']);
+
+        # check time and duration
+        if(($last_change_time['pages'] + $duration) <= time()){
+            # last change pages
+            $last_change_time['pages'] = time();
+
+            # call the clean caches function
+            invalidate_all_caches('pages');
+        }
+
+    }
+    # check if we have periodic cache clearance configured
+    elseif(is_singular('post') AND !empty($metasync_options['general']['periodic_clear_ottopost_cache']) AND intval($metasync_options['general']['periodic_clear_ottopost_cache']) > 0){
+
+        # check that the time is not passed
+        $duration = 3600 * intval($metasync_options['general']['periodic_clear_ottopost_cache']);
+
+        # check time and duration
+        if(($last_change_time['posts'] + $duration) <= time()){
+            # last change posts
+            $last_change_time['posts'] = time();
+
+            # call the clean caches function
+            invalidate_all_caches('posts');
+        }
+
+    }
+    # running under default settings
+    else{
+
+        # set duration for all other pages to 4 weeks
+        $duration = 3600 * 24 * 7 *4;
+
+        # check time and duration
+        if(($last_change_time['general'] + $duration) <= time()){
+            # last change general
+            $last_change_time['general'] = time();
+
+            # call the clean caches function
+            invalidate_all_caches('general');
+        }
     }
 
-    # call the clean caches function
-    invalidate_all_caches();
     
     # create the option
-    update_option($option_name, time());
+    update_option($option_name, $last_change_time);
 
     return true;
 }

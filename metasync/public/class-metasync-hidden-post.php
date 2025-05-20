@@ -290,6 +290,11 @@ class MetaSyncHiddenPostManager
         $html = curl_exec($ch); # Execute the request and store the HTML response
         curl_close($ch); # Close the cURL session
 
+        # check that the html object is not empty
+        if(empty($html)){
+            return false;
+        }
+
         # Load the HTML content into DOMDocument
         $dom = new DOMDocument();
         libxml_use_internal_errors(true); # Suppress HTML parsing errors

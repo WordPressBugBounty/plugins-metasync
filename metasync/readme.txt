@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.7.1
 Requires PHP: 7.1
-Stable tag: 2.2.7
+Stable tag: 2.3.0
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,16 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.3.0 =
+* Bug fix 1: Fix 500 error when publishing a post  
+* Bug fix 2: Fix OTTO SSR disabling the WordPress edit menu  
+* Bug fix 3: Fix rest_forbidden error when publishing blog post   
+* Bug fix 4: Fix OTTO breaking website layout (top-bar)  
+* Improvement 1: Session Based Rendering
+* Improvement 2: Reset Heartbeat API calls to 5-minute intervals  
+* Improvement 3: Update plugin layout and implement white-labelling  
+* Improvement 4: Implement new caching mechanism
+
 = 2.2.7 =
 * Bug fix 1: Fix 429 page issue
 * Improvement 1: Disabling Otto on error pages like 404
