@@ -86,8 +86,18 @@ Class Metasync_otto_html{
         # Extract existing attributes of the <body> tag
         $attributes = [];
 
+
+        # set the tag attributes
+        $tag_attributes = [];
+        
+
+        # check that the tag attributes 
+        if(!is_object($tag) || !method_exists($tag, 'getAllAttributes')){
+            return '';
+        }
+
         # get the tag attributes
-        $tag_attributes = $tag->getAllAttributes();
+        $tag_attributes = $tag->getAllAttributes();  
 
         # loop all attributes
         foreach ($tag_attributes as $key => $value) {
@@ -192,6 +202,11 @@ Class Metasync_otto_html{
 
         # otherwise do the replacement
         $footer = $this->dom->find('footer', 0);
+
+        # check that footer is object
+        if(!is_object($footer) || !isset($footer->innertext, $footer->outertext)){
+            return;
+        }
 
         # get the tag attributes
         $attributes_string = $this->get_tag_attributes($footer);
