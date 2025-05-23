@@ -130,7 +130,8 @@ Class Metasync_otto_pixel{
         $file_path = $cache_dir . '/'. $file_name;
 
         # real time pages
-        $real_time_page = False;
+        # set real time page to always true so that we do real time rendering of change
+        $real_time_page = True;
 
         # exclude all woocommerce pages from OTTO
 		if (

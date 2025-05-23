@@ -667,7 +667,6 @@ class Metasync_Admin
 
         <h2 class="nav-tab-wrapper">
             <a href="?page=<?php echo self::$page_slug; ?>&tab=general" class="nav-tab <?php echo $active_tab == 'general' ? 'nav-tab-active' : ''; ?>">Settings</a>
-            <a href="?page=<?php echo self::$page_slug; ?>&tab=otto_cache" class="nav-tab <?php echo $active_tab == 'otto_cache' ? 'nav-tab-active' : ''; ?>">Caching</a>
         </h2>
         <br/>
 
@@ -688,23 +687,6 @@ class Metasync_Admin
                         <button tyreadonly="readonly"pe="button" class="button button-primary" id="sendAuthToken" data-toggle="tooltip" data-placement="top" title="Sync Categories and User">Sync Now</button>
                 <?php
 
-                    } elseif ($active_tab == 'otto_cache') {
-                        # temporary fix 
-                        # the code below is a temporary fix to saving cache settings
-                ?>
-                    <div style ="display: none">
-                <?php
-                        # do the general settings section
-                        do_settings_sections(self::$page_slug  . '_general');
-
-                        # do the whitelabe branding section
-                        do_settings_sections(self::$page_slug  . '_branding');
-                ?>
-                    </div>
-                <?php
-
-                        # do the caching settings section
-                        do_settings_sections(self::$page_slug  . '_otto_cache');
                     }
 
                     # Add a nonce field for security
