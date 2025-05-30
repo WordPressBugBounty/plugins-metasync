@@ -132,23 +132,6 @@ Class Metasync_otto_pixel{
         # real time pages
         # set real time page to always true so that we do real time rendering of change
         $real_time_page = True;
-
-        # exclude all woocommerce pages from OTTO
-		if (
-			# WooCommerce main pages
-			function_exists('is_woocommerce') && is_woocommerce() || 
-			
-			# Cart page
-			function_exists('is_cart') && is_cart() ||             
-			
-			# Checkout page
-			function_exists('is_checkout') && is_checkout() ||     
-			
-			# My Account page
-			function_exists('is_account_page') && is_account_page()
-		) {
-			return false;
-		}
 		
 		# check user is logged in
 		if(is_user_logged_in()) {

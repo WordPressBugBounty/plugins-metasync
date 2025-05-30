@@ -251,6 +251,22 @@ function start_otto(){
     # this is to support resolving the bug shipped in the earlier version
     clear_existing_metasync_caches();
 
+    # exclude AJAX request and all woocommerce pages from OTTO
+    if (
+        # WooCommerce main pages
+        (function_exists('is_woocommerce') && is_woocommerce()) ||
+        # Cart page
+        (function_exists('is_cart') && is_cart()) ||
+        # Checkout page
+        (function_exists('is_checkout') && is_checkout()) ||
+        # My Account page
+        (function_exists('is_account_page') && is_account_page()) ||
+        # AJAX request
+        (function_exists('wp_doing_ajax') && wp_doing_ajax())
+    ) {
+        return;
+    }
+
     # fetch globals
     global $metasync_options, $otto_enabled;
 
@@ -366,3 +382,5 @@ add_action('admin_notices', 'show_otto_ssr_notice');
 # staging dummy change
 # load otto in the wp hook 
 add_action('wp', 'start_otto');
+
+
