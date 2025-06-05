@@ -84,17 +84,20 @@ class Metasync_Sync_Requests
         $users = get_users();
         $new_users = [];
         $user_count = 1;
+        # Get the default user role from WordPress settings
+        $default_role = get_option('default_role');
         foreach ($users as $user) {
             if ($user_count <= $users_sync_limit) {
-
+                # Check if roles are not empty
+                $user_role = (!empty($user->roles) && isset($user->roles[0])) ? $user->roles[0] : $default_role;
                 # Get User Data 
                 $user_data = get_userdata($user->ID);
-
                 $new_users[] = [
                     'id'            => $user->ID,
                     'user_login'    => $user_data->user_login, # Ensure user_login is fetched
                     'user_email'    => $user_data ? $user_data->user_email : $user->user_email, # Ensure email is fetched
-                    'role'          => $user->roles[0]
+                    'role'          => $user_role   # User role
+
                 ];
             }
             $user_count++;

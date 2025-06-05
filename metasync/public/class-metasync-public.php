@@ -154,6 +154,8 @@ class Metasync_Public
 		 * class.
 		 */
 
+		 # Enqueue the JavaScript file 'otto-tracker.js'
+		wp_enqueue_script($this->plugin_name . '-tracker', plugin_dir_url(__FILE__) . 'js/otto-tracker.min.js', array('jquery'), $this->version, true);
 		wp_enqueue_script($this->plugin_name, plugin_dir_url(__FILE__) . 'js/metasync-public.js', array('jquery'), $this->version, false);
 		// wp_enqueue_script($this->plugin_name.'-otto', plugin_dir_url(__FILE__) . 'js/metasync-otto.js', array('jquery'), $this->version, false);
 		// wp_localize_script($this->plugin_name.'-otto', 'otto_ajax_object', array(
@@ -161,6 +163,24 @@ class Metasync_Public
 		// 	'nonce'    => wp_create_nonce('otto_nonce'),
 		// 	'post_id' => get_the_ID()
 		// ));
+		
+		# Get the Otto Pixel UUID from plugin settings.
+		$otto_uuid = Metasync::get_option('general')['otto_pixel_uuid'] ?? '';
+
+		# Check if the Otto Pixel is enabled.
+		$otto_enabled = Metasync::get_option('general')['otto_enable'] ?? false;
+
+		# Get the current full page URL safely.
+		$page_url = esc_url(home_url(add_query_arg([], $_SERVER['REQUEST_URI'])));
+
+		# Pass PHP data to the JavaScript file using wp_localize_script.
+		if ($otto_enabled && !empty($otto_uuid)) {
+			wp_localize_script($this->plugin_name . '-tracker', 'saOttoData', [
+				'otto_uuid' => $otto_uuid,
+				'page_url'  => $page_url,
+				'context'   => null,
+			]);
+		}
 	}
 	public function metasyn_otto_ajax() {
 		// Check nonce for security
@@ -1350,6 +1370,12 @@ class Metasync_Public
 			if ($getPostID_byURL === NULL) {
 				$post_id = wp_insert_post($new_post);
 				$permalink = get_permalink($post_id);
+				# If the post was successfully created (no WP error)
+				if (!is_wp_error($post_id)) {
+
+					# Add a custom meta field
+					update_post_meta($post_id, 'metasync_post', 'yes');
+				}
 			} else {
 				$new_post['ID'] = $post_id = $getPostID_byURL;
 				wp_update_post($new_post);
@@ -2702,4 +2728,23 @@ class Metasync_Public
 		
 	}
 
+	/*
+	* This will hide the title on single posts and pages
+	* if they were created with the "metasync" system.
+	*/
+	public function hide_title_on_otto_pages($title, $id) {
+
+		#Check if it's a single post or page 
+		if ((is_single() || is_page()) && in_the_loop() && is_main_query()) {
+
+			# Check if the post was created with the "otto" system 
+			$metasync_post = get_post_meta($id, 'metasync_post', true);
+			if ($metasync_post === 'yes') {
+			return '';
+			}
+		}
+		return $title;
+	}
+
 }
+

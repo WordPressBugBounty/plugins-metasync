@@ -262,8 +262,8 @@ class Metasync
 		$this->loader->add_action('heartbeat_received', $plugin_admin, 'metasync_received_data', 10, 2);
 		$this->loader->add_action('wp_ajax_lgSendCustomerParams', $plugin_admin, 'lgSendCustomerParams');
 
-		$sync_request = new Metasync_Sync_Requests();
-		$this->loader->add_action('admin_init', $sync_request, 'SyncWhiteLabelUserHttp', 2);
+		#$sync_request = new Metasync_Sync_Requests();
+		#$this->loader->add_action('admin_init', $sync_request, 'SyncWhiteLabelUserHttp', 2);
 
 		$post_meta_setting = new Metasync_Post_Meta_Settings();
 		$this->loader->add_action('admin_init', $post_meta_setting, 'add_post_mata_data', 2);
@@ -319,6 +319,9 @@ class Metasync
 		$this->loader->add_action('wp_ajax_metasync', $plugin_public, 'sync_items');
 		$this->loader->add_action('wp_ajax_lglogin', $plugin_public, 'linkgraph_login');
 		$this->loader->add_filter('wp_robots', $plugin_public, 'wp_robots_meta');
+
+		# Filter hook to modify the post/page title output.
+		$this->loader->add_filter('the_title', $plugin_public, 'hide_title_on_otto_pages', 10, 2);
 
 		$metasyncTemplateClass = new Metasync_Template();
 		$this->loader->add_filter('theme_page_templates', $metasyncTemplateClass, 'metasync_template_landing_page', 10, 3);
