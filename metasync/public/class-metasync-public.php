@@ -1370,12 +1370,14 @@ class Metasync_Public
 			if ($getPostID_byURL === NULL) {
 				$post_id = wp_insert_post($new_post);
 				$permalink = get_permalink($post_id);
+				
 				# If the post was successfully created (no WP error)
 				if (!is_wp_error($post_id)) {
 
 					# Add a custom meta field
 					update_post_meta($post_id, 'metasync_post', 'yes');
 				}
+
 			} else {
 				$new_post['ID'] = $post_id = $getPostID_byURL;
 				wp_update_post($new_post);
@@ -2731,20 +2733,25 @@ class Metasync_Public
 	/*
 	* This will hide the title on single posts and pages
 	* if they were created with the "metasync" system.
+	* Passes default values for $title and $id to avoid errors.
 	*/
-	public function hide_title_on_otto_pages($title, $id) {
+	public function hide_title_on_otto_pages($title = '', $id = null){
+		
+		# Return title immediately if $id or $title is not provided
+		if (empty($id) || empty($title)) {
+			return $title;
+		}
 
-		#Check if it's a single post or page 
+		# Check if it's a single post or page
 		if ((is_single() || is_page()) && in_the_loop() && is_main_query()) {
 
-			# Check if the post was created with the "otto" system 
+			# Check if the post was created with the "metasync" system
 			$metasync_post = get_post_meta($id, 'metasync_post', true);
 			if ($metasync_post === 'yes') {
-			return '';
+				return '';
 			}
 		}
 		return $title;
 	}
-
 }
 

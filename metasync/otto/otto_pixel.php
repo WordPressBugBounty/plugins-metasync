@@ -284,11 +284,9 @@ function start_otto(){
     }
 
 
-    # check the user agent
-    $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? false;
 
     # check if we are having an otto request
-    if(!empty($_GET['is_otto_page_fetch']) || trim($user_agent) == 'SearchAtlas Bot (https://www.searchatlas.com)'){
+    if(!empty($_GET['is_otto_page_fetch'])){
         #error_log('Metasync :: Skipping Otto Route, user agent => ' . $user_agent);
         return;
     }

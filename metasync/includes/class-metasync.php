@@ -321,8 +321,8 @@ class Metasync
 		$this->loader->add_filter('wp_robots', $plugin_public, 'wp_robots_meta');
 
 		# Filter hook to modify the post/page title output.
-		$this->loader->add_filter('the_title', $plugin_public, 'hide_title_on_otto_pages', 10, 2);
-
+		# $this->loader->add_filter('the_title', $plugin_public, 'hide_title_on_otto_pages', 10, 2);
+		
 		$metasyncTemplateClass = new Metasync_Template();
 		$this->loader->add_filter('theme_page_templates', $metasyncTemplateClass, 'metasync_template_landing_page', 10, 3);
 		$this->loader->add_filter('template_include', $metasyncTemplateClass, 'metasync_template_landing_page_load', 99 );
