@@ -354,6 +354,12 @@ Class Metasync_otto_html{
         # otherwise do the replacement
         $body = $this->dom->find('body', 0);
 
+        # set the link property if not empty
+        if(empty($body->outertext)){
+            return;
+        }
+
+
         # get the tag attributes
         $attributes_string = $this->get_tag_attributes($body);
 
