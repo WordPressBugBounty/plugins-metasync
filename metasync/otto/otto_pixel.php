@@ -253,6 +253,8 @@ function start_otto(){
 
     # exclude AJAX request and all woocommerce pages from OTTO
     if (
+        # disable ajax calls
+        isset($_GET['ucfrontajaxaction']) ||
         # WooCommerce main pages
         (function_exists('is_woocommerce') && is_woocommerce()) ||
         # Cart page
