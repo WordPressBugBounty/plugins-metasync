@@ -263,8 +263,14 @@ function start_otto(){
         (function_exists('is_checkout') && is_checkout()) ||
         # My Account page
         (function_exists('is_account_page') && is_account_page()) ||
-        # AJAX request
-        (function_exists('wp_doing_ajax') && wp_doing_ajax())
+        # Standard WordPress AJAX
+        (function_exists('wp_doing_ajax') && wp_doing_ajax()) ||
+        # check by constant
+        (defined('DOING_AJAX') && DOING_AJAX) ||
+        # WooCommerce AJAX endpoint (e.g., ?wc-ajax=update_cart)
+        (isset($_REQUEST['wc-ajax']) && !empty($_REQUEST['wc-ajax'])) ||
+        # AJAX requests via X-Requested-With header
+        (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
     ) {
         return;
     }
@@ -372,8 +378,17 @@ function show_otto_ssr_notice() {
         return; // Only show to admins
     }
 
+    # Get the plugin name from the options, with a fallback to 'Searchatlas'
+    $plugin_name =  Metasync::get_option('general')['white_label_plugin_name'] ?? 'Searchatlas'; 
     if (check_otto_js()) {
-        echo '<div class="notice notice-error"><p><strong>Warning:</strong> Otto JavaScript has been detected on your site. Please remove it and configure Otto for Wordpress. Contact support for help</p></div>';
+
+        # Show admin notice with plugin name included in the message
+        echo '<div class="notice notice-error">
+                 <p><b>Warning from ' . esc_html($plugin_name) . '</b>
+                    <br>
+                    Otto JavaScript has been detected on your site. Please remove it and configure Otto for Wordpress. Contact support for help
+                </p>
+         </div>';
     }
 }
 

@@ -549,7 +549,7 @@
 				data: formData + '&action=meta_sync_save_settings', // Add the action to identify the AJAX request
 				success: function(response) {
 					// Handle success response
-					//if(response.success){
+					if(response.success){
 					// get value of input field white_label_plugin_menu_slug
 						const whiteLableUrl = $('#metaSyncGeneralSetting input[name="metasync_options[general][white_label_plugin_menu_slug]"]').val();
 					// check condition if it is empty or not and redirect it
@@ -559,8 +559,27 @@
 					let tabQuery = tabParam ? '&tab=' + encodeURIComponent(tabParam) : '';
 					
 					window.location = metaSync.admin_url + '?page=' + (whiteLableUrl === '' ? 'searchatlas' : whiteLableUrl) + tabQuery;
-					
-					//}
+					}else {
+							// Handle error response
+							const errors = response.data?.errors || [];
+
+							// Create a notice element to display the errors
+							let html = '<div class="notice notice-error metasync-error-wrap">';
+							if (Array.isArray(errors)) {
+								html += '<ul>';
+								errors.forEach(function(err) {
+									html += '<li>' + err + '</li>';
+								});
+								html += '</ul>';
+							}
+							html += '</div>';
+
+							// Insert the error message before the form
+							$('#metaSyncGeneralSetting').before(html);
+
+							// Scroll to the top to ensure visibility
+							$('html, body').animate({ scrollTop: 0 }, 'slow');
+						}
 					
 				},
 				error: function(error) {

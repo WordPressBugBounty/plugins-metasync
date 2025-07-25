@@ -739,13 +739,57 @@ class Metasync_Admin
         $metasync_options = array('general' => array());
     
         # Process text fields
+        # Initialize an array to collect validation errors
+        $validation_errors = [];
         foreach ($text_fields as $field) {
-            
+
+            # Check if the field is set in the POST data
             if (isset($_POST['metasync_options']['general'][$field])) {
-                $metasync_options['general'][$field] = sanitize_text_field($_POST['metasync_options']['general'][$field]);
+
+                # Trim whitespace from the field value
+                $value = trim($_POST['metasync_options']['general'][$field]);
+
+                # Skip empty values
+                if ($value === '') {
+                    continue;
+                }
+
+                # Special validation for the 'white_label_plugin_menu_icon' field
+                if ($field === 'white_label_plugin_menu_icon') {
+
+                    # Check if the value is a valid URL
+                    if (filter_var($value, FILTER_VALIDATE_URL)) {
+
+                        # Define allowed image extensions
+                        $image_extensions = ['png', 'svg'];
+
+                        # Parse the URL path to extract the file extension
+                        $path = parse_url($value, PHP_URL_PATH); // Get path from URL
+                        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+
+                        # Check if the extension is one of the allowed image types
+                        if (in_array($extension, $image_extensions, true)) {
+
+                            # Sanitize and assign the URL to options
+                            $metasync_options['general'][$field] = esc_url_raw($value);
+                        } else {
+
+                            # Add error if image extension is not allowed
+                            $validation_errors[] = 'Invalid Menu icon format. Only PNG and SVG are allowed.';
+                        }
+                    } else {
+
+                        # Add error if the URL format is invalid
+                        $validation_errors[] = 'Invalid Menu icon URL format.';
+                    }
+                } else {
+
+                    # Sanitize regular text fields
+                    $metasync_options['general'][$field] = sanitize_text_field($_POST['metasync_options']['general'][$field]);
+                }
             }
         }
-    
+
         # Process boolean fields
         foreach ($bool_fields as $field) {
             if (isset($_POST['metasync_options']['general'][$field])) {
@@ -760,6 +804,18 @@ class Metasync_Admin
             }
         }
     
+        #check If there are any validation errors collected
+        if (!empty($validation_errors)) {
+
+            # Send a JSON error response containing the validation error messages
+            wp_send_json_error([
+                'errors' => $validation_errors
+            ]);
+
+            # Stop further execution of the function
+            return;
+        }
+
         # Save the options in the database
         update_option('metasync_options', $metasync_options);
 
@@ -3395,16 +3451,26 @@ class Metasync_Admin
      * Display a dashboard warning when using the plain permalink structure.
      * @param $data An array of data passed.
      */
-    public function permalink_structure_dashboard_warning()
-    {
+    public function permalink_structure_dashboard_warning() {
         $current_permalink_structure = get_option('permalink_structure');
+
+        # Get the plugin name from the options, with a fallback to 'Searchatlas'
+        $plugin_name =  Metasync::get_option('general')['white_label_plugin_name'] ?? 'Searchatlas'; 
         $current_rewrite_rules = get_option('rewrite_rules');
-        // Check if the current permalink structure is set to "Plain"
+        # Check if the current permalink structure is set to "Plain"
         if (($current_permalink_structure == '/%post_id%/' || $current_permalink_structure == '') && $current_rewrite_rules == '') {      
-            // Change the description message to needed 
-            printf( '<div class="notice notice-error is-dismissible">
-                <p>To ensure compatibility, Please Update your Permalink structure to any option other than "Plain". For any Inquiries contact support</p>
-            </div>');   
+            
+           # Show admin notice with plugin name included in the message  
+           printf(
+            '<div class="notice notice-error is-dismissible">
+                <p>
+                <b>Warning from %s</b><br>
+                To ensure compatibility, please update your permalink structure to any option other than "Plain".
+                For any inquiries, contact support.
+                </p>
+            </div>',
+            esc_html($plugin_name)
+        );   
         }
         flush_rewrite_rules();
     }
