@@ -2448,7 +2448,11 @@ class Metasync_Public
 		if (empty($post))
 			return;
 
-		$post_text = wp_trim_words(get_the_content(), 30, '');
+		# $post_text = wp_trim_words(get_the_content(), 30, '');
+
+		# Check if the post has content, then apply WordPress content filters
+		$post_content = !empty($post->post_content) ? apply_filters('the_content', $post->post_content) : '';
+		$post_text = wp_trim_words($post_content, 30, '');
 
 		$site_info = Metasync::get_option('optimal_settings')['site_info'] ?? [];
 
