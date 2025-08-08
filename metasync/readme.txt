@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.3.10
+Stable tag: 2.3.11
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,9 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.3.11 =
+* Feature 1: Modifying Existing Posts with Content Assistant AI
+
 = 2.3.10 =
 * Bug fix 1: Critical Error with undeclared global Post Object
 

@@ -624,8 +624,81 @@ class Metasync_Public
 			'permission_callback' => array($this, 'rest_authorization_middleware'),
 			'schema' => array($this, 'get_item_schema'),
 		));
+
+		# Add the new getPostData endpoint
+		register_rest_route(
+			$this::namespace,
+			'getPostData',
+			array(
+				array(
+					'methods' => 'GET',
+					'callback' => array($this, 'get_post_data'),
+					'permission_callback' => array($this, 'rest_authorization_middleware')
+				),
+				'schema' => array($this, 'get_item_schema'),
+			)
+		);
 		
 	}
+
+	/**
+	 * Get post data endpoint
+	 * Accepts post_id or post_url and returns post details
+	 * Only returns data for post type 'post'
+	 */
+	public function get_post_data($request) {
+		$get_data = $request->get_params();
+		$post_id = null;
+		$post = null;
+
+		# Fetch post
+		if (!empty($get_data['post_id'])) {
+			$post_id = intval($get_data['post_id']);
+			$post = get_post($post_id);
+		} elseif (!empty($get_data['post_url'])) {
+			$post_id = url_to_postid(sanitize_url($get_data['post_url']));
+			if ($post_id > 0) {
+				$post = get_post($post_id);
+			}
+		}
+
+		# Check if post exists
+		if (!$post || $post_id <= 0) {
+			return rest_ensure_response(array('error' => 'no blog post found'), 404);
+		}
+
+		# Check if post type is 'post', return error if not
+		if ($post->post_type !== 'post') {
+			return rest_ensure_response(array('error' => 'only post type is supported'), 400);
+		}
+
+		# Get post categories
+		$categories = get_the_category($post_id);
+		$category_names = array();
+		if (!empty($categories)) {
+			foreach ($categories as $category) {
+				$category_names[] = $category->name;
+			}
+		}
+
+		# Prepare response data
+		$response_data = array(
+			'post_content' => $post->post_content,
+			'post_title' => $post->post_title,
+			'post_status' => $post->post_status,
+			'otto_ai_page' => false,
+			'comment_status' => $post->comment_status,
+			'permalink' => $post->post_name,
+			'is_landing_page' => false,
+			'post_categories' => $category_names,
+			'post_id' => $post_id,
+			'post_type' => $post->post_type,
+			'post_parent' => $post->post_parent
+		);
+
+		return rest_ensure_response($response_data);
+	}
+	
 	public function post_categories() {
 		$categories = get_categories(array(
 			'hide_empty' => false,
