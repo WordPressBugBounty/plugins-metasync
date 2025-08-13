@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.3.11
+Stable tag: 2.4.0
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,20 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.4.0 =
+* Feature 1: Single Sign On to WP from Dashboard
+* Feature 2: Modifying Existing Posts with CA AI
+* Improvement 1: Improved Error Handling for menu Image field
+* Improvement 2: Notification about permalink compatibility
+* Improvement 3: Remove outdate UI component (Clear Cache Button)
+* Improvement 4: Delete Zipped logs older than 30 days
+* Improvement 5: Displaying Block Quote elements from CA
+* Bug fix 1: Table of Contents not Working for some sites
+* Bug fix 2: FAQ Section not comming in correctly for some sites
+* Bug fix 3: Error warning while publishing to WP Elementor on some sites
+* Bug fix 4: Fatal Error triggered on invalid URI
+* Bug fix 5: Preserve redirection for forward slash ending urls
+
 = 2.3.11 =
 * Feature 1: Modifying Existing Posts with Content Assistant AI
 

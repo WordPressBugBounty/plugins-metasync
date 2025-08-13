@@ -811,6 +811,14 @@ class Metasync_Public
 				// Handle heading elements			
 				$result['settings']['title'] = $node->nodeValue;
 				$result['settings']['header_size'] = $node->nodeName;
+
+				# Check if the heading already has an ID
+				$existing_id = $node->getAttribute('id');
+
+				# If the ID exists, assign it as _element_id so Elementor renders it in HTML
+				if (!empty($existing_id)) {
+					$result['settings']['_element_id'] = $existing_id;
+				}
 				if(isset($this->metasync_option_data['enabled_elementor_plugin_css']) && isset($this->metasync_option_data['enabled_elementor_plugin_css_color']) && $this->metasync_option_data['enabled_elementor_plugin_css']!=="default"){
 					$result['settings']['title_color'] = $this->metasync_option_data['enabled_elementor_plugin_css_color']; // Set default title color
 				}
@@ -854,6 +862,17 @@ class Metasync_Public
 				$result["settings"]= array('editor'=> $node->ownerDocument->saveHTML($node));
 				$result["elements"]= array();        
 				$result['widgetType'] = 'text-editor';		
+			}elseif ($node->nodeName === 'blockquote') {
+				# Add a class 
+				$node->setAttribute('class', 'metasyncBlockquote');
+				# Set the HTML content inside the Elementor "text-editor" widget
+				$html = $node->ownerDocument->saveHTML($node);
+				# Insert blockquote into editor content
+				$result["settings"] = array('editor' => $html); 
+				# No child widgets or inner elements inside this block
+				$result["elements"] = array();
+				# Specify that this content should use the "text-editor" widget type
+				$result['widgetType'] = 'text-editor';
 			} 
 
 			if(isset($result['widgetType'])){
@@ -871,7 +890,12 @@ class Metasync_Public
 			if($rootElement->nodeName!=='html' && $rootElement->nodeName!=='body' &&
 			$rootElement->nodeName!=='tbody'&& $rootElement->nodeName!=='tfoot' && $rootElement->nodeName!=='tr' && $rootElement->nodeName!=='th' && $rootElement->nodeName!=='td'){
 			$htmlArray = $this->htmlToElementorBlock($rootElement);
-			$outputArray[] = $htmlArray;
+			# $outputArray[] = $htmlArray;
+			# Only add non-null values to the output array
+			# non-null changed to not-empty
+            if (!empty($htmlArray)) {
+                $outputArray[] = $htmlArray;
+            }
 			}		
 		}
 		return $outputArray;
@@ -1001,6 +1025,21 @@ class Metasync_Public
 						$node->ownerDocument->saveHTML($node) 
 					]
 				];
+			}elseif ($node->nodeName === 'blockquote') {
+				# Add the standard Gutenberg quote class to ensure proper styling
+				$node->setAttribute('class', 'wp-block-quote');
+				# Convert the full blockquote HTML
+				$quote_html = $node->ownerDocument->saveHTML($node);
+				# Return a properly structured Gutenberg "core/quote" block
+				return [
+					"blockName" => "core/quote", 
+					"attrs" => [],
+					"innerBlocks" => [],
+					"innerHTML" => $quote_html,
+					"innerContent" => [
+						$quote_html
+					]
+				];
 			}
 		}
 		
@@ -1018,8 +1057,15 @@ class Metasync_Public
 			$result['id'] = uniqid(); // Generate unique ID for the element
 			$result['elType'] = 'widget'; // Assume all elements are widgets					
 			if (in_array(strtolower($node->nodeName), array('h1', 'h2', 'h3', 'h4', 'h5','h6'))) {
-				// Handle heading elements	
-				$result =' [et_pb_heading title="'.$node->nodeValue.'" _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" title_level="'.$node->nodeName.'" hover_enabled="0" sticky_enabled="0"][/et_pb_heading]';
+
+				# Fetch the existing ID from the heading element (if any)
+				$existing_id = $node->getAttribute('id');
+
+				# If ID exists, prepare it as a valid Divi module attribute; otherwise, leave it out
+				$extra_id_attr = !empty($existing_id) ? ' module_id="' . $existing_id . '"' : '';
+
+				# Handle heading elements embedding the ID only when it's available
+				$result =' [et_pb_heading title="'.$node->nodeValue.'" _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" title_level="'.$node->nodeName.'" hover_enabled="0" sticky_enabled="0"'. $extra_id_attr .'][/et_pb_heading]';
 			} elseif ($node->nodeName === 'img') {
 				// Handle image elements			
 				try{
@@ -1046,7 +1092,14 @@ class Metasync_Public
 					$node->setAttribute('class', 'metasyncTable');
 				}
 				$result= '[et_pb_code _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" global_colors_info="{}"]'.$node->ownerDocument->saveHTML($node).'[/et_pb_code]' ;	
-			} 			
+			}elseif ($node->nodeName === 'blockquote') {
+                # Add class 
+                $node->setAttribute('class', 'metasyncQuote');
+                # Convert the <blockquote> node and its contents (including tags like <em>) to HTML
+                $quote_html = $node->ownerDocument->saveHTML($node);
+				# Wrap the blockquote content inside a Divi Text Module since Divi has no native quote module
+                $result = '[et_pb_text _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" global_colors_info="{}"]'.$quote_html.'[/et_pb_text]';
+            }				
 			return $result;		
 		}
 	}
@@ -1081,6 +1134,10 @@ class Metasync_Public
 	{
 		$post_content = new DOMDocument();
 		$internalErrors = libxml_use_internal_errors(true);
+
+		# Replace newlines with <br> before parsing
+		$item['post_content'] = str_replace(["\r\n", "\r", "\n"], "<br>", $item['post_content']);
+
 		// Check if the php version is below 8.2.0
 		if (version_compare(PHP_VERSION, '8.2.0', '<')) {
 			// Use mb_convert_encoding for PHP < 8.2

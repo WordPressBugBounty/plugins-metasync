@@ -21,7 +21,7 @@ class Metasync_Sync_Requests
     /**
      * Data or Response received from HeartBeat API for admin area.
      */
-    public function SyncCustomerParams()
+    public function SyncCustomerParams($token = null)
     {
         $categories_sync_limit = 1000;
         $users_sync_limit = 1000;
@@ -120,6 +120,11 @@ class Metasync_Sync_Requests
          //   'page_builder'=> (($enabled_plugin_editor == 'elementor' && $elementor_active && $enabled_plugin_editor!='' )?'elementor':'gutenberg') 
 
         ];
+
+        # append login auth token to payload
+        if(!empty($token)){
+            $payload['login_auth_token'] = $token;
+        }
 
         $data = [
             'body'          => $payload,

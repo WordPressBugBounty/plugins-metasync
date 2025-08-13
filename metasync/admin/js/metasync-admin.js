@@ -574,6 +574,9 @@
 							}
 							html += '</div>';
 
+							// Remove previous error notices
+							$('.metasync-error-wrap').remove();
+							
 							// Insert the error message before the form
 							$('#metaSyncGeneralSetting').before(html);
 

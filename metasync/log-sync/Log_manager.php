@@ -433,4 +433,46 @@ Class Log_Manager{
 
     }
 
+    /**
+     * Clean up old ZIP log files
+     * @param int $days_to_keep Number of days to keep ZIP files (default: 30)
+     */
+    function cleanup_old_zip_files($days_to_keep = 30) {
+
+        # Define the path to the zipped_logs folder
+        $zip_folder = $this->metasync_logs_path . '/zipped_logs';
+        
+        # Exit early if the zipped_logs directory doesn't exist
+        if (!is_dir($zip_folder)) {
+            return;
+        }
+        
+        # Calculate the cutoff time: current time minus the number of seconds in $days_to_keep days
+        $cutoff_time = time() - ($days_to_keep * 24 * 60 * 60);
+
+        # Counter to keep track of how many files are deleted
+        $files_deleted = 0;
+        
+        # Get all files in the zipped_logs directory
+        $files = scandir($zip_folder);
+        foreach ($files as $file) {
+
+            # Build the full file path
+            $file_path = $zip_folder . '/' . $file;
+            
+            # Check if:  It is a file (not a folder), has a .zip extension, name starts with "logs_", modification time is older than the cutoff time
+            if (is_file($file_path) && 
+            pathinfo($file, PATHINFO_EXTENSION) === 'zip' && 
+            strpos($file, 'logs_') === 0 && 
+            filemtime($file_path) < $cutoff_time)
+            {
+                # delete the file
+                if (unlink($file_path)) {
+                    $files_deleted++;
+                }
+            }
+        }
+        # Log the number of deleted files
+        error_log("Metasync: Deleted $files_deleted old ZIP log files (older than $days_to_keep days)");
+    }
 }

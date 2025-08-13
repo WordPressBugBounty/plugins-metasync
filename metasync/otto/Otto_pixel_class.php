@@ -234,6 +234,9 @@ Class Metasync_otto_pixel{
             $route = 'https://staging-perm.wp65.qa.internal.searchatlas.com/';
         }
         */
+
+        # Handle canonical redirection before Otto processing
+        $this->handle_canonical_redirection($route);
         # 
         $route = rtrim($route, '/');
         
@@ -251,5 +254,41 @@ Class Metasync_otto_pixel{
 
         # prevent further wp execution
         exit();
+    }
+
+	# handle canonical redirection like WordPress does
+    function handle_canonical_redirection($current_url){
+        
+        # parse the current URL
+        $parsed_url = parse_url($current_url);
+        $path = $parsed_url['path'] ?? '';
+        
+        # skip if empty path or has file extension
+        if (empty($path) || pathinfo($path, PATHINFO_EXTENSION)) {
+            return;
+        }
+        
+        # get current trailing slash status
+        $has_trailing_slash = substr($path, -1) === '/';
+        
+        # determine what WordPress expects based on permalink structure
+        $permalink_structure = get_option('permalink_structure');
+        $should_have_trailing_slash = !empty($permalink_structure) && substr($permalink_structure, -1) === '/';
+        
+        # Initialize variable to hold the corrected canonical URL if needed
+        $canonical_url = null;
+        if ($should_have_trailing_slash && !$has_trailing_slash) {
+            # WordPress expects trailing slash but URL doesn't have one
+            $canonical_url = $current_url . '/';
+        } elseif (!$should_have_trailing_slash && $has_trailing_slash) {
+            # WordPress doesn't expect trailing slash but URL has one
+            $canonical_url = rtrim($current_url, '/');
+        }
+        
+        # perform redirect if needed
+        if ($canonical_url && $canonical_url !== $current_url) {
+            wp_redirect($canonical_url, 301);
+            exit();
+        }
     }
 }

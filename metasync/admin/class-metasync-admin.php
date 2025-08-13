@@ -545,12 +545,126 @@ class Metasync_Admin
     }
 
     /**
+     * SSO Validation function
+     * Gets the token from the request and validates it
+     */
+    public function validate_sso_token(){
+
+        # check that request has get parameter token
+        if(!isset($_GET['metasync_auth_token'])){
+            return false;
+        }
+    
+        # get the token from the request and sanitize
+        $token = sanitize_text_field($_GET['metasync_auth_token']);
+
+        # get token 
+        $token_hash = hash('sha256', $token);
+
+        # get stored token data
+        $token_data = get_option('metasync_wp_sso_token');
+
+        # decode the token data
+        $token_data = json_decode($token_data, true);
+
+        # compare the token with the stored token
+        if($token_data['token'] == $token_hash){
+
+            # check if token has expired (30 minutes)
+            if($token_data['timestamp'] <= time() - 1800){
+                return false;
+            }
+
+            # get first admin user
+            $admin_user = get_users(array('role' => 'administrator', 'number' => 1));
+            
+            # check that we have an admin user
+            if(empty($admin_user)){
+                return false;
+            }
+
+            # regenerate the token
+            $new_token = $this->generate_wp_sso_token(true);
+
+            # sync the customer params
+            $sync_request = new Metasync_Sync_Requests();
+            $sync_request->SyncCustomerParams($new_token);
+
+            # get the first admin user
+            $admin_user = $admin_user[0];
+
+            # log the user in an create a session
+            wp_set_current_user($admin_user->ID);
+            wp_set_auth_cookie($admin_user->ID);
+
+            # redirect to admin dashboard
+            wp_redirect(admin_url());
+            exit;
+        }
+
+        # return false if the token is not valid
+        return false;
+    }
+
+    /**
+     * WP SSO Function
+     * This function generates a token for the WP SSO
+     * 
+     * */
+    public function generate_wp_sso_token($regenerate = false){
+
+        # first check if the token is already generated
+        $token_data = get_option('metasync_wp_sso_token');
+
+        # check
+        if($token_data){
+
+            # decode the token data
+            $token_data = json_decode($token_data, true);
+
+            # check token time stamp is less than 30
+            if($token_data['timestamp'] >time() - 1800 && $regenerate == false){
+
+                # return the token
+                return $token_data['token'];
+            }
+        }
+
+        # generate a random token
+        $token = wp_generate_password(32, true, true);
+
+        # hash the token
+        $token = hash('sha256', $token);
+
+        #re hash the token
+        $stored_token = hash('sha256', $token);
+
+        # do json object with token and timestamp
+        $json_token_data = json_encode([
+            'token' => $stored_token,
+            'timestamp' => time()
+        ]);
+
+        # save the token to the database
+        update_option('metasync_wp_sso_token', $json_token_data);
+
+        # return the token
+        return $token;
+    }
+
+    /**
      * Data or Response received from HeartBeat API for admin area.
      */
     public function lgSendCustomerParams()
     {
         $sync_request = new Metasync_Sync_Requests();
-        $response = $sync_request->SyncCustomerParams();
+
+        # call the generate_wp_sso_token function
+        $token = $this->generate_wp_sso_token();
+
+        # get the response
+        $response = $sync_request->SyncCustomerParams($token);
+
 
         $responseBody = wp_remote_retrieve_body($response);
         $responseCode = wp_remote_retrieve_response_code($response);
@@ -656,15 +770,19 @@ class Metasync_Admin
     ?>
         <div class="wrap">
         <h1> General Settings</h1>
+        <?php
+        /*
+        # Temporarily commented out: Clear Cache notice and button (can be re-enabled later)
 
-        <div class="notice notice-success">
-            <p>
-                <b>Clear all caches at once</b><br/>
-                This will slow down your site until caches are rebuilt
-                <button style="margin-left: 15px;" type ="button" class="button" id="clear_otto_caches" data-toggle="tooltip" data-placement="top" title="Clear all <?php echo $whitelabel_otto_name;?> Caches">Clear <?php echo $whitelabel_otto_name;?> Cache</button>
-            </p>
-        </div> 
-
+        *    <div class="notice notice-success">
+        *        <p>
+        *            <b>Clear all caches at once</b><br/>
+        *            This will slow down your site until caches are rebuilt
+        *            <button style="margin-left: 15px;" type ="button" class="button" id="clear_otto_caches" data-toggle="tooltip" data-placement="top" title="Clear all <?php echo $whitelabel_otto_name;?> Caches">Clear <?php echo $whitelabel_otto_name;?> Cache</button>
+        *        </p>
+        *    </div> 
+        */
+        ?>
         <h2 class="nav-tab-wrapper">
             <a href="?page=<?php echo self::$page_slug; ?>&tab=general" class="nav-tab <?php echo $active_tab == 'general' ? 'nav-tab-active' : ''; ?>">Settings</a>
         </h2>
@@ -800,7 +918,39 @@ class Metasync_Admin
         # Process URL fields
         foreach ($url_fields as $field) {
             if (isset($_POST['metasync_options']['general'][$field])) {
-                $metasync_options['general'][$field] = esc_url_raw($_POST['metasync_options']['general'][$field]);
+                
+                # Trim whitespace from the field value
+                $value = trim($_POST['metasync_options']['general'][$field]);
+                
+                # Skip empty values
+                if ($value === '') {
+                    continue;
+                }
+                
+                # Validate URL format
+                if (filter_var($value, FILTER_VALIDATE_URL)) {
+                    
+                    # Additional validation for proper domain name
+                    $parsed_url = parse_url($value);
+                    $host = isset($parsed_url['host']) ? $parsed_url['host'] : '';
+                    
+                    # Check if host has proper domain format (contains dot) or is a valid IP
+                    if (strpos($host, '.') !== false || filter_var($host, FILTER_VALIDATE_IP)) {
+                        
+                        # If valid, sanitize and assign the URL to options
+                        $metasync_options['general'][$field] = esc_url_raw($value);
+                    } else {
+                        
+                        # Add error if the domain format is invalid
+                        $field_name = ($field === 'white_label_plugin_author_uri') ? 'Author URL' : 'Plugin URL';
+                        $validation_errors[] = 'Invalid ' . $field_name . ' format. Please use a proper domain name (e.g., example.com).';
+                    }
+                } else {
+                    
+                    # Add error if the URL format is invalid
+                    $field_name = ($field === 'white_label_plugin_author_uri') ? 'Author URL' : 'Plugin URL';
+                    $validation_errors[] = 'Invalid ' . $field_name . ' format.';
+                }
             }
         }
     
@@ -1429,7 +1579,10 @@ class Metasync_Admin
             'Author URI',
             function(){
                 $value = Metasync::get_option('general')['white_label_plugin_author_uri'] ?? '';   
-                printf('<input type="text" name="' . $this::option_key . '[general][white_label_plugin_author_uri]" value="' . esc_attr($value) . '" />');
+               # printf('<input type="text" name="' . $this::option_key . '[general][white_label_plugin_author_uri]" value="' . esc_attr($value) . '" />');
+               # Fixed printf usage
+                printf('<input type="text" name="%s" value="%s" />',  esc_attr($this::option_key . '[general][white_label_plugin_author_uri]'),  esc_attr($value) );
+              
             },
             self::$page_slug . '_branding',
             $SECTION_METASYNC
@@ -3454,8 +3607,8 @@ class Metasync_Admin
     public function permalink_structure_dashboard_warning() {
         $current_permalink_structure = get_option('permalink_structure');
 
-        # Get the plugin name from the options, with a fallback to 'Searchatlas'
-        $plugin_name =  Metasync::get_option('general')['white_label_plugin_name'] ?? 'Searchatlas'; 
+        # Get the plugin name from the options if not empty, with a fallback to 'Search Atlas'
+        $plugin_name = !empty(Metasync::get_option()['general']['white_label_plugin_name']) ? Metasync::get_option()['general']['white_label_plugin_name']: 'Search Atlas';
         $current_rewrite_rules = get_option('rewrite_rules');
         # Check if the current permalink structure is set to "Plain"
         if (($current_permalink_structure == '/%post_id%/' || $current_permalink_structure == '') && $current_rewrite_rules == '') {      

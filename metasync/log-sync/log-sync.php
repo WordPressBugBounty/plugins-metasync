@@ -63,6 +63,8 @@ function execute_metasync_log_preparation() {
                 unlink($file);
             }
         }
+        # Clean up old ZIP files (keep last 30 days)
+        $log_manager->cleanup_old_zip_files(30);
     }
 }
 

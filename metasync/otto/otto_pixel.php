@@ -378,8 +378,8 @@ function show_otto_ssr_notice() {
         return; // Only show to admins
     }
 
-    # Get the plugin name from the options, with a fallback to 'Searchatlas'
-    $plugin_name =  Metasync::get_option('general')['white_label_plugin_name'] ?? 'Searchatlas'; 
+    # Get the plugin name from the options if not empty, with a fallback to 'Search Atlas'
+    $plugin_name = !empty(Metasync::get_option()['general']['white_label_plugin_name']) ? Metasync::get_option()['general']['white_label_plugin_name']: 'Search Atlas';
     if (check_otto_js()) {
 
         # Show admin notice with plugin name included in the message
