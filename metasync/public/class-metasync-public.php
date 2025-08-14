@@ -672,6 +672,34 @@ class Metasync_Public
 			return rest_ensure_response(array('error' => 'only post type is supported'), 400);
 		}
 
+		# Render content
+  		$post_content = $post->post_content;
+		if (strpos($post_content, '[et_pb_') !== false) {
+			# Load Divi modules if available
+			if (function_exists('et_builder_add_main_elements')) {
+				et_builder_add_main_elements();
+			}
+			# Render Divi content to HTML
+			if (function_exists('et_builder_render_layout')) {
+				$post_content = et_builder_render_layout($post_content);
+			} else {
+				$post_content = 'Divi render function not found';
+			}
+		} else {
+			# Standard WP content filter
+			$post_content = apply_filters('the_content', $post_content);
+		}
+
+		# Get featured image URL (full size, or null)
+        $featured_image = null;
+        if (has_post_thumbnail($post_id)) {
+            $featured_image = [
+                'url'  => get_the_post_thumbnail_url($post_id, 'full'),
+                'id'   => get_post_thumbnail_id($post_id),
+                'alt'  => get_post_meta(get_post_thumbnail_id($post_id), '_wp_attachment_image_alt', true) ?: ''
+            ];
+        }
+
 		# Get post categories
 		$categories = get_the_category($post_id);
 		$category_names = array();
@@ -683,7 +711,7 @@ class Metasync_Public
 
 		# Prepare response data
 		$response_data = array(
-			'post_content' => $post->post_content,
+			'post_content' => $post_content,
 			'post_title' => $post->post_title,
 			'post_status' => $post->post_status,
 			'otto_ai_page' => false,
@@ -693,7 +721,8 @@ class Metasync_Public
 			'post_categories' => $category_names,
 			'post_id' => $post_id,
 			'post_type' => $post->post_type,
-			'post_parent' => $post->post_parent
+			'post_parent' => $post->post_parent,
+			'featured_image'   => $featured_image
 		);
 
 		return rest_ensure_response($response_data);
