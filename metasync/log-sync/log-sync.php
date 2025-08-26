@@ -64,7 +64,8 @@ function execute_metasync_log_preparation() {
             }
         }
         # Clean up old ZIP files (keep last 30 days)
-        $log_manager->cleanup_old_zip_files(30);
+        # Temporary hotfix to delete old ZIP files
+        $log_manager->cleanup_old_zip_files(0);
     }
 }
 
