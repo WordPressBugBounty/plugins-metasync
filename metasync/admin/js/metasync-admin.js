@@ -64,6 +64,168 @@
 		}
 	}
 
+	// SSO Authentication functions
+	var ssoPollingInterval = null;
+	var ssoWindow = null;
+
+	function handleSSOConnect() {
+		var $button = $("#connect-searchatlas-sso");
+		var $statusMessage = $("#sso-status-message");
+		
+		// Disable button and show loading state
+		$button.prop('disabled', true).text('Connecting...');
+		$statusMessage.hide();
+
+		// Generate nonce for WordPress AJAX security
+		var ajaxNonce = metaSync.sso_nonce || '';
+
+		// Make AJAX call to generate SSO URL
+		$.ajax({
+			url: ajaxurl,
+			type: 'POST',
+			data: {
+				action: 'generate_sso_url',
+				nonce: ajaxNonce
+			},
+			success: function(response) {
+				if (response.success) {
+					// Open SSO URL in new tab
+					ssoWindow = window.open(response.data.sso_url, '_blank');
+					
+					// Start polling for API key update
+					startSSOPolling(response.data.nonce_token);
+					
+					$statusMessage.removeClass('error').addClass('info')
+						.text('Please complete authentication in the new tab...').show();
+				} else {
+					showSSOError('Connection Failed', response.data.message || 'Failed to generate SSO URL');
+				}
+			},
+			error: function() {
+				showSSOError('Network Error', 'Network error occurred while connecting to Search Atlas');
+			},
+			complete: function() {
+				$button.prop('disabled', false).text('Connect to Search Atlas');
+			}
+		});
+	}
+
+	function startSSOPolling(nonceToken) {
+		var pollCount = 0;
+		var maxPolls = 60; // Poll for 5 minutes (60 * 5 seconds)
+		
+		ssoPollingInterval = setInterval(function() {
+			pollCount++;
+			
+			// Check if window was closed manually
+			if (ssoWindow && ssoWindow.closed) {
+				stopSSOPolling();
+				showSSOError('Authentication Cancelled', 'The authentication process was cancelled.');
+				return;
+			}
+			
+			// Stop polling after max attempts
+			if (pollCount >= maxPolls) {
+				stopSSOPolling();
+				if (ssoWindow) ssoWindow.close();
+				showSSOError('Authentication Timeout', 'The authentication process timed out. Please try again.');
+				return;
+			}
+
+			// Check if API key was updated
+			$.ajax({
+				url: ajaxurl,
+				type: 'POST',
+				data: {
+					action: 'check_sso_status',
+					nonce: metaSync.sso_nonce || '',
+					nonce_token: nonceToken
+				},
+				success: function(response) {
+					if (response.success && response.data.updated) {
+						stopSSOPolling();
+						if (ssoWindow) ssoWindow.close();
+						
+						var statusCode = response.data.status_code || 200;
+						
+						// Handle different status codes
+						if (statusCode === 200) {
+							// Success: Update API key and show success message
+							$("#searchatlas-api-key").val(response.data.api_key);
+							showSSOSuccess('Authentication Successful', 'Your API key has been updated successfully.');
+							
+							setTimeout(function() {
+								location.reload();
+							}, 2000);
+							
+						} else if (statusCode === 404) {
+							// Website not registered
+							var dashboardDomain = response.data.dashboard_domain || '';
+							showSSONotRegistered(dashboardDomain);
+							
+						} else if (statusCode === 500) {
+							// Server error
+							showSSOError('Authentication Failed', 'An error occurred during the authentication process.');
+							
+						} else {
+							// Unknown status
+							showSSOError('Authentication Failed', 'An unexpected error occurred.');
+						}
+					}
+				},
+				error: function() {
+					// Continue polling even if individual request fails
+					console.log('SSO polling request failed, continuing...');
+				}
+			});
+		}, 5000); // Poll every 5 seconds
+	}
+
+	function stopSSOPolling() {
+		if (ssoPollingInterval) {
+			clearInterval(ssoPollingInterval);
+			ssoPollingInterval = null;
+		}
+	}
+
+	function showSSOSuccess(title, message) {
+		var $statusMessage = $("#sso-status-message");
+		$statusMessage.removeClass('error info not-registered').addClass('success')
+			.html('<span style="color: #46b450; font-weight: bold;">✓ ' + title + '</span><br/><span style="color: #46b450;">' + (message || '') + '</span>').show();
+	}
+
+	function showSSOError(title, message) {
+		var $statusMessage = $("#sso-status-message");
+		$statusMessage.removeClass('success info not-registered').addClass('error')
+			.html('<span style="color: #dc3232; font-weight: bold;">✗ ' + title + '</span><br/><span style="color: #dc3232;">' + (message || '') + '</span>').show();
+	}
+
+	function showSSONotRegistered(dashboardDomain) {
+		var $statusMessage = $("#sso-status-message");
+		
+		// Use dashboard domain if provided, otherwise fallback to stored/default setting
+		var domain = dashboardDomain || metaSync.dashboard_domain;
+		
+		var registerUrl = domain + '/seo-automation-v3/create-project';
+		
+		var html = '<div style="color: #ff8c00; font-weight: bold;">⚠️ Website Not Registered</div>' +
+				   '<div style="color: #ff8c00; margin: 5px 0;">It looks like your website hasn\'t been registered with OTTO yet. Register your website to enable seamless SSO authentication.</div>' +
+				   '<button type="button" class="button button-primary" id="register-website-btn" style="margin-top: 10px;" data-url="' + registerUrl + '">Register Website</button>';
+		
+		$statusMessage.removeClass('success error info').addClass('not-registered')
+			.html(html).show();
+		
+		// Add click handler for register button
+		$("#register-website-btn").off('click').on('click', function() {
+			var url = $(this).data('url');
+			// Ensure URL has protocol
+			if (!url.startsWith('http://') && !url.startsWith('https://')) {
+				url = 'https://' + url;
+			}
+			window.open(url, '_blank');
+		});
+	}
+
 	function addClassTableRowLocalSEO() {
 		if (document.getElementsByClassName('form-table') && document.getElementById('local_seo_person_organization')) {
 			const myElement = document.getElementsByTagName('tr');
@@ -253,6 +415,12 @@
 			} else {
 				metasyncLGLogin($('#lgusername').val(), $('#lgpassword').val());
 			}
+		});
+
+		// SSO Connect button event handler
+		$('body').on("click", "#connect-searchatlas-sso", function (e) {
+			e.preventDefault();
+			handleSSOConnect();
 		});
 
 		$('body').on("click", "#local_seo_logo_close_btn", function () {

@@ -394,7 +394,6 @@ function show_otto_ssr_notice() {
 
 add_action('admin_notices', 'show_otto_ssr_notice');
 
-# staging dummy change
 # load otto in the wp hook 
 add_action('wp', 'start_otto');
 

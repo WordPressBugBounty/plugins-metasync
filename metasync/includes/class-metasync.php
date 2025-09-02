@@ -264,6 +264,10 @@ class Metasync
 		$this->loader->add_action('heartbeat_settings', $plugin_admin, 'metasync_heartbeat_settings');
 		$this->loader->add_action('heartbeat_received', $plugin_admin, 'metasync_received_data', 10, 2);
 		$this->loader->add_action('wp_ajax_lgSendCustomerParams', $plugin_admin, 'lgSendCustomerParams');
+		
+		// SSO Authentication endpoints
+		$this->loader->add_action('wp_ajax_generate_sso_url', $plugin_admin, 'generate_sso_url');
+		$this->loader->add_action('wp_ajax_check_sso_status', $plugin_admin, 'check_sso_status');
 
 		#$sync_request = new Metasync_Sync_Requests();
 		#$this->loader->add_action('admin_init', $sync_request, 'SyncWhiteLabelUserHttp', 2);

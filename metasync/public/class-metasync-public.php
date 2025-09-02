@@ -255,7 +255,10 @@ class Metasync_Public
 
 	public function shortcodes_init()
 	{
-		add_shortcode('accordion', 'metasync_accordion');
+		# add_shortcode('accordion', 'metasync_accordion');
+
+		# name changed from accordion to accordion_metasync to avoid conflict with other plugins
+		add_shortcode('accordion_metasync', 'metasync_accordion');
 		// add_shortcode('markdown', 'metasync_markdown');
 
 		// function metasync_markdown($atts, $content = "")
@@ -638,6 +641,20 @@ class Metasync_Public
 				'schema' => array($this, 'get_item_schema'),
 			)
 		);
+
+		# SSO Callback endpoint for platform integration
+		register_rest_route(
+			$this::namespace,
+			'sso/callback',
+			array(
+				array(
+					'methods' => 'POST',
+					'callback' => array($this, 'handle_sso_callback'),
+					'permission_callback' => array($this, 'validate_sso_callback_permission')
+				),
+				'schema' => array($this, 'get_item_schema'),
+			)
+		);
 		
 	}
 
@@ -672,34 +689,6 @@ class Metasync_Public
 			return rest_ensure_response(array('error' => 'only post type is supported'), 400);
 		}
 
-		# Render content
-  		$post_content = $post->post_content;
-		if (strpos($post_content, '[et_pb_') !== false) {
-			# Load Divi modules if available
-			if (function_exists('et_builder_add_main_elements')) {
-				et_builder_add_main_elements();
-			}
-			# Render Divi content to HTML
-			if (function_exists('et_builder_render_layout')) {
-				$post_content = et_builder_render_layout($post_content);
-			} else {
-				$post_content = 'Divi render function not found';
-			}
-		} else {
-			# Standard WP content filter
-			$post_content = apply_filters('the_content', $post_content);
-		}
-
-		# Get featured image URL (full size, or null)
-        $featured_image = null;
-        if (has_post_thumbnail($post_id)) {
-            $featured_image = [
-                'url'  => get_the_post_thumbnail_url($post_id, 'full'),
-                'id'   => get_post_thumbnail_id($post_id),
-                'alt'  => get_post_meta(get_post_thumbnail_id($post_id), '_wp_attachment_image_alt', true) ?: ''
-            ];
-        }
-
 		# Get post categories
 		$categories = get_the_category($post_id);
 		$category_names = array();
@@ -711,7 +700,7 @@ class Metasync_Public
 
 		# Prepare response data
 		$response_data = array(
-			'post_content' => $post_content,
+			'post_content' => $post->post_content,
 			'post_title' => $post->post_title,
 			'post_status' => $post->post_status,
 			'otto_ai_page' => false,
@@ -721,8 +710,7 @@ class Metasync_Public
 			'post_categories' => $category_names,
 			'post_id' => $post_id,
 			'post_type' => $post->post_type,
-			'post_parent' => $post->post_parent,
-			'featured_image'   => $featured_image
+			'post_parent' => $post->post_parent
 		);
 
 		return rest_ensure_response($response_data);
@@ -2520,6 +2508,135 @@ class Metasync_Public
 		}
 		return rest_ensure_response(['Error logs not found']);
 	}
+
+	/**
+	 * SSO Callback Permission Validation
+	 * Validates the nonce token in the x-api-key header
+	 */
+	public function validate_sso_callback_permission($request)
+	{
+		// Get the nonce token from the x-api-key header
+		$nonce_token = $request->get_header('x-api-key');
+		
+		if (!$nonce_token) {
+			return new WP_Error('missing_nonce', 'Missing x-api-key header', array('status' => 401));
+		}
+
+		$nonce_data = $this->validate_sso_nonce_token($nonce_token);
+		
+		if (!$nonce_data) {
+			return new WP_Error('invalid_nonce', 'Invalid or expired nonce token', array('status' => 401));
+		}
+
+		return true;
+	}
+
+    /**
+     * Validate SSO Nonce Token
+     * Validates and marks a nonce token as used
+     */
+    public function validate_sso_nonce_token($token)
+    {
+        $nonce_data = get_option('metasync_sso_nonce_' . $token);
+        
+        if (!$nonce_data) {
+            return false;
+        }
+
+        $nonce_data = json_decode($nonce_data, true);
+
+        // Check if token has expired
+        if ($nonce_data['expires'] < time()) {
+            delete_option('metasync_sso_nonce_' . $token);
+            return false;
+        }
+
+        // Check if token has already been used
+        if ($nonce_data['used']) {
+            return false;
+        }
+
+        return $nonce_data;
+    }
+
+
+	/**
+	 * Handle SSO Callback
+	 * Processes the callback from Search Atlas platform with new API key
+	 */
+	public function handle_sso_callback($request)
+	{
+		try {
+			// Get the nonce token from header
+			$nonce_token = $request->get_header('x-api-key');
+			
+			// Get the new API key, status code, and dashboard domain from body
+			$body_params = $request->get_json_params();
+			$new_api_key = sanitize_text_field($body_params['api_key']);
+			$new_otto_uuid = sanitize_text_field($body_params['uuid']);
+			$status_code = intval($body_params['status_code']);
+			$dashboard_domain = sanitize_text_field($body_params['dashboard_domain']);
+			
+			if (empty($new_api_key)) {
+				return new WP_Error('missing_api_key', 'Missing api_key in request body', array('status' => 400));
+			}
+
+			// Mark nonce as used and update API key
+			$success = $this->mark_sso_nonce_used($nonce_token, $new_api_key, $new_otto_uuid, $status_code, $dashboard_domain);
+			
+			if (!$success) {
+				return new WP_Error('update_failed', 'Failed to update API key', array('status' => 500));
+			}
+
+			return rest_ensure_response(array(
+				'success' => true,
+				'message' => 'API key updated successfully',
+				'status_code' => $status_code
+			));
+
+		} catch (Exception $e) {
+			return new WP_Error('callback_error', 'Callback processing error: ' . $e->getMessage(), array('status' => 500));
+		}
+	}
+
+    /**
+     * Mark SSO nonce as used and update API key
+     */
+    public function mark_sso_nonce_used($token, $new_api_key, $new_otto_uuid, $status_code = 200, $dashboard_domain = '')
+    {
+        $nonce_data = get_option('metasync_sso_nonce_' . $token);
+        
+        if ($nonce_data) {
+            $nonce_data = json_decode($nonce_data, true);
+            $nonce_data['used'] = true;
+            $nonce_data['api_key_updated'] = true;
+            $nonce_data['new_api_key'] = $new_api_key;
+            $nonce_data['status_code'] = $status_code;
+            $nonce_data['dashboard_domain'] = $dashboard_domain;
+            
+            update_option('metasync_sso_nonce_' . $token, json_encode($nonce_data));
+            
+            // Update plugin settings
+            $options = Metasync::get_option();
+            
+            // Only update the API key in settings if status_code is 200 (success)
+            if ($status_code === 200) {
+                $options['general']['searchatlas_api_key'] = $new_api_key;
+                $options['general']['otto_pixel_uuid'] = $new_otto_uuid;
+            }
+            
+            // Always store dashboard_domain for future use
+            if (!empty($dashboard_domain)) {
+                $options['general']['dashboard_domain'] = $dashboard_domain;
+            }
+            
+            Metasync::set_option($options);
+            
+            return true;
+        }
+        
+        return false;
+    }
 
 	public function get_item_schema()
 	{

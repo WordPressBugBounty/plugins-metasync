@@ -509,9 +509,12 @@ class Metasync_Admin
             false
         );
         // Localize the script to make the AJAX URL accessible
+        $options = Metasync::get_option('general');
         wp_localize_script( $this->plugin_name, 'metaSync', array(
             'ajax_url' => admin_url( 'admin-ajax.php' ),
-			'admin_url'=>admin_url('admin.php')
+			'admin_url'=>admin_url('admin.php'),
+			'sso_nonce' => wp_create_nonce('metasync_sso_nonce'),
+			'dashboard_domain' => $options['dashboard_domain'] ?? 'dashboard.searchatlas.com'
         ));
         add_action('admin_notices', array($this, 'permalink_structure_dashboard_warning'));
 
@@ -549,6 +552,11 @@ class Metasync_Admin
      * Gets the token from the request and validates it
      */
     public function validate_sso_token(){
+
+        // Skip validation if user is already logged in
+        if (is_user_logged_in()) {
+            return true;
+        }
 
         # check that request has get parameter token
         if(!isset($_GET['metasync_auth_token'])){
@@ -651,6 +659,103 @@ class Metasync_Admin
         # return the token
         return $token;
     }
+
+    /**
+     * SSO URL Generation
+     * Generates a unique nonce token and SSO URL for Search Atlas authentication
+     */
+    public function generate_sso_url()
+    {
+        // Verify nonce for security
+        if (!wp_verify_nonce($_POST['nonce'], 'metasync_sso_nonce')) {
+            wp_send_json_error(array('message' => 'Invalid nonce'));
+            return;
+        }
+
+        try {
+            // Generate unique nonce token
+            $nonce_token = $this->create_sso_nonce_token();
+            
+            // Get WordPress domain (without /wp-admin)
+            $domain = get_site_url();
+            
+            // Construct SSO URL
+            $sso_url = 'https://dashboard.searchatlas.com/sso/wordpress?' . http_build_query([
+                'nonce_token' => $nonce_token,
+                'domain' => $domain,
+                'return_url' => admin_url('admin.php?page=' . self::$page_slug)
+            ]);
+
+            wp_send_json_success(array(
+                'sso_url' => $sso_url,
+                'nonce_token' => $nonce_token
+            ));
+
+        } catch (Exception $e) {
+            wp_send_json_error(array('message' => 'Failed to generate SSO URL: ' . $e->getMessage()));
+        }
+    }
+
+    /**
+     * Check SSO Status
+     * Polls to check if the API key has been updated via SSO
+     */
+    public function check_sso_status()
+    {
+        // Verify nonce for security
+        if (!wp_verify_nonce($_POST['nonce'], 'metasync_sso_nonce')) {
+            wp_send_json_error(array('message' => 'Invalid nonce'));
+            return;
+        }
+
+        $nonce_token = sanitize_text_field($_POST['nonce_token']);
+        
+        // Check if this nonce token has been used (i.e., API key updated)
+        $nonce_data = get_option('metasync_sso_nonce_' . $nonce_token);
+        
+        if ($nonce_data) {
+            $nonce_data = json_decode($nonce_data, true);
+            
+            if (isset($nonce_data['api_key_updated']) && $nonce_data['api_key_updated']) {
+                // Clean up the nonce token
+                delete_option('metasync_sso_nonce_' . $nonce_token);
+                
+                wp_send_json_success(array(
+                    'updated' => true,
+                    'api_key' => $nonce_data['new_api_key'],
+                    'status_code' => $nonce_data['status_code'] ?? 200,
+                    'dashboard_domain' => $nonce_data['dashboard_domain'] ?? ''
+                ));
+            }
+        }
+
+        wp_send_json_success(array('updated' => false));
+    }
+
+    /**
+     * Create SSO Nonce Token
+     * Generates a unique, single-use token for SSO authentication
+     */
+    private function create_sso_nonce_token()
+    {
+        // Generate unique token
+        $token = wp_generate_password(32, false, false) . time();
+        $hashed_token = hash('sha256', $token);
+
+        // Store token data with expiration (30 minutes)
+        $token_data = array(
+            'created' => time(),
+            'expires' => time() + 1800, // 30 minutes
+            'used' => false,
+            'api_key_updated' => false
+        );
+
+        update_option('metasync_sso_nonce_' . $hashed_token, json_encode($token_data));
+
+        return $hashed_token;
+    }
+
+
 
     /**
      * Data or Response received from HeartBeat API for admin area.
@@ -2507,6 +2612,13 @@ class Metasync_Admin
             '<input type="text" id="searchatlas-api-key" name="' . $this::option_key . '[general][searchatlas_api_key]" value="%s" size="40"  />',
             isset(Metasync::get_option('general')['searchatlas_api_key']) ? esc_attr(Metasync::get_option('general')['searchatlas_api_key']) : ''
         );
+        
+        // Add SSO Connect button
+        printf('<br/><br/>');
+        printf('<button type="button" class="button button-secondary" id="connect-searchatlas-sso">Connect to Search Atlas</button>');
+        printf('<span id="sso-status-message" class="sso-status-message" style="margin-left: 10px; display: none; font-weight: bold;"></span>');
+        printf('<p class="description">Click to authenticate with your Search Atlas account and automatically configure your API key.</p>');
+        
         if(  isset(Metasync::get_option('general')['searchatlas_api_key'])&&Metasync::get_option('general')['searchatlas_api_key']!=''){
             $timestamp = @Metasync::get_option('general')['send_auth_token_timestamp'];
             printf(
