@@ -548,6 +548,20 @@ class Metasync_Admin
     }
 
     /**
+     * Conditional SSO Validation wrapper
+     * Only performs SSO validation when there's actually a token in the request
+     */
+    public function conditional_sso_validation(){
+        // Only run SSO validation if there's actually a token parameter in the request
+        if (isset($_GET['metasync_auth_token'])) {
+            return $this->validate_sso_token();
+        }
+        
+        // For normal page navigation, don't interfere
+        return true;
+    }
+
+    /**
      * SSO Validation function
      * Gets the token from the request and validates it
      */

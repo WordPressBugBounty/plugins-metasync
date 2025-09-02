@@ -254,8 +254,8 @@ class Metasync
 
 		$plugin_admin = new Metasync_Admin($this->get_plugin_name(), $this->get_version(), $this->database, $this->db_redirection, $this->db_heartbeat_errors); // , $this->data_error_log_list
 
-		# add sso validation
-		$this->loader->add_action('wp', $plugin_admin, 'validate_sso_token');
+		# add sso validation - only when token is present
+		$this->loader->add_action('wp', $plugin_admin, 'conditional_sso_validation');
 
 		$this->loader->add_action('admin_enqueue_scripts', $plugin_admin, 'enqueue_styles');
 		$this->loader->add_action('admin_enqueue_scripts', $plugin_admin, 'enqueue_scripts');
