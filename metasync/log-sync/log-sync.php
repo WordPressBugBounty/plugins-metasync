@@ -18,7 +18,7 @@ require_once plugin_dir_path(__FILE__) . 'Site_data.php';
  */
 
 # function to schedule the log preparation chron 
-function schedule_log_prep_chron() {
+function metasync_schedule_log_prep_chron() {
 
     # define log pre interval
     $log_chron_interval = 3600 * 12;
@@ -31,7 +31,7 @@ function schedule_log_prep_chron() {
 }
 
 # calls the log prep function
-function execute_metasync_log_preparation() {
+function metasync_execute_metasync_log_preparation() {
     
     #error_log('runing');
 
@@ -64,12 +64,13 @@ function execute_metasync_log_preparation() {
             }
         }
         # Clean up old ZIP files (keep last 30 days)
-        $log_manager->cleanup_old_zip_files(30);
+        # Temporary hotfix to delete old ZIP files
+        $log_manager->cleanup_old_zip_files(0);
     }
 }
 
 # schedule zip upload chron
-function schedule_zip_upload_chron(){
+function metasync_schedule_zip_upload_chron(){
     
     # upload chron interval to 12 hourly
     $upload_chron_interval = 3600 * 12;
@@ -81,7 +82,7 @@ function schedule_zip_upload_chron(){
     }
 }
 
-function do_log_upload(){
+function metasync_do_log_upload(){
 
     # initialize the log prep function
     $log_manager = new Log_Manager();
@@ -91,16 +92,16 @@ function do_log_upload(){
 }
 
 # initialize chrons function
-function initialize_metasync_chron_jobs(){
+function metasync_initialize_metasync_chron_jobs(){
     
     # check that we have the action scheduler function
     if(function_exists('as_next_scheduled_action') && function_exists('as_schedule_recurring_action')){
 
         # schedule the log prep chron
-        schedule_log_prep_chron();
+        metasync_schedule_log_prep_chron();
 
         # schedule zip upload chron
-        schedule_zip_upload_chron();
+        metasync_schedule_zip_upload_chron();
     }
     else{
         error_log('Action Scheduler Functions not Existent');
@@ -108,19 +109,26 @@ function initialize_metasync_chron_jobs(){
 }
 
 # initialize log chron
-add_action('init', 'initialize_metasync_chron_jobs');
+add_action('init', 'metasync_initialize_metasync_chron_jobs');
 
 # hook to the log preparation schedule
-add_action('metasync_log_preparation', 'execute_metasync_log_preparation');
+add_action('metasync_log_preparation', 'metasync_execute_metasync_log_preparation');
+
+# Backward compatibility: Support old function name for existing scheduled actions
+if (!function_exists('execute_metasync_log_preparation')) {
+    function execute_metasync_log_preparation() {
+        metasync_execute_metasync_log_preparation();
+    }
+}
 
 # hook onto the log upload action
-add_action('metasync_log_upload', 'do_log_upload');
+add_action('metasync_log_upload', 'metasync_do_log_upload');
 
 /**
  * @see monitor_api_calls
  *   
  */
-function monitor_api_calls(){
+function metasync_monitor_api_calls(){
     $app = new Request_monitor();
 
     # log incoming requests
@@ -142,4 +150,4 @@ function monitor_api_calls(){
  * This is done to assist debuggin
  */
 
-monitor_api_calls();
+metasync_monitor_api_calls();

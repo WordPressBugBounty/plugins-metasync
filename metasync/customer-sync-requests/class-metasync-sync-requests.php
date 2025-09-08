@@ -69,13 +69,13 @@ class Metasync_Sync_Requests
 
 
         #the native api url
-        $apiUrl = 'https://ca.searchatlas.com/api/wp-website-heartbeat/';
+        $apiUrl = Metasync::CA_API_DOMAIN . '/api/wp-website-heartbeat/';
         
         #check if the api key starts with pub
         if(strpos($api_key, 'pub-') === 0){
 
             #set the heart beat url to the new one
-            $apiUrl = 'https://api.searchatlas.com/api/publisher/one-click-publishing/wp-website-heartbeat/';
+            $apiUrl = Metasync::API_DOMAIN . '/api/publisher/one-click-publishing/wp-website-heartbeat/';
         }
 
         $new_categories = $this->post_categories();
@@ -209,7 +209,7 @@ class Metasync_Sync_Requests
             return;
         }
 
-        $url = "https://api.searchatlas.com/api/customer/account/user/"; // the URL to request
+        $url = Metasync::API_DOMAIN . "/api/customer/account/user/"; // the URL to request
 
         delete_option(Metasync::option_name . '_whitelabel_user');
 

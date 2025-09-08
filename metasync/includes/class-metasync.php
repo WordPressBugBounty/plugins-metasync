@@ -64,9 +64,21 @@ class Metasync
 
 	protected $db_heartbeat_errors;
 
-	// protected $data_error_log_list;
+
 
 	public const option_name = "metasync_options";
+	
+	/**
+	 * Search Atlas Domain Constants
+	 * Centralized constants for all Search Atlas service endpoints
+	 */
+	public const HOMEPAGE_DOMAIN = "https://searchatlas.com";
+	public const DASHBOARD_DOMAIN = "https://dashboard.searchatlas.com";
+	public const API_DOMAIN = "https://api.searchatlas.com";
+	public const CA_API_DOMAIN = "https://ca.searchatlas.com";	
+	public const LOGGER_API_DOMAIN = "https://wp-logger.api.searchatlas.com";
+	public const SUPPORT_EMAIL = "support@searchatlas.com";
+	public const DOCUMENTATION_DOMAIN = "https://help.searchatlas.com";
 
 	/**
 	 * Define the core functionality of the plugin.
@@ -88,6 +100,7 @@ class Metasync
 
 		$this->load_dependencies();
 		$this->set_locale();
+		$this->init_api_key_monitor();
 		$this->define_admin_hooks();
 		$this->define_public_hooks();
 	}
@@ -124,6 +137,11 @@ class Metasync
 		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-i18n.php';
 
 		/**
+		 * The class responsible for monitoring API key changes and triggering heartbeat updates
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-api-key-monitor.php';
+
+		/**
 		 * The class responsible for defining all actions that occur in the admin area.
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-admin.php';
@@ -141,17 +159,9 @@ class Metasync
 		 */
 		require plugin_dir_path(dirname(__FILE__)) .	 'public/class-metasync-hidden-post.php';
 
-		/**
-		 * The class responsible for defining all actions that occur in the admin area.
-		 */
-		// require_once plugin_dir_path(dirname(__FILE__)) . '404-monitor/class-metasync-404-monitor-database.php';
-		// require_once plugin_dir_path(dirname(__FILE__)) . '404-monitor/class-metasync-404-monitor.php';
 
-		/**
-		 * The class responsible for defining all actions that occur in the public-facing
-		 * side of the site.
-		 */
-		// require_once plugin_dir_path(dirname(__FILE__)) . 'local-seo/class-metasync-local-seo.php';
+
+
 
 		/**
 		 * The class responsible for defining all actions that occur in the public-facing
@@ -159,17 +169,7 @@ class Metasync
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'code-snippets/class-metasync-code-snippets.php';
 
-		/**
-		 * The class responsible for defining all actions that occur in the public-facing
-		 * side of the site.
-		 */
-		// require_once plugin_dir_path(dirname(__FILE__)) . 'instant-index/class-metasync-instant-index.php';
 
-		/**
-		 * The class responsible for defining all actions that occur in the admin area.
-		 */
-		// require_once plugin_dir_path(dirname(__FILE__)) . 'redirections/class-metasync-redirection-database.php';
-		// require_once plugin_dir_path(dirname(__FILE__)) . 'redirections/class-metasync-redirection.php';
 
 		/**
 		 * The class responsible for defining all actions that occur in the public-facing
@@ -177,16 +177,7 @@ class Metasync
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'optimal-settings/class-metasync-optimal-settings.php';
 
-		/**
-		 * The class responsible for defining all actions that occur in the admin area.
-		 */
-		// require_once plugin_dir_path(dirname(__FILE__)) . 'site-error-logs/class-metasync-error-logs.php';
 
-		/**
-		 * The class responsible for defining all actions that occur in the admin area.
-		 */
-		// require_once plugin_dir_path(dirname(__FILE__)) . 'error_logs_table_list/class-metasync-error-log-list-data.php';
-		// require_once plugin_dir_path(dirname(__FILE__)) . 'error_logs_table_list/class-metasync-error-log-list.php';
 
 
 		require_once ABSPATH . 'wp-admin/includes/taxonomy.php';
@@ -209,10 +200,7 @@ class Metasync
 		require_once plugin_dir_path(dirname(__FILE__)) . 'heartbeat-error-monitor/class-metasync-heartbeat-error-monitor-database.php';
 		require_once plugin_dir_path(dirname(__FILE__)) . 'heartbeat-error-monitor/class-metasync-heartbeat-error-monitor.php';
 
-		/**
-		 * The class responsible for defining all actions that occur in the markdown.
-		 */
-		// require_once plugin_dir_path(dirname(__FILE__)) . 'markdown/Parsedown.php';
+
 
 		/**
 		 * The class responsible for defining all actions that occur in the template.
@@ -220,10 +208,7 @@ class Metasync
 		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-template.php';
 
 		$this->loader = new Metasync_Loader();
-		// $this->database = new Metasync_Error_Monitor_Database();
-		// $this->db_redirection = new Metasync_Redirection_Database();
 		$this->db_heartbeat_errors = new Metasync_HeartBeat_Error_Monitor_Database();
-		// $this->data_error_log_list = new Metasync_Error_Logs_Data();
 	}
 
 	/**
@@ -243,6 +228,22 @@ class Metasync
 	}
 
 	/**
+	 * Initialize the API Key Monitor for comprehensive API key change detection
+	 *
+	 * @since    1.0.0
+	 * @access   private
+	 */
+	private function init_api_key_monitor()
+	{
+		// Initialize the singleton instance of the API Key Monitor
+		// This will automatically set up hooks to monitor all API key changes
+		Metasync_API_Key_Monitor::get_instance();
+		
+		// Log successful initialization
+		error_log('MetaSync: API Key Monitor initialized successfully');
+	}
+
+	/**
 	 * Register all of the hooks related to the admin area functionality
 	 * of the plugin.
 	 *
@@ -255,7 +256,9 @@ class Metasync
 		$plugin_admin = new Metasync_Admin($this->get_plugin_name(), $this->get_version(), $this->database, $this->db_redirection, $this->db_heartbeat_errors); // , $this->data_error_log_list
 
 		# add sso validation - only when token is present
-		$this->loader->add_action('wp', $plugin_admin, 'conditional_sso_validation');
+		#$this->loader->add_action('wp', $plugin_admin, 'conditional_sso_validation');
+		# wp hook changed to init 
+		$this->loader->add_action('init', $plugin_admin, 'conditional_sso_validation');
 
 		$this->loader->add_action('admin_enqueue_scripts', $plugin_admin, 'enqueue_styles');
 		$this->loader->add_action('admin_enqueue_scripts', $plugin_admin, 'enqueue_scripts');
@@ -268,17 +271,21 @@ class Metasync
 		// SSO Authentication endpoints
 		$this->loader->add_action('wp_ajax_generate_sso_url', $plugin_admin, 'generate_sso_url');
 		$this->loader->add_action('wp_ajax_check_sso_status', $plugin_admin, 'check_sso_status');
+		$this->loader->add_action('wp_ajax_reset_searchatlas_authentication', $plugin_admin, 'reset_searchatlas_authentication');
+		
+		// Enhanced SSO Development/Testing endpoints
+		$this->loader->add_action('wp_ajax_test_enhanced_sso_tokens', $plugin_admin, 'test_enhanced_sso_tokens');
+		$this->loader->add_action('wp_ajax_test_whitelabel_domain', $plugin_admin, 'test_whitelabel_domain');
+		$this->loader->add_action('wp_ajax_test_sso_ajax_endpoint', $plugin_admin, 'test_sso_ajax_endpoint');
+		$this->loader->add_action('wp_ajax_simple_ajax_test', $plugin_admin, 'simple_ajax_test');
 
-		#$sync_request = new Metasync_Sync_Requests();
-		#$this->loader->add_action('admin_init', $sync_request, 'SyncWhiteLabelUserHttp', 2);
 
 		$post_meta_setting = new Metasync_Post_Meta_Settings();
 		$this->loader->add_action('admin_init', $post_meta_setting, 'add_post_mata_data', 2);
 		$this->loader->add_action('admin_init', $post_meta_setting, 'show_top_admin_bar', 9);
 		$this->loader->add_action('wp', $post_meta_setting, 'show_top_admin_bar', 9);
 
-		// $error_log_list_data = new Metasync_Error_Logs_Data();
-		// $this->loader->add_action('admin_head', $error_log_list_data, 'style_my_table', 2);
+
 	}
 
 	/**
@@ -290,25 +297,13 @@ class Metasync
 	 */
 	private function define_public_hooks()
 	{
-		// 404 Monitor hook
-		// $Metasync404Monitor = new Metasync_Error_Monitor($this->database);
-
-		// Redirection hook
-		// $MetasyncRedirection = new Metasync_Redirection($this->db_redirection);
-
 		// Header and Footer code snippets
 		$code_snippets = new Metasync_Code_Snippets();
 
 		$this->loader->add_action('wp_head', $code_snippets, 'get_header_snippet');
 		$this->loader->add_action('wp_footer', $code_snippets, 'get_footer_snippet');
 
-		// $instant_index = new Metasync_Instant_Index();
 
-		// $this->loader->add_action('wp_ajax_send_giapi', $instant_index, 'send');
-		// $this->loader->add_action('admin_init', $instant_index, 'save_settings');
-		// $this->loader->add_filter('post_row_actions', $instant_index, 'google_instant_index_post_link', 10, 2);
-		// $this->loader->add_filter('page_row_actions', $instant_index, 'google_instant_index_post_link', 10, 2);
-		// $this->loader->add_filter('media_row_actions', $instant_index, 'google_instant_index_post_link', 10, 2);
 
 		$optimal_settings = new Metasync_Optimal_Settings();
 		$this->loader->add_filter('wp_robots', $optimal_settings, 'add_robots_meta');
@@ -325,10 +320,9 @@ class Metasync
 		$this->loader->add_action('init', $plugin_public, 'metasync_plugin_init', 5);
 		$this->loader->add_action('wp_ajax_metasync', $plugin_public, 'sync_items');
 		$this->loader->add_action('wp_ajax_lglogin', $plugin_public, 'linkgraph_login');
-		$this->loader->add_filter('wp_robots', $plugin_public, 'wp_robots_meta');
+		$this->loader->add_filter('wp_robots', $plugin_public, 'metasync_wp_robots_meta');
 
-		# Filter hook to modify the post/page title output.
-		# $this->loader->add_filter('the_title', $plugin_public, 'hide_title_on_otto_pages', 10, 2);
+
 		
 		$metasyncTemplateClass = new Metasync_Template();
 		$this->loader->add_filter('theme_page_templates', $metasyncTemplateClass, 'metasync_template_landing_page', 10, 3);
@@ -352,6 +346,191 @@ class Metasync
 	public static function set_option($data)
 	{
 		return update_option(Metasync::option_name, $data);
+	}
+
+	/**
+	 * Get whitelabel settings
+	 * Helper method to retrieve whitelabel configuration
+	 */
+	public static function get_whitelabel_settings()
+	{
+		$whitelabel = self::get_option('whitelabel');
+		return is_array($whitelabel) ? $whitelabel : array(
+			'is_whitelabel' => false,
+			'domain' => '',
+			'logo' => '',
+			'company_name' => '',
+			'updated_at' => 0
+		);
+	}
+
+	/**
+	 * Check if whitelabel mode is enabled
+	 */
+	public static function is_whitelabel_enabled()
+	{
+		$whitelabel = self::get_whitelabel_settings();
+		return isset($whitelabel['is_whitelabel']) && $whitelabel['is_whitelabel'] === true;
+	}
+
+	/**
+	 * Get effective dashboard domain for the plugin
+	 * Returns whitelabel domain if set (regardless of is_whitelabel flag), otherwise returns production default
+	 */
+	public static function get_dashboard_domain()
+	{
+		$whitelabel = self::get_whitelabel_settings();
+		
+		// Priority 1: Use whitelabel domain if it's not empty (regardless of is_whitelabel flag)
+		if (!empty($whitelabel['domain'])) {
+			return $whitelabel['domain'];
+		}
+		
+		// Priority 2: Use production default domain when whitelabel_domain is empty
+		return self::DASHBOARD_DOMAIN;
+	}
+
+	/**
+	 * Get whitelabel logo URL
+	 * Returns the whitelabel logo URL if logo is set (when whitelabel domain is also set)
+	 */
+	public static function get_whitelabel_logo()
+	{
+		$whitelabel = self::get_whitelabel_settings();
+		
+		// Return logo only if whitelabel domain is set and logo is also set
+		// This ensures logo is only used when we're actually in whitelabel mode with a custom domain
+		if (!empty($whitelabel['domain']) && !empty($whitelabel['logo'])) {
+			return $whitelabel['logo'];
+		}
+		
+		return null;
+	}
+
+	/**
+	 * Get whitelabel company name
+	 * Returns the whitelabel company name if whitelabel is active and company name is set
+	 */
+	public static function get_whitelabel_company_name()
+	{
+		$whitelabel = self::get_whitelabel_settings();
+		
+		// Return company name only if whitelabel is active and company name is set
+		if ($whitelabel['is_whitelabel'] === true && !empty($whitelabel['company_name'])) {
+			return $whitelabel['company_name'];
+		}
+		
+		return null;
+	}
+
+	/**
+	 * Get whitelabel OTTO name
+	 * Returns the custom OTTO name if set, otherwise returns 'OTTO'
+	 */
+	public static function get_whitelabel_otto_name()
+	{
+		$general_settings = self::get_option('general');
+		
+		// Return custom OTTO name if set, otherwise fallback to 'OTTO'
+		if (!empty($general_settings['whitelabel_otto_name'])) {
+			return $general_settings['whitelabel_otto_name'];
+		}
+		
+		return 'OTTO';
+	}
+
+	/**
+	 * Get active JWT token for Search Atlas API authentication
+	 * Convenience method accessible from anywhere in the plugin
+	 * 
+	 * @param bool $force_refresh Force generation of new token even if cached one exists
+	 * @return string|false JWT token on success, false on failure
+	 */
+	public static function get_jwt_token($force_refresh = false)
+	{
+		// Delegate to admin class method
+		return Metasync_Admin::get_active_jwt_token($force_refresh);
+	}
+
+	/**
+	 * Get effective plugin name
+	 * Returns plugin name respecting white label settings
+	 * Priority: 1) white_label_plugin_name 2) company branding + base_name 3) base_name
+	 */
+	public static function get_effective_plugin_name($base_name = 'Search Atlas')
+	{
+		$general_settings = self::get_option('general');
+		
+		// Priority 1: Use white_label_plugin_name if set and not empty
+		if (!empty($general_settings['white_label_plugin_name'])) {
+			return $general_settings['white_label_plugin_name'];
+		}
+		
+		$whitelabel = self::get_whitelabel_settings();
+		
+		// Priority 2: If whitelabel is enabled and company name is provided, enhance the plugin name
+		if ($whitelabel['is_whitelabel'] === true && !empty($whitelabel['company_name'])) {
+			return $whitelabel['company_name'] . ' ' . $base_name;
+		}
+		
+		// Priority 3: Return base_name as fallback
+		return $base_name;
+	}
+	
+	/**
+	 * Centralized API Key Event Logging
+	 * Provides structured logging for all API key related events with consistent formatting
+	 *
+	 * @since    1.0.0
+	 * @param    string    $event_type     Type of event (change, refresh, reset, etc.)
+	 * @param    string    $api_key_type   Type of API key (plugin_auth_token, searchatlas_api_key)
+	 * @param    array     $details        Additional details about the event
+	 * @param    string    $level          Log level (info, warning, error)
+	 */
+	public static function log_api_key_event($event_type, $api_key_type, $details = array(), $level = 'info')
+	{
+		try {
+			// Build structured log entry
+			$log_data = array(
+				'timestamp' => current_time('mysql'),
+				'event_type' => $event_type,
+				'api_key_type' => $api_key_type,
+				'level' => $level
+			);
+			
+			// Add details if provided
+			if (!empty($details)) {
+				$log_data['details'] = $details;
+			}
+			
+			// Format log message with consistent structure
+			$log_prefix = strtoupper($level) . ' - MetaSync API Key Event';
+			$log_message = sprintf('[%s] %s: %s (%s)', 
+				$log_data['timestamp'],
+				$log_prefix,
+				$event_type,
+				$api_key_type
+			);
+			
+			// Add details to log message if present
+			if (!empty($details)) {
+				$formatted_details = array();
+				foreach ($details as $key => $value) {
+					$formatted_details[] = $key . ': ' . (is_string($value) ? $value : json_encode($value));
+				}
+				$log_message .= ' - ' . implode(', ', $formatted_details);
+			}
+			
+			// Log to WordPress error log
+			error_log($log_message);
+			
+			// Optionally store in database for admin dashboard (future enhancement)
+			// This could be extended to store in a dedicated log table
+			
+		} catch (Exception $e) {
+			// Fallback logging if structured logging fails
+			error_log('MetaSync API Key Event Logging Error: ' . $e->getMessage());
+		}
 	}
 
 	/**

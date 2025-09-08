@@ -80,13 +80,27 @@ Class Log_Manager{
         # if not dir make dir recursive
         if(!is_dir($metasync_logs_path)){
 
-            # create the dir
-            if(!mkdir($metasync_logs_path, 0777, true)){
+            # create the dir with appropriate permissions
+            if(!mkdir($metasync_logs_path, 0755, true)){
 
                 #failed create log message
-                $this->app_log('Metasync : Failed to Create Log Dir');
+                $this->app_log('Metasync : Failed to Create Log Dir - Permission denied or path issues');
+                error_log('MetaSync Log Manager: Failed to create directory: ' . $metasync_logs_path . ' - Check parent directory permissions');
 
                 return;
+            } else {
+                # Successfully created, log it
+                error_log('MetaSync Log Manager: Successfully created directory: ' . $metasync_logs_path);
+            }
+        }
+
+        # Verify directory is writable
+        if(!is_writable($metasync_logs_path)){
+            error_log('MetaSync Log Manager: Directory not writable: ' . $metasync_logs_path . ' - Check permissions');
+            
+            # Try to fix permissions
+            if(!chmod($metasync_logs_path, 0755)){
+                error_log('MetaSync Log Manager: Failed to change directory permissions: ' . $metasync_logs_path);
             }
         }
 
@@ -395,7 +409,7 @@ Class Log_Manager{
         $site_url = preg_replace('#^https?://#', '', home_url());
 
         # get the log upload endpoint
-        $upload_endpoint = 'https://wp-logger.api.searchatlas.com/upload/' . $site_url;
+        $upload_endpoint = Metasync::LOGGER_API_DOMAIN . '/upload/' . $site_url;
         
         $curl = curl_init();
 

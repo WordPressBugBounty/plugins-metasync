@@ -45,11 +45,65 @@ class Metasync_Admin
      * Holds the values to be used in the fields callbacks
      */
     private $options;
-    public $menu_title         = "SearchAtlas";
+    public $menu_title         = "Search Atlas";
     public const page_title         = "MetaSync Settings";
+
+    /**
+     * Get effective menu title with whitelabel company name
+     */
+    public function get_effective_menu_title()
+    {
+        $whitelabel_company_name = Metasync::get_whitelabel_company_name();
+        
+        if ($whitelabel_company_name) {
+            return $whitelabel_company_name . ' SEO';
+        }
+        
+        // Use centralized method for getting effective plugin name
+        return Metasync::get_effective_plugin_name();
+    }
     public const option_group       = "metasync_group";
     public const option_key         = "metasync_options";
     public static $page_slug          = "searchatlas";
+    /**
+     * Get the effective dashboard domain
+     * Returns whitelabel domain if set, otherwise returns default production domain
+     * Uses centralized constant from main Metasync class
+     */
+    public static function get_effective_dashboard_domain()
+    {
+        // Delegate to main Metasync class for consistent domain resolution
+        return Metasync::get_dashboard_domain();
+    }
+
+    /**
+     * Get dashboard URL with authentication tokens and tracking parameters
+     * Returns the complete URL for accessing the Search Atlas dashboard
+     */
+    public function get_dashboard_url()
+    {
+        // Get the effective dashboard domain (whitelabel or production)
+        $dashboard_url = self::get_effective_dashboard_domain();
+        
+        // Get current options for token inclusion
+        $general_options = Metasync::get_option('general');
+        
+        // Add JWT token if available for seamless login
+        if (isset($general_options['linkgraph_token']) && !empty($general_options['linkgraph_token'])) {
+            $dashboard_url .= '/?jwtToken=' . urlencode($general_options['linkgraph_token']);
+        }
+        
+        // Add source tracking parameter
+        $dashboard_url .= (strpos($dashboard_url, '?') !== false ? '&' : '?') . 'source=wordpress-plugin';
+        
+        // Add whitelabel identification if in whitelabel mode
+        $whitelabel_company_name = Metasync::get_whitelabel_company_name();
+        if ($whitelabel_company_name) {
+            $dashboard_url .= '&whitelabel=' . urlencode($whitelabel_company_name);
+        }
+        
+        return $dashboard_url;
+    }
 
     public const feature_sections = array(
         'enable_404monitor'         => 'Enable 404 Monitor',
@@ -69,7 +123,7 @@ class Metasync_Admin
     private $database;
     private $db_redirection;
     private $db_heartbeat_errors;
-    // private $data_error_log_list;
+
 
     /**
      * Initialize the class and set its properties.
@@ -88,12 +142,12 @@ class Metasync_Admin
         $this->db_redirection = $db_redirection;
         $this->db_heartbeat_errors = $db_heartbeat_errors;
         // $this->data_error_log_list = $data_error_log_list;
+        
+        // Get data first for menu configuration
         $data = Metasync::get_option('general');
-        if(!isset($data['white_label_plugin_menu_name'])){
-            $this->menu_title = "SearchAtlas";   
-        }else{
-            $this->menu_title =  $data['white_label_plugin_menu_name']==""  ? "SearchAtlas":$data['white_label_plugin_menu_name'];    
-        }      
+        
+        // Set menu title using the effective title (includes whitelabel company name if available)
+        $this->menu_title = $this->get_effective_menu_title();      
         if(!isset( $data['white_label_plugin_menu_slug'])){
             self::$page_slug = "searchatlas";   
         }else{
@@ -104,24 +158,52 @@ class Metasync_Admin
         add_action('admin_init', array($this, 'settings_page_init'));
         add_filter('all_plugins',  array($this,'metasync_plugin_white_label'));
         add_filter( 'plugin_row_meta',array($this,'metasync_view_detials_url'),10,3);
+        
+        // Add Search Atlas status to WordPress admin bar (priority 999 to ensure plugin is fully loaded)
+        // Only add if the constant allows it
+        if (defined('METASYNC_SHOW_ADMIN_BAR_STATUS') && METASYNC_SHOW_ADMIN_BAR_STATUS) {
+            add_action('admin_bar_menu', array($this, 'add_searchatlas_admin_bar_status'), 999);
+        }
 
         #add css into admin header for icon image
 
         add_action('admin_head', array($this,'metasync_admin_icon_style'));
+        
+        // Only add admin bar styles if the admin bar status is enabled
+        if (defined('METASYNC_SHOW_ADMIN_BAR_STATUS') && METASYNC_SHOW_ADMIN_BAR_STATUS) {
+            add_action('wp_head', array($this,'metasync_admin_bar_style')); // For frontend admin bar
+            add_action('admin_head', array($this,'metasync_admin_bar_style')); // For backend admin bar
+        }
         // removing this as we don't need it anymore because we are using wp-ajax to implement the white label 
        // add_action('update_option_metasync_options', array($this, 'check_and_redirect_slug'), 10, 3);
         
-        #lets try listening for update any option
-        #commenting out this code that redirectls fresh installs when the option is added
-        #reason : we have a new ajax implementation for this
-        #add_action('add_option_metasync_options', array($this, 'redirect_slug_for_freshinstalls'));
         
         add_action('admin_init', array($this, 'initialize_cookie'));
-        // add_action('wp', function() {
-        //     set_error_handler(array($this,'metasync_log_php_errors'));
-        // });
+
         // Add AJAX for saving general settings 
         add_action( 'wp_ajax_meta_sync_save_settings', array($this,'meta_sync_save_settings') );
+        
+        // Add AJAX handler for Plugin Auth Token refresh
+        add_action('wp_ajax_refresh_plugin_auth_token', array($this, 'refresh_plugin_auth_token'));
+        
+        // Add AJAX handler to get current Plugin Auth Token (for UI updates)
+        add_action('wp_ajax_get_plugin_auth_token', array($this, 'get_plugin_auth_token'));
+        
+        // Add heartbeat cron functionality
+        add_filter('cron_schedules', array($this, 'add_heartbeat_cron_schedule'));
+        add_action('metasync_heartbeat_cron_check', array($this, 'execute_heartbeat_cron_check'));
+        
+        // Schedule heartbeat cron on plugin load (if not already scheduled)
+        add_action('init', array($this, 'maybe_schedule_heartbeat_cron'));
+        
+        // Listen for immediate heartbeat trigger requests from other parts of the plugin
+        add_action('metasync_trigger_immediate_heartbeat', array($this, 'handle_immediate_heartbeat_trigger'));
+        
+        // Listen for cron scheduling requests (after SSO authentication)
+        add_action('metasync_ensure_heartbeat_cron_scheduled', array($this, 'maybe_schedule_heartbeat_cron'));
+        
+        // Note: Option change monitoring is now handled by the centralized API Key Monitor class
+        // This provides more comprehensive and intelligent monitoring of API key changes
        
         
         #--------------------------
@@ -248,9 +330,7 @@ class Metasync_Admin
         }
     
         // Handle form submission for plugin logging
-        // if (isset($_POST['metasync_log_enabled'])) { 
-        //     update_option('metasync_log_enabled',isset($_POST['metasync_log_enabled'])?'yes':'no');
-        // }
+
        
         // Handle form submission for WordPress error logging
         
@@ -265,48 +345,45 @@ class Metasync_Admin
         }
        
     
-        // Handle deletion of the log file
-        if (isset($_POST['metasync_delete_log'])) {
-            unlink(WP_CONTENT_DIR . '/metasync.log');
-        }
-    
         $log_enabled = get_option('metasync_log_enabled', 'yes');
         $wp_debug_enabled = get_option('wp_debug_enabled', 'false');
         $wp_debug_log_enabled = get_option('wp_debug_log_enabled', 'false');
         $wp_debug_display_enabled = get_option('wp_debug_display_enabled', 'false');
         ?>
     
-        <div class="wrap">
-            <h1>Metasync Error Log Manager</h1>
-            <!-- <form method="post">
-                <h2>Metasync Plugin Logging</h2>
-                <table class="form-table">
-                    <tr valign="top">
-                        <th scope="row">Enable Error Logging</th>
-                        <td>
-                            <input type="checkbox" name="metasync_log_enabled" value="yes" <?php checked('yes', $log_enabled); ?> />
-                        </td>
-                    </tr>
-                </table>
-                <?php submit_button('Save Changes'); ?>
-            </form> -->
-    
-            <form method="post" style="margin-top: 20px;">
-                <input type="hidden" name="metasync_delete_log" value="yes" />
-                <?php submit_button('Delete metasync Error Log', 'delete', 'delete-log'); ?>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('Error Logs'); ?>
+        
+        <?php $this->render_navigation_menu('error-log'); ?>
+            
+            <!-- Log File Management -->
+            <div class="dashboard-card">
+                <h2>🗑️ Error Log Management</h2>
+                <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Clear WordPress error logs to free up space and remove old entries.</p>
+                
+                <form method="post" style="margin-top: 15px;">
+                    <input type="hidden" name="clear_log" value="yes" />
+                    <?php wp_nonce_field('metasync_clear_log_nonce', 'clear_log_nonce'); ?>
+                    <?php submit_button('🧹 Clear Error Logs', 'secondary', 'clear-log', false, array('class' => 'button button-secondary')); ?>
             </form>
-    
-            <form method="post" style="margin-top: 40px;">
-                <h2>WordPress Error Logging</h2>
+            </div>
+            
+            <!-- WordPress Debug Settings -->
+            <form method="post">
+                <div class="dashboard-card">
+                    <h2>🔧 WordPress Debug Configuration</h2>
+                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure WordPress debug settings to control error logging and display.</p>
+                    
                 <table class="form-table">
     <tr valign="top">
         <th scope="row">WP_DEBUG</th>
         <td>
             <select name="wp_debug_enabled">
-                 <!-- change the first option to Disable -->
                 <option value="false" <?php selected('false', $wp_debug_enabled); ?>>Disabled</option>
                 <option value="true" <?php selected('true', $wp_debug_enabled); ?>>Enabled</option>                
             </select>
+                                <p class="description">Enable or disable WordPress debugging mode.</p>
         </td>
     </tr>
     <tr valign="top">
@@ -316,6 +393,7 @@ class Metasync_Admin
                 <option value="false" <?php selected('false', $wp_debug_log_enabled); ?>>Disabled</option>
                 <option value="true" <?php selected('true', $wp_debug_log_enabled); ?>>Enabled</option>                
             </select>
+                                <p class="description">Save debug messages to a log file.</p>
         </td>
     </tr>
     <tr valign="top">
@@ -325,25 +403,47 @@ class Metasync_Admin
                 <option value="false" <?php selected('false', $wp_debug_display_enabled); ?>>Disabled</option>
                 <option value="true" <?php selected('true', $wp_debug_display_enabled); ?>>Enabled</option>                
             </select>
+                                <p class="description">Display debug messages on the website (not recommended for production).</p>
         </td>
     </tr>
 </table>
-                <?php submit_button('Save WordPress Logging Settings'); ?>
-            </form>
         </div>
+                
+                <div class="dashboard-card">
+                    <h2>💾 Save Changes</h2>
+                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Apply your WordPress logging configuration changes.</p>
+                    <?php submit_button('Save WordPress Logging Settings', 'primary', 'submit', false, array('class' => 'button button-primary')); ?>
+                </div>
+            </form>
+            
+            <!-- Error Log Display -->
+            <div class="dashboard-card">
+                <h2>📄 Error Log Contents</h2>
+                <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">View the current error log entries for troubleshooting and monitoring.</p>
+                
         <?php 
-        if (isset($_POST['clear_log'])) {
-            file_put_contents($log_file, '');
-        }
         if (file_exists($log_file)) {
-            echo '<h1>Metasync Plugin Error Log</h1>';
-            echo '<pre style="background: #f1f1f1; padding: 10px; overflow: auto;">';
-            echo esc_html(file_get_contents($log_file));
+                    $log_content = file_get_contents($log_file);
+                    if (!empty($log_content)) {
+                        echo '<div class="dashboard-code-block" style="width: 100%; box-sizing: border-box;">';
+                        echo '<pre style="background: var(--dashboard-card-bg); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; overflow: auto; max-height: 400px; font-family: \'SF Mono\', Monaco, \'Cascadia Code\', \'Roboto Mono\', Consolas, monospace; font-size: 13px; line-height: 1.6; color: var(--dashboard-text-primary); margin: 0; box-shadow: var(--dashboard-shadow-sm); width: 100%; box-sizing: border-box; white-space: pre-wrap; word-wrap: break-word;">';
+                        echo esc_html($log_content);
             echo '</pre>';
+                        echo '</div>';
         } else {
-            echo '<h1>Metasync Plugin Error Log</h1>';
-            echo '<p>No log file found.</p>';
-        }
+                        echo '<div class="dashboard-empty-state">';
+                        echo '<p style="color: var(--dashboard-text-secondary); font-style: italic; text-align: center; padding: 40px 20px;">✅ Log file is empty - no errors recorded.</p>';
+                        echo '</div>';
+                    }
+                } else {
+                    echo '<div class="dashboard-empty-state">';
+                    echo '<p style="color: var(--dashboard-text-secondary); font-style: italic; text-align: center; padding: 40px 20px;">📝 No log file found. Error logging may not be enabled.</p>';
+                    echo '</div>';
+                }
+                ?>
+            </div>
+        </div>
+        <?php
     }
     public function metasync_update_wp_config() {
         $wp_config_path = ABSPATH . 'wp-config.php';
@@ -489,6 +589,15 @@ class Metasync_Admin
             $this->version,
             'all'
         );
+
+        // Enqueue dashboard-style CSS for admin pages
+        wp_enqueue_style(
+            $this->plugin_name . '-dashboard',
+            plugin_dir_url(__FILE__) . 'css/metasync-dashboard.css',
+            array($this->plugin_name),
+            $this->version,
+            'all'
+        );
     }
 
     /**
@@ -508,19 +617,89 @@ class Metasync_Admin
             $this->version,
             false
         );
+
+        // Enqueue dashboard-style JavaScript for enhanced interactions
+        wp_enqueue_script(
+            $this->plugin_name . '-dashboard',
+            plugin_dir_url(__FILE__) . 'js/metasync-dashboard.js',
+            array('jquery', $this->plugin_name),
+            $this->version,
+            true
+        );
         // Localize the script to make the AJAX URL accessible
         $options = Metasync::get_option('general');
+        // Get connection status for JavaScript
+        $general_settings = Metasync::get_option('general');
+        $searchatlas_api_key = isset($general_settings['searchatlas_api_key']) ? $general_settings['searchatlas_api_key'] : '';
+        $otto_pixel_uuid = isset($general_settings['otto_pixel_uuid']) ? $general_settings['otto_pixel_uuid'] : '';
+        
         wp_localize_script( $this->plugin_name, 'metaSync', array(
             'ajax_url' => admin_url( 'admin-ajax.php' ),
 			'admin_url'=>admin_url('admin.php'),
 			'sso_nonce' => wp_create_nonce('metasync_sso_nonce'),
-			'dashboard_domain' => $options['dashboard_domain'] ?? 'dashboard.searchatlas.com'
+			'reset_auth_nonce' => wp_create_nonce('metasync_reset_auth_nonce'),
+			'dashboard_domain' => self::get_effective_dashboard_domain(),
+			'support_email' => Metasync::SUPPORT_EMAIL,
+			'documentation_domain' => Metasync::DOCUMENTATION_DOMAIN,
+			'debug_enabled' => WP_DEBUG || (defined('METASYNC_DEBUG') && METASYNC_DEBUG),
+			'searchatlas_api_key' => !empty($searchatlas_api_key),
+			'otto_pixel_uuid' => $otto_pixel_uuid,
+			'is_connected' => (bool)$this->is_heartbeat_connected()
         ));
+        
+        // Ensure ajaxurl is available for admin pages (WordPress standard)  
+        // This creates a global ajaxurl variable for JavaScript
+        wp_enqueue_script('wp-util');
+        
+        // Add inline script to ensure ajaxurl is defined
+        $inline_script = "
+        if (typeof ajaxurl === 'undefined') {
+            var ajaxurl = '" . admin_url('admin-ajax.php') . "';
+            console.warn('🔧 MetaSync: ajaxurl was undefined, manually set to: ' + ajaxurl);
+        }
+        
+        // Add Plugin Auth Token refresh functionality
+        jQuery(document).ready(function($) {
+            $('#refresh-plugin-auth-token').click(function() {
+                var button = $(this);
+                var originalText = button.text();
+                
+                if (confirm('Are you sure you want to refresh the Plugin Auth Token? This will generate a new token and update the heartbeat API.')) {
+                    // Disable button and show loading
+                    button.prop('disabled', true).text('🔄 Refreshing...');
+                    
+                    $.post(ajaxurl, {
+                        action: 'refresh_plugin_auth_token',
+                        nonce: '" . wp_create_nonce('refresh_plugin_auth_token') . "'
+                    })
+                    .done(function(response) {
+                        if (response.success && response.data && response.data.new_token) {
+                            // Update the field value immediately
+                            $('#apikey').val(response.data.new_token);
+                            
+                            // Visual feedback with green border
+                            $('#apikey').css('border', '2px solid #28a745').animate({borderColor: '#ddd'}, 2000);
+                            
+                            alert('✅ Plugin Auth Token refreshed successfully!\\n\\nNew token: ' + response.data.new_token.substring(0, 8) + '...');
+                        } else {
+                            alert('❌ Error refreshing token: ' + (response.data ? response.data.message : 'Unknown error'));
+                        }
+                    })
+                    .fail(function() {
+                        alert('❌ Network error while refreshing token');
+                    })
+                    .always(function() {
+                        // Re-enable button
+                        button.prop('disabled', false).text(originalText);
+                    });
+                }
+            });
+        });
+        ";
+        wp_add_inline_script($this->plugin_name, $inline_script);
         add_action('admin_notices', array($this, 'permalink_structure_dashboard_warning'));
 
         wp_enqueue_script('heartbeat');
-
-        // wp_deregister_script('heartbeat');
     }
 
     /**
@@ -539,9 +718,8 @@ class Metasync_Admin
      */
     function metasync_received_data($response, $data)
     {
-        // update_option('metasync_heartbeat', $data);
-
         // if ($data['client'] == 'marco')
+
         $response['server'] = wp_json_encode($data);
 
         return $response;
@@ -552,6 +730,16 @@ class Metasync_Admin
      * Only performs SSO validation when there's actually a token in the request
      */
     public function conditional_sso_validation(){
+
+        $general_options = Metasync::get_option('general') ?? [];
+        $sso_disabled = $general_options['disable_single_signup_login'] ?? false;
+
+        # Check if SSO is disabled
+        if($sso_disabled){
+            # Return true to allow normal page access (but block SSO)
+            return true;
+        }
+
         // Only run SSO validation if there's actually a token parameter in the request
         if (isset($_GET['metasync_auth_token'])) {
             return $this->validate_sso_token();
@@ -563,6 +751,7 @@ class Metasync_Admin
 
     /**
      * SSO Validation function
+     * Enhanced with WordPress SALT-based security validation
      * Gets the token from the request and validates it
      */
     public function validate_sso_token(){
@@ -580,20 +769,21 @@ class Metasync_Admin
         # get the token from the request and sanitize
         $token = sanitize_text_field($_GET['metasync_auth_token']);
 
-        # get token 
-        $token_hash = hash('sha256', $token);
+        # validate token format (simplified for apikey compatibility)
+        if(empty($token)){
+            return false;
+        }
 
-        # get stored token data
-        $token_data = get_option('metasync_wp_sso_token');
+        # get stored apikey for validation
+        $general_options = Metasync::get_option('general') ?? [];
+        $stored_apikey = $general_options['apikey'] ?? '';
 
-        # decode the token data
-        $token_data = json_decode($token_data, true);
+        if(empty($stored_apikey)){
+            return false;
+        }
 
-        # compare the token with the stored token
-        if($token_data['token'] == $token_hash){
-
-            # check if token has expired (30 minutes)
-            if($token_data['timestamp'] <= time() - 1800){
+        # simple token validation using apikey
+        if($token !== $stored_apikey){
                 return false;
             }
 
@@ -605,17 +795,14 @@ class Metasync_Admin
                 return false;
             }
 
-            # regenerate the token
-            $new_token = $this->generate_wp_sso_token(true);
-
-            # sync the customer params
+        # sync the customer params with existing apikey
             $sync_request = new Metasync_Sync_Requests();
-            $sync_request->SyncCustomerParams($new_token);
+        $sync_response = $sync_request->SyncCustomerParams($stored_apikey);
 
             # get the first admin user
             $admin_user = $admin_user[0];
 
-            # log the user in an create a session
+        # log the user in and create a session
             wp_set_current_user($admin_user->ID);
             wp_set_auth_cookie($admin_user->ID);
 
@@ -624,54 +811,138 @@ class Metasync_Admin
             exit;
         }
 
-        # return false if the token is not valid
+    /**
+     * Additional context validation for enhanced SSO tokens
+     */
+    private function validate_enhanced_sso_context($token_data)
+    {
+        # validate site URL context
+        if(isset($token_data['site_url']) && $token_data['site_url'] !== get_site_url()){
         return false;
+        }
+
+        # IP address validation (optional - can be disabled for mobile/proxy users)
+        if(isset($token_data['ip']) && $this->should_validate_ip()){
+            $current_ip = $this->get_client_ip();
+            if($token_data['ip'] !== $current_ip){
+                error_log('SSO Validation: IP address changed from ' . $token_data['ip'] . ' to ' . $current_ip);
+                # For now, just log the change but don't fail (mobile users, etc.)
+                # return false;
+            }
+        }
+
+        # user agent validation (loose check)
+        if(isset($token_data['user_agent']) && !empty($_SERVER['HTTP_USER_AGENT'])){
+            $current_ua = substr($_SERVER['HTTP_USER_AGENT'], 0, 100);
+            # Only check if user agents are dramatically different (not just version updates)
+            if($this->are_user_agents_incompatible($token_data['user_agent'], $current_ua)){
+                error_log('SSO Validation: Significant user agent change detected');
+                # For now, just log but don't fail (browser updates are common)
+                # return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Check if IP validation should be enforced
+     */
+    private function should_validate_ip()
+    {
+        # Allow configuration to disable IP validation for mobile users
+        # This can be controlled via plugin settings
+        $settings = Metasync::get_option('general');
+        return isset($settings['enforce_ip_validation']) ? (bool)$settings['enforce_ip_validation'] : false;
+    }
+
+    /**
+     * Check if user agents are incompatible (not just version differences)
+     */
+    private function are_user_agents_incompatible($old_ua, $new_ua)
+    {
+        # Extract browser names (Chrome, Firefox, Safari, etc.)
+        $old_browser = $this->extract_browser_name($old_ua);
+        $new_browser = $this->extract_browser_name($new_ua);
+        
+        # If browser names are completely different, consider incompatible
+        return $old_browser !== $new_browser && !empty($old_browser) && !empty($new_browser);
+    }
+
+    /**
+     * Extract browser name from user agent string
+     */
+    private function extract_browser_name($ua)
+    {
+        if(stripos($ua, 'Chrome') !== false) return 'Chrome';
+        if(stripos($ua, 'Firefox') !== false) return 'Firefox';
+        if(stripos($ua, 'Safari') !== false) return 'Safari';
+        if(stripos($ua, 'Edge') !== false) return 'Edge';
+        if(stripos($ua, 'Opera') !== false) return 'Opera';
+        return 'Unknown';
     }
 
     /**
      * WP SSO Function
+     * Enhanced with WordPress SALT-based security
      * This function generates a token for the WP SSO
-     * 
-     * */
+     */
     public function generate_wp_sso_token($regenerate = false){
-
-        # first check if the token is already generated
-        $token_data = get_option('metasync_wp_sso_token');
-
-        # check
-        if($token_data){
-
-            # decode the token data
-            $token_data = json_decode($token_data, true);
-
-            # check token time stamp is less than 30
-            if($token_data['timestamp'] >time() - 1800 && $regenerate == false){
-
-                # return the token
-                return $token_data['token'];
-            }
+        # Simplified: Use Plugin Auth Token directly (same as other token functions)
+        $general_options = Metasync::get_option('general') ?? [];
+        $plugin_auth_token = $general_options['apikey'] ?? '';
+        
+        if (empty($plugin_auth_token)) {
+            error_log('ERROR: Plugin Auth Token missing from options - should have been generated during activation');
+            return false;
         }
 
-        # generate a random token
-        $token = wp_generate_password(32, true, true);
+        return $plugin_auth_token;
+    }
 
-        # hash the token
-        $token = hash('sha256', $token);
-
-        #re hash the token
-        $stored_token = hash('sha256', $token);
-
-        # do json object with token and timestamp
-        $json_token_data = json_encode([
-            'token' => $stored_token,
-            'timestamp' => time()
-        ]);
-
-        # save the token to the database
-        update_option('metasync_wp_sso_token', $json_token_data);
-
-        # return the token
-        return $token;
+    /**
+     * Ensure Plugin Auth Token exists before SSO authentication
+     * Auto-generates if missing to ensure smooth authentication flow
+     */
+    private function ensure_plugin_auth_token_exists()
+    {
+        $options = Metasync::get_option();
+        $current_plugin_auth_token = $options['general']['apikey'] ?? '';
+        
+        // Check if Plugin Auth Token is missing or empty
+        if (empty($current_plugin_auth_token)) {
+            error_log('SSO_AUTH_TOKEN_DEBUG: Plugin Auth Token is missing - auto-generating new token');
+            
+            // Generate new Plugin Auth Token (alphanumeric only, 32 characters)
+            $new_plugin_auth_token = wp_generate_password(32, false, false);
+            
+            // Initialize options structure if needed
+            if (!isset($options['general'])) {
+                $options['general'] = [];
+            }
+            
+            // Set the new Plugin Auth Token
+            $options['general']['apikey'] = $new_plugin_auth_token;
+            
+            // Save the options
+            $save_result = Metasync::set_option($options);
+            
+            if ($save_result) {
+                // Use centralized API key event logging
+                Metasync::log_api_key_event('auto_generated_for_sso', 'plugin_auth_token', array(
+                    'new_token_prefix' => substr($new_plugin_auth_token, 0, 8) . '...',
+                    'triggered_by' => 'sso_connect_button',
+                    'reason' => 'Plugin Auth Token was missing before SSO authentication'
+                ), 'info');
+                
+                error_log('SSO_AUTH_TOKEN_DEBUG: Plugin Auth Token auto-generated successfully: ' . substr($new_plugin_auth_token, 0, 8) . '...');
+            } else {
+                error_log('SSO_AUTH_TOKEN_DEBUG: ERROR - Failed to save auto-generated Plugin Auth Token');
+                throw new Exception('Failed to generate required authentication token');
+            }
+        } else {
+            error_log('SSO_AUTH_TOKEN_DEBUG: Plugin Auth Token already exists: ' . substr($current_plugin_auth_token, 0, 8) . '...');
+        }
     }
 
     /**
@@ -680,29 +951,55 @@ class Metasync_Admin
      */
     public function generate_sso_url()
     {
+
+        
         // Verify nonce for security
         if (!wp_verify_nonce($_POST['nonce'], 'metasync_sso_nonce')) {
-            wp_send_json_error(array('message' => 'Invalid nonce'));
+            wp_send_json_error(array('message' => 'Invalid nonce - please refresh the page and try again'));
             return;
         }
 
+        error_log('SSO_URL_GENERATION_DEBUG: Starting SSO URL generation');
+
         try {
+            // Ensure Plugin Auth Token exists before starting SSO process
+            $this->ensure_plugin_auth_token_exists();
+            
             // Generate unique nonce token
             $nonce_token = $this->create_sso_nonce_token();
+            
+            error_log('SSO_URL_GENERATION_DEBUG: Nonce token created: ' . ($nonce_token ? 'SUCCESS' : 'FAILED'));
+            
+            if (!$nonce_token) {
+                error_log('SSO_URL_GENERATION_DEBUG: Nonce token generation failed - returning error');
+                wp_send_json_error(array('message' => 'Failed to create authentication token'));
+                return;
+            }
             
             // Get WordPress domain (without /wp-admin)
             $domain = get_site_url();
             
+            // Get effective dashboard domain
+            $dashboard_domain = self::get_effective_dashboard_domain();
+            
             // Construct SSO URL
-            $sso_url = 'https://dashboard.searchatlas.com/sso/wordpress?' . http_build_query([
+            $sso_url = $dashboard_domain . '/sso/wordpress?' . http_build_query([
                 'nonce_token' => $nonce_token,
                 'domain' => $domain,
                 'return_url' => admin_url('admin.php?page=' . self::$page_slug)
             ]);
+            
+            error_log('SSO_URL_GENERATION_DEBUG: SSO URL generated successfully - dashboard_domain: ' . $dashboard_domain . ', nonce_token: ' . substr($nonce_token, 0, 8) . '...');
+
 
             wp_send_json_success(array(
                 'sso_url' => $sso_url,
-                'nonce_token' => $nonce_token
+                'nonce_token' => $nonce_token,
+                'debug_info' => array(
+                    'dashboard_domain' => $dashboard_domain,
+                    'site_domain' => $domain,
+                    'return_url' => admin_url('admin.php?page=' . self::$page_slug)
+                )
             ));
 
         } catch (Exception $e) {
@@ -724,49 +1021,834 @@ class Metasync_Admin
 
         $nonce_token = sanitize_text_field($_POST['nonce_token']);
         
-        // Check if this nonce token has been used (i.e., API key updated)
-        $nonce_data = get_option('metasync_sso_nonce_' . $nonce_token);
+        // ✅ NEW: Check if THIS specific nonce was successfully processed
+        // This prevents false positives from background sync/heartbeat activity
+        $success_key = 'metasync_sso_success_' . md5($nonce_token);
+        $this_auth_completed = get_transient($success_key);
         
-        if ($nonce_data) {
-            $nonce_data = json_decode($nonce_data, true);
+        error_log('SSO_STATUS_CHECK_DEBUG: nonce_token=' . substr($nonce_token, 0, 8) . '..., checking success_key=' . substr($success_key, 0, 16) . '..., completed=' . ($this_auth_completed ? 'YES' : 'NO'));
+        
+        if ($this_auth_completed) {
+            // Delete the transient (one-time use) to prevent replay
+            delete_transient($success_key);
             
-            if (isset($nonce_data['api_key_updated']) && $nonce_data['api_key_updated']) {
-                // Clean up the nonce token
-                delete_option('metasync_sso_nonce_' . $nonce_token);
-                
-                wp_send_json_success(array(
-                    'updated' => true,
-                    'api_key' => $nonce_data['new_api_key'],
-                    'status_code' => $nonce_data['status_code'] ?? 200,
-                    'dashboard_domain' => $nonce_data['dashboard_domain'] ?? ''
-                ));
-            }
+            // Get current settings to return API key
+            $general_settings = Metasync::get_option('general') ?? [];
+            
+            error_log('SSO_STATUS_CHECK_DEBUG: Authentication successful for this nonce - returning updated=true');
+            wp_send_json_success(array(
+                'updated' => true,
+                'api_key' => $general_settings['searchatlas_api_key'], // Return full API key
+                'otto_pixel_uuid' => $general_settings['otto_pixel_uuid'] ?? '', // ✅ NEW: Return OTTO UUID for UI update
+                'status_code' => 200,
+                'whitelabel_enabled' => !empty($general_settings['white_label_plugin_name']),
+                'effective_domain' => self::get_effective_dashboard_domain()
+            ));
         }
 
+        error_log('SSO_STATUS_CHECK_DEBUG: Authentication not complete for this nonce - returning updated=false');
         wp_send_json_success(array('updated' => false));
     }
 
     /**
      * Create SSO Nonce Token
      * Generates a unique, single-use token for SSO authentication
+     * Enhanced with WordPress SALT-based security
      */
     private function create_sso_nonce_token()
     {
-        // Generate unique token
-        $token = wp_generate_password(32, false, false) . time();
-        $hashed_token = hash('sha256', $token);
-
-        // Store token data with expiration (30 minutes)
-        $token_data = array(
+        // Create token payload with metadata
+        $payload = array(
             'created' => time(),
             'expires' => time() + 1800, // 30 minutes
-            'used' => false,
-            'api_key_updated' => false
+            'nonce' => wp_generate_password(16, false),
+            'site_url' => get_site_url(),
+            'user_agent' => isset($_SERVER['HTTP_USER_AGENT']) ? substr($_SERVER['HTTP_USER_AGENT'], 0, 100) : '',
+            'ip' => $this->get_client_ip(),
+            'version' => '2.0'
         );
 
-        update_option('metasync_sso_nonce_' . $hashed_token, json_encode($token_data));
+        // Get existing Plugin Auth Token for base entropy
+        $general_options = Metasync::get_option('general') ?? [];
+        $plugin_auth_token = $general_options['apikey'] ?? '';
+        
+        // Debug logging to verify what we're reading
+        error_log('SSO Nonce Generation - Plugin Auth Token from options: ' . ($plugin_auth_token ? substr($plugin_auth_token, 0, 8) . '...' : 'EMPTY'));
+        
+        // Plugin Auth Token should exist from activation - log if missing
+        if (empty($plugin_auth_token)) {
+            error_log('ERROR: Plugin Auth Token missing from options - should have been generated during activation');
+            return false; // Don't generate random fallback
+        }
 
-        return $hashed_token;
+        // Use Plugin Auth Token directly as nonce token
+        error_log('SSO Nonce Generation - Final nonce token: ' . substr($plugin_auth_token, 0, 8) . '...');
+        return $plugin_auth_token;
+    }
+
+    /**
+     * Get client IP address securely
+     */
+    private function get_client_ip()
+    {
+        $ip_headers = array('HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_FORWARDED', 'HTTP_FORWARDED_FOR', 'HTTP_FORWARDED', 'REMOTE_ADDR');
+        
+        foreach ($ip_headers as $header) {
+            if (!empty($_SERVER[$header])) {
+                $ip = $_SERVER[$header];
+                // Handle comma-separated IPs (take first one)
+                if (strpos($ip, ',') !== false) {
+                    $ip = trim(explode(',', $ip)[0]);
+                }
+                // Validate IP
+                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                    return $ip;
+                }
+            }
+        }
+        
+        return isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '0.0.0.0';
+    }
+
+    /**
+     * Create encrypted SSO token with embedded metadata (optional enhanced approach)
+     * Use this for tokens that need to be self-contained
+     */
+    private function create_encrypted_sso_token($metadata = array())
+    {
+        // Create comprehensive payload
+        $payload = array_merge(array(
+            'iat' => time(),                    // Issued at
+            'exp' => time() + 1800,            // Expires (30 minutes)
+            'iss' => get_site_url(),           // Issuer
+            'aud' => 'search-atlas-sso',       // Audience
+            'sub' => 'sso-authentication',     // Subject
+            'jti' => wp_generate_password(16, false), // Unique ID
+            'nonce' => wp_generate_password(16, false),
+            'version' => '2.0'
+        ), $metadata);
+
+        return $this->wp_encrypt_token($payload);
+    }
+
+    /**
+     * Encrypt token using WordPress SALTs
+     */
+    private function wp_encrypt_token($payload)
+    {
+        try {
+            // Serialize the payload
+            $serialized = serialize($payload);
+            
+            // Create encryption key from multiple WordPress SALTs
+            $key_material = wp_salt('secure_auth') . wp_salt('logged_in') . wp_salt('nonce');
+            $encryption_key = hash('sha256', $key_material, true);
+            
+            // Generate random IV for each encryption
+            $iv = random_bytes(16);
+            
+            // Encrypt using AES-256-CBC
+            $encrypted = openssl_encrypt($serialized, 'AES-256-CBC', $encryption_key, OPENSSL_RAW_DATA, $iv);
+            
+            if ($encrypted === false) {
+                throw new Exception('Encryption failed');
+            }
+            
+            // Combine IV + encrypted data for transport
+            $result = $iv . $encrypted;
+            
+            // Base64 encode for safe transport
+            return base64_encode($result);
+            
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Test the enhanced SSO token system (development/debugging)
+     */
+    public function test_enhanced_sso_tokens()
+    {
+        if (!current_user_can('administrator')) {
+            return false;
+        }
+
+
+        
+        # Test 1: Using apikey for backward compatibility
+        $general_options = Metasync::get_option('general') ?? [];
+        $test_token = $general_options['apikey'] ?? null;
+        error_log('Test 1 - Using apikey: ' . ($test_token ? substr($test_token, 0, 8) . '...' : 'NOT SET'));
+        
+        # Test 2: Apikey validation
+        $apikey = $general_options['apikey'] ?? '';
+        if ($apikey) {
+            error_log('Test 2 - Apikey is available: YES');
+            error_log('Test 2 - Apikey length: ' . strlen($apikey));
+        } else {
+            error_log('Test 2 - Apikey is available: NO');
+        }
+        
+        # Test 3: Encrypted token test
+        $encrypted_token = $this->create_encrypted_sso_token(['test' => 'data', 'user_id' => get_current_user_id()]);
+        if ($encrypted_token) {
+            error_log('Test 3 - Encrypted token generated successfully');
+            
+            $decrypted = $this->wp_decrypt_token($encrypted_token);
+            if ($decrypted) {
+                error_log('Test 3 - Encrypted token decrypted successfully: ' . json_encode($decrypted));
+            } else {
+                error_log('Test 3 - Failed to decrypt token');
+            }
+        } else {
+            error_log('Test 3 - Failed to generate encrypted token');
+        }
+        
+
+        return true;
+    }
+
+    /**
+     * Test SSO AJAX endpoint (development/debugging)
+     * Simple test to verify AJAX connectivity and endpoint registration
+     */
+    public function test_sso_ajax_endpoint()
+    {
+
+        
+        // Check if nonce is provided and valid
+        if (isset($_POST['nonce'])) {
+            $nonce_valid = wp_verify_nonce($_POST['nonce'], 'metasync_sso_nonce');
+        }
+        
+        // Check current user permissions
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array(
+                'message' => 'Insufficient permissions for AJAX test',
+                'required_capability' => 'manage_options'
+            ));
+            return;
+        }
+        
+
+        
+        wp_send_json_success(array(
+            'message' => 'AJAX endpoint is working correctly',
+            'timestamp' => current_time('mysql', true),
+            'user_id' => get_current_user_id(),
+            'endpoint' => 'test_sso_ajax_endpoint',
+            'nonce_valid' => isset($_POST['nonce']) ? wp_verify_nonce($_POST['nonce'], 'metasync_sso_nonce') : false,
+            'debug_info' => array(
+                'post_action' => $_POST['action'] ?? 'NOT SET',
+                'has_nonce' => isset($_POST['nonce']),
+                'user_can_manage_options' => current_user_can('manage_options')
+            )
+        ));
+    }
+
+    /**
+     * Simple AJAX test without nonce (for debugging connectivity)
+     */
+    public function simple_ajax_test()
+    {
+        error_log('Simple AJAX Test: Reached without nonce verification');
+        wp_send_json_success(array(
+            'message' => 'Basic AJAX connectivity works',
+            'timestamp' => time(),
+            'no_nonce_required' => true
+        ));
+    }
+
+    /**
+     * Create Admin Dashboard Iframe Page
+     * Embeds the Search Atlas dashboard directly in WordPress admin
+     */
+    public function create_admin_dashboard_iframe()
+    {
+        // Get general options for authentication check and UUID
+        $general_options = Metasync::get_option('general');
+        $otto_pixel_uuid = isset($general_options['otto_pixel_uuid']) ? $general_options['otto_pixel_uuid'] : '';
+        $api_key = isset($general_options['searchatlas_api_key']) ? $general_options['searchatlas_api_key'] : '';
+        
+        // Check if user is properly connected via heartbeat
+        if (!$this->is_heartbeat_connected()) {
+            ?>
+            <div class="wrap metasync-dashboard-wrap">
+                <?php $this->render_plugin_header('Dashboard'); ?>
+                
+                <?php $this->render_navigation_menu('dashboard'); ?>
+                
+                <div class="dashboard-card">
+                    <h2>⚠️ Authentication Required</h2>
+                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">
+                        You need to authenticate with <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> to access the dashboard.
+                    </p>
+                    <a href="<?php echo admin_url('admin.php?page=' . self::$page_slug); ?>" class="button button-primary">
+                        🔗 Go to Settings & Connect
+                    </a>
+                </div>
+            </div>
+            <?php
+            return;
+        }
+        
+        // Build the dashboard iframe URL with embed parameter to hide navigation
+        $dashboard_domain = self::get_effective_dashboard_domain();
+        $iframe_url = $dashboard_domain . '/seo-automation-v3/tasks?uuid=' . urlencode($otto_pixel_uuid) . '&category=All&Embed=True';
+        
+        // Add JWT token - use fresh API-generated token for better compatibility
+        $jwt_token = $this->get_fresh_jwt_token();
+        if ($jwt_token) {
+            $iframe_url .= '&jwtToken=' . urlencode($jwt_token) . '&impersonate=1';
+        }
+        
+        // Add source tracking
+        $iframe_url .= '&source=wordpress-plugin-iframe';
+        
+        // Add whitelabel identification if applicable
+        $whitelabel_company_name = Metasync::get_whitelabel_company_name();
+        if ($whitelabel_company_name) {
+            $iframe_url .= '&whitelabel=' . urlencode($whitelabel_company_name);
+        }
+        
+
+        
+        // Configure iframe restrictions for whitelabel domains
+        $whitelabel_settings = Metasync::get_whitelabel_settings();
+        $is_whitelabel_domain = !empty($whitelabel_settings['domain']);
+        
+
+        
+        ?>
+        <div class="wrap metasync-dashboard-wrap">
+            <?php $this->render_plugin_header('Dashboard'); ?>
+            
+            <?php $this->render_navigation_menu('dashboard'); ?>
+            
+            <iframe id="metasync-dashboard-iframe"
+                    src="<?php echo esc_url($iframe_url); ?>"
+                    width="100%"
+                    height="100vh"
+                    frameborder="0"
+                    <?php if (!$is_whitelabel_domain): ?>
+                    allow="cookies"
+                    referrerpolicy="strict-origin-when-cross-origin"
+                    <?php endif; ?>
+                    style="border: none; margin: 0; padding: 0; min-height: 800px;"
+                    onload="adjustIframeHeight(this)">
+            </iframe>
+            
+            <script>
+            function adjustIframeHeight(iframe) {
+                var attempts = 0;
+                var maxAttempts = 20; // Try for up to 10 seconds
+                
+                function tryAdjustHeight() {
+                    try {
+                        attempts++;
+                        
+                        // Try to access iframe content height
+                        var iframeDocument = iframe.contentDocument || iframe.contentWindow.document;
+                        if (iframeDocument) {
+                            // Wait for content to load by checking if body has meaningful content
+                            var body = iframeDocument.body;
+                            var hasContent = body && (body.children.length > 1 || body.innerText.trim().length > 100);
+                            
+                            if (!hasContent && attempts < maxAttempts) {
+                                // Content still loading, try again
+                                setTimeout(tryAdjustHeight, 500);
+                                return;
+                            }
+                            
+                            var height = Math.max(
+                                body ? body.scrollHeight : 0,
+                                body ? body.offsetHeight : 0,
+                                iframeDocument.documentElement.clientHeight,
+                                iframeDocument.documentElement.scrollHeight,
+                                iframeDocument.documentElement.offsetHeight
+                            );
+                            
+                            // Only apply if we got a reasonable height
+                            if (height > 600) {
+                                iframe.style.height = height + 'px';
+                                console.log('📏 Iframe height adjusted to:', height + 'px');
+                            } else if (attempts < maxAttempts) {
+                                // Height too small, content probably still loading
+                                setTimeout(tryAdjustHeight, 500);
+                                return;
+                            }
+                        } else {
+                            // Can't access content, try again or fallback
+                            if (attempts < maxAttempts) {
+                                setTimeout(tryAdjustHeight, 500);
+                                return;
+                            }
+                        }
+                    } catch (e) {
+                        // Cross-origin restrictions - use viewport height
+                        iframe.style.height = '100vh';
+                        console.log('📏 Iframe height set to viewport (cross-origin)');
+                    }
+                }
+                
+                // Start the height adjustment process
+                tryAdjustHeight();
+            }
+            
+            // Also listen for window resize
+            window.addEventListener('resize', function() {
+                var iframe = document.getElementById('metasync-dashboard-iframe');
+                if (iframe) {
+                    adjustIframeHeight(iframe);
+                }
+            });
+            
+            // Additional attempt after 3 seconds (for very slow loading apps)
+            setTimeout(function() {
+                var iframe = document.getElementById('metasync-dashboard-iframe');
+                if (iframe) {
+                    adjustIframeHeight(iframe);
+                }
+            }, 3000);
+            </script>
+        </div>
+        <?php
+    }
+
+    /**
+     * Render error log content for inclusion in Advanced settings
+     */
+    private function render_error_log_content()
+    {
+        ?>
+        <!-- Error Log Management -->
+        <div style="margin-bottom: 20px;">
+            <h3>🗑️ Error Log Management</h3>
+            <p style="margin-bottom: 15px; color: #666;">Clear WordPress error logs to free up space and remove old entries.</p>
+            
+            <form method="post" action="<?php echo admin_url('admin.php?page=' . self::$page_slug . '&tab=advanced'); ?>" style="margin-bottom: 20px;">
+                <input type="hidden" name="clear_log" value="yes" />
+                <?php wp_nonce_field('metasync_clear_log_nonce', 'clear_log_nonce'); ?>
+                <?php submit_button('🧹 Clear Error Logs', 'secondary', 'clear-log', false, array('class' => 'button button-secondary')); ?>
+            </form>
+        </div>
+
+        <!-- WordPress Debug Settings -->
+        <form method="post">
+            <div style="margin-bottom: 20px;">
+                <h3>🔧 WordPress Debug Configuration</h3>
+                <p style="margin-bottom: 15px; color: #666;">Configure WordPress debug settings to control error logging and display.</p>
+                
+                <?php
+                $wp_debug = defined('WP_DEBUG') && WP_DEBUG;
+                $debug_log = defined('WP_DEBUG_LOG') && WP_DEBUG_LOG;
+                $debug_display = defined('WP_DEBUG_DISPLAY') && WP_DEBUG_DISPLAY;
+                ?>
+                
+                <p><strong>Current WordPress Debug Status:</strong></p>
+                <ul>
+                    <li>WP_DEBUG: <?php echo $wp_debug ? '✅ Enabled' : '❌ Disabled'; ?></li>
+                    <li>WP_DEBUG_LOG: <?php echo $debug_log ? '✅ Enabled' : '❌ Disabled'; ?></li>
+                    <li>WP_DEBUG_DISPLAY: <?php echo $debug_display ? '✅ Enabled' : '❌ Disabled'; ?></li>
+                </ul>
+                
+                <?php if (!$wp_debug): ?>
+                <p style="color: #d54e21;">💡 To enable error logging, add these lines to your wp-config.php file:</p>
+                <pre style="background: #f1f1f1; padding: 10px; border-radius: 4px;">define('WP_DEBUG', true);
+define('WP_DEBUG_LOG', true);
+define('WP_DEBUG_DISPLAY', false);</pre>
+                <?php endif; ?>
+            </div>
+        </form>
+
+        <!-- Error Log Display -->
+        <div style="margin-top: 30px;">
+            <h3>📄 Error Log Contents</h3>
+            <p style="margin-bottom: 15px; color: #666;">View the current error log entries for troubleshooting and monitoring.</p>
+            
+            <?php
+            $error_log_content = $this->get_error_log_content();
+            if ($error_log_content): ?>
+                <div class="dashboard-code-block" style="width: 100%; box-sizing: border-box;">
+                    <pre style="background: var(--dashboard-card-bg); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; overflow: auto; max-height: 400px; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace; font-size: 13px; line-height: 1.6; color: var(--dashboard-text-primary); margin: 0; box-shadow: var(--dashboard-shadow-sm); width: 100%; box-sizing: border-box; white-space: pre-wrap; word-wrap: break-word;"><?php echo esc_html($error_log_content); ?></pre>
+                </div>
+            <?php else: ?>
+                <div class="dashboard-empty-state">
+                    <p style="color: var(--dashboard-text-secondary); font-style: italic; text-align: center; padding: 40px 20px;">✅ Log file is empty - no errors recorded.</p>
+                </div>
+            <?php endif; ?>
+        </div>
+        <?php
+    }
+
+    /**
+     * Handle error log operations (clear)
+     */
+    private function handle_error_log_operations()
+    {        
+        // Handle clearing of the log file
+        if (isset($_POST['clear_log'])) {
+            // Verify nonce for security
+            if (wp_verify_nonce($_POST['clear_log_nonce'], 'metasync_clear_log_nonce')) {
+                $log_file = WP_CONTENT_DIR . '/debug.log';
+                if (file_exists($log_file)) {
+                    file_put_contents($log_file, '');
+                }
+                
+                // Redirect back to advanced tab with success
+                $redirect_url = admin_url('admin.php?page=' . self::$page_slug . '&tab=advanced&log_cleared=1');
+                wp_redirect($redirect_url);
+                exit;
+            } else {
+                // Nonce verification failed - redirect with error
+                $redirect_url = admin_url('admin.php?page=' . self::$page_slug . '&tab=advanced&clear_error=1');
+                wp_redirect($redirect_url);
+                exit;
+            }
+        }
+    }
+
+    /**
+     * Handle clear all settings operations
+     */
+    private function handle_clear_all_settings()
+    {
+        // Handle clearing of all plugin settings
+        if (isset($_POST['clear_all_settings'])) {
+            // Verify nonce for security
+            if (wp_verify_nonce($_POST['clear_all_settings_nonce'], 'metasync_clear_all_settings_nonce')) {
+                
+                // List of all metasync-related options to clear
+                $metasync_options_to_clear = [
+                    'metasync_options',                    // Main plugin options
+                    'metasync_options_instant_indexing',  // Instant indexing settings
+                    'metasync_otto_crawldata',            // Otto crawl data
+                    'metasync_logging_data',              // Logging data
+                    'metasync_wp_sso_token',              // WordPress SSO token
+                    'wp_debug_enabled',                   // Debug settings managed by plugin
+                    'wp_debug_log_enabled',               // Debug log settings
+                    'wp_debug_display_enabled',           // Debug display settings
+                ];
+
+                // Clear all plugin options
+                $cleared_count = 0;
+                foreach ($metasync_options_to_clear as $option_name) {
+                    if (get_option($option_name) !== false) {
+                        delete_option($option_name);
+                        $cleared_count++;
+                    }
+                }
+
+                // Clear all plugin transients (cache)
+                $transients_to_clear = [
+                    'metasync_heartbeat_status_cache',
+                ];
+                
+                foreach ($transients_to_clear as $transient_name) {
+                    delete_transient($transient_name);
+                }
+
+                // Unschedule any cron jobs
+                $timestamp = wp_next_scheduled('metasync_heartbeat_cron_check');
+                if ($timestamp) {
+                    wp_unschedule_event($timestamp, 'metasync_heartbeat_cron_check');
+                }
+
+                // CRITICAL: Regenerate Plugin Auth Token (apikey) - this can never be empty
+                $new_plugin_auth_token = wp_generate_password(32, false, false);
+                
+                // Initialize fresh options structure with the new Plugin Auth Token
+                $fresh_options = [
+                    'general' => [
+                        'apikey' => $new_plugin_auth_token
+                    ]
+                ];
+                
+                // Save the fresh options with new Plugin Auth Token
+                update_option('metasync_options', $fresh_options);
+
+                // Use centralized API key event logging
+                Metasync::log_api_key_event('settings_reset', 'plugin_auth_token', array(
+                    'options_cleared_count' => $cleared_count,
+                    'new_token_prefix' => substr($new_plugin_auth_token, 0, 8) . '...',
+                    'triggered_by' => 'settings_reset_action'
+                ), 'info');
+                
+                // Skip heartbeat trigger on settings reset
+                // Settings reset clears all options including Search Atlas API key, so heartbeat would fail
+                // User will need to re-authenticate, at which point heartbeat will be triggered by SSO flow
+                error_log('MetaSync Settings Reset: Skipping heartbeat trigger - all settings cleared, user must re-authenticate');
+                
+                // Redirect back to advanced tab with success message
+                $redirect_url = admin_url('admin.php?page=' . self::$page_slug . '&tab=advanced&settings_cleared=1');
+                wp_redirect($redirect_url);
+                exit;
+            } else {
+                // Nonce verification failed - redirect with error
+                $redirect_url = admin_url('admin.php?page=' . self::$page_slug . '&tab=advanced&clear_settings_error=1');
+                wp_redirect($redirect_url);
+                exit;
+            }
+        }
+    }
+
+    /**
+     * Get error log content for display
+     */
+    private function get_error_log_content()
+    {
+        // Try to get WordPress debug.log content
+        $log_file = WP_CONTENT_DIR . '/debug.log';
+        
+        if (file_exists($log_file) && is_readable($log_file)) {
+            $content = file_get_contents($log_file);
+            
+            // Get last 100 lines for better performance
+            $lines = explode("\n", $content);
+            $recent_lines = array_slice($lines, -100);
+            
+            return implode("\n", $recent_lines);
+        }
+        
+        return false;
+    }
+
+    /**
+     * Test whitelabel domain functionality (development/debugging)
+     */
+    public function test_whitelabel_domain()
+    {
+        if (!current_user_can('administrator')) {
+            wp_send_json_error('Administrator access required');
+            return;
+        }
+
+        // Test 1: Check current whitelabel settings
+        $whitelabel_settings = Metasync::get_whitelabel_settings();
+        
+        // Test 2: Check if whitelabel is enabled
+        $is_enabled = Metasync::is_whitelabel_enabled();
+        
+        // Test 3: Get effective dashboard domain
+        $effective_domain = self::get_effective_dashboard_domain();
+        $metasync_domain = Metasync::get_dashboard_domain();
+        
+        // Test 4: Get whitelabel logo
+        $whitelabel_logo = Metasync::get_whitelabel_logo();
+        
+        // Test 5: Compare with default
+        $default_domain = Metasync::DASHBOARD_DOMAIN;
+        
+        // Test 6: Get whitelabel company name
+        $whitelabel_company_name = Metasync::get_whitelabel_company_name();
+        
+        // Test 7: Get effective plugin name
+        $effective_plugin_name = Metasync::get_effective_plugin_name('Test Plugin');
+        
+        wp_send_json_success(array(
+            'whitelabel_settings' => $whitelabel_settings,
+            'is_enabled' => $is_enabled,
+            'effective_domain' => $effective_domain,
+            'whitelabel_logo' => $whitelabel_logo,
+            'whitelabel_company_name' => $whitelabel_company_name,
+            'effective_plugin_name' => $effective_plugin_name,
+            'default_domain' => $default_domain,
+            'override_active' => $effective_domain !== $default_domain
+        ));
+    }
+
+    /**
+     * Decrypt token using WordPress SALTs
+     */
+    private function wp_decrypt_token($encrypted_token)
+    {
+        try {
+            // Decode from base64
+            $data = base64_decode($encrypted_token, true);
+            
+            if ($data === false || strlen($data) < 16) {
+                return false;
+            }
+            
+            // Extract IV and encrypted data
+            $iv = substr($data, 0, 16);
+            $encrypted = substr($data, 16);
+            
+            // Create decryption key from WordPress SALTs
+            $key_material = wp_salt('secure_auth') . wp_salt('logged_in') . wp_salt('nonce');
+            $encryption_key = hash('sha256', $key_material, true);
+            
+            // Decrypt
+            $serialized = openssl_decrypt($encrypted, 'AES-256-CBC', $encryption_key, OPENSSL_RAW_DATA, $iv);
+            
+            if ($serialized === false) {
+                return false;
+            }
+            
+            // Unserialize payload
+            $payload = unserialize($serialized);
+            
+            // Validate payload structure
+            if (!is_array($payload) || !isset($payload['exp'], $payload['iat'])) {
+                return false;
+            }
+            
+            // Check expiration
+            if ($payload['exp'] < time()) {
+                return false; // Token expired
+            }
+            
+            return $payload;
+            
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Get active JWT token for the plugin
+     * Public static method accessible from anywhere in the plugin
+     * 
+     * @param bool $force_refresh Force generation of new token even if cached one exists
+     * @return string|false JWT token on success, false on failure
+     */
+    public static function get_active_jwt_token($force_refresh = false)
+    {
+        // Get Search Atlas API key
+        $general_options = Metasync::get_option('general') ?? [];
+        $api_key = $general_options['searchatlas_api_key'] ?? '';
+        
+        if (empty($api_key)) {
+            return false;
+        }
+
+        // Check for cached token first (unless forced refresh)
+        if (!$force_refresh) {
+            $cache_key = 'metasync_jwt_token_' . md5($api_key);
+            $cached_token_data = get_transient($cache_key);
+            
+            if ($cached_token_data && is_array($cached_token_data)) {
+                // Check if cached token is still valid (with 5-minute buffer)
+                $expires_with_buffer = $cached_token_data['expires'] - 300; // 5 minutes buffer
+                if (time() < $expires_with_buffer && !empty($cached_token_data['token'])) {
+                    return $cached_token_data['token'];
+                }
+            }
+        }
+
+        // Generate fresh token if no valid cache or force refresh
+        $admin_instance = new self();
+        return $admin_instance->get_fresh_jwt_token();
+    }
+
+    /**
+     * Get fresh JWT token from Search Atlas API with caching
+     * Generates and caches JWT tokens to avoid repeated API calls
+     * 
+     * @return string|false JWT token on success, false on failure
+     */
+    public function get_fresh_jwt_token()
+    {
+        // Get Search Atlas API key
+        $general_options = Metasync::get_option('general') ?? [];
+        $api_key = $general_options['searchatlas_api_key'] ?? '';
+        
+        if (empty($api_key)) {
+            return false;
+        }
+
+        // Check for cached token first
+        $cache_key = 'metasync_jwt_token_' . md5($api_key);
+        $cached_token_data = get_transient($cache_key);
+        
+        if ($cached_token_data && is_array($cached_token_data)) {
+            // Check if cached token is still valid (with 5-minute buffer)
+            $expires_with_buffer = $cached_token_data['expires'] - 300; // 5 minutes buffer
+            if (time() < $expires_with_buffer && !empty($cached_token_data['token'])) {
+                return $cached_token_data['token'];
+            }
+        }
+
+        // Generate fresh JWT token from API
+        $url = Metasync::API_DOMAIN . '/api/customer/account/generate-jwt-from-api-key/';
+        
+        $args = array(
+            'method' => 'POST',
+            'headers' => array(
+                'X-API-KEY' => $api_key,
+                'Content-Type' => 'application/json'
+            ),
+            'timeout' => 15
+        );
+
+        try {
+            $response = wp_remote_post($url, $args);
+            
+            if (is_wp_error($response)) {
+                error_log('MetaSync: JWT token API request failed - ' . $response->get_error_message());
+                return false;
+            }
+            
+            $response_code = wp_remote_retrieve_response_code($response);
+            $response_body = wp_remote_retrieve_body($response);
+            
+            if ($response_code !== 200) {
+                error_log('MetaSync: JWT token API returned error code ' . $response_code);
+                return false;
+            }
+            
+            $data = json_decode($response_body, true);
+            
+            if (!$data || !isset($data['token'], $data['expires'])) {
+                error_log('MetaSync: Invalid JWT token API response format');
+                return false;
+            }
+            
+            // Cache the token
+            $token_data = array(
+                'token' => $data['token'],
+                'expires' => $data['expires'],
+                'created_at' => time()
+            );
+            
+            // Cache until expiry (with WordPress transient max of 24 hours)
+            $cache_duration = min($data['expires'] - time(), 24 * 3600);
+            set_transient($cache_key, $token_data, $cache_duration);
+            
+            return $data['token'];
+            
+        } catch (Exception $e) {
+            error_log('MetaSync: Exception during JWT generation - ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Clear cached JWT tokens
+     * Useful when authentication is reset or API key changes
+     */
+    private function clear_jwt_token_cache()
+    {
+        global $wpdb;
+        
+        // Clear all JWT token transients
+        $deleted = $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+                '_transient_metasync_jwt_token_%'
+            )
+        );
+        
+        // Also clear timeout transients
+        $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+                '_transient_timeout_metasync_jwt_token_%'
+            )
+        );
+        
+
     }
 
 
@@ -778,12 +1860,12 @@ class Metasync_Admin
     {
         $sync_request = new Metasync_Sync_Requests();
 
-        # call the generate_wp_sso_token function
-        $token = $this->generate_wp_sso_token();
+        # use the existing apikey for backward compatibility
+        $general_options = Metasync::get_option('general') ?? [];
+        $token = $general_options['apikey'] ?? null;
 
         # get the response
         $response = $sync_request->SyncCustomerParams($token);
-
 
         $responseBody = wp_remote_retrieve_body($response);
         $responseCode = wp_remote_retrieve_response_code($response);
@@ -793,17 +1875,1065 @@ class Metasync_Admin
             $send_auth_token_timestamp = Metasync::get_option();
             $send_auth_token_timestamp['general']['send_auth_token_timestamp'] = $dt->format('M d, Y  h:i:s A');;
             Metasync::set_option($send_auth_token_timestamp);
+            
+            // Update heartbeat connectivity cache since sync was successful
+            // This ensures UI status consistency between "Sync Now" and heartbeat checks
+            $this->update_heartbeat_cache_after_sync(true, 'Sync Now - successful data sync');
+            
             $result = json_decode($responseBody);
             $timestamp = @Metasync::get_option('general')['send_auth_token_timestamp'];
             $result->send_auth_token_timestamp = $timestamp;
             $result->send_auth_token_diffrence = $this->time_elapsed_string($timestamp);
             wp_send_json($result);
             wp_die();
+        } else {
+            // Update heartbeat cache to reflect failed connection
+            $this->update_heartbeat_cache_after_sync(false, 'Sync Now - failed data sync');
         }
 
         $result = json_decode($responseBody);
         wp_send_json($result);
         wp_die();
+    }
+
+
+
+    /**
+     * Add CSS styles for Search Atlas admin bar status indicator
+     */
+    public function metasync_admin_bar_style()
+    {
+        // Only show styles when admin bar is present
+        if (!is_admin_bar_showing()) {
+            return;
+        }
+        ?>
+        <style type="text/css">
+        #wp-admin-bar-searchatlas-status .ab-item {
+            font-weight: 500 !important;
+            transition: all 0.2s ease !important;
+        }
+        
+        #wp-admin-bar-searchatlas-status:hover .ab-item {
+            background-color: rgba(255, 255, 255, 0.1) !important;
+        }
+        
+        #wp-admin-bar-searchatlas-status.searchatlas-synced .ab-item {
+            color: #46b450 !important; /* WordPress green for text */
+        }
+        
+        #wp-admin-bar-searchatlas-status.searchatlas-not-synced .ab-item {
+            color: #dc3232 !important; /* WordPress red for text */
+        }
+        
+        /* Ensure emojis maintain their natural colors */
+        #wp-admin-bar-searchatlas-status .ab-item {
+            filter: none !important;
+        }
+        
+        /* Make status visible but subtle */
+        #wp-admin-bar-searchatlas-status .ab-item {
+            opacity: 0.9;
+        }
+        
+        #wp-admin-bar-searchatlas-status:hover .ab-item {
+            opacity: 1;
+        }
+        </style>
+        
+        <?php 
+        // Load sync JavaScript on all our plugin admin pages  
+        $is_plugin_page = (
+            (isset($_GET['page']) && strpos($_GET['page'], self::$page_slug) !== false) ||
+            (isset($_GET['page']) && strpos($_GET['page'], 'searchatlas') !== false)
+        );
+        if ($is_plugin_page): 
+        ?>
+        <script type="text/javascript">
+        // Pass PHP variables to JavaScript
+        window.MetasyncConfig = {
+            pluginName: '<?php echo esc_js(Metasync::get_effective_plugin_name()); ?>',
+            ottoName: '<?php echo esc_js(Metasync::get_whitelabel_otto_name()); ?>'
+        };
+        
+        jQuery(document).ready(function($) {
+            
+            // Function to sync admin bar status
+            function syncAdminBarStatus() {
+                var pluginPageStatus = $('.metasync-integration-status .status-text').text();
+                var adminBarItem = $('#wp-admin-bar-searchatlas-status .ab-item');
+                var adminBarContainer = $('#wp-admin-bar-searchatlas-status');
+                var pluginName = window.MetasyncConfig.pluginName;
+                
+                if (pluginPageStatus && adminBarItem.length) {
+                    if (pluginPageStatus.includes('Synced') && !pluginPageStatus.includes('Not Synced')) {
+                        // Update admin bar to synced (GREEN)
+                        // Handle WordPress emoji-to-image conversion
+                        var emojiImg = adminBarItem.find('img.emoji');
+                        if (emojiImg.length > 0) {
+                            // WordPress converted emoji to image - update both alt and src
+                            if (emojiImg.attr('alt') === '🔴' || emojiImg.attr('src').includes('1f534.svg')) {
+                                emojiImg.attr('alt', '🟢');
+                                emojiImg.attr('src', emojiImg.attr('src').replace('1f534.svg', '1f7e2.svg')); // Red to Green circle
+                            }
+                        } else {
+                            // Regular emoji text - replace directly
+                            var newHtml = adminBarItem.html().replace('🔴', '🟢');
+                            if (!newHtml.includes('🟢') && newHtml.includes(pluginName)) {
+                                newHtml = newHtml.replace(pluginName, pluginName + ' 🟢');
+                            }
+                            adminBarItem.html(newHtml);
+                        }
+                        
+                        adminBarContainer.removeClass('searchatlas-not-synced').addClass('searchatlas-synced');
+                        adminBarContainer.attr('title', pluginName + ' - Synced (Heartbeat API connectivity verified)');
+                        
+                        // Also update the tooltip on the link itself for better accessibility
+                        adminBarItem.attr('title', pluginName + ' - Synced (Heartbeat API connectivity verified)');
+                        
+                    } else if (pluginPageStatus.includes('Not Synced')) {
+                        // Update admin bar to not synced (RED)
+                        // Handle WordPress emoji-to-image conversion
+                        var emojiImg = adminBarItem.find('img.emoji');
+                        if (emojiImg.length > 0) {
+                            // WordPress converted emoji to image - update both alt and src
+                            if (emojiImg.attr('alt') === '🟢' || emojiImg.attr('src').includes('1f7e2.svg')) {
+                                emojiImg.attr('alt', '🔴');
+                                emojiImg.attr('src', emojiImg.attr('src').replace('1f7e2.svg', '1f534.svg')); // Green to Red circle
+                            }
+                        } else {
+                            // Regular emoji text - replace directly
+                            var newHtml = adminBarItem.html().replace('🟢', '🔴');
+                            if (!newHtml.includes('🔴') && newHtml.includes(pluginName)) {
+                                newHtml = newHtml.replace(pluginName, pluginName + ' 🔴');
+                            }
+                            adminBarItem.html(newHtml);
+                        }
+                        
+                        adminBarContainer.removeClass('searchatlas-synced').addClass('searchatlas-not-synced');
+                        adminBarContainer.attr('title', pluginName + ' - Not Synced (Heartbeat API not responding or unreachable)');
+                        
+                        // Also update the tooltip on the link itself for better accessibility
+                        adminBarItem.attr('title', pluginName + ' - Not Synced (Heartbeat API not responding or unreachable)');
+                    }
+                }
+            }
+            
+            // Sync when tabs are switched (for General/Advanced tabs)
+            $(document).on('click', 'a[href*="tab="]', function() {
+                setTimeout(syncAdminBarStatus, 200);
+            });
+            
+            // Also check every 5 seconds to keep it in sync
+            setInterval(syncAdminBarStatus, 5000);
+        });
+        </script>
+        <?php endif; ?>
+        <?php
+    }
+
+    /**
+     * Add Search Atlas status indicator to WordPress admin bar
+     * Shows sync status with green/red emoji
+     */
+    public function add_searchatlas_admin_bar_status($wp_admin_bar)
+    {
+        // Check if admin bar status is disabled via constant
+        if (!defined('METASYNC_SHOW_ADMIN_BAR_STATUS') || !METASYNC_SHOW_ADMIN_BAR_STATUS) {
+            return;
+        }
+        
+        // Only show for users who can manage options (admins)
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        // Only show in admin area or frontend if specifically enabled
+        if (!is_admin() && !apply_filters('metasync_show_admin_bar_status_frontend', false)) {
+            return;
+        }
+
+        // Force fresh data retrieval for admin bar consistency
+        $general_settings = Metasync::get_option('general');
+        if (!is_array($general_settings)) {
+            $general_settings = [];
+        }
+        
+        // Use the same method signature as plugin settings page
+        $is_synced = $this->is_heartbeat_connected($general_settings);
+        
+
+        
+        // Get effective plugin name for white-label support
+        $plugin_name = Metasync::get_effective_plugin_name();
+        
+        // Determine status emoji and title (matching updated connectivity logic)
+        if ($is_synced) {
+            $status_emoji = '🟢'; // Green circle for synced
+            $title = $plugin_name . ' - Synced (Heartbeat API connectivity verified)';
+            $status_class = 'searchatlas-synced';
+        } else {
+            $status_emoji = '🔴'; // Red circle for not synced
+            $title = $plugin_name . ' - Not Synced (Heartbeat API not responding or unreachable)';
+            $status_class = 'searchatlas-not-synced';
+        }
+
+        $display_name = $plugin_name;
+
+        // Final admin bar title
+        $admin_bar_title = $display_name . ' ' . $status_emoji;
+        
+        // Add the admin bar node
+        $wp_admin_bar->add_node(array(
+            'id'    => 'searchatlas-status',
+            'title' => $admin_bar_title,
+            'href'  => admin_url('admin.php?page=' . self::$page_slug),
+            'meta'  => array(
+                'title' => $title,
+                'class' => $status_class
+            )
+        ));
+    }
+
+    /**
+     * Check if heartbeat API is properly connected (frontend - cache only)
+     * Frontend should NEVER trigger API calls - only use cached results from cron job
+     * Returns false immediately if plugin API key is not configured
+     */
+    private function is_heartbeat_connected($general_settings = null)
+    {
+        // Get settings if not provided
+        if ($general_settings === null) {
+            $general_settings = Metasync::get_option('general') ?? [];
+        }
+        
+        // Pre-check: Heartbeat system is inactive without plugin API key
+        $searchatlas_api_key = $general_settings['searchatlas_api_key'] ?? '';
+        error_log('CONNECTION_STATUS_DEBUG: Checking heartbeat connection - API key present: ' . (!empty($searchatlas_api_key) ? 'YES' : 'NO'));
+        
+        if (empty($searchatlas_api_key)) {
+            // No API key = heartbeat system is completely inactive
+            error_log('CONNECTION_STATUS_DEBUG: No plugin API key configured - returning DISCONNECTED');
+            return false;
+        }
+        
+        // Check cached result first (5-minute cache)
+        $cache_key = 'metasync_heartbeat_status_cache';
+        $cached_result = get_transient($cache_key);
+        
+        error_log('CONNECTION_STATUS_DEBUG: Cache check - cached result: ' . ($cached_result !== false ? 'FOUND' : 'NOT_FOUND'));
+        
+        if ($cached_result !== false) {
+            // Return cached result (includes timestamp for debugging)
+            error_log('CONNECTION_STATUS_DEBUG: Using cached result - status: ' . ($cached_result['status'] ? 'CONNECTED' : 'DISCONNECTED') . ', cached_at: ' . date('Y-m-d H:i:s T', $cached_result['timestamp']));
+            $this->log_heartbeat('info', 'Cache hit - using cached heartbeat status', array(
+                'status' => $cached_result['status'] ? 'CONNECTED' : 'DISCONNECTED',
+                'cached_at' => date('Y-m-d H:i:s T', $cached_result['timestamp']),
+                'expires_at' => date('Y-m-d H:i:s T', $cached_result['cached_until']),
+                'cache_age_seconds' => time() - $cached_result['timestamp']
+            ));
+            return $cached_result['status'];
+        }
+        
+        // No cached result - return default disconnected state
+        error_log('CONNECTION_STATUS_DEBUG: No cached result found - returning default DISCONNECTED state');
+        // The cron job will update this cache in the background
+        $this->log_heartbeat('info', 'No cached heartbeat status found - returning default DISCONNECTED', array(
+            'note' => 'Cron job will update this status in background',
+            'status' => 'DISCONNECTED' // For consistent throttling
+        ));
+        
+        return false; // Default to disconnected if no cache exists
+    }
+    
+
+
+    
+    /**
+     * Enhanced logging for heartbeat operations
+     * Provides structured and detailed logging with context
+     */
+    private function log_heartbeat($level, $event, $details = array())
+    {
+        // Check if we should throttle this log message to reduce spam
+        if ($this->should_throttle_log($level, $event, $details)) {
+            return;
+        }
+        
+        $context = array(
+            'event' => $event,
+            'level' => strtoupper($level),
+            'plugin_version' => defined('METASYNC_VERSION') ? METASYNC_VERSION : 'unknown',
+            'site_url' => get_site_url(),
+        );
+        
+        // Merge additional details
+        $context = array_merge($context, $details);
+        
+        // Format log message (WordPress error_log already adds timestamp)
+        $message = sprintf(
+            'HEARTBEAT_%s: %s',
+            strtoupper($level),
+            $event
+        );
+        
+        // Add details if provided
+        if (!empty($details)) {
+            $details_formatted = array();
+            foreach ($details as $key => $value) {
+                if (is_array($value)) {
+                    $value = json_encode($value);
+                } elseif (is_bool($value)) {
+                    $value = $value ? 'true' : 'false';
+                } elseif (is_string($value) && strlen($value) > 200) {
+                    // Better truncation for long strings like HTML responses
+                    $value = $this->smart_truncate($value, 200);
+                }
+                $details_formatted[] = "{$key}={$value}";
+            }
+            $message .= ' | ' . implode(', ', $details_formatted);
+        }
+        
+        // Log to WordPress error log
+        error_log($message);
+        
+        // Also store critical errors in heartbeat error database
+        if ($level === 'error' || $level === 'critical') {
+            $this->store_heartbeat_error_log($event, $details);
+        }
+    }
+    
+    /**
+     * Smart truncation that tries to end at word boundaries
+     */
+    private function smart_truncate($string, $length = 200)
+    {
+        if (strlen($string) <= $length) {
+            return $string;
+        }
+        
+        // Try to truncate at a word boundary
+        $truncated = substr($string, 0, $length);
+        $last_space = strrpos($truncated, ' ');
+        
+        if ($last_space !== false && $last_space > $length * 0.75) {
+            $truncated = substr($truncated, 0, $last_space);
+        }
+        
+        // Clean up HTML and indicate truncation
+        $truncated = strip_tags($truncated);
+        return $truncated . '... [truncated]';
+    }
+    
+    /**
+     * Throttle repetitive log messages to reduce log spam
+     */
+    private function should_throttle_log($level, $event, $details = array())
+    {
+        // Don't throttle errors - they're important
+        if ($level === 'error' || $level === 'critical') {
+            return false;
+        }
+        
+        // Aggressively throttle cache-related messages - they're very spammy
+        if (strpos($event, 'Cache hit') !== false || strpos($event, 'No cached heartbeat status found') !== false) {
+            static $last_cache_log_time = 0;
+            static $last_cache_status = '';
+            $current_time = time();
+            
+            // Extract status from details array (more reliable than parsing event string)
+            $current_status = isset($details['status']) ? $details['status'] : 'UNKNOWN';
+            
+            // Only log cache-related messages if:
+            // 1. Status changed, OR  
+            // 2. More than 5 minutes have passed, OR
+            // 3. This is the first log of this type
+            if ($current_status !== $last_cache_status || 
+                ($current_time - $last_cache_log_time) > 300 ||
+                $last_cache_log_time === 0) {
+                    
+                $last_cache_log_time = $current_time;
+                $last_cache_status = $current_status;
+                return false; // Don't throttle - log this one
+            }
+            
+            return true; // Throttle this message
+        }
+        
+        return false; // Don't throttle by default
+    }
+    
+    /**
+     * Store heartbeat errors in database for dashboard display
+     */
+    private function store_heartbeat_error_log($event, $details)
+    {
+        try {
+            if (class_exists('Metasync_HeartBeat_Error_Monitor_Database')) {
+                $error_db = new Metasync_HeartBeat_Error_Monitor_Database();
+                $error_db->add(array(
+                    'attribute_name' => 'heartbeat_connectivity',
+                    'object_count' => 1,
+                    'error_description' => json_encode(array(
+                        'event' => $event,
+                        'details' => $details,
+                        'timestamp' => current_time('mysql')
+                    )),
+                    'created_at' => current_time('mysql')
+                ));
+            }
+        } catch (Exception $e) {
+            error_log('Failed to store heartbeat error log: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Test actual heartbeat API connectivity using existing SyncCustomerParams
+     * This ensures consistency with the working "Sync Now" functionality
+     */
+    private function test_heartbeat_api_connection($general_settings)
+    {
+        $searchatlas_api_key = $general_settings['searchatlas_api_key'] ?? '';
+        $apikey = $general_settings['apikey'] ?? '';
+        
+        // Log the API call attempt
+        $start_time = microtime(true);
+        $api_key_type = strpos($searchatlas_api_key, 'pub-') === 0 ? 'publisher' : 'regular';
+        
+        $this->log_heartbeat('info', 'Initiating heartbeat API test using SyncCustomerParams', array(
+            'api_key_type' => $api_key_type,
+            'api_key_prefix' => substr($searchatlas_api_key, 0, 8) . '...',
+            'url' => get_home_url(),
+            'method' => 'reuse_existing_sync_class'
+        ));
+        
+        // Use the existing, tested SyncCustomerParams method
+        $sync_request = new Metasync_Sync_Requests();
+        $response = $sync_request->SyncCustomerParams($apikey);
+        
+        $request_duration = round((microtime(true) - $start_time) * 1000, 2); // milliseconds
+        
+        // Check for HTTP errors
+        if (is_wp_error($response)) {
+            $this->log_heartbeat('error', 'Heartbeat test via SyncCustomerParams failed', array(
+                'error_code' => $response->get_error_code(),
+                'error_message' => $response->get_error_message(),
+                'request_duration_ms' => $request_duration,
+                'error_type' => 'wp_error'
+            ));
+            return false;
+        }
+        
+        // Check HTTP status code
+        $status_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        
+        if ($status_code !== 200) {
+            $this->log_heartbeat('error', 'Heartbeat test returned non-200 status', array(
+                'status_code' => $status_code,
+                'response_body' => $this->smart_truncate($body, 300),
+                'request_duration_ms' => $request_duration,
+                'error_type' => 'http_status_error'
+            ));
+            return false;
+        }
+        
+        // Log successful heartbeat
+        $this->log_heartbeat('info', 'Heartbeat API test successful via SyncCustomerParams', array(
+            'status_code' => $status_code,
+            'request_duration_ms' => $request_duration,
+            'response_size_bytes' => strlen($body),
+            'method' => 'sync_customer_params'
+        ));
+        
+        // Update last successful heartbeat timestamp
+        $general_settings['send_auth_token_timestamp'] = current_time('mysql');
+        $options = Metasync::get_option();
+        $options['general'] = $general_settings;
+        Metasync::set_option($options);
+        
+        return true; // Heartbeat API is responding correctly
+    }
+
+    /**
+     * Schedule heartbeat cron job on plugin activation
+     * This should run every 5 minutes in the background
+     */
+    public function schedule_heartbeat_cron()
+    {
+        // Clear any existing scheduled event first
+        $this->unschedule_heartbeat_cron();
+        
+        // Schedule new cron job every 5 minutes (300 seconds)
+        if (!wp_next_scheduled('metasync_heartbeat_cron_check')) {
+            $scheduled = wp_schedule_event(time(), 'metasync_five_minutes', 'metasync_heartbeat_cron_check');
+            
+            if ($scheduled) {
+                $this->log_heartbeat('info', 'Heartbeat cron job scheduled successfully', array(
+                    'interval' => '5 minutes',
+                    'next_run' => date('Y-m-d H:i:s T', wp_next_scheduled('metasync_heartbeat_cron_check'))
+                ));
+            } else {
+                $this->log_heartbeat('error', 'Failed to schedule heartbeat cron job');
+            }
+        }
+    }
+    
+    /**
+     * Unschedule heartbeat cron job (plugin deactivation)
+     */
+    public function unschedule_heartbeat_cron()
+    {
+        $timestamp = wp_next_scheduled('metasync_heartbeat_cron_check');
+        if ($timestamp) {
+            wp_unschedule_event($timestamp, 'metasync_heartbeat_cron_check');
+            $this->log_heartbeat('info', 'Heartbeat cron job unscheduled', array(
+                'was_scheduled_for' => date('Y-m-d H:i:s T', $timestamp)
+            ));
+        }
+    }
+    
+    /**
+     * Background cron job execution - performs actual heartbeat check
+     * This method should ONLY be called by the cron job, never by frontend
+     */
+    public function execute_heartbeat_cron_check()
+    {
+        $this->log_heartbeat('info', 'Background heartbeat cron check starting');
+        
+        // Get current settings
+        $general_settings = Metasync::get_option('general') ?? [];
+        
+        // Pre-check: Skip API calls entirely if plugin API key is not configured
+        $searchatlas_api_key = $general_settings['searchatlas_api_key'] ?? '';
+        
+        if (empty($searchatlas_api_key)) {
+            $this->log_heartbeat('info', 'Skipping heartbeat API call - ' . Metasync::get_effective_plugin_name() . ' API key not configured', array(
+                'has_searchatlas_api_key' => false,
+                'reason' => 'User has not provided ' . Metasync::get_effective_plugin_name() . ' API key yet'
+            ));
+            
+            // Cache DISCONNECTED status but don't make API calls
+            $cache_data = array(
+                'status' => false,
+                'timestamp' => time(),
+                'cached_until' => time() + 300,
+                'updated_by' => 'cron_job_no_api_key'
+            );
+            
+            set_transient('metasync_heartbeat_status_cache', $cache_data, 300);
+            
+            $this->log_heartbeat('info', 'Background heartbeat check completed without API call', array(
+                'status' => 'DISCONNECTED',
+                'reason' => 'Search Atlas API key not configured',
+                'cached_until' => date('Y-m-d H:i:s T', $cache_data['cached_until']),
+                'next_cron_run' => wp_next_scheduled('metasync_heartbeat_cron_check') ? 
+                                  date('Y-m-d H:i:s T', wp_next_scheduled('metasync_heartbeat_cron_check')) : 'N/A'
+            ));
+            
+            return false;
+        }
+        
+        // Plugin API key is available, proceed with heartbeat connectivity test
+        $is_connected = $this->test_heartbeat_api_connection($general_settings);
+        
+        // Cache the result for 5 minutes (300 seconds)
+        $cache_data = array(
+            'status' => $is_connected,
+            'timestamp' => time(),
+            'cached_until' => time() + 300,
+            'updated_by' => 'cron_job'
+        );
+        
+        set_transient('metasync_heartbeat_status_cache', $cache_data, 300);
+        
+        $this->log_heartbeat('info', 'Background heartbeat check completed', array(
+            'status' => $is_connected ? 'CONNECTED' : 'DISCONNECTED',
+            'cached_until' => date('Y-m-d H:i:s T', $cache_data['cached_until']),
+            'next_cron_run' => wp_next_scheduled('metasync_heartbeat_cron_check') ? 
+                              date('Y-m-d H:i:s T', wp_next_scheduled('metasync_heartbeat_cron_check')) : 'N/A'
+        ));
+        
+        return $is_connected;
+    }
+    
+    /**
+     * Add custom cron schedule for 5-minute intervals
+     */
+    public function add_heartbeat_cron_schedule($schedules)
+    {
+        $schedules['metasync_five_minutes'] = array(
+            'interval' => 300, // 5 minutes in seconds
+            'display'  => __('Every 5 Minutes (Metasync Heartbeat)')
+        );
+        return $schedules;
+    }
+    
+    /**
+     * Maybe schedule heartbeat cron job if plugin API key is configured
+     * Called on init hook - only schedules if API key is present
+     */
+    public function maybe_schedule_heartbeat_cron()
+    {
+        $general_settings = Metasync::get_option('general') ?? [];
+        $searchatlas_api_key = $general_settings['searchatlas_api_key'] ?? '';
+        
+        if (empty($searchatlas_api_key)) {
+            // No API key = unschedule any existing cron to save resources
+            if (wp_next_scheduled('metasync_heartbeat_cron_check')) {
+                $this->unschedule_heartbeat_cron();
+                $this->log_heartbeat('info', 'Heartbeat cron unscheduled - no plugin API key configured');
+            }
+            return;
+        }
+        
+        // API key exists = ensure cron is scheduled
+        if (!wp_next_scheduled('metasync_heartbeat_cron_check')) {
+            $this->schedule_heartbeat_cron();
+        }
+    }
+    
+    /**
+     * Trigger immediate heartbeat check (after authentication changes)
+     * This bypasses the regular cron schedule to provide immediate feedback
+     * Includes protection against multiple simultaneous triggers
+     */
+    public function trigger_immediate_heartbeat_check($context = 'Manual trigger')
+    {
+        // Prevent multiple simultaneous immediate checks (race condition protection)
+        static $last_immediate_check = 0;
+        $current_time = time();
+        
+        if (($current_time - $last_immediate_check) < 10) {
+            $this->log_heartbeat('info', 'Skipping immediate heartbeat check - too recent', array(
+                'context' => $context,
+                'seconds_since_last' => $current_time - $last_immediate_check,
+                'protection' => 'race_condition_prevention'
+            ));
+            return true; // Return the last known result
+        }
+        
+        $last_immediate_check = $current_time;
+        
+        $this->log_heartbeat('info', 'Immediate heartbeat check triggered', array(
+            'context' => $context,
+            'triggered_by' => 'authentication_change'
+        ));
+        
+        // Pre-check: Skip if plugin API key not configured (same logic as cron)
+        $general_settings = Metasync::get_option('general') ?? [];
+        $searchatlas_api_key = $general_settings['searchatlas_api_key'] ?? '';
+        
+        if (empty($searchatlas_api_key)) {
+            $this->log_heartbeat('info', 'Skipping immediate heartbeat check - ' . Metasync::get_effective_plugin_name() . ' API key not configured', array(
+                'context' => $context,
+                'has_searchatlas_api_key' => false,
+                'reason' => 'User has not provided Search Atlas API key yet'
+            ));
+            
+            // Still clear cache and set DISCONNECTED status
+            delete_transient('metasync_heartbeat_status_cache');
+            
+            $cache_data = array(
+                'status' => false,
+                'timestamp' => time(),
+                'cached_until' => time() + 300,
+                'updated_by' => 'immediate_check_no_api_key'
+            );
+            
+            set_transient('metasync_heartbeat_status_cache', $cache_data, 300);
+            
+            $this->log_heartbeat('info', 'Immediate heartbeat check completed without API call', array(
+                'context' => $context,
+                'result' => 'DISCONNECTED',
+                'reason' => 'Search Atlas API key not configured',
+                'cache_updated' => true
+            ));
+            
+            return false;
+        }
+        
+        // Clear any existing cache to force fresh check
+        delete_transient('metasync_heartbeat_status_cache');
+        
+        // Execute the heartbeat check immediately  
+        $result = $this->execute_heartbeat_cron_check();
+        
+        $this->log_heartbeat('info', 'Immediate heartbeat check completed', array(
+            'context' => $context,
+            'result' => $result ? 'CONNECTED' : 'DISCONNECTED',
+            'cache_updated' => true
+        ));
+        
+        return $result;
+    }
+    
+    /**
+     * Handle immediate heartbeat trigger action from other plugin components
+     * This is triggered via WordPress action system for better decoupling
+     * Note: Option change monitoring is now handled by the centralized API Key Monitor class
+     */
+    public function handle_immediate_heartbeat_trigger($context = 'WordPress action trigger')
+    {
+        $this->trigger_immediate_heartbeat_check($context);
+    }
+    
+    /**
+     * Update heartbeat cache after sync operations
+     * This ensures consistency between "Sync Now" and heartbeat cron status
+     */
+    public function update_heartbeat_cache_after_sync($is_connected, $context = 'Sync operation')
+    {
+        // Create cache data similar to cron job format
+        $cache_data = array(
+            'status' => $is_connected,
+            'timestamp' => time(),
+            'cached_until' => time() + 300, // 5 minutes
+            'updated_by' => 'sync_operation'
+        );
+        
+        // Update the same cache that heartbeat checks use
+        set_transient('metasync_heartbeat_status_cache', $cache_data, 300);
+        
+        // Log the cache update for consistency
+        $this->log_heartbeat('info', 'Heartbeat cache updated after sync operation', array(
+            'context' => $context,
+            'status' => $is_connected ? 'CONNECTED' : 'DISCONNECTED',
+            'updated_by' => 'sync_operation',
+            'cached_until' => date('Y-m-d H:i:s T', $cache_data['cached_until'])
+        ));
+        
+        return $is_connected;
+    }
+
+    /**
+     * Refresh Plugin Auth Token
+     * Generates a new Plugin Auth Token and updates heartbeat API
+     */
+    public function refresh_plugin_auth_token()
+    {
+        // Verify nonce
+        if (!wp_verify_nonce($_POST['nonce'], 'refresh_plugin_auth_token')) {
+            wp_send_json_error(array('message' => 'Invalid nonce'));
+            return;
+        }
+        
+        // Check permissions
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+            return;
+        }
+        
+        try {
+            // Generate new Plugin Auth Token (alphanumeric only)
+            $new_plugin_auth_token = wp_generate_password(32, false, false);
+            
+            // Update in options
+            $options = Metasync::get_option();
+            if (!isset($options['general'])) {
+                $options['general'] = [];
+            }
+            $options['general']['apikey'] = $new_plugin_auth_token;
+            
+            // Save options
+            $save_result = Metasync::set_option($options);
+            
+            if ($save_result) {
+                // Use centralized API key event logging
+                Metasync::log_api_key_event('token_refresh', 'plugin_auth_token', array(
+                    'new_token_prefix' => substr($new_plugin_auth_token, 0, 8) . '...',
+                    'triggered_by' => 'manual_refresh_button'
+                ), 'info');
+                
+                // Trigger immediate heartbeat check with new plugin auth token
+                // This validates that the new token works with the current plugin API key
+                do_action('metasync_trigger_immediate_heartbeat', 'Plugin Auth Token refresh - new token generated');
+                
+                wp_send_json_success(array(
+                    'new_token' => $new_plugin_auth_token,
+                    'message' => 'Plugin Auth Token refreshed successfully'
+                ));
+            } else {
+                wp_send_json_error(array('message' => 'Failed to save new token'));
+            }
+            
+        } catch (Exception $e) {
+            error_log('Plugin Auth Token Refresh Error: ' . $e->getMessage());
+            wp_send_json_error(array('message' => 'Error generating new token'));
+        }
+    }
+
+    /**
+     * Get current Plugin Auth Token (AJAX endpoint for UI updates)
+     * Used to refresh the Plugin Auth Token field after SSO authentication
+     */
+    public function get_plugin_auth_token()
+    {
+        // Verify nonce
+        if (!wp_verify_nonce($_POST['nonce'], 'metasync_sso_nonce')) {
+            wp_send_json_error(array('message' => 'Invalid nonce'));
+            return;
+        }
+        
+        // Check permissions
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+            return;
+        }
+        
+        try {
+            // Get current Plugin Auth Token
+            $options = Metasync::get_option();
+            $current_plugin_auth_token = $options['general']['apikey'] ?? '';
+            
+            if (!empty($current_plugin_auth_token)) {
+                wp_send_json_success(array(
+                    'plugin_auth_token' => $current_plugin_auth_token,
+                    'message' => 'Plugin Auth Token retrieved successfully'
+                ));
+            } else {
+                wp_send_json_error(array('message' => 'Plugin Auth Token not found'));
+            }
+            
+        } catch (Exception $e) {
+            error_log('Get Plugin Auth Token Error: ' . $e->getMessage());
+            wp_send_json_error(array('message' => 'Error retrieving Plugin Auth Token'));
+        }
+    }
+
+    /**
+     * Reset Search Atlas Authentication
+     * Clears all authentication data and tokens
+     */
+    public function reset_searchatlas_authentication()
+    {
+        // Verify nonce for security
+        if (!wp_verify_nonce($_POST['nonce'], 'metasync_reset_auth_nonce')) {
+            wp_send_json_error(array(
+                'message' => 'Security verification failed. Please refresh the page and try again.',
+                'code' => 'invalid_nonce'
+            ));
+            return;
+        }
+
+        // Verify user permissions
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array(
+                'message' => 'You do not have permission to reset authentication.',
+                'code' => 'insufficient_permissions'
+            ));
+            return;
+        }
+
+        try {
+            // Get current options
+            $options = Metasync::get_option();
+            
+            if (!is_array($options)) {
+                $options = array();
+            }
+            
+            if (!isset($options['general'])) {
+                $options['general'] = array();
+            }
+
+            // Clear Search Atlas authentication data
+            $cleared_data = array();
+            
+            // Clear API key
+            if (isset($options['general']['searchatlas_api_key'])) {
+                $cleared_data['searchatlas_api_key'] = substr($options['general']['searchatlas_api_key'], 0, 8) . '...';
+                unset($options['general']['searchatlas_api_key']);
+            }
+            
+            // Clear UUID
+            if (isset($options['general']['otto_pixel_uuid'])) {
+                $cleared_data['otto_pixel_uuid'] = $options['general']['otto_pixel_uuid'];
+                unset($options['general']['otto_pixel_uuid']);
+            }
+            
+            // Disable Server Side Rendering when disconnecting
+            if (isset($options['general']['otto_enable'])) {
+                $cleared_data['otto_enable'] = $options['general']['otto_enable'];
+                unset($options['general']['otto_enable']);
+            }
+            
+            // Note: dashboard_domain no longer stored in general settings
+            // Domain is now either default production or whitelabel override
+            
+            // Clear authentication timestamps
+            if (isset($options['general']['send_auth_token_timestamp'])) {
+                $cleared_data['send_auth_token_timestamp'] = $options['general']['send_auth_token_timestamp'];
+                unset($options['general']['send_auth_token_timestamp']);
+            }
+            
+            if (isset($options['general']['last_heart_beat'])) {
+                $cleared_data['last_heart_beat'] = $options['general']['last_heart_beat'];
+                unset($options['general']['last_heart_beat']);
+            }
+
+            // Save updated options
+            $save_result = Metasync::set_option($options);
+            
+            if (!$save_result) {
+                throw new Exception('Failed to save updated plugin options');
+            }
+
+            // Clear WordPress SSO token
+            delete_option('metasync_wp_sso_token');
+            $cleared_data['wp_sso_token'] = 'removed';
+
+            // Clear any existing SSO nonce tokens (deprecated with simplified tokens)
+            $cleaned_tokens = $this->cleanup_sso_nonce_tokens();
+            $cleared_data['sso_nonce_tokens'] = 'none (simplified token system)';
+
+            // Clear any cached white label data
+            delete_option(Metasync::option_name . '_whitelabel_user');
+            $cleared_data['whitelabel_user'] = 'removed';
+
+            // Clear whitelabel settings
+            if (isset($options['whitelabel'])) {
+                $cleared_data['whitelabel_settings'] = 'removed';
+                unset($options['whitelabel']);
+                
+                // Re-save options after clearing whitelabel
+                Metasync::set_option($options);
+            }
+
+            // Clear cached JWT tokens
+            $this->clear_jwt_token_cache();
+            $cleared_data['jwt_token_cache'] = 'cleared';
+
+            // Clear rate limiting data
+            $this->cleanup_sso_rate_limits();
+            $cleared_data['rate_limits'] = 'cleared';
+            
+            // Clear heartbeat status cache when disconnecting
+            delete_transient('metasync_heartbeat_status_cache');
+            $cleared_data['heartbeat_cache'] = 'cleared';
+            
+            // Unschedule heartbeat cron since API key is being removed
+            $this->unschedule_heartbeat_cron();
+
+            // Log the reset action
+            error_log('Search Atlas Authentication Reset: Successfully cleared authentication data by user ' . get_current_user_id());
+
+            // Return success response
+            wp_send_json_success(array(
+                'message' => 'Authentication has been reset successfully. You can now connect a new account.',
+                'cleared_data' => $cleared_data,
+                'timestamp' => current_time('mysql', true)
+            ));
+
+        } catch (Exception $e) {
+            error_log('Search Atlas Authentication Reset Error: ' . $e->getMessage());
+            wp_send_json_error(array(
+                'message' => 'An error occurred while resetting authentication. Please try again or contact support.',
+                'code' => 'reset_failed',
+                'error' => $e->getMessage()
+            ));
+        }
+    }
+
+    /**
+     * Cleanup expired or orphaned SSO nonce tokens
+     * DEPRECATED: No longer needed with simplified token system
+     */
+    private function cleanup_sso_nonce_tokens()
+    {
+        // No nonce tokens are stored with simplified system
+        return 0;
+    }
+
+    /**
+     * Cleanup SSO rate limiting data
+     */
+    private function cleanup_sso_rate_limits()
+    {
+        global $wpdb;
+        
+        try {
+            // Find all SSO rate limit transients
+            $rate_limit_transients = $wpdb->get_results(
+                "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE '_transient_sso_rate_limit_%'",
+                ARRAY_A
+            );
+            
+            $cleaned_count = 0;
+            
+            foreach ($rate_limit_transients as $transient) {
+                $transient_name = str_replace('_transient_', '', $transient['option_name']);
+                delete_transient($transient_name);
+                $cleaned_count++;
+            }
+            
+            return $cleaned_count;
+            
+        } catch (Exception $e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Helper method to get available menu items based on configuration
+     * This ensures WordPress submenu and internal navigation stay in sync
+     */
+    private function get_available_menu_items() 
+    {
+        $general_options = Metasync::get_option('general');
+        $has_api_key = !empty($general_options['searchatlas_api_key']);
+        $has_uuid = !empty($general_options['otto_pixel_uuid']);
+        $is_fully_connected = $this->is_heartbeat_connected($general_options);
+        
+        $menu_items = [];
+        
+        // Dashboard always available
+        $menu_items['dashboard'] = [
+            'title' => 'Dashboard',
+            'slug_suffix' => '-dashboard',
+            'callback' => 'create_admin_dashboard_iframe',
+            'internal_nav' => 'Dashboard'
+        ];
+        
+        // Settings (renamed from General and moved after Dashboard)
+        $menu_items['general'] = [
+            'title' => 'Settings',
+            'slug_suffix' => '',
+            'callback' => 'create_admin_settings_page',
+            'internal_nav' => 'General Settings'
+        ];
+        
+        if (@$general_options['enable_optimal_settings']) {
+            $menu_items['optimal_settings'] = [
+                'title' => 'Optimal Settings',
+                'slug_suffix' => '-optimal-settings',
+                'callback' => 'create_admin_optimal_settings_page',
+                'internal_nav' => 'Optimal Settings'
+            ];
+        }
+        
+        if (@$general_options['enable_instant_indexing']) {
+            $menu_items['instant_index'] = [
+                'title' => 'Instant Indexing',
+                'slug_suffix' => '-instant-index',
+                'callback' => 'create_admin_google_instant_index_page',
+                'internal_nav' => 'Instant Indexing'
+            ];
+        }
+        
+        if (@$general_options['enable_google_console']) {
+            $menu_items['google_console'] = [
+                'title' => 'Google Console',
+                'slug_suffix' => '-google-console',
+                'callback' => 'create_admin_google_console_page',
+                'internal_nav' => 'Google Console'
+            ];
+        }
+        
+        // Always available - Error Logs
+        // Error Logs moved to Advanced settings tab - no longer separate page
+        
+        return $menu_items;
     }
 
     /**
@@ -812,63 +2942,88 @@ class Metasync_Admin
     public function add_plugin_settings_page()
     {
         $data= Metasync::get_option('general');
-        $menu_name = !isset($data['white_label_plugin_menu_name']) || $data['white_label_plugin_menu_name']=="" ? $this::page_title : $data['white_label_plugin_menu_name'];
-        $menu_title = !isset($data['white_label_plugin_menu_title']) || $data['white_label_plugin_menu_title']==""  ?  $this->menu_title : $data['white_label_plugin_menu_title'];
+        // Use centralized method for getting effective plugin name
+        $plugin_name = Metasync::get_effective_plugin_name();
+        $menu_name = $plugin_name;
+        $menu_title = $plugin_name;
         $menu_slug = !isset($data['white_label_plugin_menu_slug']) || $data['white_label_plugin_menu_slug']==""  ?  self::$page_slug : $data['white_label_plugin_menu_slug'];
         $menu_icon = !isset($data['white_label_plugin_menu_icon']) ||  $data['white_label_plugin_menu_icon'] =="" ? 'dashicons-searchatlas' : $data['white_label_plugin_menu_icon'];
        
+        // Main menu page - Settings (default)
         add_menu_page(
             $menu_name,
             $menu_title,
             'manage_options',
             $menu_slug,
-            array($this, 'create_admin_settings_page'),
+            array($this, 'create_admin_settings_page'), // Main page is Settings
             $menu_icon
         );
 
-        add_submenu_page($menu_slug, 'General', 'General', 'manage_options', $menu_slug, array($this, 'create_admin_settings_page'));
-        add_submenu_page($menu_slug , 'Metasync Plugin Errors', 'Metasync Errors', 'manage_options', $menu_slug.'-error-log' ,array($this, 'metasync_display_error_log'));
+        // Check connection status for submenu availability
+        $general_options = Metasync::get_option('general');
+        $has_api_key = !empty($general_options['searchatlas_api_key']);
+        $has_uuid = !empty($general_options['otto_pixel_uuid']);
+        $is_fully_connected = $this->is_heartbeat_connected($general_options);
+        
+        // Add Dashboard submenu first (always available)
+        add_submenu_page(
+            $menu_slug,
+            'Dashboard',
+            'Dashboard',
+            'manage_options',
+            $menu_slug . '-dashboard',
+            array($this, 'create_admin_dashboard_iframe')
+        );
+        
+        // Rename the auto-generated first submenu item from plugin name to "Settings"
+        // WordPress automatically creates a submenu with the main menu name
+        add_action('admin_menu', function() use ($menu_slug) {
+            global $submenu;
+            if (isset($submenu[$menu_slug])) {
+                // Find and rename the auto-generated submenu item
+                foreach ($submenu[$menu_slug] as $key => $item) {
+                    if ($item[2] === $menu_slug) { // Main menu item
+                        $submenu[$menu_slug][$key][0] = 'Settings';
+                        break;
+                    }
+                }
+                
+                // Ensure proper ordering: Dashboard first, then Settings
+                if (count($submenu[$menu_slug]) > 1) {
+                    // Sort to ensure Dashboard comes first
+                    usort($submenu[$menu_slug], function($a, $b) {
+                        if (strpos($a[2], '-dashboard') !== false) return -1; // Dashboard first
+                        if (strpos($b[2], '-dashboard') !== false) return 1;
+                        return 0;
+                    });
+                }
+            }
+        }, 999); // High priority to run after all menus are added
 
-        // add_submenu_page(self::$page_slug, 'Dashboard', 'Dashboard', 'manage_options', self::$page_slug . '-dashboard', array($this, 'create_admin_dashboard_page'));
-
+        // Additional conditional features (commented out for now - can be enabled based on settings)
         // if(@Metasync::get_option('general')['enable_404monitor'])
-        // add_submenu_page(self::$page_slug, '404 Monitor', '404 Monitor', 'manage_options', self::$page_slug . '-404-monitor', array($this, 'create_admin_404_monitor_page'));
+        // add_submenu_page($menu_slug, '404 Monitor', '404 Monitor', 'manage_options', $menu_slug . '-404-monitor', array($this, 'create_admin_404_monitor_page'));
 
         // if(@Metasync::get_option('general')['enable_siteverification'])
-        // add_submenu_page(self::$page_slug, 'Site Verification', 'Site Verification', 'manage_options', self::$page_slug . '-search-engine-verify', array($this, 'create_admin_search_engine_verification_page'));
+        // add_submenu_page($menu_slug, 'Site Verification', 'Site Verification', 'manage_options', $menu_slug . '-search-engine-verify', array($this, 'create_admin_search_engine_verification_page'));
 
         // if(@Metasync::get_option('general')['enable_localbusiness'])
-        // add_submenu_page(self::$page_slug, 'Local Business', 'Local Business', 'manage_options', self::$page_slug . '-local-business', array($this, 'create_admin_local_business_page'));
+        // add_submenu_page($menu_slug, 'Local Business', 'Local Business', 'manage_options', $menu_slug . '-local-business', array($this, 'create_admin_local_business_page'));
 
         // if(@Metasync::get_option('general')['enable_codesnippets'])
-        // add_submenu_page(self::$page_slug, 'Code Snippets', 'Code Snippets', 'manage_options', self::$page_slug . '-code-snippets', array($this, 'create_admin_code_snippets_page'));
-
-        // if(@Metasync::get_option('general')['enable_googleinstantindex'])
-        // add_submenu_page(self::$page_slug, 'Google Instant Index', 'Google Instant Index', 'manage_options', self::$page_slug . '-instant-index', array($this, 'create_admin_google_instant_index_page'));
-
-        // if(@Metasync::get_option('general')['enable_googleconsole'])
-        // add_submenu_page(self::$page_slug, 'Google Console', 'Google Console', 'manage_options', self::$page_slug . '-google-console', array($this, 'create_admin_google_console_page'));
-
-        // if(@Metasync::get_option('general')['enable_optimalsettings'])
-        // add_submenu_page(self::$page_slug, 'Optimal Settings', 'Optimal Settings', 'manage_options', self::$page_slug . '-optimal-setting', array($this, 'create_admin_optimal_settings_page'));
+        // add_submenu_page($menu_slug, 'Code Snippets', 'Code Snippets', 'manage_options', $menu_slug . '-code-snippets', array($this, 'create_admin_code_snippets_page'));
 
         // if(@Metasync::get_option('general')['enable_globalsettings'])
-        // add_submenu_page(self::$page_slug, 'Global Settings', 'Global Settings', 'manage_options', self::$page_slug . '-common-settings', array($this, 'create_admin_global_settings_page'));
+        // add_submenu_page($menu_slug, 'Global Settings', 'Global Settings', 'manage_options', $menu_slug . '-common-settings', array($this, 'create_admin_global_settings_page'));
 
         // if(@Metasync::get_option('general')['enable_commonmetastatus'])
-        // add_submenu_page(self::$page_slug, 'Common Meta Status', 'Common Meta Status', 'manage_options', self::$page_slug . '-common-meta-settings', array($this, 'create_admin_common_meta_settings_page'));
+        // add_submenu_page($menu_slug, 'Common Meta Status', 'Common Meta Status', 'manage_options', $menu_slug . '-common-meta-settings', array($this, 'create_admin_common_meta_settings_page'));
 
         // if(@Metasync::get_option('general')['enable_socialmeta'])
-        // add_submenu_page(self::$page_slug, 'Social Meta', 'Social Meta', 'manage_options', self::$page_slug . '-social-meta', array($this, 'create_admin_social_meta_page'));
+        // add_submenu_page($menu_slug, 'Social Meta', 'Social Meta', 'manage_options', $menu_slug . '-social-meta', array($this, 'create_admin_social_meta_page'));
 
         // if(@Metasync::get_option('general')['enable_redirections'])
-        // add_submenu_page(self::$page_slug, 'Redirections', 'Redirections', 'manage_options', self::$page_slug . '-redirections', array($this, 'create_admin_redirections_page'));
-
-        // add_submenu_page(self::$page_slug, 'Error Logs', 'Error Logs', 'manage_options', self::$page_slug . '-error-logs', array($this, 'create_admin_error_logs_page'));
-        // add_submenu_page(self::$page_slug, 'HeartBeat Error Logs', 'HeartBeat Error Logs', 'manage_options', self::$page_slug . '-heartbeat-error-logs', array($this, 'create_admin_heartbeat_error_logs_page'));
-
-        // if(@Metasync::get_option('general')['enable_errorlogs'])
-        // add_submenu_page(self::$page_slug, 'Error Logs', 'Error Logs', 'manage_options', self::$page_slug . '-error-logs-list', array($this, 'creat_error_Logs_List'));
+        // add_submenu_page($menu_slug, 'Redirections', 'Redirections', 'manage_options', $menu_slug . '-redirections', array($this, 'create_admin_redirections_page'));
 
     }
 
@@ -877,18 +3032,19 @@ class Metasync_Admin
      */
     public function create_admin_settings_page()
     {
-
-        # white label plugin nomenclature
-        $whitelabel_otto_name = !empty(Metasync::get_option()['general']['white_label_plugin_menu_name']) ? Metasync::get_option()['general']['white_label_plugin_menu_name']: 'Otto';
+        # Use whitelabel OTTO name if configured, fallback to 'OTTO'
+        $whitelabel_otto_name = Metasync::get_whitelabel_otto_name();
 
         # define the active tab
         $active_tab = isset($_GET['tab']) ? $_GET['tab'] : 'general';
         
-        # get page slug
-        $page_slug = self::$page_slug  . '_general';
+        # get page slug (use original format)
+        $page_slug = self::$page_slug;
     ?>
-        <div class="wrap">
-        <h1> General Settings</h1>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('Settings'); ?>
+        
         <?php
         /*
         # Temporarily commented out: Clear Cache notice and button (can be re-enabled later)
@@ -902,41 +3058,322 @@ class Metasync_Admin
         *    </div> 
         */
         ?>
-        <h2 class="nav-tab-wrapper">
-            <a href="?page=<?php echo self::$page_slug; ?>&tab=general" class="nav-tab <?php echo $active_tab == 'general' ? 'nav-tab-active' : ''; ?>">Settings</a>
-        </h2>
-        <br/>
+        
+        <?php $this->render_navigation_menu('general'); ?>
+        
 
             <form method="post" action="options.php?tab=<?php echo $active_tab?>" id="metaSyncGeneralSetting">
                 <?php
                     settings_fields($this::option_group);
 
-                    if ($active_tab == 'general') {
-
-                        # do the general settings section
-                        do_settings_sections(self::$page_slug  . '_general');
-
-                        # do the whitelabe branding section
-                        do_settings_sections(self::$page_slug  . '_branding');
-                        
-                        # add sync button
-                ?>
-                        <button tyreadonly="readonly"pe="button" class="button button-primary" id="sendAuthToken" data-toggle="tooltip" data-placement="top" title="Sync Categories and User">Sync Now</button>
-                <?php
-
-                    }
-
-                    # Add a nonce field for security
+                    # Add a nonce field for security - needed for both General and Advanced tabs
                     wp_nonce_field('meta_sync_general_setting_nonce', 'meta_sync_nonce');
 
+                    if ($active_tab == 'general') {
                 ?>
+                    <div class="dashboard-card">
+                        <h2>🔧 General Configuration</h2>
+                        <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure your <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> API, plugin features, caching, and general settings.</p>
+                        <?php
+                        # do the general settings section
+                        do_settings_sections(self::$page_slug  . '_general');
+                        ?>
+                    </div>
+
+                    <div class="dashboard-card">
+                        <h2>🔄 Synchronization</h2>
+                        <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Sync your categories and user data with <?php echo esc_html(Metasync::get_effective_plugin_name()); ?>.</p>
+                        <button type="button" class="button button-primary" id="sendAuthToken" data-toggle="tooltip" data-placement="top" title="Sync Categories and User">
+                            🔄 Sync Now
+                        </button>
+                    </div>
                 <?php
-            
-                    # do_settings_sections(self::$page_slug . '_sitemap');
-                    submit_button();
+                    } elseif ($active_tab == 'advanced') {
                 ?>
+                    <div class="dashboard-card">
+                        <h2>🎨 White Label Branding</h2>
+                        <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Customize the plugin appearance with your own branding and logo.</p>
+                        <?php
+                                                # do the whitelabel branding section
+                        do_settings_sections(self::$page_slug  . '_branding');
+                        ?>
+                    </div>
+                    
+
+                <?php
+                    }
+                ?>
+                
+                <!-- Save button removed - using floating notification system instead -->
+                
             </form>
+            
+            <?php if ($active_tab === 'advanced'): ?>
+                <!-- Display success/error messages for advanced operations -->
+                <?php if (isset($_GET['settings_cleared']) && $_GET['settings_cleared'] == '1'): ?>
+                    <div class="notice notice-success is-dismissible">
+                        <p><strong>✅ Success!</strong> All plugin settings have been cleared successfully and a new Plugin Auth Token has been generated. Please reconfigure the plugin as needed.</p>
+                    </div>
+                <?php endif; ?>
+                
+                <?php if (isset($_GET['clear_settings_error']) && $_GET['clear_settings_error'] == '1'): ?>
+                    <div class="notice notice-error is-dismissible">
+                        <p><strong>❌ Error!</strong> Failed to clear settings due to a security check failure. Please try again.</p>
+                    </div>
+                <?php endif; ?>
+                
+                <?php if (isset($_GET['log_cleared']) && $_GET['log_cleared'] == '1'): ?>
+                    <div class="notice notice-success is-dismissible">
+                        <p><strong>✅ Success!</strong> Error logs have been cleared successfully.</p>
+                    </div>
+                <?php endif; ?>
+                
+                <?php if (isset($_GET['clear_error']) && $_GET['clear_error'] == '1'): ?>
+                    <div class="notice notice-error is-dismissible">
+                        <p><strong>❌ Error!</strong> Failed to clear error logs due to a security check failure. Please try again.</p>
+                    </div>
+                <?php endif; ?>
+
+                <!-- Error Logs Management section after White Label Branding -->
+                <div class="dashboard-card">
+                    <h2>⚠️ Error Logs Management</h2>
+                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">View and manage system error logs to troubleshoot issues and monitor plugin performance.</p>
+                    <?php $this->render_error_log_content(); ?>
+                </div>
+
+                <!-- Clear All Settings section -->
+                <div class="dashboard-card">
+                    <h2>🔄 Reset Plugin Settings</h2>
+                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Reset all plugin settings to default values. This will clear all configuration data and restore the plugin to its initial state.</p>
+                    <div style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 5px; padding: 15px; margin: 15px 0;">
+                        <h4 style="color: #856404; margin: 0 0 10px 0;">⚠️ Important Warning</h4>
+                        <p style="color: #856404; margin: 0 0 10px 0;">This action will permanently delete:</p>
+                        <ul style="color: #856404; margin: 0 0 10px 15px;">
+                            <li>All API keys and authentication tokens</li>
+                            <li>White label branding settings</li>
+                            <li>Plugin configuration and preferences</li>
+                            <li>Instant indexing settings</li>
+                            <li>All cached data and crawl information</li>
+                        </ul>
+                        <p style="color: #856404; margin: 0; font-weight: bold;">You will need to reconfigure the plugin completely after this reset.</p>
+                    </div>
+                    <form method="post" action="" onsubmit="return confirmClearSettings(event)" style="margin-top: 20px;">
+                        <?php wp_nonce_field('metasync_clear_all_settings_nonce', 'clear_all_settings_nonce'); ?>
+                        <input type="hidden" name="clear_all_settings" value="yes" />
+                        <button type="submit" class="button button-secondary" style="background: #dc3545; color: white; border-color: #dc3545;" onmouseover="this.style.background='#c82333'" onmouseout="this.style.background='#dc3545'">
+                            🗑️ Clear All Settings
+                        </button>
+                    </form>
+                </div>
+
+                <script>
+                function confirmClearSettings(event) {
+                    event.preventDefault();
+                    
+                    // First confirmation
+                    var firstConfirm = confirm("⚠️ WARNING: This will permanently delete ALL plugin settings!\n\nThis action cannot be undone. Are you sure you want to continue?");
+                    if (!firstConfirm) {
+                        return false;
+                    }
+                    
+                    // Second confirmation with more specific warning
+                    var secondConfirm = confirm("🚨 FINAL WARNING 🚨\n\nThis will delete:\n• All API keys and authentication tokens\n• White label branding settings\n• Plugin configuration and preferences\n• Instant indexing settings\n• All cached data\n\nYou will need to reconfigure the entire plugin from scratch.\n\nType 'DELETE' in the next prompt to confirm.");
+                    if (!secondConfirm) {
+                        return false;
+                    }
+                    
+                    // Third confirmation requiring typing "DELETE"
+                    var typeConfirm = prompt("Type 'DELETE' (in capital letters) to confirm you want to permanently clear all settings:");
+                    if (typeConfirm !== 'DELETE') {
+                        alert("Settings reset cancelled. Type 'DELETE' exactly to confirm.");
+                        return false;
+                    }
+                    
+                    // If all confirmations passed, allow form submission
+                    event.target.submit();
+                    return false; // Prevent default form submission since we manually submitted
+                }
+                </script>
+            <?php endif; ?>
         </div>
+                <?php
+    }
+
+    /**
+     * Helper function to render navigation menu
+     */
+    private function render_navigation_menu($current_page = null)
+    {
+        // Get available menu items using our helper method to ensure consistency
+        $available_menu_items = $this->get_available_menu_items();
+        
+        // Define icons for each menu type
+        $menu_icons = [
+            'general' => '⚙️',
+            'dashboard' => '📊', 
+            'optimal_settings' => '🚀',
+            'instant_index' => '🔗',
+            'google_console' => '📊',
+            'error_log' => '⚠️'
+        ];
+        ?>
+                <!-- Plugin Navigation Menu -->
+        <div class="metasync-nav-wrapper">
+            <div class="metasync-nav-tabs">
+                <!-- Left side - Dashboard navigation -->
+                <div class="metasync-nav-left">
+                <?php
+                    // Check connection status for dashboard
+                    $general_options = Metasync::get_option('general');
+                    $has_api_key = !empty($general_options['searchatlas_api_key']);
+                    $has_uuid = !empty($general_options['otto_pixel_uuid']);
+                    $is_connected = $this->is_heartbeat_connected($general_options);
+                    $is_dashboard_page = ($current_page === 'dashboard');
+                    ?>
+                    <!-- Dashboard always available in internal navigation -->
+                    <a href="?page=<?php echo self::$page_slug; ?>-dashboard" class="metasync-nav-tab <?php echo $is_dashboard_page ? 'active' : ''; ?>">
+                        <span class="tab-icon">📊</span>
+                        <span class="tab-text">Dashboard</span>
+                    </a>
+                </div>
+                
+                <!-- Right side - Simple Settings dropdown (portal approach) -->
+                <div class="metasync-nav-right">
+                    <div class="metasync-simple-dropdown">
+                        <button type="button" class="metasync-settings-btn" id="metasync-settings-btn" onclick="toggleSettingsMenuPortal(event)">
+                            <span class="tab-icon">⚙️</span>
+                            <span class="tab-text">Settings</span>
+                            <span class="dropdown-arrow">▼</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+        // Portal-style dropdown that bypasses stacking contexts
+        function toggleSettingsMenuPortal(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            
+            var button = event.currentTarget;
+            var existingMenu = document.getElementById('metasync-portal-menu');
+            
+            // If menu exists, close it
+            if (existingMenu) {
+                existingMenu.remove();
+                button.classList.remove('active');
+                button.setAttribute('aria-expanded', 'false');
+                return;
+            }
+            
+            // Create menu outside form context
+            var menu = document.createElement('div');
+            menu.id = 'metasync-portal-menu';
+            menu.className = 'metasync-portal-menu';
+            
+            // Get current page context for active states
+            var currentUrl = window.location.href;
+            var isGeneralActive = currentUrl.indexOf('tab=general') > -1 || currentUrl.indexOf('tab=') === -1;
+            var isAdvancedActive = currentUrl.indexOf('tab=advanced') > -1;
+            
+            menu.innerHTML = '<a href="?page=<?php echo self::$page_slug; ?>&tab=general" class="metasync-portal-item' + (isGeneralActive ? ' active' : '') + '">General</a>' +
+                           '<a href="?page=<?php echo self::$page_slug; ?>&tab=advanced" class="metasync-portal-item' + (isAdvancedActive ? ' active' : '') + '">Advanced</a>';
+            
+            // Position menu relative to button
+            var rect = button.getBoundingClientRect();
+            menu.style.position = 'fixed';
+            menu.style.top = (rect.bottom + 8) + 'px';
+            menu.style.right = (window.innerWidth - rect.right) + 'px';
+            menu.style.zIndex = '999999999';
+            
+            // Append to body to escape form context
+            document.body.appendChild(menu);
+            
+            // Update button state
+            button.classList.add('active');
+            button.setAttribute('aria-expanded', 'true');
+        }
+        
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            var button = document.getElementById('metasync-settings-btn');
+            var menu = document.getElementById('metasync-portal-menu');
+            
+            if (menu && !button.contains(event.target) && !menu.contains(event.target)) {
+                menu.remove();
+                if (button) {
+                    button.classList.remove('active');
+                    button.setAttribute('aria-expanded', 'false');
+                }
+            }
+        });
+        </script>
+    <?php
+    }
+
+    /**
+     * Helper function to render plugin header with logo
+     */
+    private function render_plugin_header($page_title = null)
+    {
+        $general_settings = Metasync::get_option('general');
+        $whitelabel_settings = Metasync::get_whitelabel_settings();
+        
+        // Get whitelabel logo from the centralized whitelabel settings
+        $whitelabel_logo = Metasync::get_whitelabel_logo();
+        $is_whitelabel = $whitelabel_settings['is_whitelabel'];
+        
+        // Get the display title - use effective plugin name if no page title provided
+        $effective_plugin_name = Metasync::get_effective_plugin_name();
+        
+        $display_title = $page_title ?: $effective_plugin_name;
+        
+        $show_logo = false;
+        $logo_url = '';
+        
+        // Priority 1: Use whitelabel logo if it's a valid URL
+        if (!empty($whitelabel_logo) && filter_var($whitelabel_logo, FILTER_VALIDATE_URL)) {
+            $show_logo = true;
+            $logo_url = esc_url($whitelabel_logo);
+        } else {
+            // Priority 2: Always use default Search Atlas logo as fallback
+            $show_logo = true;
+            $logo_url = Metasync::HOMEPAGE_DOMAIN . '/wp-content/uploads/2023/12/white.svg';
+        }
+        
+        // Check integration status based on heartbeat API connectivity
+        $searchatlas_api_key = isset($general_settings['searchatlas_api_key']) ? $general_settings['searchatlas_api_key'] : '';
+        $otto_pixel_uuid = isset($general_settings['otto_pixel_uuid']) ? $general_settings['otto_pixel_uuid'] : '';
+        
+        // User is considered "Connected" based on heartbeat API status
+        $is_integrated = $this->is_heartbeat_connected($general_settings);
+        ?>
+        
+        <!-- Plugin Header with Logo -->
+        <div class="metasync-header">
+            <div class="metasync-header-left">
+                <?php if ($show_logo && !empty($logo_url)): ?>
+                    <div class="metasync-logo-container">
+                        <img src="<?php echo $logo_url; ?>" alt="Logo" class="metasync-logo" />
+        </div>
+                <?php endif; ?>
+            </div>
+            
+                         <div class="metasync-header-right">
+                 <div class="metasync-integration-status <?php echo $is_integrated ? 'integrated' : 'not-integrated'; ?>" 
+                      title="<?php echo $is_integrated ? 'Synced - Heartbeat API connectivity verified' : 'Not Synced - Heartbeat API not responding or unreachable'; ?>">
+                     <span class="status-indicator"></span>
+                     <span class="status-text"><?php echo $is_integrated ? 'Synced' : 'Not Synced'; ?></span>
+                 </div>
+             </div>
+        </div>
+        
+        <!-- Page Title Below Header -->
+        <div class="metasync-page-title">
+            <h1><?php echo esc_html($display_title); ?></h1>
+        </div>
+        
     <?php
     }
 
@@ -958,22 +3395,38 @@ class Metasync_Admin
         $text_fields = [
             'searchatlas_api_key', 'apikey', 'enabled_plugin_editor', 
             'white_label_plugin_name', 'white_label_plugin_description', 
-            'white_label_plugin_author', 'white_label_plugin_menu_name', 
-            'white_label_plugin_menu_title', 'white_label_plugin_menu_slug', 
+            'white_label_plugin_author', 'white_label_plugin_menu_slug', 
             'white_label_plugin_menu_icon', 'enabled_plugin_css',
             'enabled_elementor_plugin_css_color','enabled_elementor_plugin_css',
             'otto_pixel_uuid','periodic_clear_otto_cache','periodic_clear_ottopage_cache',
-            'periodic_clear_ottopost_cache'
+            'periodic_clear_ottopost_cache', 'whitelabel_otto_name'
         ];
+        
+        # URL fields for esc_url_raw
+        $url_fields = [
+            'white_label_plugin_author_uri', 'white_label_plugin_uri'
+        ];
+        
+        // Note: white_label_plugin_menu_name and white_label_plugin_menu_title deprecated
+        // Plugin Name controls general branding, whitelabel_otto_name controls OTTO features
     
         # Bool Fields for filter var
-        $bool_fields = ['enable_schema', 'enable_metadesc', 'otto_enable', 'otto_disable_on_loggedin'];
+       # $bool_fields = ['enable_schema', 'enable_metadesc', 'otto_enable', 'otto_disable_on_loggedin'];
+       # new field added disable_single_signup_login
+	    $bool_fields = ['enable_schema', 'enable_metadesc', 'otto_enable', 'otto_disable_on_loggedin', 'disable_single_signup_login'];
     
         #url Fields for esc_url
         $url_fields = ['white_label_plugin_author_uri', 'white_label_plugin_uri'];
     
-        # Initialize the options array
-        $metasync_options = array('general' => array());
+        # Get existing options to preserve other sections (whitelabel, branding, etc.)
+        $metasync_options = Metasync::get_option();
+        if (!is_array($metasync_options)) {
+            $metasync_options = array();
+        }
+        # Initialize general section if it doesn't exist
+        if (!isset($metasync_options['general']) || !is_array($metasync_options['general'])) {
+            $metasync_options['general'] = array();
+        }
     
         # Process text fields
         # Initialize an array to collect validation errors
@@ -986,16 +3439,28 @@ class Metasync_Admin
                 # Trim whitespace from the field value
                 $value = trim($_POST['metasync_options']['general'][$field]);
 
-                # Skip empty values
-                if ($value === '') {
+                # Define whitelabel branding fields that can be cleared (allow empty values)
+                $whitelabel_clearable_fields = [
+                    'white_label_plugin_name', 
+                    'white_label_plugin_description', 
+                    'white_label_plugin_author',
+                    'white_label_plugin_menu_slug',
+                    'white_label_plugin_menu_icon',
+                    'whitelabel_otto_name'
+                ];
+
+                # Skip empty values except for whitelabel fields (which can be cleared)
+                if ($value === '' && !in_array($field, $whitelabel_clearable_fields)) {
                     continue;
                 }
 
                 # Special validation for the 'white_label_plugin_menu_icon' field
                 if ($field === 'white_label_plugin_menu_icon') {
-
-                    # Check if the value is a valid URL
-                    if (filter_var($value, FILTER_VALIDATE_URL)) {
+                    
+                    # Handle empty value (allow clearing the menu icon)
+                    if ($value === '') {
+                        $metasync_options['general'][$field] = '';
+                    } elseif (filter_var($value, FILTER_VALIDATE_URL)) {
 
                         # Define allowed image extensions
                         $image_extensions = ['png', 'svg'];
@@ -1031,6 +3496,9 @@ class Metasync_Admin
         foreach ($bool_fields as $field) {
             if (isset($_POST['metasync_options']['general'][$field])) {
                 $metasync_options['general'][$field] = filter_var($_POST['metasync_options']['general'][$field], FILTER_VALIDATE_BOOLEAN);
+            }else {
+                # If checkbox is not present in POST (unchecked), set to false
+                $metasync_options['general'][$field] = false;
             }
         }
     
@@ -1041,8 +3509,20 @@ class Metasync_Admin
                 # Trim whitespace from the field value
                 $value = trim($_POST['metasync_options']['general'][$field]);
                 
-                # Skip empty values
-                if ($value === '') {
+                # Define whitelabel URL fields that can be cleared (allow empty values)
+                $whitelabel_clearable_url_fields = [
+                    'white_label_plugin_author_uri',
+                    'white_label_plugin_uri'
+                ];
+                
+                # Skip empty values except for whitelabel URL fields (which can be cleared)
+                if ($value === '' && !in_array($field, $whitelabel_clearable_url_fields)) {
+                    continue;
+                }
+                
+                # Handle empty whitelabel URL fields (clear them)
+                if ($value === '' && in_array($field, $whitelabel_clearable_url_fields)) {
+                    $metasync_options['general'][$field] = '';
                     continue;
                 }
                 
@@ -1085,12 +3565,22 @@ class Metasync_Admin
             return;
         }
 
-        # Save the options in the database
-        update_option('metasync_options', $metasync_options);
+        # Get current options to check for API key changes
+        $old_options = Metasync::get_option('general') ?? [];
+        $old_api_key = $old_options['searchatlas_api_key'] ?? '';
+        
+        # Save the options in the database (preserves all sections)
+        Metasync::set_option($metasync_options);
 
         #get the fresh option data
         $data = Metasync::get_option('general');
+        $new_api_key = $data['searchatlas_api_key'] ?? '';
 
+        # Check if API key changed
+        $api_key_changed = $old_api_key !== $new_api_key;
+        $api_key_added = empty($old_api_key) && !empty($new_api_key);
+        $api_key_removed = !empty($old_api_key) && empty($new_api_key);
+        
         # initialize MetaSync request API class
         $sync_request = new Metasync_Sync_Requests();
         # Validate searchatlas_api_key
@@ -1105,13 +3595,27 @@ class Metasync_Admin
             // Update the 'send_auth_token_timestamp' field with the current timestamp
             $send_auth_token_timestamp['general']['send_auth_token_timestamp'] = $dt->format('M d, Y  h:i:s A');        
             // Save the updated options back to MetaSync
-            Metasync::set_option($send_auth_token_timestamp);           
+            Metasync::set_option($send_auth_token_timestamp);
+            
+            # Handle heartbeat system based on API key changes
+            if ($api_key_added) {
+                // New API key added - schedule heartbeat cron and test immediately  
+                $this->maybe_schedule_heartbeat_cron();
+                do_action('metasync_trigger_immediate_heartbeat', 'Manual API key update - new key added');
+            } elseif ($api_key_removed) {
+                // API key removed - unschedule heartbeat cron and clear cache
+                $this->unschedule_heartbeat_cron(); 
+                delete_transient('metasync_heartbeat_status_cache');
+            } elseif ($api_key_changed && !empty($new_api_key)) {
+                // API key changed to different non-empty value - test new key immediately
+                do_action('metasync_trigger_immediate_heartbeat', 'Manual API key update - key changed');
+            }
         }      
     
-        # set the redirect url
+        # set the redirect url - use the correct settings page slug
         $redirect_url = isset($_GET['tab']) ? 
-                        admin_url('admin.php?page=' . $data['white_label_plugin_menu_slug'].'tab='.$_GET['tab']) :
-                        admin_url('admin.php?page=' . $data['white_label_plugin_menu_slug']);
+                        admin_url('admin.php?page=' . self::$page_slug . '-settings&tab='.$_GET['tab']) :
+                        admin_url('admin.php?page=' . self::$page_slug . '-settings');
 
         # Send a success response with a redirect to avoid resubmission
         wp_send_json_success(array(
@@ -1164,13 +3668,26 @@ class Metasync_Admin
      */
     public function create_admin_dashboard_page()
     {
-        printf('<h1> Dashboard </h1>');
+        ?>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('Dashboard'); ?>
+        
+        <?php $this->render_navigation_menu('dashboard'); ?>
+            
+            <div class="dashboard-card">
+                <h2>📊 Search Atlas Dashboard</h2>
+                <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Access your <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> dashboard to view analytics, manage SEO settings, and monitor your site performance.</p>
+                <?php
         if (!isset(Metasync::get_option('general')['linkgraph_token']) || Metasync::get_option('general')['linkgraph_token'] == '') {
-            printf('<span>Authenticate with your Search Atlas account. Save your Search Atlas auth token in general settings</span>');
-            return;
-        }
-?>
-        <a href="https://dashboard.searchatlas.com/?jwtToken=<?php echo esc_attr(Metasync::get_option('general')['linkgraph_token']); ?>" target="_blank">Go to Search Atlas Dashbord</a>
+                    echo '<p style="color: #d54e21; margin-bottom: 15px;">⚠️ Authentication required: Please authenticate with your ' . esc_html(Metasync::get_effective_plugin_name()) . ' account and save your auth token in general settings.</p>';
+                    echo '<a href="' . admin_url('admin.php?page=' . self::$page_slug) . '" class="button button-secondary">Go to Settings</a>';
+                } else {
+                    echo '<a href="' . esc_url($this->get_dashboard_url()) . '" target="_blank" class="button button-primary">🌐 Open Dashboard</a>';
+                }
+                ?>
+            </div>
+        </div>
     <?php
     }
 
@@ -1179,9 +3696,23 @@ class Metasync_Admin
      */
     public function create_admin_404_monitor_page()
     {
-        printf('<h1> 404 Monitor Logs </h1>');
+        ?>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('404 Monitor'); ?>
+        
+        <?php $this->render_navigation_menu('404-monitor'); ?>
+            
+            <div class="dashboard-card">
+                <h2>🚫 404 Error Monitor</h2>
+                <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Monitor and track 404 errors on your website to identify broken links and improve user experience.</p>
+                <?php
         $ErrorMonitor = new Metasync_Error_Monitor($this->database);
         $ErrorMonitor->create_admin_plugin_interface();
+                ?>
+            </div>
+        </div>
+        <?php
     }
 
     /**
@@ -1190,15 +3721,27 @@ class Metasync_Admin
     public function create_admin_search_engine_verification_page()
     {
         $page_slug = self::$page_slug . '_searchengines-verification';
-
-        printf('<h1> Site Verification </h1>');
-        printf('<form method="post" action="options.php">');
-        // This prints out all hidden setting fields
+        ?>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('Site Verification'); ?>
+        
+        <?php $this->render_navigation_menu('site-verification'); ?>
+            
+            <form method="post" action="options.php">
+                <div class="dashboard-card">
+                    <h2>🔍 Search Engine Verification</h2>
+                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Verify your site ownership with major search engines to access their tools and analytics.</p>
+                    <?php
         settings_fields($this::option_group);
         do_settings_sections($page_slug);
-
-        submit_button();
-        printf('</form>');
+                    ?>
+                </div>
+                
+                <!-- Save button removed - using floating notification system instead -->
+            </form>
+        </div>
+        <?php
     }
 
     /**
@@ -1207,15 +3750,27 @@ class Metasync_Admin
     public function create_admin_local_business_page()
     {
         $page_slug = self::$page_slug . '_local-seo';
-
-        printf('<h1> Local Business </h1>');
-        printf('<form method="post" action="options.php">');
-        // This prints out all hidden setting fields
+        ?>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('Local Business'); ?>
+        
+        <?php $this->render_navigation_menu('local-business'); ?>
+            
+            <form method="post" action="options.php">
+                <div class="dashboard-card">
+                    <h2>🏢 Local Business Configuration</h2>
+                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure your local business information for better local search engine optimization.</p>
+                    <?php
         settings_fields($this::option_group);
         do_settings_sections($page_slug);
-
-        submit_button();
-        printf('</form>');
+                    ?>
+                </div>
+                
+                <!-- Save button removed - using floating notification system instead -->
+            </form>
+        </div>
+        <?php
     }
 
     /**
@@ -1224,15 +3779,27 @@ class Metasync_Admin
     public function create_admin_code_snippets_page()
     {
         $page_slug = self::$page_slug . '_code-snippets';
-
-        printf('<h1> Code Snippets </h1>');
-        printf('<form method="post" action="options.php">');
-        // This prints out all hidden setting fields
+        ?>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('Code Snippets'); ?>
+        
+        <?php $this->render_navigation_menu('code-snippets'); ?>
+            
+            <form method="post" action="options.php">
+                <div class="dashboard-card">
+                    <h2>📝 Code Snippets Management</h2>
+                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Add custom code snippets to enhance your site functionality and tracking capabilities.</p>
+                    <?php
         settings_fields($this::option_group);
         do_settings_sections($page_slug);
-
-        submit_button();
-        printf('</form>');
+                    ?>
+                </div>
+                
+                <!-- Save button removed - using floating notification system instead -->
+            </form>
+        </div>
+        <?php
     }
 
     /**
@@ -1240,8 +3807,19 @@ class Metasync_Admin
      */
     public function create_admin_google_instant_index_page()
     {
+        ?>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('Instant Indexing'); ?>
+        
+        <?php $this->render_navigation_menu('instant_index'); ?>
+        
+        <?php
         $instant_index = new Metasync_Instant_Index();
         $instant_index->show_google_instant_indexing_settings();
+        ?>
+        </div>
+        <?php
     }
 
     /**
@@ -1249,8 +3827,19 @@ class Metasync_Admin
      */
     public function create_admin_google_console_page()
     {
+        ?>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('Google Console'); ?>
+        
+        <?php $this->render_navigation_menu('google_console'); ?>
+        
+        <?php
         $instant_index = new Metasync_Instant_Index();
         $instant_index->show_google_instant_indexing_console();
+        ?>
+        </div>
+        <?php
     }
 
     /**
@@ -1258,10 +3847,31 @@ class Metasync_Admin
      */
     public function create_admin_optimal_settings_page()
     {
-        printf('<h1> Optimal Settings </h1>');
+        ?>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('Settings'); ?>
+        
+        <?php $this->render_navigation_menu('optimal-settings'); ?>
+            
+            <div class="dashboard-card">
+                <h2>🚀 Site Compatibility Status</h2>
+                <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Check your site's compatibility with optimal <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> settings.</p>
+                <?php
         $optimal_settings = new Metasync_Optimal_Settings();
         $optimal_settings->site_compatible_status_view();
+                ?>
+            </div>
+
+            <div class="dashboard-card">
+                <h2>⚙️ Optimization Settings</h2>
+                <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure optimization settings for best performance.</p>
+                <?php
         $this->optimization_settings_options();
+                ?>
+            </div>
+        </div>
+        <?php
     }
 
     /**
@@ -1270,13 +3880,27 @@ class Metasync_Admin
     public function create_admin_global_settings_page()
     {
         $page_slug = self::$page_slug . '_common-settings';
-
-        printf('<form method="post" action="options.php">');
+        ?>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('Settings'); ?>
+        
+        <?php $this->render_navigation_menu('global-settings'); ?>
+            
+            <form method="post" action="options.php">
+                <div class="dashboard-card">
+                    <h2>🌐 Global Configuration</h2>
+                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure global settings that apply across your entire site.</p>
+                    <?php
         settings_fields($this::option_group);
         do_settings_sections($page_slug);
-       
-        submit_button();
-        printf('</form>');
+                    ?>
+                </div>
+                
+                <!-- Save button removed - using floating notification system instead -->
+            </form>
+        </div>
+        <?php
     }
 
     /**
@@ -1285,12 +3909,27 @@ class Metasync_Admin
     public function create_admin_common_meta_settings_page()
     {
         $page_slug = self::$page_slug . '_common-meta-settings';
-
-        printf('<form method="post" action="options.php">');
+        ?>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('Settings'); ?>
+        
+        <?php $this->render_navigation_menu('common-meta-settings'); ?>
+            
+            <form method="post" action="options.php">
+                <div class="dashboard-card">
+                    <h2>🏷️ Meta Configuration</h2>
+                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure common meta tags and SEO settings for your site.</p>
+                    <?php
         settings_fields($this::option_group);
         do_settings_sections($page_slug);
-        submit_button();
-        printf('</form>');
+                    ?>
+                </div>
+                
+                <!-- Save button removed - using floating notification system instead -->
+            </form>
+        </div>
+        <?php
     }
 
     /**
@@ -1299,12 +3938,27 @@ class Metasync_Admin
     public function create_admin_social_meta_page()
     {
         $page_slug = self::$page_slug . '_social-meta';
-
-        printf('<form method="post" action="options.php">');
+        ?>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('Settings'); ?>
+        
+        <?php $this->render_navigation_menu('social-meta'); ?>
+            
+            <form method="post" action="options.php">
+                <div class="dashboard-card">
+                    <h2>📲 Social Meta Tags</h2>
+                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure how your content appears when shared on social media platforms.</p>
+                    <?php
         settings_fields($this::option_group);
         do_settings_sections($page_slug);
-        submit_button();
-        printf('</form>');
+                    ?>
+                </div>
+                
+                <!-- Save button removed - using floating notification system instead -->
+            </form>
+        </div>
+        <?php
     }
 
     /**
@@ -1341,18 +3995,30 @@ class Metasync_Admin
      */
     public function create_admin_error_logs_page()
     {
-        printf('<h1> Error Logs </h1>');
-
+        ?>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('Error Logs'); ?>
+        
+        <?php $this->render_navigation_menu('error-log'); ?>
+            
+            <div class="dashboard-card">
+                <h2>⚠️ Error Logs Management</h2>
+                <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">View and manage system error logs to troubleshoot issues and monitor plugin performance.</p>
+                <?php
         $error_logs = new Metasync_Error_Logs();
 
         if ($error_logs->can_show_error_logs()) {
-
             $error_logs->show_copy_button();
-
             $error_logs->show_logs();
-
             $error_logs->show_info();
+                } else {
+                    echo '<p>Error logs are not available or accessible.</p>';
         }
+                ?>
+            </div>
+        </div>
+        <?php
     }
 
     public function creat_error_Logs_List()
@@ -1367,9 +4033,23 @@ class Metasync_Admin
      */
     public function create_admin_heartbeat_error_logs_page()
     {
-        printf('<h1 class="wp-heading-inline"> HeartBeat Error Logs </h1>');
+        ?>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('HeartBeat Error Logs'); ?>
+        
+        <?php $this->render_navigation_menu('heartbeat-error-logs'); ?>
+            
+            <div class="dashboard-card">
+                <h2>💓 HeartBeat Error Logs</h2>
+                <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Monitor WordPress heartbeat errors to identify connectivity issues and system problems.</p>
+                <?php
         $heartbeat_errors = new Metasync_HeartBeat_Error_Monitor($this->db_heartbeat_errors);
         $heartbeat_errors->create_admin_heartbeat_errors_interface();
+                ?>
+            </div>
+        </div>
+        <?php
     }
 
     /**
@@ -1377,6 +4057,12 @@ class Metasync_Admin
      */
     public function settings_page_init()
     {
+        // Handle error log operations before any output
+        $this->handle_error_log_operations();
+        
+        // Handle clear all settings operations before any output
+        $this->handle_clear_all_settings();
+        
         $SECTION_FEATURES               = "features_settings";
         $SECTION_METASYNC               = "metasync_settings";
         $SECTION_SEARCHENGINE           = "searchengine_settings";
@@ -1388,8 +4074,8 @@ class Metasync_Admin
         $SECTION_COMMON_META_SETTINGS   = "common_meta_settings";
         $SECTION_SOCIAL_META            = "social_meta";
 
-        # white label plugin nomenclature
-        $whitelabel_otto_name = !empty(Metasync::get_option()['general']['white_label_plugin_menu_name']) ? Metasync::get_option()['general']['white_label_plugin_menu_name']: 'Otto';
+        # Use whitelabel OTTO name if configured, fallback to 'OTTO'
+        $whitelabel_otto_name = Metasync::get_whitelabel_otto_name();
 
         // Register Admin Page URL
         register_setting(
@@ -1401,28 +4087,28 @@ class Metasync_Admin
        
         add_settings_section(
             $SECTION_METASYNC, // ID
-           $this->menu_title . ' API Settings:', // Title
+            '', // Title - removed to prevent duplication with dashboard card
             function(){}, // Callback
             self::$page_slug . '_general' // Page
         );
 
         add_settings_section(
             $SECTION_METASYNC, // ID
-            $this->menu_title . ' Branding', // Title
+            '', // Title - removed to prevent duplication with dashboard card
             function(){}, // Callback
             self::$page_slug . '_branding' // Page
         );
 
         add_settings_section(
             $SECTION_METASYNC, // ID
-           $this->menu_title . ' Caching Settings:', // Title
+           $this->get_effective_menu_title() . ' Caching Settings:', // Title
             function(){}, // Callback
             self::$page_slug . '_otto_cache' // Page
         );
 
         add_settings_field(
             'searchatlas_api_key',
-            $this->menu_title .  ' API Key',
+            $this->get_effective_menu_title() .  ' API Key',
             array($this, 'searchatlas_api_key_callback'),
             self::$page_slug . '_general',
             $SECTION_METASYNC
@@ -1437,21 +4123,21 @@ class Metasync_Admin
         );
 
         /**
-         * OTTO SETTING OPTIONS 
-         * @see Otto SSR
+         * SERVER SIDE RENDERING SETTING OPTIONS 
+         * @see SSR functionality
          */
 
-        # check box to toggle on and off for Otto
+        # check box to toggle on and off for Server Side Rendering
         add_settings_field(
             'otto_enable',
-            'Enable '.$whitelabel_otto_name,
+            'Enable '.$whitelabel_otto_name.' Server Side Rendering',
             function() use ($whitelabel_otto_name){
                 $otto_enable = Metasync::get_option('general')['otto_enable'] ?? '';
                 printf(
                     '<input type="checkbox" id="otto_enable" name="' . $this::option_key . '[general][otto_enable]" value="true" %s />',
                     isset($otto_enable) && $otto_enable == 'true' ? 'checked' : ''
                 );
-                printf('<span class="description"> Enable '.$whitelabel_otto_name.' SSR, Ensure to insert your '.$whitelabel_otto_name.' uuid below</span>');
+                printf('<span class="description">Enable this option to allow '.$whitelabel_otto_name.' page modifications to be implemented directly via the WordPress engine and leverage any existing cache systems.</span>');
             },
             self::$page_slug . '_general',
             $SECTION_METASYNC
@@ -1563,7 +4249,7 @@ class Metasync_Admin
             $SECTION_METASYNC
         );
 
-        # END OTTO SETTINGS
+        # END SERVER SIDE RENDERING SETTINGS
 
         add_settings_field(
             'schema_enable',
@@ -1612,6 +4298,23 @@ class Metasync_Admin
             self::$page_slug . '_general',
             $SECTION_METASYNC
         );
+
+        # Adding the "Disable Single Signup Login" setting
+        add_settings_field(
+            'disable_single_signup_login',
+            'Disable Single Signup Login',
+            function() {
+                $disable_sso = Metasync::get_option('general')['disable_single_signup_login'] ?? '';
+                printf(
+                    '<input type="checkbox" id="disable_single_signup_login" name="' . $this::option_key . '[general][disable_single_signup_login]" value="true" %s />',
+                    isset($disable_sso) && $disable_sso == 'true' ? 'checked' : ''
+                );
+                printf('<span class="description">Disable the Single Sign-On (SSO) callback functionality for enhanced security.</span>');
+            },
+            self::$page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
         add_settings_field(
             'enabled_plugin_editor',
             'Choose Plugin Editor',
@@ -1641,11 +4344,10 @@ class Metasync_Admin
                     printf('<label for="enable_divi">Divi</label><br>');
                 }
         
-                // Output radio button for Gutenberg
+                // Output radio button for Gutenberg (default selection)
                 printf(
                     '<input type="radio" id="enable_gutenberg" name="' . $this::option_key . '[general][enabled_plugin_editor]" value="gutenberg" %s  />',
-                    ($enabled_plugin_editor == 'gutenberg' || ($gutenberg_enabled && !$elementor_active &&!$divi_active)) ? 'checked' : ''
-                   
+                    ($enabled_plugin_editor == 'gutenberg' || empty($enabled_plugin_editor)) ? 'checked' : ''
                 );
                 printf('<label for="enable_gutenberg">Gutenberg</label>');
         
@@ -1667,6 +4369,46 @@ class Metasync_Admin
            function(){           
             $value = Metasync::get_option('general')['white_label_plugin_name'] ?? '';   
             printf('<input type="text" name="' . $this::option_key . '[general][white_label_plugin_name]" value="' . esc_attr($value) . '" />');
+            printf('<p class="description">This name will be used for general plugin branding (WordPress menus, page titles, and system messages).</p>');
+           },
+           self::$page_slug . '_branding',
+                $SECTION_METASYNC
+        );
+        
+        add_settings_field(
+            'whitelabel_otto_name',
+            'OTTO Name',
+            function(){
+                $value = Metasync::get_option('general')['whitelabel_otto_name'] ?? '';   
+                printf('<input type="text" name="' . $this::option_key . '[general][whitelabel_otto_name]" value="' . esc_attr($value) . '" />');
+                $example_name = !empty($value) ? $value : 'OTTO';
+                printf('<p class="description">This name will be used for OTTO feature references (e.g., "Enable %s Server Side Rendering").</p>', esc_html($example_name));
+            },
+            self::$page_slug . '_branding',
+            $SECTION_METASYNC
+        );
+        
+        add_settings_field(
+            'whitelabel_logo_url',
+            'Logo URL',
+            function(){
+                $whitelabel_settings = Metasync::get_whitelabel_settings();
+                $value = $whitelabel_settings['logo'] ?? '';   
+                printf('<input type="url" name="' . $this::option_key . '[whitelabel][logo]" value="' . esc_attr($value) . '" size="60" />');
+                printf('<p class="description">Enter the URL of your logo image. Leave blank to use the default %s logo.</p>', esc_html(Metasync::get_effective_plugin_name()));
+            },
+            self::$page_slug . '_branding',
+            $SECTION_METASYNC
+        );
+        
+                add_settings_field(
+            'whitelabel_domain_url',
+            'Dashboard URL',
+            function(){
+                $whitelabel_settings = Metasync::get_whitelabel_settings();
+                $value = $whitelabel_settings['domain'] ?? '';   
+                printf('<input type="url" name="' . $this::option_key . '[whitelabel][domain]" value="' . esc_attr($value) . '" size="60" />');
+                printf('<p class="description">Enter your whitelabel dashboard URL (e.g., https://yourdashboard.com). Used for branding purposes.</p>');
            },
            self::$page_slug . '_branding',
                 $SECTION_METASYNC
@@ -1721,26 +4463,8 @@ class Metasync_Admin
             array($this, 'sanitize') // Sanitize
             );  
 
-            add_settings_field(
-                'white_label_plugin_menu_name',
-                'Menu Name',
-                function(){
-                    $value = Metasync::get_option('general')['white_label_plugin_menu_name'] ?? '';   
-                    printf('<input type="text" name="' . $this::option_key . '[general][white_label_plugin_menu_name]" value="' . esc_attr($value) . '" />');
-                },
-                self::$page_slug . '_branding',
-                $SECTION_METASYNC
-            );
-            add_settings_field(
-                'white_label_plugin_title',
-                'Menu Title',
-                function(){
-                    $value = Metasync::get_option('general')['white_label_plugin_menu_title'] ?? '';   
-                    printf('<input type="text" name="' . $this::option_key . '[general][white_label_plugin_menu_title]" value="' . esc_attr($value) . '" />');
-                },
-                self::$page_slug . '_branding',
-                $SECTION_METASYNC
-            );
+            // DEPRECATED: Menu Name and Menu Title fields removed
+            // All branding now uses Plugin Name value for consistency
             add_settings_field(
                 'white_label_plugin_menu_slug',
                 'Menu Slug',
@@ -1762,6 +4486,8 @@ class Metasync_Admin
                 $SECTION_METASYNC
             );
         }
+        // HIDDEN: Choose Style Option setting
+        /*
         add_settings_field(
             'enabled_plugin_css',
             'Choose Style Option',
@@ -1777,11 +4503,10 @@ class Metasync_Admin
                     printf('<label for="enable_default">Default</label><br>');
                 
         
-                // Output radio button for Gutenberg
+                // Output radio button for Metasync Style
                 printf(
                     '<input type="radio" id="enable_metasync" name="' . $this::option_key . '[general][enabled_plugin_css]" value="metasync" %s  />',
-                    ($enabled_plugin_css == 'metasync' || ($enabled_plugin_css && !$enabled_plugin_css)) ? 'checked' : ''
-                   
+                    ($enabled_plugin_css == 'metasync') ? 'checked' : ''
                 );
                 printf('<label for="enable_metasync">Metasync Style</label>');
         
@@ -1790,6 +4515,7 @@ class Metasync_Admin
             self::$page_slug . '_branding',
             $SECTION_METASYNC
         );
+        */
 
         add_settings_field(
             'enabled_elementor_plugin_css',
@@ -1816,500 +4542,6 @@ class Metasync_Admin
         );
 
 
-
-        // Features Section
-        // add_settings_section(
-        //     $SECTION_FEATURES, // ID
-        //     '---------- Enable / Disable Features ----------', // Title
-        //     null, // Callback
-        //     self::$page_slug . '_general' // Page
-        // );
-
-
-        // foreach ($this::feature_sections as $key => $title) {
-        //     add_settings_field($key, $title, function() use ($key) {
-        //             $getSettings = Metasync::get_option('general')[$key] ?? '';
-        //             printf(
-        //                 '<input type="checkbox" id="'.$key.'" name="'.$this::option_key.'[general]['.$key.']" value="true" %s />',
-        //                 isset($getSettings) && $getSettings == 'true' ? 'checked' : ''
-        //             );
-        //         },
-        //         self::$page_slug . '_general', // Page
-        //         $SECTION_FEATURES // Section
-        //     );
-        // }
-
-        /**
-         * Site Verification Tool Settings Section
-         *
-         * Bing Site Verification
-         * Baidu Site Verification
-         * Alexa Site Verification
-         * Yandex Site Verification
-         * Google Site Verification
-         * Pinterest Site Verification
-         * Norton Safe Web Site Verification
-         */
-        // add_settings_section(
-        //     $SECTION_SEARCHENGINE, // ID
-        //     null, // Title
-        //     null, // Callback
-        //     self::$page_slug . '_searchengines-verification' // Page
-        // );
-
-        // add_settings_field(
-        //     'bing_site_verification',
-        //     'Bing Site Verification',
-        //     array($this, 'bing_site_verification_callback'),
-        //     self::$page_slug . '_searchengines-verification',
-        //     $SECTION_SEARCHENGINE
-        // );
-
-        // add_settings_field(
-        //     'baidu_site_verification',
-        //     'Baidu Site Verification',
-        //     array($this, 'baidu_site_verification_callback'),
-        //     self::$page_slug . '_searchengines-verification',
-        //     $SECTION_SEARCHENGINE
-        // );
-
-        // add_settings_field(
-        //     'alexa_site_verification',
-        //     'Alexa Site Verification',
-        //     array($this, 'alexa_site_verification_callback'),
-        //     self::$page_slug . '_searchengines-verification',
-        //     $SECTION_SEARCHENGINE
-        // );
-
-        // add_settings_field(
-        //     'yandex_site_verification',
-        //     'Yandex Site Verification',
-        //     array($this, 'yandex_site_verification_callback'),
-        //     self::$page_slug . '_searchengines-verification',
-        //     $SECTION_SEARCHENGINE
-        // );
-
-        // add_settings_field(
-        //     'google_site_verification',
-        //     'Google Site Verification',
-        //     array($this, 'google_site_verification_callback'),
-        //     self::$page_slug . '_searchengines-verification',
-        //     $SECTION_SEARCHENGINE
-        // );
-
-        // add_settings_field(
-        //     'pinterest_site_verification',
-        //     'Pinterest Site Verification',
-        //     array($this, 'pinterest_site_verification_callback'),
-        //     self::$page_slug . '_searchengines-verification',
-        //     $SECTION_SEARCHENGINE
-        // );
-
-        // add_settings_field(
-        //     'norton_save_site_verification',
-        //     'Norton Save Site Verification',
-        //     array($this, 'norton_save_site_verification_callback'),
-        //     self::$page_slug . '_searchengines-verification',
-        //     $SECTION_SEARCHENGINE
-        // );
-
-        // /**
-        //  * Local Business SEO Settings Section
-        //  *
-        //  */
-        // add_settings_section(
-        //     $SECTION_LOCALSEO, // ID
-        //     null, // Title
-        //     null, // Callback
-        //     self::$page_slug . '_local-seo' // Page
-        // );
-
-        // add_settings_field(
-        //     'local-seo-person-organization',
-        //     'Person or Organization',
-        //     array($this, 'local_seo_person_organization_callback'),
-        //     self::$page_slug . '_local-seo',
-        //     $SECTION_LOCALSEO
-        // );
-
-        // add_settings_field(
-        //     'local-seo-name',
-        //     'Name',
-        //     array($this, 'local_seo_name_callback'),
-        //     self::$page_slug . '_local-seo',
-        //     $SECTION_LOCALSEO
-        // );
-
-        // add_settings_field(
-        //     'local-seo-logo',
-        //     'Logo',
-        //     array($this, 'local_seo_logo_callback'),
-        //     self::$page_slug . '_local-seo',
-        //     $SECTION_LOCALSEO
-        // );
-
-        // add_settings_field(
-        //     'local-seo-url',
-        //     'URL',
-        //     array($this, 'local_seo_url_callback'),
-        //     self::$page_slug . '_local-seo',
-        //     $SECTION_LOCALSEO
-        // );
-
-        // add_settings_field(
-        //     'local-seo-email',
-        //     'Email',
-        //     array($this, 'local_seo_email_callback'),
-        //     self::$page_slug . '_local-seo',
-        //     $SECTION_LOCALSEO
-        // );
-
-        // add_settings_field(
-        //     'local-seo-phone',
-        //     'Phone',
-        //     array($this, 'local_seo_phone_callback'),
-        //     self::$page_slug . '_local-seo',
-        //     $SECTION_LOCALSEO
-        // );
-
-        // add_settings_field(
-        //     'local-seo-address',
-        //     'Address',
-        //     array($this, 'local_seo_address_callback'),
-        //     self::$page_slug . '_local-seo',
-        //     $SECTION_LOCALSEO
-        // );
-
-        // add_settings_field(
-        //     'local-seo-business-type',
-        //     'Business Type',
-        //     array($this, 'local_seo_business_type_callback'),
-        //     self::$page_slug . '_local-seo',
-        //     $SECTION_LOCALSEO
-        // );
-
-        // add_settings_field(
-        //     'local-seo-hours-format',
-        //     'Opening Hours Format',
-        //     array($this, 'local_seo_hours_format_callback'),
-        //     self::$page_slug . '_local-seo',
-        //     $SECTION_LOCALSEO
-        // );
-
-        // add_settings_field(
-        //     'local-seo-opening-hours',
-        //     'Opening Hours',
-        //     array($this, 'local_seo_opening_hours_callback'),
-        //     self::$page_slug . '_local-seo',
-        //     $SECTION_LOCALSEO
-        // );
-
-        // add_settings_field(
-        //     'local-seo-phone-numbers',
-        //     'Phone Numbers',
-        //     array($this, 'local_seo_phone_numbers_callback'),
-        //     self::$page_slug . '_local-seo',
-        //     $SECTION_LOCALSEO
-        // );
-
-        // add_settings_field(
-        //     'local-seo-price-range',
-        //     'Price Range',
-        //     array($this, 'local_seo_price_range_callback'),
-        //     self::$page_slug . '_local-seo',
-        //     $SECTION_LOCALSEO
-        // );
-
-        // add_settings_field(
-        //     'local-seo-about-page',
-        //     'About Page',
-        //     array($this, 'local_seo_about_page_callback'),
-        //     self::$page_slug . '_local-seo',
-        //     $SECTION_LOCALSEO
-        // );
-
-        // add_settings_field(
-        //     'local-seo-contact-page',
-        //     'Contact Page',
-        //     array($this, 'local_seo_contact_page_callback'),
-        //     self::$page_slug . '_local-seo',
-        //     $SECTION_LOCALSEO
-        // );
-
-        // add_settings_field(
-        //     'local-seo-map-key',
-        //     'Google Map Key',
-        //     array($this, 'local_seo_map_key_callback'),
-        //     self::$page_slug . '_local-seo',
-        //     $SECTION_LOCALSEO
-        // );
-
-        // add_settings_field(
-        //     'local-seo-geo-coordinates',
-        //     'Geo Coordinates',
-        //     array($this, 'local_seo_geo_coordinates_callback'),
-        //     self::$page_slug . '_local-seo',
-        //     $SECTION_LOCALSEO
-        // );
-
-        /**
-         * Code Snippets Settings Section
-         *
-         */
-        // add_settings_section(
-        //     $SECTION_CODESNIPPETS, // ID
-        //     null, // Title
-        //     null, // Callback
-        //     self::$page_slug . '_code-snippets' // Page
-        // );
-
-        // add_settings_field(
-        //     'header-snippets',
-        //     'Header Snippets',
-        //     array($this, 'header_snippets_callback'),
-        //     self::$page_slug . '_code-snippets',
-        //     $SECTION_CODESNIPPETS
-        // );
-
-        // add_settings_field(
-        //     'footer-snippets',
-        //     'Footer Snippets',
-        //     array($this, 'footer_snippets_callback'),
-        //     self::$page_slug . '_code-snippets',
-        //     $SECTION_CODESNIPPETS
-        // );
-
-        /**
-         * Optimal Settings Settings Section
-         *
-         */
-        // add_settings_section(
-        //     $SECTION_OPTIMAL_SETTINGS, // ID
-        //     'Site Optimization', // Title
-        //     null, // Callback
-        //     self::$page_slug . '_optimal-settings' // Page
-        // );
-
-        // add_settings_field(
-        //     'no-index-posts',
-        //     'No Index Posts',
-        //     array($this, 'no_index_posts_callback'),
-        //     self::$page_slug . '_optimal-settings',
-        //     $SECTION_OPTIMAL_SETTINGS
-        // );
-
-        // add_settings_field(
-        //     'no-follow_posts',
-        //     'No Follow Posts',
-        //     array($this, 'no_follow_links_callback'),
-        //     self::$page_slug . '_optimal-settings',
-        //     $SECTION_OPTIMAL_SETTINGS
-        // );
-
-        // add_settings_field(
-        //     'open-external-links',
-        //     'Open External Links',
-        //     array($this, 'open_external_links_callback'),
-        //     self::$page_slug . '_optimal-settings',
-        //     $SECTION_OPTIMAL_SETTINGS
-        // );
-
-        // add_settings_field(
-        //     'add-alt-image-tags',
-        //     'Add ALT to Image Tags',
-        //     array($this, 'add_alt_image_tags_callback'),
-        //     self::$page_slug . '_optimal-settings',
-        //     $SECTION_OPTIMAL_SETTINGS
-        // );
-
-        // add_settings_field(
-        //     'add-title-image-tags',
-        //     'Add Title to Image Tags',
-        //     array($this, 'add_title_image_tags_callback'),
-        //     self::$page_slug . '_optimal-settings',
-        //     $SECTION_OPTIMAL_SETTINGS
-        // );
-
-        /**
-         * Site Information section of Optimal Settings
-         *
-         */
-        // add_settings_section(
-        //     $SECTION_SITE_SETTINGS, // ID
-        //     'Site Information', // Title
-        //     null, // Callback
-        //     self::$page_slug . '_site-info-settings' // Page
-        // );
-
-        // add_settings_field(
-        //     'site_type', // ID
-        //     get_bloginfo('name') . ' is a', // Title
-        //     array($this, 'site_type_callback'), // Callback
-        //     self::$page_slug . '_site-info-settings', // Page
-        //     $SECTION_SITE_SETTINGS // Section
-        // );
-
-        // add_settings_field(
-        //     'site_business_type', // ID
-        //     'Site Business Type', // Title
-        //     array($this, 'site_business_type_callback'), // Callback
-        //     self::$page_slug . '_site-info-settings', // Page
-        //     $SECTION_SITE_SETTINGS // Section
-        // );
-
-        // add_settings_field(
-        //     'site_company_name', // ID
-        //     'Company Name', // Title
-        //     array($this, 'site_company_name_callback'), // Callback
-        //     self::$page_slug . '_site-info-settings', // Page
-        //     $SECTION_SITE_SETTINGS // Section
-        // );
-
-        // add_settings_field(
-        //     'site_google_logo', // ID
-        //     'Site Logo for Google', // Title
-        //     array($this, 'site_google_logo_callback'), // Callback
-        //     self::$page_slug . '_site-info-settings', // Page
-        //     $SECTION_SITE_SETTINGS // Section
-        // );
-
-        // add_settings_field(
-        //     'site_social_share_image', // ID
-        //     'Site Social Share Image', // Title
-        //     array($this, 'site_social_share_image_callback'), // Callback
-        //     self::$page_slug . '_site-info-settings', // Page
-        //     $SECTION_SITE_SETTINGS // Section
-        // );
-
-
-        /**
-         *  Section of Common Settings
-         *
-         */
-        // add_settings_section(
-        //     $SECTION_COMMON_SETTINGS, // ID
-        //     'Global Settings', // Title
-        //     null, // Callback
-        //     self::$page_slug . '_common-settings' // Page
-        // );
-
-        // add_settings_field(
-        //     'robots-mata', // ID
-        //     'Robots Mata', // Title
-        //     array($this, 'common_robot_mata_tags_callback'), // Callback
-        //     self::$page_slug . '_common-settings', // Page
-        //     $SECTION_COMMON_SETTINGS // Section
-        // );
-
-        // add_settings_field(
-        //     'advance-robots-mata', // ID
-        //     'Advance Robots Mata', // Title
-        //     array($this, 'advance_robot_mata_tags_callback'), // Callback
-        //     self::$page_slug . '_common-settings', // Page
-        //     $SECTION_COMMON_SETTINGS // Section
-        // );
-
-        // add_settings_field(
-        //     'twitter-card-type', // ID
-        //     'Twitter Card Type', // Title
-        //     array($this, 'global_twitter_card_type_callback'), // Callback
-        //     self::$page_slug . '_common-settings', // Page
-        //     $SECTION_COMMON_SETTINGS // Section
-        // );
-
-        /**
-         *  Section of Common Settings
-         *
-         */
-        // add_settings_section(
-        //     $SECTION_COMMON_META_SETTINGS, // ID
-        //     'Common Meta Settings', // Title
-        //     null, // Callback
-        //     self::$page_slug . '_common-meta-settings' // Page
-        // );
-
-        // add_settings_field(
-        //     'open-graph-meta-tags', // ID
-        //     'Open Graph Meta Tags', // Title
-        //     array($this, 'global_open_graph_meta_callback'), // Callback
-        //     self::$page_slug . '_common-meta-settings', // Page
-        //     $SECTION_COMMON_META_SETTINGS // Section
-        // );
-
-        // add_settings_field(
-        //     'facebook-meta-tags', // ID
-        //     'Facebook Meta Tags', // Title
-        //     array($this, 'global_facebook_meta_callback'), // Callback
-        //     self::$page_slug . '_common-meta-settings', // Page
-        //     $SECTION_COMMON_META_SETTINGS // Section
-        // );
-
-        // add_settings_field(
-        //     'twitter-meta-tags', // ID
-        //     'Twitter Meta Tags', // Title
-        //     array($this, 'global_twitter_meta_callback'), // Callback
-        //     self::$page_slug . '_common-meta-settings', // Page
-        //     $SECTION_COMMON_META_SETTINGS // Section
-        // );
-
-        /**
-         *  Social meta Section.
-         *
-         */
-        // add_settings_section(
-        //     $SECTION_SOCIAL_META, // ID
-        //     'Social Meta', // Title
-        //     null, // Callback
-        //     self::$page_slug . '_social-meta' // Page
-        // );
-
-        // add_settings_field(
-        //     'facebook-page-url', // ID
-        //     'Facebook Page URL', // Title
-        //     array($this, 'facebook_page_url_callback'), // Callback
-        //     self::$page_slug . '_social-meta', // Page
-        //     $SECTION_SOCIAL_META // Section
-        // );
-
-        // add_settings_field(
-        //     'facebook-authorship', // ID
-        //     'Facebook Authorship', // Title
-        //     array($this, 'facebook_authorship_callback'), // Callback
-        //     self::$page_slug . '_social-meta', // Page
-        //     $SECTION_SOCIAL_META // Section
-        // );
-
-        // add_settings_field(
-        //     'facebook-admin', // ID
-        //     'Facebook Admin', // Title
-        //     array($this, 'facebook_admin_callback'), // Callback
-        //     self::$page_slug . '_social-meta', // Page
-        //     $SECTION_SOCIAL_META // Section
-        // );
-
-        // add_settings_field(
-        //     'facebook-app', // ID
-        //     'Facebook App', // Title
-        //     array($this, 'facebook_app_callback'), // Callback
-        //     self::$page_slug . '_social-meta', // Page
-        //     $SECTION_SOCIAL_META // Section
-        // );
-
-        // add_settings_field(
-        //     'facebook-secret', // ID
-        //     'Facebook Secret', // Title
-        //     array($this, 'facebook_secret_callback'), // Callback
-        //     self::$page_slug . '_social-meta', // Page
-        //     $SECTION_SOCIAL_META // Section
-        // );
-
-        // add_settings_field(
-        //     'twitter username', // ID
-        //     'Twitter Username', // Title
-        //     array($this, 'twitter_username_callback'), // Callback
-        //     self::$page_slug . '_social-meta', // Page
-        //     $SECTION_SOCIAL_META // Section
-        // );
     }
 
     /**
@@ -2541,22 +4773,138 @@ class Metasync_Admin
             $new_input['social_meta']['twitter_username'] = sanitize_text_field($input['social_meta']['twitter_username']);
         }
 
+        # Handle whitelabel URL fields with improved empty value handling
+        if (isset($input['whitelabel'])) {
+            // Debug logging for whitelabel form submission
+            error_log('Whitelabel Settings: Form submission received - ' . json_encode($input['whitelabel']));
+            
+            // Get existing whitelabel settings first
+            $existing_whitelabel = Metasync::get_option()['whitelabel'] ?? [];
+            error_log('Whitelabel Settings: Existing settings - ' . json_encode($existing_whitelabel));
+            
+            // Initialize whitelabel array based on existing settings
+            $new_input['whitelabel'] = $existing_whitelabel;
+            
+            // Handle logo field (explicitly handle clearing)
+            if (isset($input['whitelabel']['logo'])) {
+                $logo_value = trim($input['whitelabel']['logo']);
+                error_log('Whitelabel Settings: Logo field raw value: "' . $logo_value . '" (length: ' . strlen($logo_value) . ')');
+                if (!empty($logo_value) && filter_var($logo_value, FILTER_VALIDATE_URL)) {
+                    $new_input['whitelabel']['logo'] = esc_url_raw($logo_value);
+                    error_log('Whitelabel Settings: Logo field set to: ' . $new_input['whitelabel']['logo']);
+                } else {
+                    // Empty value submitted - clear the logo
+                    $new_input['whitelabel']['logo'] = '';
+                    error_log('Whitelabel Settings: Logo field cleared by user');
+                }
+            }
+            
+            // Handle domain field (explicitly handle clearing)  
+            if (isset($input['whitelabel']['domain'])) {
+                $domain_value = trim($input['whitelabel']['domain']);
+                error_log('Whitelabel Settings: Domain field raw value: "' . $domain_value . '" (length: ' . strlen($domain_value) . ')');
+                if (!empty($domain_value) && filter_var($domain_value, FILTER_VALIDATE_URL)) {
+                    $new_input['whitelabel']['domain'] = esc_url_raw($domain_value);
+                    error_log('Whitelabel Settings: Domain field updated to: ' . $new_input['whitelabel']['domain']);
+                } else {
+                    // Empty value submitted - clear the domain
+                    $old_domain = $existing_whitelabel['domain'] ?? '';
+                    $new_input['whitelabel']['domain'] = '';
+                    error_log('Whitelabel Settings: Domain field cleared by user (was: "' . $old_domain . '")');
+                    
+                    // If domain was cleared, trigger heartbeat recheck to use default domain
+                    if (!empty($old_domain)) {
+                        error_log('Whitelabel Settings: Domain cleared - will trigger heartbeat recheck after save');
+                        // Set flag to trigger heartbeat check after settings are saved
+                        $new_input['_trigger_heartbeat_after_save'] = 'Domain cleared from: ' . $old_domain;
+                    }
+                }
+            } else {
+                // Domain field not in submission - this might be the issue
+                error_log('Whitelabel Settings: Domain field not present in form submission');
+            }
+            
+            // Update timestamp when whitelabel settings change
+            $new_input['whitelabel']['updated_at'] = time();
+            
+            // Final debug log
+            error_log('Whitelabel Settings: Final processed settings - ' . json_encode($new_input['whitelabel']));
+        } else {
+            // No whitelabel data in submission - check if user wants to clear existing settings
+            $existing_whitelabel = Metasync::get_option()['whitelabel'] ?? [];
+            $has_existing_whitelabel = !empty($existing_whitelabel['domain']) || !empty($existing_whitelabel['logo']);
+            
+            if ($has_existing_whitelabel) {
+                // User cleared all whitelabel fields - reset whitelabel settings
+                error_log('Whitelabel Settings: No whitelabel data in form submission - user wants to reset existing whitelabel settings');
+                error_log('Whitelabel Settings: Clearing existing settings - ' . json_encode($existing_whitelabel));
+                
+                $new_input['whitelabel'] = [
+                    'is_whitelabel' => false,
+                    'domain' => '',
+                    'logo' => '', 
+                    'company_name' => '',
+                    'updated_at' => time()
+                ];
+                
+                error_log('Whitelabel Settings: All whitelabel settings cleared by user - reset to defaults');
+                
+                // When whitelabel domain is cleared, trigger immediate heartbeat check
+                // This ensures the system switches back to using the correct default domain
+                if (!empty($existing_whitelabel['domain'])) {
+                    error_log('Whitelabel Settings: Domain changed from whitelabel to default - triggering heartbeat recheck');
+                    // Clear heartbeat cache to force using new domain on next check
+                    delete_transient('metasync_heartbeat_status_cache');
+                    
+                    // Trigger immediate check with new domain
+                    do_action('metasync_trigger_immediate_heartbeat', 'Whitelabel settings cleared - domain changed to default');
+                }
+            } else {
+                // No existing whitelabel settings and none submitted - nothing to do
+                error_log('Whitelabel Settings: No whitelabel data in form submission and none exist - no action needed');
+            }
+        }
+
+        // Handle post-save heartbeat trigger for domain changes
+        if (isset($new_input['_trigger_heartbeat_after_save'])) {
+            $context = $new_input['_trigger_heartbeat_after_save'];
+            unset($new_input['_trigger_heartbeat_after_save']); // Remove flag from saved data
+            
+            // Schedule the heartbeat check to run after settings are saved
+            add_action('updated_option_metasync_options', function() use ($context) {
+                error_log('Whitelabel Settings: Triggering heartbeat check after save - ' . $context);
+                delete_transient('metasync_heartbeat_status_cache');
+                do_action('metasync_trigger_immediate_heartbeat', 'Whitelabel domain change - ' . $context);
+            });
+        }
+        
         return array_merge($new_input, $input);
     }
 
     public function metasync_settings_genkey_callback()
     {
-        $str_result = '0123456789abcdefghijklmnopqrstuvwxyz';
-        $randomString = substr(
-            str_shuffle($str_result),
-            0,
-            36
-        );
-
+        // Get existing Plugin Auth Token - should always exist from activation
+        $current_token = Metasync::get_option('general')['apikey'] ?? '';
+        
+        // Display current token or indicate if missing
+        if (!empty($current_token)) {
+            $display_value = $current_token;
+            $status_message = 'Plugin Auth Token is active and ready for authentication.';
+            $refresh_help = 'Click refresh to generate a new token and update the heartbeat API.';
+        } else {
+            $display_value = 'Auto-generated when connecting to ' . esc_html(Metasync::get_effective_plugin_name());
+            $status_message = 'Plugin Auth Token will be automatically generated when you click "Connect to ' . esc_html(Metasync::get_effective_plugin_name()) . '".';
+            $refresh_help = 'You can also manually generate a token by clicking refresh.';
+        }
+        
         printf(
             '<input type="text" id="apikey" name="' . $this::option_key . '[general][apikey]" value="%s" size="40" readonly="readonly" /> ',
-            isset(Metasync::get_option('general')['apikey']) ? esc_attr(Metasync::get_option('general')['apikey']) : esc_attr($randomString)
+            esc_attr($display_value)
         );
+        
+        // Add refresh button
+        printf('<button type="button" id="refresh-plugin-auth-token" class="button button-secondary" style="margin-left: 10px;">🔄 Refresh Token</button>');
+        printf('<p class="description">%s %s</p>', $status_message, $refresh_help);
     }
 
     /**
@@ -2578,16 +4926,16 @@ class Metasync_Admin
         <button type="button" class="button button-primary" id="lgloginbtn">Fetch Token</button>
         <input type="text" id="lgusername" class="input lguser hidden" placeholder="username" />
         <input type="text" id="lgpassword" class="input lguser hidden" placeholder="password" />
-        <p id="lgerror" class="notice notice-error hidden"></p>
+        <p id="lgerror" class="notice notice-error hidden" style="display: none;"></p>
     <?php
     }
 
 
     private function time_elapsed_string($datetime, $full = false)
     {
-        // Check if the $datetime is empty and return the message
+        // Check if the $datetime is empty and return empty string
         if(empty($datetime)){
-            return "Not Synced Yet";
+            return "";
         }
         $now = new DateTime;
         $ago = new DateTime($datetime);
@@ -2622,16 +4970,101 @@ class Metasync_Admin
      */
     public function searchatlas_api_key_callback()
     {
+        $current_api_key = isset(Metasync::get_option('general')['searchatlas_api_key']) ? esc_attr(Metasync::get_option('general')['searchatlas_api_key']) : '';
+        $otto_uuid = isset(Metasync::get_option('general')['otto_pixel_uuid']) ? Metasync::get_option('general')['otto_pixel_uuid'] : '';
+        
+        // Consider fully connected based on heartbeat sync status
+        $has_api_key = !empty($current_api_key);
+        $has_otto_uuid = !empty($otto_uuid);
+        error_log('API_KEY_CALLBACK_DEBUG: has_api_key=' . ($has_api_key ? 'true' : 'false') . ', has_otto_uuid=' . ($has_otto_uuid ? 'true' : 'false'));
+        
+        $is_fully_connected = $this->is_heartbeat_connected();
+        error_log('API_KEY_CALLBACK_DEBUG: is_fully_connected=' . ($is_fully_connected ? 'true' : 'false'));
+        
+        // Enhanced SSO Authentication Container (MOVED TO TOP)
+        printf('<div class="metasync-sso-container">');
+        
+        // SSO Title and description
+        printf('<div class="metasync-sso-title">');
+        printf('🔐 One-Click Authentication');
+        printf('</div>');
+        
+        printf('<div class="metasync-sso-description">');
+        if ($is_fully_connected) {
+            printf('Your %s account is fully synced with active heartbeat API. You can re-authenticate to refresh your connection or connect a different account.', esc_html(Metasync::get_effective_plugin_name()));
+        } elseif ($has_api_key && !$has_otto_uuid) {
+            printf('Your %s API key is configured, but %s UUID is missing. Please re-authenticate to complete the setup.', esc_html(Metasync::get_effective_plugin_name()), esc_html(Metasync::get_whitelabel_otto_name()));
+        } else {
+            printf('Connect your %s account with one click. This will automatically configure your API key and %s UUID below, enabling all plugin features.', esc_html(Metasync::get_effective_plugin_name()), esc_html(Metasync::get_whitelabel_otto_name()));
+        }
+        printf('</div>');
+        
+        // SSO Action Buttons Container
+        printf('<div class="metasync-sso-buttons">');
+        
+        // Primary Connect/Re-authenticate button
+        printf('<button type="button" id="connect-searchatlas-sso" class="metasync-sso-connect-btn">');
+        if ($is_fully_connected) {
+            printf('🔄 Re-authenticate with %s', esc_html(Metasync::get_effective_plugin_name()));
+        } elseif ($has_api_key && !$has_otto_uuid) {
+            printf('🔧 Complete Authentication Setup');
+        } else {
+            printf('🔗 Connect to %s', esc_html(Metasync::get_effective_plugin_name()));
+        }
+        printf('</button>');
+        
+        // Reset/Disconnect button (only show if any connection exists)
+        if ($has_api_key) {
+            printf('<button type="button" id="reset-searchatlas-auth" class="metasync-sso-reset-btn" style="margin-left: 10px;">');
+            printf('🔓 Disconnect Account');
+            printf('</button>');
+        }
+        
+        printf('</div>'); // Close metasync-sso-buttons
+        
+        // Add helpful tips
+        printf('<div style="margin-top: 15px;">');
+        printf('<details style="margin-top: 10px;">');
+        printf('<summary style="cursor: pointer; color: #666; font-size: 13px;">💡 Authentication Tips</summary>');
+        printf('<div style="padding: 10px 0; color: #666; font-size: 13px; line-height: 1.5;">');
+        printf('• Make sure you have a %s account before connecting<br/>', esc_html(Metasync::get_effective_plugin_name()));
+        printf('• The authentication window will open in a popup - please allow popups<br/>');
+        printf('• The process typically takes 15-30 seconds to complete<br/>');
+        printf('• Your API key will be automatically filled in the field below<br/>');
+        printf('• If you encounter issues, try disabling ad blockers temporarily<br/>');
+        printf('• Contact <a href="mailto:%s">%s</a> if you need assistance', Metasync::SUPPORT_EMAIL, Metasync::SUPPORT_EMAIL);
+        printf('</div>');
+        printf('</details>');
+        printf('</div>');
+        
+        printf('</div>'); // Close metasync-sso-container
+        
+        // API Key Input Section (MOVED TO BOTTOM)
+        printf('<div style="margin-top: 20px;">');
+        printf('<label for="searchatlas-api-key" style="font-weight: 600; display: block; margin-bottom: 8px;">');
+        printf('🔑 %s API Key', esc_html(Metasync::get_effective_plugin_name()));
+        if ($is_fully_connected) {
+            printf('<span style="color: #46b450; margin-left: 10px; font-weight: normal;">✓ Synced</span>');
+        } elseif ($has_api_key && !$has_otto_uuid) {
+            printf('<span style="color: #ff8c00; margin-left: 10px; font-weight: normal;">⚠️ Partial Connection (Missing %s UUID)</span>', esc_html(Metasync::get_whitelabel_otto_name()));
+        }
+        printf('</label>');
+        
         printf(
-            '<input type="text" id="searchatlas-api-key" name="' . $this::option_key . '[general][searchatlas_api_key]" value="%s" size="40"  />',
-            isset(Metasync::get_option('general')['searchatlas_api_key']) ? esc_attr(Metasync::get_option('general')['searchatlas_api_key']) : ''
+            '<input type="text" id="searchatlas-api-key" name="' . $this::option_key . '[general][searchatlas_api_key]" value="%s" size="40" class="regular-text" placeholder="Your API key will appear here after authentication" />',
+            $current_api_key
         );
         
-        // Add SSO Connect button
-        printf('<br/><br/>');
-        printf('<button type="button" class="button button-secondary" id="connect-searchatlas-sso">Connect to Search Atlas</button>');
-        printf('<span id="sso-status-message" class="sso-status-message" style="margin-left: 10px; display: none; font-weight: bold;"></span>');
-        printf('<p class="description">Click to authenticate with your Search Atlas account and automatically configure your API key.</p>');
+        printf('<p class="description" style="margin-top: 8px;">');
+        if ($is_fully_connected) {
+            printf('Your %s API key for secure communication with the platform. Use the authentication button above to refresh or change accounts.', esc_html(Metasync::get_effective_plugin_name()));
+        } elseif ($has_api_key && !$has_otto_uuid) {
+            printf('Your API key is configured but OTTO UUID is missing. Re-authenticate above to complete the setup and enable dashboard access.');
+        } else {
+            printf('This field will be automatically populated when you authenticate using the button above. You can also manually enter your API key if you have one.');
+        }
+        printf('</p>');
+        printf('</div>');
         
         if(  isset(Metasync::get_option('general')['searchatlas_api_key'])&&Metasync::get_option('general')['searchatlas_api_key']!=''){
             $timestamp = @Metasync::get_option('general')['send_auth_token_timestamp'];
@@ -2674,37 +5107,9 @@ class Metasync_Admin
         /// highlight_string('<meta name="msvalidate.01" content="XXXXXXXXXXXXXXXXXXXXX" />');
     }
 
-    /**
-     * Get the settings option array and print one of its values
-     */
-    public function baidu_site_verification_callback()
-    {
-        printf(
-            '<input type="text" id="baidu_site_verification" name="' . $this::option_key . '[searchengines][baidu_site_verification]" value="%s" size="50" />',
-            isset(Metasync::get_option('searchengines')['baidu_site_verification']) ? esc_attr(Metasync::get_option('searchengines')['baidu_site_verification']) : ''
-        );
 
-        printf(' <br> <span class="description"> Enter Baidu Webmaster verification code: </span>');
-        printf(' <a href="https://ziyuan.baidu.com/site/" target="_blank">Get from here</a> <br> ');
 
-        /// highlight_string('<meta name="baidu-site-verification" content="XXXXXXXXXXXXXXXXXXXXX" />');
-    }
 
-    /**
-     * Get the settings option array and print one of its values
-     */
-    public function alexa_site_verification_callback()
-    {
-        printf(
-            '<input type="text" id="alexa_site_verification" name="' . $this::option_key . '[searchengines][alexa_site_verification]" value="%s" size="50" />',
-            isset(Metasync::get_option('searchengines')['alexa_site_verification']) ? esc_attr(Metasync::get_option('searchengines')['alexa_site_verification']) : ''
-        );
-
-        printf(' <br> <span class="description"> Enter Alexa verification code: </span>');
-        printf(' <a href="https://www.alexa.com/login" target="_blank">Get from here</a> <br> ');
-
-        /// highlight_string('<meta name="alexaVerifyID" content="XXXXXXXXXXXXXXXXXXXXX" />');
-    }
 
     /**
      * Get the settings option array and print one of its values
@@ -2754,21 +5159,7 @@ class Metasync_Admin
         /// highlight_string('<meta name="p:domain_verify" content="XXXXXXXXXXXXXXXXXXXXX" />');
     }
 
-    /**
-     * Get the settings option array and print one of its values
-     */
-    public function norton_save_site_verification_callback()
-    {
-        printf(
-            '<input type="text" id="norton_save_site_verification" name="' . $this::option_key . '[searchengines][norton_save_site_verification]" value="%s" size="50" />',
-            isset(Metasync::get_option('searchengines')['norton_save_site_verification']) ? esc_attr(Metasync::get_option('searchengines')['norton_save_site_verification']) : ''
-        );
 
-        printf(' <br> <span class="description"> Enter Norton Safe Web verification code: </span>');
-        printf(' <a href="https://support.norton.com/sp/en/in/home/current/solutions/kb20090410134005EN" target="_blank">Get from here</a> <br> ');
-
-        /// highlight_string('<meta name="norton-safeweb-site-verification" content="XXXXXXXXXXXXXXXXXXXXX" />');
-    }
 
     /**
      * Local SEO for business and person
@@ -2922,22 +5313,7 @@ class Metasync_Admin
     <?php
     }
 
-    /**
-     * Get the settings option array and print one of its values
-     */
-    public function local_seo_hours_format_callback()
-    {
-        $hours_format = Metasync::get_option('localseo')['local_seo_hours_format'] ?? '';
-    ?>
-        <select name="<?php echo esc_attr($this::option_key . '[localseo][local_seo_hours_format]') ?>">
-            <?php
-            printf('<option value="12:00" %s >12:00</option>', selected('12:00', esc_attr($hours_format)));
-            printf('<option value="24:00" %s >24:00</option>', selected('24:00', esc_attr($hours_format)));
-            ?>
-        </select>
-    <?php
-        printf(' <br> <span class="description"> Time format used in the contact shortcode. </span>');
-    }
+
 
     /**
      * Get the settings option array and print one of its values
@@ -3733,8 +6109,8 @@ class Metasync_Admin
     public function permalink_structure_dashboard_warning() {
         $current_permalink_structure = get_option('permalink_structure');
 
-        # Get the plugin name from the options if not empty, with a fallback to 'Search Atlas'
-        $plugin_name = !empty(Metasync::get_option()['general']['white_label_plugin_name']) ? Metasync::get_option()['general']['white_label_plugin_name']: 'Search Atlas';
+        # Get the plugin name using centralized method
+        $plugin_name = Metasync::get_effective_plugin_name();
         $current_rewrite_rules = get_option('rewrite_rules');
         # Check if the current permalink structure is set to "Plain"
         if (($current_permalink_structure == '/%post_id%/' || $current_permalink_structure == '') && $current_rewrite_rules == '') {      

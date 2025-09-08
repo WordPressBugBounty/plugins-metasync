@@ -86,8 +86,6 @@ class Metasync_Public
 		// get all options
 		$this->metasync_option_data = Metasync::get_option('general');
 		add_action('wp_ajax_metasyn_otto_ajax_action', array($this,'metasyn_otto_ajax'));
-		//add_action('wp_ajax_nopriv_metasyn_otto_ajax_action', array($this,'metasyn_otto_ajax'));
-		//add_action('wp_head', array($this,'otto_header_data'));
 	}
 
 	private function filter_post_attributes($posts)
@@ -157,12 +155,7 @@ class Metasync_Public
 		 # Enqueue the JavaScript file 'otto-tracker.js'
 		wp_enqueue_script($this->plugin_name . '-tracker', plugin_dir_url(__FILE__) . 'js/otto-tracker.min.js', array('jquery'), $this->version, true);
 		wp_enqueue_script($this->plugin_name, plugin_dir_url(__FILE__) . 'js/metasync-public.js', array('jquery'), $this->version, false);
-		// wp_enqueue_script($this->plugin_name.'-otto', plugin_dir_url(__FILE__) . 'js/metasync-otto.js', array('jquery'), $this->version, false);
-		// wp_localize_script($this->plugin_name.'-otto', 'otto_ajax_object', array(
-		// 	'ajax_url' => admin_url('admin-ajax.php'),
-		// 	'nonce'    => wp_create_nonce('otto_nonce'),
-		// 	'post_id' => get_the_ID()
-		// ));
+
 		
 		# Get the Otto Pixel UUID from plugin settings.
 		$otto_uuid = Metasync::get_option('general')['otto_pixel_uuid'] ?? '';
@@ -188,9 +181,10 @@ class Metasync_Public
 			wp_send_json_error('Invalid nonce');
 			wp_die();
 		}
-		$current_url = get_permalink($_POST['post_id']);
+		$post_id = sanitize_text_field($_POST['post_id']);
+		$current_url = get_permalink($post_id);
 		
-		$header_html = get_post_meta($_POST['post_id'], '_otto_header_html_json', true);
+		$header_html = get_post_meta($post_id, '_otto_header_html_json', true);
 
 		// Example API call using wp_remote_get()
 		
@@ -261,13 +255,6 @@ class Metasync_Public
 		add_shortcode('accordion_metasync', 'metasync_accordion');
 		// add_shortcode('markdown', 'metasync_markdown');
 
-		// function metasync_markdown($atts, $content = "")
-		// {
-		// 	$parsedown = new Parsedown();
-		// 	$strip_tags_content = wp_strip_all_tags($content);
-		// 	$markdown_content = $parsedown->text($strip_tags_content);
-		// 	return $markdown_content;
-		// }
 
 		function metasync_accordion($atts, $content = "")
 		{
@@ -352,7 +339,7 @@ class Metasync_Public
 			array(
 				array(
 					'methods' => 'POST',
-					'callback' => 'otto_crawl_notify',
+					'callback' => 'metasync_otto_crawl_notify',
 					'permission_callback' => array($this, 'rest_authorization_middleware')
 				),
 				'schema' => array($this, 'get_item_schema'),
@@ -434,7 +421,7 @@ class Metasync_Public
 				array(
 					'methods' => 'GET',
 					'callback' => function () {
-						$getPostID = url_to_postid($_GET['url']);
+						$getPostID = url_to_postid(sanitize_url($_GET['url']));
 						
 						if ($getPostID==0) {
 							$response = false;
@@ -520,19 +507,8 @@ class Metasync_Public
 				'schema' => array($this, 'get_item_schema'),
 			)
 		);
-		// Remove the below it's not use anymore
-		// register_rest_route(
-		// 		$this::namespace ,
-		// 	'addSchema',
-		// 	array(
-		// 		array(
-		// 			'methods' => 'POST',
-		// 			'callback' => array($this, 'add_schema'),
-		// 			'permission_callback' => array($this, 'rest_authorization_middleware')
-		// 		),
-		// 		'schema' => array($this, 'get_item_schema'),
-		// 	)
-		// );
+
+
 
 		register_rest_route(
 				$this::namespace ,
@@ -613,7 +589,7 @@ class Metasync_Public
 				)
 		);
 		
-		register_rest_route($this::namespace, '/pageList', array(
+		register_rest_route($this::namespace, 'pageList', array(
 			'methods' => 'POST',
 			'callback' => array($this, 'get_pages_list'),
 			'args' => array(
@@ -689,6 +665,34 @@ class Metasync_Public
 			return rest_ensure_response(array('error' => 'only post type is supported'), 400);
 		}
 
+		# Render content
+  		$post_content = $post->post_content;
+		if (strpos($post_content, '[et_pb_') !== false) {
+			# Load Divi modules if available
+			if (function_exists('et_builder_add_main_elements')) {
+				et_builder_add_main_elements();
+			}
+			# Render Divi content to HTML
+			if (function_exists('et_builder_render_layout')) {
+				$post_content = et_builder_render_layout($post_content);
+			} else {
+				$post_content = 'Divi render function not found';
+			}
+		} else {
+			# Standard WP content filter
+			$post_content = apply_filters('the_content', $post_content);
+		}
+
+		# Get featured image URL (full size, or null)
+        $featured_image = null;
+        if (has_post_thumbnail($post_id)) {
+            $featured_image = [
+                'url'  => get_the_post_thumbnail_url($post_id, 'full'),
+                'id'   => get_post_thumbnail_id($post_id),
+                'alt'  => get_post_meta(get_post_thumbnail_id($post_id), '_wp_attachment_image_alt', true) ?: ''
+            ];
+        }
+
 		# Get post categories
 		$categories = get_the_category($post_id);
 		$category_names = array();
@@ -700,7 +704,7 @@ class Metasync_Public
 
 		# Prepare response data
 		$response_data = array(
-			'post_content' => $post->post_content,
+			'post_content' => $post_content,
 			'post_title' => $post->post_title,
 			'post_status' => $post->post_status,
 			'otto_ai_page' => false,
@@ -710,7 +714,8 @@ class Metasync_Public
 			'post_categories' => $category_names,
 			'post_id' => $post_id,
 			'post_type' => $post->post_type,
-			'post_parent' => $post->post_parent
+			'post_parent' => $post->post_parent,
+			'featured_image'   => $featured_image
 		);
 
 		return rest_ensure_response($response_data);
@@ -772,22 +777,7 @@ class Metasync_Public
 	}
 
 
-	// public function get_item($request, $type = 'post')
-	// {
-	// 	$id = (int) $request['id'];
-	// 	$post = get_post($id);
 
-	// 	if (empty($post)) {
-	// 		return new WP_Error(
-	// 			'rest_post_not_found',
-	// 			__("Post not found"),
-	// 			array('status' => 400)
-	// 		);
-	// 	}
-
-	// 	$response = $this->filter_post_attributes([$post]);
-	// 	return $response;
-	// }
 
 	private function get_post_author_id($post)
 	{
@@ -1179,9 +1169,8 @@ class Metasync_Public
 			'<body>',
 			'</body>'
 		], '', $content));
-		// If the $otto_enable return the content with before checking the page editor
 		if($otto_enable){
-			return array('content'=>$content); // return the content for the post
+			return array('content'=>$content);
 		}
 
 		if(!$elementor_active && $enabled_plugin_editor=='elementor'){
@@ -1210,9 +1199,8 @@ class Metasync_Public
 			'<body>',
 			'</body>'
 		], '', $content));
-		// If the $landing_page_option return the content with before checking the page editor
 		if($landing_page_option){
-			return array('content'=>$content); // return the content for the post
+			return array('content'=>$content);
 		}
 
 		if($enabled_plugin_editor=='elementor'){
@@ -1264,7 +1252,7 @@ class Metasync_Public
 					]
 				];
 			}
-			//error_log(json_encode([$item['post_content'],$outputArrayData,html_entity_decode($content)]));
+
 		
 			$jsonOutput = wp_slash( wp_json_encode( $outputArrayData ) );
 
@@ -1888,43 +1876,7 @@ class Metasync_Public
 		return null;
 	}
 
-	// private function elementor_update_content($post_id, $content)
-	// {
-	// 	// Check for Elementor plugin to update post
-	// 	$metaElementorData = get_post_meta($post_id, '_elementor_data', true);
-	// 	if (!empty($metaElementorData)) {
-	// 		$metaElementorData = json_decode($metaElementorData);
-	// 		$index_container = 0;
-	// 		$index_elements = 0;
-	// 		$_L = [0, 0, 0];
 
-	// 		foreach ($metaElementorData as $container) {
-	// 			foreach ($container->elements as $element) {
-	// 				// if there is only one element and that is empty
-	// 				if (gettype($element->settings) == 'array' && count($element->settings) == 0) {
-	// 					// add new element and trigger go
-	// 					$metaElementorData[$_L[0]]->elements[$_L[1]]->settings = ["editor" => $content];
-	// 					goto update;
-	// 				}
-	// 				if ($_L[2] < strlen($element->settings->editor)) {
-	// 					$_L[0] = $index_container;
-	// 					$_L[1] = $index_elements;
-	// 					$_L[2] = strlen($element->settings->editor);
-	// 				}
-	// 				$index_elements++;
-	// 			}
-	// 			$index_container++;
-	// 		}
-	// 		// update the element with largest content
-	// 		if ($_L[2] !== 0) {
-	// 			$metaElementorData[$_L[0]]->elements[$_L[1]]->settings->editor = $content;
-	// 		}
-	// 		update:
-	// 		return update_post_meta($post_id, '_elementor_data', wp_slash(json_encode($metaElementorData)));
-	// 	}
-	// 	// null if elementor post meta doesn't found
-	// 	return null;
-	// }
 
 	private function update_object($object_id, $update_params)
 	{
@@ -2478,7 +2430,7 @@ class Metasync_Public
 			'username' => wp_unslash(sanitize_email($post_data['username'])),
 			'password' => wp_unslash(sanitize_text_field($post_data['password']))
 		);
-		$response = wp_remote_post('https://api.searchatlas.com/api/token/', array('body' => $payload));
+		$response = wp_remote_post(Metasync::API_DOMAIN . '/api/token/', array('body' => $payload));
 		$get_object = isset($response['body']) ? json_decode($response['body']) : array();
 		if (!empty($get_object)) {
 			wp_send_json($get_object);
@@ -2515,27 +2467,125 @@ class Metasync_Public
 	 */
 	public function validate_sso_callback_permission($request)
 	{
-		// Get the nonce token from the x-api-key header
-		$nonce_token = $request->get_header('x-api-key');
+		try {
+			// Step 1: Validate nonce token format from header
+			$nonce_token = $request->get_header('x-api-key');
+			$format_validation = $this->validate_sso_nonce_format($nonce_token);
 		
-		if (!$nonce_token) {
-			return new WP_Error('missing_nonce', 'Missing x-api-key header', array('status' => 401));
-		}
+			if (is_wp_error($format_validation)) {
+				return $format_validation;
+			}
 
-		$nonce_data = $this->validate_sso_nonce_token($nonce_token);
-		
-		if (!$nonce_data) {
-			return new WP_Error('invalid_nonce', 'Invalid or expired nonce token', array('status' => 401));
-		}
+			// Step 2: Validate nonce token by regenerating it
+			if (!$this->validate_deterministic_sso_token($nonce_token)) {
+				error_log('SSO Callback Permission: Invalid nonce token: ' . substr($nonce_token, 0, 8) . '...');
+				return new WP_Error(
+					'invalid_nonce_token',
+					'Invalid nonce token',
+					array('status' => 401)
+				);
+			}
 
-		return true;
+			return true;
+		} catch (Exception $e) {
+			return new WP_Error(
+				'permission_validation_error',
+				'Internal error during permission validation',
+				array('status' => 500)
+			);
+		}
 	}
 
     /**
-     * Validate SSO Nonce Token
-     * Validates and marks a nonce token as used
+     * Validate Plugin Auth Token directly
+     * Simply compare provided token with Plugin Auth Token
      */
-    public function validate_sso_nonce_token($token)
+    private function validate_deterministic_sso_token($token)
+    {
+        // Get Plugin Auth Token
+        $general_options = Metasync::get_option('general') ?? [];
+        $plugin_auth_token = $general_options['apikey'] ?? '';
+        
+        // Debug logging to verify what we're comparing
+        error_log('SSO Token Validation - Provided token: ' . substr($token, 0, 8) . '...');
+        error_log('SSO Token Validation - Stored Plugin Auth Token: ' . ($plugin_auth_token ? substr($plugin_auth_token, 0, 8) . '...' : 'EMPTY'));
+        error_log('SSO Token Validation - Tokens match: ' . (hash_equals($plugin_auth_token, $token) ? 'YES' : 'NO'));
+        
+        if (empty($plugin_auth_token)) {
+            error_log('SSO Token Validation - No plugin auth token available');
+            return false; // No plugin auth token available
+        }
+        
+        // Compare tokens directly
+        $result = hash_equals($plugin_auth_token, $token);
+        error_log('SSO Token Validation - Final result: ' . ($result ? 'VALID' : 'INVALID'));
+        return $result;
+    }
+
+    /**
+     * Check if token is an enhanced SALT-based token
+     */
+    private function is_enhanced_token($token)
+    {
+        // Enhanced tokens are exactly 64 characters (SHA256 hash)
+        // and include SALT-based entropy
+        if (strlen($token) !== 64 || !ctype_xdigit($token)) {
+            return false;
+        }
+        
+        // Check if token data indicates enhanced version
+        $nonce_data = get_option('metasync_sso_nonce_' . $token);
+        if ($nonce_data) {
+            $data = json_decode($nonce_data, true);
+            return isset($data['enhanced']) && $data['enhanced'] === true;
+        }
+        
+        return false;
+    }
+
+    /**
+     * Validate enhanced SALT-based SSO token
+     */
+    private function validate_enhanced_sso_token($token)
+    {
+        $nonce_data = get_option('metasync_sso_nonce_' . $token);
+        
+        if (!$nonce_data) {
+            return false;
+        }
+
+        $nonce_data = json_decode($nonce_data, true);
+        
+        if (!is_array($nonce_data)) {
+            return false;
+        }
+
+        // Check if token has expired
+        if (isset($nonce_data['expires']) && $nonce_data['expires'] < time()) {
+            delete_option('metasync_sso_nonce_' . $token);
+            return false;
+        }
+
+        // Check if token has already been used
+        if (isset($nonce_data['used']) && $nonce_data['used']) {
+            return false;
+        }
+
+        // Additional validation for enhanced tokens
+        if (isset($nonce_data['enhanced']) && $nonce_data['enhanced']) {
+            // Perform additional security checks for enhanced tokens
+            if (!$this->validate_enhanced_token_security($token, $nonce_data)) {
+                return false;
+            }
+        }
+
+        return $nonce_data;
+    }
+
+    /**
+     * Validate legacy SSO token (backward compatibility)
+     */
+    private function validate_legacy_sso_token($token)
     {
         $nonce_data = get_option('metasync_sso_nonce_' . $token);
         
@@ -2546,17 +2596,62 @@ class Metasync_Public
         $nonce_data = json_decode($nonce_data, true);
 
         // Check if token has expired
-        if ($nonce_data['expires'] < time()) {
+        if (isset($nonce_data['expires']) && $nonce_data['expires'] < time()) {
             delete_option('metasync_sso_nonce_' . $token);
             return false;
         }
 
         // Check if token has already been used
-        if ($nonce_data['used']) {
+        if (isset($nonce_data['used']) && $nonce_data['used']) {
             return false;
         }
 
         return $nonce_data;
+    }
+
+    /**
+     * Additional security validation for enhanced tokens
+     */
+    private function validate_enhanced_token_security($token, $nonce_data)
+    {
+        // Rate limiting check (optional)
+        if ($this->is_token_rate_limited($token)) {
+            return false;
+        }
+
+        // Time-based validation (ensure token is not too old for creation time)
+        if (isset($nonce_data['created'])) {
+            $creation_time = $nonce_data['created'];
+            $current_time = time();
+            
+            // Token shouldn't be older than 35 minutes (5 min buffer)
+            if (($current_time - $creation_time) > 2100) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Simple rate limiting for token validation attempts
+     */
+    private function is_token_rate_limited($token)
+    {
+        $rate_limit_key = 'sso_rate_limit_' . substr($token, 0, 8);
+        $attempts = get_transient($rate_limit_key);
+        
+        if ($attempts === false) {
+            set_transient($rate_limit_key, 1, 300); // 5 minutes
+            return false;
+        }
+        
+        if ($attempts >= 10) { // Max 10 attempts per 5 minutes
+            return true;
+        }
+        
+        set_transient($rate_limit_key, $attempts + 1, 300);
+        return false;
     }
 
 
@@ -2567,75 +2662,462 @@ class Metasync_Public
 	public function handle_sso_callback($request)
 	{
 		try {
-			// Get the nonce token from header
+			// Step 1: Validate nonce token from header
 			$nonce_token = $request->get_header('x-api-key');
+			$nonce_validation = $this->validate_sso_nonce_format($nonce_token);
 			
-			// Get the new API key, status code, and dashboard domain from body
-			$body_params = $request->get_json_params();
-			$new_api_key = sanitize_text_field($body_params['api_key']);
-			$new_otto_uuid = sanitize_text_field($body_params['uuid']);
-			$status_code = intval($body_params['status_code']);
-			$dashboard_domain = sanitize_text_field($body_params['dashboard_domain']);
-			
-			if (empty($new_api_key)) {
-				return new WP_Error('missing_api_key', 'Missing api_key in request body', array('status' => 400));
+			if (is_wp_error($nonce_validation)) {
+				return $nonce_validation;
 			}
-
-			// Mark nonce as used and update API key
-			$success = $this->mark_sso_nonce_used($nonce_token, $new_api_key, $new_otto_uuid, $status_code, $dashboard_domain);
+			
+			// Step 2: Validate request body structure
+			$body_params = $request->get_json_params();
+			$body_validation = $this->validate_sso_request_body($body_params);
+			
+			if (is_wp_error($body_validation)) {
+				return $body_validation;
+			}
+			
+			// Step 3: Extract and validate individual parameters
+			$validated_params = $this->extract_and_validate_sso_params($body_params);
+			
+			if (is_wp_error($validated_params)) {
+				return $validated_params;
+			}
+			
+			// Step 4: Validate nonce token by regenerating it
+			if (!$this->validate_deterministic_sso_token($nonce_token)) {
+				return new WP_Error(
+					'invalid_nonce', 
+					'Invalid nonce token',
+					array('status' => 401)
+				);
+			}
+			
+			// Step 5: Process the callback and update settings
+			$success = $this->mark_sso_nonce_used(
+				$nonce_token,
+				$validated_params['api_key'],
+				$validated_params['uuid'],
+				$validated_params['status_code'],
+				$validated_params['is_whitelabel'],
+				$validated_params['whitelabel_domain'],
+				$validated_params['whitelabel_logo'],
+				$validated_params['whitelabel_company_name'],
+				$validated_params['whitelabel_otto']
+			);
 			
 			if (!$success) {
-				return new WP_Error('update_failed', 'Failed to update API key', array('status' => 500));
+				return new WP_Error(
+					'update_failed',
+					'Failed to update plugin settings',
+					array('status' => 500)
+				);
 			}
-
+			
+			// Step 6: Return success response
 			return rest_ensure_response(array(
 				'success' => true,
-				'message' => 'API key updated successfully',
-				'status_code' => $status_code
+				'message' => 'SSO callback processed successfully',
+				'data' => array(
+					'status_code' => $validated_params['status_code'],
+					'api_key_updated' => $validated_params['status_code'] === 200,
+					'whitelabel_enabled' => $validated_params['is_whitelabel'],
+					'effective_domain' => Metasync::get_dashboard_domain()
+				)
 			));
 
 		} catch (Exception $e) {
-			return new WP_Error('callback_error', 'Callback processing error: ' . $e->getMessage(), array('status' => 500));
+			return new WP_Error(
+				'internal_error',
+				'Internal server error occurred while processing SSO callback',
+				array('status' => 500)
+			);
 		}
+	}
+
+	/**
+	 * Validate SSO nonce token format
+	 * 
+	 * @param string $nonce_token The nonce token to validate
+	 * @return true|WP_Error True if valid, WP_Error if invalid
+	 */
+	private function validate_sso_nonce_format($nonce_token)
+	{
+		// Check if nonce token is provided
+		if (empty($nonce_token)) {
+			return new WP_Error(
+				'missing_nonce_token',
+				'Missing x-api-key header with nonce token',
+				array('status' => 401, 'field' => 'x-api-key')
+			);
+		}
+		
+		// Check nonce token format (should be Plugin Auth Token - at least 8 characters)
+		if (strlen($nonce_token) < 8) {
+			return new WP_Error(
+				'invalid_nonce_format',
+				'Invalid nonce token format. Token too short',
+				array('status' => 400, 'field' => 'x-api-key')
+			);
+		}
+		
+		return true;
+	}
+	
+	/**
+	 * Validate SSO request body structure
+	 * 
+	 * @param mixed $body_params Request body parameters
+	 * @return true|WP_Error True if valid, WP_Error if invalid
+	 */
+	private function validate_sso_request_body($body_params)
+	{
+		// Check if body exists and is valid JSON
+		if (empty($body_params)) {
+			return new WP_Error(
+				'empty_request_body',
+				'Request body is empty or invalid JSON',
+				array('status' => 400)
+			);
+		}
+		
+		// Check if body is an array (parsed JSON object)
+		if (!is_array($body_params)) {
+			return new WP_Error(
+				'invalid_request_body',
+				'Request body must be a valid JSON object',
+				array('status' => 400)
+			);
+		}
+		
+		return true;
+	}
+	
+	/**
+	 * Extract and validate individual SSO parameters
+	 * 
+	 * @param array $body_params Request body parameters
+	 * @return array|WP_Error Validated parameters array or WP_Error
+	 */
+	private function extract_and_validate_sso_params($body_params)
+	{
+		$validation_errors = array();
+		
+		// Extract parameters
+		$api_key = isset($body_params['api_key']) ? trim($body_params['api_key']) : '';
+		$uuid = isset($body_params['uuid']) ? trim($body_params['uuid']) : '';
+		$status_code = isset($body_params['status_code']) ? $body_params['status_code'] : 200;
+		
+		// Validate api_key
+		if (empty($api_key)) {
+			$validation_errors['api_key'] = 'API key is required';
+		} elseif (!is_string($api_key)) {
+			$validation_errors['api_key'] = 'API key must be a string';
+		} elseif (strlen($api_key) < 10) {
+			$validation_errors['api_key'] = 'API key must be at least 10 characters long';
+		} elseif (strlen($api_key) > 255) {
+			$validation_errors['api_key'] = 'API key must not exceed 255 characters';
+		} elseif (!preg_match('/^[a-zA-Z0-9\-_\.]+$/', $api_key)) {
+			$validation_errors['api_key'] = 'API key contains invalid characters. Only alphanumeric, dash, underscore, and dot allowed';
+		}
+		
+		// Validate uuid
+		if (empty($uuid)) {
+			$validation_errors['uuid'] = 'UUID is required';
+		} elseif (!is_string($uuid)) {
+			$validation_errors['uuid'] = 'UUID must be a string';
+		} elseif (strlen($uuid) > 100) {
+			$validation_errors['uuid'] = 'UUID must not exceed 100 characters';
+		}
+		
+		// Validate status_code
+		if (!is_numeric($status_code)) {
+			$validation_errors['status_code'] = 'Status code must be a number';
+		} else {
+			$status_code = intval($status_code);
+			if ($status_code < 100 || $status_code >= 600) {
+				$validation_errors['status_code'] = 'Status code must be between 100 and 599';
+			}
+		}
+		
+		// Extract and validate whitelabel fields
+		$is_whitelabel = isset($body_params['is_whitelabel']) ? $body_params['is_whitelabel'] : false;
+		
+		// Validate is_whitelabel
+		if (isset($body_params['is_whitelabel']) && !is_bool($body_params['is_whitelabel'])) {
+			// Handle string representations of boolean
+			if (is_string($body_params['is_whitelabel'])) {
+				$whitelabel_string = strtolower($body_params['is_whitelabel']);
+				if (in_array($whitelabel_string, ['true', '1', 'yes', 'on'])) {
+					$is_whitelabel = true;
+				} elseif (in_array($whitelabel_string, ['false', '0', 'no', 'off', ''])) {
+					$is_whitelabel = false;
+				} else {
+					$validation_errors['is_whitelabel'] = 'is_whitelabel must be a boolean value (true/false)';
+				}
+			} else {
+				$validation_errors['is_whitelabel'] = 'is_whitelabel must be a boolean value';
+			}
+		}
+		
+		// BUSINESS RULE: If is_whitelabel is false/null, disregard all other whitelabel fields
+		if (!$is_whitelabel) {
+			// Force all whitelabel fields to empty when is_whitelabel is false
+			$whitelabel_domain = '';
+			$whitelabel_logo = '';
+			$whitelabel_company_name = '';
+			$whitelabel_otto = '';
+		} else {
+			// Only extract and validate whitelabel fields when is_whitelabel is true
+			$whitelabel_domain = isset($body_params['whitelabel_domain']) ? trim($body_params['whitelabel_domain']) : '';
+			$whitelabel_logo = isset($body_params['whitelabel_logo']) ? trim($body_params['whitelabel_logo']) : '';
+			$whitelabel_company_name = isset($body_params['whitelabel_company_name']) ? trim($body_params['whitelabel_company_name']) : '';
+			$whitelabel_otto = isset($body_params['whitelabel_otto']) ? trim($body_params['whitelabel_otto']) : '';
+			
+			// Validate whitelabel_domain (optional but must be valid URL if provided)
+			if (!empty($whitelabel_domain)) {
+				if (!is_string($whitelabel_domain)) {
+					$validation_errors['whitelabel_domain'] = 'Whitelabel domain must be a string';
+				} elseif (strlen($whitelabel_domain) > 255) {
+					$validation_errors['whitelabel_domain'] = 'Whitelabel domain must not exceed 255 characters';
+				} elseif (!filter_var($whitelabel_domain, FILTER_VALIDATE_URL)) {
+					$validation_errors['whitelabel_domain'] = 'Whitelabel domain must be a valid URL';
+				} elseif (!in_array(parse_url($whitelabel_domain, PHP_URL_SCHEME), ['http', 'https'])) {
+					$validation_errors['whitelabel_domain'] = 'Whitelabel domain must use http or https protocol';
+				}
+			}
+			
+			// Validate whitelabel_logo (permissive validation - invalid URLs won't fail POST)
+			if (!empty($whitelabel_logo)) {
+				// Basic validation - only fail POST for serious issues
+				if (!is_string($whitelabel_logo)) {
+					$validation_errors['whitelabel_logo'] = 'Whitelabel logo must be a string';
+				} elseif (strlen($whitelabel_logo) > 500) {
+					$validation_errors['whitelabel_logo'] = 'Whitelabel logo URL must not exceed 500 characters';
+				} else {
+					// If URL is invalid, we'll clear it later but not fail the POST
+					if (!filter_var($whitelabel_logo, FILTER_VALIDATE_URL) || 
+						!in_array(parse_url($whitelabel_logo, PHP_URL_SCHEME), ['http', 'https'])) {
+						// Don't add to validation_errors - let POST succeed but clear the field
+					}
+				}
+			}
+			
+			// Validate whitelabel_company_name (maps to Plugin Name)
+			if (!empty($whitelabel_company_name)) {
+				if (!is_string($whitelabel_company_name)) {
+					$validation_errors['whitelabel_company_name'] = 'Whitelabel company name must be a string';
+				} elseif (strlen($whitelabel_company_name) > 100) {
+					$validation_errors['whitelabel_company_name'] = 'Whitelabel company name must not exceed 100 characters';
+				} elseif (!preg_match('/^[a-zA-Z0-9\s\-\.\&\(\)\,\'\"]+$/', $whitelabel_company_name)) {
+					$validation_errors['whitelabel_company_name'] = 'Whitelabel company name contains invalid characters. Only letters, numbers, spaces, and common punctuation allowed';
+				}
+			}
+		}
+		
+		// Return validation errors if any
+		if (!empty($validation_errors)) {
+			return new WP_Error(
+				'validation_failed',
+				'Request validation failed',
+				array(
+					'status' => 422,
+					'validation_errors' => $validation_errors
+				)
+			);
+		}
+		
+		// Return sanitized and validated parameters
+		return array(
+			'api_key' => sanitize_text_field($api_key),
+			'uuid' => sanitize_text_field($uuid),
+			'status_code' => $status_code,
+			'is_whitelabel' => $is_whitelabel,
+			'whitelabel_domain' => !empty($whitelabel_domain) ? esc_url_raw($whitelabel_domain) : '',
+			// Only store logo if it's a valid URL, otherwise store empty string
+			'whitelabel_logo' => (!empty($whitelabel_logo) && filter_var($whitelabel_logo, FILTER_VALIDATE_URL)) ? esc_url_raw($whitelabel_logo) : '',
+			'whitelabel_company_name' => !empty($whitelabel_company_name) ? sanitize_text_field($whitelabel_company_name) : '',
+			'whitelabel_otto' => !empty($whitelabel_otto) ? sanitize_text_field($whitelabel_otto) : ''
+		);
+	}
+
+	/**
+	 * Create standardized error response for SSO endpoints
+	 * 
+	 * @param string $error_code Error code identifier
+	 * @param string $message Human-readable error message
+	 * @param int $status_code HTTP status code
+	 * @param array $additional_data Additional error context
+	 * @return WP_Error Formatted error response
+	 */
+	private function create_sso_error_response($error_code, $message, $status_code = 400, $additional_data = array())
+	{
+		$error_data = array_merge(array(
+			'status' => $status_code,
+			'timestamp' => current_time('mysql', true),
+			'endpoint' => 'sso/callback'
+		), $additional_data);
+		
+		return new WP_Error($error_code, $message, $error_data);
 	}
 
     /**
      * Mark SSO nonce as used and update API key
+     * Enhanced with whitelabel support including logo and company name
      */
-    public function mark_sso_nonce_used($token, $new_api_key, $new_otto_uuid, $status_code = 200, $dashboard_domain = '')
+    public function mark_sso_nonce_used($token, $new_api_key, $new_otto_uuid, $status_code = 200, $is_whitelabel = false, $whitelabel_domain = '', $whitelabel_logo = '', $whitelabel_company_name = '', $whitelabel_otto = '')
     {
-        $nonce_data = get_option('metasync_sso_nonce_' . $token);
-        
-        if ($nonce_data) {
-            $nonce_data = json_decode($nonce_data, true);
-            $nonce_data['used'] = true;
-            $nonce_data['api_key_updated'] = true;
-            $nonce_data['new_api_key'] = $new_api_key;
-            $nonce_data['status_code'] = $status_code;
-            $nonce_data['dashboard_domain'] = $dashboard_domain;
-            
-            update_option('metasync_sso_nonce_' . $token, json_encode($nonce_data));
+        try {
+            // Validate token parameter
+            if (empty($token)) {
+                return false;
+            }
+
+            // No need to validate stored token data - token is deterministic
+            // Simply proceed with updating plugin settings
             
             // Update plugin settings
             $options = Metasync::get_option();
             
+            if (!is_array($options)) {
+                $options = array();
+            }
+            
+            if (!isset($options['general'])) {
+                $options['general'] = array();
+            }
             // Only update the API key in settings if status_code is 200 (success)
             if ($status_code === 200) {
                 $options['general']['searchatlas_api_key'] = $new_api_key;
                 $options['general']['otto_pixel_uuid'] = $new_otto_uuid;
+                $options['general']['otto_enable'] = 'true';  // Automatically enable Server Side Rendering
+                
+                // Update authentication timestamp for polling detection (legacy - keeping for compatibility)
+                $options['general']['send_auth_token_timestamp'] = current_time('mysql');
+                
+                // ✅ NEW: Set nonce-specific success flag for polling detection
+                // This ensures only the specific nonce that was authenticated reports success
+                $success_key = 'metasync_sso_success_' . md5($token);
+                set_transient($success_key, true, 300); // 5 minutes expiry
+                
+                // Clear JWT token cache when API key is updated to ensure fresh tokens
+                $this->clear_jwt_token_cache();
+                
+                error_log('SSO Authentication Success: Updated API key and cleared JWT cache');
             }
             
-            // Always store dashboard_domain for future use
-            if (!empty($dashboard_domain)) {
-                $options['general']['dashboard_domain'] = $dashboard_domain;
+            // Map whitelabel fields consistently (regardless of status_code)
+            if ($is_whitelabel) {
+                // whitelabel_company_name → Plugin Name (general plugin branding)
+                if (!empty($whitelabel_company_name)) {
+                    $options['general']['white_label_plugin_name'] = $whitelabel_company_name;
+                }
+                
+                // whitelabel_otto → OTTO Features naming (separate from plugin name)
+                if (!empty($whitelabel_otto)) {
+                    $options['general']['whitelabel_otto_name'] = $whitelabel_otto;
+                }
+            } else {
+                // Clear whitelabel fields when not whitelabel
+                unset($options['general']['white_label_plugin_name']);
+                unset($options['general']['whitelabel_otto_name']);
             }
             
-            Metasync::set_option($options);
+            // Store whitelabel settings (hidden from UI but accessible to plugin logic)
+            if (!isset($options['whitelabel'])) {
+                $options['whitelabel'] = array();
+            }
+            
+            $options['whitelabel']['is_whitelabel'] = $is_whitelabel;
+            $options['whitelabel']['domain'] = $whitelabel_domain;
+            $options['whitelabel']['logo'] = $whitelabel_logo;
+            $options['whitelabel']['updated_at'] = time();
+            
+            // Log whitelabel configuration
+            if ($is_whitelabel) {
+                $log_parts = array('Whitelabel mode enabled');
+                if (!empty($whitelabel_domain)) {
+                    $log_parts[] = 'domain: ' . $whitelabel_domain;
+                }
+                if (!empty($whitelabel_logo)) {
+                    $log_parts[] = 'logo: ' . $whitelabel_logo;
+                }
+                if (!empty($whitelabel_company_name)) {
+                    $log_parts[] = 'company: ' . $whitelabel_company_name;
+                }
+                if (!empty($whitelabel_otto)) {
+                    $log_parts[] = 'otto: ' . $whitelabel_otto;
+                }
+                error_log('SSO mark_sso_nonce_used: ' . implode(', ', $log_parts));
+            } else {
+                error_log('SSO mark_sso_nonce_used: Standard (non-whitelabel) mode');
+            }
+            
+            $save_result = Metasync::set_option($options);
+            
+            if (!$save_result) {
+                error_log('SSO mark_sso_nonce_used: Failed to save plugin options');
+            } else {
+                // Trigger immediate heartbeat check after successful SSO authentication
+                if ($status_code === 200) {
+                    $this->trigger_immediate_heartbeat_after_sso();
+                }
+            }
             
             return true;
-        }
-        
+            
+        } catch (Exception $e) {
+            error_log('SSO mark_sso_nonce_used Error: ' . $e->getMessage());
         return false;
+        }
+    }
+    
+    /**
+     * Clear cached JWT tokens
+     * Useful when authentication is reset or API key changes
+     */
+    private function clear_jwt_token_cache()
+    {
+        global $wpdb;
+        
+        // Clear all JWT token transients
+        $deleted = $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+                '_transient_metasync_jwt_token_%'
+            )
+        );
+        
+        // Also clear timeout transients
+        $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+                '_transient_timeout_metasync_jwt_token_%'
+            )
+        );
+        
+
+    }
+    
+    /**
+     * Trigger immediate heartbeat check after successful SSO authentication
+     * This provides immediate feedback to the user about connection status
+     */
+    private function trigger_immediate_heartbeat_after_sso()
+    {
+        try {
+            // Use WordPress action system to trigger immediate heartbeat check
+            // This is more reliable than trying to access admin class directly
+            do_action('metasync_trigger_immediate_heartbeat', 'SSO Authentication - successful login');
+            
+            // Also ensure heartbeat cron is scheduled now that we have an API key
+            do_action('metasync_ensure_heartbeat_cron_scheduled');
+            
+            error_log('SSO: Triggered immediate heartbeat check after successful authentication');
+        } catch (Exception $e) {
+            error_log('SSO: Error triggering immediate heartbeat check - ' . $e->getMessage());
+        }
     }
 
 	public function get_item_schema()
@@ -2669,7 +3151,7 @@ class Metasync_Public
 		return $this->schema;
 	}
 
-	function wp_robots_meta($robots)
+	function metasync_wp_robots_meta($robots)
 	{
 		foreach ($robots as $key => $value) {
 			$robots[$key] = false;
@@ -2727,8 +3209,30 @@ class Metasync_Public
 		# $post_text = wp_trim_words(get_the_content(), 30, '');
 
 		# Check if the post has content, then apply WordPress content filters
-		$post_content = !empty($post->post_content) ? apply_filters('the_content', $post->post_content) : '';
-		$post_text = wp_trim_words($post_content, 30, '');
+		# $post_content = !empty($post->post_content) ? apply_filters('the_content', $post->post_content) : '';
+		# $post_text = wp_trim_words($post_content, 30, '');
+
+		/**
+		 * Extract post content safely for meta descriptions
+		 * This solution addresses three critical issues:
+		 * 1. Timber compatibility - works without WordPress loop
+		 * 2. Plugin conflicts - prevents shortcode execution (e.g., Hostify-booking function redeclaration)
+		 * 3. Performance - lightweight content extraction for meta tags
+		 */
+
+		$post_text = '';
+		
+		# Get content safely without executing shortcodes
+		$content = get_the_content(null, false, $post);
+		
+		# Validate content exists
+		if (!empty($content)) {
+			# Clean content for meta description - multi-layer approach for reliability
+			$content = strip_shortcodes($content);           # Remove shortcode tags (e.g., [hostify-booking])
+			$content = wp_strip_all_tags($content);          # Remove HTML tags
+			$content = preg_replace('/\s+/', ' ', $content); # Normalize whitespace
+			$post_text = wp_trim_words(trim($content), 30, '');
+		}
 
 		$site_info = Metasync::get_option('optimal_settings')['site_info'] ?? [];
 
@@ -2828,37 +3332,15 @@ class Metasync_Public
 
 		$this->facebook_graph_cache();
 
-		// // Enable/Disable Schema for posts and pages
-		// $general_enable_schema = @Metasync::get_option('general')['enable_schema'] == 'true' ? true : false;
-		// if ($general_enable_schema == true) {
-		// 	// Schema for every post and page
-		// 	$article_json_ld = $this->add_ld_json();
 
-		// 	// Schema for specific post and page
-		// 	$local_business = new Metasync_Local_SEO();
-		// 	$business_json_ld = $local_business->local_business_ld_json();
 
-		// 	if ($business_json_ld) {
-		// 		$json_ld = $business_json_ld;
-		// 	} else {
-		// 		$json_ld = $article_json_ld;
-		// 	}
 
-		// 	$wp_json_encode = wp_json_encode($json_ld, JSON_UNESCAPED_SLASHES);
 
-		// 	if ($json_ld !== NULL) {
-		// 		echo "\t<script type='application/ld+json'>\n\t" .
-		// 			stripslashes(htmlspecialchars_decode(esc_js($wp_json_encode))) .
-		// 			"\n\t</script>";
-		// 	}
-		// }
-
-		// echo "\n\t<!-- MetaSync metadata -->\n";
 	}
 
 	public function metasync_plugin_links($links)
 	{
-		$links[] = '<a href="#" id="wp_metasync_sync">' . __('Sync') . '</a>';
+		# Removed Sync link as requested
 		
 		# Solving Issue 103
 		# get the neneral options into a var

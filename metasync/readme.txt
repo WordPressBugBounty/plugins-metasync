@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.4.4
+Stable tag: 2.5.0
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,57 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.5.0 =
+* **Search Atlas SSO**
+  * Users can now authenticate the plugin with a single click, eliminating manual setup steps and streamlining the entire process.
+* **OTTO One-Click Activation**
+  * After successful authentication, if an OTTO project exists in Search Atlas, its configurations are automatically imported and applied within WordPress.
+* **White Label Branding**
+  * The white label experience has been significantly improved. Upon one-click authentication, any configured white label settings are automatically imported. This includes:
+    * Plugin Name
+    * Logo
+    * OTTO Name
+    * Dashboard URL
+  * From then on, all plugin connections reflect the customer’s white label branding. These settings are also accessible in a new **Advanced tab** within the plugin settings.
+* **Dashboard Access**
+  * Direct access to the customer’s OTTO project dashboard is now available from within the plugin.
+* **Plugin Redesign**
+  * The plugin has been fully rebranded with a refreshed design that aligns with the current Search Atlas dashboard, offering a more consistent and modern user experience.
+* **Reset Plugin**
+  * A new option has been added to fully reset plugin configurations back to their default values.
+* **Error Logs**
+  * Enhanced error logging is now available. When WordPress debug modes are enabled, the plugin can generate anonymous logs that may be shared with the specialist team for troubleshooting.
+* **Search Atlas SSO**
+  * Users can now authenticate the plugin with a single click, eliminating manual setup steps and streamlining the entire process.
+* **OTTO One-Click Activation**
+  * After successful authentication, if an OTTO project exists in Search Atlas, its configurations are automatically imported and applied within WordPress.
+* **White Label Branding**
+  * The white label experience has been significantly improved. Upon one-click authentication, any configured white label settings are automatically imported. This includes:
+    * Plugin Name
+    * Logo
+    * OTTO Name
+    * Dashboard URL
+  * From then on, all plugin connections reflect the customer’s white label branding. These settings are also accessible in a new **Advanced tab** within the plugin settings.
+* **Dashboard Access**
+  * Direct access to the customer’s OTTO project dashboard is now available from within the plugin.
+* **Plugin Redesign**
+  * The plugin has been fully rebranded with a refreshed design that aligns with the current Search Atlas dashboard, offering a more consistent and modern user experience.
+* **Reset Plugin**
+  * A new option has been added to fully reset plugin configurations back to their default values.
+* **Error Logs**
+  * Enhanced error logging is now available. When WordPress debug modes are enabled, the plugin can generate anonymous logs that may be shared with the specialist team for troubleshooting.
+* **Disable SSO**
+  * Disable 1 Click WP Authentication from Dashboard
+
+BUG FIXES:
+
+* Disabled Canonical redirects generating loops
+* Check if URL could be crawled
+* Duplicated element with YITH plugin
+* FAQ format conflict with Theme Builder
+* Conflict with Hostify Booking Engine plugin
+* Old version of Elementro Pro breaking CSS
+
 = 2.4.4 =
 * Bug Fix: When user is logged via SSO, validate if the auth token is set
 

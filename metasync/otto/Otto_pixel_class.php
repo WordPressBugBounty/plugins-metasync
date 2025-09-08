@@ -86,6 +86,67 @@ Class Metasync_otto_pixel{
         update_option($option_name, $data);
     }
 
+    /**
+     * Check if a URL has been crawled by Otto
+     * - Validates domain against saved domain
+     * - Ignores query strings
+     * - Does exact path matching as Otto stores paths exactly as they appear
+     * @param string $url - Full URL to check
+     * @return bool - True if URL was crawled, false otherwise
+     */
+     function is_url_crawled($url) {
+        # Ensure valid input
+        if (empty($url) || !is_string($url)) {
+            return false;
+        }
+
+        # Get saved crawl data
+        $saved = get_option($this->option_name);
+
+        if (
+            empty($saved) ||
+            !is_array($saved) ||
+            empty($saved['domain']) ||
+            empty($saved['urls']) ||
+            !is_array($saved['urls'])
+        ) {
+            return false;
+        }
+
+        # Parse saved domain + incoming URL
+        $saved_domain   = parse_url($saved['domain'], PHP_URL_HOST);
+        $incoming_domain = parse_url($url, PHP_URL_HOST);
+
+        # Domain mismatch - not crawled
+        if (empty($saved_domain) || empty($incoming_domain) || strcasecmp($saved_domain, $incoming_domain) !== 0) {
+            return false;
+        }
+
+        # Parse incoming path (ignore query string)
+        $parsed_url = parse_url($url);
+        $url_path   = $parsed_url['path'] ?? '/';
+
+        # Ensure path starts with / but don't modify trailing slashes
+        # Otto stores paths exactly as they appear in URLs
+        if (substr($url_path, 0, 1) !== '/') {
+            $url_path = '/' . $url_path;
+        }
+
+        # Compare against crawled URLs - exact match
+        foreach ($saved['urls'] as $crawled_url) {
+            if (!is_string($crawled_url)) {
+                continue;
+            }
+
+            # Direct comparison - Otto stores paths exactly as they are
+            if (strcasecmp($crawled_url, $url_path) === 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     # get the current route
     function get_route(){
         # get req scheme
@@ -236,7 +297,14 @@ Class Metasync_otto_pixel{
         */
 
         # Handle canonical redirection before Otto processing
-        $this->handle_canonical_redirection($route);
+        #$this->handle_canonical_redirection($route);
+
+        # check if URL has been crawled by Otto before processing
+        if(!$this->is_url_crawled($route)){
+            # URL not crawled by Otto
+            return;
+        }
+
         # 
         $route = rtrim($route, '/');
         

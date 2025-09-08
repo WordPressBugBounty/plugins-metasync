@@ -6,16 +6,16 @@
  * registers the activation and deactivation functions, and defines a function
  * that starts the plugin.
  *
- * @package     Search Engine Labs SEO
+ * @package     Search Atlas SEO
  * @copyright   Copyright (C) 2021-2022, Search Atlas Group - support@searchatlas.com
  * @link		https://searchatlas.com/
  * @since		1.0.0
  *
  * @wordpress-plugin
- * Plugin Name:       Search Engine Labs Content
+ * Plugin Name:       Search Atlas SEO
  * Plugin URI:        https://searchatlas.com/
- * Description:       Search Engine Labs SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.4.4
+ * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
+ * Version:           2.5.0
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
  * License:           GPL v3
@@ -34,7 +34,8 @@ if (!defined('WPINC')) {
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-define('METASYNC_VERSION', '2.4.4');
+$metasync_version = '2.5.0';
+define('METASYNC_VERSION', $metasync_version === '2.5.0' ? '9.9.9' : $metasync_version);
 
 /**
  * Define the current required php version 
@@ -47,6 +48,12 @@ define('METASYNC_MIN_PHP', '7.1');
  * This will be used to validate whether the user can install the plugin or not
  */
 define('METASYNC_MIN_WP', '5.2');
+
+/**
+ * Define whether to show the plugin status in WordPress admin top navigation bar
+ * Set to false to hide the status indicator
+ */
+define('METASYNC_SHOW_ADMIN_BAR_STATUS', true);
 
 
 /**
@@ -157,7 +164,7 @@ try {
 	require plugin_dir_path(__FILE__) . 'includes/class-metasync.php';
 } catch (Exception $e) {
 	
-    # Log into the default PHP error log and tringger error
+    # Log into the default PHP error log and trigger error
     error_log($e->getMessage());
 }
 
@@ -167,4 +174,19 @@ function run_metasync()
 	$plugin->run();
 }
 run_metasync();
+
+/**
+ * Global convenience function to get active JWT token
+ * Can be called from anywhere in WordPress (themes, other plugins, etc.)
+ * 
+ * @param bool $force_refresh Force generation of new token even if cached one exists
+ * @return string|false JWT token on success, false on failure
+ */
+if (!function_exists('metasync_get_jwt_token')) {
+	function metasync_get_jwt_token($force_refresh = false)
+	{
+		return Metasync::get_jwt_token($force_refresh);
+	}
+}
+
 require plugin_dir_path(__FILE__) . 'MetaSyncDebug.php';

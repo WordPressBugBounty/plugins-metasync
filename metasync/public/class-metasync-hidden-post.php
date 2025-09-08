@@ -25,7 +25,7 @@ class MetaSyncHiddenPostManager
     public function __construct()
     {
         $this->post_title = 'Please do not delete this Metasync test Post'; # Initialize post_title
-        $this->post_content = 'This post, is used by the Search Atlas plugin, please do not delete.'; # Initialize content
+        $this->post_content = 'This post, is used by the ' . Metasync::get_effective_plugin_name() . ' plugin, please do not delete.'; # Initialize content
         $this->hidden_post_type = 'metasync_post_type'; # Initialize Non-existent post type to hide it later
 
     }

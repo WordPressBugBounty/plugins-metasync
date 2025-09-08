@@ -31,7 +31,40 @@ class Request_monitor extends Log_manager{
         #call the parent construct
         parent::__construct();
 
-        #   
+        # ensure log directory and files are accessible
+        $this->ensure_log_files_accessible();
+    }
+
+    /**
+     * Ensure log files are accessible and can be written to
+     */
+    private function ensure_log_files_accessible(){
+        
+        # Check if logs directory exists and is writable
+        if(!is_dir($this->metasync_logs_path) || !is_writable($this->metasync_logs_path)){
+            error_log('MetaSync Request Monitor: Log directory not accessible: ' . $this->metasync_logs_path);
+            return false;
+        }
+
+        # Create log files if they don't exist
+        $log_files = array(
+            $this->metasync_logs_path . $this->incoming_log_file,
+            $this->metasync_logs_path . $this->outgoing_log_file
+        );
+
+        foreach($log_files as $log_file){
+            if(!file_exists($log_file)){
+                $file = fopen($log_file, 'a');
+                if($file){
+                    fwrite($file, "# MetaSync Log File Created: " . date('Y-m-d H:i:s') . PHP_EOL);
+                    fclose($file);
+                } else {
+                    error_log('MetaSync Request Monitor: Failed to create log file: ' . $log_file);
+                }
+            }
+        }
+
+        return true;
     }
 
     # time stamp function
@@ -98,14 +131,17 @@ class Request_monitor extends Log_manager{
         # lets append to the log path
         $file = fopen($outgoing_log_path, 'a');
 
-        # if the file opened
+        # if the file opened successfully
         if($file){
             #append the log line
             fwrite($file, json_encode($request).PHP_EOL);
+            
+            # close the file
+            fclose($file);
+        } else {
+            # log the error if file couldn't be opened
+            error_log('MetaSync Request Monitor: Failed to open outgoing log file: ' . $outgoing_log_path . ' - Check file permissions');
         }
-
-        # close the file
-        fclose($file);
 
         return $preempt;
     }
@@ -143,15 +179,18 @@ class Request_monitor extends Log_manager{
         # open the file
         $file = fopen($incoming_log_path, 'a');
 
-        # if file opened
+        # if file opened successfully
         if($file){
 
             #append log line to file
             fwrite($file, json_encode($request_data).PHP_EOL);
+            
+            # close the file
+            fclose($file);
+        } else {
+            # log the error if file couldn't be opened
+            error_log('MetaSync Request Monitor: Failed to open log file: ' . $incoming_log_path . ' - Check file permissions');
         }
-
-        # close the file
-        fclose($file);
 
         return False;
     }
@@ -192,14 +231,17 @@ class Request_monitor extends Log_manager{
         # lets append to the log path
         $file = fopen($outgoing_log_path, 'a');
 
-        # if the file opened
+        # if the file opened successfully
         if($file){
             #append the log line
             fwrite($file, json_encode($response_data).PHP_EOL);
+            
+            # close the file
+            fclose($file);
+        } else {
+            # log the error if file couldn't be opened
+            error_log('MetaSync Request Monitor: Failed to open outgoing log file: ' . $outgoing_log_path . ' - Check file permissions');
         }
-
-        # close the file
-        fclose($file);
 
         #return the response
         return $response;
@@ -234,15 +276,18 @@ class Request_monitor extends Log_manager{
         # open the file
         $file = fopen($incoming_log_path, 'a');
 
-        # if file opened
+        # if file opened successfully
         if($file){
 
             #append log line to file
             fwrite($file, json_encode($response_object).PHP_EOL);
+            
+            # close the file
+            fclose($file);
+        } else {
+            # log the error if file couldn't be opened
+            error_log('MetaSync Request Monitor: Failed to open incoming log file: ' . $incoming_log_path . ' - Check file permissions');
         }
-
-        # close the file
-        fclose($file);
 
         return $response;
     }

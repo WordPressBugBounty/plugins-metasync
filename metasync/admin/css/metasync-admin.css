@@ -2,6 +2,764 @@
  * All of the CSS for your admin-specific functionality should be
  * included in this file.
  */
+
+/* Enhanced SSO Authentication Styles */
+.metasync-sso-container {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 6px;
+    padding: 20px;
+    margin-top: 15px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* Prevent dashboard loading conflicts on SSO elements */
+.metasync-sso-container .no-loading,
+#connect-searchatlas-sso.no-loading,
+#reset-searchatlas-auth.no-loading,
+.metasync-sso-btn.no-loading,
+.metasync-sso-protected {
+    position: relative;
+}
+
+.metasync-sso-container .no-loading::after,
+#connect-searchatlas-sso.no-loading::after,
+#reset-searchatlas-auth.no-loading::after,
+.metasync-sso-btn.no-loading::after,
+.metasync-sso-protected::after,
+#connect-searchatlas-sso.dashboard-loading::after {
+    display: none !important; /* Override any dashboard loading CSS */
+}
+
+/* Aggressively override dashboard loading on SSO button */
+#connect-searchatlas-sso.dashboard-loading {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    position: relative !important;
+}
+
+/* Prevent dashboard.js from disabling SSO buttons */
+.metasync-sso-protected:disabled {
+    opacity: 0.7 !important;
+    pointer-events: auto !important;
+}
+
+.metasync-sso-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #23282d;
+    margin: 0 0 15px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.metasync-sso-description {
+    color: #646970;
+    margin-bottom: 20px;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+#connect-searchatlas-sso {
+    position: relative;
+    background: linear-gradient(135deg, #0073aa 0%, #005177 100%);
+    color: #fff;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 180px;
+    justify-content: center;
+}
+
+#connect-searchatlas-sso:hover:not(:disabled) {
+    background: linear-gradient(135deg, #005177 0%, #003d56 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,115,170,0.3);
+}
+
+#connect-searchatlas-sso:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.metasync-sso-loading {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #ffffff40;
+    border-top: 2px solid #ffffff;
+    border-radius: 50%;
+    animation: metasync-spin 1s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+    position: static; /* Keep in normal document flow */
+}
+
+@keyframes metasync-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.metasync-sso-progress {
+    margin-top: 15px;
+    padding: 15px;
+    background: #f8f9fa;
+    border-left: 4px solid #0073aa;
+    border-radius: 0 4px 4px 0;
+    display: none;
+}
+
+.metasync-sso-progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 14px;
+}
+
+.metasync-sso-progress-time {
+    color: #646970;
+    font-size: 12px;
+    font-weight: normal;
+}
+
+.metasync-sso-progress-text {
+    margin-top: 8px;
+    color: #646970;
+    font-size: 13px;
+    font-style: italic;
+}
+
+.metasync-sso-progress-bar {
+    width: 100%;
+    height: 6px;
+    background: #e1e1e1;
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 10px 0;
+}
+
+.metasync-sso-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #0073aa 0%, #005177 100%);
+    width: 0%;
+    transition: width 0.3s ease;
+    border-radius: 3px;
+}
+
+.metasync-sso-status {
+    margin-top: 15px;
+    padding: 12px 16px;
+    border-radius: 6px;
+    display: none;
+    font-weight: 500;
+    /* Removed metasync-slideIn animation - was too distracting */
+}
+
+@keyframes metasync-slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.metasync-sso-status.success {
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+}
+
+.metasync-sso-status.error {
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+}
+
+.metasync-sso-status.info {
+    background: #d1ecf1;
+    border: 1px solid #bee5eb;
+    color: #0c5460;
+}
+
+.metasync-sso-status.warning {
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+    color: #856404;
+}
+
+.metasync-sso-status-content {
+    margin-bottom: 10px;
+}
+
+.metasync-sso-status-title {
+    font-weight: 600;
+    font-size: 15px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.metasync-sso-status-message {
+    font-size: 14px;
+    line-height: 1.4;
+    opacity: 0.9;
+}
+
+.metasync-sso-icon {
+    display: inline-block;
+    margin-right: 8px;
+    font-size: 16px;
+}
+
+/* Enhanced visual feedback */
+.metasync-sso-container:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    transition: box-shadow 0.3s ease;
+}
+
+.metasync-sso-success-animation {
+    animation: metasync-successPulse 0.6s ease-out;
+}
+
+@keyframes metasync-successPulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+}
+
+/* Tooltip styles for help text */
+.metasync-tooltip {
+    position: relative;
+    display: inline-block;
+    cursor: help;
+    color: #0073aa;
+}
+
+.metasync-tooltip::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #23282d;
+    color: #fff;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+    z-index: 1000;
+}
+
+.metasync-tooltip:hover::after {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(-5px);
+}
+
+.metasync-sso-buttons {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 15px;
+}
+
+.metasync-sso-reset-btn {
+    background: #dc3545;
+    color: #fff;
+    border: 1px solid #dc3545;
+    padding: 10px 18px;
+    border-radius: 5px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.metasync-sso-reset-btn:hover:not(:disabled) {
+    background: #c82333;
+    border-color: #c82333;
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(220,53,69,0.3);
+}
+
+.metasync-sso-reset-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.metasync-sso-actions {
+    margin-top: 15px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.metasync-sso-btn {
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.metasync-sso-btn.primary {
+    background: #0073aa;
+    color: #fff;
+    border: 1px solid #0073aa;
+}
+
+.metasync-sso-btn.secondary {
+    background: #f1f1f1;
+    color: #50575e;
+    border: 1px solid #ccd0d4;
+}
+
+.metasync-sso-btn:hover {
+    transform: translateY(-1px);
+}
+
+.metasync-pulse {
+    animation: metasync-pulse 2s ease-in-out infinite;
+}
+
+@keyframes metasync-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* Enhanced Progress Bar Animations */
+.metasync-sso-progress-fill {
+    position: relative;
+    overflow: hidden;
+}
+
+.metasync-sso-progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background-image: linear-gradient(
+        -45deg,
+        rgba(255, 255, 255, 0.2) 25%,
+        transparent 25%,
+        transparent 50%,
+        rgba(255, 255, 255, 0.2) 50%,
+        rgba(255, 255, 255, 0.2) 75%,
+        transparent 75%,
+        transparent
+    );
+    background-size: 20px 20px;
+    animation: metasync-progressStripes 1s linear infinite;
+}
+
+@keyframes metasync-progressStripes {
+    0% { background-position: 0 0; }
+    100% { background-position: 20px 0; }
+}
+
+/* Enhanced button states */
+#connect-searchatlas-sso.connecting {
+    background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+}
+
+#connect-searchatlas-sso.authenticating {
+    background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+}
+
+#connect-searchatlas-sso.success {
+    background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+}
+
+/* Mobile Responsive Design */
+@media (max-width: 768px) {
+    .metasync-sso-container {
+        padding: 15px;
+        margin-top: 10px;
+        border-radius: 8px;
+    }
+    
+    .metasync-sso-buttons {
+        flex-direction: column;
+        gap: 10px;
+        align-items: stretch;
+    }
+    
+    #connect-searchatlas-sso {
+        width: 100%;
+        padding: 15px;
+        font-size: 16px;
+        touch-action: manipulation; /* Improves tap responsiveness */
+        order: 1;
+    }
+    
+    .metasync-sso-reset-btn {
+        width: 100%;
+        padding: 12px 18px;
+        font-size: 14px;
+        justify-content: center;
+        order: 2;
+    }
+    
+    .metasync-sso-actions {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .metasync-sso-btn {
+        justify-content: center;
+        padding: 12px 16px;
+        font-size: 14px;
+    }
+    
+    .metasync-sso-progress {
+        padding: 12px;
+    }
+    
+    .metasync-sso-progress-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+    }
+    
+    .metasync-sso-status {
+        padding: 15px;
+        margin-top: 12px;
+    }
+    
+    .metasync-sso-status-title {
+        font-size: 16px;
+    }
+    
+    /* Improve touch targets on mobile */
+    .metasync-sso-btn, .metasync-sso-reset-btn {
+        min-height: 44px;
+    }
+    
+    /* Mobile Header Optimizations */
+    .metasync-header {
+        flex-direction: column;
+        gap: 15px;
+        text-align: center;
+    }
+    
+    .metasync-header-actions {
+        flex-direction: column;
+        gap: 10px;
+        width: 100%;
+    }
+    
+    .metasync-dashboard-btn {
+        width: 100%;
+        justify-content: center;
+        padding: 12px 20px;
+        font-size: 16px;
+    }
+    
+    .metasync-integration-status {
+        justify-content: center;
+    }
+}
+
+/* Tablet optimizations */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .metasync-sso-container {
+        padding: 18px;
+    }
+    
+    .metasync-sso-actions {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+    }
+}
+
+/* Dashboard Button Styling */
+.metasync-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.metasync-dashboard-btn {
+    background: linear-gradient(135deg, #0073aa 0%, #005177 100%);
+    color: #fff;
+    text-decoration: none;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-weight: 500;
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.3s ease;
+    border: none;
+    cursor: pointer;
+}
+
+.metasync-dashboard-btn:hover,
+.metasync-dashboard-btn:focus {
+    background: linear-gradient(135deg, #005177 0%, #003d56 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,115,170,0.3);
+    color: #fff;
+    text-decoration: none;
+}
+
+.metasync-integration-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    padding: 8px 12px;
+    border-radius: 5px;
+    font-weight: 500;
+}
+
+.metasync-integration-status.integrated {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.metasync-integration-status.not-integrated {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.metasync-integration-status .status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.metasync-integration-status.integrated .status-indicator {
+    background: #28a745;
+}
+
+.metasync-integration-status.not-integrated .status-indicator {
+    background: #dc3545;
+}
+
+/* Header Layout */
+.metasync-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding: 20px;
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.metasync-header-left {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.metasync-logo {
+    max-height: 40px;
+    width: auto;
+}
+
+/* Dashboard Iframe Styling */
+.metasync-dashboard-iframe-container {
+    padding: 0;
+    overflow: hidden;
+}
+
+.metasync-dashboard-iframe-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 20px 15px 20px;
+    border-bottom: 1px solid #e1e1e1;
+    background: #f8f9fa;
+}
+
+.metasync-dashboard-iframe-header h2 {
+    margin: 0;
+    color: #23282d;
+    font-size: 18px;
+}
+
+.metasync-dashboard-controls {
+    display: flex;
+    gap: 8px;
+}
+
+.metasync-dashboard-iframe-wrapper {
+    position: relative;
+    background: #fff;
+    overflow: hidden;
+}
+
+/* Iframe wrapper overlay - DISABLED to prevent black subsections */
+/* .metasync-dashboard-iframe-wrapper::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #0073aa 0%, #005177 100%);
+    z-index: 1;
+} */
+
+#metasync-dashboard-iframe {
+    border: none;
+    display: block;
+    background: #f8f9fa;
+    transition: opacity 0.3s ease;
+    
+    /* Custom scrollbar styling for better design integration */
+    scrollbar-width: thin;
+    scrollbar-color: #c1c1c1 #f8f9fa;
+}
+
+/* WebKit browsers (Chrome, Safari, Edge) scrollbar styling */
+#metasync-dashboard-iframe::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+#metasync-dashboard-iframe::-webkit-scrollbar-track {
+    background: #f8f9fa;
+    border-radius: 6px;
+}
+
+#metasync-dashboard-iframe::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 6px;
+    border: 2px solid #f8f9fa;
+}
+
+#metasync-dashboard-iframe::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+#metasync-dashboard-iframe::-webkit-scrollbar-corner {
+    background: #f8f9fa;
+}
+
+#metasync-dashboard-iframe[src=""] {
+    opacity: 0.7;
+}
+
+.metasync-dashboard-iframe-footer {
+    padding: 10px 20px;
+    background: #f8f9fa;
+    border-top: 1px solid #e1e1e1;
+}
+
+.metasync-dashboard-iframe-footer code {
+    background: #e9ecef;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+/* Loading State for Iframe */
+.metasync-dashboard-iframe-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.metasync-dashboard-iframe-loading .spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #0073aa;
+    border-radius: 50%;
+    animation: metasync-spin 1s linear infinite;
+    margin: 0 auto 15px;
+    display: block;
+}
+
+.metasync-dashboard-iframe-loading p {
+    margin: 0;
+    color: #666;
+    font-size: 14px;
+    text-align: center;
+}
+
+/* Mobile Iframe Optimizations */
+@media (max-width: 768px) {
+    .metasync-dashboard-iframe-header {
+        flex-direction: column;
+        gap: 15px;
+        align-items: stretch;
+        text-align: center;
+    }
+    
+    .metasync-dashboard-controls {
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    
+    #metasync-dashboard-iframe {
+        height: 600px; /* Shorter on mobile */
+    }
+    
+    .metasync-dashboard-iframe-footer {
+        text-align: center;
+    }
+}
+
+/* Accessibility Improvements */
+.metasync-sso-status:focus {
+    outline: 2px solid #005177;
+    outline-offset: 2px;
+}
+
+.screen-reader-text {
+    clip: rect(1px, 1px, 1px, 1px);
+    position: absolute !important;
+    height: 1px;
+    width: 1px;
+    overflow: hidden;
+}
+
+/* Legacy styles maintained for backward compatibility */
 .table {
     border: 0px;
     margin: 0px;

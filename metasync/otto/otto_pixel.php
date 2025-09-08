@@ -46,7 +46,7 @@ add_action('wp_head', function(){
  **/
 
 # function to register the route
-function otto_crawl_notify($request){
+function metasync_otto_crawl_notify($request){
     
     # get request data params
     $data = $request->get_json_params();
@@ -91,12 +91,12 @@ function otto_crawl_notify($request){
     # Handle the POST request
     return new WP_REST_Response(array(
         'success' => true,
-        'message' => 'Otto crawl notification received',
+        'message' => 'OTTO crawl notification received',
     ), 200);
 }
 
 # delete a directory
-function deleteDir($dir) {
+function metasync_deleteDir($dir) {
 
     # check that it is a dir
     if (!is_dir($dir)) {
@@ -114,7 +114,7 @@ function deleteDir($dir) {
         
         # delete
         if (is_dir($filePath)) {
-            deleteDir($filePath);
+            metasync_deleteDir($filePath);
         } 
         else {
             unlink($filePath);
@@ -125,7 +125,7 @@ function deleteDir($dir) {
     return rmdir($dir);
 }
 
-function invalidate_all_caches($folder = ''){
+function metasync_invalidate_all_caches($folder = ''){
     # check that we have the WP_CONTENT_DIR defined
     if(!defined('WP_CONTENT_DIR')){
         return false;
@@ -148,12 +148,12 @@ function invalidate_all_caches($folder = ''){
     if(is_dir($cache_dir)){
 
         # delete it
-        deleteDir($cache_dir);
+        metasync_deleteDir($cache_dir);
     }
 
 }
 
-function clear_existing_metasync_caches(){
+function metasync_clear_existing_metasync_caches(){
 
     # get the metasync
     global $metasync_options;
@@ -186,7 +186,7 @@ function clear_existing_metasync_caches(){
             $last_change_time['general'] = time();
 
             # call the clean caches function
-            invalidate_all_caches('general');
+            metasync_invalidate_all_caches('general');
         }
 
     }
@@ -202,7 +202,7 @@ function clear_existing_metasync_caches(){
             $last_change_time['pages'] = time();
 
             # call the clean caches function
-            invalidate_all_caches('pages');
+            metasync_invalidate_all_caches('pages');
         }
 
     }
@@ -218,7 +218,7 @@ function clear_existing_metasync_caches(){
             $last_change_time['posts'] = time();
 
             # call the clean caches function
-            invalidate_all_caches('posts');
+            metasync_invalidate_all_caches('posts');
         }
 
     }
@@ -234,7 +234,7 @@ function clear_existing_metasync_caches(){
             $last_change_time['general'] = time();
 
             # call the clean caches function
-            invalidate_all_caches('general');
+            metasync_invalidate_all_caches('general');
         }
     }
 
@@ -245,11 +245,11 @@ function clear_existing_metasync_caches(){
     return true;
 }
 
-function start_otto(){
+function metasync_start_otto(){
 
     # function to clear the caches
     # this is to support resolving the bug shipped in the earlier version
-    clear_existing_metasync_caches();
+    metasync_clear_existing_metasync_caches();
 
     # exclude AJAX request and all woocommerce pages from OTTO
     if (
@@ -324,7 +324,7 @@ function start_otto(){
 }
 
 # check that otto is not added via js to the site
-function check_otto_js(){
+function metasync_check_otto_js(){
 
     # get the site url
     $site_url = site_url() . '?is_otto_page_fetch=1';
@@ -353,14 +353,14 @@ function check_otto_js(){
 };
 
 # Handle AJAX Clear Cache request
-function clear_otto_cache_handler() {
+function metasync_clear_otto_cache_handler() {
     if (!empty($_GET['clear_otto_cache'])) {
 
         # call function to invalidate all cached
-        invalidate_all_caches();
+        metasync_invalidate_all_caches();
         
         # clear the otto cache
-        wp_send_json_success(['message' => 'Otto cache cleared']);
+        wp_send_json_success(['message' => 'OTTO cache cleared']);
     } 
     else {
 
@@ -370,31 +370,33 @@ function clear_otto_cache_handler() {
 }
 
 # Clear cache hook
-add_action('wp_ajax_clear_otto_cache', 'clear_otto_cache_handler');
+add_action('wp_ajax_clear_otto_cache', 'metasync_clear_otto_cache_handler');
 
 # add admin action to check script
-function show_otto_ssr_notice() {
+function metasync_show_otto_ssr_notice() {
     if (!current_user_can('manage_options')) {
         return; // Only show to admins
     }
 
-    # Get the plugin name from the options if not empty, with a fallback to 'Search Atlas'
-    $plugin_name = !empty(Metasync::get_option()['general']['white_label_plugin_name']) ? Metasync::get_option()['general']['white_label_plugin_name']: 'Search Atlas';
-    if (check_otto_js()) {
+    # Get the plugin name using centralized method
+    $plugin_name = Metasync::get_effective_plugin_name();
+    $whitelabel_otto_name = Metasync::get_whitelabel_otto_name();
+    if (metasync_check_otto_js()) {
 
         # Show admin notice with plugin name included in the message
         echo '<div class="notice notice-error">
                  <p><b>Warning from ' . esc_html($plugin_name) . '</b>
                     <br>
-                    Otto JavaScript has been detected on your site. Please remove it and configure Otto for Wordpress. Contact support for help
+                    ' . esc_html($whitelabel_otto_name) . ' JavaScript has been detected on your site. Please remove it and configure ' . esc_html($whitelabel_otto_name) . ' for Wordpress. Contact support for help
                 </p>
          </div>';
     }
 }
 
-add_action('admin_notices', 'show_otto_ssr_notice');
+add_action('admin_notices', 'metasync_show_otto_ssr_notice');
 
+# staging dummy change
 # load otto in the wp hook 
-add_action('wp', 'start_otto');
+add_action('wp', 'metasync_start_otto');
 
 
