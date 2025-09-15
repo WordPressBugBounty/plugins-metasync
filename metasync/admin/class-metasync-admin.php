@@ -160,20 +160,16 @@ class Metasync_Admin
         add_filter( 'plugin_row_meta',array($this,'metasync_view_detials_url'),10,3);
         
         // Add Search Atlas status to WordPress admin bar (priority 999 to ensure plugin is fully loaded)
-        // Only add if the constant allows it
-        if (defined('METASYNC_SHOW_ADMIN_BAR_STATUS') && METASYNC_SHOW_ADMIN_BAR_STATUS) {
-            add_action('admin_bar_menu', array($this, 'add_searchatlas_admin_bar_status'), 999);
-        }
+        // Always add the action - the method will check the setting internally
+        add_action('admin_bar_menu', array($this, 'add_searchatlas_admin_bar_status'), 999);
 
         #add css into admin header for icon image
 
         add_action('admin_head', array($this,'metasync_admin_icon_style'));
         
-        // Only add admin bar styles if the admin bar status is enabled
-        if (defined('METASYNC_SHOW_ADMIN_BAR_STATUS') && METASYNC_SHOW_ADMIN_BAR_STATUS) {
-            add_action('wp_head', array($this,'metasync_admin_bar_style')); // For frontend admin bar
-            add_action('admin_head', array($this,'metasync_admin_bar_style')); // For backend admin bar
-        }
+        // Always add admin bar styles - the method will check the setting internally
+        add_action('wp_head', array($this,'metasync_admin_bar_style')); // For frontend admin bar
+        add_action('admin_head', array($this,'metasync_admin_bar_style')); // For backend admin bar
         // removing this as we don't need it anymore because we are using wp-ajax to implement the white label 
        // add_action('update_option_metasync_options', array($this, 'check_and_redirect_slug'), 10, 3);
         
@@ -977,7 +973,9 @@ class Metasync_Admin
             }
             
             // Get WordPress domain (without /wp-admin)
-            $domain = get_site_url();
+            # $domain = get_site_url();
+            # Remove "www." from the URL in case the site URL includes it
+            $domain = str_replace('://www.', '://', get_site_url());
             
             // Get effective dashboard domain
             $dashboard_domain = self::get_effective_dashboard_domain();
@@ -1271,6 +1269,28 @@ class Metasync_Admin
         $otto_pixel_uuid = isset($general_options['otto_pixel_uuid']) ? $general_options['otto_pixel_uuid'] : '';
         $api_key = isset($general_options['searchatlas_api_key']) ? $general_options['searchatlas_api_key'] : '';
         
+        # Check if dashboard framework is hidden via settings
+		$hide_dashboard = $general_options['hide_dashboard_framework'] ?? false;
+        
+        # if dashboard is hidden, show message and exit
+        if ($hide_dashboard) {
+            ?>
+            <div class="wrap metasync-dashboard-wrap">
+                <?php $this->render_plugin_header('Dashboard'); ?>
+                
+                <?php $this->render_navigation_menu('dashboard'); ?>
+                
+                <div class="dashboard-card">
+                    <h2>📊 Dashboard Disabled</h2>
+                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">
+                        The Search Atlas dashboard is currently Disabled.
+                    </p>
+                </div>
+            </div>
+            <?php
+            return;
+        }
+
         // Check if user is properly connected via heartbeat
         if (!$this->is_heartbeat_connected()) {
             ?>
@@ -1293,14 +1313,54 @@ class Metasync_Admin
             return;
         }
         
-        // Build the dashboard iframe URL with embed parameter to hide navigation
-        $dashboard_domain = self::get_effective_dashboard_domain();
-        $iframe_url = $dashboard_domain . '/seo-automation-v3/tasks?uuid=' . urlencode($otto_pixel_uuid) . '&category=All&Embed=True';
-        
-        // Add JWT token - use fresh API-generated token for better compatibility
+        // Get JWT token first (needed to fetch public hash)
         $jwt_token = $this->get_fresh_jwt_token();
+        
+        // Log JWT token details for debugging
         if ($jwt_token) {
-            $iframe_url .= '&jwtToken=' . urlencode($jwt_token) . '&impersonate=1';
+            $jwt_parts = explode('.', $jwt_token);
+            $jwt_header_info = count($jwt_parts) >= 2 ? 'Valid format (' . count($jwt_parts) . ' parts)' : 'Invalid format';
+            error_log('DASHBOARD_IFRAME: JWT token available for public hash fetch - Length: ' . strlen($jwt_token) . ', Format: ' . $jwt_header_info . ', Prefix: ' . substr($jwt_token, 0, 20) . '...');
+        } else {
+            error_log('DASHBOARD_IFRAME: No JWT token available - cannot fetch public hash');
+        }
+        
+        // Fetch public hash for public dashboard access
+        $public_hash = false;
+        if ($jwt_token && $otto_pixel_uuid) {
+            error_log('DASHBOARD_IFRAME: Attempting to fetch public hash for UUID: ' . substr($otto_pixel_uuid, 0, 8) . '...');
+            $public_hash = $this->fetch_public_hash($otto_pixel_uuid, $jwt_token);
+            
+            if ($public_hash) {
+                error_log('DASHBOARD_IFRAME: Public hash fetch successful - Hash: ' . substr($public_hash, 0, 8) . '...');
+            } else {
+                error_log('DASHBOARD_IFRAME: PUBLIC HASH FETCH FAILED - Will fallback to JWT token authentication');
+                error_log('DASHBOARD_IFRAME: Public hash failure details - UUID present: ' . (!empty($otto_pixel_uuid) ? 'YES' : 'NO') . ', JWT present: ' . (!empty($jwt_token) ? 'YES' : 'NO'));
+            }
+        } else {
+            $missing_params = [];
+            if (empty($jwt_token)) $missing_params[] = 'JWT_TOKEN';
+            if (empty($otto_pixel_uuid)) $missing_params[] = 'OTTO_UUID';
+            error_log('DASHBOARD_IFRAME: Cannot fetch public hash - Missing parameters: ' . implode(', ', $missing_params));
+        }
+        
+        // Build the dashboard iframe URL using public or private endpoint
+        $dashboard_domain = self::get_effective_dashboard_domain();
+        
+        if ($public_hash) {
+            // Use public dashboard endpoint with public hash
+            $iframe_url = $dashboard_domain . '/seo-automation-v3/public?uuid=' . urlencode($otto_pixel_uuid) 
+                        . '&category=onpage_optimizations&subGroup=page_title&public_hash=' . urlencode($public_hash);
+            error_log('DASHBOARD_IFRAME: SUCCESS - Using public dashboard endpoint with public hash');
+        } else {
+            // Fallback to private dashboard endpoint with JWT token
+            $iframe_url = $dashboard_domain . '/seo-automation-v3/tasks?uuid=' . urlencode($otto_pixel_uuid) . '&category=All&Embed=True';
+            if ($jwt_token) {
+                $iframe_url .= '&jwtToken=' . urlencode($jwt_token) . '&impersonate=1';
+                error_log('DASHBOARD_IFRAME: FALLBACK - Using private dashboard with JWT token authentication (public hash failed)');
+            } else {
+                error_log('DASHBOARD_IFRAME: CRITICAL - No authentication available - dashboard may not load properly');
+            }
         }
         
         // Add source tracking
@@ -1907,6 +1967,19 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         if (!is_admin_bar_showing()) {
             return;
         }
+
+        # For backward compatibility, constant takes precedence.
+        if (defined('METASYNC_SHOW_ADMIN_BAR_STATUS') && !METASYNC_SHOW_ADMIN_BAR_STATUS) {
+            return;
+        }
+
+
+        # Check if admin bar status is enabled via setting
+        $general_settings = Metasync::get_option('general');
+        $show_admin_bar = $general_settings['show_admin_bar_status'] ?? true;
+        if (!$show_admin_bar) {
+            return;
+        }
         ?>
         <style type="text/css">
         #wp-admin-bar-searchatlas-status .ab-item {
@@ -2038,8 +2111,16 @@ define('WP_DEBUG_DISPLAY', false);</pre>
      */
     public function add_searchatlas_admin_bar_status($wp_admin_bar)
     {
-        // Check if admin bar status is disabled via constant
-        if (!defined('METASYNC_SHOW_ADMIN_BAR_STATUS') || !METASYNC_SHOW_ADMIN_BAR_STATUS) {
+
+        # For backward compatibility, constant takes precedence.
+        if (defined('METASYNC_SHOW_ADMIN_BAR_STATUS') && !METASYNC_SHOW_ADMIN_BAR_STATUS) {
+            return;
+        }
+        
+        # Check if admin bar status is disabled via setting
+        $general_settings = Metasync::get_option('general');
+        $show_admin_bar = $general_settings['show_admin_bar_status'] ?? true;
+        if (!$show_admin_bar) {
             return;
         }
         
@@ -2099,6 +2180,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
      * Check if heartbeat API is properly connected (frontend - cache only)
      * Frontend should NEVER trigger API calls - only use cached results from cron job
      * Returns false immediately if plugin API key is not configured
+     * Uses graceful fallback to last known state when cache is missing
      */
     private function is_heartbeat_connected($general_settings = null)
     {
@@ -2135,20 +2217,215 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             return $cached_result['status'];
         }
         
-        // No cached result - return default disconnected state
-        error_log('CONNECTION_STATUS_DEBUG: No cached result found - returning default DISCONNECTED state');
+        // No cached result - check for last known state before defaulting to disconnected
+        $last_known_state = $this->get_last_known_connection_state();
+        
+        if ($last_known_state !== null) {
+            error_log('CONNECTION_STATUS_DEBUG: No cache found, using last known state: ' . ($last_known_state ? 'CONNECTED' : 'DISCONNECTED'));
+            $this->log_heartbeat('info', 'Cache miss - using last known heartbeat status', array(
+                'status' => $last_known_state ? 'CONNECTED' : 'DISCONNECTED',
+                'note' => 'Graceful fallback until next cron job updates cache',
+                'fallback_reason' => 'cache_expired_or_missing'
+            ));
+            return $last_known_state;
+        }
+        
+        // No cache and no last known state - return default disconnected state
+        error_log('CONNECTION_STATUS_DEBUG: No cached result or last known state found - returning default DISCONNECTED state');
         // The cron job will update this cache in the background
-        $this->log_heartbeat('info', 'No cached heartbeat status found - returning default DISCONNECTED', array(
-            'note' => 'Cron job will update this status in background',
+        $this->log_heartbeat('info', 'No cached or last known heartbeat status found - returning default DISCONNECTED', array(
+            'note' => 'Cron job will establish initial connection state',
             'status' => 'DISCONNECTED' // For consistent throttling
         ));
         
-        return false; // Default to disconnected if no cache exists
+        return false; // Default to disconnected if no cache or last known state exists
     }
     
 
 
     
+    /**
+     * Fetch public hash from OTTO projects API for public dashboard access
+     * Includes caching to improve performance and reduce API calls
+     * 
+     * @param string $otto_pixel_uuid The OTTO pixel UUID
+     * @param string $jwt_token JWT token for authentication
+     * @return string|false Returns public hash on success, false on failure
+     */
+    private function fetch_public_hash($otto_pixel_uuid, $jwt_token)
+    {
+        if (empty($otto_pixel_uuid) || empty($jwt_token)) {
+            error_log('DASHBOARD_PUBLIC_HASH: Missing required parameters - UUID: ' . (!empty($otto_pixel_uuid) ? 'YES' : 'NO') . ', JWT: ' . (!empty($jwt_token) ? 'YES' : 'NO'));
+            return false;
+        }
+
+        // Check cache first (cache for 1 hour)
+        $cache_key = 'metasync_public_hash_' . md5($otto_pixel_uuid);
+        $cached_hash = get_transient($cache_key);
+        
+        if ($cached_hash !== false) {
+            error_log('DASHBOARD_PUBLIC_HASH: Using cached public hash - Hash: ' . substr($cached_hash, 0, 8) . '...');
+            return $cached_hash;
+        }
+
+        // API endpoint for OTTO projects
+        $api_url = 'https://sa.searchatlas.com/api/v2/otto-projects/' . urlencode($otto_pixel_uuid) . '/';
+        
+        // Prepare request headers
+        $headers = array(
+            'Accept' => 'application/json, text/plain, */*',
+            'Authorization' => 'Bearer ' . $jwt_token,
+            'Content-Type' => 'application/json',
+            'User-Agent' => 'WordPress MetaSync Plugin',
+            'Cache-Control' => 'no-cache'
+        );
+
+        error_log('DASHBOARD_PUBLIC_HASH: Making API request to fetch public hash - UUID: ' . substr($otto_pixel_uuid, 0, 8) . '...');
+        error_log('DASHBOARD_PUBLIC_HASH: API endpoint: ' . $api_url);
+        error_log('DASHBOARD_PUBLIC_HASH: Using JWT token for authentication - Length: ' . strlen($jwt_token) . ', Prefix: ' . substr($jwt_token, 0, 20) . '..., Suffix: ...' . substr($jwt_token, -8));
+
+        // Make the API request with retries
+        $max_retries = 2;
+        $retry_delay = 1; // seconds
+        
+        for ($attempt = 1; $attempt <= $max_retries; $attempt++) {
+            $response = wp_remote_get($api_url, array(
+                'headers' => $headers,
+                'timeout' => 15,
+                'sslverify' => true,
+                'redirection' => 5
+            ));
+
+            // Check for HTTP errors
+            if (is_wp_error($response)) {
+                $error_message = $response->get_error_message();
+                error_log('DASHBOARD_PUBLIC_HASH: API request failed (attempt ' . $attempt . '/' . $max_retries . ') - ' . $error_message);
+                
+                if ($attempt < $max_retries) {
+                    sleep($retry_delay);
+                    continue;
+                }
+                return false;
+            }
+
+            $status_code = wp_remote_retrieve_response_code($response);
+            $body = wp_remote_retrieve_body($response);
+
+            if ($status_code === 200) {
+                // Success - parse response
+                $data = json_decode($body, true);
+                
+                // Enhanced debugging: Log the full response structure
+                error_log('DASHBOARD_PUBLIC_HASH: Full API response body: ' . $body);
+                error_log('DASHBOARD_PUBLIC_HASH: Parsed data structure: ' . print_r($data, true));
+                
+                if ($data) {
+                    // Check what fields are actually present
+                    $available_fields = is_array($data) ? array_keys($data) : 'not_array';
+                    error_log('DASHBOARD_PUBLIC_HASH: Available fields in response: ' . print_r($available_fields, true));
+                    
+                    // Check for various possible field names
+                    $possible_hash_fields = ['public_hash', 'publicHash', 'hash', 'public_share_hash', 'share_hash'];
+                    $found_hash = null;
+                    $found_field = null;
+                    
+                    foreach ($possible_hash_fields as $field) {
+                        if (isset($data[$field]) && !empty($data[$field])) {
+                            $found_hash = $data[$field];
+                            $found_field = $field;
+                            break;
+                        }
+                    }
+                    
+                    if ($found_hash) {
+                        $public_hash = sanitize_text_field($found_hash);
+                        
+                        // Cache the public hash for 1 hour
+                        set_transient($cache_key, $public_hash, 3600);
+                        
+                        error_log('DASHBOARD_PUBLIC_HASH: Successfully found hash in field "' . $found_field . '" - Hash: ' . substr($public_hash, 0, 8) . '...');
+                        return $public_hash;
+                    } else {
+                        error_log('DASHBOARD_PUBLIC_HASH: No public hash found in any expected field. Checked fields: ' . implode(', ', $possible_hash_fields));
+                        error_log('DASHBOARD_PUBLIC_HASH: Response payload: ' . substr($body, 0, 500));
+                        return false;
+                    }
+                } else {
+                    error_log('DASHBOARD_PUBLIC_HASH: Failed to parse JSON response. Raw body: ' . substr($body, 0, 300));
+                    return false;
+                }
+            } else {
+                error_log('DASHBOARD_PUBLIC_HASH: API returned non-200 status (attempt ' . $attempt . '/' . $max_retries . ') - Code: ' . $status_code . ', Body: ' . substr($body, 0, 200));
+                
+                // For authentication errors (401, 403), don't retry
+                if (in_array($status_code, [401, 403])) {
+                    error_log('DASHBOARD_PUBLIC_HASH: Authentication error, not retrying - Status: ' . $status_code);
+                    return false;
+                }
+                
+                if ($attempt < $max_retries) {
+                    sleep($retry_delay);
+                    continue;
+                }
+            }
+        }
+        
+        error_log('DASHBOARD_PUBLIC_HASH: All retry attempts failed');
+        return false;
+    }
+
+    /**
+     * Clear cached public hash for the given UUID
+     * Should be called when authentication changes or when hash becomes invalid
+     * 
+     * @param string $otto_pixel_uuid The OTTO pixel UUID
+     */
+    private function clear_public_hash_cache($otto_pixel_uuid = '')
+    {
+        if (empty($otto_pixel_uuid)) {
+            // Try to get UUID from settings
+            $general_options = Metasync::get_option('general');
+            $otto_pixel_uuid = isset($general_options['otto_pixel_uuid']) ? $general_options['otto_pixel_uuid'] : '';
+        }
+        
+        if (!empty($otto_pixel_uuid)) {
+            $cache_key = 'metasync_public_hash_' . md5($otto_pixel_uuid);
+            delete_transient($cache_key);
+            error_log('DASHBOARD_PUBLIC_HASH: Cleared cached public hash for UUID: ' . substr($otto_pixel_uuid, 0, 8) . '...');
+        }
+    }
+
+    /**
+     * Get the last known connection state from WordPress options
+     * This provides graceful fallback when cache is missing
+     * 
+     * @return bool|null Returns true for connected, false for disconnected, null if never set
+     */
+    private function get_last_known_connection_state()
+    {
+        return get_option('metasync_last_known_connection_state', null);
+    }
+    
+    /**
+     * Store the last known connection state in WordPress options
+     * This helps maintain consistent status during cache gaps
+     * 
+     * @param bool $is_connected Connection status to store
+     * @return bool True on success, false on failure
+     */
+    private function set_last_known_connection_state($is_connected)
+    {
+        $success = update_option('metasync_last_known_connection_state', (bool) $is_connected);
+        
+        if ($success) {
+            error_log('CONNECTION_STATUS_DEBUG: Stored last known connection state: ' . ($is_connected ? 'CONNECTED' : 'DISCONNECTED'));
+        } else {
+            error_log('CONNECTION_STATUS_DEBUG: Failed to store last known connection state');
+        }
+        
+        return $success;
+    }
+
     /**
      * Enhanced logging for heartbeat operations
      * Provides structured and detailed logging with context
@@ -2423,6 +2700,9 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             
             set_transient('metasync_heartbeat_status_cache', $cache_data, 300);
             
+            // Store last known connection state for graceful fallback
+            $this->set_last_known_connection_state(false);
+            
             $this->log_heartbeat('info', 'Background heartbeat check completed without API call', array(
                 'status' => 'DISCONNECTED',
                 'reason' => 'Search Atlas API key not configured',
@@ -2446,6 +2726,9 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         );
         
         set_transient('metasync_heartbeat_status_cache', $cache_data, 300);
+        
+        // Store last known connection state for graceful fallback
+        $this->set_last_known_connection_state($is_connected);
         
         $this->log_heartbeat('info', 'Background heartbeat check completed', array(
             'status' => $is_connected ? 'CONNECTED' : 'DISCONNECTED',
@@ -2542,6 +2825,9 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             );
             
             set_transient('metasync_heartbeat_status_cache', $cache_data, 300);
+            
+            // Store last known connection state for graceful fallback
+            $this->set_last_known_connection_state(false);
             
             $this->log_heartbeat('info', 'Immediate heartbeat check completed without API call', array(
                 'context' => $context,
@@ -2808,6 +3094,10 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             $this->cleanup_sso_rate_limits();
             $cleared_data['rate_limits'] = 'cleared';
             
+            // Clear public hash cache when disconnecting
+            $this->clear_public_hash_cache($cleared_data['otto_pixel_uuid'] ?? '');
+            $cleared_data['public_hash_cache'] = 'cleared';
+            
             // Clear heartbeat status cache when disconnecting
             delete_transient('metasync_heartbeat_status_cache');
             $cleared_data['heartbeat_cache'] = 'cleared';
@@ -2880,9 +3170,9 @@ define('WP_DEBUG_DISPLAY', false);</pre>
      */
     private function get_available_menu_items() 
     {
-        $general_options = Metasync::get_option('general');
-        $has_api_key = !empty($general_options['searchatlas_api_key']);
-        $has_uuid = !empty($general_options['otto_pixel_uuid']);
+        $general_options = Metasync::get_option('general') ?? [];
+        $has_api_key = !empty($general_options['searchatlas_api_key'] ?? '');
+        $has_uuid = !empty($general_options['otto_pixel_uuid'] ?? '');
         $is_fully_connected = $this->is_heartbeat_connected($general_options);
         
         $menu_items = [];
@@ -2903,7 +3193,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             'internal_nav' => 'General Settings'
         ];
         
-        if (@$general_options['enable_optimal_settings']) {
+        if ($general_options['enable_optimal_settings'] ?? false) {
             $menu_items['optimal_settings'] = [
                 'title' => 'Optimal Settings',
                 'slug_suffix' => '-optimal-settings',
@@ -2912,7 +3202,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             ];
         }
         
-        if (@$general_options['enable_instant_indexing']) {
+        if ($general_options['enable_instant_indexing'] ?? false) {
             $menu_items['instant_index'] = [
                 'title' => 'Instant Indexing',
                 'slug_suffix' => '-instant-index',
@@ -2921,7 +3211,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             ];
         }
         
-        if (@$general_options['enable_google_console']) {
+        if ($general_options['enable_google_console'] ?? false) {
             $menu_items['google_console'] = [
                 'title' => 'Google Console',
                 'slug_suffix' => '-google-console',
@@ -3413,7 +3703,11 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         # Bool Fields for filter var
        # $bool_fields = ['enable_schema', 'enable_metadesc', 'otto_enable', 'otto_disable_on_loggedin'];
        # new field added disable_single_signup_login
-	    $bool_fields = ['enable_schema', 'enable_metadesc', 'otto_enable', 'otto_disable_on_loggedin', 'disable_single_signup_login'];
+	   # $bool_fields = ['enable_schema', 'enable_metadesc', 'otto_enable', 'otto_disable_on_loggedin', 'disable_single_signup_login'];
+       
+       # new field added hide_dashboard_framework
+
+       $bool_fields = ['enable_schema', 'enable_metadesc', 'otto_enable', 'otto_disable_on_loggedin', 'disable_single_signup_login', 'hide_dashboard_framework', 'show_admin_bar_status'];
     
         #url Fields for esc_url
         $url_fields = ['white_label_plugin_author_uri', 'white_label_plugin_uri'];
@@ -4299,6 +4593,22 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             $SECTION_METASYNC
         );
 
+        # Add Hide Dashboard Framework setting
+        add_settings_field(
+            'hide_dashboard_framework',
+            'Hide Dashboard',
+            function() {
+                $hide_dashboard = Metasync::get_option('general')['hide_dashboard_framework'] ?? '';
+                printf(
+                    '<input type="checkbox" id="hide_dashboard_framework" name="' . $this::option_key . '[general][hide_dashboard_framework]" value="true" %s />',
+                    isset($hide_dashboard) && $hide_dashboard == 'true' ? 'checked' : ''
+                );
+                printf('<span class="description"> Hide the Search Atlas dashboard</span>');
+            },
+            self::$page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
         # Adding the "Disable Single Signup Login" setting
         add_settings_field(
             'disable_single_signup_login',
@@ -4310,6 +4620,22 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     isset($disable_sso) && $disable_sso == 'true' ? 'checked' : ''
                 );
                 printf('<span class="description">Disable the Single Sign-On (SSO) callback functionality for enhanced security.</span>');
+            },
+            self::$page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        # Adding the "Show Admin Bar Status" setting
+        add_settings_field(
+            'show_admin_bar_status',
+            'Show Search Atlas Status in Admin Bar',
+            function() {
+                $show_admin_bar = Metasync::get_option('general')['show_admin_bar_status'] ?? true;
+                printf(
+                    '<input type="checkbox" id="show_admin_bar_status" name="' . $this::option_key . '[general][show_admin_bar_status]" value="true" %s />',
+                    $show_admin_bar ? 'checked' : ''
+                );
+                printf('<span class="description">Show the %s status indicator in the WordPress admin bar.</span>', esc_html(Metasync::get_effective_plugin_name()));
             },
             self::$page_slug . '_general',
             $SECTION_METASYNC

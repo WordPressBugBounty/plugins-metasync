@@ -240,7 +240,8 @@ class Metasync
 		Metasync_API_Key_Monitor::get_instance();
 		
 		// Log successful initialization
-		error_log('MetaSync: API Key Monitor initialized successfully');
+		#commented out to stop appending this to error.php 
+		# error_log('MetaSync: API Key Monitor initialized successfully');
 	}
 
 	/**
@@ -315,6 +316,10 @@ class Metasync
 		$this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_styles');
 		$this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_scripts');
 		$this->loader->add_action('wp_head', $plugin_public, 'hook_metasync_metatags', 1, 1);
+		
+		// AMP cleanup functionality - remove metasync_optimized attribute from head on AMP pages
+		$this->loader->add_action('template_redirect', $plugin_public, 'cleanup_amp_head_attribute', 1);
+		$this->loader->add_action('wp_footer', $plugin_public, 'end_amp_head_cleanup', 999);
 		$this->loader->add_action('plugin_action_links_' . $get_plugin_basename, $plugin_public, 'metasync_plugin_links');
 		$this->loader->add_action('rest_api_init', $plugin_public, 'metasync_register_rest_routes');
 		$this->loader->add_action('init', $plugin_public, 'metasync_plugin_init', 5);

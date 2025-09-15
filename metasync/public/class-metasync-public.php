@@ -3174,6 +3174,78 @@ class Metasync_Public
 		);
 	}
 
+	/**
+	 * Check if the current page is an AMP page
+	 * 
+	 * @return bool True if AMP page, false otherwise
+	 */
+	public function is_amp_page()
+	{
+		// Check if URL path contains /amp/
+		$current_url = $_SERVER['REQUEST_URI'] ?? '';
+		if (strpos($current_url, '/amp/') !== false) {
+			return true;
+		}
+		
+		// Check if URL ends with /amp
+		if (preg_match('/\/amp\/?$/', $current_url)) {
+			return true;
+		}
+		
+		// Check if amp=1 query parameter is present
+		if (isset($_GET['amp']) && $_GET['amp'] == '1') {
+			return true;
+		}
+		
+		// Check for other common AMP query parameters
+		if (isset($_GET['amp']) && !empty($_GET['amp'])) {
+			return true;
+		}
+		
+		return false;
+	}
+
+	/**
+	 * Remove metasync_optimized attribute from head tag on AMP pages
+	 * This function uses output buffering to clean the head content
+	 */
+	public function cleanup_amp_head_attribute()
+	{
+		// Only run on AMP pages
+		if (!$this->is_amp_page()) {
+			return;
+		}
+
+		// Start output buffering to capture and modify the head content
+		ob_start(function($buffer) {
+			// Remove metasync_optimized attribute from head tag
+			$cleaned_buffer = preg_replace('/(<head[^>]*)\s*metasync_optimized(?:="[^"]*")?([^>]*>)/i', '$1$2', $buffer);
+			
+			// Log if cleanup was performed
+			if ($buffer !== $cleaned_buffer) {
+				error_log('MetaSync Plugin: Removed metasync_optimized attribute from AMP page head tag');
+			}
+			
+			return $cleaned_buffer;
+		});
+	}
+
+	/**
+	 * End output buffering for AMP cleanup
+	 */
+	public function end_amp_head_cleanup()
+	{
+		// Only run on AMP pages
+		if (!$this->is_amp_page()) {
+			return;
+		}
+
+		// End output buffering
+		if (ob_get_level()) {
+			ob_end_flush();
+		}
+	}
+
 	public function hook_metasync_metatags()
 	{
 		$get_page_meta = get_post_meta(get_the_ID());

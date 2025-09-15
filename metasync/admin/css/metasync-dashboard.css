@@ -1069,6 +1069,11 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     content: '';
 }
 
+/* Ensure content is hidden when details is closed */
+.metasync-dashboard-wrap details.metasync-sso-tips:not([open]) > div {
+    display: none;
+}
+
 /* Dashboard button styling for header actions */
 .metasync-dashboard-wrap .metasync-header-actions {
     display: flex;

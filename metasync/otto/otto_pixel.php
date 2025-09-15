@@ -13,6 +13,7 @@ use simplehtmldom\HtmlDocument;
 require_once plugin_dir_path( __FILE__ ) . '/vendor/autoload.php';
 require_once plugin_dir_path( __FILE__ ) . '/Otto_html_class.php';
 require_once plugin_dir_path( __FILE__ ) . '/Otto_pixel_class.php';
+require_once plugin_dir_path( __FILE__ ) . '/metasync-otto-seo-functions.php';
 
 # get the metasync options
 $metasync_options = get_option('metasync_options');
@@ -82,6 +83,12 @@ function metasync_otto_crawl_notify($request){
 
         # validate the route
         $route = rtrim($route, '/');
+
+        # ENHANCED: Schedule async SEO data processing to avoid blocking the webhook
+        # Use immediate scheduling with 1-second delay to allow current request to complete
+        if (!wp_schedule_single_event(time() + 1, 'metasync_process_seo_job', array($route))) {
+            error_log("MetaSync OTTO: Failed to schedule SEO processing job for route: {$route}");
+        }
 
         # do the delete
         $otto_pixel->refresh_cache($route);
@@ -398,5 +405,70 @@ add_action('admin_notices', 'metasync_show_otto_ssr_notice');
 # staging dummy change
 # load otto in the wp hook 
 add_action('wp', 'metasync_start_otto');
+
+  
+  # ENHANCED OTTO SEO INTEGRATION
+  # Register async SEO processing hook
+  add_action('metasync_process_seo_job', 'metasync_process_otto_seo_data');
+  
+  # Process OTTO SEO data and update WordPress meta fields for SEO plugins
+  # This function now runs asynchronously via WordPress cron system
+  
+function metasync_process_otto_seo_data($route) {
+    try {
+        # Validate input
+        if (empty($route) || !is_string($route)) {
+            error_log('MetaSync OTTO: Invalid route provided for SEO processing');
+            return false;
+        }
+
+        # Get OTTO UUID from settings
+        $metasync_options = get_option('metasync_options');
+        $otto_uuid = $metasync_options['general']['otto_pixel_uuid'] ?? '';
+        
+        if (empty($otto_uuid)) {
+            error_log('MetaSync OTTO: UUID not configured, skipping SEO data processing');
+            return false;
+        }
+
+        # Fetch SEO data from OTTO API
+        $seo_data = metasync_fetch_otto_seo_data($route, $otto_uuid);
+        
+        if (!$seo_data) {
+            error_log("MetaSync OTTO: Failed to fetch SEO data for route: {$route}");
+            return false;
+        }
+
+        # Get WordPress post ID from URL
+        $post_id = url_to_postid($route);
+        
+        if (!$post_id || $post_id <= 0) {
+            error_log("MetaSync OTTO: Could not find WordPress post for route: {$route}");
+            return false;
+        }
+
+        # Extract meta title and description from OTTO response
+        $meta_title = metasync_extract_meta_title($seo_data);
+        $meta_description = metasync_extract_meta_description($seo_data);
+
+        # Update WordPress and SEO plugin meta fields
+        $update_result = metasync_update_seo_meta_fields($post_id, $meta_title, $meta_description);
+        
+        if ($update_result) {
+            error_log("MetaSync OTTO: Successfully updated SEO meta for post ID {$post_id}");
+            
+            # Clear relevant caches
+            metasync_clear_post_seo_caches($post_id);
+            
+            return true;
+        }
+        
+        return false;
+        
+    } catch (Exception $e) {
+        error_log("MetaSync OTTO: Exception in SEO processing: " . $e->getMessage());
+        return false;
+    }
+}
 
 

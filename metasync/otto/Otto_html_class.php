@@ -185,6 +185,9 @@ Class Metasync_otto_html{
         # now do the footer insertions
         $this->do_footer_html_insertion($replacement_data);
 
+        # final cleanup: ensure metasync_optimized attribute is removed from AMP pages
+        $this->cleanup_amp_metasync_attribute();
+
         # save the document
         $this->save_reload();
 
@@ -515,6 +518,9 @@ Class Metasync_otto_html{
         # Extract existing attributes of the <head> tag
         $attributes = [];
 
+        # get the tag attributes
+        $tag_attributes = $head->getAllAttributes();
+
         # loop all attributes
         foreach ($tag_attributes as $key => $value) {
 
@@ -539,7 +545,7 @@ Class Metasync_otto_html{
         $this->save_reload();
     }
 
-    # function to create meta tag if none exists
+    # function to create meta tag if none existss
     function create_metatag($attribute, $data){
 
         # Find the <head> tag
@@ -582,6 +588,33 @@ Class Metasync_otto_html{
         $this->save_reload();
     }
 
+    # function to detect if current page is an AMP page
+    function is_amp_page(){
+        
+        # Check if URL path contains /amp/
+        $current_url = $_SERVER['REQUEST_URI'] ?? '';
+        if (strpos($current_url, '/amp/') !== false) {
+            return true;
+        }
+        
+        # Check if URL ends with /amp
+        if (preg_match('/\/amp\/?$/', $current_url)) {
+            return true;
+        }
+        
+        # Check if amp=1 query parameter is present
+        if (isset($_GET['amp']) && $_GET['amp'] == '1') {
+            return true;
+        }
+        
+        # Check for other common AMP query parameters
+        if (isset($_GET['amp']) && !empty($_GET['amp'])) {
+            return true;
+        }
+        
+        return false;
+    }
+
     # this function insterts header html to the dom
     function insert_header_html($data){
 
@@ -591,13 +624,22 @@ Class Metasync_otto_html{
             return;
         }
 
-        # append the html at the start of the header
+        # append the/ html at the start of the header
         $head = $this->dom->find('head', 0);
 
         if ($head) {
 
+            # Check if this is an AMP page - if so, don't add metasync_optimized attribute
+            $is_amp_page = $this->is_amp_page();
+
             # Append the new HTML at the start of the <head> tag
-            $head->outertext = '<head metasync_optimized>' .$data['header_html_insertion']. $head->innertext . '</head>';
+            # For AMP pages: use clean <head> tag without metasync_optimized attribute
+            # For non-AMP pages: add metasync_optimized attribute to <head> tag
+            if ($is_amp_page) {
+                $head->outertext = '<head>' .$data['header_html_insertion']. $head->innertext . '</head>';
+            } else {
+                $head->outertext = '<head metasync_optimized>' .$data['header_html_insertion']. $head->innertext . '</head>';
+            }
 
         }
 
@@ -605,9 +647,45 @@ Class Metasync_otto_html{
         $this->save_reload();
     }
 
+    # function to forcefully remove metasync_optimized attribute from head on AMP pages
+    function cleanup_amp_metasync_attribute(){
+        
+        # Only proceed if this is an AMP page
+        if (!$this->is_amp_page()) {
+            return;
+        }
+        
+        # Find the head tag
+        $head = $this->dom->find('head', 0);
+        
+        if (!$head) {
+            return;
+        }
+        
+        # Check if head has metasync_optimized attribute
+        $head_html = $head->outertext;
+        
+        # If metasync_optimized attribute is found, remove it
+        if (strpos($head_html, 'metasync_optimized') !== false) {
+            
+            # Remove the metasync_optimized attribute from the head tag
+            # This handles various formats: <head metasync_optimized>, <head metasync_optimized=""> etc.
+            $cleaned_head_html = preg_replace('/\s*metasync_optimized(?:="[^"]*")?/', '', $head_html);
+            
+            # Update the head element
+            $head->outertext = $cleaned_head_html;
+            
+            # Log the cleanup action for debugging
+            error_log('MetaSync OTTO: Removed metasync_optimized attribute from AMP page head tag');
+        }
+    }
+
     # this function saves are reloads the dom for modifications to avoid conflict
     function save_reload(){
 
+        # Cleanup metasync_optimized attribute on AMP pages before saving
+        $this->cleanup_amp_metasync_attribute();
+        
         # 
         if(file_put_contents($this->html_file, $this->dom)){
             

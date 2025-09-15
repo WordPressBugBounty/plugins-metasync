@@ -478,24 +478,34 @@
             $('.metasync-sso-progress').fadeOut(300);
         });
         
-        // Handle authentication tips toggle (both new and existing elements)
-        $(document).on('click', '.metasync-sso-tips-toggle, details.metasync-sso-tips summary', function(e) {
+        // Handle authentication tips toggle for custom elements only (exclude summary elements)
+        $(document).on('click', '.metasync-sso-tips-toggle:not(summary)', function(e) {
             const $toggle = $(this);
+            const $content = $toggle.siblings('.metasync-sso-tips-content');
+            const $icon = $toggle.find('.tips-icon');
             
-            // Handle new-style tips
-            if ($toggle.hasClass('metasync-sso-tips-toggle')) {
-                const $content = $toggle.siblings('.metasync-sso-tips-content');
-                const $icon = $toggle.find('.tips-icon');
-                
-                $content.slideToggle(300);
-                $icon.text($content.is(':visible') ? '▼' : '▶');
-            }
-            // The details element handles its own toggle, just add animation
-            else if ($toggle.is('summary')) {
-                const $details = $toggle.parent();
-                setTimeout(() => {
-                    $details.find('div').addClass('tips-animated');
-                }, 10);
+            $content.slideToggle(300);
+            $icon.text($content.is(':visible') ? '▼' : '▶');
+        });
+        
+        // Handle details element with custom animation
+        $(document).on('click', 'details.metasync-sso-tips summary', function(e) {
+
+            const $details = $(this).closest('details');
+            if ($details.prop('open')) {
+                // Is open, about to close
+                e.preventDefault();
+                $details.find('> div').slideUp(400, () => {
+                    $details.removeAttr('open');
+                });
+            } else {
+                // Is closed, about to open. Let it open, then animate.
+                // The 'toggle' event is another way to handle this.
+                e.preventDefault();
+                $details.attr('open', 'open');
+                $details.find('> div').hide();
+                $details.find('> div').slideDown(400);
+
             }
         });
     }
@@ -659,7 +669,6 @@
                     if ($details.find('summary').text().includes('Authentication Tips')) {
                         // Add dashboard styling to existing tips
                         $details.addClass('metasync-sso-tips dashboard-styled');
-                        $details.find('summary').addClass('metasync-sso-tips-toggle');
                         $details.find('div').addClass('metasync-sso-tips-content');
                     }
                 });
