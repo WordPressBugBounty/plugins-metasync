@@ -22,6 +22,18 @@
  */
 class Metasync_Admin
 {
+    
+    // Section constants for settings
+    const SECTION_FEATURES              = "features_settings";
+    const SECTION_METASYNC              = "metasync_settings";
+    const SECTION_SEARCHENGINE          = "searchengine_settings";
+    const SECTION_LOCALSEO              = "local_seo";
+    const SECTION_CODESNIPPETS          = "code_snippets";
+    const SECTION_OPTIMAL_SETTINGS      = "optimal_settings";
+    const SECTION_SITE_SETTINGS         = "site_settings";
+    const SECTION_COMMON_SETTINGS       = "common_settings";
+    const SECTION_COMMON_META_SETTINGS  = "common_meta_settings";
+    const SECTION_SOCIAL_META           = "social_meta";
 
     /**
      * The ID of this plugin.
@@ -45,7 +57,7 @@ class Metasync_Admin
      * Holds the values to be used in the fields callbacks
      */
     private $options;
-    public $menu_title         = "Search Atlas";
+    public $menu_title         = "Search Atlas"; // Default, overridden by get_effective_menu_title()
     public const page_title         = "MetaSync Settings";
 
     /**
@@ -1661,17 +1673,72 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         // Try to get WordPress debug.log content
         $log_file = WP_CONTENT_DIR . '/debug.log';
         
-        if (file_exists($log_file) && is_readable($log_file)) {
-            $content = file_get_contents($log_file);
-            
-            // Get last 100 lines for better performance
-            $lines = explode("\n", $content);
-            $recent_lines = array_slice($lines, -100);
-            
-            return implode("\n", $recent_lines);
+        if (!file_exists($log_file) || !is_readable($log_file)) {
+            return false;
         }
         
-        return false;
+        // Check file size first - if it's too large, use tail method
+        $file_size = filesize($log_file);
+        if ($file_size > 10 * 1024 * 1024) { // 10MB limit
+            return $this->get_log_tail($log_file, 100);
+        }
+        
+        // For smaller files, use the original method
+        $content = file_get_contents($log_file);
+        if ($content === false) {
+            return false;
+        }
+        
+        // Get last 100 lines for better performance
+        $lines = explode("\n", $content);
+        $recent_lines = array_slice($lines, -100);
+        
+        return implode("\n", $recent_lines);
+    }
+    
+    /**
+     * Memory-efficient function to get last N lines from a large file
+     */
+    private function get_log_tail($file_path, $lines = 100)
+    {
+        $handle = fopen($file_path, 'r');
+        if (!$handle) {
+            return false;
+        }
+        
+        // Start from the end of the file
+        fseek($handle, -1, SEEK_END);
+        
+        $result_lines = array();
+        $line = '';
+        $line_count = 0;
+        
+        // Read backwards character by character
+        while (ftell($handle) > 0 && $line_count < $lines) {
+            $char = fgetc($handle);
+            
+            if ($char === "\n") {
+                if (!empty($line)) {
+                    array_unshift($result_lines, strrev($line));
+                    $line = '';
+                    $line_count++;
+                }
+            } else {
+                $line .= $char;
+            }
+            
+            // Move backwards
+            fseek($handle, -2, SEEK_CUR);
+        }
+        
+        // Add the last line if we reached the beginning
+        if (!empty($line) && $line_count < $lines) {
+            array_unshift($result_lines, strrev($line));
+        }
+        
+        fclose($handle);
+        
+        return implode("\n", $result_lines);
     }
 
     /**
@@ -2705,7 +2772,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             
             $this->log_heartbeat('info', 'Background heartbeat check completed without API call', array(
                 'status' => 'DISCONNECTED',
-                'reason' => 'Search Atlas API key not configured',
+                'reason' => 'API key not configured',
                 'cached_until' => date('Y-m-d H:i:s T', $cache_data['cached_until']),
                 'next_cron_run' => wp_next_scheduled('metasync_heartbeat_cron_check') ? 
                                   date('Y-m-d H:i:s T', wp_next_scheduled('metasync_heartbeat_cron_check')) : 'N/A'
@@ -3626,10 +3693,14 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         if (!empty($whitelabel_logo) && filter_var($whitelabel_logo, FILTER_VALIDATE_URL)) {
             $show_logo = true;
             $logo_url = esc_url($whitelabel_logo);
-        } else {
-            // Priority 2: Always use default Search Atlas logo as fallback
+        } elseif (!$is_whitelabel) {
+            // Priority 2: Use default Search Atlas logo only for non-whitelabel users
             $show_logo = true;
             $logo_url = Metasync::HOMEPAGE_DOMAIN . '/wp-content/uploads/2023/12/white.svg';
+        } else {
+            // Priority 3: Whitelabel users without a custom logo show no logo
+            $show_logo = false;
+            $logo_url = '';
         }
         
         // Check integration status based on heartbeat API connectivity
@@ -3906,6 +3977,47 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             }
         }      
     
+        # Handle WhiteLabel settings processing (this was missing!)
+        if (isset($_POST['metasync_options']['whitelabel'])) {
+            error_log('AJAX Handler: WhiteLabel data found in submission - ' . json_encode($_POST['metasync_options']['whitelabel']));
+            
+            $whitelabel_data = $_POST['metasync_options']['whitelabel'];
+            $existing_whitelabel = $metasync_options['whitelabel'] ?? [];
+            
+            // Handle logo field
+            if (isset($whitelabel_data['logo'])) {
+                $logo_value = trim($whitelabel_data['logo']);
+                error_log('AJAX Handler: Logo value = "' . $logo_value . '"');
+                
+                if (!empty($logo_value) && filter_var($logo_value, FILTER_VALIDATE_URL)) {
+                    $metasync_options['whitelabel']['logo'] = esc_url_raw($logo_value);
+                    error_log('AJAX Handler: Logo saved = "' . $metasync_options['whitelabel']['logo'] . '"');
+                } else {
+                    $metasync_options['whitelabel']['logo'] = '';
+                    error_log('AJAX Handler: Logo cleared (invalid/empty)');
+                }
+            }
+            
+            // Handle domain field
+            if (isset($whitelabel_data['domain'])) {
+                $domain_value = trim($whitelabel_data['domain']);
+                if (!empty($domain_value) && filter_var($domain_value, FILTER_VALIDATE_URL)) {
+                    $metasync_options['whitelabel']['domain'] = esc_url_raw($domain_value);
+                } else {
+                    $metasync_options['whitelabel']['domain'] = '';
+                }
+            }
+            
+            // Update timestamp
+            $metasync_options['whitelabel']['updated_at'] = time();
+            
+            // Save the updated options (this was missing!)
+            Metasync::set_option($metasync_options);
+            error_log('AJAX Handler: WhiteLabel settings saved to database');
+        } else {
+            error_log('AJAX Handler: No WhiteLabel data found in POST submission');
+        }
+    
         # set the redirect url - use the correct settings page slug
         $redirect_url = isset($_GET['tab']) ? 
                         admin_url('admin.php?page=' . self::$page_slug . '-settings&tab='.$_GET['tab']) :
@@ -3970,7 +4082,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         <?php $this->render_navigation_menu('dashboard'); ?>
             
             <div class="dashboard-card">
-                <h2>📊 Search Atlas Dashboard</h2>
+                <h2>📊 <?php echo esc_html($this->get_effective_menu_title()); ?> Dashboard</h2>
                 <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Access your <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> dashboard to view analytics, manage SEO settings, and monitor your site performance.</p>
                 <?php
         if (!isset(Metasync::get_option('general')['linkgraph_token']) || Metasync::get_option('general')['linkgraph_token'] == '') {
@@ -4346,6 +4458,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         <?php
     }
 
+
     /**
      * Register and add settings
      */
@@ -4357,16 +4470,17 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         // Handle clear all settings operations before any output
         $this->handle_clear_all_settings();
         
-        $SECTION_FEATURES               = "features_settings";
-        $SECTION_METASYNC               = "metasync_settings";
-        $SECTION_SEARCHENGINE           = "searchengine_settings";
-        $SECTION_LOCALSEO               = "local_seo";
-        $SECTION_CODESNIPPETS           = "code_snippets";
-        $SECTION_OPTIMAL_SETTINGS       = "optimal_settings";
-        $SECTION_SITE_SETTINGS          = "site_settings";
-        $SECTION_COMMON_SETTINGS        = "common_settings";
-        $SECTION_COMMON_META_SETTINGS   = "common_meta_settings";
-        $SECTION_SOCIAL_META            = "social_meta";
+        // Define section variables for backward compatibility
+        $SECTION_FEATURES               = self::SECTION_FEATURES;
+        $SECTION_METASYNC               = self::SECTION_METASYNC;
+        $SECTION_SEARCHENGINE           = self::SECTION_SEARCHENGINE;
+        $SECTION_LOCALSEO               = self::SECTION_LOCALSEO;
+        $SECTION_CODESNIPPETS           = self::SECTION_CODESNIPPETS;
+        $SECTION_OPTIMAL_SETTINGS       = self::SECTION_OPTIMAL_SETTINGS;
+        $SECTION_SITE_SETTINGS          = self::SECTION_SITE_SETTINGS;
+        $SECTION_COMMON_SETTINGS        = self::SECTION_COMMON_SETTINGS;
+        $SECTION_COMMON_META_SETTINGS   = self::SECTION_COMMON_META_SETTINGS;
+        $SECTION_SOCIAL_META            = self::SECTION_SOCIAL_META;
 
         # Use whitelabel OTTO name if configured, fallback to 'OTTO'
         $whitelabel_otto_name = Metasync::get_whitelabel_otto_name();
@@ -4603,7 +4717,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     '<input type="checkbox" id="hide_dashboard_framework" name="' . $this::option_key . '[general][hide_dashboard_framework]" value="true" %s />',
                     isset($hide_dashboard) && $hide_dashboard == 'true' ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Search Atlas dashboard</span>');
+                printf('<span class="description"> Hide the %s dashboard</span>', esc_html($this->get_effective_menu_title()));
             },
             self::$page_slug . '_general',
             $SECTION_METASYNC
@@ -4628,7 +4742,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         # Adding the "Show Admin Bar Status" setting
         add_settings_field(
             'show_admin_bar_status',
-            'Show Search Atlas Status in Admin Bar',
+            'Show ' . $this->get_effective_menu_title() . ' Status in Admin Bar',
             function() {
                 $show_admin_bar = Metasync::get_option('general')['show_admin_bar_status'] ?? true;
                 printf(

@@ -397,15 +397,15 @@ class Metasync
 
 	/**
 	 * Get whitelabel logo URL
-	 * Returns the whitelabel logo URL if logo is set (when whitelabel domain is also set)
+	 * Returns the whitelabel logo URL if logo is set
 	 */
 	public static function get_whitelabel_logo()
 	{
 		$whitelabel = self::get_whitelabel_settings();
 		
-		// Return logo only if whitelabel domain is set and logo is also set
-		// This ensures logo is only used when we're actually in whitelabel mode with a custom domain
-		if (!empty($whitelabel['domain']) && !empty($whitelabel['logo'])) {
+		// Return logo if it's set and is a valid URL
+		// Users should be able to set a custom logo without requiring a custom domain
+		if (!empty($whitelabel['logo'])) {
 			return $whitelabel['logo'];
 		}
 		

@@ -39,6 +39,9 @@ Class Log_Manager{
     # log upload chron name
     protected $log_upload_chron;
 
+    # outgoing log enabled flag
+    protected $outgoing_log_enabled;
+
     function __construct(){
         # set the wp debug path
         $this->load_wp_debug_path();
@@ -56,6 +59,9 @@ Class Log_Manager{
         if(!is_array($options)){
             $this->logging_options = [];
         }
+
+        # initialize outgoing log setting (default enabled for backwards compatibility)
+        $this->outgoing_log_enabled = $this->logging_options['enable_outgoing_log'] ?? true;
     }
 
     # app log function
@@ -122,6 +128,24 @@ Class Log_Manager{
 
         # otherwise save the option data provided
         update_option($this->logging_option_name, $this->logging_options);
+    }
+
+    /**
+     * Check if outgoing logging is enabled
+     * @return bool
+     */
+    function is_outgoing_log_enabled(){
+        return $this->outgoing_log_enabled;
+    }
+
+    /**
+     * Enable or disable outgoing logging
+     * @param bool $enabled
+     */
+    function set_outgoing_log_enabled($enabled){
+        $this->outgoing_log_enabled = $enabled;
+        $this->logging_options['enable_outgoing_log'] = $enabled;
+        $this->logging_options(true); // save to database
     }
 
     /**

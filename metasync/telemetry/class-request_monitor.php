@@ -152,8 +152,8 @@ class Metasync_Telemetry_Request_Monitor {
             'type' => 'outgoing_response',
             'status_code' => $response['response']['code'] ?? '',
             'url' => $url, 
-            'response' => $response,
-            'args' => $parsed_args
+            'response_data' => $this->sanitize_outgoing_response($response),
+            'args' => $this->sanitize_args($parsed_args)
         ];
 
         #return the response
@@ -180,8 +180,8 @@ class Metasync_Telemetry_Request_Monitor {
             'status_code' => $response->get_status() ?? '',
             'url' =>  $request->get_route(),
             'method' => $request->get_method(),
-            'response' => $response, 
-            'request' => $request
+            'response_data' => $this->sanitize_response_data($response), 
+            'request_data' => $this->sanitize_request_data($request)
         );
 
         # let record the response
@@ -191,6 +191,120 @@ class Metasync_Telemetry_Request_Monitor {
         # Return response to allow it to continue
         return $response;
 
+    }
+
+    /**
+     * Sanitize WP_REST_Response object for serialization
+     * 
+     * @param mixed $response The response object
+     * @return array Sanitized response data
+     */
+    private function sanitize_response_data($response) {
+        if (!is_object($response)) {
+            return is_array($response) ? $response : array();
+        }
+        
+        return array(
+            'status' => method_exists($response, 'get_status') ? $response->get_status() : null,
+            'data' => method_exists($response, 'get_data') ? $response->get_data() : null,
+            'headers' => method_exists($response, 'get_headers') ? $response->get_headers() : null,
+            'links' => method_exists($response, 'get_links') ? $response->get_links() : null
+        );
+    }
+    
+    /**
+     * Sanitize WP_REST_Request object for serialization
+     * 
+     * @param mixed $request The request object
+     * @return array Sanitized request data
+     */
+    private function sanitize_request_data($request) {
+        if (!is_object($request)) {
+            return is_array($request) ? $request : array();
+        }
+        
+        return array(
+            'method' => method_exists($request, 'get_method') ? $request->get_method() : null,
+            'route' => method_exists($request, 'get_route') ? $request->get_route() : null,
+            'params' => method_exists($request, 'get_params') ? $request->get_params() : null,
+            'headers' => method_exists($request, 'get_headers') ? $request->get_headers() : null,
+            'body' => method_exists($request, 'get_body') ? $request->get_body() : null
+        );
+    }
+    
+    /**
+     * Sanitize outgoing HTTP response for serialization
+     * 
+     * @param array $response The HTTP response array
+     * @return array Sanitized response data
+     */
+    private function sanitize_outgoing_response($response) {
+        if (!is_array($response)) {
+            return $response;
+        }
+        
+        $sanitized = array();
+        
+        // Safely extract response data
+        if (isset($response['response'])) {
+            $sanitized['response'] = array(
+                'code' => $response['response']['code'] ?? null,
+                'message' => $response['response']['message'] ?? null
+            );
+        }
+        
+        if (isset($response['headers'])) {
+            $sanitized['headers'] = $response['headers'];
+        }
+        
+        if (isset($response['body'])) {
+            $sanitized['body'] = $response['body'];
+        }
+        
+        if (isset($response['cookies'])) {
+            $sanitized['cookies'] = $response['cookies'];
+        }
+        
+        return $sanitized;
+    }
+    
+    /**
+     * Sanitize HTTP request arguments for serialization
+     * 
+     * @param array $args The HTTP request arguments
+     * @return array Sanitized arguments
+     */
+    private function sanitize_args($args) {
+        if (!is_array($args)) {
+            return $args;
+        }
+        
+        $sanitized = array();
+        
+        // Only include safe, serializable data
+        $safe_keys = array('method', 'timeout', 'redirection', 'httpversion', 'user-agent', 'reject_unsafe_urls', 'blocking', 'sslverify', 'stream', 'filename', 'decompress');
+        
+        foreach ($safe_keys as $key) {
+            if (isset($args[$key])) {
+                $sanitized[$key] = $args[$key];
+            }
+        }
+        
+        // Sanitize headers if present
+        if (isset($args['headers']) && is_array($args['headers'])) {
+            $sanitized['headers'] = $args['headers'];
+        }
+        
+        // Sanitize body if present (but limit size)
+        if (isset($args['body'])) {
+            $body = $args['body'];
+            if (is_string($body) && strlen($body) > 1000) {
+                $body = substr($body, 0, 1000) . '... [truncated]';
+            }
+            $sanitized['body'] = $body;
+        }
+        
+        return $sanitized;
     }
 
     /**

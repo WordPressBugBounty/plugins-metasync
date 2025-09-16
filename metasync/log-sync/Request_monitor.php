@@ -48,9 +48,13 @@ class Request_monitor extends Log_manager{
 
         # Create log files if they don't exist
         $log_files = array(
-            $this->metasync_logs_path . $this->incoming_log_file,
-            $this->metasync_logs_path . $this->outgoing_log_file
+            $this->metasync_logs_path . $this->incoming_log_file
         );
+        
+        # Only create outgoing log file if outgoing logging is enabled
+        if ($this->is_outgoing_log_enabled()) {
+            $log_files[] = $this->metasync_logs_path . $this->outgoing_log_file;
+        }
 
         foreach($log_files as $log_file){
             if(!file_exists($log_file)){
@@ -113,6 +117,11 @@ class Request_monitor extends Log_manager{
         # check that the route is permitted for logging
         if ( empty($url) || $this->log_uri_permitted($url) == False ){
             #error_log('Rejected Outgoing : '. $url);
+            return $preempt;
+        }
+
+        # check if outgoing logging is enabled
+        if (!$this->is_outgoing_log_enabled()) {
             return $preempt;
         }
 
@@ -211,6 +220,11 @@ class Request_monitor extends Log_manager{
         # check that the route is permitted for logging
         if ( empty($url) || $this->log_uri_permitted($url) == False ){
             #error_log('Rejected Out response: '. $url .' Response'. json_encode($response));
+            return $response;
+        }
+
+        # check if outgoing logging is enabled
+        if (!$this->is_outgoing_log_enabled()) {
             return $response;
         }
         

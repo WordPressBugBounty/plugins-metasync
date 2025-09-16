@@ -506,9 +506,12 @@ class Metasync_Telemetry_Sender {
             return false;
         }
 
+        // Sanitize data before storing in transient to prevent serialization errors
+        $sanitized_data = $this->sanitize_for_serialization($telemetry_data);
+        
         // Store data temporarily in transient
         $transient_key = 'metasync_telemetry_' . uniqid();
-        set_transient($transient_key, $telemetry_data, 300); // 5 minutes expiry
+        set_transient($transient_key, $sanitized_data, 300); // 5 minutes expiry
 
         // Schedule immediate background processing
         $result = wp_schedule_single_event(time() + 1, 'metasync_process_background_telemetry', array($transient_key));
@@ -623,6 +626,43 @@ class Metasync_Telemetry_Sender {
                 // Invalid file, delete it
                 unlink($file);
             }
+        }
+    }
+    
+    /**
+     * Sanitize data for serialization to prevent errors
+     * 
+     * @param mixed $data Data to sanitize
+     * @return mixed Sanitized data
+     */
+    private function sanitize_for_serialization($data) {
+        if (is_array($data)) {
+            $sanitized = array();
+            foreach ($data as $key => $value) {
+                $sanitized[$key] = $this->sanitize_for_serialization($value);
+            }
+            return $sanitized;
+        } elseif (is_object($data)) {
+            // Convert objects to arrays, but be careful with WordPress objects
+            if (method_exists($data, 'to_array')) {
+                return $this->sanitize_for_serialization($data->to_array());
+            } elseif (method_exists($data, '__toString')) {
+                return (string) $data;
+            } else {
+                // For complex objects, return a simplified representation
+                return array(
+                    'object_class' => get_class($data),
+                    'object_id' => spl_object_id($data)
+                );
+            }
+        } elseif (is_resource($data)) {
+            // Resources cannot be serialized
+            return '[resource]';
+        } elseif (is_callable($data)) {
+            // Callables cannot be serialized
+            return '[callable]';
+        } else {
+            return $data;
         }
     }
 }

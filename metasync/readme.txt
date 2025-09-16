@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.5.1
+Stable tag: 2.5.2
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,21 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.5.2 =
+No changelog available.
+
+= 2.5.1 =
+* **Improved Dashboard Loading** for public dashboard URLs.
+* **Enhanced compatibility** with naked URLs (non-www) on the platform.
+* **Refined the Connection Status Bar.**
+* **Fixed a bug** where the Connection Tips Box didn't expand when clicked.
+* **Enabled the storage** of meta titles and descriptions in the database.
+* **Added an option** to disable the dashboard view from the settings page.
+* **Created a setting** to disable the Connection Status Bar from the admin bar.
+* **Implemented a new Telemetry system** to streamline bug detection.
+* **Resolved an issue** that caused error logs to be generated multiple times.
+* **Optimized the rendering of AMP pages** to prevent unrecognized HTML tags.
+
 = 2.5.1 =
 * **Improved Dashboard Loading** for public dashboard URLs.
 * **Enhanced compatibility** with naked URLs (non-www) on the platform.

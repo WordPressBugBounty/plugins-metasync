@@ -631,7 +631,7 @@
 		
 		showSSOWarning(
 			'⚠️ Website Not Registered',
-			'Your website hasn\'t been registered with Search Atlas yet. Registration is required to enable seamless SSO authentication and access to all features.',
+			'Your website hasn\'t been registered with ' + (window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas') + ' yet. Registration is required to enable seamless SSO authentication and access to all features.',
 			[{
 				text: '🌐 Register Website',
 				action: function() { 
@@ -724,7 +724,7 @@
 			recoverySuggestions = [
 				'Complete authentication within 60 seconds',
 				'Check if the popup window needs attention',
-				'Ensure you have your Search Atlas login ready',
+				'Ensure you have your ' + (window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas') + ' login ready',
 				'Try the authentication process again',
 				'Contact support if timeouts persist'
 			];
@@ -1040,7 +1040,7 @@
 					.html('<span class="metasync-sso-loading"></span> Disconnecting...');
 
 		// Show status message
-		showSSOInfo('🔄 Disconnecting', 'Clearing your Search Atlas authentication data...');
+		showSSOInfo('🔄 Disconnecting', 'Clearing your ' + (window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas') + ' authentication data...');
 
 		// Make AJAX call to reset authentication
 		$.ajax({
@@ -1834,7 +1834,7 @@
 					}
 					
 					if (showAlerts) {
-						showSyncSuccess('✅ Sync Complete', 'Your categories and user data have been successfully synchronized with Search Atlas.');
+						showSyncSuccess('✅ Sync Complete', 'Your categories and user data have been successfully synchronized with ' + (window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas') + '.');
 					}
 				}
 			},
@@ -1851,7 +1851,7 @@
 				// Reset button state
 				if (showAlerts) {
 					$('#sendAuthToken').prop('disabled', false).html('🔄 Sync Now');
-					showSyncError('❌ Network Error', 'Failed to connect to Search Atlas. Please check your internet connection and try again.');
+					showSyncError('❌ Network Error', 'Failed to connect to ' + (window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas') + '. Please check your internet connection and try again.');
 				}
 			}
 		});
@@ -1954,6 +1954,35 @@
 			}
 			// Gather the form data
 			var formData = $(this).serialize(); // Serialize form data
+			
+			// Debug: Check if whitelabel logo field is being submitted
+			var logoField = $('input[name="metasync_options[whitelabel][logo]"]');
+			console.log('Logo field found:', logoField.length > 0);
+			console.log('Logo field value:', logoField.val());
+			console.log('Logo field visible:', logoField.is(':visible'));
+			console.log('Form data being sent:', formData);
+			
+			// Check if whitelabel data is in form data
+			if (formData.indexOf('whitelabel') !== -1) {
+				console.log('✓ WhiteLabel data found in form submission');
+			} else {
+				console.log('✗ WhiteLabel data NOT found in form submission');
+				
+				// FIX: Manually add whitelabel fields if they exist but aren't serialized
+				var logoValue = logoField.val();
+				var domainField = $('input[name="metasync_options[whitelabel][domain]"]');
+				var domainValue = domainField.val();
+				
+				if (logoValue || domainValue) {
+					console.log('Adding whitelabel data manually to form submission');
+					if (logoValue) {
+						formData += '&metasync_options[whitelabel][logo]=' + encodeURIComponent(logoValue);
+					}
+					if (domainValue) {
+						formData += '&metasync_options[whitelabel][domain]=' + encodeURIComponent(domainValue);
+					}
+				}
+			}
 	
 			$.ajax({
 				url: metaSync.ajax_url, // The AJAX URL provided by WordPress
@@ -2225,7 +2254,25 @@
 			var $form = $('#metaSyncGeneralSetting');
 			if ($form.length > 0) {
 				// Get form data and submit via AJAX
-				var formData = $form.serialize() + '&action=meta_sync_save_settings';
+				var formData = $form.serialize();
+				
+				// Ensure whitelabel data is included even if not serialized due to tab visibility
+				var logoField = $('input[name="metasync_options[whitelabel][logo]"]');
+				var domainField = $('input[name="metasync_options[whitelabel][domain]"]');
+				if ((logoField.length > 0 && logoField.val()) || (domainField.length > 0 && domainField.val())) {
+					if (formData.indexOf('whitelabel') === -1) {
+						var logoValue = logoField.val();
+						var domainValue = domainField.val();
+						if (logoValue) {
+							formData += '&metasync_options[whitelabel][logo]=' + encodeURIComponent(logoValue);
+						}
+						if (domainValue) {
+							formData += '&metasync_options[whitelabel][domain]=' + encodeURIComponent(domainValue);
+						}
+					}
+				}
+				
+				formData += '&action=meta_sync_save_settings';
 				
 				$.ajax({
 					url: metaSync.ajax_url,

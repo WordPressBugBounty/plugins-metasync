@@ -150,4 +150,28 @@ function metasync_monitor_api_calls(){
  * This is done to assist debuggin
  */
 
+/**
+ * Disable outgoing log file generation
+ * This prevents the creation and writing to outgoing.log
+ */
+function metasync_disable_outgoing_log() {
+    $log_manager = new Log_Manager();
+    $log_manager->set_outgoing_log_enabled(false);
+    
+    // Also remove existing outgoing.log file if it exists
+    $outgoing_log_path = WP_CONTENT_DIR . '/metasync_data/outgoing.log';
+    if (file_exists($outgoing_log_path)) {
+        if (unlink($outgoing_log_path)) {
+            error_log('MetaSync: Existing outgoing.log file removed');
+        } else {
+            error_log('MetaSync: Failed to remove existing outgoing.log file');
+        }
+    }
+    
+    error_log('MetaSync: Outgoing logging disabled');
+}
+
+# Disable outgoing logging BEFORE initializing monitoring
+metasync_disable_outgoing_log();
+
 metasync_monitor_api_calls();
