@@ -22,16 +22,28 @@ class MetaSync_Sentry_WordPress {
     public function __construct($dsn, $options = []) {
         $this->dsn = $dsn;
         $this->options = $options;
-        $this->environment = $this->detectEnvironment();
-        $this->release = defined('METASYNC_VERSION') ? METASYNC_VERSION : '1.0.0';
         
-        // Parse DSN to get project details
-        $parsed = parse_url($this->dsn);
-        $this->public_key = $parsed['user'];
-        $this->secret_key = isset($parsed['pass']) ? $parsed['pass'] : null;
-        $this->project_id = trim($parsed['path'], '/');
-        $this->host = $parsed['host'];
-        $this->scheme = $parsed['scheme'];
+        // Use constants for configuration instead of detecting/parsing
+        $this->environment = defined('METASYNC_SENTRY_ENVIRONMENT') ? METASYNC_SENTRY_ENVIRONMENT : $this->detectEnvironment();
+        $this->release = defined('METASYNC_SENTRY_RELEASE') ? METASYNC_SENTRY_RELEASE : (defined('METASYNC_VERSION') ? METASYNC_VERSION : '1.0.0');
+        
+        // Handle proxy DSN format (proxy://project_id) or legacy DSN
+        if (strpos($dsn, 'proxy://') === 0) {
+            // New proxy format: proxy://project_id
+            $this->project_id = str_replace('proxy://', '', $dsn);
+            $this->public_key = null; // Not needed for proxy
+            $this->secret_key = null; // Not needed for proxy
+            $this->host = null; // Proxy handles this
+            $this->scheme = 'proxy';
+        } else {
+            // Legacy DSN format for backward compatibility
+            $parsed = parse_url($this->dsn);
+            $this->public_key = isset($parsed['user']) ? $parsed['user'] : null;
+            $this->secret_key = isset($parsed['pass']) ? $parsed['pass'] : null;
+            $this->project_id = trim($parsed['path'], '/');
+            $this->host = isset($parsed['host']) ? $parsed['host'] : null;
+            $this->scheme = isset($parsed['scheme']) ? $parsed['scheme'] : 'https';
+        }
     }
     
     /**
@@ -122,74 +134,129 @@ class MetaSync_Sentry_WordPress {
     }
     
     /**
-     * Send data to Sentry API using WordPress HTTP functions
+     * Send data to Sentry API using WordPress HTTP functions (proxied through our system with JWT)
      */
     private function sendToSentry($data) {
-        $url = sprintf(
-            '%s://%s/api/%s/store/',
-            $this->scheme,
-            $this->host,
-            $this->project_id
-        );
-        
-        $headers = [
-            'Content-Type' => 'application/json',
-            'X-Sentry-Auth' => $this->getSentryAuthHeader(),
-            'User-Agent' => 'metasync-wordpress/' . $this->release
-        ];
-        
-        $args = [
-            'method' => 'POST',
-            'headers' => $headers,
-            'body' => wp_json_encode($data),
-            'timeout' => 10,
-            'sslverify' => true,
-            'blocking' => true,
-            'data_format' => 'body'
-        ];
-        
-        // Add debug logging
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Sending to Sentry: ' . $url);
-            error_log('Sentry Data: ' . wp_json_encode($data));
+        // Get JWT token for authentication
+        if (!function_exists('metasync_get_jwt_token')) {
+            return false;
         }
         
-        // Use cURL directly to ensure proper JSON content type
+        try {
+            $jwt_token = metasync_get_jwt_token();
+        } catch (Exception $e) {
+            return false;
+        } catch (Error $e) {
+            return false;
+        }
+        
+        if (empty($jwt_token)) {
+            return false;
+        }
+        
+        // Use WordPress Sentry tunnel endpoint
+        $url = 'https://wordpress.telemetry.staging.searchatlas.com/api/telemetry';
+        
+        // Convert Sentry data to envelope format
+        $envelope = $this->createSentryEnvelope($data);
+        
+        $headers = [
+            'Authorization' => 'Bearer ' . $jwt_token,
+            'Content-Type' => 'application/x-sentry-envelope',
+            'User-Agent' => 'WordPress MetaSync Plugin'
+        ];
+        
+        // Use cURL directly to ensure proper envelope format
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, wp_json_encode($data));
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $envelope);
         curl_setopt($ch, CURLOPT_HTTPHEADER, array_map(function($key, $value) {
             return $key . ': ' . $value;
         }, array_keys($headers), $headers));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-        curl_setopt($ch, CURLOPT_USERAGENT, 'metasync-wordpress/' . $this->release);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 5); // 5 second timeout as requested
+        curl_setopt($ch, CURLOPT_USERAGENT, 'WordPress MetaSync Plugin');
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5); // 5 second connection timeout
         
         $response = curl_exec($ch);
         $response_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $error = curl_error($ch);
+        
         curl_close($ch);
         
+        // Return false silently on any error or timeout
         if ($error) {
-            error_log('Sentry cURL Error: ' . $error);
             return false;
         }
         
         $success = $response_code >= 200 && $response_code < 300;
         
-        if ($success) {
-            error_log('✅ Sentry: Event sent successfully. Response: ' . $response_code);
-        } else {
-            error_log('❌ Sentry API Error: HTTP ' . $response_code . ' - ' . $response);
-        }
-        
         return $success;
     }
     
     /**
-     * Generate Sentry authentication header
+     * Create Sentry envelope format from event data
+     * 
+     * @param array $data Sentry event data
+     * @return string Envelope format string
+     */
+    private function createSentryEnvelope($data) {
+        // Envelope header
+        $envelope_header = [
+            'event_id' => $data['event_id'] ?? null,
+            'dsn' => $this->dsn,
+            'sdk' => $data['sdk'] ?? null,
+            'sent_at' => gmdate('c')
+        ];
+        
+        // Item header  
+        $item_header = [
+            'type' => 'event',
+            'content_type' => 'application/json'
+        ];
+        
+        // Create envelope format: header\nitem_header\nitem_payload
+        $envelope = wp_json_encode($envelope_header) . "\n";
+        $envelope .= wp_json_encode($item_header) . "\n";
+        $envelope .= wp_json_encode($data) . "\n";
+        
+        return $envelope;
+    }
+    
+    /**
+     * Test the Sentry proxy connection
+     * 
+     * @return array Test results
+     */
+    public function testProxyConnection() {
+        $test_data = [
+            'message' => [
+                'message' => 'Sentry proxy connection test',
+                'formatted' => 'Sentry proxy connection test'
+            ],
+            'level' => 'info',
+            'timestamp' => gmdate('c'),
+            'platform' => 'php',
+            'sdk' => [
+                'name' => 'metasync-telemetry-test',
+                'version' => '1.0.0'
+            ]
+        ];
+        
+        $success = $this->sendToSentry($test_data);
+        
+        return [
+            'success' => $success,
+            'message' => $success ? 'Sentry tunnel connection successful' : 'Sentry tunnel connection failed',
+            'endpoint' => 'https://wordpress.telemetry.staging.searchatlas.com/api/telemetry',
+            'jwt_available' => function_exists('metasync_get_jwt_token') && !empty(metasync_get_jwt_token())
+        ];
+    }
+
+    /**
+     * Generate Sentry authentication header (legacy - now used for reference only)
      */
     private function getSentryAuthHeader() {
         $timestamp = time();
@@ -360,28 +427,25 @@ function init_metasync_sentry_wordpress() {
     
     $dsn = '';
     
-    // Check wp-config.php first (most secure) - for developers
-    if (defined('METASYNC_SENTRY_DSN')) {
-        $dsn = METASYNC_SENTRY_DSN;
+    // Use constants defined in metasync.php for configuration
+    if (defined('METASYNC_SENTRY_PROJECT_ID')) {
+        // Create proxy DSN format using the project ID constant
+        $dsn = 'proxy://' . METASYNC_SENTRY_PROJECT_ID;
     } else {
-        // Check plugin options - for regular users
-        $sentry_dsn = get_option('metasync_sentry_dsn', '');
-        if (!empty($sentry_dsn)) {
-            $dsn = $sentry_dsn;
+        // Fallback: Check wp-config.php for custom DSN (for developers)
+        if (defined('METASYNC_SENTRY_DSN')) {
+            $dsn = METASYNC_SENTRY_DSN;
         }
     }
     
     if (!empty($dsn)) {
         try {
             $metasync_sentry_wordpress = new MetaSync_Sentry_WordPress($dsn);
-            error_log('✅ Sentry WordPress integration initialized with DSN');
             return $metasync_sentry_wordpress;
         } catch (Exception $e) {
-            error_log('❌ Failed to initialize Sentry: ' . $e->getMessage());
             return null;
         }
     } else {
-        error_log('⚠️ Sentry DSN not configured. Add METASYNC_SENTRY_DSN to wp-config.php');
         return null;
     }
 }
@@ -426,6 +490,11 @@ function metasync_sentry_test_connection() {
     }
     
     if ($metasync_sentry_wordpress) {
+        // Use the new proxy test method if available
+        if (method_exists($metasync_sentry_wordpress, 'testProxyConnection')) {
+            return $metasync_sentry_wordpress->testProxyConnection();
+        }
+        // Fallback to legacy method
         return $metasync_sentry_wordpress->testConnection();
     }
     

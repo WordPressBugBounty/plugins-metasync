@@ -116,7 +116,16 @@ class Request_monitor extends Log_manager{
 
         # check that the route is permitted for logging
         if ( empty($url) || $this->log_uri_permitted($url) == False ){
-            #error_log('Rejected Outgoing : '. $url);
+            return $preempt;
+        }
+
+        # check if outgoing logging is enabled
+        if (!$this->is_outgoing_log_enabled()) {
+            return $preempt;
+        }
+
+        # check if outgoing logging is enabled
+        if (!$this->is_outgoing_log_enabled()) {
             return $preempt;
         }
 
@@ -160,7 +169,6 @@ class Request_monitor extends Log_manager{
 
         # check that the route is permitted for logging
         if ( empty($request->get_route()) || $this->log_uri_permitted($request->get_route()) == False ){
-            # error_log('Rejected Incoming: '. $request->get_route());
             return False;
         }
 
@@ -219,7 +227,16 @@ class Request_monitor extends Log_manager{
 
         # check that the route is permitted for logging
         if ( empty($url) || $this->log_uri_permitted($url) == False ){
-            #error_log('Rejected Out response: '. $url .' Response'. json_encode($response));
+            return $response;
+        }
+
+        # check if outgoing logging is enabled
+        if (!$this->is_outgoing_log_enabled()) {
+            return $response;
+        }
+
+        # check if outgoing logging is enabled
+        if (!$this->is_outgoing_log_enabled()) {
             return $response;
         }
 
@@ -266,7 +283,6 @@ class Request_monitor extends Log_manager{
         
         # check that the route is permitted for logging
         if ( empty($request->get_route()) || $this->log_uri_permitted($request->get_route()) == False ){
-            # error_log('Rejected incoming response: '. $request->get_route());
             return $response;
         }
 

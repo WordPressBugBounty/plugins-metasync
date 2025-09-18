@@ -43,6 +43,18 @@ class Metasync_Telemetry_Manager {
     private $telemetry_enabled = true;
 
     /**
+     * Track sent errors to prevent duplicates
+     * @var array
+     */
+    private $sent_errors = array();
+
+    /**
+     * Maximum number of errors to track in memory
+     * @var int
+     */
+    private $max_tracked_errors = 100;
+
+    /**
      * Singleton instance
      * @var Metasync_Telemetry_Manager
      */
@@ -108,10 +120,8 @@ class Metasync_Telemetry_Manager {
         add_action('wp_loaded', array($this, 'on_wp_loaded'));
         add_action('shutdown', array($this, 'on_shutdown'));
 
-        // Error handling hooks
-        add_action('wp_die_handler', array($this, 'capture_wp_die'));
-        set_error_handler(array($this, 'capture_php_error'), E_ALL);
-        set_exception_handler(array($this, 'capture_uncaught_exception'));
+        // Error handling hooks - removed global handlers to prevent capturing system-wide errors
+        // Global error handlers are now managed by wordpress-error-handler.php with plugin-specific filtering
 
         // Performance monitoring hooks
         add_action('wp_head', array($this, 'start_page_timer'));
@@ -202,72 +212,25 @@ class Metasync_Telemetry_Manager {
     }
 
     /**
-     * Capture WordPress die events
-     * 
-     * @param string $message Die message
+     * Capture WordPress die events - REMOVED
+     * This method was removed to prevent capturing system-wide wp_die events
+     * Error handling is now managed by wordpress-error-handler.php with plugin-specific filtering
      */
-    public function capture_wp_die($message) {
-        if (!$this->telemetry_enabled) return;
-
-        $this->send_message('WordPress die event', 'error', array(
-            'message' => is_string($message) ? $message : serialize($message),
-            'trace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS)
-        ), false);
-    }
+    // public function capture_wp_die($message) - REMOVED TO PREVENT SYSTEM-WIDE ERROR CAPTURE
 
     /**
-     * Capture PHP errors
-     * 
-     * @param int $errno Error number
-     * @param string $errstr Error message
-     * @param string $errfile Error file
-     * @param int $errline Error line
+     * Capture PHP errors - REMOVED
+     * This method was removed to prevent capturing system-wide PHP errors
+     * Error handling is now managed by wordpress-error-handler.php with plugin-specific filtering
      */
-    public function capture_php_error($errno, $errstr, $errfile, $errline) {
-        if (!$this->telemetry_enabled) return;
-
-        // Only capture relevant errors
-        if (!(error_reporting() & $errno)) {
-            return;
-        }
-
-        // Skip if error is from outside our plugin
-        if (strpos($errfile, plugin_dir_path(__FILE__)) === false) {
-            return;
-        }
-
-        $error_types = array(
-            E_ERROR => 'error',
-            E_WARNING => 'warning',
-            E_NOTICE => 'info',
-            E_USER_ERROR => 'error',
-            E_USER_WARNING => 'warning',
-            E_USER_NOTICE => 'info'
-        );
-
-        $level = isset($error_types[$errno]) ? $error_types[$errno] : 'error';
-
-        $this->send_message("PHP {$level}: {$errstr}", $level, array(
-            'error_type' => $errno,
-            'file' => $errfile,
-            'line' => $errline,
-            'trace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5)
-        ));
-    }
+    // public function capture_php_error($errno, $errstr, $errfile, $errline) - REMOVED TO PREVENT SYSTEM-WIDE ERROR CAPTURE
 
     /**
-     * Capture uncaught exceptions
-     * 
-     * @param Exception $exception Uncaught exception
+     * Capture uncaught exceptions - REMOVED
+     * This method was removed to prevent capturing system-wide exceptions
+     * Error handling is now managed by wordpress-error-handler.php with plugin-specific filtering
      */
-    public function capture_uncaught_exception($exception) {
-        if (!$this->telemetry_enabled) return;
-
-        $this->send_exception($exception, array(
-            'uncaught' => true,
-            'fatal' => true
-        ), false);
-    }
+    // public function capture_uncaught_exception($exception) - REMOVED TO PREVENT SYSTEM-WIDE ERROR CAPTURE
 
     /**
      * Start page load timer
@@ -402,9 +365,6 @@ class Metasync_Telemetry_Manager {
 
         $results = $this->telemetry_sender->flush_queue();
         
-        if ($results['processed'] > 0) {
-            error_log("MetaSync Telemetry: Processed {$results['processed']} items. Success: {$results['success']}, Failed: {$results['failed']}");
-        }
     }
 
     /**
@@ -417,6 +377,14 @@ class Metasync_Telemetry_Manager {
     public function send_exception($exception, $context = array(), $use_queue = true, $background = true) {
         if (!$this->telemetry_enabled || !$this->telemetry_sender) return;
 
+        // Generate error fingerprint for deduplication
+        $error_fingerprint = $this->generate_error_fingerprint('exception', $exception, $context);
+        
+        // Check if this error has already been sent
+        if ($this->is_error_already_sent($error_fingerprint)) {
+            return; // Skip sending duplicate error
+        }
+
         // Check memory usage before sending telemetry
         $memory_usage = memory_get_usage(true);
         $memory_limit = $this->parse_memory_limit(ini_get('memory_limit'));
@@ -428,8 +396,13 @@ class Metasync_Telemetry_Manager {
             return;
         }
 
-        // Send to custom backend in background
-        $this->telemetry_sender->send_exception($exception, $context, $use_queue, $background);
+        // Send to custom backend in background and check if successful
+        $success = $this->telemetry_sender->send_exception($exception, $context, $use_queue, $background);
+        
+        // Only mark as sent if the telemetry call was successful
+        if ($success) {
+            $this->mark_error_as_sent($error_fingerprint);
+        }
         
         // Skip Sentry to save memory and improve performance
     }
@@ -444,6 +417,17 @@ class Metasync_Telemetry_Manager {
      */
     public function send_message($message, $level = 'info', $context = array(), $use_queue = true) {
         if (!$this->telemetry_enabled || !$this->telemetry_sender) return;
+
+        // Generate error fingerprint for deduplication (only for error level messages)
+        $error_fingerprint = null;
+        if (in_array($level, ['error', 'fatal', 'critical'])) {
+            $error_fingerprint = $this->generate_error_fingerprint('message', $message, $context);
+            
+            // Check if this error has already been sent
+            if ($this->is_error_already_sent($error_fingerprint)) {
+                return; // Skip sending duplicate error
+            }
+        }
 
         // EMERGENCY MEMORY CHECK - Skip if memory usage is high
         $memory_usage = memory_get_usage(true);
@@ -460,8 +444,13 @@ class Metasync_Telemetry_Manager {
         $use_queue = true;
         $background = true;
 
-        // Send to custom backend in background
-        $this->telemetry_sender->send_message($message, $level, $context, $use_queue, $background);
+        // Send to custom backend in background and check if successful
+        $success = $this->telemetry_sender->send_message($message, $level, $context, $use_queue, $background);
+        
+        // Only mark as sent if the telemetry call was successful and it's an error-level message
+        if ($success && $error_fingerprint) {
+            $this->mark_error_as_sent($error_fingerprint);
+        }
         
         // Skip Sentry to save memory
     }
@@ -535,7 +524,7 @@ class Metasync_Telemetry_Manager {
     }
 
     /**
-     * Test Sentry connection
+     * Test Sentry connection (now tests proxy connection)
      * 
      * @return array Test results
      */
@@ -544,6 +533,12 @@ class Metasync_Telemetry_Manager {
             return array('success' => false, 'error' => 'Telemetry not enabled');
         }
 
+        // Test the new proxy connection
+        if ($this->sentry_integration && method_exists($this->sentry_integration, 'testProxyConnection')) {
+            return $this->sentry_integration->testProxyConnection();
+        }
+
+        // Fallback to legacy test if available
         if (function_exists('metasync_sentry_test_connection')) {
             return metasync_sentry_test_connection();
         }
@@ -576,5 +571,66 @@ class Metasync_Telemetry_Manager {
         }
         
         return $value;
+    }
+    
+    /**
+     * Generate a unique fingerprint for an error to detect duplicates
+     * 
+     * @param string $error_type Type of error
+     * @param mixed $error_data Error data (exception, message, etc.)
+     * @param array $context Error context
+     * @return string Unique fingerprint
+     */
+    private function generate_error_fingerprint($error_type, $error_data, $context = array()) {
+        // Create a fingerprint based on key error characteristics
+        $fingerprint_data = array(
+            'error_type' => $error_type,
+            'message' => is_object($error_data) ? $error_data->getMessage() : (string)$error_data,
+            'file' => $context['file'] ?? (is_object($error_data) ? $error_data->getFile() : ''),
+            'line' => $context['line'] ?? (is_object($error_data) ? $error_data->getLine() : 0),
+            'exception_class' => is_object($error_data) ? get_class($error_data) : '',
+            'severity' => $context['severity'] ?? 0
+        );
+        
+        // Create a hash of the fingerprint data
+        return md5(serialize($fingerprint_data));
+    }
+    
+    /**
+     * Check if an error has already been sent
+     * 
+     * @param string $error_fingerprint Error fingerprint
+     * @return bool True if already sent
+     */
+    private function is_error_already_sent($error_fingerprint) {
+        return isset($this->sent_errors[$error_fingerprint]);
+    }
+    
+    /**
+     * Mark an error as sent to prevent duplicates
+     * 
+     * @param string $error_fingerprint Error fingerprint
+     */
+    private function mark_error_as_sent($error_fingerprint) {
+        // Add to sent errors array
+        $this->sent_errors[$error_fingerprint] = time();
+        
+        // Clean up old entries to prevent memory bloat
+        $this->cleanup_old_errors();
+    }
+    
+    /**
+     * Clean up old error entries to prevent memory bloat
+     */
+    private function cleanup_old_errors() {
+        // If we have too many errors tracked, remove the oldest ones
+        if (count($this->sent_errors) > $this->max_tracked_errors) {
+            // Sort by timestamp (oldest first)
+            asort($this->sent_errors);
+            
+            // Remove oldest entries, keeping only the most recent ones
+            $errors_to_remove = count($this->sent_errors) - $this->max_tracked_errors;
+            $this->sent_errors = array_slice($this->sent_errors, $errors_to_remove, null, true);
+        }
     }
 }

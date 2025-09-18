@@ -381,9 +381,6 @@ class Metasync_Telemetry_Sender {
      * @param array $response Response data
      */
     private function log_success($telemetry_data, $response) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('MetaSync Telemetry: Successfully sent telemetry data. Response code: ' . $response['response_code']);
-        }
     }
 
     /**

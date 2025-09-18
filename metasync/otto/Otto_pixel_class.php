@@ -45,7 +45,6 @@ Class Metasync_otto_pixel{
         if( unlink($file_path) ) {
 
             # revisit the address to recreate the file
-            #error_log('Revisiting the address ' . $route);
             return;
         }
 
@@ -62,7 +61,6 @@ Class Metasync_otto_pixel{
         $saved = get_option($option_name);
 
         # log saved
-        #error_log('Saved : ' . print_r($saved, true));
 
         # if saved false save
         if(empty($saved['urls'])){
@@ -80,7 +78,6 @@ Class Metasync_otto_pixel{
         $data['urls'] = $new_list;
 
         # log saved
-        #error_log('New Data : ' . print_r($data, true));
 
         # save the option 
         update_option($option_name, $data);

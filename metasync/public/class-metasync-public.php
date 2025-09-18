@@ -3004,7 +3004,6 @@ class Metasync_Public
                 // Clear JWT token cache when API key is updated to ensure fresh tokens
                 $this->clear_jwt_token_cache();
                 
-                error_log('SSO Authentication Success: Updated API key and cleared JWT cache');
             }
             
             // Map whitelabel fields consistently (regardless of status_code)

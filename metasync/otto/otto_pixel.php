@@ -35,7 +35,8 @@ add_action('wp_head', function(){
     }
 
     # adding the otto tag to pages
-    $otto_tag = '<meta name="otto" content="uuid='.$metasync_options['general']['otto_pixel_uuid'].'; type=wordpress; enabled='.$string_enabled.'">';
+    $plugin_version = defined('METASYNC_VERSION') ? METASYNC_VERSION : 'unknown';
+    $otto_tag = '<meta name="otto" content="uuid='.esc_attr($metasync_options['general']['otto_pixel_uuid']).'; type=wordpress; enabled='.esc_attr($string_enabled).'; version='.esc_attr($plugin_version).'">';
 
     # out the otto tag
     echo $otto_tag;
@@ -302,7 +303,6 @@ function metasync_start_otto(){
 
     # check if we are having an otto request
     if(!empty($_GET['is_otto_page_fetch'])){
-        #error_log('Metasync :: Skipping Otto Route, user agent => ' . $user_agent);
         return;
     }
 
@@ -455,7 +455,6 @@ function metasync_process_otto_seo_data($route) {
         $update_result = metasync_update_seo_meta_fields($post_id, $meta_title, $meta_description);
         
         if ($update_result) {
-            error_log("MetaSync OTTO: Successfully updated SEO meta for post ID {$post_id}");
             
             # Clear relevant caches
             metasync_clear_post_seo_caches($post_id);

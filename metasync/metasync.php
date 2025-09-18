@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas SEO
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.5.2
+ * Version:           2.5.3
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
  * License:           GPL v3
@@ -34,8 +34,8 @@ if (!defined('WPINC')) {
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.5.2';
-define('METASYNC_VERSION', $metasync_version === '2.5.2' ? '9.9.9' : $metasync_version);
+$metasync_version = '2.5.3';
+define('METASYNC_VERSION', $metasync_version === '2.5.3' ? '9.9.9' : $metasync_version);
 
 /**
  * Define the current required php version 
@@ -48,6 +48,15 @@ define('METASYNC_MIN_PHP', '7.1');
  * This will be used to validate whether the user can install the plugin or not
  */
 define('METASYNC_MIN_WP', '5.2');
+
+/**
+ * Telemetry Configuration Constants
+ * These replace the old database options for better security and consistency
+ */
+define('METASYNC_SENTRY_PROJECT_ID', '4509950439849985');
+define('METASYNC_SENTRY_ENVIRONMENT', 'production');
+define('METASYNC_SENTRY_RELEASE', METASYNC_VERSION);
+define('METASYNC_SENTRY_SAMPLE_RATE', 1.0);
 
 /**
  * Define whether to show the plugin status in WordPress admin top navigation bar

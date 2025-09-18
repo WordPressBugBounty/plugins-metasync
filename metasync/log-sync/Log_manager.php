@@ -96,7 +96,6 @@ Class Log_Manager{
                 return;
             } else {
                 # Successfully created, log it
-                error_log('MetaSync Log Manager: Successfully created directory: ' . $metasync_logs_path);
             }
         }
 
@@ -511,6 +510,5 @@ Class Log_Manager{
             }
         }
         # Log the number of deleted files
-        error_log("Metasync: Deleted $files_deleted old ZIP log files (older than $days_to_keep days)");
     }
 }

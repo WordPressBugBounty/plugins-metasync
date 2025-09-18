@@ -33,7 +33,6 @@ function metasync_schedule_log_prep_chron() {
 # calls the log prep function
 function metasync_execute_metasync_log_preparation() {
     
-    #error_log('runing');
 
     # initialize the log prep function
     $log_manager = new Log_Manager();

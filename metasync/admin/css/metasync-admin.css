@@ -3,6 +3,226 @@
  * included in this file.
  */
 
+/* Compatibility Page Styles */
+.metasync-compatibility-sections {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.metasync-compatibility-section {
+    background: var(--dashboard-card-bg, #fff);
+    border: 1px solid #e1e1e1;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: box-shadow 0.3s ease;
+}
+
+.metasync-compatibility-section:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.metasync-compatibility-section h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: var(--dashboard-accent, #3b82f6) !important;
+    font-size: 18px;
+    font-weight: 600;
+    border-bottom: 2px solid #e1e1e1;
+    padding-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.metasync-plugin-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid #f5f5f5;
+    transition: background-color 0.2s ease;
+}
+
+.metasync-plugin-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+
+.metasync-plugin-logo {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    object-fit: contain;
+    background: #f8f9fa;
+    padding: 4px;
+    border: 1px solid #e1e1e1;
+}
+
+/* Handle broken images gracefully */
+.metasync-plugin-logo:not([src]),
+.metasync-plugin-logo[src=""],
+.metasync-plugin-logo[src*="error"] {
+    display: none;
+}
+
+/* Show placeholder when no logo */
+.metasync-plugin-info:not(:has(.metasync-plugin-logo[src]))::before {
+    content: "🔧";
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: #f8f9fa;
+    padding: 4px;
+    border: 1px solid #e1e1e1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    margin-right: 12px;
+}
+
+.metasync-plugin-details {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.metasync-plugin-name {
+    font-weight: 500;
+    color: var(--dashboard-text-primary, #ffffff) !important;
+    font-size: 14px;
+    margin: 0;
+}
+
+.metasync-plugin-install-status {
+    font-size: 11px;
+    color: #666;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.metasync-plugin-install-status.installed {
+    color: #28a745;
+}
+
+.metasync-plugin-install-status.not-installed {
+    color: #dc3545;
+}
+
+.metasync-plugin-item:last-child {
+    border-bottom: none;
+}
+
+.metasync-plugin-item:hover {
+    background-color: rgba(0,0,0,0.02);
+    border-radius: 4px;
+    margin: 0 -8px;
+    padding-left: 8px;
+    padding-right: 8px;
+}
+
+
+.metasync-plugin-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.metasync-status-badge {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.metasync-status-supported {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.metasync-status-coming-soon {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
+.metasync-status-not-installed {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.metasync-plugin-version {
+    font-size: 12px;
+    color: #666;
+    background: #f8f9fa;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: monospace;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .metasync-compatibility-sections {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+    
+    .metasync-compatibility-section {
+        padding: 15px;
+    }
+    
+    .metasync-plugin-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    
+    .metasync-plugin-status {
+        align-self: flex-end;
+    }
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+    .metasync-compatibility-section {
+        background: var(--dashboard-card-bg, #1a1f26);
+        border-color: var(--dashboard-border, #374151);
+        color: var(--dashboard-text-primary, #ffffff);
+    }
+    
+    .metasync-compatibility-section h3 {
+        color: var(--dashboard-accent, #3b82f6) !important;
+        border-bottom-color: var(--dashboard-border, #374151);
+    }
+    
+    .metasync-plugin-name {
+        color: var(--dashboard-text-primary, #ffffff) !important;
+    }
+    
+    .metasync-plugin-item {
+        border-bottom-color: var(--dashboard-border, #374151);
+    }
+    
+    .metasync-plugin-item:hover {
+        background-color: var(--dashboard-card-hover, #222831);
+    }
+    
+    .metasync-plugin-version {
+        background: var(--dashboard-border, #374151);
+        color: var(--dashboard-text-secondary, #9ca3af);
+    }
+}
+
 /* Enhanced SSO Authentication Styles */
 .metasync-sso-container {
     background: #fff;

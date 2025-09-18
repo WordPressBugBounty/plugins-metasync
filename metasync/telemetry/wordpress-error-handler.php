@@ -22,6 +22,31 @@ class MetaSync_WordPress_Error_Handler {
     private $plugin_dir;
     
     /**
+     * Plugin slug for filtering
+     */
+    private $plugin_slug = 'metasync';
+    
+    /**
+     * Previous error handler to restore
+     */
+    private $previous_error_handler;
+    
+    /**
+     * Previous exception handler to restore
+     */
+    private $previous_exception_handler;
+    
+    /**
+     * Track sent errors to prevent duplicates
+     */
+    private $sent_errors = array();
+    
+    /**
+     * Maximum number of errors to track in memory
+     */
+    private $max_tracked_errors = 100;
+    
+    /**
      * Constructor
      */
     public function __construct() {
@@ -30,46 +55,45 @@ class MetaSync_WordPress_Error_Handler {
     }
     
     /**
-     * Setup WordPress error handlers
+     * Setup WordPress error handlers - Only for plugin-specific errors
      */
     private function setup_error_handlers() {
-        // Hook into WordPress error handling
-        add_action('wp_die_handler', array($this, 'capture_wp_die'), 10, 1);
+        // Store previous handlers to chain them properly
+        $this->previous_error_handler = set_error_handler(array($this, 'capture_php_error'), E_ALL);
+        $this->previous_exception_handler = set_exception_handler(array($this, 'capture_exception'));
         
-        // Hook into PHP error handling
-        set_error_handler(array($this, 'capture_php_error'), E_ALL);
-        set_exception_handler(array($this, 'capture_exception'));
-        
-        // Hook into WordPress fatal error handler
-        add_action('wp_fatal_error_handler_enabled', '__return_true');
+        // Hook into WordPress fatal error handler (only for plugin errors)
         add_filter('wp_fatal_error_handler', array($this, 'capture_fatal_error'));
         
-        // Hook into plugin activation/deactivation errors
+        // Hook into plugin activation/deactivation errors (only for our plugin)
         add_action('activated_plugin', array($this, 'capture_plugin_activation'), 10, 2);
         add_action('deactivated_plugin', array($this, 'capture_plugin_deactivation'), 10, 2);
         
-        // Hook into WordPress shutdown to catch fatal errors
+        // Hook into WordPress shutdown to catch fatal errors (only plugin-related)
         register_shutdown_function(array($this, 'capture_shutdown_error'));
+        
+        // Remove wp_die handler as it captures too many system errors
+        // add_action('wp_die_handler', array($this, 'capture_wp_die'), 10, 1);
     }
     
     /**
-     * Capture WordPress die events
+     * Capture WordPress die events - REMOVED
+     * This method was too broad and captured system-wide wp_die events
+     * We now only capture plugin-specific errors through other handlers
      */
-    public function capture_wp_die($message) {
-        if ($this->should_capture_error()) {
-            $this->send_to_sentry('wp_die', $message, array(
-                'error_type' => 'wp_die',
-                'message' => is_string($message) ? $message : serialize($message),
-                'backtrace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 10)
-            ));
-        }
-    }
+    // public function capture_wp_die($message) - REMOVED TO PREVENT SYSTEM-WIDE ERROR CAPTURE
     
     /**
-     * Capture PHP errors
+     * Capture PHP errors - Only plugin-specific errors
      */
     public function capture_php_error($severity, $message, $file, $line) {
-        // Only capture errors from our plugin or related to our plugin
+        // First, call the previous error handler if it exists
+        $handled = false;
+        if ($this->previous_error_handler && is_callable($this->previous_error_handler)) {
+            $handled = call_user_func($this->previous_error_handler, $severity, $message, $file, $line);
+        }
+        
+        // Only capture errors from our plugin or directly related to our plugin
         if ($this->should_capture_error($file)) {
             $this->send_to_sentry('php_error', $message, array(
                 'error_type' => 'php_error',
@@ -81,14 +105,20 @@ class MetaSync_WordPress_Error_Handler {
             ));
         }
         
-        // Don't prevent normal error handling
-        return false;
+        // Return the result from the previous handler, or false to continue normal error handling
+        return $handled;
     }
     
     /**
-     * Capture uncaught exceptions
+     * Capture uncaught exceptions - Only plugin-specific exceptions
      */
     public function capture_exception($exception) {
+        // First, call the previous exception handler if it exists
+        if ($this->previous_exception_handler && is_callable($this->previous_exception_handler)) {
+            call_user_func($this->previous_exception_handler, $exception);
+        }
+        
+        // Only capture exceptions from our plugin or directly related to our plugin
         if ($this->should_capture_error($exception->getFile())) {
             $this->send_to_sentry('exception', $exception->getMessage(), array(
                 'error_type' => 'uncaught_exception',
@@ -166,25 +196,34 @@ class MetaSync_WordPress_Error_Handler {
     }
     
     /**
-     * Determine if we should capture this error
+     * Determine if we should capture this error - Much more restrictive filtering
      */
     private function should_capture_error($file = '') {
-        // Always capture if no file specified
+        # Don't capture if no file specified - this prevents capturing system-wide errors
         if (empty($file)) {
-            return true;
+            return false;
         }
         
-        // Capture if error is from our plugin directory
+        # Primary check: error must be directly from our plugin directory
         if (strpos($file, $this->plugin_dir) !== false) {
             return true;
         }
         
-        // Capture if error mentions our plugin
-        $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 15);
-        foreach ($backtrace as $trace) {
-            if (isset($trace['file']) && strpos($trace['file'], $this->plugin_dir) !== false) {
-                return true;
-            }
+        # Secondary check: error must be in a file that contains our plugin slug
+        if (strpos($file, $this->plugin_slug) !== false) {
+            return true;
+        }
+        
+        # REMOVED: Tertiary backtrace check that was too broad
+        # The previous backtrace logic was capturing errors from other plugins
+        # that happened to be called during MetaSync execution. We now only
+        # capture errors that directly originate from MetaSync files.
+        
+        # Additional check: Only capture if the error file path contains 'metasync'
+        # This is a more conservative approach to avoid false positives
+        $file_lower = strtolower($file);
+        if (strpos($file_lower, 'metasync') !== false) {
+            return true;
         }
         
         return false;
@@ -194,6 +233,14 @@ class MetaSync_WordPress_Error_Handler {
      * Send error to Sentry with required metadata
      */
     private function send_to_sentry($error_type, $message, $context = array()) {
+        // Generate error fingerprint for deduplication
+        $error_fingerprint = $this->generate_error_fingerprint($error_type, $message, $context);
+        
+        // Check if this error has already been sent
+        if ($this->is_error_already_sent($error_fingerprint)) {
+            return; // Skip sending duplicate error
+        }
+        
         // Add required metadata
         $context = array_merge($context, array(
             'wp_url' => home_url(),
@@ -220,14 +267,22 @@ class MetaSync_WordPress_Error_Handler {
         // Determine severity level
         $level = $this->get_sentry_level($error_type);
         
+        // Track if Sentry call was successful
+        $sentry_success = false;
+        
         // Send to Sentry using the WordPress integration
         if (function_exists('metasync_sentry_capture_exception') && isset($context['exception_object'])) {
-            metasync_sentry_capture_exception($context['exception_object'], $context);
+            $sentry_success = metasync_sentry_capture_exception($context['exception_object'], $context);
         } elseif (function_exists('metasync_sentry_capture_message')) {
-            metasync_sentry_capture_message($message, $level, $context);
+            $sentry_success = metasync_sentry_capture_message($message, $level, $context);
         }
         
-        // Also send to custom telemetry backend if available
+        // Only mark as sent if Sentry call was successful
+        if ($sentry_success) {
+            $this->mark_error_as_sent($error_fingerprint);
+        }
+        
+        // Also send to custom telemetry backend if available (regardless of Sentry success)
         if (function_exists('metasync_telemetry')) {
             if (isset($context['exception_object'])) {
                 metasync_telemetry()->send_exception($context['exception_object'], $context);
@@ -278,6 +333,67 @@ class MetaSync_WordPress_Error_Handler {
         );
         
         return $levels[$error_type] ?? 'error';
+    }
+    
+    /**
+     * Generate a unique fingerprint for an error to detect duplicates
+     * 
+     * @param string $error_type Type of error
+     * @param string $message Error message
+     * @param array $context Error context
+     * @return string Unique fingerprint
+     */
+    private function generate_error_fingerprint($error_type, $message, $context = array()) {
+        // Create a fingerprint based on key error characteristics
+        $fingerprint_data = array(
+            'error_type' => $error_type,
+            'message' => $message,
+            'file' => $context['file'] ?? '',
+            'line' => $context['line'] ?? 0,
+            'exception_class' => $context['exception_class'] ?? '',
+            'severity' => $context['severity'] ?? 0
+        );
+        
+        // Create a hash of the fingerprint data
+        return md5(serialize($fingerprint_data));
+    }
+    
+    /**
+     * Check if an error has already been sent
+     * 
+     * @param string $error_fingerprint Error fingerprint
+     * @return bool True if already sent
+     */
+    private function is_error_already_sent($error_fingerprint) {
+        return isset($this->sent_errors[$error_fingerprint]);
+    }
+    
+    /**
+     * Mark an error as sent to prevent duplicates
+     * 
+     * @param string $error_fingerprint Error fingerprint
+     */
+    private function mark_error_as_sent($error_fingerprint) {
+        // Add to sent errors array
+        $this->sent_errors[$error_fingerprint] = time();
+        
+        // Clean up old entries to prevent memory bloat
+        $this->cleanup_old_errors();
+    }
+    
+    /**
+     * Clean up old error entries to prevent memory bloat
+     */
+    private function cleanup_old_errors() {
+        // If we have too many errors tracked, remove the oldest ones
+        if (count($this->sent_errors) > $this->max_tracked_errors) {
+            // Sort by timestamp (oldest first)
+            asort($this->sent_errors);
+            
+            // Remove oldest entries, keeping only the most recent ones
+            $errors_to_remove = count($this->sent_errors) - $this->max_tracked_errors;
+            $this->sent_errors = array_slice($this->sent_errors, $errors_to_remove, null, true);
+        }
     }
 }
 

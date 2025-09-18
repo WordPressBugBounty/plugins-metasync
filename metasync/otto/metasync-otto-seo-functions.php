@@ -174,12 +174,10 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
         if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
             if ($meta_title !== null) {
                 update_post_meta($post_id, 'rank_math_title', $meta_title);
-                error_log("MetaSync OTTO: Updated RankMath title for post {$post_id}");
             }
             
             if ($meta_description !== null) {
                 update_post_meta($post_id, 'rank_math_description', $meta_description);
-                error_log("MetaSync OTTO: Updated RankMath description for post {$post_id}");
             }
         }
 
@@ -187,12 +185,10 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
         if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
             if ($meta_title !== null) {
                 update_post_meta($post_id, '_yoast_wpseo_title', $meta_title);
-                error_log("MetaSync OTTO: Updated Yoast title for post {$post_id}");
             }
             
             if ($meta_description !== null) {
                 update_post_meta($post_id, '_yoast_wpseo_metadesc', $meta_description);
-                error_log("MetaSync OTTO: Updated Yoast description for post {$post_id}");
             }
         }
 
@@ -213,7 +209,6 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
                             $aioseo_post->description = $meta_description;
                         }
                         $aioseo_post->save();
-                        error_log("MetaSync OTTO: Updated AIOSEO meta for post {$post_id}");
                     }
                 } catch (Exception $e) {
                     error_log("MetaSync OTTO: AIOSEO update failed: " . $e->getMessage());

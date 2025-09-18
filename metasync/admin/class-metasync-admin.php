@@ -919,7 +919,6 @@ class Metasync_Admin
         
         // Check if Plugin Auth Token is missing or empty
         if (empty($current_plugin_auth_token)) {
-            error_log('SSO_AUTH_TOKEN_DEBUG: Plugin Auth Token is missing - auto-generating new token');
             
             // Generate new Plugin Auth Token (alphanumeric only, 32 characters)
             $new_plugin_auth_token = wp_generate_password(32, false, false);
@@ -943,13 +942,10 @@ class Metasync_Admin
                     'reason' => 'Plugin Auth Token was missing before SSO authentication'
                 ), 'info');
                 
-                error_log('SSO_AUTH_TOKEN_DEBUG: Plugin Auth Token auto-generated successfully: ' . substr($new_plugin_auth_token, 0, 8) . '...');
             } else {
-                error_log('SSO_AUTH_TOKEN_DEBUG: ERROR - Failed to save auto-generated Plugin Auth Token');
                 throw new Exception('Failed to generate required authentication token');
             }
         } else {
-            error_log('SSO_AUTH_TOKEN_DEBUG: Plugin Auth Token already exists: ' . substr($current_plugin_auth_token, 0, 8) . '...');
         }
     }
 
@@ -976,10 +972,7 @@ class Metasync_Admin
             // Generate unique nonce token
             $nonce_token = $this->create_sso_nonce_token();
             
-            error_log('SSO_URL_GENERATION_DEBUG: Nonce token created: ' . ($nonce_token ? 'SUCCESS' : 'FAILED'));
-            
             if (!$nonce_token) {
-                error_log('SSO_URL_GENERATION_DEBUG: Nonce token generation failed - returning error');
                 wp_send_json_error(array('message' => 'Failed to create authentication token'));
                 return;
             }
@@ -999,7 +992,6 @@ class Metasync_Admin
                 'return_url' => admin_url('admin.php?page=' . self::$page_slug)
             ]);
             
-            error_log('SSO_URL_GENERATION_DEBUG: SSO URL generated successfully - dashboard_domain: ' . $dashboard_domain . ', nonce_token: ' . substr($nonce_token, 0, 8) . '...');
 
 
             wp_send_json_success(array(
@@ -1036,7 +1028,6 @@ class Metasync_Admin
         $success_key = 'metasync_sso_success_' . md5($nonce_token);
         $this_auth_completed = get_transient($success_key);
         
-        error_log('SSO_STATUS_CHECK_DEBUG: nonce_token=' . substr($nonce_token, 0, 8) . '..., checking success_key=' . substr($success_key, 0, 16) . '..., completed=' . ($this_auth_completed ? 'YES' : 'NO'));
         
         if ($this_auth_completed) {
             // Delete the transient (one-time use) to prevent replay
@@ -1045,7 +1036,6 @@ class Metasync_Admin
             // Get current settings to return API key
             $general_settings = Metasync::get_option('general') ?? [];
             
-            error_log('SSO_STATUS_CHECK_DEBUG: Authentication successful for this nonce - returning updated=true');
             wp_send_json_success(array(
                 'updated' => true,
                 'api_key' => $general_settings['searchatlas_api_key'], // Return full API key
@@ -1056,7 +1046,6 @@ class Metasync_Admin
             ));
         }
 
-        error_log('SSO_STATUS_CHECK_DEBUG: Authentication not complete for this nonce - returning updated=false');
         wp_send_json_success(array('updated' => false));
     }
 
@@ -1189,30 +1178,22 @@ class Metasync_Admin
         # Test 1: Using apikey for backward compatibility
         $general_options = Metasync::get_option('general') ?? [];
         $test_token = $general_options['apikey'] ?? null;
-        error_log('Test 1 - Using apikey: ' . ($test_token ? substr($test_token, 0, 8) . '...' : 'NOT SET'));
         
         # Test 2: Apikey validation
         $apikey = $general_options['apikey'] ?? '';
         if ($apikey) {
-            error_log('Test 2 - Apikey is available: YES');
-            error_log('Test 2 - Apikey length: ' . strlen($apikey));
         } else {
-            error_log('Test 2 - Apikey is available: NO');
         }
         
         # Test 3: Encrypted token test
         $encrypted_token = $this->create_encrypted_sso_token(['test' => 'data', 'user_id' => get_current_user_id()]);
         if ($encrypted_token) {
-            error_log('Test 3 - Encrypted token generated successfully');
             
             $decrypted = $this->wp_decrypt_token($encrypted_token);
             if ($decrypted) {
-                error_log('Test 3 - Encrypted token decrypted successfully: ' . json_encode($decrypted));
             } else {
-                error_log('Test 3 - Failed to decrypt token');
             }
         } else {
-            error_log('Test 3 - Failed to generate encrypted token');
         }
         
 
@@ -1262,7 +1243,6 @@ class Metasync_Admin
      */
     public function simple_ajax_test()
     {
-        error_log('Simple AJAX Test: Reached without nonce verification');
         wp_send_json_success(array(
             'message' => 'Basic AJAX connectivity works',
             'timestamp' => time(),
@@ -1332,28 +1312,21 @@ class Metasync_Admin
         if ($jwt_token) {
             $jwt_parts = explode('.', $jwt_token);
             $jwt_header_info = count($jwt_parts) >= 2 ? 'Valid format (' . count($jwt_parts) . ' parts)' : 'Invalid format';
-            error_log('DASHBOARD_IFRAME: JWT token available for public hash fetch - Length: ' . strlen($jwt_token) . ', Format: ' . $jwt_header_info . ', Prefix: ' . substr($jwt_token, 0, 20) . '...');
         } else {
-            error_log('DASHBOARD_IFRAME: No JWT token available - cannot fetch public hash');
         }
         
         // Fetch public hash for public dashboard access
         $public_hash = false;
         if ($jwt_token && $otto_pixel_uuid) {
-            error_log('DASHBOARD_IFRAME: Attempting to fetch public hash for UUID: ' . substr($otto_pixel_uuid, 0, 8) . '...');
             $public_hash = $this->fetch_public_hash($otto_pixel_uuid, $jwt_token);
             
             if ($public_hash) {
-                error_log('DASHBOARD_IFRAME: Public hash fetch successful - Hash: ' . substr($public_hash, 0, 8) . '...');
             } else {
-                error_log('DASHBOARD_IFRAME: PUBLIC HASH FETCH FAILED - Will fallback to JWT token authentication');
-                error_log('DASHBOARD_IFRAME: Public hash failure details - UUID present: ' . (!empty($otto_pixel_uuid) ? 'YES' : 'NO') . ', JWT present: ' . (!empty($jwt_token) ? 'YES' : 'NO'));
             }
         } else {
             $missing_params = [];
             if (empty($jwt_token)) $missing_params[] = 'JWT_TOKEN';
             if (empty($otto_pixel_uuid)) $missing_params[] = 'OTTO_UUID';
-            error_log('DASHBOARD_IFRAME: Cannot fetch public hash - Missing parameters: ' . implode(', ', $missing_params));
         }
         
         // Build the dashboard iframe URL using public or private endpoint
@@ -1363,15 +1336,12 @@ class Metasync_Admin
             // Use public dashboard endpoint with public hash
             $iframe_url = $dashboard_domain . '/seo-automation-v3/public?uuid=' . urlencode($otto_pixel_uuid) 
                         . '&category=onpage_optimizations&subGroup=page_title&public_hash=' . urlencode($public_hash);
-            error_log('DASHBOARD_IFRAME: SUCCESS - Using public dashboard endpoint with public hash');
         } else {
             // Fallback to private dashboard endpoint with JWT token
             $iframe_url = $dashboard_domain . '/seo-automation-v3/tasks?uuid=' . urlencode($otto_pixel_uuid) . '&category=All&Embed=True';
             if ($jwt_token) {
                 $iframe_url .= '&jwtToken=' . urlencode($jwt_token) . '&impersonate=1';
-                error_log('DASHBOARD_IFRAME: FALLBACK - Using private dashboard with JWT token authentication (public hash failed)');
             } else {
-                error_log('DASHBOARD_IFRAME: CRITICAL - No authentication available - dashboard may not load properly');
             }
         }
         
@@ -1865,9 +1835,15 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         }
 
         // Generate fresh token if no valid cache or force refresh
-        $admin_instance = new self();
-        return $admin_instance->get_fresh_jwt_token();
+        // Create dummy objects for constructor parameters
+        $dummy_database = new stdClass();
+        $dummy_db_redirection = new stdClass();
+        $dummy_db_heartbeat_errors = new stdClass();
+        
+        $instance = new self('metasync', '1.0.0', $dummy_database, $dummy_db_redirection, $dummy_db_heartbeat_errors);
+        return $instance->get_fresh_jwt_token();
     }
+
 
     /**
      * Get fresh JWT token from Search Atlas API with caching
@@ -2258,11 +2234,9 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         
         // Pre-check: Heartbeat system is inactive without plugin API key
         $searchatlas_api_key = $general_settings['searchatlas_api_key'] ?? '';
-        error_log('CONNECTION_STATUS_DEBUG: Checking heartbeat connection - API key present: ' . (!empty($searchatlas_api_key) ? 'YES' : 'NO'));
         
         if (empty($searchatlas_api_key)) {
             // No API key = heartbeat system is completely inactive
-            error_log('CONNECTION_STATUS_DEBUG: No plugin API key configured - returning DISCONNECTED');
             return false;
         }
         
@@ -2270,11 +2244,9 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $cache_key = 'metasync_heartbeat_status_cache';
         $cached_result = get_transient($cache_key);
         
-        error_log('CONNECTION_STATUS_DEBUG: Cache check - cached result: ' . ($cached_result !== false ? 'FOUND' : 'NOT_FOUND'));
         
         if ($cached_result !== false) {
             // Return cached result (includes timestamp for debugging)
-            error_log('CONNECTION_STATUS_DEBUG: Using cached result - status: ' . ($cached_result['status'] ? 'CONNECTED' : 'DISCONNECTED') . ', cached_at: ' . date('Y-m-d H:i:s T', $cached_result['timestamp']));
             $this->log_heartbeat('info', 'Cache hit - using cached heartbeat status', array(
                 'status' => $cached_result['status'] ? 'CONNECTED' : 'DISCONNECTED',
                 'cached_at' => date('Y-m-d H:i:s T', $cached_result['timestamp']),
@@ -2288,7 +2260,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $last_known_state = $this->get_last_known_connection_state();
         
         if ($last_known_state !== null) {
-            error_log('CONNECTION_STATUS_DEBUG: No cache found, using last known state: ' . ($last_known_state ? 'CONNECTED' : 'DISCONNECTED'));
             $this->log_heartbeat('info', 'Cache miss - using last known heartbeat status', array(
                 'status' => $last_known_state ? 'CONNECTED' : 'DISCONNECTED',
                 'note' => 'Graceful fallback until next cron job updates cache',
@@ -2298,7 +2269,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         }
         
         // No cache and no last known state - return default disconnected state
-        error_log('CONNECTION_STATUS_DEBUG: No cached result or last known state found - returning default DISCONNECTED state');
         // The cron job will update this cache in the background
         $this->log_heartbeat('info', 'No cached or last known heartbeat status found - returning default DISCONNECTED', array(
             'note' => 'Cron job will establish initial connection state',
@@ -2322,7 +2292,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     private function fetch_public_hash($otto_pixel_uuid, $jwt_token)
     {
         if (empty($otto_pixel_uuid) || empty($jwt_token)) {
-            error_log('DASHBOARD_PUBLIC_HASH: Missing required parameters - UUID: ' . (!empty($otto_pixel_uuid) ? 'YES' : 'NO') . ', JWT: ' . (!empty($jwt_token) ? 'YES' : 'NO'));
             return false;
         }
 
@@ -2331,7 +2300,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $cached_hash = get_transient($cache_key);
         
         if ($cached_hash !== false) {
-            error_log('DASHBOARD_PUBLIC_HASH: Using cached public hash - Hash: ' . substr($cached_hash, 0, 8) . '...');
             return $cached_hash;
         }
 
@@ -2347,9 +2315,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             'Cache-Control' => 'no-cache'
         );
 
-        error_log('DASHBOARD_PUBLIC_HASH: Making API request to fetch public hash - UUID: ' . substr($otto_pixel_uuid, 0, 8) . '...');
-        error_log('DASHBOARD_PUBLIC_HASH: API endpoint: ' . $api_url);
-        error_log('DASHBOARD_PUBLIC_HASH: Using JWT token for authentication - Length: ' . strlen($jwt_token) . ', Prefix: ' . substr($jwt_token, 0, 20) . '..., Suffix: ...' . substr($jwt_token, -8));
 
         // Make the API request with retries
         $max_retries = 2;
@@ -2366,7 +2331,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             // Check for HTTP errors
             if (is_wp_error($response)) {
                 $error_message = $response->get_error_message();
-                error_log('DASHBOARD_PUBLIC_HASH: API request failed (attempt ' . $attempt . '/' . $max_retries . ') - ' . $error_message);
                 
                 if ($attempt < $max_retries) {
                     sleep($retry_delay);
@@ -2383,13 +2347,10 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 $data = json_decode($body, true);
                 
                 // Enhanced debugging: Log the full response structure
-                error_log('DASHBOARD_PUBLIC_HASH: Full API response body: ' . $body);
-                error_log('DASHBOARD_PUBLIC_HASH: Parsed data structure: ' . print_r($data, true));
                 
                 if ($data) {
                     // Check what fields are actually present
                     $available_fields = is_array($data) ? array_keys($data) : 'not_array';
-                    error_log('DASHBOARD_PUBLIC_HASH: Available fields in response: ' . print_r($available_fields, true));
                     
                     // Check for various possible field names
                     $possible_hash_fields = ['public_hash', 'publicHash', 'hash', 'public_share_hash', 'share_hash'];
@@ -2410,23 +2371,17 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                         // Cache the public hash for 1 hour
                         set_transient($cache_key, $public_hash, 3600);
                         
-                        error_log('DASHBOARD_PUBLIC_HASH: Successfully found hash in field "' . $found_field . '" - Hash: ' . substr($public_hash, 0, 8) . '...');
                         return $public_hash;
                     } else {
-                        error_log('DASHBOARD_PUBLIC_HASH: No public hash found in any expected field. Checked fields: ' . implode(', ', $possible_hash_fields));
-                        error_log('DASHBOARD_PUBLIC_HASH: Response payload: ' . substr($body, 0, 500));
                         return false;
                     }
                 } else {
-                    error_log('DASHBOARD_PUBLIC_HASH: Failed to parse JSON response. Raw body: ' . substr($body, 0, 300));
                     return false;
                 }
             } else {
-                error_log('DASHBOARD_PUBLIC_HASH: API returned non-200 status (attempt ' . $attempt . '/' . $max_retries . ') - Code: ' . $status_code . ', Body: ' . substr($body, 0, 200));
                 
                 // For authentication errors (401, 403), don't retry
                 if (in_array($status_code, [401, 403])) {
-                    error_log('DASHBOARD_PUBLIC_HASH: Authentication error, not retrying - Status: ' . $status_code);
                     return false;
                 }
                 
@@ -2437,7 +2392,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             }
         }
         
-        error_log('DASHBOARD_PUBLIC_HASH: All retry attempts failed');
         return false;
     }
 
@@ -2458,7 +2412,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         if (!empty($otto_pixel_uuid)) {
             $cache_key = 'metasync_public_hash_' . md5($otto_pixel_uuid);
             delete_transient($cache_key);
-            error_log('DASHBOARD_PUBLIC_HASH: Cleared cached public hash for UUID: ' . substr($otto_pixel_uuid, 0, 8) . '...');
         }
     }
 
@@ -2485,9 +2438,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $success = update_option('metasync_last_known_connection_state', (bool) $is_connected);
         
         if ($success) {
-            error_log('CONNECTION_STATUS_DEBUG: Stored last known connection state: ' . ($is_connected ? 'CONNECTED' : 'DISCONNECTED'));
         } else {
-            error_log('CONNECTION_STATUS_DEBUG: Failed to store last known connection state');
         }
         
         return $success;
@@ -3173,7 +3124,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             $this->unschedule_heartbeat_cron();
 
             // Log the reset action
-            error_log('Search Atlas Authentication Reset: Successfully cleared authentication data by user ' . get_current_user_id());
 
             // Return success response
             wp_send_json_success(array(
@@ -3290,6 +3240,14 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         // Always available - Error Logs
         // Error Logs moved to Advanced settings tab - no longer separate page
         
+        // Compatibility page - always available
+        $menu_items['compatibility'] = [
+            'title' => 'Compatibility',
+            'slug_suffix' => '-compatibility',
+            'callback' => 'create_admin_compatibility_page',
+            'internal_nav' => 'Compatibility'
+        ];
+        
         return $menu_items;
     }
 
@@ -3330,6 +3288,16 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             'manage_options',
             $menu_slug . '-dashboard',
             array($this, 'create_admin_dashboard_iframe')
+        );
+        
+        // Add Compatibility submenu (always available)
+        add_submenu_page(
+            $menu_slug,
+            'Compatibility',
+            'Compatibility',
+            'manage_options',
+            $menu_slug . '-compatibility',
+            array($this, 'create_admin_compatibility_page')
         );
         
         // Rename the auto-generated first submenu item from plugin name to "Settings"
@@ -3568,6 +3536,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $menu_icons = [
             'general' => '⚙️',
             'dashboard' => '📊', 
+            'compatibility' => '🔧',
             'optimal_settings' => '🚀',
             'instant_index' => '🔗',
             'google_console' => '📊',
@@ -4426,6 +4395,348 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         </div>
         <?php
     }
+
+    /**
+     * Compatibility page callback
+     */
+    public function create_admin_compatibility_page()
+    {
+        ?>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('Compatibility'); ?>
+        
+        <?php $this->render_navigation_menu('compatibility'); ?>
+            
+            <div class="dashboard-card">
+                <h2>🔧 Plugin Compatibility</h2>
+                <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Check compatibility status with popular WordPress page builders, SEO plugins, and caching solutions.</p>
+                
+                <?php $this->render_compatibility_sections(); ?>
+            </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * Render compatibility sections
+     */
+    private function render_compatibility_sections()
+    {
+        ?>
+        <div class="metasync-compatibility-sections">
+            <?php $this->render_page_builders_section(); ?>
+            <?php $this->render_seo_plugins_section(); ?>
+            <?php $this->render_cache_plugins_section(); ?>
+        </div>
+        <?php
+    }
+
+    /**
+     * Render Page Builders section
+     */
+    private function render_page_builders_section()
+    {
+        $page_builders = $this->get_page_builders_compatibility();
+        ?>
+        <div class="metasync-compatibility-section">
+            <h3>🏗️ Page Builders</h3>
+            <?php foreach ($page_builders as $builder): ?>
+                <div class="metasync-plugin-item">
+                    <div class="metasync-plugin-info">
+                        <?php if ($builder['logo']): ?>
+                            <img src="<?php echo esc_url($builder['logo']); ?>" alt="<?php echo esc_attr($builder['name']); ?>" class="metasync-plugin-logo" />
+                        <?php endif; ?>
+                        <div class="metasync-plugin-details">
+                            <div class="metasync-plugin-name"><?php echo esc_html($builder['name']); ?></div>
+                            <div class="metasync-plugin-install-status <?php echo $builder['is_installed'] ? 'installed' : 'not-installed'; ?>">
+                                <?php echo $builder['is_installed'] ? 'Installed' : 'Not Installed'; ?>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="metasync-plugin-status">
+                        <span class="metasync-status-badge metasync-status-<?php echo esc_attr($builder['status']); ?>">
+                            <?php echo esc_html($builder['status_text']); ?>
+                        </span>
+                        <?php if ($builder['version']): ?>
+                            <span class="metasync-plugin-version">v<?php echo esc_html($builder['version']); ?></span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+        <?php
+    }
+
+    /**
+     * Render SEO Plugins section
+     */
+    private function render_seo_plugins_section()
+    {
+        $seo_plugins = $this->get_seo_plugins_compatibility();
+        ?>
+        <div class="metasync-compatibility-section">
+            <h3>🔍 SEO Plugins</h3>
+            <?php foreach ($seo_plugins as $plugin): ?>
+                <div class="metasync-plugin-item">
+                    <div class="metasync-plugin-info">
+                        <?php if ($plugin['logo']): ?>
+                            <img src="<?php echo esc_url($plugin['logo']); ?>" alt="<?php echo esc_attr($plugin['name']); ?>" class="metasync-plugin-logo" />
+                        <?php endif; ?>
+                        <div class="metasync-plugin-details">
+                            <div class="metasync-plugin-name"><?php echo esc_html($plugin['name']); ?></div>
+                            <div class="metasync-plugin-install-status <?php echo $plugin['is_installed'] ? 'installed' : 'not-installed'; ?>">
+                                <?php echo $plugin['is_installed'] ? 'Installed' : 'Not Installed'; ?>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="metasync-plugin-status">
+                        <span class="metasync-status-badge metasync-status-<?php echo esc_attr($plugin['status']); ?>">
+                            <?php echo esc_html($plugin['status_text']); ?>
+                        </span>
+                        <?php if ($plugin['version']): ?>
+                            <span class="metasync-plugin-version">v<?php echo esc_html($plugin['version']); ?></span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+        <?php
+    }
+
+    /**
+     * Render Cache Plugins section
+     */
+    private function render_cache_plugins_section()
+    {
+        $cache_plugins = $this->get_cache_plugins_compatibility();
+        ?>
+        <div class="metasync-compatibility-section">
+            <h3>⚡ Cache Plugins</h3>
+            <?php foreach ($cache_plugins as $plugin): ?>
+                <div class="metasync-plugin-item">
+                    <div class="metasync-plugin-info">
+                        <?php if ($plugin['logo']): ?>
+                            <img src="<?php echo esc_url($plugin['logo']); ?>" alt="<?php echo esc_attr($plugin['name']); ?>" class="metasync-plugin-logo" />
+                        <?php endif; ?>
+                        <div class="metasync-plugin-details">
+                            <div class="metasync-plugin-name"><?php echo esc_html($plugin['name']); ?></div>
+                            <div class="metasync-plugin-install-status <?php echo $plugin['is_installed'] ? 'installed' : 'not-installed'; ?>">
+                                <?php echo $plugin['is_installed'] ? 'Installed' : 'Not Installed'; ?>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="metasync-plugin-status">
+                        <span class="metasync-status-badge metasync-status-<?php echo esc_attr($plugin['status']); ?>">
+                            <?php echo esc_html($plugin['status_text']); ?>
+                        </span>
+                        <?php if ($plugin['version']): ?>
+                            <span class="metasync-plugin-version">v<?php echo esc_html($plugin['version']); ?></span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+        <?php
+    }
+
+    /**
+     * Get Page Builders compatibility information
+     */
+    private function get_page_builders_compatibility()
+    {
+        $builders = [
+            'elementor' => [
+                'name' => 'Elementor',
+                'plugin_file' => 'elementor/elementor.php',
+                'supported' => true,
+                'version' => '3.31.5'
+            ],
+            'gutenberg' => [
+                'name' => 'Gutenberg',
+                'plugin_file' => 'gutenberg/gutenberg.php',
+                'supported' => true,
+                'is_core' => true,
+                'version' => '21.6.0'
+            ],
+            'divi' => [
+                'name' => 'Divi Builder',
+                'plugin_file' => 'divi-builder/divi-builder.php',
+                'supported' => true,
+                'version' => ''
+            ]
+        ];
+
+        $result = [];
+        
+        foreach ($builders as $key => $builder) {
+            // Check if plugin is installed
+            $is_installed = $this->is_plugin_installed($builder['plugin_file']);
+            
+            // Show supported status even when not installed
+            if ($builder['supported']) {
+                $status = 'supported';
+                $status_text = 'Supported';
+            } else {
+                $status = 'coming-soon';
+                $status_text = 'Coming Soon';
+            }
+            
+            $result[] = [
+                'name' => $builder['name'],
+                'version' => $builder['version'],
+                'status' => $status,
+                'status_text' => $status_text,
+                'is_installed' => $is_installed,
+                'logo' => $this->get_plugin_logo($key, 'page_builder')
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Get SEO Plugins compatibility information
+     */
+    private function get_seo_plugins_compatibility()
+    {
+        $plugins = [
+            'yoast' => [
+                'name' => 'Yoast SEO',
+                'plugin_file' => 'wordpress-seo/wp-seo.php',
+                'supported' => true,
+                'version' => '25.9.0'
+            ],
+            'rankmath' => [
+                'name' => 'Rank Math',
+                'plugin_file' => 'seo-by-rank-math/rank-math.php',
+                'supported' => true,
+                'version' => '1.0.253.0'
+            ],
+            'aioseo' => [
+                'name' => 'All in One SEO',
+                'plugin_file' => 'all-in-one-seo-pack/all_in_one_seo_pack.php',
+                'supported' => true,
+                'version' => '4.8.7'
+            ]
+        ];
+
+        $result = [];
+        
+        foreach ($plugins as $key => $plugin) {
+            $is_installed = $this->is_plugin_installed($plugin['plugin_file']);
+            
+            // Show supported status even when not installed
+            if ($plugin['supported']) {
+                $status = 'supported';
+                $status_text = 'Supported';
+            } else {
+                $status = 'coming-soon';
+                $status_text = 'Coming Soon';
+            }
+            
+            $result[] = [
+                'name' => $plugin['name'],
+                'version' => $plugin['version'],
+                'status' => $status,
+                'status_text' => $status_text,
+                'is_installed' => $is_installed,
+                'logo' => $this->get_plugin_logo($key, 'seo')
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Get Cache Plugins compatibility information
+     */
+    private function get_cache_plugins_compatibility()
+    {
+        $plugins = [
+            'litespeed-cache' => [
+                'name' => 'LiteSpeed Cache',
+                'plugin_file' => 'litespeed-cache/litespeed-cache.php',
+                'supported' => true,
+                'version' => '7.5.0.1'
+            ]
+        ];
+
+        $result = [];
+        
+        foreach ($plugins as $key => $plugin) {
+            $is_installed = $this->is_plugin_installed($plugin['plugin_file']);
+            
+            // Show supported status even when not installed
+            if ($plugin['supported']) {
+                $status = 'supported';
+                $status_text = 'Supported';
+            } else {
+                $status = 'coming-soon';
+                $status_text = 'Coming Soon';
+            }
+            
+            $result[] = [
+                'name' => $plugin['name'],
+                'version' => $plugin['version'],
+                'status' => $status,
+                'status_text' => $status_text,
+                'is_installed' => $is_installed,
+                'logo' => $this->get_plugin_logo($key, 'cache')
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Check if a plugin is installed and active
+     */
+    private function is_plugin_installed($plugin_file)
+    {
+        if (!function_exists('is_plugin_active')) {
+            include_once(ABSPATH . 'wp-admin/includes/plugin.php');
+        }
+        return is_plugin_active($plugin_file);
+    }
+
+
+    /**
+     * Get plugin logo URL (optimized for performance)
+     */
+    private function get_plugin_logo($plugin_key, $type)
+    {
+        // Use reliable WordPress.org URLs that are known to work
+        $logos = [
+            'page_builder' => [
+                'elementor' => 'https://ps.w.org/elementor/assets/icon-256x256.gif',
+                'gutenberg' => 'https://i0.wp.com/wordpress.org/files/2023/02/wmark.png',
+                'divi' => 'https://www.elegantthemes.com/images/logo.svg',
+                // 'beaver-builder' => 'https://ps.w.org/beaver-builder-lite-version/assets/icon-128x128.png',
+                // 'wpbakery' => 'https://ps.w.org/js_composer/assets/icon-128x128.png',
+                // 'oxygen' => 'https://ps.w.org/oxygen/assets/icon-128x128.png'
+            ],
+            'seo' => [
+                'yoast' => 'https://ps.w.org/wordpress-seo/assets/icon-128x128.gif',
+                'rankmath' => 'https://ps.w.org/seo-by-rank-math/assets/icon-128x128.png',
+                'aioseo' => 'https://ps.w.org/all-in-one-seo-pack/assets/icon-128x128.png',
+                // 'seopress' => 'https://ps.w.org/wp-seopress/assets/icon-128x128.png',
+                // 'squirrly' => 'https://ps.w.org/squirrly-seo/assets/icon-128x128.png'
+            ],
+            'cache' => [
+                // 'wp-rocket' => 'https://ps.w.org/wp-rocket/assets/icon-128x128.png',
+                // 'w3-total-cache' => 'https://ps.w.org/w3-total-cache/assets/icon-128x128.png',
+                // 'wp-super-cache' => 'https://ps.w.org/wp-super-cache/assets/icon-128x128.png',
+                'litespeed-cache' => 'https://ps.w.org/litespeed-cache/assets/icon-128x128.png',
+                // 'wp-fastest-cache' => 'https://ps.w.org/wp-fastest-cache/assets/icon-128x128.png',
+                // 'autoptimize' => 'https://ps.w.org/autoptimize/assets/icon-128x128.png'
+            ]
+        ];
+
+        // Return logo URL directly without validation for performance
+        return isset($logos[$type][$plugin_key]) ? $logos[$type][$plugin_key] : '';
+    }
+
 
     public function creat_error_Logs_List()
     {
@@ -5416,10 +5727,8 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         // Consider fully connected based on heartbeat sync status
         $has_api_key = !empty($current_api_key);
         $has_otto_uuid = !empty($otto_uuid);
-        error_log('API_KEY_CALLBACK_DEBUG: has_api_key=' . ($has_api_key ? 'true' : 'false') . ', has_otto_uuid=' . ($has_otto_uuid ? 'true' : 'false'));
         
         $is_fully_connected = $this->is_heartbeat_connected();
-        error_log('API_KEY_CALLBACK_DEBUG: is_fully_connected=' . ($is_fully_connected ? 'true' : 'false'));
         
         // Enhanced SSO Authentication Container (MOVED TO TOP)
         printf('<div class="metasync-sso-container">');

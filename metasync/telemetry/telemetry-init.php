@@ -67,14 +67,15 @@ function init_metasync_telemetry() {
     }
 
     try {
-        // Auto-configure Sentry DSN if not already set
-        if (empty(get_option('metasync_sentry_dsn', ''))) {
-            update_option('metasync_sentry_dsn', 'https://fdf611c1f52b23d2581f1c29f82a3136@o141073.ingest.us.sentry.io/4509950439849985');
-            update_option('metasync_sentry_environment', 'production');
-            update_option('metasync_sentry_release', '1.0.0');
-            update_option('metasync_sentry_sample_rate', 1.0);
-            update_option('metasync_sentry_enabled', 1);
-        }
+        // Clean up old database options if they exist
+        delete_option('metasync_sentry_dsn');
+        delete_option('metasync_sentry_project_id'); 
+        delete_option('metasync_sentry_environment');
+        delete_option('metasync_sentry_release');
+        delete_option('metasync_sentry_sample_rate');
+        
+        // Telemetry configuration is now handled by constants defined in metasync.php
+        // METASYNC_SENTRY_PROJECT_ID, METASYNC_SENTRY_ENVIRONMENT, etc.
 
         // Only initialize if memory is still safe
         $memory_after_options = memory_get_usage(true);

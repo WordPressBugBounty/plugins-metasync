@@ -70,7 +70,6 @@ class Metasync_Telemetry_Request_Monitor {
 
         # check that the route is permitted for logging
         if ( empty($url) || $this->log_uri_permitted($url) == False ){
-            #error_log('Rejected Outgoing : '. $url);
             return $preempt;
         }
 
@@ -97,9 +96,7 @@ class Metasync_Telemetry_Request_Monitor {
 
         # check that the route is permitted for logging
         if ( empty($request->get_route()) || $this->log_uri_permitted($request->get_route()) == False ){
-            # error_log('Rejected Incoming: '. $request->get_route());
-
-            return False;
+            return $result;
         }
 
         # prepare the reuqest
@@ -142,7 +139,6 @@ class Metasync_Telemetry_Request_Monitor {
 
         # check that the route is permitted for logging
         if ( empty($url) || $this->log_uri_permitted($url) == False ){
-            #error_log('Rejected Out response: '. $url .' Response'. json_encode($response));
             return $response;
         }
         
@@ -169,7 +165,6 @@ class Metasync_Telemetry_Request_Monitor {
         
         # check that the route is permitted for logging
         if ( empty($request->get_route()) || $this->log_uri_permitted($request->get_route()) == False ){
-            # error_log('Rejected incoming response: '. $request->get_route());
             return $response;
         }
 
