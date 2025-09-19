@@ -526,8 +526,6 @@ class Metasync
 				$log_message .= ' - ' . implode(', ', $formatted_details);
 			}
 			
-			// Log to WordPress error log
-			error_log($log_message);
 			
 			// Optionally store in database for admin dashboard (future enhancement)
 			// This could be extended to store in a dedicated log table

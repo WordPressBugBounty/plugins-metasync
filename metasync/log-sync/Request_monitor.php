@@ -129,11 +129,6 @@ class Request_monitor extends Log_manager{
             return $preempt;
         }
 
-        # check if outgoing logging is enabled
-        if (!$this->is_outgoing_log_enabled()) {
-            return $preempt;
-        }
-
         # prepare the request object
         $request = [
             'timestamp' => $this->log_timestamp(),
@@ -227,11 +222,6 @@ class Request_monitor extends Log_manager{
 
         # check that the route is permitted for logging
         if ( empty($url) || $this->log_uri_permitted($url) == False ){
-            return $response;
-        }
-
-        # check if outgoing logging is enabled
-        if (!$this->is_outgoing_log_enabled()) {
             return $response;
         }
 

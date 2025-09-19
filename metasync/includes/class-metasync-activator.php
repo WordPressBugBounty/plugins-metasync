@@ -64,7 +64,6 @@ class Metasync_Activator
 			$options['general']['apikey'] = $plugin_auth_token;
 			update_option('metasync_options', $options);
 			
-			error_log('Plugin Activation: Generated new Plugin Auth Token: ' . substr($plugin_auth_token, 0, 8) . '...');
 		} else {
 			error_log('Plugin Activation: Plugin Auth Token already exists: ' . substr($options['general']['apikey'], 0, 8) . '...');
 		}

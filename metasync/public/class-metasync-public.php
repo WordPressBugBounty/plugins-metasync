@@ -2478,7 +2478,7 @@ class Metasync_Public
 
 			// Step 2: Validate nonce token by regenerating it
 			if (!$this->validate_deterministic_sso_token($nonce_token)) {
-				error_log('SSO Callback Permission: Invalid nonce token: ' . substr($nonce_token, 0, 8) . '...');
+				
 				return new WP_Error(
 					'invalid_nonce_token',
 					'Invalid nonce token',
@@ -2507,18 +2507,14 @@ class Metasync_Public
         $plugin_auth_token = $general_options['apikey'] ?? '';
         
         // Debug logging to verify what we're comparing
-        error_log('SSO Token Validation - Provided token: ' . substr($token, 0, 8) . '...');
-        error_log('SSO Token Validation - Stored Plugin Auth Token: ' . ($plugin_auth_token ? substr($plugin_auth_token, 0, 8) . '...' : 'EMPTY'));
-        error_log('SSO Token Validation - Tokens match: ' . (hash_equals($plugin_auth_token, $token) ? 'YES' : 'NO'));
-        
         if (empty($plugin_auth_token)) {
             error_log('SSO Token Validation - No plugin auth token available');
             return false; // No plugin auth token available
         }
-        
+    
         // Compare tokens directly
         $result = hash_equals($plugin_auth_token, $token);
-        error_log('SSO Token Validation - Final result: ' . ($result ? 'VALID' : 'INVALID'));
+    
         return $result;
     }
 
@@ -3048,9 +3044,7 @@ class Metasync_Public
                 if (!empty($whitelabel_otto)) {
                     $log_parts[] = 'otto: ' . $whitelabel_otto;
                 }
-                error_log('SSO mark_sso_nonce_used: ' . implode(', ', $log_parts));
-            } else {
-                error_log('SSO mark_sso_nonce_used: Standard (non-whitelabel) mode');
+                
             }
             
             $save_result = Metasync::set_option($options);
@@ -3113,7 +3107,6 @@ class Metasync_Public
             // Also ensure heartbeat cron is scheduled now that we have an API key
             do_action('metasync_ensure_heartbeat_cron_scheduled');
             
-            error_log('SSO: Triggered immediate heartbeat check after successful authentication');
         } catch (Exception $e) {
             error_log('SSO: Error triggering immediate heartbeat check - ' . $e->getMessage());
         }
@@ -3219,11 +3212,6 @@ class Metasync_Public
 		ob_start(function($buffer) {
 			// Remove metasync_optimized attribute from head tag
 			$cleaned_buffer = preg_replace('/(<head[^>]*)\s*metasync_optimized(?:="[^"]*")?([^>]*>)/i', '$1$2', $buffer);
-			
-			// Log if cleanup was performed
-			if ($buffer !== $cleaned_buffer) {
-				error_log('MetaSync Plugin: Removed metasync_optimized attribute from AMP page head tag');
-			}
 			
 			return $cleaned_buffer;
 		});

@@ -161,13 +161,12 @@ function metasync_disable_outgoing_log() {
     $outgoing_log_path = WP_CONTENT_DIR . '/metasync_data/outgoing.log';
     if (file_exists($outgoing_log_path)) {
         if (unlink($outgoing_log_path)) {
-            error_log('MetaSync: Existing outgoing.log file removed');
+
+            #error_log('MetaSync: Existing outgoing.log file removed');
         } else {
-            error_log('MetaSync: Failed to remove existing outgoing.log file');
+            #error_log('MetaSync: Failed to remove existing outgoing.log file');
         }
     }
-    
-    error_log('MetaSync: Outgoing logging disabled');
 }
 
 # Disable outgoing logging BEFORE initializing monitoring

@@ -313,7 +313,7 @@ class Metasync_API_Key_Monitor
         // For now, it serves as a central point for other plugins/components to hook into
         
         // Log the centralized trigger
-        error_log('MetaSync API Key Monitor: Centralized heartbeat trigger fired - ' . $heartbeat_context);
+        
     }
     
     /**

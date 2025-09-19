@@ -57,7 +57,7 @@ function init_metasync_telemetry() {
     
     // If we're using more than 70% of memory, skip telemetry entirely
     if ($current_memory > ($memory_limit * 0.7)) {
-        error_log('MetaSync Telemetry: Disabled due to high memory usage (' . round($current_memory / 1024 / 1024, 2) . 'MB / ' . round($memory_limit / 1024 / 1024, 2) . 'MB)');
+        // error_log('MetaSync Telemetry: Disabled due to high memory usage (' . round($current_memory / 1024 / 1024, 2) . 'MB / ' . round($memory_limit / 1024 / 1024, 2) . 'MB)');
         return;
     }
     
@@ -80,7 +80,7 @@ function init_metasync_telemetry() {
         // Only initialize if memory is still safe
         $memory_after_options = memory_get_usage(true);
         if ($memory_after_options > ($memory_limit * 0.8)) {
-            error_log('MetaSync Telemetry: Skipping manager initialization due to memory usage');
+            // error_log('MetaSync Telemetry: Skipping manager initialization due to memory usage');
             return;
         }
 
@@ -111,7 +111,7 @@ function init_metasync_telemetry() {
             $request_monitor = new Metasync_Telemetry_Request_Monitor();
             $request_monitor->monitor_api_calls();
         } else {
-            error_log('MetaSync Telemetry: Request monitoring disabled due to high memory usage');
+            // error_log('MetaSync Telemetry: Request monitoring disabled due to high memory usage');
         }
         
         // Setup background processing hooks
@@ -119,7 +119,7 @@ function init_metasync_telemetry() {
         
     } catch (Exception $e) {
         // Fail silently to prevent site crashes
-        error_log('MetaSync Telemetry: Initialization failed: ' . $e->getMessage());
+        // error_log('MetaSync Telemetry: Initialization failed: ' . $e->getMessage());
     }
 }
 
@@ -144,7 +144,7 @@ if (!defined('METASYNC_DISABLE_TELEMETRY') || !METASYNC_DISABLE_TELEMETRY) {
         if ($current_memory < ($value * 0.6)) {
             add_action('plugins_loaded', 'init_metasync_telemetry', 5);
         } else {
-            error_log('MetaSync Telemetry: Skipping initialization due to high memory usage at startup');
+            // error_log('MetaSync Telemetry: Skipping initialization due to high memory usage at startup');
         }
     } else {
         // Unlimited memory, safe to initialize

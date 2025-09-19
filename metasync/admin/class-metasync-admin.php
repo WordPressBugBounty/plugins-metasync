@@ -307,30 +307,6 @@ class Metasync_Admin
         }
     }
 
-    /*
-    create a error log on the wp-content folder for metasync plugin
-    */
-    
-    public function metasync_log_error($error_message) {
-        $log_file = WP_CONTENT_DIR . '/metasync.log'; // Adjust the path if needed
-        $timestamp = date("Y-m-d H:i:s");
-        $message = "[$timestamp] - $error_message\n";
-        error_log($message, 3, $log_file);
-    }
-
-    /*
-
-    */
-
-    public function metasync_log_php_errors($errno, $errstr, $errfile, $errline) {
-        $error_message = "Error [$errno]: $errstr in $errfile on line $errline";
-        $this->metasync_log_error($error_message);
-    }
-
-    /*
-
-    */
-
     public function metasync_display_error_log() {
         $log_file = WP_CONTENT_DIR . '/metasync_data/plugin_errors.log';
         if (!current_user_can('manage_options')) {
@@ -830,17 +806,17 @@ class Metasync_Admin
         }
 
         # IP address validation (optional - can be disabled for mobile/proxy users)
-        if(isset($token_data['ip']) && $this->should_validate_ip()){
+        /*if(isset($token_data['ip']) && $this->should_validate_ip()){
             $current_ip = $this->get_client_ip();
             if($token_data['ip'] !== $current_ip){
                 error_log('SSO Validation: IP address changed from ' . $token_data['ip'] . ' to ' . $current_ip);
                 # For now, just log the change but don't fail (mobile users, etc.)
                 # return false;
             }
-        }
+        }*/
 
         # user agent validation (loose check)
-        if(isset($token_data['user_agent']) && !empty($_SERVER['HTTP_USER_AGENT'])){
+        /*if(isset($token_data['user_agent']) && !empty($_SERVER['HTTP_USER_AGENT'])){
             $current_ua = substr($_SERVER['HTTP_USER_AGENT'], 0, 100);
             # Only check if user agents are dramatically different (not just version updates)
             if($this->are_user_agents_incompatible($token_data['user_agent'], $current_ua)){
@@ -848,7 +824,7 @@ class Metasync_Admin
                 # For now, just log but don't fail (browser updates are common)
                 # return false;
             }
-        }
+        }*/
 
         return true;
     }
@@ -963,8 +939,6 @@ class Metasync_Admin
             return;
         }
 
-        error_log('SSO_URL_GENERATION_DEBUG: Starting SSO URL generation');
-
         try {
             // Ensure Plugin Auth Token exists before starting SSO process
             $this->ensure_plugin_auth_token_exists();
@@ -1071,9 +1045,6 @@ class Metasync_Admin
         $general_options = Metasync::get_option('general') ?? [];
         $plugin_auth_token = $general_options['apikey'] ?? '';
         
-        // Debug logging to verify what we're reading
-        error_log('SSO Nonce Generation - Plugin Auth Token from options: ' . ($plugin_auth_token ? substr($plugin_auth_token, 0, 8) . '...' : 'EMPTY'));
-        
         // Plugin Auth Token should exist from activation - log if missing
         if (empty($plugin_auth_token)) {
             error_log('ERROR: Plugin Auth Token missing from options - should have been generated during activation');
@@ -1081,7 +1052,6 @@ class Metasync_Admin
         }
 
         // Use Plugin Auth Token directly as nonce token
-        error_log('SSO Nonce Generation - Final nonce token: ' . substr($plugin_auth_token, 0, 8) . '...');
         return $plugin_auth_token;
     }
 
@@ -1619,8 +1589,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 
                 // Skip heartbeat trigger on settings reset
                 // Settings reset clears all options including Search Atlas API key, so heartbeat would fail
-                // User will need to re-authenticate, at which point heartbeat will be triggered by SSO flow
-                error_log('MetaSync Settings Reset: Skipping heartbeat trigger - all settings cleared, user must re-authenticate');
+                // User will need to re-authenticate, at which point heartbeat will be triggered by SSO flow             
                 
                 // Redirect back to advanced tab with success message
                 $redirect_url = admin_url('admin.php?page=' . self::$page_slug . '&tab=advanced&settings_cleared=1');
@@ -2450,6 +2419,10 @@ define('WP_DEBUG_DISPLAY', false);</pre>
      */
     private function log_heartbeat($level, $event, $details = array())
     {
+        // Don't log info level messages
+        if ($level == 'info'){
+            return;
+        }
         // Check if we should throttle this log message to reduce spam
         if ($this->should_throttle_log($level, $event, $details)) {
             return;
@@ -3948,7 +3921,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     
         # Handle WhiteLabel settings processing (this was missing!)
         if (isset($_POST['metasync_options']['whitelabel'])) {
-            error_log('AJAX Handler: WhiteLabel data found in submission - ' . json_encode($_POST['metasync_options']['whitelabel']));
             
             $whitelabel_data = $_POST['metasync_options']['whitelabel'];
             $existing_whitelabel = $metasync_options['whitelabel'] ?? [];
@@ -3956,14 +3928,11 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             // Handle logo field
             if (isset($whitelabel_data['logo'])) {
                 $logo_value = trim($whitelabel_data['logo']);
-                error_log('AJAX Handler: Logo value = "' . $logo_value . '"');
-                
+            
                 if (!empty($logo_value) && filter_var($logo_value, FILTER_VALIDATE_URL)) {
                     $metasync_options['whitelabel']['logo'] = esc_url_raw($logo_value);
-                    error_log('AJAX Handler: Logo saved = "' . $metasync_options['whitelabel']['logo'] . '"');
                 } else {
                     $metasync_options['whitelabel']['logo'] = '';
-                    error_log('AJAX Handler: Logo cleared (invalid/empty)');
                 }
             }
             
@@ -3982,7 +3951,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             
             // Save the updated options (this was missing!)
             Metasync::set_option($metasync_options);
-            error_log('AJAX Handler: WhiteLabel settings saved to database');
+            
         } else {
             error_log('AJAX Handler: No WhiteLabel data found in POST submission');
         }
@@ -5527,11 +5496,10 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         # Handle whitelabel URL fields with improved empty value handling
         if (isset($input['whitelabel'])) {
             // Debug logging for whitelabel form submission
-            error_log('Whitelabel Settings: Form submission received - ' . json_encode($input['whitelabel']));
             
             // Get existing whitelabel settings first
             $existing_whitelabel = Metasync::get_option()['whitelabel'] ?? [];
-            error_log('Whitelabel Settings: Existing settings - ' . json_encode($existing_whitelabel));
+            
             
             // Initialize whitelabel array based on existing settings
             $new_input['whitelabel'] = $existing_whitelabel;
@@ -5539,33 +5507,33 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             // Handle logo field (explicitly handle clearing)
             if (isset($input['whitelabel']['logo'])) {
                 $logo_value = trim($input['whitelabel']['logo']);
-                error_log('Whitelabel Settings: Logo field raw value: "' . $logo_value . '" (length: ' . strlen($logo_value) . ')');
+                
                 if (!empty($logo_value) && filter_var($logo_value, FILTER_VALIDATE_URL)) {
                     $new_input['whitelabel']['logo'] = esc_url_raw($logo_value);
-                    error_log('Whitelabel Settings: Logo field set to: ' . $new_input['whitelabel']['logo']);
+                
                 } else {
                     // Empty value submitted - clear the logo
                     $new_input['whitelabel']['logo'] = '';
-                    error_log('Whitelabel Settings: Logo field cleared by user');
+                
                 }
             }
             
             // Handle domain field (explicitly handle clearing)  
             if (isset($input['whitelabel']['domain'])) {
                 $domain_value = trim($input['whitelabel']['domain']);
-                error_log('Whitelabel Settings: Domain field raw value: "' . $domain_value . '" (length: ' . strlen($domain_value) . ')');
+                
                 if (!empty($domain_value) && filter_var($domain_value, FILTER_VALIDATE_URL)) {
                     $new_input['whitelabel']['domain'] = esc_url_raw($domain_value);
-                    error_log('Whitelabel Settings: Domain field updated to: ' . $new_input['whitelabel']['domain']);
+                    
                 } else {
                     // Empty value submitted - clear the domain
                     $old_domain = $existing_whitelabel['domain'] ?? '';
                     $new_input['whitelabel']['domain'] = '';
-                    error_log('Whitelabel Settings: Domain field cleared by user (was: "' . $old_domain . '")');
+                    
                     
                     // If domain was cleared, trigger heartbeat recheck to use default domain
                     if (!empty($old_domain)) {
-                        error_log('Whitelabel Settings: Domain cleared - will trigger heartbeat recheck after save');
+                        
                         // Set flag to trigger heartbeat check after settings are saved
                         $new_input['_trigger_heartbeat_after_save'] = 'Domain cleared from: ' . $old_domain;
                     }
@@ -5578,8 +5546,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             // Update timestamp when whitelabel settings change
             $new_input['whitelabel']['updated_at'] = time();
             
-            // Final debug log
-            error_log('Whitelabel Settings: Final processed settings - ' . json_encode($new_input['whitelabel']));
+    
         } else {
             // No whitelabel data in submission - check if user wants to clear existing settings
             $existing_whitelabel = Metasync::get_option()['whitelabel'] ?? [];
@@ -5587,8 +5554,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             
             if ($has_existing_whitelabel) {
                 // User cleared all whitelabel fields - reset whitelabel settings
-                error_log('Whitelabel Settings: No whitelabel data in form submission - user wants to reset existing whitelabel settings');
-                error_log('Whitelabel Settings: Clearing existing settings - ' . json_encode($existing_whitelabel));
                 
                 $new_input['whitelabel'] = [
                     'is_whitelabel' => false,
@@ -5598,12 +5563,12 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     'updated_at' => time()
                 ];
                 
-                error_log('Whitelabel Settings: All whitelabel settings cleared by user - reset to defaults');
+                
                 
                 // When whitelabel domain is cleared, trigger immediate heartbeat check
                 // This ensures the system switches back to using the correct default domain
                 if (!empty($existing_whitelabel['domain'])) {
-                    error_log('Whitelabel Settings: Domain changed from whitelabel to default - triggering heartbeat recheck');
+                    
                     // Clear heartbeat cache to force using new domain on next check
                     delete_transient('metasync_heartbeat_status_cache');
                     
@@ -5623,7 +5588,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             
             // Schedule the heartbeat check to run after settings are saved
             add_action('updated_option_metasync_options', function() use ($context) {
-                error_log('Whitelabel Settings: Triggering heartbeat check after save - ' . $context);
+                
                 delete_transient('metasync_heartbeat_status_cache');
                 do_action('metasync_trigger_immediate_heartbeat', 'Whitelabel domain change - ' . $context);
             });

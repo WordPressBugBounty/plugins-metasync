@@ -102,7 +102,7 @@ class Metasync_Telemetry_Manager {
             
         } catch (Exception $e) {
             // Fallback if telemetry initialization fails
-            error_log('MetaSync: Telemetry initialization failed: ' . $e->getMessage());
+            // error_log('MetaSync: Telemetry initialization failed: ' . $e->getMessage());
             $this->telemetry_enabled = false;
         }
     }
@@ -391,7 +391,7 @@ class Metasync_Telemetry_Manager {
         
         // If memory usage is over 50% of limit, skip telemetry entirely
         if ($memory_usage > ($memory_limit * 0.5)) {
-            error_log('MetaSync Telemetry: EMERGENCY - Disabling due to high memory usage');
+            // error_log('MetaSync Telemetry: EMERGENCY - Disabling due to high memory usage');
             $this->telemetry_enabled = false; // Disable for this request
             return;
         }
@@ -435,7 +435,7 @@ class Metasync_Telemetry_Manager {
         
         // If memory usage is over 50% of limit, skip telemetry entirely
         if ($memory_usage > ($memory_limit * 0.5)) {
-            error_log('MetaSync Telemetry: EMERGENCY - Disabling due to high memory usage');
+            // error_log('MetaSync Telemetry: EMERGENCY - Disabling due to high memory usage');
             $this->telemetry_enabled = false; // Disable for this request
             return;
         }

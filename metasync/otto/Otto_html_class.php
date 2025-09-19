@@ -675,8 +675,6 @@ Class Metasync_otto_html{
             # Update the head element
             $head->outertext = $cleaned_head_html;
             
-            # Log the cleanup action for debugging
-            error_log('MetaSync OTTO: Removed metasync_optimized attribute from AMP page head tag');
         }
     }
 

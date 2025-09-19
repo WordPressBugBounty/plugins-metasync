@@ -223,7 +223,7 @@ class Metasync_Telemetry_Sender {
         
         // If memory usage is over 60% of limit, skip entirely
         if ($memory_usage > ($memory_limit * 0.6)) {
-            error_log('MetaSync Telemetry: Skipping queue add due to high memory usage');
+            // error_log('MetaSync Telemetry: Skipping queue add due to high memory usage');
             return false;
         }
         
@@ -394,7 +394,7 @@ class Metasync_Telemetry_Sender {
         if (isset($response['error'])) {
             $error_msg .= ' Error: ' . $response['error'];
         }
-        error_log($error_msg);
+        // error_log($error_msg);
     }
 
     /**
