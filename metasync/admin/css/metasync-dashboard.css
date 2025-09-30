@@ -1929,3 +1929,383 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
         transition: none !important;
     }
 }
+
+/* ========================================
+   SYNC LOG PAGE STYLES
+   ======================================== */
+
+/* Sync Log Header */
+.sync-log-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 30px;
+    gap: 20px;
+}
+
+.sync-log-title-section {
+    flex: 1;
+}
+
+.sync-log-title-section h2 {
+    color: var(--dashboard-text-primary);
+    margin-bottom: 8px;
+    font-size: 24px;
+    font-weight: 600;
+}
+
+/* Sync Log Filters */
+.sync-log-filters {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.sync-filters-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    align-items: center;
+    justify-content: end;
+    width: auto;
+    min-width: 280px;
+}
+
+/* Large screens - optimize filter spacing */
+@media (min-width: 1200px) {
+    .sync-filters-form {
+        min-width: 320px;
+        gap: 16px;
+    }
+    
+    .sync-filter-select {
+        min-width: 150px;
+    }
+}
+
+.sync-filter-select {
+    background: var(--dashboard-card-bg);
+    border: 1px solid var(--dashboard-border);
+    color: var(--dashboard-text-primary);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    width: 100%;
+    min-width: 130px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 16px;
+    padding-right: 32px;
+    white-space: nowrap;
+    box-sizing: border-box;
+}
+
+.sync-filter-select:focus {
+    outline: none;
+    border-color: var(--dashboard-accent);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+    background-color: var(--dashboard-card-hover);
+}
+
+.sync-filter-select:hover {
+    border-color: var(--dashboard-accent);
+    background-color: var(--dashboard-card-hover);
+}
+
+.sync-filter-select:active {
+    background-color: var(--dashboard-card-hover);
+    border-color: var(--dashboard-accent);
+}
+
+.sync-filter-select option {
+    background: var(--dashboard-card-bg);
+    color: var(--dashboard-text-primary);
+    padding: 8px;
+}
+
+/* Sync Log List */
+.sync-log-list {
+    background: var(--dashboard-card-bg);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--dashboard-border);
+}
+
+.sync-log-item {
+    display: flex;
+    align-items: center;
+    padding: 20px;
+    border-bottom: 1px solid var(--dashboard-border);
+    transition: all 0.2s ease;
+}
+
+.sync-log-item:last-child {
+    border-bottom: none;
+}
+
+.sync-log-item:hover {
+    background: var(--dashboard-card-hover);
+}
+
+/* Sync Log Icon */
+.sync-log-icon {
+    margin-right: 16px;
+    flex-shrink: 0;
+}
+
+.sync-icon-circle {
+    width: 40px;
+    height: 40px;
+    background: var(--dashboard-card-hover);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--dashboard-border);
+}
+
+.sync-icon {
+    font-size: 18px;
+    color: var(--dashboard-text-secondary);
+}
+
+/* Sync Log Content */
+.sync-log-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.sync-log-title {
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+    font-size: 16px;
+    margin-bottom: 4px;
+    line-height: 1.4;
+}
+
+.sync-log-meta {
+    color: var(--dashboard-text-secondary);
+    font-size: 14px;
+    line-height: 1.3;
+}
+
+/* Sync Log Status */
+.sync-log-status {
+    margin-left: 16px;
+    flex-shrink: 0;
+}
+
+.sync-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    text-transform: capitalize;
+}
+
+.sync-status-published {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--dashboard-success);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.sync-status-draft {
+    background: rgba(139, 92, 246, 0.15);
+    color: #8b5cf6;
+    border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.sync-status-icon {
+    font-size: 12px;
+    font-weight: bold;
+}
+
+/* Sync Log Empty State */
+.sync-log-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--dashboard-text-secondary);
+    background: var(--dashboard-card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--dashboard-border);
+}
+
+.sync-log-empty-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.6;
+    color: var(--dashboard-text-secondary);
+}
+
+.sync-log-empty h3 {
+    color: var(--dashboard-text-primary);
+    margin-bottom: 8px;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.sync-log-empty p {
+    font-size: 14px;
+    line-height: 1.5;
+    max-width: 400px;
+    margin: 0 auto;
+    color: var(--dashboard-text-secondary);
+}
+
+/* Sync Log Pagination */
+.sync-log-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid var(--dashboard-border);
+}
+
+.sync-log-pagination-info {
+    color: var(--dashboard-text-secondary);
+    font-size: 14px;
+}
+
+.sync-log-pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sync-pagination-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: var(--dashboard-card-bg);
+    border: 1px solid var(--dashboard-border);
+    color: var(--dashboard-text-primary);
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.sync-pagination-btn:hover {
+    background: var(--dashboard-card-hover);
+    border-color: var(--dashboard-accent);
+    color: var(--dashboard-accent);
+    text-decoration: none;
+}
+
+.sync-pagination-btn.active {
+    background: var(--dashboard-accent);
+    border-color: var(--dashboard-accent);
+    color: white;
+}
+
+.sync-pagination-btn.active:hover {
+    background: var(--dashboard-accent-hover);
+    border-color: var(--dashboard-accent-hover);
+    color: white;
+}
+
+/* Responsive Design for Sync Log */
+@media (max-width: 768px) {
+    .sync-log-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 15px;
+    }
+    
+    .sync-log-title-section {
+        text-align: center;
+    }
+    
+    .sync-log-filters {
+        align-self: center;
+        justify-content: center;
+    }
+    
+    .sync-filters-form {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        justify-content: center;
+        min-width: 260px;
+        width: auto;
+    }
+    
+    .sync-filter-select {
+        min-width: 120px;
+        font-size: 13px;
+    }
+    
+    .sync-log-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    
+    .sync-log-icon {
+        margin-right: 0;
+    }
+    
+    .sync-log-status {
+        margin-left: 0;
+        align-self: flex-end;
+    }
+    
+    .sync-log-pagination {
+        flex-direction: column;
+        gap: 15px;
+        text-align: center;
+    }
+    
+    .sync-log-pagination-controls {
+        justify-content: center;
+    }
+}
+
+@media (max-width: 480px) {
+    .sync-filters-form {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        min-width: 240px;
+        width: 100%;
+        max-width: 320px;
+    }
+    
+    .sync-filter-select {
+        min-width: 110px;
+        font-size: 13px;
+        padding: 6px 8px;
+        padding-right: 28px;
+    }
+    
+    .sync-log-item {
+        padding: 16px;
+    }
+    
+    .sync-log-title {
+        font-size: 15px;
+    }
+    
+    .sync-log-meta {
+        font-size: 13px;
+    }
+    
+    .sync-status-badge {
+        font-size: 12px;
+        padding: 4px 8px;
+    }
+}

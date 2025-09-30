@@ -421,7 +421,7 @@ class Metasync
 		$whitelabel = self::get_whitelabel_settings();
 		
 		// Return company name only if whitelabel is active and company name is set
-		if ($whitelabel['is_whitelabel'] === true && !empty($whitelabel['company_name'])) {
+		if (isset($whitelabel['is_whitelabel']) && $whitelabel['is_whitelabel'] === true && !empty($whitelabel['company_name'])) {
 			return $whitelabel['company_name'];
 		}
 		
@@ -474,7 +474,7 @@ class Metasync
 		$whitelabel = self::get_whitelabel_settings();
 		
 		// Priority 2: If whitelabel is enabled and company name is provided, enhance the plugin name
-		if ($whitelabel['is_whitelabel'] === true && !empty($whitelabel['company_name'])) {
+		if (isset($whitelabel['is_whitelabel']) && $whitelabel['is_whitelabel'] === true && !empty($whitelabel['company_name'])) {
 			return $whitelabel['company_name'] . ' ' . $base_name;
 		}
 		

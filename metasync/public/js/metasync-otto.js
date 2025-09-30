@@ -18,6 +18,37 @@ const consolePrint = strData => {
   }
 };
 
+// Fixed: Add HTML validation function to prevent XSS while allowing legitimate OTTO content
+const isValidHTMLContent = (htmlContent) => {
+  if (!htmlContent || typeof htmlContent !== 'string') {
+    return false;
+  }
+  
+  // Only reject obviously malicious patterns while allowing legitimate SEO content
+  
+  // Reject content with potentially dangerous script content (but allow analytics/tracking)
+  // Block inline javascript execution patterns but allow legitimate tracking scripts
+  if (/<script[^>]*>[\s\S]*?(alert|prompt|confirm|eval|document\.write|document\.writeln)[\s\S]*?<\/script>/i.test(htmlContent)) {
+    return false;
+  }
+  
+  // Block dangerous javascript: protocols in links but allow legitimate ones
+  if (/href\s*=\s*["']javascript:(?!void\(0\)|;)[\s\S]*?["']/i.test(htmlContent)) {
+    return false;
+  }
+  
+  // Block dangerous event handlers but allow common legitimate ones
+  if (/\son(error|load)\s*=\s*["'][^"']*?(alert|prompt|eval|document\.write)[^"']*?["']/i.test(htmlContent)) {
+    return false;
+  }
+  
+  // Block attempts to access sensitive objects
+  if (/(document\.cookie|localStorage|sessionStorage|window\.location\s*=)/i.test(htmlContent)) {
+    return false;
+  }
+  
+  return true;
+};
 
 
 const replaceMetaData = metaData => {
@@ -36,7 +67,9 @@ const replaceMetaData = metaData => {
     if (type === 'title') {
       headerTitleTagCount++;
       consolePrint(`Replacing existing title content - ${recommended_value}`);
-      headerElementExist.innerHTML = recommended_value;
+      // headerElementExist.innerHTML = recommended_value;
+      // Fixed: Use textContent instead of innerHTML to prevent XSS
+      headerElementExist.textContent = recommended_value; 
     } else {
       consolePrint(`Replacing existing Meta content - ${recommended_value}`);
       headerMetaTagCount++;
@@ -46,16 +79,30 @@ const replaceMetaData = metaData => {
     if (type === 'title') {
       consolePrint(`Header Title Not Found - ${type}`);
       headerTitleTagCount++;
-      const titleTag = `<title>${recommended_value}</title>`;
-      consolePrint(`Inserting Title tag element: ${titleTag}`);
-      document.head.insertAdjacentHTML('afterbegin', titleTag);
+     // const titleTag = `<title>${recommended_value}</title>`;
+     // consolePrint(`Inserting Title tag element: ${titleTag}`);
+     // document.head.insertAdjacentHTML('afterbegin', titleTag);
+
+     // Fixed: Create title element safely to prevent XSS
+      const titleElement = document.createElement('title');
+      titleElement.textContent = recommended_value;
+      consolePrint(`Inserting Title tag element safely`);
+      document.head.insertBefore(titleElement, document.head.firstChild);
     } else {
       consolePrint(`Header Meta Not Found - ${type}`);
+
+        // Fixed: Create meta element safely to prevent XSS
+      const metaElement = document.createElement('meta');
       const metaAttribute = property ? 'property' : 'name';
-      const metaTag = `<meta ${metaAttribute}="${property ? property : name}" content="${recommended_value}">`;
+     // const metaTag = `<meta ${metaAttribute}="${property ? property : name}" content="${recommended_value}">`;
+
+      metaElement.setAttribute(metaAttribute, property ? property : name);
+      metaElement.setAttribute('content', recommended_value);
       headerMetaTagCount++;
-      consolePrint(`Inserting tag element: ${metaTag}`);
-      document.head.insertAdjacentHTML('afterbegin', metaTag);
+      // consolePrint(`Inserting tag element: ${metaTag}`);
+      // document.head.insertAdjacentHTML('afterbegin', metaTag);
+      consolePrint(`Inserting meta tag element safely`);
+      document.head.insertBefore(metaElement, document.head.firstChild);
     }
   }
 };
@@ -103,7 +150,13 @@ const applyPageData = pageData => {
   const topHtmlToInject = pageData.body_top_html_insertion ? `<!-- OTTO SEO Body Top Injection Start --> ${pageData.body_top_html_insertion} <!-- OTTO SEO Body Top Injection Ended --> ` : '';
   if (topHtmlToInject) {
     bodyHtmlTopInsertionCount++;
-    bodyElement.insertAdjacentHTML('afterbegin', topHtmlToInject);
+   // bodyElement.insertAdjacentHTML('afterbegin', topHtmlToInject);
+   // Fixed: Validate HTML content before insertion to prevent XSS
+    if (isValidHTMLContent(pageData.body_top_html_insertion)) {
+      bodyElement.insertAdjacentHTML('afterbegin', topHtmlToInject);
+    } else {
+      consolePrint('WARNING: Invalid HTML content detected, skipping injection');
+    }
   }
   consolePrint(`Body top HTML insertion ended: ${topHtmlToInject}`);
 
@@ -111,7 +164,13 @@ const applyPageData = pageData => {
   const bottomHtmlToInject = pageData.body_bottom_html_insertion ? `<!-- OTTO SEO Body Bottom Injection Start --> ${pageData.body_bottom_html_insertion} <!-- OTTO SEO Body Bottom Injection Ended --> ` : '';
   if (bottomHtmlToInject) {
     bodyHtmlBottomInsertionCount++;
-    bodyElement.insertAdjacentHTML('beforeend', bottomHtmlToInject);
+   // bodyElement.insertAdjacentHTML('beforeend', bottomHtmlToInject);
+   // Fixed: Validate HTML content before insertion to prevent XSS
+    if (isValidHTMLContent(pageData.body_bottom_html_insertion)) {
+      bodyElement.insertAdjacentHTML('beforeend', bottomHtmlToInject);
+    } else {
+      consolePrint('WARNING: Invalid HTML content detected, skipping injection');
+    }
   }
   consolePrint(`Body bottom HTML insertion ended: ${bottomHtmlToInject}`);
 
@@ -133,7 +192,22 @@ const applyPageData = pageData => {
             if (element.textContent.trim() === item.current_value.trim()) {
               consolePrint(`${item.type} - heading - ${element.textContent} - Recommended heading - ${item.recommended_value}`);
               headersUpdationCount[item.type]++;
-              element.innerHTML = element.innerHTML.replace(item.current_value, item.recommended_value);
+             // element.innerHTML = element.innerHTML.replace(item.current_value, item.recommended_value);
+              // Fixed: Safely replace content while preserving formatting and preventing XSS
+              if (item.recommended_value && typeof item.recommended_value === 'string') {
+                // If the recommended value contains HTML tags, validate it first
+                if (/<[^>]+>/.test(item.recommended_value)) {
+                  if (isValidHTMLContent(item.recommended_value)) {
+                    element.innerHTML = element.innerHTML.replace(item.current_value, item.recommended_value);
+                  } else {
+                    consolePrint('WARNING: Invalid HTML in heading recommendation, using text only');
+                    element.textContent = element.textContent.replace(item.current_value, item.recommended_value);
+                  }
+                } else {
+                  // Safe text replacement
+                  element.textContent = element.textContent.replace(item.current_value, item.recommended_value);
+                }
+              }
             }
           });
         });
@@ -166,8 +240,15 @@ const applyPageData = pageData => {
 
     const footerHtmlToInject = pageData.footer_html_insertion ? `<!-- OTTO SEO Footer Injection Start --> ${pageData.footer_html_insertion} <!-- OTTO SEO Footer Injection Ended --> ` : '';
     footerHtmlInsertionCount++;
-    footerElement.insertAdjacentHTML('beforeend', footerHtmlToInject);
-    consolePrint(`Footer HTML inserted: ${footerHtmlToInject}`);
+   // footerElement.insertAdjacentHTML('beforeend', footerHtmlToInject);
+   // consolePrint(`Footer HTML inserted: ${footerHtmlToInject}`);
+    // Fixed: Validate HTML content before insertion to prevent XSS
+    if (isValidHTMLContent(pageData.footer_html_insertion)) {
+      footerElement.insertAdjacentHTML('beforeend', footerHtmlToInject);
+      consolePrint(`Footer HTML inserted safely`);
+    } else {
+      consolePrint('WARNING: Invalid footer HTML content detected, skipping injection');
+    }
   }
   consolePrint(`Footer HTML insertion ended: ${pageData.footer_html_insertion}`);
 

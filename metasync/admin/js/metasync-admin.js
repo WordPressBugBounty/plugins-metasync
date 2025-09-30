@@ -1747,13 +1747,16 @@
 			$('.metasync-sync-notice, .metasync-sync-error').remove();
 		}
 
+		// DEBUG: Log request parameters
+		const requestData = {
+			action: 'lgSendCustomerParams',
+			is_heart_beat : is_hb
+		};
+
 		jQuery.ajax({
 			type: "post",
 			url: "admin-ajax.php",
-			data: {
-				action: 'lgSendCustomerParams',
-				is_heart_beat : is_hb
-			},
+			data: requestData,
 			beforeSend: function() {
 				if (showAlerts) {
 					// Show loading state on button
@@ -1783,6 +1786,44 @@
 					if (showAlerts) {
 						var pluginName = window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
 						showSyncError('⚠️ API Key Required', 'Please save your ' + pluginName + ' API key in the settings above before syncing.');
+					}
+
+				} else if (response && response.throttled) {
+					// Handle throttling response
+					var remainingMinutes = response.remaining_minutes || 5;
+					//$('#sendAuthTokenTimestamp').html('Please wait ' + remainingMinutes + ' minutes before syncing again');
+					//$('#sendAuthTokenTimestamp').css({ color: 'orange' });
+					
+					// Disable sync button and show countdown
+					if (showAlerts) {
+						$('#sendAuthToken').prop('disabled', true).html('⏰ Throttled (' + remainingMinutes + 'm)');
+						
+						// Start countdown timer
+						var countdownInterval = setInterval(function() {
+							remainingMinutes--;
+							if (remainingMinutes <= 0) {
+								clearInterval(countdownInterval);
+								$('#sendAuthToken').prop('disabled', false).html('🔄 Sync Now');
+								$('#sendAuthTokenTimestamp').html('Ready to sync');
+								$('#sendAuthTokenTimestamp').css({ color: 'green' });
+							} else {
+								$('#sendAuthToken').html('⏰ Throttled (' + remainingMinutes + 'm)');
+								//$('#sendAuthTokenTimestamp').html('Please wait ' + remainingMinutes + ' minutes before syncing again');
+							}
+						}, 60000); // Update every minute
+					}
+					
+					// Update header status to show throttling
+					var $statusIndicator = $('.metasync-integration-status');
+					if ($statusIndicator.length > 0) {
+						$statusIndicator.removeClass('integrated').addClass('not-integrated');
+						$statusIndicator.find('.status-text').text('Throttled');
+						$statusIndicator.attr('title', 'Throttled - Please wait ' + remainingMinutes + ' minutes');
+						console.log('🔄 Updated header status to: Throttled (' + remainingMinutes + ' minutes)');
+					}
+					
+					if (showAlerts) {
+						showSyncError('⏰ Request Throttled', response.message || 'Please wait ' + remainingMinutes + ' minutes before making another sync request.');
 					}
 
 				} else if (response && response.detail) {

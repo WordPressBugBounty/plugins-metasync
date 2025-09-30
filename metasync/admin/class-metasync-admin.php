@@ -252,6 +252,9 @@ class Metasync_Admin
                     object-fit: contain;
                     object-position: center;
                 }
+                #toplevel_page_<?php echo esc_attr(str_replace(' ', '-',$menu_slug)); ?> .wp-menu-image img {
+                    width: 20px !important;
+                }
             </style>
             <?php        
     }
@@ -625,7 +628,7 @@ class Metasync_Admin
 			'dashboard_domain' => self::get_effective_dashboard_domain(),
 			'support_email' => Metasync::SUPPORT_EMAIL,
 			'documentation_domain' => Metasync::DOCUMENTATION_DOMAIN,
-			'debug_enabled' => WP_DEBUG || (defined('METASYNC_DEBUG') && METASYNC_DEBUG),
+			'debug_enabled' => WP_DEBUG || (defined('METASYNC_DEBUG') && constant('METASYNC_DEBUG')),
 			'searchatlas_api_key' => !empty($searchatlas_api_key),
 			'otto_pixel_uuid' => $otto_pixel_uuid,
 			'is_connected' => (bool)$this->is_heartbeat_connected()
@@ -1245,7 +1248,7 @@ class Metasync_Admin
                 <div class="dashboard-card">
                     <h2>📊 Dashboard Disabled</h2>
                     <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">
-                        The Search Atlas dashboard is currently Disabled.
+                        The dashboard is currently Disabled.
                     </p>
                 </div>
             </div>
@@ -1939,6 +1942,18 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         # get the response
         $response = $sync_request->SyncCustomerParams($token);
 
+        // Check if response is a throttling error object
+        if (is_object($response) && isset($response->throttled) && $response->throttled === true) {
+            wp_send_json($response);
+            wp_die();
+        }
+
+        // Check if response is null/false (other error cases)
+        if ($response === null || $response === false) {
+            wp_send_json(['error' => 'Sync failed - no response from sync method', 'detail' => 'The sync method returned null or false']);
+            wp_die();
+        }
+
         $responseBody = wp_remote_retrieve_body($response);
         $responseCode = wp_remote_retrieve_response_code($response);
 
@@ -2251,117 +2266,395 @@ define('WP_DEBUG_DISPLAY', false);</pre>
 
     
     /**
-     * Fetch public hash from OTTO projects API for public dashboard access
-     * Includes caching to improve performance and reduce API calls
+     * Fetch public hash from OTTO API for the given pixel UUID
      * 
-     * @param string $otto_pixel_uuid The OTTO pixel UUID
-     * @param string $jwt_token JWT token for authentication
-     * @return string|false Returns public hash on success, false on failure
+     * This method retrieves the public hash from the OTTO projects API endpoint,
+     * implements caching to reduce API calls, and includes robust error handling
+     * with retry logic for temporary failures.
+     * 
+     * @since 1.0.0
+     * @param string $otto_pixel_uuid The OTTO pixel UUID to fetch hash for
+     * @param string $jwt_token       The JWT authentication token
+     * @return string|false           The public hash on success, false on failure
+     * 
+     * @throws none                   All errors are handled internally and logged
      */
     private function fetch_public_hash($otto_pixel_uuid, $jwt_token)
     {
-        if (empty($otto_pixel_uuid) || empty($jwt_token)) {
+        // Configuration constants
+        $cache_duration = 3600; // 1 hour
+        $api_timeout = 15; // 15 seconds
+        $max_retries = 3;
+        $base_retry_delay = 1; // Base delay in seconds for exponential backoff
+        
+        // Validate and sanitize inputs
+        if (!$this->validate_fetch_hash_inputs($otto_pixel_uuid, $jwt_token)) {
+            $this->log_fetch_hash_error('error', 'Invalid input parameters provided', [
+                'uuid_provided' => !empty($otto_pixel_uuid),
+                'token_provided' => !empty($jwt_token)
+            ]);
             return false;
         }
-
-        // Check cache first (cache for 1 hour)
-        $cache_key = 'metasync_public_hash_' . md5($otto_pixel_uuid);
-        $cached_hash = get_transient($cache_key);
         
+        // Clean and validate UUID format
+        $otto_pixel_uuid = sanitize_text_field(trim($otto_pixel_uuid));
+        $jwt_token = sanitize_text_field(trim($jwt_token));
+        
+        // Check cache first
+        $cached_hash = $this->get_cached_public_hash($otto_pixel_uuid);
         if ($cached_hash !== false) {
+            $this->log_fetch_hash_error('info', 'Public hash retrieved from cache', [
+                'uuid' => substr($otto_pixel_uuid, 0, 8) . '...'
+            ]);
             return $cached_hash;
         }
-
-        // API endpoint for OTTO projects
-        $api_url = 'https://sa.searchatlas.com/api/v2/otto-projects/' . urlencode($otto_pixel_uuid) . '/';
         
-        // Prepare request headers
-        $headers = array(
-            'Accept' => 'application/json, text/plain, */*',
-            'Authorization' => 'Bearer ' . $jwt_token,
-            'Content-Type' => 'application/json',
-            'User-Agent' => 'WordPress MetaSync Plugin',
-            'Cache-Control' => 'no-cache'
-        );
-
-
-        // Make the API request with retries
-        $max_retries = 2;
-        $retry_delay = 1; // seconds
+        // Prepare API request
+        $api_url = $this->build_otto_api_url($otto_pixel_uuid);
+        $headers = $this->prepare_api_headers($jwt_token);
         
+        // Make API request with retry logic
         for ($attempt = 1; $attempt <= $max_retries; $attempt++) {
-            $response = wp_remote_get($api_url, array(
+            $this->log_fetch_hash_error('info', 'Attempting to fetch public hash from API', [
+                'attempt' => $attempt,
+                'max_retries' => $max_retries,
+                'uuid' => substr($otto_pixel_uuid, 0, 8) . '...'
+            ]);
+            
+            $response = wp_remote_get($api_url, [
                 'headers' => $headers,
-                'timeout' => 15,
+                'timeout' => $api_timeout,
                 'sslverify' => true,
-                'redirection' => 5
-            ));
-
-            // Check for HTTP errors
+                'redirection' => 2,
+                'user-agent' => 'WordPress MetaSync Plugin/' . (defined('METASYNC_VERSION') ? METASYNC_VERSION : '1.0.0')
+            ]);
+            
+            // Handle WordPress HTTP errors
             if (is_wp_error($response)) {
                 $error_message = $response->get_error_message();
+                $error_code = $response->get_error_code();
+                
+                $this->log_fetch_hash_error('error', 'HTTP request failed', [
+                    'attempt' => $attempt,
+                    'error_code' => $error_code,
+                    'error_message' => $error_message,
+                    'will_retry' => $attempt < $max_retries
+                ]);
                 
                 if ($attempt < $max_retries) {
-                    sleep($retry_delay);
+                    $this->apply_exponential_backoff($attempt, $base_retry_delay);
                     continue;
                 }
+                
                 return false;
             }
-
-            $status_code = wp_remote_retrieve_response_code($response);
-            $body = wp_remote_retrieve_body($response);
-
-            if ($status_code === 200) {
-                // Success - parse response
-                $data = json_decode($body, true);
+            
+            // Process successful HTTP response
+            $result = $this->process_api_response($response, $attempt, $max_retries);
+            
+            if ($result === 'retry' && $attempt < $max_retries) {
+                $this->apply_exponential_backoff($attempt, $base_retry_delay);
+                continue;
+            }
+            
+            if ($result !== false && $result !== 'retry') {
+                // Success - cache and return the hash
+                $this->cache_public_hash($otto_pixel_uuid, $result, $cache_duration);
+                $this->log_fetch_hash_error('info', 'Public hash successfully retrieved and cached', [
+                    'uuid' => substr($otto_pixel_uuid, 0, 8) . '...',
+                    'attempt' => $attempt
+                ]);
+                return $result;
+            }
+            
+            // If we get here, it's a final failure
+            break;
+        }
+        
+        $this->log_fetch_hash_error('error', 'Failed to fetch public hash after all retry attempts', [
+            'uuid' => substr($otto_pixel_uuid, 0, 8) . '...',
+            'total_attempts' => $max_retries
+        ]);
+        
+        return false;
+    }
+    
+    /**
+     * Validate inputs for fetch_public_hash method
+     * 
+     * @param string $uuid  The UUID to validate
+     * @param string $token The token to validate
+     * @return bool         True if inputs are valid, false otherwise
+     */
+    private function validate_fetch_hash_inputs($uuid, $token)
+    {
+        if (empty($uuid) || empty($token)) {
+            return false;
+        }
+        
+        // Basic UUID format validation (loose check for flexibility)
+        if (!is_string($uuid) || strlen($uuid) < 10) {
+            return false;
+        }
+        
+        // Basic JWT token validation (should have dots separating sections)
+        if (!is_string($token) || substr_count($token, '.') < 2) {
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Get cached public hash for the given UUID
+     * 
+     * @param string $uuid The UUID to get cached hash for
+     * @return string|false The cached hash or false if not found
+     */
+    private function get_cached_public_hash($uuid)
+    {
+        $cache_key = 'metasync_public_hash_' . hash('sha256', $uuid . get_current_blog_id());
+        return get_transient($cache_key);
+    }
+    
+    /**
+     * Cache the public hash for the given UUID
+     * 
+     * @param string $uuid     The UUID to cache hash for
+     * @param string $hash     The hash to cache
+     * @param int    $duration Cache duration in seconds
+     */
+    private function cache_public_hash($uuid, $hash, $duration)
+    {
+        $cache_key = 'metasync_public_hash_' . hash('sha256', $uuid . get_current_blog_id());
+        set_transient($cache_key, sanitize_text_field($hash), $duration);
+    }
+    
+    /**
+     * Build the OTTO API URL for the given UUID
+     * 
+     * @param string $uuid The UUID to build URL for
+     * @return string      The complete API URL
+     */
+    private function build_otto_api_url($uuid)
+    {
+        $base_url = 'https://sa.searchatlas.com/api/v2/otto-projects/';
+        return $base_url . urlencode($uuid) . '/';
+    }
+    
+    /**
+     * Prepare headers for API request
+     * 
+     * @param string $jwt_token The JWT token for authorization
+     * @return array            Array of headers
+     */
+    private function prepare_api_headers($jwt_token)
+    {
+        return [
+            'Accept' => 'application/json',
+            'Authorization' => 'Bearer ' . $jwt_token,
+            'Content-Type' => 'application/json',
+            'User-Agent' => 'WordPress MetaSync Plugin/' . (defined('METASYNC_VERSION') ? METASYNC_VERSION : '1.0.0'),
+            'Cache-Control' => 'no-cache',
+            'X-Requested-With' => 'XMLHttpRequest'
+        ];
+    }
+    
+    /**
+     * Process API response and extract public hash
+     * 
+     * @param mixed $response    The WordPress HTTP response object
+     * @param int   $attempt     Current attempt number
+     * @param int   $max_retries Maximum retry attempts
+     * @return string|false|string Returns hash on success, 'retry' if should retry, false on failure
+     */
+    private function process_api_response($response, $attempt, $max_retries)
+    {
+        $status_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        
+        // Handle different status codes
+        switch ($status_code) {
+            case 200:
+                return $this->extract_public_hash_from_response($body);
                 
-                // Enhanced debugging: Log the full response structure
+            case 401:
+            case 403:
+                $this->log_fetch_hash_error('error', 'Authentication failed', [
+                    'status_code' => $status_code,
+                    'attempt' => $attempt
+                ]);
+                return false; // Don't retry auth failures
                 
-                if ($data) {
-                    // Check what fields are actually present
-                    $available_fields = is_array($data) ? array_keys($data) : 'not_array';
-                    
-                    // Check for various possible field names
-                    $possible_hash_fields = ['public_hash', 'publicHash', 'hash', 'public_share_hash', 'share_hash'];
-                    $found_hash = null;
-                    $found_field = null;
-                    
-                    foreach ($possible_hash_fields as $field) {
-                        if (isset($data[$field]) && !empty($data[$field])) {
-                            $found_hash = $data[$field];
-                            $found_field = $field;
-                            break;
-                        }
-                    }
-                    
-                    if ($found_hash) {
-                        $public_hash = sanitize_text_field($found_hash);
-                        
-                        // Cache the public hash for 1 hour
-                        set_transient($cache_key, $public_hash, 3600);
-                        
-                        return $public_hash;
-                    } else {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            } else {
+            case 404:
+                $this->log_fetch_hash_error('error', 'OTTO project not found', [
+                    'status_code' => $status_code,
+                    'attempt' => $attempt
+                ]);
+                return false; // Don't retry not found
                 
-                // For authentication errors (401, 403), don't retry
-                if (in_array($status_code, [401, 403])) {
-                    return false;
-                }
+            case 429:
+                $this->log_fetch_hash_error('warning', 'API rate limit exceeded', [
+                    'status_code' => $status_code,
+                    'attempt' => $attempt,
+                    'will_retry' => $attempt < $max_retries
+                ]);
+                return 'retry'; // Retry rate limits
                 
-                if ($attempt < $max_retries) {
-                    sleep($retry_delay);
-                    continue;
+            case 500:
+            case 502:
+            case 503:
+            case 504:
+                $this->log_fetch_hash_error('warning', 'Server error encountered', [
+                    'status_code' => $status_code,
+                    'attempt' => $attempt,
+                    'will_retry' => $attempt < $max_retries
+                ]);
+                return 'retry'; // Retry server errors
+                
+            default:
+                $this->log_fetch_hash_error('error', 'Unexpected HTTP status code', [
+                    'status_code' => $status_code,
+                    'attempt' => $attempt,
+                    'response_body' => substr($body, 0, 200)
+                ]);
+                return false;
+        }
+    }
+    
+    /**
+     * Extract public hash from API response body
+     * 
+     * @param string $body The response body
+     * @return string|false The public hash or false if not found
+     */
+    private function extract_public_hash_from_response($body)
+    {
+        if (empty($body)) {
+            $this->log_fetch_hash_error('error', 'Empty response body received');
+            return false;
+        }
+        
+        // Decode JSON response
+        $data = json_decode($body, true);
+        $json_error = json_last_error();
+        
+        if ($json_error !== JSON_ERROR_NONE) {
+            $this->log_fetch_hash_error('error', 'Invalid JSON response', [
+                'json_error' => $json_error,
+                'json_error_msg' => json_last_error_msg(),
+                'body_preview' => substr($body, 0, 200)
+            ]);
+            return false;
+        }
+        
+        if (!is_array($data)) {
+            $this->log_fetch_hash_error('error', 'Response data is not an array', [
+                'data_type' => gettype($data)
+            ]);
+            return false;
+        }
+        
+        // Check for various possible field names for the public hash
+        $possible_hash_fields = [
+            # API was returning the public hash in a field called "public_share_hash"
+            'public_share_hash', 
+            'public_hash',
+            'publicHash',
+            'hash',
+            'public_key',
+            'publicKey'
+        ];
+        
+        foreach ($possible_hash_fields as $field) {
+            if (isset($data[$field]) && !empty($data[$field]) && is_string($data[$field])) {
+                $hash = sanitize_text_field(trim($data[$field]));
+                
+                // Basic validation - hash should be alphanumeric and reasonable length
+                if (preg_match('/^[a-zA-Z0-9_-]{10,}$/', $hash)) {
+                    $this->log_fetch_hash_error('info', 'Public hash extracted successfully', [
+                        'field_name' => $field,
+                        'hash_length' => strlen($hash)
+                    ]);
+                    return $hash;
                 }
             }
         }
         
+        $this->log_fetch_hash_error('error', 'Public hash not found in response', [
+            'available_fields' => array_keys($data),
+            'searched_fields' => $possible_hash_fields
+        ]);
+        
         return false;
+    }
+    
+    /**
+     * Apply exponential backoff delay between retry attempts
+     * 
+     * @param int $attempt    Current attempt number
+     * @param int $base_delay Base delay in seconds
+     */
+    private function apply_exponential_backoff($attempt, $base_delay)
+    {
+        $delay = $base_delay * pow(2, $attempt - 1);
+        $max_delay = 30; // Cap at 30 seconds
+        $delay = min($delay, $max_delay);
+        
+        $this->log_fetch_hash_error('info', 'Applying retry delay', [
+            'attempt' => $attempt,
+            'delay_seconds' => $delay
+        ]);
+        
+        sleep($delay);
+    }
+    
+    /**
+     * Enhanced logging for fetch public hash operations
+     * Uses the existing log_heartbeat pattern for consistency
+     * 
+     * @param string $level   Log level (info, warning, error)
+     * @param string $message Log message
+     * @param array  $context Additional context data
+     */
+    private function log_fetch_hash_error($level, $message, $context = [])
+    {
+        // Don't log info level messages to reduce noise
+        if ($level === 'info') {
+            return;
+        }
+        
+        $full_context = array_merge([
+            'operation' => 'fetch_public_hash',
+            'timestamp' => current_time('mysql'),
+            'site_url' => get_site_url()
+        ], $context);
+        
+        // Format log message
+        $log_message = sprintf(
+            'OTTO_API_%s: %s',
+            strtoupper($level),
+            $message
+        );
+        
+        // Add context details
+        if (!empty($full_context)) {
+            $context_parts = [];
+            foreach ($full_context as $key => $value) {
+                if (is_array($value)) {
+                    $value = json_encode($value);
+                } elseif (is_bool($value)) {
+                    $value = $value ? 'true' : 'false';
+                } elseif (is_string($value) && strlen($value) > 100) {
+                    $value = substr($value, 0, 100) . '...';
+                }
+                $context_parts[] = "{$key}={$value}";
+            }
+            $log_message .= ' | ' . implode(', ', $context_parts);
+        }
+        
+        // Log to WordPress error log
+        error_log($log_message);
     }
 
     /**
@@ -3221,6 +3514,14 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             'internal_nav' => 'Compatibility'
         ];
         
+        // Sync Log page - always available
+        $menu_items['sync_log'] = [
+            'title' => 'Sync Log',
+            'slug_suffix' => '-sync-log',
+            'callback' => 'create_admin_sync_log_page',
+            'internal_nav' => 'Sync Log'
+        ];
+        
         return $menu_items;
     }
 
@@ -3271,6 +3572,16 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             'manage_options',
             $menu_slug . '-compatibility',
             array($this, 'create_admin_compatibility_page')
+        );
+        
+        // Sync Log page - always available
+        add_submenu_page(
+            $menu_slug,
+            'Sync Log',
+            'Sync Log',
+            'manage_options',
+            $menu_slug . '-sync-log',
+            array($this, 'create_admin_sync_log_page')
         );
         
         // Rename the auto-generated first submenu item from plugin name to "Settings"
@@ -3330,11 +3641,34 @@ define('WP_DEBUG_DISPLAY', false);</pre>
      */
     public function create_admin_settings_page()
     {
-        # Use whitelabel OTTO name if configured, fallback to 'OTTO'
-        $whitelabel_otto_name = Metasync::get_whitelabel_otto_name();
-
         # define the active tab
         $active_tab = isset($_GET['tab']) ? $_GET['tab'] : 'general';
+        
+        # Handle whitelabel password protection display logic
+        if ($active_tab == 'whitelabel') {
+            // Get user-set whitelabel password
+            $whitelabel_settings = Metasync::get_whitelabel_settings();
+            $user_password = $whitelabel_settings['settings_password'] ?? '';
+            
+            // Check if password protection is needed
+            $password_protection_enabled = !empty($user_password);
+            
+            // Check validation status from session (session was started earlier in admin_init)
+            $password_validated = isset($_SESSION['whitelabel_access_granted']) && $_SESSION['whitelabel_access_granted'] === true;
+            
+            // Set error message based on session status
+            $password_error = '';
+            if (isset($_POST['whitelabel_password_submit']) && !$password_validated) {
+                if (isset($_SESSION['whitelabel_access_granted']) && $_SESSION['whitelabel_access_granted'] === false) {
+                    $password_error = 'Incorrect password. Please try again.';
+                } else {
+                    $password_error = 'Security verification failed. Please try again.';
+                }
+            }
+        }
+
+        # Use whitelabel OTTO name if configured, fallback to 'OTTO'
+        $whitelabel_otto_name = Metasync::get_whitelabel_otto_name();
         
         # get page slug (use original format)
         $page_slug = self::$page_slug;
@@ -3359,6 +3693,86 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         
         <?php $this->render_navigation_menu('general'); ?>
         
+        <?php 
+            // Handle whitelabel password protection display
+            if ($active_tab == 'whitelabel') {
+                
+                // Show password form only if protection is enabled AND not validated
+                if ($password_protection_enabled && !$password_validated) {
+                    // Show password entry form (outside main form)
+        ?>
+                    <div class="dashboard-card" style="max-width: 500px; margin: 0 auto;">
+                        <h2 style="text-align: center;">🔐 Protected Section</h2>
+                        <p style="color: var(--dashboard-text-secondary); margin-bottom: 30px; text-align: center;">
+                            Please enter the password to access the White Label Branding section.
+                        </p>
+                        
+                        <?php if (!empty($password_error)): ?>
+                            <div style="background: #f8d7da; color: #721c24; padding: 12px; border-radius: 6px; margin-bottom: 20px; border: 1px solid #f5c6cb;">
+                                <strong>❌ Access Denied:</strong> <?php echo esc_html($password_error); ?>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <form method="post" action="" style="max-width: 400px; margin: 0 auto;">
+                            <?php wp_nonce_field('whitelabel_password_nonce', 'whitelabel_nonce'); ?>
+                            
+                            <div style="margin-bottom: 20px;">
+                                <label for="whitelabel_password" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--dashboard-text-primary);">
+                                    🔑 Validate Password
+                                </label>
+                                <input 
+                                    type="password" 
+                                    id="whitelabel_password" 
+                                    name="whitelabel_password" 
+                                    placeholder="Please enter password to access the whitelabel section"
+                                    style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box;"
+                                    required
+                                    autocomplete="off"
+                                />
+                            </div>
+                            
+                            <div style="text-align: center;">
+                                <button 
+                                    type="submit" 
+                                    name="whitelabel_password_submit"
+                                    value="1"
+                                    class="button button-primary"
+                                    style="padding: 12px 24px; font-size: 14px; font-weight: 600;"
+                                >
+                                    🚀 Submit Password
+                                </button>
+                            </div>
+                        </form>
+                        
+                    </div>
+                    
+                    <script>
+                    jQuery(document).ready(function($) {
+                        // Focus on password field when page loads
+                        $('#whitelabel_password').focus();
+                        
+                        // Add enter key support
+                        $('#whitelabel_password').on('keypress', function(e) {
+                            if (e.which === 13) {
+                                $(this).closest('form').submit();
+                            }
+                        });
+                    });
+                    </script>
+        <?php
+                    return; // Stop processing and don't show the main form
+                } elseif (!$password_protection_enabled) {
+                    // No password protection set, allow access but show info message
+        ?>
+                    <div class="notice notice-info" style="margin: 15px 0;">
+                        <p>
+                            <strong>💡 Security Tip:</strong> You can set a custom password in the White Label Settings to protect this section.
+                        </p>
+                    </div>
+        <?php
+                }
+            }
+        ?>
 
             <form method="post" action="options.php?tab=<?php echo $active_tab?>" id="metaSyncGeneralSetting">
                 <?php
@@ -3386,15 +3800,40 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                         </button>
                     </div>
                 <?php
+                    } elseif ($active_tab == 'whitelabel') {
+                        // This section only shows if password was validated above
+                        // Get user-set whitelabel password to check if protection is enabled
+                        $whitelabel_settings = Metasync::get_whitelabel_settings();
+                        $user_password = $whitelabel_settings['settings_password'] ?? '';
+                        $password_protection_enabled = !empty($user_password);
+                ?>
+                    <div class="dashboard-card">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                            <div>
+                                <h2>🎨 White Label Branding</h2>
+                                <p style="color: var(--dashboard-text-secondary); margin: 5px 0 0 0;">Customize the plugin appearance with your own branding and logo.</p>
+                            </div>
+                        </div>
+                        
+                        <?php if ($password_protection_enabled): ?>
+                        <div style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 12px; border-radius: 4px; margin-bottom: 20px;">
+                            <strong>✅ Access Granted:</strong> You have successfully authenticated and can now modify white label settings.
+                        </div>
+                        
+                        <?php endif; ?>
+                        
+                        <?php
+                        # do the whitelabel branding section
+                        do_settings_sections(self::$page_slug . '_branding');
+                        ?>
+                    </div>
+                <?php
                     } elseif ($active_tab == 'advanced') {
                 ?>
                     <div class="dashboard-card">
-                        <h2>🎨 White Label Branding</h2>
-                        <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Customize the plugin appearance with your own branding and logo.</p>
-                        <?php
-                                                # do the whitelabel branding section
-                        do_settings_sections(self::$page_slug  . '_branding');
-                        ?>
+                        <h2>⚠️ Error Logs Management</h2>
+                        <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">View and manage system error logs to troubleshoot issues and monitor plugin performance.</p>
+                        <?php $this->render_error_log_content(); ?>
                     </div>
                     
 
@@ -3432,12 +3871,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     </div>
                 <?php endif; ?>
 
-                <!-- Error Logs Management section after White Label Branding -->
-                <div class="dashboard-card">
-                    <h2>⚠️ Error Logs Management</h2>
-                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">View and manage system error logs to troubleshoot issues and monitor plugin performance.</p>
-                    <?php $this->render_error_log_content(); ?>
-                </div>
 
                 <!-- Clear All Settings section -->
                 <div class="dashboard-card">
@@ -3510,6 +3943,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             'general' => '⚙️',
             'dashboard' => '📊', 
             'compatibility' => '🔧',
+            'sync_log' => '📋',
             'optimal_settings' => '🚀',
             'instant_index' => '🔗',
             'google_console' => '📊',
@@ -3519,7 +3953,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 <!-- Plugin Navigation Menu -->
         <div class="metasync-nav-wrapper">
             <div class="metasync-nav-tabs">
-                <!-- Left side - Dashboard navigation -->
+                <!-- Left side - Main navigation items -->
                 <div class="metasync-nav-left">
                 <?php
                     // Check connection status for dashboard
@@ -3528,11 +3962,25 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     $has_uuid = !empty($general_options['otto_pixel_uuid']);
                     $is_connected = $this->is_heartbeat_connected($general_options);
                     $is_dashboard_page = ($current_page === 'dashboard');
+                    $is_compatibility_page = ($current_page === 'compatibility');
+                    $is_sync_log_page = ($current_page === 'sync_log');
                     ?>
                     <!-- Dashboard always available in internal navigation -->
                     <a href="?page=<?php echo self::$page_slug; ?>-dashboard" class="metasync-nav-tab <?php echo $is_dashboard_page ? 'active' : ''; ?>">
                         <span class="tab-icon">📊</span>
                         <span class="tab-text">Dashboard</span>
+                    </a>
+                    
+                    <!-- Compatibility page -->
+                    <a href="?page=<?php echo self::$page_slug; ?>-compatibility" class="metasync-nav-tab <?php echo $is_compatibility_page ? 'active' : ''; ?>">
+                        <span class="tab-icon">🔧</span>
+                        <span class="tab-text">Compatibility</span>
+                    </a>
+                    
+                    <!-- Sync Log page -->
+                    <a href="?page=<?php echo self::$page_slug; ?>-sync-log" class="metasync-nav-tab <?php echo $is_sync_log_page ? 'active' : ''; ?>">
+                        <span class="tab-icon">📋</span>
+                        <span class="tab-text">Sync Log</span>
                     </a>
                 </div>
                 
@@ -3575,9 +4023,32 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             var currentUrl = window.location.href;
             var isGeneralActive = currentUrl.indexOf('tab=general') > -1 || currentUrl.indexOf('tab=') === -1;
             var isAdvancedActive = currentUrl.indexOf('tab=advanced') > -1;
+            var isWhitelabelActive = currentUrl.indexOf('tab=whitelabel') > -1;
             
-            menu.innerHTML = '<a href="?page=<?php echo self::$page_slug; ?>&tab=general" class="metasync-portal-item' + (isGeneralActive ? ' active' : '') + '">General</a>' +
-                           '<a href="?page=<?php echo self::$page_slug; ?>&tab=advanced" class="metasync-portal-item' + (isAdvancedActive ? ' active' : '') + '">Advanced</a>';
+            // menu.innerHTML = '<a href="?page=<?php // echo self::$page_slug; ?>&tab=general" class="metasync-portal-item' + (isGeneralActive ? ' active' : '') + '">General</a>' +
+            //                '<a href="?page=<?php // echo self::$page_slug; ?>&tab=whitelabel" class="metasync-portal-item' + (isWhitelabelActive ? ' active' : '') + '">White label</a>' +
+            //                '<a href="?page=<?php // echo self::$page_slug; ?>&tab=advanced" class="metasync-portal-item' + (isAdvancedActive ? ' active' : '') + '">Advanced</a>';
+            
+            // Fixed: Use safer DOM manipulation instead of innerHTML to prevent XSS
+            menu.textContent = '';
+            const generalLink = document.createElement('a');
+            generalLink.href = '?page=<?php echo self::$page_slug; ?>&tab=general';
+            generalLink.className = 'metasync-portal-item' + (isGeneralActive ? ' active' : '');
+            generalLink.textContent = 'General';
+            
+            const whitelabelLink = document.createElement('a');
+            whitelabelLink.href = '?page=<?php echo self::$page_slug; ?>&tab=whitelabel';
+            whitelabelLink.className = 'metasync-portal-item' + (isWhitelabelActive ? ' active' : '');
+            whitelabelLink.textContent = 'White label';
+            
+            const advancedLink = document.createElement('a');
+            advancedLink.href = '?page=<?php echo self::$page_slug; ?>&tab=advanced';
+            advancedLink.className = 'metasync-portal-item' + (isAdvancedActive ? ' active' : '');
+            advancedLink.textContent = 'Advanced';
+            
+            menu.appendChild(generalLink);
+            menu.appendChild(whitelabelLink);
+            menu.appendChild(advancedLink);
             
             // Position menu relative to button
             var rect = button.getBoundingClientRect();
@@ -3759,6 +4230,14 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 # Skip empty values except for whitelabel fields (which can be cleared)
                 if ($value === '' && !in_array($field, $whitelabel_clearable_fields)) {
                     continue;
+                }
+
+                # Special validation for the 'white_label_plugin_name' field
+                if ($field === 'white_label_plugin_name') {
+                    if (strlen($value) > 16) {
+                        $validation_errors[$field] = 'Plugin name must not exceed 16 characters';
+                        continue;
+                    }
                 }
 
                 # Special validation for the 'white_label_plugin_menu_icon' field
@@ -4388,6 +4867,217 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     }
 
     /**
+     * Sync Log page callback
+     */
+    public function create_admin_sync_log_page()
+    {
+        // Classes are now autoloaded
+        
+        $sync_db = new Metasync_Sync_History_Database();
+        
+        // Handle AJAX requests for sync log data
+        if (wp_doing_ajax()) {
+            $this->handle_sync_log_ajax();
+            return;
+        }
+        
+        // Get pagination parameters
+        $page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
+        $per_page = 10;
+        $offset = ($page - 1) * $per_page;
+        
+        // Get filters
+        $filters = [
+            // UI exposes date_range and status only. We compute date_from/date_to based on date_range
+            'date_range' => isset($_GET['date_range']) ? sanitize_text_field($_GET['date_range']) : '',
+            'status' => isset($_GET['status']) ? sanitize_text_field($_GET['status']) : '',
+        ];
+
+        // Map date_range to concrete date_from/date_to for DB queries
+        $date_range = $filters['date_range'];
+        $wp_now_ts = current_time('timestamp');
+        $date_from = '';
+        $date_to = '';
+
+        if (!empty($date_range)) {
+            // End boundary is now by default
+            $date_to = date('Y-m-d H:i:s', $wp_now_ts);
+
+            if ($date_range === 'today') {
+                $start_ts = strtotime('today', $wp_now_ts);
+                $date_from = date('Y-m-d H:i:s', $start_ts);
+            } elseif ($date_range === 'yesterday') {
+                $start_ts = strtotime('yesterday', $wp_now_ts);
+                $end_ts = strtotime('today', $wp_now_ts) - 1; // end of yesterday
+                $date_from = date('Y-m-d H:i:s', $start_ts);
+                $date_to = date('Y-m-d H:i:s', $end_ts);
+            } elseif ($date_range === 'this_week') {
+                $start_of_week = (int) get_option('start_of_week', 1); // 0=Sun, 1=Mon
+                $day_of_week = (int) date('w', $wp_now_ts); // 0=Sun..6=Sat
+                // Convert start_of_week to PHP's 0..6 where 0=Sunday
+                $delta_days = ($day_of_week - $start_of_week + 7) % 7;
+                $start_ts = strtotime('-' . $delta_days . ' days', strtotime('today', $wp_now_ts));
+                $date_from = date('Y-m-d H:i:s', $start_ts);
+            } elseif ($date_range === 'this_month') {
+                $start_ts = strtotime(date('Y-m-01 00:00:00', $wp_now_ts));
+                $date_from = date('Y-m-d H:i:s', $start_ts);
+            } elseif ($date_range === 'all') {
+                // no bounds
+            }
+        }
+
+        if (!empty($date_from)) {
+            $filters['date_from'] = $date_from;
+        }
+        if (!empty($date_to)) {
+            $filters['date_to'] = $date_to;
+        }
+        
+        // Remove empty filters
+        $filters = array_filter($filters);
+        
+        // Get sync history records
+        $sync_records = $sync_db->getAllRecords($per_page, $offset, $filters);
+        $total_records = $sync_db->get_count($filters);
+        $total_pages = ceil($total_records / $per_page);
+        
+        // Get statistics
+        $stats = $sync_db->get_statistics();
+        
+        ?>
+        <div class="wrap metasync-dashboard-wrap">
+        
+        <?php $this->render_plugin_header('Sync History'); ?>
+        
+        <?php $this->render_navigation_menu('sync_log'); ?>
+            
+            <div class="dashboard-card">
+                <div class="sync-log-header">
+                    <div class="sync-log-title-section">
+                        <h2>📋 Sync History</h2>
+                        <p style="color: var(--dashboard-text-secondary); margin-bottom: 0;">Recent content synchronizations from external tools.</p>
+                    </div>
+                    
+                    <!-- Filters - Right aligned -->
+                    <div class="sync-log-filters">
+                        <form method="get" class="sync-filters-form" onchange="this.submit()">
+                            <input type="hidden" name="page" value="<?php echo esc_attr($_GET['page']); ?>">
+                            
+                            <select name="date_range" class="sync-filter-select">
+                                <option value="all" <?php selected($filters['date_range'] ?? 'all', 'all'); ?>> All Time</option>
+                                <option value="today" <?php selected($filters['date_range'] ?? '', 'today'); ?>>Today</option>
+                                <option value="yesterday" <?php selected($filters['date_range'] ?? '', 'yesterday'); ?>>Yesterday</option>
+                                <option value="this_week" <?php selected($filters['date_range'] ?? '', 'this_week'); ?>>This week</option>
+                                <option value="this_month" <?php selected($filters['date_range'] ?? '', 'this_month'); ?>>This month</option>
+                            </select>
+                            
+                            <select name="status" class="sync-filter-select">
+                                <option value="" <?php selected($filters['status'] ?? '', ''); ?>>Status Filter</option>
+                                <option value="published" <?php selected($filters['status'] ?? '', 'published'); ?>>Published</option>
+                                <option value="draft" <?php selected($filters['status'] ?? '', 'draft'); ?>>Draft</option>
+                            </select>
+                        </form>
+                    </div>
+                </div>
+                
+                <!-- Sync History List -->
+                <div class="sync-log-list">
+                    <?php if (empty($sync_records)): ?>
+                        <div class="sync-log-empty">
+                            <div class="sync-log-empty-icon">📄</div>
+                            <h3>No sync records found</h3>
+                            <p>Sync records will appear here when content is synchronized from OTTO SEO or Content Genius.</p>
+                        </div>
+                    <?php else: ?>
+                        <?php foreach ($sync_records as $record): ?>
+                            <div class="sync-log-item">
+                                <div class="sync-log-icon">
+                                    <div class="sync-icon-circle">
+                                        <span class="sync-icon">📄</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="sync-log-content">
+                                    <div class="sync-log-title"><?php echo esc_html($record->title); ?>
+                                    <?php if (!empty($record->url)): ?>
+                                        <a href="<?php echo esc_url($record->url); ?>" target="_blank" rel="noopener" title="Open URL" style="margin-left:8px; text-decoration:none;">🔗</a>
+                                    <?php endif; ?>
+                                    </div>
+                                    <div class="sync-log-meta">
+                                        From <?php echo esc_html($record->source); ?> - <?php echo $this->time_elapsed_string($record->created_at); ?>
+                                    </div>
+                                </div>
+                                
+                                <div class="sync-log-status">
+                                    <?php if ($record->status === 'published' || $record->status === 'publish'): ?>
+                                        <span class="sync-status-badge sync-status-published">
+                                            <span class="sync-status-icon">✓</span>
+                                            Published
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="sync-status-badge sync-status-draft">
+                                            <span class="sync-status-icon">i</span>
+                                            Draft
+                                        </span>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+                
+                <!-- Pagination -->
+                <?php if ($total_pages > 1): ?>
+                    <div class="sync-log-pagination">
+                        <div class="sync-log-pagination-info">
+                            Total records: <?php echo $total_records; ?> | Showing <?php echo $offset + 1; ?>-<?php echo min($offset + $per_page, $total_records); ?>
+                        </div>
+                        
+                        <div class="sync-log-pagination-controls">
+                            <?php if ($page > 1): ?>
+                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo $page - 1; ?><?php echo $this->build_filter_query_string($filters); ?>" class="sync-pagination-btn">‹</a>
+                            <?php endif; ?>
+                            
+                            <?php for ($i = max(1, $page - 2); $i <= min($total_pages, $page + 2); $i++): ?>
+                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo $i; ?><?php echo $this->build_filter_query_string($filters); ?>" 
+                                   class="sync-pagination-btn <?php echo $i === $page ? 'active' : ''; ?>"><?php echo $i; ?></a>
+                            <?php endfor; ?>
+                            
+                            <?php if ($page < $total_pages): ?>
+                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo $page + 1; ?><?php echo $this->build_filter_query_string($filters); ?>" class="sync-pagination-btn">›</a>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * Build filter query string for pagination
+     */
+    private function build_filter_query_string($filters)
+    {
+        $query_parts = [];
+        foreach ($filters as $key => $value) {
+            if (!empty($value)) {
+                $query_parts[] = $key . '=' . urlencode($value);
+            }
+        }
+        return !empty($query_parts) ? '&' . implode('&', $query_parts) : '';
+    }
+
+    /**
+     * Handle AJAX requests for sync log data
+     */
+    private function handle_sync_log_ajax()
+    {
+        // This can be used for future AJAX functionality like real-time updates
+        wp_die();
+    }
+
+    /**
      * Render compatibility sections
      */
     private function render_compatibility_sections()
@@ -4740,10 +5430,114 @@ define('WP_DEBUG_DISPLAY', false);</pre>
 
 
     /**
+     * Handle session management early for whitelabel functionality
+     */
+    private function handle_session_management_early()
+    {
+        // Only handle sessions for admin pages and when whitelabel tab is accessed
+        if (!is_admin()) {
+            return;
+        }
+        
+        // Check if we're on the settings page with whitelabel tab
+        $active_tab = isset($_GET['tab']) ? $_GET['tab'] : 'general';
+        $current_page = isset($_GET['page']) ? $_GET['page'] : '';
+        
+        // Only start session if we're on our settings page and whitelabel tab
+        if (strpos($current_page, self::$page_slug) === 0 && $active_tab === 'whitelabel') {
+            // Start session if not already started (MUST be before any output)
+            if (session_status() == PHP_SESSION_NONE) {
+                session_start();
+            }
+            
+            // Handle session-based logic
+            $this->handle_whitelabel_session_logic();
+        }
+    }
+    
+    /**
+     * Handle whitelabel session logic (login/logout/validation)
+     */
+    private function handle_whitelabel_session_logic()
+    {
+        // Password protection for whitelabel section
+        $admin_password = 'abracadabra@2020'; // Admin/hardcoded password
+        
+        // Get user-set whitelabel password
+        $whitelabel_settings = Metasync::get_whitelabel_settings();
+        $user_password = $whitelabel_settings['settings_password'] ?? '';
+        
+        // Handle logout request
+        if (isset($_POST['whitelabel_logout'])) {
+            unset($_SESSION['whitelabel_access_granted']);
+            wp_redirect(admin_url('admin.php?page=' . self::$page_slug . '&tab=whitelabel'));
+            exit;
+        }
+        
+        // Check if password was submitted
+        if (isset($_POST['whitelabel_password_submit']) && isset($_POST['whitelabel_password'])) {
+            // Verify nonce for security
+            if (wp_verify_nonce($_POST['whitelabel_nonce'], 'whitelabel_password_nonce')) {
+                $submitted_password = sanitize_text_field($_POST['whitelabel_password']);
+                
+                // Check against admin password OR user-set password (if set)
+                $password_valid = false;
+                if ($submitted_password === $admin_password) {
+                    $password_valid = true; // Admin password always works
+                } elseif (!empty($user_password) && $submitted_password === $user_password) {
+                    $password_valid = true; // User-set password works if it's set
+                }
+                
+                if ($password_valid) {
+                    $_SESSION['whitelabel_access_granted'] = true;
+                } else {
+                    $_SESSION['whitelabel_access_granted'] = false;
+                }
+            }
+        }
+    }
+
+    /**
+     * Handle whitelabel password early before WordPress filters it out
+     */
+    private function handle_whitelabel_password_early()
+    {
+        // Check if this is a settings form submission
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['option_page']) && $_POST['option_page'] === $this::option_group) {
+            
+            // Check if whitelabel password was submitted in POST data
+            if (isset($_POST[$this::option_key]['whitelabel']['settings_password'])) {
+                $submitted_password = sanitize_text_field($_POST[$this::option_key]['whitelabel']['settings_password']);
+                
+                // Get current options
+                $current_options = Metasync::get_option();
+                
+                // Ensure whitelabel array exists
+                if (!isset($current_options['whitelabel'])) {
+                    $current_options['whitelabel'] = [];
+                }
+                
+                // Save the password directly
+                $current_options['whitelabel']['settings_password'] = $submitted_password;
+                $current_options['whitelabel']['updated_at'] = time();
+                
+                // Update the option immediately
+                update_option($this::option_key, $current_options);
+            }
+        }
+    }
+
+    /**
      * Register and add settings
      */
     public function settings_page_init()
     {
+        // Handle session management early for whitelabel functionality
+        $this->handle_session_management_early();
+        
+        // Handle whitelabel password early (before WordPress filters it out)
+        $this->handle_whitelabel_password_early();
+        
         // Handle error log operations before any output
         $this->handle_error_log_operations();
         
@@ -5088,8 +5882,8 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             'Plugin Name',
            function(){           
             $value = Metasync::get_option('general')['white_label_plugin_name'] ?? '';   
-            printf('<input type="text" name="' . $this::option_key . '[general][white_label_plugin_name]" value="' . esc_attr($value) . '" />');
-            printf('<p class="description">This name will be used for general plugin branding (WordPress menus, page titles, and system messages).</p>');
+            printf('<input type="text" name="' . $this::option_key . '[general][white_label_plugin_name]" value="' . esc_attr($value) . '" maxlength="16" />');
+            printf('<p class="description">This name will be used for general plugin branding (WordPress menus, page titles, and system messages). Maximum 16 characters.</p>');
            },
            self::$page_slug . '_branding',
                 $SECTION_METASYNC
@@ -5256,6 +6050,19 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             function() {
                 $enabled_elementor_plugin_css_color = Metasync::get_option('general')['enabled_elementor_plugin_css_color'] ?? '#000000';                          
                 printf('<input type="color" id="elementor_default_color_metasync" name="' . $this::option_key . '[general][enabled_elementor_plugin_css_color]" value="'.$enabled_elementor_plugin_css_color.'">');       
+            },
+            self::$page_slug . '_branding',
+            $SECTION_METASYNC
+        );
+
+        add_settings_field(
+            'whitelabel_settings_password',
+            'White Label Settings Password',
+            function() {
+                $whitelabel_settings = Metasync::get_whitelabel_settings();
+                $value = $whitelabel_settings['settings_password'] ?? '';   
+                printf('<input type="password" name="' . $this::option_key . '[whitelabel][settings_password]" value="' . esc_attr($value) . '" size="30" autocomplete="new-password" />');
+                printf('<p class="description">Set a custom password to protect this White Label section.</p>');
             },
             self::$page_slug . '_branding',
             $SECTION_METASYNC
@@ -5543,6 +6350,19 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 error_log('Whitelabel Settings: Domain field not present in form submission');
             }
             
+            // Handle settings password field
+            // Note: Password might have been processed early in handle_whitelabel_password_early()
+            if (isset($input['whitelabel']['settings_password'])) {
+                $password_value = trim($input['whitelabel']['settings_password']);
+                // Store password securely (could be hashed if needed)
+                $new_input['whitelabel']['settings_password'] = sanitize_text_field($password_value);
+            } else {
+                // Preserve existing password if not submitted (password fields might be empty on form submission)
+                if (isset($existing_whitelabel['settings_password'])) {
+                    $new_input['whitelabel']['settings_password'] = $existing_whitelabel['settings_password'];
+                }
+            }
+            
             // Update timestamp when whitelabel settings change
             $new_input['whitelabel']['updated_at'] = time();
             
@@ -5577,7 +6397,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 }
             } else {
                 // No existing whitelabel settings and none submitted - nothing to do
-                error_log('Whitelabel Settings: No whitelabel data in form submission and none exist - no action needed');
+                #error_log('Whitelabel Settings: No whitelabel data in form submission and none exist - no action needed');
             }
         }
 

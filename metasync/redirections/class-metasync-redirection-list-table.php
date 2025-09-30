@@ -76,9 +76,11 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 			case 'hits_count':
 			case 'status':
 			case 'last_accessed_at':
-				return $item[$column_name];
+				# return $item[$column_name];
+				return esc_html($item[$column_name]); # Fixed: Added esc_html() to prevent XSS
 			default:
-				return print_r($item, true); // Show the whole array for troubleshooting purposes.
+				# return print_r($item, true); // Show the whole array for troubleshooting purposes.
+				return esc_html(print_r($item, true)); # Fixed: Added esc_html() to prevent XSS in debug output
 		}
 	}
 
@@ -270,11 +272,13 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 			echo sprintf(
 				'<a href="%1$s" target="_blank">%2$s</a>',
 				esc_url(site_url() . '/' . $source_name),
-				_x($source_name, 'List table row action', 'metasync-table-redirections')
+				# _x($source_name, 'List table row action', 'metasync-table-redirections')
+				esc_html(_x($source_name, 'List table row action', 'metasync-table-redirections')) # Fixed: Added esc_html() to prevent XSS
 			);
 			echo sprintf(
 				'<span>%1$s</span>',
-				' [' . $source_type . ']'
+				# ' [' . $source_type . ']'
+				' [' . esc_html($source_type) . ']' # Fixed: Added esc_html() to prevent XSS
 			);
 			echo "<br>";
 		}

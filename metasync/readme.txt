@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.5.4
+Stable tag: 2.5.5
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,15 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.5.5 =
+* **Performance**: Significant improvement to dashboard loading speed.
+* **White Label**:
+  * New dedicated White Label settings screen (Settings\>White Label).
+  * Added password protection for White Label settings.
+* **Logging**: Introduced Sync Logs to display implemented website changes.
+* **Fixes & UX**: Minor UX adjustments and a fix for a false positive XSS issue in unused code.
+* **System**: Minor OTTO system optimizations to reduce disk space and memory usage.
+
 = 2.5.4 =
 * HotFix: In some cases, the **error log** was becoming too large, causing host performance to slow down.
 

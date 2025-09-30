@@ -54,13 +54,24 @@ class Metasync_Sync_Requests
 
         # introducing a last call time
         # making sure requests are at least 5 min apart if hb
-        if(isset($_POST['is_heart_beat']) AND $_POST['is_heart_beat'] == true){
+        $is_heartbeat = isset($_POST['is_heart_beat']) && $_POST['is_heart_beat'] == true;
+        
+
+        if($is_heartbeat){
             
             # chec that we have a 5 min gap
             if(($last_hb_request_time + (60*5)) > time()){
-
-                error_log('Metasync Enforcing 5 min gap');
-                return false;
+                $remaining_time = ($last_hb_request_time + (60*5)) - time();
+                $remaining_minutes = ceil($remaining_time / 60);
+                
+                // Return a special error object for throttling
+                return (object) [
+                    'error' => 'throttled',
+                    'message' => 'Please make another request after ' . $remaining_minutes . ' minutes',
+                    'remaining_minutes' => $remaining_minutes,
+                    'last_request_time' => $last_hb_request_time,
+                    'throttled' => true
+                ];
             }
 
             # set the last heart beat request time

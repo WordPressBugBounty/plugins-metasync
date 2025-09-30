@@ -189,7 +189,7 @@ class Metasync_Public
 		// Example API call using wp_remote_get()
 		
 	
-		if (is_wp_error($response)) {
+		if (is_wp_error($header_html)) {
 			wp_send_json_error('API call failed');
 		} else {
 			wp_send_json_success(json_decode($header_html, true));
@@ -230,15 +230,22 @@ class Metasync_Public
 			}
 		}
 	
-		// Get the saved HTML from post meta
-		$header_html = get_post_meta($post_id, '_otto_header_html', true);
-	
-		// Display the HTML
-		if ($header_html) {
-			echo "<!-- Otto Start -->";
-			echo $header_html;
-			echo "<!-- Otto End -->";
-		}
+	// Get the saved HTML from post meta
+	$header_html = get_post_meta($post_id, '_otto_header_html', true);
+
+	// Display the HTML with security measures
+	if ($header_html) {
+		echo "<!-- Otto Start -->";
+		// SECURITY FIX: Sanitize HTML to prevent XSS while allowing safe HTML
+		echo wp_kses($header_html, array(
+			'style' => array(),
+			'link' => array('rel' => array(), 'href' => array(), 'type' => array()),
+			'meta' => array('name' => array(), 'content' => array(), 'property' => array()),
+			'script' => array('type' => array(), 'src' => array()),
+			// Add other safe tags as needed
+		));
+		echo "<!-- Otto End -->";
+	}
 	}
 
 	public function metasync_plugin_init()
@@ -256,22 +263,30 @@ class Metasync_Public
 		// add_shortcode('markdown', 'metasync_markdown');
 
 
-		function metasync_accordion($atts, $content = "")
-		{
-			$block = "<div class=\"metasync-accordion-block\">
-				<button class=\"metasync-accordion\">{$atts['title']}</button>
-				<div class=\"metasync-panel\">$content</div>
-				</div>";
-			return $block;
-		}
+	function metasync_accordion($atts, $content = "")
+	{
+		// SECURITY FIX: Properly escape shortcode attributes
+		$title = isset($atts['title']) ? esc_html($atts['title']) : '';
+		$safe_content = wp_kses_post($content);
+		
+		$block = "<div class=\"metasync-accordion-block\">
+			<button class=\"metasync-accordion\">{$title}</button>
+			<div class=\"metasync-panel\">{$safe_content}</div>
+			</div>";
+		return $block;
+	}
 	}
 
 	public function rest_authorization_middleware()
 	{
-		$get_data = sanitize_post($_GET);
+		# $get_data = sanitize_post($_GET);
+
+		# mailchamp causing fatal error if sanitize_post used
+		$get_data = array_map('sanitize_text_field', $_GET);
 		if (!isset($get_data['apikey']))
 			return false;
-		$apiKey = sanitize_text_field($get_data['apikey']) ?? null;
+		# $apiKey = sanitize_text_field($get_data['apikey']) ?? null;
+		$apiKey = $get_data['apikey'] ?? null;
 
 		$getOptions = Metasync::get_option('general');
 		$getApiKeyFromSettings = $getOptions['apikey'] ?? null;
@@ -1179,7 +1194,10 @@ class Metasync_Public
 		if(!$divi_active && $enabled_plugin_editor=='divi'){
 			$enabled_plugin_editor='';
 		}
-		if($enabled_plugin_editor!=='elementor' || $enabled_plugin_editor!=='elementor'){
+
+		# fix to avoid downloading images twice for gutenberg
+		# if($enabled_plugin_editor!=='elementor' || $enabled_plugin_editor!=='elementor'){
+		if($enabled_plugin_editor!=='elementor' && $enabled_plugin_editor!=='gutenberg'){
 			foreach ($images as $image) {
 				$src_url = $image->getAttribute('src');
 				// if ($this->common->allowedDownloadSources($src_url) === true) {
@@ -1610,6 +1628,30 @@ class Metasync_Public
 			$new_post['permalink'] = $permalink;
 			$new_post['hero_image_url'] = wp_get_attachment_url($attachment_id);
 			$new_post['hero_image_alt_text'] = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
+
+			# Log sync history for Content Genius post creation/update
+			if (!is_wp_error($post_id) && $post_id > 0) {
+				$action = ($getPostID_byURL === NULL) ? 'Created' : 'Updated';
+				$title_preview = mb_strlen($new_post['post_title']) > 30 ? mb_substr($new_post['post_title'], 0, 30) . '...' : $new_post['post_title'];
+				
+				# Use appropriate title based on post type
+				$content_type_label = ($new_post['post_type'] === 'page') ? 'Page' : 'Post';
+				
+				metasync_log_sync_history([
+					'title' => "{$content_type_label} {$action} ({$title_preview})",
+					'source' => 'Content Genius',
+					'status' => $new_post['post_status'],
+					'content_type' => ucfirst($new_post['post_type']),
+					'url' => $permalink,
+					'meta_data' => json_encode([
+						'post_id' => $post_id,
+						'post_title' => $new_post['post_title'],
+						'post_type' => $new_post['post_type'],
+						'post_status' => $new_post['post_status'],
+						'action' => strtolower($action)
+					])
+				]);
+			}
 
 			$respCreatePosts[$index] = array_merge($new_post, $post_meta);
 			ksort($respCreatePosts[$index]);
@@ -2238,6 +2280,33 @@ class Metasync_Public
 
 				}
             }
+			# Log sync history for Content Genius post update
+			if ($post_id > 0 && !empty($update_params)) {
+				$post_title = $update_params['post_title'] ?? $post_data->post_title ?? 'Untitled';
+				$title_preview = mb_strlen($post_title) > 30 ? mb_substr($post_title, 0, 30) . '...' : $post_title;
+				$post_status = $update_params['post_status'] ?? $post_data->post_status ?? 'draft';
+				$post_type = $post_data->post_type ?? 'post';
+				
+				# Use appropriate title based on post type
+				$content_type_label = ($post_type === 'page') ? 'Page' : 'Post';
+				
+				metasync_log_sync_history([
+					'title' => "{$content_type_label} Updated ({$title_preview})",
+					'source' => 'Content Genius',
+					'status' => $post_status,
+					'content_type' => ucfirst($post_type),
+					'url' => $permalink ?? get_permalink($post_id),
+					'meta_data' => json_encode([
+						'post_id' => $post_id,
+						'post_title' => $post_title,
+						'post_type' => $post_type,
+						'post_status' => $post_status,
+						'action' => 'updated',
+						'updated_fields' => array_keys($update_params)
+					])
+				]);
+			}
+
 			ksort($update_params);
 			$data[] = $update_params;
 		}

@@ -19,14 +19,16 @@ class MetaSync_DBMigration
 	{
 
 		global $wpdb;
-		$collate      = $wpdb->get_charset_collate();
-		$table_schema = [];
+		$collate = $wpdb->get_charset_collate();
+		
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
+		// Create 404 Monitor Table
 		require_once dirname(__FILE__, 2) . '/404-monitor/class-metasync-404-monitor-database.php';
 		$tableName = $wpdb->prefix . Metasync_Error_Monitor_Database::$table_name;
 
 		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $tableName)) != $tableName) {
-			$table_schema[] = "CREATE TABLE {$tableName} (
+			$table_sql = "CREATE TABLE {$tableName} (
 				id BIGINT(20) unsigned NOT NULL AUTO_INCREMENT,
 				uri VARCHAR(255) NOT NULL,
 				date_time DATETIME NOT NULL DEFAULT '0000-00-00 00:00:00',
@@ -36,18 +38,15 @@ class MetaSync_DBMigration
 				KEY uri (uri(191))
 			) $collate;";
 
-			require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-
-			foreach ($table_schema as $table) {
-				dbDelta($table);
-			}
+			dbDelta($table_sql);
 		}
 
+		// Create Redirections Table
 		require_once dirname(__FILE__, 2) . '/redirections/class-metasync-redirection-database.php';
 		$tableNameRedirection = $wpdb->prefix . Metasync_Redirection_Database::$table_name;
 
 		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableNameRedirection)) != $tableNameRedirection) {
-			$table_schema[] = "CREATE TABLE {$tableNameRedirection} (
+			$table_sql = "CREATE TABLE {$tableNameRedirection} (
 				id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
 				sources_from TEXT NOT NULL,
 				url_redirect_to TEXT NOT NULL,
@@ -61,18 +60,15 @@ class MetaSync_DBMigration
 				KEY status (status)
 			) $collate;";
 
-			require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-
-			foreach ($table_schema as $table) {
-				dbDelta($table);
-			}
+			dbDelta($table_sql);
 		}
 
+		// Create HeartBeat Error Monitor Table
 		require_once dirname(__FILE__, 2) . '/heartbeat-error-monitor/class-metasync-heartbeat-error-monitor-database.php';
 		$tableNameHeartBeatErrorMonitor = $wpdb->prefix . Metasync_HeartBeat_Error_Monitor_Database::$table_name;
 
 		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableNameHeartBeatErrorMonitor)) != $tableNameHeartBeatErrorMonitor) {
-			$table_schema[] = "CREATE TABLE {$tableNameHeartBeatErrorMonitor} (
+			$table_sql = "CREATE TABLE {$tableNameHeartBeatErrorMonitor} (
 				id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
 				attribute_name VARCHAR(25) NOT NULL DEFAULT '',
 				object_count VARCHAR(25) NOT NULL DEFAULT '',
@@ -81,11 +77,30 @@ class MetaSync_DBMigration
 				PRIMARY KEY id (id)
 			) $collate;";
 
-			require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+			dbDelta($table_sql);
+		}
 
-			foreach ($table_schema as $table) {
-				dbDelta($table);
-			}
+		// Create Sync History Table
+		require_once dirname(__FILE__, 2) . '/sync-history/class-metasync-sync-history-database.php';
+		$tableNameSyncHistory = $wpdb->prefix . Metasync_Sync_History_Database::$table_name;
+
+		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableNameSyncHistory)) != $tableNameSyncHistory) {
+			$table_sql = "CREATE TABLE {$tableNameSyncHistory} (
+				id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+				title VARCHAR(255) NOT NULL DEFAULT '',
+				source VARCHAR(50) NOT NULL DEFAULT '',
+				status VARCHAR(25) NOT NULL DEFAULT 'draft',
+				content_type VARCHAR(50) NOT NULL DEFAULT '',
+				url TEXT NULL,
+				meta_data TEXT NULL,
+				created_at DATETIME NOT NULL DEFAULT '0000-00-00 00:00:00',
+				PRIMARY KEY id (id),
+				KEY source (source),
+				KEY status (status),
+				KEY created_at (created_at)
+			) $collate;";
+
+			dbDelta($table_sql);
 		}
 	}
 

@@ -66,9 +66,11 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 			case 'object_count':
 			case 'error_description':
 			case 'created_at':
-				return $item[$column_name];
+			#	return $item[$column_name];
+			return esc_html($item[$column_name]); # Fixed: Added esc_html() to prevent XSS
 			default:
-				return print_r($item, true); // Show the whole array for troubleshooting purposes.
+			#	return print_r($item, true); // Show the whole array for troubleshooting purposes.
+			return esc_html(print_r($item, true)); # Fixed: Added esc_html() to prevent XSS in debug output
 		}
 	}
 
@@ -116,7 +118,8 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 		// Return the title contents.
 		return sprintf(
 			'%1$s %2$s',
-			$item['uri'],
+			# $item['uri'],
+			esc_html($item['uri']), // Fixed: Added esc_html() to prevent XSS
 			$this->row_actions($actions)
 		);
 	}

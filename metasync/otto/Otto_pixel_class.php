@@ -28,8 +28,14 @@ Class Metasync_otto_pixel{
         #enforce dirs
         $cache_dir = $this->enforce_dirs();
         
+        # if cache is disabled, return success
+        if($cache_dir === false){
+            return true;
+        }
+
+        $cache_route = rtrim($route, '/');
         # create file path from route
-        $file_name = md5($route).'.html';
+        $file_name = md5($cache_route).'.html';
 
         # create file path
         $file_path = $cache_dir . '/' . $file_name;
@@ -165,8 +171,18 @@ Class Metasync_otto_pixel{
         # enforce cache dir
         $cache_dir = $this->enforce_dirs();
 
+         # Since cache is disabled, always do real-time processing (SSR)
+        if($cache_dir === false){
+            # Cache disabled - process route in real-time (SSR)
+            return $this->o_html->process_route($route, '');
+        }
+
+        # DISABLED: Cache functionality below is preserved but won't be reached since cache is disabled
+
+        $cache_route = rtrim($route, '/');
+
         # get md5 hash of route
-        $file_name = md5($route).'.html';
+        $file_name = md5($cache_route).'.html';
 
         # check the appropriate dir
         if(is_page()){
@@ -216,6 +232,9 @@ Class Metasync_otto_pixel{
     # enforce new caching dirs
     function enforce_dirs(){
 
+        # DISABLED: Cache directory creation temporarily disabled due to client complaints
+        return false;
+
         # dirs
         $dirs = array(
             '/metasync_caches',
@@ -247,6 +266,9 @@ Class Metasync_otto_pixel{
 
         # Define the path for the metasync_caches directory
         $cache_dir = $wp_content_dir . $the_path;
+
+        # DISABLED: Cache directory creation temporarily disabled
+        return false;
 
         # Check if the directory exists
         if (!is_dir($cache_dir)) {
@@ -302,8 +324,8 @@ Class Metasync_otto_pixel{
             return;
         }
 
-        # 
-        $route = rtrim($route, '/');
+        # comment out for fixing pagination issues
+        # $route = rtrim($route, '/');
         
 
         # check if we have the route html

@@ -87,9 +87,7 @@ function metasync_otto_crawl_notify($request){
 
         # ENHANCED: Schedule async SEO data processing to avoid blocking the webhook
         # Use immediate scheduling with 1-second delay to allow current request to complete
-        if (!wp_schedule_single_event(time() + 1, 'metasync_process_seo_job', array($route))) {
-            error_log("MetaSync OTTO: Failed to schedule SEO processing job for route: {$route}");
-        }
+        wp_schedule_single_event(time() + 1, 'metasync_process_seo_job', array($route));
 
         # do the delete
         $otto_pixel->refresh_cache($route);
@@ -255,9 +253,35 @@ function metasync_clear_existing_metasync_caches(){
 
 function metasync_start_otto(){
 
-    # function to clear the caches
-    # this is to support resolving the bug shipped in the earlier version
-    metasync_clear_existing_metasync_caches();
+    # IMMEDIATE CACHE CLEANUP: Delete all existing cache files once but keep main folder
+    $cleanup_option = 'metasync_cache_cleanup_done';
+    if(!get_option($cleanup_option)){
+        # Delete cache contents but keep main metasync_caches folder
+        if(defined('WP_CONTENT_DIR')){
+            $main_cache_dir = WP_CONTENT_DIR . '/metasync_caches';
+            if(is_dir($main_cache_dir)){
+                # Delete only the contents of subfolders, not the folders themselves
+                $subfolders = ['pages', 'posts', 'others'];
+                foreach($subfolders as $subfolder){
+                    $subfolder_path = $main_cache_dir . '/' . $subfolder;
+                    if(is_dir($subfolder_path)){
+                        # Delete all files in the subfolder but keep the folder
+                        $files = glob($subfolder_path . '/*.html');
+                        foreach($files as $file){
+                            if(is_file($file)){
+                                unlink($file);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        # Mark cleanup as done so it only runs once
+        update_option($cleanup_option, true);
+    }
+
+    # DISABLED: No need for periodic cache clearing since cache is disabled
+    # metasync_clear_existing_metasync_caches();
 
     # exclude AJAX request and all woocommerce pages from OTTO
     if (
@@ -303,6 +327,7 @@ function metasync_start_otto(){
 
     # check if we are having an otto request
     if(!empty($_GET['is_otto_page_fetch'])){
+        $_SERVER['REQUEST_URI'] = remove_query_arg('is_otto_page_fetch', $_SERVER['REQUEST_URI']);
         return;
     }
 
@@ -418,7 +443,6 @@ function metasync_process_otto_seo_data($route) {
     try {
         # Validate input
         if (empty($route) || !is_string($route)) {
-            error_log('MetaSync OTTO: Invalid route provided for SEO processing');
             return false;
         }
 
@@ -427,7 +451,6 @@ function metasync_process_otto_seo_data($route) {
         $otto_uuid = $metasync_options['general']['otto_pixel_uuid'] ?? '';
         
         if (empty($otto_uuid)) {
-            error_log('MetaSync OTTO: UUID not configured, skipping SEO data processing');
             return false;
         }
 
@@ -435,7 +458,6 @@ function metasync_process_otto_seo_data($route) {
         $seo_data = metasync_fetch_otto_seo_data($route, $otto_uuid);
         
         if (!$seo_data) {
-            error_log("MetaSync OTTO: Failed to fetch SEO data for route: {$route}");
             return false;
         }
 
@@ -443,22 +465,296 @@ function metasync_process_otto_seo_data($route) {
         $post_id = url_to_postid($route);
         
         if (!$post_id || $post_id <= 0) {
-            error_log("MetaSync OTTO: Could not find WordPress post for route: {$route}");
+            # Check if this is a category page
+            if (strpos($route, '/category/') !== false) {
+                # Extract category slug from URL
+                $category_slug = basename(parse_url($route, PHP_URL_PATH));
+                $category = get_category_by_slug($category_slug);
+                
+                if ($category) {
+                    # Update comprehensive category SEO meta fields
+                    $update_result = metasync_update_comprehensive_category_seo_fields($category->term_id, $seo_data);
+                    
+                    if ($update_result['updated']) {
+                        # Prepare trimmed values to 30 characters
+                        $trim = function($value) {
+                            if ($value === null) { return ''; }
+                            $value = (string) $value;
+                            $value = trim($value);
+                            if (mb_strlen($value) > 30) {
+                                return mb_substr($value, 0, 30);
+                            }
+                            return $value;
+                        };
+
+                        # Log individual field updates for category
+                        foreach ($update_result['fields_updated'] as $field_type => $field_value) {
+                            $short = '';
+                            $title = '';
+                            
+                            switch ($field_type) {
+                                case 'meta_title':
+                                    $short = $trim($field_value);
+                                    $title = "Category Meta Title Update ({$short}...)";
+                                    break;
+                                case 'meta_description':
+                                    $short = $trim($field_value);
+                                    $title = "Category Meta Description Update ({$short}...)";
+                                    break;
+                                case 'meta_keywords':
+                                    $short = $trim($field_value);
+                                    $title = "Category Meta Keywords Update ({$short}...)";
+                                    break;
+                                case 'og_title':
+                                    $short = $trim($field_value);
+                                    $title = "Category Open Graph Title Update ({$short}...)";
+                                    break;
+                                case 'og_description':
+                                    $short = $trim($field_value);
+                                    $title = "Category Open Graph Description Update ({$short}...)";
+                                    break;
+                                case 'twitter_title':
+                                    $short = $trim($field_value);
+                                    $title = "Category Twitter Title Update ({$short}...)";
+                                    break;
+                                case 'twitter_description':
+                                    $short = $trim($field_value);
+                                    $title = "Category Twitter Description Update ({$short}...)";
+                                    break;
+                                case 'image_alt_data':
+                                    $image_count = count($field_value);
+                                    $title = "Category Image Alt Text Update ({$image_count} images)";
+                                    break;
+                                case 'headings_data':
+                                    $heading_count = count($field_value);
+                                    $title = "Category Headings Update ({$heading_count} headings)";
+                                    break;
+                                case 'structured_data':
+                                    $title = 'Category Structured Data Update';
+                                    break;
+                            }
+
+                            if (!empty($title)) {
+                                metasync_log_sync_history([
+                                    'title' => $title,
+                                    'source' => 'OTTO SEO',
+                                    'status' => 'published',
+                                    'content_type' => 'Category SEO',
+                                    'url' => $route,
+                                    'meta_data' => json_encode([
+                                        'field' => $field_type,
+                                        'field_value' => $field_value,
+                                        'category_id' => $category->term_id,
+                                        'category_name' => $category->name
+                                    ])
+                                ]);
+                            }
+                        }
+                        
+                        return true;
+                    }
+                    
+                    return false;
+                }
+            }
+            
+            # Check if this is the home page (landing page)
+            $site_url = rtrim(site_url(), '/');
+            $route_clean = rtrim($route, '/');
+            
+            if ($route_clean === $site_url) {
+                # Get the home page (front page)
+                $front_page_id = get_option('page_on_front');
+                $home_page = null;
+                
+                if ($front_page_id && $front_page_id > 0) {
+                    $home_page = get_post($front_page_id);
+                } else {
+                    # If no static front page is set, get the latest post
+                    $home_page = get_posts(['numberposts' => 1, 'post_status' => 'publish'])[0] ?? null;
+                }
+                
+                if ($home_page) {
+                    # Update comprehensive home page SEO meta fields
+                    $update_result = metasync_update_comprehensive_seo_fields($home_page->ID, $seo_data);
+                    
+                    if ($update_result['updated']) {
+                        # Clear relevant caches
+                        metasync_clear_post_seo_caches($home_page->ID);
+                        
+                        # Prepare trimmed values to 30 characters
+                        $trim = function($value) {
+                            if ($value === null) { return ''; }
+                            $value = (string) $value;
+                            $value = trim($value);
+                            if (mb_strlen($value) > 30) {
+                                return mb_substr($value, 0, 30);
+                            }
+                            return $value;
+                        };
+
+                        # Log individual field updates for home page
+                        foreach ($update_result['fields_updated'] as $field_type => $field_value) {
+                            $short = '';
+                            $title = '';
+                            
+                            switch ($field_type) {
+                                case 'meta_title':
+                                    $short = $trim($field_value);
+                                    $title = "Home Page Meta Title Update ({$short}...)";
+                                    break;
+                                case 'meta_description':
+                                    $short = $trim($field_value);
+                                    $title = "Home Page Meta Description Update ({$short}...)";
+                                    break;
+                                case 'meta_keywords':
+                                    $short = $trim($field_value);
+                                    $title = "Home Page Meta Keywords Update ({$short}...)";
+                                    break;
+                                case 'og_title':
+                                    $short = $trim($field_value);
+                                    $title = "Home Page Open Graph Title Update ({$short}...)";
+                                    break;
+                                case 'og_description':
+                                    $short = $trim($field_value);
+                                    $title = "Home Page Open Graph Description Update ({$short}...)";
+                                    break;
+                                case 'twitter_title':
+                                    $short = $trim($field_value);
+                                    $title = "Home Page Twitter Title Update ({$short}...)";
+                                    break;
+                                case 'twitter_description':
+                                    $short = $trim($field_value);
+                                    $title = "Home Page Twitter Description Update ({$short}...)";
+                                    break;
+                                case 'image_alt_data':
+                                    $image_count = count($field_value);
+                                    $title = "Home Page Image Alt Text Update ({$image_count} images)";
+                                    break;
+                                case 'headings_data':
+                                    $heading_count = count($field_value);
+                                    $title = "Home Page Headings Update ({$heading_count} headings)";
+                                    break;
+                                case 'structured_data':
+                                    $title = 'Home Page Structured Data Update';
+                                    break;
+                            }
+
+                            if (!empty($title)) {
+                                metasync_log_sync_history([
+                                    'title' => $title,
+                                    'source' => 'OTTO SEO',
+                                    'status' => 'published',
+                                    'content_type' => 'Home Page SEO',
+                                    'url' => $route,
+                                    'meta_data' => json_encode([
+                                        'field' => $field_type,
+                                        'field_value' => $field_value,
+                                        'post_id' => $home_page->ID
+                                    ])
+                                ]);
+                            }
+                        }
+                        
+                        return true;
+                    }
+                    
+                    return false;
+                }
+            }
+            
+            # Skip non-post/page/category/home page URLs
+            return false;
+        }
+        
+        # Verify this is actually a post or page
+        $post = get_post($post_id);
+        if (!$post || !in_array($post->post_type, ['post', 'page'])) {
+            # Skip unsupported post types
             return false;
         }
 
-        # Extract meta title and description from OTTO response
-        $meta_title = metasync_extract_meta_title($seo_data);
-        $meta_description = metasync_extract_meta_description($seo_data);
+        # Update comprehensive SEO meta fields
+        $update_result = metasync_update_comprehensive_seo_fields($post_id, $seo_data);
 
-        # Update WordPress and SEO plugin meta fields
-        $update_result = metasync_update_seo_meta_fields($post_id, $meta_title, $meta_description);
-        
-        if ($update_result) {
-            
+        if ($update_result['updated']) {
             # Clear relevant caches
             metasync_clear_post_seo_caches($post_id);
-            
+
+            # Prepare trimmed values to 30 characters
+            $trim = function($value) {
+                if ($value === null) { return ''; }
+                $value = (string) $value;
+                $value = trim($value);
+                if (mb_strlen($value) > 30) {
+                    return mb_substr($value, 0, 30);
+                }
+                return $value;
+            };
+
+            # Log individual field updates
+            foreach ($update_result['fields_updated'] as $field_type => $field_value) {
+                $short = '';
+                $title = '';
+                
+                switch ($field_type) {
+                    case 'meta_title':
+                        $short = $trim($field_value);
+                        $title = 'Meta Title Update (' . $short . '...)';
+                        break;
+                    case 'meta_description':
+                        $short = $trim($field_value);
+                        $title = 'Meta Description Update (' . $short . '...)';
+                        break;
+                    case 'meta_keywords':
+                        $short = $trim($field_value);
+                        $title = 'Meta Keywords Update (' . $short . '...)';
+                        break;
+                    case 'og_title':
+                        $short = $trim($field_value);
+                        $title = 'Open Graph Title Update (' . $short . '...)';
+                        break;
+                    case 'og_description':
+                        $short = $trim($field_value);
+                        $title = 'Open Graph Description Update (' . $short . '...)';
+                        break;
+                    case 'twitter_title':
+                        $short = $trim($field_value);
+                        $title = 'Twitter Title Update (' . $short . '...)';
+                        break;
+                    case 'twitter_description':
+                        $short = $trim($field_value);
+                        $title = 'Twitter Description Update (' . $short . '...)';
+                        break;
+                    case 'image_alt_data':
+                        $image_count = count($field_value);
+                        $title = "Image Alt Text Update ({$image_count} images)";
+                        break;
+                    case 'headings_data':
+                        $heading_count = count($field_value);
+                        $title = "Headings Update ({$heading_count} headings)";
+                        break;
+                    case 'structured_data':
+                        $title = 'Structured Data Update';
+                        break;
+                }
+
+                if (!empty($title)) {
+                    metasync_log_sync_history([
+                        'title' => $title,
+                        'source' => 'OTTO SEO',
+                        'status' => 'published',
+                        'content_type' => 'SEO Meta',
+                        'url' => $route,
+                        'meta_data' => json_encode([
+                            'field' => $field_type,
+                            'field_value' => $field_value,
+                            'post_id' => $post_id
+                        ])
+                    ]);
+                }
+            }
+
             return true;
         }
         
@@ -467,6 +763,37 @@ function metasync_process_otto_seo_data($route) {
     } catch (Exception $e) {
         error_log("MetaSync OTTO: Exception in SEO processing: " . $e->getMessage());
         return false;
+    }
+}
+
+/**
+ * Log sync history entry
+ * @param array $data Sync data to log
+ */
+function metasync_log_sync_history($data) {
+    try {
+        // Classes are now autoloaded, no need for manual require
+        $sync_db = new Metasync_Sync_History_Database();
+
+        // Minimal duplicate prevention within short time window
+        if (!empty($data['title']) && !empty($data['source'])) {
+            global $wpdb;
+            $table = $wpdb->prefix . Metasync_Sync_History_Database::$table_name;
+            $recent = $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM `$table` WHERE title = %s AND source = %s AND created_at >= %s",
+                $data['title'],
+                $data['source'],
+                gmdate('Y-m-d H:i:s', time() - 60)
+            ));
+            if ((int)$recent > 0) {
+                return; // skip duplicate log within 60 seconds
+            }
+        }
+
+        $sync_db->add($data);
+        
+    } catch (Exception $e) {
+        error_log("MetaSync: Failed to log sync history: " . $e->getMessage());
     }
 }
 

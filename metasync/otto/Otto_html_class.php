@@ -684,21 +684,34 @@ Class Metasync_otto_html{
         # Cleanup metasync_optimized attribute on AMP pages before saving
         $this->cleanup_amp_metasync_attribute();
         
-        # 
-        if(file_put_contents($this->html_file, $this->dom)){
+        # DISABLED: Cache file creation temporarily disabled
+
+        # if(file_put_contents($this->html_file, $this->dom)){
             
             # load the modified file to the DOM
-            $this->dom = new HtmlDocument($this->html_file );
-        }
+           # $this->dom = new HtmlDocument($this->html_file );
+        # }
 
         # this code is to be replaced in future
         # reson for adding is to prevent caching logged in user pages
         # why not just skip saving? it broke the DOM Library
         # check user is logged in clear the file
         
-		if(is_user_logged_in()) {
-			unlink($this->html_file);
-		}
+		# if(is_user_logged_in()) {
+		#	unlink($this->html_file);
+		# }
+
+        # MEMORY-BASED RELOAD: Instead of file operations, reload DOM from current HTML string
+        # This prevents DOM breaking while avoiding cache file creation
+        if($this->dom){
+            # Get current DOM as HTML string
+            $current_html = $this->dom->save();
+            
+            # Reload DOM from the HTML string to refresh internal state
+            # This replaces the file save/reload cycle that SimpleHtmlDOM expects
+            $this->dom->load($current_html);
+        }
+        
     }
 
 
