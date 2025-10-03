@@ -347,58 +347,113 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
         # Update basic meta fields (title and description)
         $basic_result = metasync_update_seo_meta_fields($post_id, $meta_title, $meta_description);
         if ($basic_result['title_updated']) {
-            $fields_updated['meta_title'] = $meta_title;
+          # $fields_updated['meta_title'] = $meta_title;
+          $fields_updated['meta_title'] = $meta_title ?? ''; # Use empty string if null
             $any_updated = true;
         }
         if ($basic_result['description_updated']) {
-            $fields_updated['meta_description'] = $meta_description;
+           # $fields_updated['meta_description'] = $meta_description;
+            $fields_updated['meta_description'] = $meta_description ?? ''; # Use empty string if null
             $any_updated = true;
         }
 
         # Update meta keywords (including empty values for rollback)
+       # if ($meta_keywords !== null) {
+         #   $current_keywords = get_post_meta($post_id, '_metasync_otto_keywords', true);
+         # Update meta keywords (including clearing when OTTO returns null)
+        $current_keywords = get_post_meta($post_id, '_metasync_otto_keywords', true);
         if ($meta_keywords !== null) {
-            $current_keywords = get_post_meta($post_id, '_metasync_otto_keywords', true);
+            # OTTO provided keywords - update if different
             if ($meta_keywords !== $current_keywords) {
                 update_post_meta($post_id, '_metasync_otto_keywords', $meta_keywords);
                 $fields_updated['meta_keywords'] = $meta_keywords;
                 $any_updated = true;
             }
+        } else {
+            # OTTO returned null for keywords - clear existing if it exists
+            if (!empty($current_keywords)) {
+                update_post_meta($post_id, '_metasync_otto_keywords', '');
+                $fields_updated['meta_keywords'] = '';
+                $any_updated = true;
+            }
         }
 
         # Update Open Graph fields (including empty values for rollback)
+        # if ($og_title !== null) {
+         #   $current_og_title = get_post_meta($post_id, '_metasync_otto_og_title', true);
+             # Update Open Graph fields (including clearing when OTTO returns null)
+        $current_og_title = get_post_meta($post_id, '_metasync_otto_og_title', true);
         if ($og_title !== null) {
-            $current_og_title = get_post_meta($post_id, '_metasync_otto_og_title', true);
+            # OTTO provided OG title - update if different
             if ($og_title !== $current_og_title) {
                 update_post_meta($post_id, '_metasync_otto_og_title', $og_title);
                 $fields_updated['og_title'] = $og_title;
                 $any_updated = true;
             }
+        } else {
+            # OTTO returned null for OG title - clear existing if it exists
+            if (!empty($current_og_title)) {
+                update_post_meta($post_id, '_metasync_otto_og_title', '');
+                $fields_updated['og_title'] = '';
+                $any_updated = true;
+            }
         }
 
+       # if ($og_description !== null) {
+           # $current_og_desc = get_post_meta($post_id, '_metasync_otto_og_description', true);
+      $current_og_desc = get_post_meta($post_id, '_metasync_otto_og_description', true);
         if ($og_description !== null) {
-            $current_og_desc = get_post_meta($post_id, '_metasync_otto_og_description', true);
+            # OTTO provided OG description - update if different
             if ($og_description !== $current_og_desc) {
                 update_post_meta($post_id, '_metasync_otto_og_description', $og_description);
                 $fields_updated['og_description'] = $og_description;
                 $any_updated = true;
             }
+        } else {
+            # OTTO returned null for OG description - clear existing if it exists
+            if (!empty($current_og_desc)) {
+                update_post_meta($post_id, '_metasync_otto_og_description', '');
+                $fields_updated['og_description'] = '';
+                $any_updated = true;
+            }
         }
 
         # Update Twitter fields (including empty values for rollback)
+      #  if ($twitter_title !== null) {
+          #  $current_twitter_title = get_post_meta($post_id, '_metasync_otto_twitter_title', true);
+          # Update Twitter fields (including clearing when OTTO returns null)
+        $current_twitter_title = get_post_meta($post_id, '_metasync_otto_twitter_title', true);
         if ($twitter_title !== null) {
-            $current_twitter_title = get_post_meta($post_id, '_metasync_otto_twitter_title', true);
+            # OTTO provided Twitter title - update if different
             if ($twitter_title !== $current_twitter_title) {
                 update_post_meta($post_id, '_metasync_otto_twitter_title', $twitter_title);
                 $fields_updated['twitter_title'] = $twitter_title;
                 $any_updated = true;
             }
+        } else {
+            # OTTO returned null for Twitter title - clear existing if it exists
+            if (!empty($current_twitter_title)) {
+                update_post_meta($post_id, '_metasync_otto_twitter_title', '');
+                $fields_updated['twitter_title'] = '';
+                $any_updated = true;
+            }
         }
 
+       # if ($twitter_description !== null) {
+          #  $current_twitter_desc = get_post_meta($post_id, '_metasync_otto_twitter_description', true);
+         $current_twitter_desc = get_post_meta($post_id, '_metasync_otto_twitter_description', true);
         if ($twitter_description !== null) {
-            $current_twitter_desc = get_post_meta($post_id, '_metasync_otto_twitter_description', true);
+            # OTTO provided Twitter description - update if different
             if ($twitter_description !== $current_twitter_desc) {
                 update_post_meta($post_id, '_metasync_otto_twitter_description', $twitter_description);
                 $fields_updated['twitter_description'] = $twitter_description;
+                $any_updated = true;
+            }
+        } else {
+            # OTTO returned null for Twitter description - clear existing if it exists
+            if (!empty($current_twitter_desc)) {
+                update_post_meta($post_id, '_metasync_otto_twitter_description', '');
+                $fields_updated['twitter_description'] = '';
                 $any_updated = true;
             }
         }
@@ -426,11 +481,22 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
         }
 
         # Update structured data (including empty values for rollback)
+       # if ($structured_data !== null) {
+         #   $current_structured = get_post_meta($post_id, '_metasync_otto_structured_data', true);
+        # Update structured data (including clearing when OTTO returns null)
+        $current_structured = get_post_meta($post_id, '_metasync_otto_structured_data', true);
         if ($structured_data !== null) {
-            $current_structured = get_post_meta($post_id, '_metasync_otto_structured_data', true);
+            # OTTO provided structured data - update if different
             if ($structured_data !== $current_structured) {
                 update_post_meta($post_id, '_metasync_otto_structured_data', $structured_data);
                 $fields_updated['structured_data'] = $structured_data;
+                $any_updated = true;
+            }
+        } else {
+            # OTTO returned null for structured data - clear existing if it exists
+            if (!empty($current_structured)) {
+                update_post_meta($post_id, '_metasync_otto_structured_data', '');
+                $fields_updated['structured_data'] = '';
                 $any_updated = true;
             }
         }
@@ -487,8 +553,10 @@ function metasync_update_comprehensive_category_seo_fields($category_id, $seo_da
         # Update basic meta fields (title and description)
         $basic_result = metasync_update_category_seo_meta_fields($category_id, $meta_title, $meta_description);
         if ($basic_result) {
-            if ($meta_title) $fields_updated['meta_title'] = $meta_title;
-            if ($meta_description) $fields_updated['meta_description'] = $meta_description;
+          #  if ($meta_title) $fields_updated['meta_title'] = $meta_title;
+          #  if ($meta_description) $fields_updated['meta_description'] = $meta_description;
+            if ($meta_title !== null) $fields_updated['meta_title'] = $meta_title ?? '';
+            if ($meta_description !== null) $fields_updated['meta_description'] = $meta_description ?? '';
             $any_updated = true;
         }
 
@@ -599,7 +667,8 @@ function metasync_update_comprehensive_category_seo_fields($category_id, $seo_da
  * @return array|false Success status and updated flags
  */
 function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_description) {
-    if (!$post_id || ($meta_title === null && $meta_description === null)) {
+   # if (!$post_id || ($meta_title === null && $meta_description === null)) {
+   if (!$post_id) {
         return array(
             'updated' => false,
             'title_updated' => false,
@@ -616,9 +685,30 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
         $current_description = get_post_meta($post_id, '_metasync_otto_description', true);
 
         # Update if values are different OR if OTTO returns empty (to rollback/clear fields)
-        $should_update_title = ($meta_title !== null && $meta_title !== $current_title);
-        $should_update_description = ($meta_description !== null && $meta_description !== $current_description);
-
+      #  $should_update_title = ($meta_title !== null && $meta_title !== $current_title);
+      #  $should_update_description = ($meta_description !== null && $meta_description !== $current_description);
+        # ENHANCED LOGIC: Handle clearing data when OTTO returns null (undeployed changes)
+        # If OTTO returns null for title/description, we should clear existing OTTO data
+        $should_update_title = false;
+        $should_update_description = false;
+        
+        if ($meta_title !== null) {
+            # OTTO provided a title - update if different from current
+            $should_update_title = ($meta_title !== $current_title);
+        } else {
+            # OTTO returned null for title - clear existing OTTO title if it exists
+            $should_update_title = !empty($current_title);
+            $meta_title = ''; # Set to empty string to clear the field
+        }
+        
+        if ($meta_description !== null) {
+            # OTTO provided a description - update if different from current
+            $should_update_description = ($meta_description !== $current_description);
+        } else {
+            # OTTO returned null for description - clear existing OTTO description if it exists
+            $should_update_description = !empty($current_description);
+            $meta_description = ''; # Set to empty string to clear the field
+        }
         # Update WordPress native meta fields only if changed
         if ($should_update_title) {
             update_post_meta($post_id, '_metasync_otto_title', $meta_title);
@@ -720,7 +810,8 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
  * @return bool Success status
  */
 function metasync_update_category_seo_meta_fields($category_id, $meta_title, $meta_description) {
-    if (!$category_id || ($meta_title === null && $meta_description === null)) {
+    # if (!$category_id || ($meta_title === null && $meta_description === null)) {
+    if (!$category_id) {
         return false;
     }
 
@@ -732,9 +823,29 @@ function metasync_update_category_seo_meta_fields($category_id, $meta_title, $me
         $current_description = get_term_meta($category_id, '_metasync_otto_description', true);
 
         # Update if values are different OR if OTTO returns empty (to rollback/clear fields)
-        $should_update_title = ($meta_title !== null && $meta_title !== $current_title);
-        $should_update_description = ($meta_description !== null && $meta_description !== $current_description);
-
+        # $should_update_title = ($meta_title !== null && $meta_title !== $current_title);
+        # $should_update_description = ($meta_description !== null && $meta_description !== $current_description);
+        # ENHANCED LOGIC: Handle clearing data when OTTO returns null (undeployed changes)
+        $should_update_title = false;
+        $should_update_description = false;
+        
+        if ($meta_title !== null) {
+            # OTTO provided a title - update if different from current
+            $should_update_title = ($meta_title !== $current_title);
+        } else {
+            # OTTO returned null for title - clear existing OTTO title if it exists
+            $should_update_title = !empty($current_title);
+            $meta_title = ''; # Set to empty string to clear the field
+        }
+        
+        if ($meta_description !== null) {
+            # OTTO provided a description - update if different from current
+            $should_update_description = ($meta_description !== $current_description);
+        } else {
+            # OTTO returned null for description - clear existing OTTO description if it exists
+            $should_update_description = !empty($current_description);
+            $meta_description = ''; # Set to empty string to clear the field
+        }
         # Update WordPress native term meta fields only if changed
         if ($should_update_title) {
             update_term_meta($category_id, '_metasync_otto_title', $meta_title);

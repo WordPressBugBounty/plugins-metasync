@@ -7,7 +7,7 @@
  * that starts the plugin.
  *
  * @package     Search Atlas SEO
- * @copyright   Copyright (C) 2021-2022, Search Atlas Group - support@searchatlas.com
+ * @copyright   Copyright (C) 2021-2025, Search Atlas Group - support@searchatlas.com
  * @link		https://searchatlas.com/
  * @since		1.0.0
  *
@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas SEO
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.5.5
+ * Version:           2.5.6
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
  * License:           GPL v3
@@ -35,8 +35,9 @@ if (!defined('WPINC')) {
  * Rename this for your plugin and update it as you release new versions.
  */
 
-$metasync_version = '2.5.5';
-define('METASYNC_VERSION', $metasync_version == '2.5.5' ? '9.9.9' : $metasync_version);
+$metasync_version = '2.5.6';
+
+define('METASYNC_VERSION', $metasync_version == '2.5.6' ? '9.9.9' : $metasync_version);
 
 /**
  * Define the current required php version 
@@ -175,7 +176,7 @@ require_once plugin_dir_path(__FILE__) . 'log-sync/log-sync.php';
 /**
  * Initialize telemetry system for error monitoring and Sentry integration
  */
-#require_once plugin_dir_path(__FILE__) . 'telemetry/telemetry-init.php';
+require_once plugin_dir_path(__FILE__) . 'telemetry/telemetry-init.php';
 
 /**
  * The code that runs during plugin deactivation.

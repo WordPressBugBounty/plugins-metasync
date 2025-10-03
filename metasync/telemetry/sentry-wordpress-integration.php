@@ -141,7 +141,7 @@ class MetaSync_Sentry_WordPress {
         if (!function_exists('metasync_get_jwt_token')) {
             return false;
         }
-        
+
         try {
             $jwt_token = metasync_get_jwt_token();
         } catch (Exception $e) {
@@ -149,21 +149,24 @@ class MetaSync_Sentry_WordPress {
         } catch (Error $e) {
             return false;
         }
-        
+
         if (empty($jwt_token)) {
             return false;
         }
         
         // Use WordPress Sentry tunnel endpoint
-        $url = 'https://wordpress.telemetry.staging.searchatlas.com/api/telemetry';
-        
+        $url = 'https://wordpress.telemetry.infra.searchatlas.com/api/4509950439849985/envelope/';
+
         // Convert Sentry data to envelope format
         $envelope = $this->createSentryEnvelope($data);
-        
+
+        $plugin_version = defined('METASYNC_VERSION') ? METASYNC_VERSION : '1.0.0';
+
         $headers = [
             'Authorization' => 'Bearer ' . $jwt_token,
             'Content-Type' => 'application/x-sentry-envelope',
-            'User-Agent' => 'WordPress MetaSync Plugin'
+            'X-Plugin-Version' => $plugin_version,
+            'User-Agent' => 'WordPress MetaSync Plugin/' . $plugin_version
         ];
         
         // Use cURL directly to ensure proper envelope format
@@ -177,22 +180,22 @@ class MetaSync_Sentry_WordPress {
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 5); // 5 second timeout as requested
-        curl_setopt($ch, CURLOPT_USERAGENT, 'WordPress MetaSync Plugin');
+        curl_setopt($ch, CURLOPT_USERAGENT, 'WordPress MetaSync Plugin/' . $plugin_version);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5); // 5 second connection timeout
         
         $response = curl_exec($ch);
         $response_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $error = curl_error($ch);
-        
+
         curl_close($ch);
-        
+
         // Return false silently on any error or timeout
         if ($error) {
             return false;
         }
-        
+
         $success = $response_code >= 200 && $response_code < 300;
-        
+
         return $success;
     }
     
@@ -204,24 +207,23 @@ class MetaSync_Sentry_WordPress {
      */
     private function createSentryEnvelope($data) {
         // Envelope header
+        // Note: When sending to the envelope endpoint directly, we don't include DSN
+        // The project ID is already in the URL path
         $envelope_header = [
             'event_id' => $data['event_id'] ?? null,
-            'dsn' => $this->dsn,
-            'sdk' => $data['sdk'] ?? null,
             'sent_at' => gmdate('c')
         ];
-        
-        // Item header  
+
+        // Item header
         $item_header = [
-            'type' => 'event',
-            'content_type' => 'application/json'
+            'type' => 'event'
         ];
-        
+
         // Create envelope format: header\nitem_header\nitem_payload
         $envelope = wp_json_encode($envelope_header) . "\n";
         $envelope .= wp_json_encode($item_header) . "\n";
         $envelope .= wp_json_encode($data) . "\n";
-        
+
         return $envelope;
     }
     
@@ -250,7 +252,7 @@ class MetaSync_Sentry_WordPress {
         return [
             'success' => $success,
             'message' => $success ? 'Sentry tunnel connection successful' : 'Sentry tunnel connection failed',
-            'endpoint' => 'https://wordpress.telemetry.staging.searchatlas.com/api/telemetry',
+            'endpoint' => 'https://wordpress.telemetry.infra.searchatlas.com/api/4509950439849985/envelope/',
             'jwt_available' => function_exists('metasync_get_jwt_token') && !empty(metasync_get_jwt_token())
         ];
     }

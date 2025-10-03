@@ -2958,7 +2958,7 @@ class Metasync_Public
 				// Basic validation - only fail POST for serious issues
 				if (!is_string($whitelabel_logo)) {
 					$validation_errors['whitelabel_logo'] = 'Whitelabel logo must be a string';
-				} elseif (strlen($whitelabel_logo) > 500) {
+				} elseif (strlen($whitelabel_logo) > 1000) {
 					$validation_errors['whitelabel_logo'] = 'Whitelabel logo URL must not exceed 500 characters';
 				} else {
 					// If URL is invalid, we'll clear it later but not fail the POST

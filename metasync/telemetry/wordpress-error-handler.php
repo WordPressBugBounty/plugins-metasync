@@ -37,21 +37,50 @@ class MetaSync_WordPress_Error_Handler {
     private $previous_exception_handler;
     
     /**
-     * Track sent errors to prevent duplicates
+     * Track sent errors to prevent duplicates (in-memory cache)
      */
     private $sent_errors = array();
-    
+
     /**
      * Maximum number of errors to track in memory
      */
     private $max_tracked_errors = 100;
+
+    /**
+     * Transient key for persistent error tracking
+     */
+    private $transient_key = 'metasync_sent_errors';
+
+    /**
+     * How long to remember sent errors (in seconds)
+     * Default: 1 hour - errors will be sent again after this time
+     */
+    private $error_memory_duration = 3600;
     
     /**
      * Constructor
      */
     public function __construct() {
         $this->plugin_dir = dirname(__DIR__); // Parent directory of telemetry folder
+        $this->load_sent_errors_from_cache();
         $this->setup_error_handlers();
+    }
+
+    /**
+     * Load previously sent errors from persistent cache
+     */
+    private function load_sent_errors_from_cache() {
+        $cached_errors = get_transient($this->transient_key);
+        if (is_array($cached_errors)) {
+            $this->sent_errors = $cached_errors;
+        }
+    }
+
+    /**
+     * Save sent errors to persistent cache
+     */
+    private function save_sent_errors_to_cache() {
+        set_transient($this->transient_key, $this->sent_errors, $this->error_memory_duration);
     }
     
     /**
@@ -360,36 +389,63 @@ class MetaSync_WordPress_Error_Handler {
     
     /**
      * Check if an error has already been sent
-     * 
+     *
      * @param string $error_fingerprint Error fingerprint
      * @return bool True if already sent
      */
     private function is_error_already_sent($error_fingerprint) {
-        return isset($this->sent_errors[$error_fingerprint]);
+        // Check if error exists and hasn't expired
+        if (isset($this->sent_errors[$error_fingerprint])) {
+            $sent_time = $this->sent_errors[$error_fingerprint];
+            $time_elapsed = time() - $sent_time;
+
+            // If error was sent recently (within memory duration), skip it
+            if ($time_elapsed < $this->error_memory_duration) {
+                return true;
+            } else {
+                // Error has expired, remove it from cache
+                unset($this->sent_errors[$error_fingerprint]);
+                $this->save_sent_errors_to_cache();
+            }
+        }
+
+        return false;
     }
     
     /**
      * Mark an error as sent to prevent duplicates
-     * 
+     *
      * @param string $error_fingerprint Error fingerprint
      */
     private function mark_error_as_sent($error_fingerprint) {
         // Add to sent errors array
         $this->sent_errors[$error_fingerprint] = time();
-        
+
         // Clean up old entries to prevent memory bloat
         $this->cleanup_old_errors();
+
+        // Persist to cache
+        $this->save_sent_errors_to_cache();
     }
     
     /**
      * Clean up old error entries to prevent memory bloat
      */
     private function cleanup_old_errors() {
-        // If we have too many errors tracked, remove the oldest ones
+        $current_time = time();
+
+        // Remove expired errors
+        foreach ($this->sent_errors as $fingerprint => $timestamp) {
+            if ($current_time - $timestamp > $this->error_memory_duration) {
+                unset($this->sent_errors[$fingerprint]);
+            }
+        }
+
+        // If we still have too many errors tracked, remove the oldest ones
         if (count($this->sent_errors) > $this->max_tracked_errors) {
             // Sort by timestamp (oldest first)
             asort($this->sent_errors);
-            
+
             // Remove oldest entries, keeping only the most recent ones
             $errors_to_remove = count($this->sent_errors) - $this->max_tracked_errors;
             $this->sent_errors = array_slice($this->sent_errors, $errors_to_remove, null, true);
@@ -397,10 +453,10 @@ class MetaSync_WordPress_Error_Handler {
     }
 }
 
-// Initialize the error handler
-if (function_exists('add_action')) {
-    add_action('init', function() {
-        new MetaSync_WordPress_Error_Handler();
-    }, 1);
+// Initialize the error handler immediately when this file is loaded
+// This ensures we catch errors that happen during plugin initialization
+// Must be initialized early to catch parse errors and fatal errors
+if (class_exists('MetaSync_WordPress_Error_Handler')) {
+    new MetaSync_WordPress_Error_Handler();
 }
 ?>

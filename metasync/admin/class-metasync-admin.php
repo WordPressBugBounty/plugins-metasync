@@ -3095,7 +3095,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             $this->log_heartbeat('info', 'Skipping immediate heartbeat check - ' . Metasync::get_effective_plugin_name() . ' API key not configured', array(
                 'context' => $context,
                 'has_searchatlas_api_key' => false,
-                'reason' => 'User has not provided Search Atlas API key yet'
+                'reason' => 'User has not provided API key yet'
             ));
             
             // Still clear cache and set DISCONNECTED status
@@ -3116,7 +3116,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             $this->log_heartbeat('info', 'Immediate heartbeat check completed without API call', array(
                 'context' => $context,
                 'result' => 'DISCONNECTED',
-                'reason' => 'Search Atlas API key not configured',
+                'reason' => 'API key not configured',
                 'cache_updated' => true
             ));
             
@@ -3399,7 +3399,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             ));
 
         } catch (Exception $e) {
-            error_log('Search Atlas Authentication Reset Error: ' . $e->getMessage());
+            error_log('Authentication Reset Error: ' . $e->getMessage());
             wp_send_json_error(array(
                 'message' => 'An error occurred while resetting authentication. Please try again or contact support.',
                 'code' => 'reset_failed',
@@ -4986,7 +4986,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                         <div class="sync-log-empty">
                             <div class="sync-log-empty-icon">📄</div>
                             <h3>No sync records found</h3>
-                            <p>Sync records will appear here when content is synchronized from OTTO SEO or Content Genius.</p>
+                            <p>Sync records will appear here when content/pages receive new updates.</p>
                         </div>
                     <?php else: ?>
                         <?php foreach ($sync_records as $record): ?>
@@ -5004,7 +5004,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                                     <?php endif; ?>
                                     </div>
                                     <div class="sync-log-meta">
-                                        From <?php echo esc_html($record->source); ?> - <?php echo $this->time_elapsed_string($record->created_at); ?>
+                                        <?php echo $this->time_elapsed_string($record->created_at); ?>
                                     </div>
                                 </div>
                                 
