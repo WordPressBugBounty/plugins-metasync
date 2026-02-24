@@ -79,37 +79,99 @@ class Metasync_Sync_Requests
         }
 
 
-        #the native api url
-        $apiUrl = Metasync::CA_API_DOMAIN . '/api/wp-website-heartbeat/';
-        
+        #the native api url - use endpoint manager for dynamic environment support
+        $ca_api_domain = class_exists('Metasync_Endpoint_Manager')
+            ? Metasync_Endpoint_Manager::get_endpoint('CA_API_DOMAIN')
+            : Metasync::CA_API_DOMAIN;
+        $apiUrl = $ca_api_domain . '/api/wp-website-heartbeat/';
+
         #check if the api key starts with pub
         if(strpos($api_key, 'pub-') === 0){
 
             #set the heart beat url to the new one
-            $apiUrl = Metasync::API_DOMAIN . '/api/publisher/one-click-publishing/wp-website-heartbeat/';
+            $api_domain = class_exists('Metasync_Endpoint_Manager')
+                ? Metasync_Endpoint_Manager::get_endpoint('API_DOMAIN')
+                : Metasync::API_DOMAIN;
+            $apiUrl = $api_domain . '/api/publisher/one-click-publishing/wp-website-heartbeat/';
         }
 
         $new_categories = $this->post_categories();
         $this->saveHeartBeatError('categories', 'The limit of categories is exceeded', $new_categories, $categories_sync_limit);
 
-        $users = get_users();
-        $new_users = [];
+       # $users = get_users();
+       # $new_users = [];
+        # Get selected roles for Content Genius sync with safety checks
+        $selected_roles = isset($general_options['content_genius_sync_roles']) && is_array($general_options['content_genius_sync_roles']) 
+            ? $general_options['content_genius_sync_roles'] 
+            : array();
+        
+        # If it's a string (single role from old version), convert to array
+        if (!is_array($selected_roles)) {
+            $selected_roles = !empty($selected_roles) ? array($selected_roles) : array();
+        }
+        
+        # Sanitize role values to prevent injection
+        $selected_roles = array_map('sanitize_key', $selected_roles);
+        
+        # Prepare optimized user query arguments - only fetch required fields
+        $user_query_args = array(
+            'number' => $users_sync_limit,
+            'fields' => array('ID', 'user_login', 'user_email'), // Only fetch needed fields for performance
+            'orderby' => 'ID',
+            'order' => 'ASC'
+        );
+        
+        # If specific roles are selected and "all" is not selected, filter by those roles
+        if (!empty($selected_roles) && !in_array('all', $selected_roles, true)) {
+            # Only add role filter if we have valid roles
+            $valid_roles = array_filter($selected_roles, function($role) {
+                return !empty($role) && $role !== 'all';
+            });
+            
+            if (!empty($valid_roles)) {
+                $user_query_args['role__in'] = $valid_roles;
+            }
+        }
+        
+        # Fetch users based on the selected roles with error handling
+        $users = get_users($user_query_args);
+        
+        # Safety check: ensure $users is an array
+        if (!is_array($users)) {
+            $users = array();
+        }
+        
+        $new_users = array();
         $user_count = 1;
         # Get the default user role from WordPress settings
-        $default_role = get_option('default_role');
+       # $default_role = get_option('default_role');
+
+       # Get the default user role from WordPress settings (fallback to administrator)
+        $default_role = get_option('default_role', 'administrator');
+
         foreach ($users as $user) {
             if ($user_count <= $users_sync_limit) {
-                # Check if roles are not empty
-                $user_role = (!empty($user->roles) && isset($user->roles[0])) ? $user->roles[0] : $default_role;
-                # Get User Data 
+               
                 $user_data = get_userdata($user->ID);
-                $new_users[] = [
-                    'id'            => $user->ID,
-                    'user_login'    => $user_data->user_login, # Ensure user_login is fetched
-                    'user_email'    => $user_data ? $user_data->user_email : $user->user_email, # Ensure email is fetched
-                    'role'          => $user_role   # User role
-
-                ];
+                # Skip if user data is invalid
+                if (!$user_data || !is_object($user_data)) {
+                    continue;
+                }
+                
+                # Get user role with proper safety checks
+                $user_role = $default_role;
+                if (is_array($user_data->roles) && !empty($user_data->roles)) {
+                    $user_role = isset($user_data->roles[0]) ? $user_data->roles[0] : $default_role;
+                }
+                
+                # Prepare user data with proper sanitization
+                # Using data from optimized query (ID, user_login, user_email already fetched)
+                $new_users[] = array(
+                    'id'            => absint($user->ID),
+                    'user_login'    => isset($user->user_login) ? sanitize_user($user->user_login) : '',
+                    'user_email'    => isset($user->user_email) ? sanitize_email($user->user_email) : '',
+                    'role'          => sanitize_key($user_role)
+                );
             }
             $user_count++;
         }
@@ -117,9 +179,6 @@ class Metasync_Sync_Requests
         $this->saveHeartBeatError('users', 'The limit of users is exceeded', $new_users, $users_sync_limit);
         $current_permalink_structure = get_option('permalink_structure');
         $current_rewrite_rules = get_option('rewrite_rules');
-        $enabled_plugin_editor = Metasync::get_option('general')['enabled_plugin_editor'] ?? '';                
-        // Check if Elementor is active
-      //  $elementor_active = is_plugin_active('elementor/elementor.php');
 
         $payload = [
             'url' => get_home_url(),
@@ -128,8 +187,6 @@ class Metasync_Sync_Requests
             'users' => $new_users,
             'version'=>constant('METASYNC_VERSION'),
             'permalink_structure'=>((($current_permalink_structure == '/%post_id%/' || $current_permalink_structure == '') && $current_rewrite_rules == '')?false:true),
-         //   'page_builder'=> (($enabled_plugin_editor == 'elementor' && $elementor_active && $enabled_plugin_editor!='' )?'elementor':'gutenberg') 
-
         ];
 
         # append login auth token to payload
@@ -141,11 +198,21 @@ class Metasync_Sync_Requests
             'body'          => $payload,
             'headers'       => [
                 'x-api-key' =>  $general_options['searchatlas_api_key'],
-               
+
             ],
+            # PERFORMANCE OPTIMIZATION: Add timeout for sync operations
+            'timeout' => 15,
         ];
 
         $response           = wp_remote_post($apiUrl, $data);
+
+        # PERFORMANCE OPTIMIZATION: Handle timeout and connection errors
+        if (is_wp_error($response)) {
+            error_log('MetaSync: Heartbeat sync failed: ' . $response->get_error_message());
+            $this->saveHeartBeatError('heartbeat', 'Connection error: ' . $response->get_error_message(), array(1), 0);
+            return;
+        }
+
         $response_code      = wp_remote_retrieve_response_code( $response );
         $response_message   = wp_remote_retrieve_response_message( $response );
 
@@ -220,7 +287,11 @@ class Metasync_Sync_Requests
             return;
         }
 
-        $url = Metasync::API_DOMAIN . "/api/customer/account/user/"; // the URL to request
+        # Use endpoint manager for dynamic environment support
+        $api_domain = class_exists('Metasync_Endpoint_Manager')
+            ? Metasync_Endpoint_Manager::get_endpoint('API_DOMAIN')
+            : Metasync::API_DOMAIN;
+        $url = $api_domain . "/api/customer/account/user/"; // the URL to request
 
         delete_option(Metasync::option_name . '_whitelabel_user');
 
@@ -228,10 +299,18 @@ class Metasync_Sync_Requests
             'x-api-key'=>$general_options['searchatlas_api_key'] // this should be associative array not a array of string
         );
         $args = array(
-            'headers' => $headers
-        ); 
-        
+            'headers' => $headers,
+            # PERFORMANCE OPTIMIZATION: Add timeout to prevent hung requests
+            'timeout' => 10,
+        );
+
         $response = wp_remote_get($url, $args);
+
+        # PERFORMANCE OPTIMIZATION: Handle timeout and connection errors
+        if (is_wp_error($response)) {
+            error_log('MetaSync: White label user sync failed: ' . $response->get_error_message());
+            return;
+        }
 
         $result = wp_remote_retrieve_body($response);
 

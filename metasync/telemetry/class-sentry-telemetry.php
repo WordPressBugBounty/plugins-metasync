@@ -60,7 +60,7 @@ class Metasync_Sentry_Telemetry {
         }
         
         $host = parse_url(home_url(), PHP_URL_HOST);
-        if (strpos($host, 'staging') !== false || strpos($host, 'dev') !== false) {
+        if ($host && (strpos($host, 'staging') !== false || strpos($host, 'dev') !== false)) {
             return 'staging';
         }
         

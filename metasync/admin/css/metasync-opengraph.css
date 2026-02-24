@@ -1,0 +1,861 @@
+/**
+ * MetaSync Open Graph Admin Styles
+ *
+ * @package    MetaSync
+ * @subpackage MetaSync/admin/css
+ * @since      1.0.0
+ */
+
+/* Meta Box Container */
+.metasync-opengraph-meta-box {
+    padding: 0;
+}
+
+/* Toggle Switch Section */
+.metasync-og-toggle-section {
+    padding: 15px;
+    background: #f9f9f9;
+    border-bottom: 1px solid #e1e1e1;
+    margin: 0 -12px 20px -12px;
+}
+
+.metasync-toggle-switch {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.metasync-toggle-switch input[type="checkbox"] {
+    display: none;
+}
+
+.metasync-toggle-slider {
+    position: relative;
+    width: 50px;
+    height: 24px;
+    background-color: #ccc;
+    border-radius: 24px;
+    transition: background-color 0.3s;
+    margin-right: 10px;
+    flex-shrink: 0;
+}
+
+.metasync-toggle-slider::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    background-color: white;
+    border-radius: 50%;
+    transition: transform 0.3s;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.metasync-toggle-switch input:checked + .metasync-toggle-slider {
+    background-color: #0073aa;
+}
+
+.metasync-toggle-switch input:checked + .metasync-toggle-slider::before {
+    transform: translateX(26px);
+}
+
+.metasync-toggle-label {
+    color: #23282d;
+}
+
+/* Content Sections */
+.metasync-og-content {
+    padding: 0 15px 15px;
+}
+
+.metasync-og-section,
+.metasync-twitter-section,
+.metasync-preview-section {
+    margin-bottom: 25px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #e1e1e1;
+}
+
+.metasync-preview-section {
+    border-bottom: none;
+}
+
+.metasync-og-section h4,
+.metasync-twitter-section h4,
+.metasync-preview-section h4 {
+    margin: 0 0 15px 0;
+    padding: 0;
+    color: #23282d;
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Field Groups */
+.metasync-og-field-group {
+    margin-bottom: 15px;
+}
+
+.metasync-og-field-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+    color: #23282d;
+}
+
+.metasync-og-field-group .description {
+    margin-top: 5px;
+    font-style: italic;
+    color: #666;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Character Counter */
+.metasync-char-count {
+    font-weight: 600;
+    color: #0073aa;
+    font-style: normal;
+}
+
+.metasync-char-count.metasync-char-warning {
+    color: #d63638;
+}
+
+/* Field Row Layout */
+.metasync-og-field-row {
+    display: flex;
+    gap: 15px;
+}
+
+.metasync-half-width {
+    flex: 1;
+}
+
+/* Image Upload Fields */
+.metasync-image-field {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.metasync-image-field input[type="url"] {
+    flex: 1;
+}
+
+.metasync-image-controls {
+    display: flex;
+    gap: 5px;
+    flex-shrink: 0;
+}
+
+.metasync-image-preview,
+.metasync-twitter-image-preview {
+    margin-top: 10px;
+    max-width: 300px;
+}
+
+.metasync-image-preview img,
+.metasync-twitter-image-preview img {
+    max-width: 100%;
+    height: auto;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* Social Media Preview */
+.metasync-preview-container {
+    background: #f8f9fa;
+    border: 1px solid #e1e1e1;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 15px 0;
+    position: relative;
+}
+
+.metasync-preview-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: #666;
+    font-style: italic;
+    padding: 40px 0;
+}
+
+/* Preview Tabs */
+.metasync-preview-tabs {
+    display: flex;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #e1e1e1;
+}
+
+.metasync-preview-tab {
+    background: none;
+    border: none;
+    padding: 10px 20px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: #65676b;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    position: relative;
+    z-index: 1;
+    outline: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+}
+
+.metasync-preview-tab:hover {
+    background: #f2f3f4;
+}
+
+.metasync-preview-tab.active {
+    color: #1877f2;
+    border-bottom-color: #1877f2;
+}
+
+.metasync-preview-tab.twitter.active {
+    color: #1da1f2;
+    border-bottom-color: #1da1f2;
+}
+
+.metasync-preview-tab.linkedin.active {
+    color: #0077b5;
+    border-bottom-color: #0077b5;
+}
+
+/* Preview Content */
+.metasync-preview-content {
+    max-width: 550px;
+    margin: 0 auto;
+}
+
+.metasync-preview-panel {
+    display: none;
+}
+
+.metasync-preview-panel.active {
+    display: block;
+}
+
+/* Facebook Preview */
+.facebook-preview {
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    border: 1px solid #dadde1;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.facebook-post-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e4e6ea;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.facebook-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #1877f2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 16px;
+}
+
+.facebook-post-info h4 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1d2129;
+}
+
+.facebook-post-info p {
+    margin: 2px 0 0 0;
+    font-size: 13px;
+    color: #65676b;
+}
+
+.facebook-link-preview {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.facebook-link-preview:hover {
+    background-color: #f2f3f4;
+}
+
+.facebook-preview-image {
+    width: 100%;
+    height: 280px;
+    overflow: hidden;
+    background: #f0f2f5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+.facebook-preview-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.facebook-preview-content {
+    padding: 12px 16px;
+    background: #f2f3f4;
+}
+
+.facebook-preview-domain {
+    font-size: 12px;
+    color: #65676b;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+}
+
+.facebook-preview-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1d2129;
+    line-height: 1.3;
+    margin-bottom: 4px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.facebook-preview-description {
+    font-size: 14px;
+    color: #65676b;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* Twitter Preview */
+.twitter-preview {
+    background: #fff;
+    border: 1px solid #e1e8ed;
+    border-radius: 16px;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.twitter-post-header {
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.twitter-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #1da1f2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 18px;
+}
+
+.twitter-user-info h4 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: #0f1419;
+}
+
+.twitter-user-info p {
+    margin: 2px 0 0 0;
+    font-size: 15px;
+    color: #536471;
+}
+
+.twitter-post-text {
+    padding: 0 16px 12px;
+    font-size: 15px;
+    line-height: 1.3;
+    color: #0f1419;
+}
+
+.twitter-card {
+    border: 1px solid #e1e8ed;
+    border-radius: 16px;
+    overflow: hidden;
+    margin: 0 16px 12px;
+}
+
+.twitter-card-image {
+    width: 100%;
+    height: 200px;
+    overflow: hidden;
+    background: #f7f9fa;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.twitter-card-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.twitter-card-content {
+    padding: 12px;
+    border-top: 1px solid #e1e8ed;
+}
+
+.twitter-card-domain {
+    font-size: 13px;
+    color: #536471;
+    margin-bottom: 2px;
+}
+
+.twitter-card-title {
+    font-size: 15px;
+    font-weight: 400;
+    color: #0f1419;
+    line-height: 1.3;
+    margin-bottom: 2px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.twitter-card-description {
+    font-size: 13px;
+    color: #536471;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* LinkedIn Preview */
+.linkedin-preview {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+.linkedin-post-header {
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.linkedin-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #0077b5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 18px;
+}
+
+.linkedin-user-info h4 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #000;
+}
+
+.linkedin-user-info p {
+    margin: 2px 0 0 0;
+    font-size: 12px;
+    color: #666;
+}
+
+.linkedin-link-preview {
+    border-top: 1px solid #e0e0e0;
+}
+
+.linkedin-preview-image {
+    width: 100%;
+    height: 240px;
+    overflow: hidden;
+    background: #f3f6f8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.linkedin-preview-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.linkedin-preview-content {
+    padding: 12px 16px;
+}
+
+.linkedin-preview-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #000;
+    line-height: 1.3;
+    margin-bottom: 4px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.linkedin-preview-description {
+    font-size: 14px;
+    color: #666;
+    line-height: 1.4;
+    margin-bottom: 8px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.linkedin-preview-domain {
+    font-size: 12px;
+    color: #666;
+    text-transform: lowercase;
+}
+
+/* No Image Placeholders */
+.preview-no-image {
+    background: linear-gradient(135deg, #f0f2f5 0%, #e4e6ea 100%);
+    position: relative;
+}
+
+.preview-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #8a8d91;
+    text-align: center;
+}
+
+.preview-placeholder span {
+    font-size: 48px;
+    margin-bottom: 8px;
+    opacity: 0.5;
+}
+
+.preview-placeholder p {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+    opacity: 0.7;
+}
+
+/* Error States */
+.metasync-error {
+    color: #d63638;
+    font-style: italic;
+    text-align: center;
+    padding: 20px;
+}
+
+/* Responsive Design */
+@media (max-width: 782px) {
+    .metasync-og-field-row {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .metasync-image-field {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .metasync-image-controls {
+        justify-content: flex-start;
+    }
+    
+    .metasync-preview-container {
+        padding: 15px;
+        margin: 10px 0;
+    }
+    
+    .metasync-preview-content {
+        max-width: 100%;
+    }
+    
+    .metasync-preview-tabs {
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+    
+    .metasync-preview-tab {
+        padding: 8px 16px;
+        font-size: 13px;
+        flex: 1;
+        min-width: 80px;
+        text-align: center;
+    }
+    
+    /* Mobile-specific preview adjustments */
+    .facebook-preview,
+    .twitter-preview,
+    .linkedin-preview {
+        margin: 0 -5px;
+    }
+    
+    .facebook-preview-image,
+    .twitter-card-image,
+    .linkedin-preview-image {
+        height: 200px;
+    }
+    
+    .facebook-post-header,
+    .twitter-post-header,
+    .linkedin-post-header {
+        padding: 10px 12px;
+    }
+    
+    .facebook-preview-content,
+    .twitter-card-content,
+    .linkedin-preview-content {
+        padding: 10px 12px;
+    }
+    
+    .facebook-avatar,
+    .twitter-avatar,
+    .linkedin-avatar {
+        width: 36px;
+        height: 36px;
+        font-size: 14px;
+    }
+}
+
+@media (max-width: 480px) {
+    .metasync-preview-tabs {
+        margin-bottom: 15px;
+    }
+    
+    .metasync-preview-tab {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+    
+    .facebook-preview-image,
+    .twitter-card-image,
+    .linkedin-preview-image {
+        height: 160px;
+    }
+    
+    .preview-placeholder span {
+        font-size: 32px;
+    }
+    
+    .preview-placeholder p {
+        font-size: 12px;
+    }
+}
+
+/* WordPress Admin Compatibility */
+.post-php .metasync-opengraph-meta-box,
+.post-new-php .metasync-opengraph-meta-box {
+    font-size: 13px;
+}
+
+/* Gutenberg Editor Compatibility */
+.block-editor-page .metasync-opengraph-meta-box {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+}
+
+/* Loading Spinner */
+.metasync-preview-loading .spinner {
+    float: none;
+    margin: 0;
+}
+
+/* Button Styling */
+.metasync-refresh-preview {
+    margin-top: 10px;
+}
+
+/* Focus States */
+.metasync-og-input:focus {
+    border-color: #0073aa;
+    box-shadow: 0 0 0 1px #0073aa;
+}
+
+/* Accessibility */
+.metasync-toggle-switch:focus-within .metasync-toggle-slider {
+    outline: 2px solid #0073aa;
+    outline-offset: 2px;
+}
+
+/* Disabled URL Field Styling */
+.metasync-og-input:disabled {
+    background-color: #f6f7f7;
+    border-color: #ddd;
+    color: #666;
+    cursor: not-allowed;
+}
+
+.metasync-url-disabled-notice {
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-top: 5px;
+    color: #856404;
+    font-size: 13px;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.metasync-url-disabled-notice .dashicons {
+    color: #f0ad4e;
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+/* Use Permalink Button */
+.metasync-use-permalink {
+    background: #0073aa;
+    border-color: #0073aa;
+    color: #fff;
+    font-size: 11px;
+    height: 24px;
+    line-height: 22px;
+    padding: 0 8px;
+    vertical-align: top;
+}
+
+.metasync-use-permalink:hover {
+    background: #005a87;
+    border-color: #005a87;
+    color: #fff;
+}
+
+.metasync-use-permalink:focus {
+    box-shadow: 0 0 0 1px #0073aa;
+    outline: none;
+}
+
+/* Required field indicator */
+.required {
+    color: #d63638;
+    font-weight: bold;
+}
+
+/* Twitter Card sections */
+.metasync-twitter-app-section,
+.metasync-twitter-player-section {
+    margin-top: 20px;
+    padding: 15px;
+    background: #f9f9f9;
+    border: 1px solid #e1e1e1;
+    border-radius: 4px;
+}
+
+.metasync-twitter-app-section h4,
+.metasync-twitter-player-section h4 {
+    margin-top: 0;
+    color: #1d2327;
+}
+
+/* Number input styling */
+input[type="number"] {
+    -moz-appearance: textfield;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* Dark Mode Support (if WordPress adds it) */
+@media (prefers-color-scheme: dark) {
+    .preview-card {
+        background: #2c3338;
+        border-color: #3c434a;
+    }
+    
+    .preview-title {
+        color: #f0f0f1;
+    }
+    
+    .preview-description,
+    .preview-domain {
+        color: #a7aaad;
+    }
+    
+    .metasync-og-input:disabled {
+        background-color: #2c3338;
+        border-color: #3c434a;
+        color: #a7aaad;
+    }
+    
+    .metasync-url-disabled-notice {
+        background: #3c434a;
+        border-color: #4f5660;
+        color: #f0f0f1;
+    }
+    
+    .metasync-url-disabled-notice .dashicons {
+        color: #f0ad4e;
+    }
+    
+    .metasync-use-permalink {
+        background: #0073aa;
+        border-color: #0073aa;
+    }
+    
+    .metasync-use-permalink:hover {
+        background: #005a87;
+        border-color: #005a87;
+    }
+    
+    .metasync-twitter-app-section,
+    .metasync-twitter-player-section {
+        background: #2c3338;
+        border-color: #3c434a;
+    }
+    
+    .metasync-twitter-app-section h4,
+    .metasync-twitter-player-section h4 {
+        color: #f0f0f1;
+    }
+}

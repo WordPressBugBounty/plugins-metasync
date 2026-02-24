@@ -1,0 +1,38 @@
+# Development and hidden files
+.git
+.github
+.gitlab
+.gitignore
+.gitattributes
+.dockerignore
+.eslintignore
+.eslintrc.json
+.env
+.env.example
+.claude
+.DS_Store
+**/.DS_Store
+
+# Build and development tools
+phpcs.xml.dist
+phpunit.xml.dist
+composer.json
+composer.lock
+package.json
+package-lock.json
+node_modules
+vendor
+
+# Test files
+tests
+.gitlab/
+
+# MetaSyncDebug (development tool)
+MetaSyncDebug.php
+
+# Build scripts
+.gitlab/build_package.sh
+
+# Documentation (optional - uncomment if you don't want these in distribution)
+# README.md
+# CHANGELOG.md

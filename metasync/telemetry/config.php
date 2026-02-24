@@ -42,13 +42,15 @@ class Metasync_Telemetry_Config {
     
     /**
      * Maximum queue size before auto-flush
+     * Increased from 10 to 25 to reduce database load
      */
-    const MAX_QUEUE_SIZE = 10;
+    const MAX_QUEUE_SIZE = 25;
     
     /**
      * Batch size for queue processing
+     * Increased from 5 to 15 to reduce database load
      */
-    const QUEUE_BATCH_SIZE = 5;
+    const QUEUE_BATCH_SIZE = 15;
     
     /**
      * API request timeout (seconds)
@@ -72,8 +74,9 @@ class Metasync_Telemetry_Config {
     
     /**
      * Queue flush interval (cron)
+     * Changed from hourly to every 2 hours to reduce database load
      */
-    const QUEUE_FLUSH_INTERVAL = 'hourly';
+    const QUEUE_FLUSH_INTERVAL = 'metasync_every_2_hours';
     
     /**
      * JWT secret key option name
@@ -142,12 +145,12 @@ class Metasync_Telemetry_Config {
      */
     public static function is_enabled() {
         // Check for global disable constant
-        if (defined('METASYNC_DISABLE_TELEMETRY') && METASYNC_DISABLE_TELEMETRY) {
+        if (defined('METASYNC_DISABLE_TELEMETRY') && constant('METASYNC_DISABLE_TELEMETRY')) {
             return false;
         }
         
         // Check for local development mode
-        if (defined('WP_DEBUG') && WP_DEBUG && defined('WP_LOCAL_DEV') && WP_LOCAL_DEV) {
+        if (defined('WP_DEBUG') && WP_DEBUG && defined('WP_LOCAL_DEV') && constant('WP_LOCAL_DEV')) {
             return false;
         }
         

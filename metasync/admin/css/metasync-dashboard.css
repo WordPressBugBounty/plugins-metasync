@@ -4,7 +4,9 @@
  */
 
 /* Root Variables - Dashboard Color Scheme */
-:root {
+/* Dark Theme (Default) */
+:root,
+[data-theme="dark"] {
     --dashboard-bg: #0f1419;
     --dashboard-card-bg: #1a1f26;
     --dashboard-card-hover: #222831;
@@ -20,6 +22,31 @@
     --dashboard-gradient-accent: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
     --dashboard-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.1);
     --dashboard-shadow-hover: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+}
+
+/* Light Theme */
+[data-theme="light"] {
+    --dashboard-bg: #f8f9fa;
+    --dashboard-card-bg: #ffffff;
+    --dashboard-card-hover: #f1f3f5;
+    --dashboard-text-primary: #1a1f26;
+    --dashboard-text-secondary: #6b7280;
+    --dashboard-accent: #3b82f6;
+    --dashboard-accent-hover: #2563eb;
+    --dashboard-success: #10b981;
+    --dashboard-warning: #f59e0b;
+    --dashboard-error: #ef4444;
+    --dashboard-border: #e5e7eb;
+    --dashboard-gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --dashboard-gradient-accent: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    --dashboard-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    --dashboard-shadow-hover: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+}
+
+/* Theme Transition */
+:root,
+[data-theme] {
+    transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* Only apply styles within plugin pages - NO LAYOUT CHANGES */
@@ -126,15 +153,69 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     transform: translateY(-1px) !important;
 }
 
+/* Theme Toggle Button */
+.metasync-theme-toggle {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+    padding: 6px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.metasync-theme-toggle:hover {
+    border-color: var(--dashboard-accent);
+    box-shadow: var(--dashboard-shadow);
+}
+
+.metasync-theme-option {
+    padding: 6px 12px;
+    border-radius: 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--dashboard-text-secondary);
+    transition: all 0.3s ease;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    background: transparent;
+}
+
+.metasync-theme-option.active {
+    background: var(--dashboard-gradient-primary);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.metasync-theme-option:hover:not(.active) {
+    color: var(--dashboard-text-primary);
+    background: var(--dashboard-card-hover);
+}
+
+.metasync-theme-icon {
+    font-size: 16px;
+    display: inline-flex;
+    align-items: center;
+}
+
 /* Plugin Header with Logo - Clean Layout */
 .metasync-dashboard-wrap .metasync-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     margin-bottom: 1rem;
-    padding: 20px 0;
-    background: transparent;
-    border: none;
+    padding: 20px;
+    background: var(--dashboard-card-bg);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 12px;
+    box-shadow: var(--dashboard-shadow);
+    color: var(--dashboard-text-primary);
 }
 
 .metasync-dashboard-wrap .metasync-header-left {
@@ -146,6 +227,7 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 .metasync-dashboard-wrap .metasync-header-right {
     display: flex;
     align-items: center;
+    gap: 12px;
     flex-shrink: 0;
 }
 
@@ -153,6 +235,18 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     flex-shrink: 0;
     display: flex;
     align-items: center;
+    background: linear-gradient(135deg, #1a1f26 0%, #2d3748 100%);
+    padding: 12px 20px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    transition: all 0.3s ease;
+}
+
+.metasync-dashboard-wrap .metasync-logo-container:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    border-color: rgba(255, 255, 255, 0.2);
 }
 
 .metasync-dashboard-wrap .metasync-logo {
@@ -165,7 +259,6 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 }
 
 .metasync-dashboard-wrap .metasync-logo:hover {
-    transform: scale(1.05);
     filter: brightness(1.1) contrast(1.1);
 }
 
@@ -287,6 +380,8 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     margin: 0 0 32px 0;
     padding: 0;
     background: transparent;
+    position: relative;
+    z-index: 100;
 }
 
 .metasync-dashboard-wrap .metasync-nav-tabs {
@@ -325,7 +420,7 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 
 .metasync-dashboard-wrap .metasync-nav-tab.active {
     background: var(--dashboard-gradient-primary);
-    color: var(--dashboard-text-primary);
+    color: #ffffff;
     box-shadow: var(--dashboard-shadow);
     transform: translateY(-1px);
 }
@@ -349,6 +444,40 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 .metasync-dashboard-wrap .metasync-nav-tab .tab-text {
     font-weight: 500;
     white-space: nowrap;
+}
+
+/* New Badge for AI Agent */
+.metasync-dashboard-wrap .metasync-new-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    color: #ffffff;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 6px;
+    line-height: 1;
+    box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);
+    animation: pulse-badge 2s ease-in-out infinite;
+}
+
+.metasync-dashboard-wrap .metasync-nav-tab.active .metasync-new-badge {
+    background: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+@keyframes pulse-badge {
+    0%, 100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+    50% {
+        transform: scale(1.05);
+        opacity: 0.9;
+    }
 }
 
 /* Old nav-tab compatibility (fallback) */
@@ -444,6 +573,166 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 .metasync-nav-right {
     display: flex;
     align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+/* Grouped Navigation Styles with Dropdowns */
+.metasync-nav-grouped {
+    flex-wrap: nowrap;
+    gap: 4px;
+    align-items: center;
+}
+
+/* Dropdown Container */
+.metasync-nav-dropdown {
+    position: relative;
+    display: inline-block;
+    z-index: 999999;
+}
+
+.metasync-nav-dropdown.active {
+    z-index: 999999999;
+}
+
+/* Dropdown Button */
+.metasync-nav-dropdown-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--dashboard-text-secondary);
+    font-weight: 500;
+    font-size: 14px;
+    transition: all 0.3s ease;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    position: relative;
+}
+
+.metasync-nav-dropdown-btn:hover {
+    color: var(--dashboard-text-primary);
+    background: rgba(255, 255, 255, 0.05);
+    transform: translateY(-1px);
+}
+
+.metasync-nav-dropdown-btn.active {
+    background: var(--dashboard-gradient-primary);
+    color: #ffffff;
+    box-shadow: var(--dashboard-shadow);
+}
+
+.metasync-nav-dropdown-btn .dropdown-arrow {
+    font-size: 10px;
+    transition: transform 0.3s ease;
+    margin-left: 4px;
+}
+
+.metasync-nav-dropdown:hover .metasync-nav-dropdown-btn .dropdown-arrow,
+.metasync-nav-dropdown-btn[aria-expanded="true"] .dropdown-arrow {
+    transform: rotate(180deg);
+}
+
+/* Dropdown Menu */
+.metasync-nav-dropdown-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    min-width: 220px;
+    max-width: 300px;
+    max-height: 70vh;
+    overflow-y: auto;
+    background: var(--dashboard-card-bg);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 12px;
+    padding: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.3s ease;
+    z-index: 999999999 !important;
+    backdrop-filter: blur(10px);
+}
+
+/* When using fixed positioning (via JavaScript) */
+.metasync-nav-dropdown-menu[style*="position: fixed"] {
+    z-index: 999999999 !important;
+}
+
+/* Scrollbar styling for dropdown menu */
+.metasync-nav-dropdown-menu::-webkit-scrollbar {
+    width: 6px;
+}
+
+.metasync-nav-dropdown-menu::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 3px;
+}
+
+.metasync-nav-dropdown-menu::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+
+.metasync-nav-dropdown-menu::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.metasync-nav-dropdown:hover .metasync-nav-dropdown-menu,
+.metasync-nav-dropdown.active .metasync-nav-dropdown-menu,
+.metasync-nav-dropdown-btn[aria-expanded="true"] + .metasync-nav-dropdown-menu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+/* Dropdown Items */
+.metasync-nav-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--dashboard-text-secondary);
+    font-weight: 500;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.metasync-nav-dropdown-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--dashboard-text-primary);
+    transform: translateX(4px);
+}
+
+.metasync-nav-dropdown-item.active {
+    background: var(--dashboard-gradient-primary);
+    color: #ffffff;
+    box-shadow: var(--dashboard-shadow);
+}
+
+.metasync-nav-dropdown-item .tab-icon {
+    font-size: 16px;
+    opacity: 1;
+    transition: all 0.3s ease;
+}
+
+.metasync-nav-dropdown-item.active .tab-icon,
+.metasync-nav-dropdown-item:hover .tab-icon {
+    transform: scale(1.1);
+}
+
+/* Right section adjustments for grouped nav */
+.metasync-nav-grouped .metasync-nav-right {
+    padding-left: 12px;
+    border-left: 1px solid var(--dashboard-border);
+    margin-left: auto;
 }
 
 /* Refactored Simple Dropdown */
@@ -565,6 +854,16 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     color: var(--dashboard-text-secondary);
 }
 
+/* Description Text - ONLY in plugin pages */
+.metasync-dashboard-wrap .description,
+.metasync-dashboard-wrap p.description {
+    color: var(--dashboard-text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+    margin-top: 8px;
+    margin-bottom: 0;
+}
+
 /* Checkboxes and Radio Buttons - ONLY in plugin pages */
 .metasync-dashboard-wrap input[type="checkbox"],
 .metasync-dashboard-wrap input[type="radio"] {
@@ -581,7 +880,7 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     background: var(--dashboard-gradient-primary);
     border: none;
     border-radius: 8px;
-    color: var(--dashboard-text-primary);
+    color: #ffffff;
     cursor: pointer;
     font-weight: 500;
     padding: 12px 24px;
@@ -720,7 +1019,7 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 }
 
 .metasync-dashboard-wrap .dashboard-progress-bar {
-    background: var(--dashboard-gradient-primary);
+    background: var(--dashboard-accent);
     height: 100%;
     border-radius: 10px;
     transition: width 0.3s ease;
@@ -745,12 +1044,7 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
         transparent
     );
     background-size: 20px 20px;
-    animation: progress-stripes 1s linear infinite;
-}
-
-@keyframes progress-stripes {
-    0% { background-position: 0 0; }
-    100% { background-position: 20px 0; }
+    /* Animation removed for static progress bars */
 }
 
 /* Settings Sections - ONLY in plugin pages */
@@ -784,8 +1078,8 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     font-weight: 600;
 }
 
-/* Enhanced SSO Container - Dashboard Style */
-.metasync-dashboard-wrap .metasync-sso-container {
+/* Search Atlas Connect Container - Dashboard Style */
+.metasync-dashboard-wrap .metasync-sa-connect-container {
     background: var(--dashboard-card-bg);
     border: 1px solid var(--dashboard-border);
     border-radius: 16px;
@@ -796,13 +1090,13 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     transition: all 0.3s ease;
 }
 
-.metasync-dashboard-wrap .metasync-sso-container:hover {
+.metasync-dashboard-wrap .metasync-sa-connect-container:hover {
     background: var(--dashboard-card-hover);
     box-shadow: var(--dashboard-shadow-hover);
     /* Removed translateY animation - was too distracting */
 }
 
-.metasync-dashboard-wrap .metasync-sso-title {
+.metasync-dashboard-wrap .metasync-sa-connect-title {
     color: var(--dashboard-text-primary);
     font-size: 1.25rem;
     font-weight: 600;
@@ -812,27 +1106,27 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     gap: 8px;
 }
 
-.metasync-dashboard-wrap .metasync-sso-description {
+.metasync-dashboard-wrap .metasync-sa-connect-description {
     color: var(--dashboard-text-secondary);
     margin-bottom: 20px;
     line-height: 1.6;
     font-size: 14px;
 }
 
-/* SSO Buttons Container - Dashboard Style */
-.metasync-dashboard-wrap .metasync-sso-buttons {
+/* Connect Buttons Container - Dashboard Style */
+.metasync-dashboard-wrap .metasync-sa-connect-buttons {
     display: flex;
     gap: 12px;
     flex-wrap: wrap;
     align-items: center;
 }
 
-.metasync-dashboard-wrap .metasync-sso-connect-btn,
-.metasync-dashboard-wrap #connect-searchatlas-sso {
+.metasync-dashboard-wrap .metasync-sa-connect-btn,
+.metasync-dashboard-wrap #connect-searchatlas-btn {
     background: var(--dashboard-gradient-primary);
     border: none;
     border-radius: 8px;
-    color: var(--dashboard-text-primary);
+    color: #ffffff;
     padding: 12px 24px;
     font-weight: 500;
     cursor: pointer;
@@ -844,22 +1138,22 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     box-shadow: var(--dashboard-shadow);
 }
 
-.metasync-dashboard-wrap .metasync-sso-connect-btn:hover:not(:disabled),
-.metasync-dashboard-wrap #connect-searchatlas-sso:hover:not(:disabled) {
+.metasync-dashboard-wrap .metasync-sa-connect-btn:hover:not(:disabled),
+.metasync-dashboard-wrap #connect-searchatlas-btn:hover:not(:disabled) {
     background: var(--dashboard-gradient-accent);
     transform: translateY(-2px);
     box-shadow: var(--dashboard-shadow-hover);
 }
 
-.metasync-dashboard-wrap .metasync-sso-connect-btn:disabled,
-.metasync-dashboard-wrap #connect-searchatlas-sso:disabled {
+.metasync-dashboard-wrap .metasync-sa-connect-btn:disabled,
+.metasync-dashboard-wrap #connect-searchatlas-btn:disabled {
     opacity: 0.7;
     cursor: not-allowed;
     transform: none;
     background: var(--dashboard-accent);
 }
 
-.metasync-dashboard-wrap .metasync-sso-reset-btn,
+.metasync-dashboard-wrap .metasync-sa-reset-btn,
 .metasync-dashboard-wrap #reset-searchatlas-auth {
     background: transparent;
     border: 1px solid var(--dashboard-border);
@@ -875,7 +1169,7 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     font-size: 14px;
 }
 
-.metasync-dashboard-wrap .metasync-sso-reset-btn:hover:not(:disabled),
+.metasync-dashboard-wrap .metasync-sa-reset-btn:hover:not(:disabled),
 .metasync-dashboard-wrap #reset-searchatlas-auth:hover:not(:disabled) {
     background: var(--dashboard-card-hover);
     color: var(--dashboard-text-primary);
@@ -883,9 +1177,9 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     /* Removed translateY animation - was too distracting */
 }
 
-/* SSO Status Messages - Dashboard Style */
-.metasync-dashboard-wrap .metasync-sso-status,
-.metasync-dashboard-wrap #sso-status-message {
+/* Connect Status Messages - Dashboard Style */
+.metasync-dashboard-wrap .metasync-sa-connect-status,
+.metasync-dashboard-wrap #sa-connect-status-message {
     margin-top: 16px;
     padding: 16px 20px;
     border-radius: 12px;
@@ -899,36 +1193,36 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     box-shadow: var(--dashboard-shadow);
 }
 
-.metasync-dashboard-wrap .metasync-sso-status.success,
-.metasync-dashboard-wrap #sso-status-message.success {
+.metasync-dashboard-wrap .metasync-sa-connect-status.success,
+.metasync-dashboard-wrap #sa-connect-status-message.success {
     background: rgba(16, 185, 129, 0.15);
     border-color: rgba(16, 185, 129, 0.3);
     color: var(--dashboard-success);
 }
 
-.metasync-dashboard-wrap .metasync-sso-status.error,
-.metasync-dashboard-wrap #sso-status-message.error {
+.metasync-dashboard-wrap .metasync-sa-connect-status.error,
+.metasync-dashboard-wrap #sa-connect-status-message.error {
     background: rgba(239, 68, 68, 0.15);
     border-color: rgba(239, 68, 68, 0.3);
     color: var(--dashboard-error);
 }
 
-.metasync-dashboard-wrap .metasync-sso-status.info,
-.metasync-dashboard-wrap #sso-status-message.info {
+.metasync-dashboard-wrap .metasync-sa-connect-status.info,
+.metasync-dashboard-wrap #sa-connect-status-message.info {
     background: rgba(59, 130, 246, 0.15);
     border-color: rgba(59, 130, 246, 0.3);
     color: var(--dashboard-accent);
 }
 
-.metasync-dashboard-wrap .metasync-sso-status.warning,
-.metasync-dashboard-wrap #sso-status-message.warning {
+.metasync-dashboard-wrap .metasync-sa-connect-status.warning,
+.metasync-dashboard-wrap #sa-connect-status-message.warning {
     background: rgba(245, 158, 11, 0.15);
     border-color: rgba(245, 158, 11, 0.3);
     color: var(--dashboard-warning);
 }
 
-/* SSO Progress Indicator - Dashboard Style */
-.metasync-dashboard-wrap .metasync-sso-progress {
+/* Connect Progress Indicator - Dashboard Style */
+.metasync-dashboard-wrap .metasync-sa-connect-progress {
     margin-top: 16px;
     padding: 16px 20px;
     background: rgba(59, 130, 246, 0.1);
@@ -937,7 +1231,7 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     backdrop-filter: blur(10px);
 }
 
-.metasync-dashboard-wrap .metasync-sso-progress-header {
+.metasync-dashboard-wrap .metasync-sa-connect-progress-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -947,13 +1241,13 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     color: var(--dashboard-text-primary);
 }
 
-.metasync-dashboard-wrap .metasync-sso-progress-time {
+.metasync-dashboard-wrap .metasync-sa-connect-progress-time {
     color: var(--dashboard-text-secondary);
     font-size: 12px;
     font-weight: normal;
 }
 
-.metasync-dashboard-wrap .metasync-sso-progress-bar {
+.metasync-dashboard-wrap .metasync-sa-connect-progress-bar {
     width: 100%;
     height: 8px;
     background: rgba(255, 255, 255, 0.1);
@@ -962,9 +1256,9 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     margin: 8px 0;
 }
 
-.metasync-dashboard-wrap .metasync-sso-progress-fill {
+.metasync-dashboard-wrap .metasync-sa-connect-progress-fill {
     height: 100%;
-    background: var(--dashboard-gradient-primary);
+    background: var(--dashboard-accent);
     width: 0%;
     transition: width 0.3s ease;
     border-radius: 4px;
@@ -972,7 +1266,7 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     overflow: hidden;
 }
 
-.metasync-dashboard-wrap .metasync-sso-progress-fill::after {
+.metasync-dashboard-wrap .metasync-sa-connect-progress-fill::after {
     content: '';
     position: absolute;
     top: 0;
@@ -990,10 +1284,10 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
         transparent
     );
     background-size: 20px 20px;
-    animation: progress-stripes 1s linear infinite;
+    /* Animation removed for static progress bars */
 }
 
-.metasync-dashboard-wrap .metasync-sso-progress-text {
+.metasync-dashboard-wrap .metasync-sa-connect-progress-text {
     margin-top: 8px;
     color: var(--dashboard-text-secondary);
     font-size: 13px;
@@ -1001,8 +1295,8 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     text-align: center;
 }
 
-/* SSO Loading States */
-.metasync-dashboard-wrap .metasync-sso-loading {
+/* Connect Loading States */
+.metasync-dashboard-wrap .metasync-sa-connect-loading {
     display: inline-block;
     width: 16px;
     height: 16px;
@@ -1016,16 +1310,16 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 }
 
 /* Authentication Tips Section - Style existing PHP details element */
-.metasync-dashboard-wrap .metasync-sso-tips,
-.metasync-dashboard-wrap details.metasync-sso-tips {
+.metasync-dashboard-wrap .metasync-sa-connect-tips,
+.metasync-dashboard-wrap details.metasync-sa-connect-tips {
     margin-top: 16px;
     padding: 0;
     border: none;
     background: transparent;
 }
 
-.metasync-dashboard-wrap .metasync-sso-tips-toggle,
-.metasync-dashboard-wrap details.metasync-sso-tips summary {
+.metasync-dashboard-wrap .metasync-sa-connect-tips-toggle,
+.metasync-dashboard-wrap details.metasync-sa-connect-tips summary {
     background: transparent;
     border: none;
     color: var(--dashboard-text-secondary) !important;
@@ -1042,13 +1336,13 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     outline: none;
 }
 
-.metasync-dashboard-wrap .metasync-sso-tips-toggle:hover,
-.metasync-dashboard-wrap details.metasync-sso-tips summary:hover {
+.metasync-dashboard-wrap .metasync-sa-connect-tips-toggle:hover,
+.metasync-dashboard-wrap details.metasync-sa-connect-tips summary:hover {
     color: var(--dashboard-text-primary) !important;
 }
 
-.metasync-dashboard-wrap .metasync-sso-tips-content,
-.metasync-dashboard-wrap details.metasync-sso-tips > div {
+.metasync-dashboard-wrap .metasync-sa-connect-tips-content,
+.metasync-dashboard-wrap details.metasync-sa-connect-tips > div {
     margin-top: 12px;
     padding: 16px;
     background: rgba(255, 255, 255, 0.05);
@@ -1060,17 +1354,17 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 }
 
 /* Remove default details styling */
-.metasync-dashboard-wrap details.metasync-sso-tips summary::-webkit-details-marker {
+.metasync-dashboard-wrap details.metasync-sa-connect-tips summary::-webkit-details-marker {
     display: none;
 }
 
-.metasync-dashboard-wrap details.metasync-sso-tips summary::marker {
+.metasync-dashboard-wrap details.metasync-sa-connect-tips summary::marker {
     display: none;
     content: '';
 }
 
 /* Ensure content is hidden when details is closed */
-.metasync-dashboard-wrap details.metasync-sso-tips:not([open]) > div {
+.metasync-dashboard-wrap details.metasync-sa-connect-tips:not([open]) > div {
     display: none;
 }
 
@@ -1083,7 +1377,7 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 
 .metasync-dashboard-wrap .metasync-dashboard-btn {
     background: var(--dashboard-gradient-primary);
-    color: var(--dashboard-text-primary);
+    color: #ffffff;
     text-decoration: none;
     padding: 8px 16px;
     border-radius: 8px;
@@ -1100,13 +1394,13 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     background: var(--dashboard-gradient-accent);
     transform: translateY(-1px);
     box-shadow: var(--dashboard-shadow);
-    color: var(--dashboard-text-primary);
+    color: #ffffff;
     text-decoration: none;
 }
 
-/* SSO Action Buttons (existing and new) */
-.metasync-dashboard-wrap .metasync-sso-retry-btn,
-.metasync-dashboard-wrap .metasync-sso-btn {
+/* Connect Action Buttons (existing and new) */
+.metasync-dashboard-wrap .metasync-sa-connect-retry-btn,
+.metasync-dashboard-wrap .metasync-sa-connect-btn {
     background: var(--dashboard-accent);
     border: none;
     border-radius: 8px;
@@ -1122,35 +1416,36 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     margin: 4px 8px 4px 0;
 }
 
-.metasync-dashboard-wrap .metasync-sso-retry-btn:hover,
-.metasync-dashboard-wrap .metasync-sso-btn:hover {
+.metasync-dashboard-wrap .metasync-sa-connect-retry-btn:hover,
+.metasync-dashboard-wrap .metasync-sa-connect-btn:hover {
     background: var(--dashboard-accent-hover);
     transform: translateY(-1px);
     box-shadow: var(--dashboard-shadow);
 }
 
-.metasync-dashboard-wrap .metasync-sso-btn.primary {
+.metasync-dashboard-wrap .metasync-sa-connect-btn.primary {
     background: var(--dashboard-gradient-primary);
+    color: #ffffff;
 }
 
-.metasync-dashboard-wrap .metasync-sso-btn.secondary {
+.metasync-dashboard-wrap .metasync-sa-connect-btn.secondary {
     background: transparent;
     border: 1px solid var(--dashboard-border);
     color: var(--dashboard-text-secondary);
 }
 
-.metasync-dashboard-wrap .metasync-sso-btn.secondary:hover {
+.metasync-dashboard-wrap .metasync-sa-connect-btn.secondary:hover {
     background: var(--dashboard-card-hover);
     color: var(--dashboard-text-primary);
     border-color: var(--dashboard-accent);
 }
 
-/* SSO Status Message Content */
-.metasync-dashboard-wrap .metasync-sso-status-content {
+/* Connect Status Message Content */
+.metasync-dashboard-wrap .metasync-sa-connect-status-content {
     flex: 1;
 }
 
-.metasync-dashboard-wrap .metasync-sso-status-title {
+.metasync-dashboard-wrap .metasync-sa-connect-status-title {
     font-weight: 600;
     font-size: 15px;
     margin-bottom: 8px;
@@ -1159,15 +1454,15 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     gap: 8px;
 }
 
-.metasync-dashboard-wrap .metasync-sso-status-message {
+.metasync-dashboard-wrap .metasync-sa-connect-status-message {
     font-size: 14px;
     line-height: 1.5;
     opacity: 0.9;
     margin-bottom: 12px;
 }
 
-/* Existing SSO Actions Container */
-.metasync-dashboard-wrap .metasync-sso-actions {
+/* Existing Connect Actions Container */
+.metasync-dashboard-wrap .metasync-sa-connect-actions {
     margin-top: 16px;
     display: flex;
     gap: 12px;
@@ -1175,36 +1470,56 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     align-items: center;
 }
 
-/* SSO Button States */
-.metasync-dashboard-wrap #connect-searchatlas-sso.connecting {
+/* Connect Button States */
+.metasync-dashboard-wrap #connect-searchatlas-btn.connecting {
     background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
 }
 
-.metasync-dashboard-wrap #connect-searchatlas-sso.authenticating {
+.metasync-dashboard-wrap #connect-searchatlas-btn.authenticating {
     background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
 }
 
-.metasync-dashboard-wrap #connect-searchatlas-sso.success {
+.metasync-dashboard-wrap #connect-searchatlas-btn.success {
     background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
 }
 
-/* Mobile SSO Adjustments */
+/* Theme Toggle Mobile Adjustments */
 @media (max-width: 768px) {
-    .metasync-dashboard-wrap .metasync-sso-container {
+    .metasync-theme-toggle {
+        order: -1;
+        margin-bottom: 12px;
+    }
+    
+    .metasync-dashboard-wrap .metasync-header-right {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        width: 100%;
+    }
+    
+    .metasync-theme-toggle {
+        width: fit-content;
+        align-self: center;
+    }
+}
+
+/* Mobile Connect Adjustments */
+@media (max-width: 768px) {
+    .metasync-dashboard-wrap .metasync-sa-connect-container {
         padding: 20px 16px;
         margin-top: 16px;
         border-radius: 12px;
     }
     
-    .metasync-dashboard-wrap .metasync-sso-buttons {
+    .metasync-dashboard-wrap .metasync-sa-connect-buttons {
         flex-direction: column;
         align-items: stretch;
         gap: 8px;
     }
     
-    .metasync-dashboard-wrap .metasync-sso-connect-btn,
-    .metasync-dashboard-wrap #connect-searchatlas-sso,
-    .metasync-dashboard-wrap .metasync-sso-reset-btn,
+    .metasync-dashboard-wrap .metasync-sa-connect-btn,
+    .metasync-dashboard-wrap #connect-searchatlas-btn,
+    .metasync-dashboard-wrap .metasync-sa-reset-btn,
     .metasync-dashboard-wrap #reset-searchatlas-auth {
         width: 100%;
         justify-content: center;
@@ -1212,19 +1527,19 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
         font-size: 15px;
     }
     
-    .metasync-dashboard-wrap .metasync-sso-progress {
+    .metasync-dashboard-wrap .metasync-sa-connect-progress {
         padding: 16px;
         margin-top: 12px;
     }
     
-    .metasync-dashboard-wrap .metasync-sso-progress-header {
+    .metasync-dashboard-wrap .metasync-sa-connect-progress-header {
         flex-direction: column;
         align-items: flex-start;
         gap: 6px;
         font-size: 13px;
     }
     
-    .metasync-dashboard-wrap .metasync-sso-status {
+    .metasync-dashboard-wrap .metasync-sa-connect-status {
         padding: 16px;
         margin-top: 12px;
         flex-direction: column;
@@ -1232,7 +1547,7 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
         gap: 8px;
     }
     
-    .metasync-dashboard-wrap .metasync-sso-status-title {
+    .metasync-dashboard-wrap .metasync-sa-connect-status-title {
         font-size: 16px;
     }
 }
@@ -1347,6 +1662,50 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
         padding: 12px 16px;
     }
     
+    /* Grouped navigation mobile adjustments */
+    .metasync-dashboard-wrap .metasync-nav-grouped {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .metasync-dashboard-wrap .metasync-nav-dropdown {
+        width: 100%;
+    }
+    
+    .metasync-dashboard-wrap .metasync-nav-dropdown-btn {
+        width: 100%;
+        justify-content: space-between;
+    }
+    
+    .metasync-dashboard-wrap .metasync-nav-dropdown-menu {
+        position: static;
+        opacity: 1;
+        visibility: visible;
+        transform: none;
+        box-shadow: none;
+        border: 1px solid var(--dashboard-border);
+        margin-top: 8px;
+        display: none;
+    }
+    
+    .metasync-dashboard-wrap .metasync-nav-dropdown.active .metasync-nav-dropdown-menu {
+        display: block;
+    }
+    
+    .metasync-dashboard-wrap .metasync-nav-dropdown-item {
+        padding: 12px 16px;
+    }
+    
+    .metasync-dashboard-wrap .metasync-nav-grouped .metasync-nav-right {
+        border-left: none;
+        border-top: 1px solid var(--dashboard-border);
+        padding-left: 0;
+        padding-top: 12px;
+        margin-left: 0;
+        justify-content: center;
+        width: 100%;
+    }
+    
     .metasync-dashboard-wrap .nav-tab-wrapper {
         flex-direction: column !important;
         gap: 8px !important;
@@ -1384,14 +1743,14 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
         margin-bottom: 4px;
     }
     
-    .metasync-dashboard-wrap .metasync-sso-buttons {
+    .metasync-dashboard-wrap .metasync-sa-connect-buttons {
         flex-direction: column;
         align-items: stretch;
     }
     
-    .metasync-dashboard-wrap .metasync-sso-connect-btn,
-    .metasync-dashboard-wrap .metasync-sso-reset-btn,
-    .metasync-dashboard-wrap #connect-searchatlas-sso,
+    .metasync-dashboard-wrap .metasync-sa-connect-btn,
+    .metasync-dashboard-wrap .metasync-sa-reset-btn,
+    .metasync-dashboard-wrap #connect-searchatlas-btn,
     .metasync-dashboard-wrap #reset-searchatlas-auth {
         width: 100%;
         justify-content: center;
@@ -1433,8 +1792,8 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 }
 
 /* Center spinners within buttons */
-.metasync-dashboard-wrap .button .metasync-sso-loading,
-.metasync-dashboard-wrap button .metasync-sso-loading {
+.metasync-dashboard-wrap .button .metasync-sa-connect-loading,
+.metasync-dashboard-wrap button .metasync-sa-connect-loading {
     vertical-align: middle;
     margin-right: 6px;
     margin-left: 0;
@@ -1488,7 +1847,7 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 }
 
 /* Ensure spinners stay inline in their context */
-.metasync-dashboard-wrap .metasync-sso-loading {
+.metasync-dashboard-wrap .metasync-sa-connect-loading {
     /* Force inline positioning - never absolute */
     position: static !important;
     display: inline-block !important;
@@ -2308,4 +2667,442 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
         font-size: 12px;
         padding: 4px 8px;
     }
+}
+
+/* ========================================
+   SETTINGS ACCORDION STYLES
+   ======================================== */
+
+/* Accordion Container */
+.metasync-settings-accordion {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Accordion Section */
+.metasync-accordion-section {
+    background: var(--dashboard-card-bg);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.metasync-accordion-section:hover {
+    border-color: var(--dashboard-accent);
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+}
+
+/* Accordion Header */
+.metasync-accordion-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s ease;
+    position: relative;
+}
+
+.metasync-accordion-header:hover {
+    background: var(--dashboard-card-hover);
+}
+
+.metasync-accordion-header:focus {
+    outline: 2px solid var(--dashboard-accent);
+    outline-offset: -2px;
+}
+
+.metasync-accordion-title {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex: 1;
+}
+
+.metasync-accordion-icon {
+    font-size: 28px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.metasync-accordion-text h3 {
+    color: var(--dashboard-text-primary);
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0 0 4px 0;
+}
+
+.metasync-accordion-description {
+    color: var(--dashboard-text-secondary);
+    font-size: 13px;
+    margin: 0;
+    line-height: 1.4;
+}
+
+/* Accordion Toggle Button */
+.metasync-accordion-toggle {
+    background: transparent;
+    border: none;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    padding: 8px;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.metasync-accordion-toggle:hover {
+    color: var(--dashboard-accent);
+    transform: scale(1.1);
+}
+
+.metasync-accordion-toggle .toggle-icon {
+    display: inline-block;
+    font-size: 16px;
+    transition: transform 0.3s ease;
+}
+
+/* Rotate icon when section is open */
+.metasync-accordion-header[aria-expanded="true"] .toggle-icon {
+    transform: rotate(180deg);
+}
+
+/* Accordion Content */
+.metasync-accordion-content {
+    overflow: hidden;
+    transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.3s ease,
+                padding 0.3s ease;
+}
+
+.metasync-accordion-content[data-state="closed"] {
+    max-height: 0;
+    opacity: 0;
+    padding: 0 24px;
+}
+
+.metasync-accordion-content[data-state="open"] {
+    max-height: 5000px; /* Large enough for any content */
+    opacity: 1;
+    padding: 0 24px 24px 24px;
+}
+
+/* Form Table Inside Accordion */
+.metasync-accordion-content .form-table {
+    margin-top: 0;
+    background: transparent;
+    border-collapse: separate;
+    border-spacing: 0 16px;
+}
+
+.metasync-accordion-content .form-table th,
+.metasync-accordion-content .form-table td {
+    padding: 18px 20px;
+    vertical-align: middle;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.metasync-accordion-content .form-table th {
+    border-radius: 8px 0 0 8px;
+}
+
+.metasync-accordion-content .form-table td {
+    border-radius: 0 8px 8px 0;
+}
+
+.metasync-accordion-content .form-table tr:hover th,
+.metasync-accordion-content .form-table tr:hover td {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.metasync-accordion-content .form-table tr:first-child th,
+.metasync-accordion-content .form-table tr:first-child td {
+    padding-top: 18px;
+}
+
+.metasync-accordion-content .form-table tr:last-child th,
+.metasync-accordion-content .form-table tr:last-child td {
+    padding-bottom: 18px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .metasync-accordion-header {
+        padding: 16px 20px;
+    }
+
+    .metasync-accordion-title {
+        gap: 12px;
+    }
+
+    .metasync-accordion-icon {
+        font-size: 24px;
+    }
+
+    .metasync-accordion-text h3 {
+        font-size: 16px;
+    }
+
+    .metasync-accordion-description {
+        font-size: 12px;
+    }
+
+    .metasync-accordion-content[data-state="open"] {
+        padding: 0 20px 20px 20px;
+    }
+
+    .metasync-accordion-content .form-table {
+        border-spacing: 0 12px;
+    }
+
+    .metasync-accordion-content .form-table th,
+    .metasync-accordion-content .form-table td {
+        padding: 14px 16px;
+    }
+
+    .metasync-accordion-content .form-table tr:first-child th,
+    .metasync-accordion-content .form-table tr:first-child td {
+        padding-top: 14px;
+    }
+}
+
+/* ========================================
+   TOOLTIP SYSTEM
+   ======================================== */
+
+/* Field Label Wrapper */
+.metasync-field-label-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+}
+
+.metasync-field-label-wrapper label {
+    flex: 0 0 auto;
+}
+
+/* Tooltip Trigger Button */
+.metasync-tooltip-trigger {
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: help;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.metasync-tooltip-trigger:hover,
+.metasync-tooltip-trigger:focus {
+    transform: scale(1.15);
+}
+
+.metasync-tooltip-trigger:focus {
+    outline: 2px solid var(--dashboard-accent);
+    outline-offset: 2px;
+    border-radius: 50%;
+}
+
+/* Info Icon SVG */
+.metasync-info-icon {
+    width: 18px;
+    height: 18px;
+    color: var(--dashboard-text-secondary);
+    transition: color 0.2s ease;
+}
+
+.metasync-tooltip-trigger:hover .metasync-info-icon,
+.metasync-tooltip-trigger:focus .metasync-info-icon {
+    color: var(--dashboard-accent);
+}
+
+/* Tooltip Container */
+.metasync-tooltip {
+    position: absolute;
+    z-index: 10000;
+    background: var(--dashboard-card-bg);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    padding: 14px 18px;
+    width: 450px;
+    max-width: calc(100vw - 40px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+    transform: translateY(-8px);
+    left: 100%;
+    margin-left: 16px;
+    top: 50%;
+    transform: translateY(-50%) translateX(-8px);
+}
+
+.metasync-tooltip.show {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(-50%) translateX(0);
+}
+
+/* Tooltip Arrow */
+.metasync-tooltip-arrow {
+    position: absolute;
+    left: -6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 6px 6px 6px 0;
+    border-color: transparent var(--dashboard-border) transparent transparent;
+}
+
+.metasync-tooltip-arrow::after {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: -5px;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 5px 5px 5px 0;
+    border-color: transparent var(--dashboard-card-bg) transparent transparent;
+}
+
+/* Tooltip Content */
+.metasync-tooltip-content {
+    color: var(--dashboard-text-primary);
+    font-size: 14px;
+    line-height: 1.65;
+    font-weight: 400;
+    letter-spacing: 0.01em;
+}
+
+/* Tooltip Positioning - Handle edge cases */
+.metasync-tooltip[data-position="left"] {
+    left: auto;
+    right: 100%;
+    margin-left: 0;
+    margin-right: 12px;
+    transform: translateY(-50%) translateX(8px);
+}
+
+.metasync-tooltip[data-position="left"].show {
+    transform: translateY(-50%) translateX(0);
+}
+
+.metasync-tooltip[data-position="left"] .metasync-tooltip-arrow {
+    left: auto;
+    right: -6px;
+    border-width: 6px 0 6px 6px;
+    border-color: transparent transparent transparent var(--dashboard-border);
+}
+
+.metasync-tooltip[data-position="left"] .metasync-tooltip-arrow::after {
+    left: -7px;
+    border-width: 5px 0 5px 5px;
+    border-color: transparent transparent transparent var(--dashboard-card-bg);
+}
+
+/* Responsive Tooltip Widths */
+@media (max-width: 1400px) {
+    .metasync-tooltip {
+        width: 400px;
+    }
+}
+
+@media (max-width: 1200px) {
+    .metasync-tooltip {
+        width: 360px;
+    }
+}
+
+@media (max-width: 992px) {
+    .metasync-tooltip {
+        width: 320px;
+        padding: 12px 16px;
+    }
+}
+
+/* Mobile & Tablet Tooltip Adjustments */
+@media (max-width: 768px) {
+    .metasync-tooltip {
+        width: calc(100vw - 40px);
+        max-width: 500px;
+        font-size: 13px;
+        padding: 14px 16px;
+        position: fixed;
+        left: 50% !important;
+        top: auto !important;
+        bottom: 20px;
+        transform: translateX(-50%) translateY(8px);
+        margin: 0;
+    }
+
+    .metasync-tooltip.show {
+        transform: translateX(-50%) translateY(0);
+    }
+
+    .metasync-tooltip-arrow {
+        display: none;
+    }
+}
+
+/* Small Mobile Devices */
+@media (max-width: 480px) {
+    .metasync-tooltip {
+        width: calc(100vw - 30px);
+        font-size: 12px;
+        padding: 12px 14px;
+    }
+}
+
+/* Accessibility - Keyboard Navigation */
+.metasync-accordion-header:focus-visible {
+    outline: 2px solid var(--dashboard-accent);
+    outline-offset: -2px;
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+    .metasync-accordion-content,
+    .metasync-accordion-toggle .toggle-icon,
+    .metasync-tooltip,
+    .metasync-tooltip-trigger {
+        transition: none;
+    }
+}
+
+/* ================================================
+   Universal Gradient Button Text Color
+   Ensures all elements with gradient backgrounds have white text
+   ================================================ */
+
+/* Light Mode - Ensure gradient backgrounds always have white text */
+[data-theme="light"] .metasync-dashboard-wrap *[style*="--dashboard-gradient-primary"],
+[data-theme="light"] .metasync-dashboard-wrap .button-primary,
+[data-theme="light"] .metasync-dashboard-wrap .metasync-nav-tab.active,
+[data-theme="light"] .metasync-dashboard-wrap .metasync-theme-option.active,
+[data-theme="light"] .metasync-dashboard-wrap .metasync-sa-connect-btn.primary,
+[data-theme="light"] .metasync-dashboard-wrap .metasync-dashboard-btn,
+[data-theme="light"] .metasync-dashboard-wrap .metasync-sa-connect-btn,
+[data-theme="light"] .metasync-dashboard-wrap #connect-searchatlas-btn {
+    color: #ffffff !important;
+}
+
+/* Ensure hover states maintain white text */
+[data-theme="light"] .metasync-dashboard-wrap .button-primary:hover,
+[data-theme="light"] .metasync-dashboard-wrap .metasync-dashboard-btn:hover,
+[data-theme="light"] .metasync-dashboard-wrap .metasync-sa-connect-btn:hover,
+[data-theme="light"] .metasync-dashboard-wrap #connect-searchatlas-btn:hover {
+    color: #ffffff !important;
 }

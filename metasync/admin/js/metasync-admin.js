@@ -29,8 +29,141 @@
 	 * practising this, we should strive to set a better example in our own work.
 	 */
 
+	// ========================================
+	// UTILITY FUNCTIONS (Consolidated to reduce duplication)
+	// ========================================
+
+	/**
+	 * Get plugin name from config or use default
+	 * @returns {string} Plugin name
+	 */
+	function getPluginName() {
+		return window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
+	}
+
+	/**
+	 * Get OTTO name from config or use default
+	 * @returns {string} OTTO name
+	 */
+	function getOttoName() {
+		return window.MetasyncConfig && window.MetasyncConfig.ottoName ? window.MetasyncConfig.ottoName : 'OTTO';
+	}
+
+	/**
+	 * Update integration status indicator in header
+	 * @param {boolean} isIntegrated - Whether the integration is active
+	 * @param {string} statusText - Status text to display
+	 * @param {string} titleText - Tooltip text
+	 */
+	function updateHeaderStatus(isIntegrated, statusText, titleText) {
+		var $statusIndicator = $('.metasync-integration-status');
+		if ($statusIndicator.length > 0) {
+			if (isIntegrated) {
+				$statusIndicator.removeClass('not-integrated').addClass('integrated');
+			} else {
+				$statusIndicator.removeClass('integrated').addClass('not-integrated');
+			}
+			$statusIndicator.find('.status-text').text(statusText);
+			$statusIndicator.attr('title', titleText);
+			console.log('🔄 Updated header status to: ' + statusText);
+		}
+	}
+
+	/**
+	 * Collect whitelabel form fields for submission
+	 * @returns {string} Serialized whitelabel field data
+	 */
+	function collectWhitelabelFields() {
+		var whitelabelFields = [];
+		
+		// Text/URL fields
+		var logoField = $('input[name="metasync_options[whitelabel][logo]"]');
+		var domainField = $('input[name="metasync_options[whitelabel][domain]"]');
+		var passwordField = $('input[name="metasync_options[whitelabel][settings_password]"]');
+		
+		if (logoField.length > 0 && logoField.val()) {
+			whitelabelFields.push('metasync_options[whitelabel][logo]=' + encodeURIComponent(logoField.val()));
+		}
+		if (domainField.length > 0 && domainField.val()) {
+			whitelabelFields.push('metasync_options[whitelabel][domain]=' + encodeURIComponent(domainField.val()));
+		}
+		if (passwordField.length > 0 && passwordField.val()) {
+			whitelabelFields.push('metasync_options[whitelabel][settings_password]=' + encodeURIComponent(passwordField.val()));
+		}
+		
+		// Checkbox fields (handle both checked and unchecked)
+		var hideFields = ['hide_dashboard', 'hide_settings', 'hide_indexation_control', 
+		                  'hide_redirections', 'hide_robots', 'hide_sync_log', 
+		                  'hide_compatibility', 'hide_advanced'];
+		
+		hideFields.forEach(function (fieldName) {
+			var checkbox = $('input[name="metasync_options[whitelabel][' + fieldName + ']"]');
+			if (checkbox.length > 0) {
+				var value = checkbox.is(':checked') ? '1' : '0';
+				whitelabelFields.push('metasync_options[whitelabel][' + fieldName + ']=' + value);
+			}
+		});
+		
+		return whitelabelFields.join('&');
+	}
+
+	/**
+	 * Display notice message in plugin area
+	 * @param {string} type - Notice type: 'success' or 'error'
+	 * @param {string} title - Notice title
+	 * @param {string} message - Notice message
+	 * @param {string} cssClass - Additional CSS class for the notice
+	 * @param {number} autoHideDelay - Auto-hide delay in ms (0 = no auto-hide)
+	 */
+	function showPluginNotice(type, title, message, cssClass, autoHideDelay) {
+		cssClass = cssClass || 'metasync-notice';
+		autoHideDelay = autoHideDelay || 0;
+		
+		var noticeClass = type === 'success' ? 'notice-success' : 'notice-error';
+		var noticeHTML = '<div class="notice ' + noticeClass + ' is-dismissible ' + cssClass + '" style="margin: 20px 0; padding: 12px;">' +
+			'<p><strong>' + title + '</strong><br/>' + message + '</p>' +
+		'</div>';
+		
+		// Remove existing notices of same class
+		$('.' + cssClass).remove();
+		
+		// Insert between navigation menu and page content
+		var $navWrapper = $('.metasync-nav-wrapper');
+		if ($navWrapper.length > 0) {
+			$navWrapper.after(noticeHTML);
+		} else {
+			$('.metasync-dashboard-wrap').prepend(noticeHTML);
+		}
+		
+		// Scroll to the top to ensure visibility
+		$('html, body').animate({ scrollTop: 0 }, 'slow');
+		
+		// Auto-hide if delay specified
+		if (autoHideDelay > 0) {
+			setTimeout(function () {
+				$('.' + cssClass).fadeOut(300, function () { 
+					$(this).remove(); 
+				});
+			}, autoHideDelay);
+		}
+	}
+
+	/**
+	 * Prevent dashboard.js interference with button
+	 * @param {jQuery} $button - Button element to protect
+	 */
+	function preventDashboardInterference($button) {
+		$button.removeClass('dashboard-loading');
+		$button.addClass('no-loading metasync-sa-connect-protected');
+		$button.prop('disabled', false);
+	}
+
+	// ========================================
+	// ORIGINAL FUNCTIONS
+	// ========================================
+
 	function metasync_syncPostsAndPages() {
-		wp.ajax.post("lgSendCustomerParams", {})
+		wp.ajax.post('lgSendCustomerParams', {})
 			.done(function (response) {
 				console.log(response);
 			});
@@ -46,30 +179,32 @@
 			action: 'lglogin',
 			username: user, password: pass
 		}, function (response) {
-			if (typeof response.token !== "undefined") {
-				$("#linkgraph_token").val(response.token);
-				$("#linkgraph_customer_id").val(response.customer_id);
-				$(".input.lguser,#lgerror").addClass('hidden');
+			if (typeof response.token !== 'undefined') {
+				$('#linkgraph_token').val(response.token);
+				$('#linkgraph_customer_id').val(response.customer_id);
+				$('.input.lguser,#lgerror').addClass('hidden');
 				localStorage.setItem('token', response.token);
 			} else {
-				$("#lgerror").html(`${response.detail} (${response.kind})`).removeClass('hidden');
+				$('#lgerror').html(`${response.detail} (${response.kind})`).removeClass('hidden');
 			}
 		}
 		);
 	}
 
 	function setToken() {
-		if ($("#linkgraph_token") && $("#linkgraph_token").val()) {
-			localStorage.setItem('token', $("#linkgraph_token").val());
+		if ($('#linkgraph_token') && $('#linkgraph_token').val()) {
+			localStorage.setItem('token', $('#linkgraph_token').val());
 		}
 	}
 
-	// SSO Authentication functions
-	var ssoPollingInterval = null;
-	var ssoWindow = null;
+	// Search Atlas Connect functions
+	// Handles 1-click authentication to retrieve Search Atlas API key and Otto UUID.
+	// Does NOT create WordPress login sessions.
+	var saConnectPollingInterval = null;
+	var saConnectWindow = null;
 
-	function handleSSOConnect() {
-		var $button = $("#connect-searchatlas-sso");	
+	function handleSearchAtlasConnect() {
+		var $button = $('#connect-searchatlas-btn');	
 		// Only check for button (status/progress elements are created dynamically)
 		if (!$button.length) {
 			return;
@@ -79,20 +214,20 @@
 		$button.prop('disabled', true)
 			   .addClass('connecting no-loading') // Add 'no-loading' to prevent dashboard.js interference
 			   .removeClass('dashboard-loading') // Remove any existing dashboard loading
-			   .html('<span class="metasync-sso-loading"></span> Initializing...');
+			   .html('<span class="metasync-sa-connect-loading"></span> Initializing...');
 		
-			// Hide any existing status/progress containers (may not exist yet)
-	$("#sso-status-message").hide();
-	$(".metasync-sso-progress").hide();
+		// Hide any existing status/progress containers (may not exist yet)
+		$('#sa-connect-status-message').hide();
+		$('.metasync-sa-connect-progress').hide();
 
 		// Initialize progress display immediately (no separate status message)
 		initializeProgressDisplay();
 
 		// Generate nonce for WordPress AJAX security
-		var ajaxNonce = metaSync.sso_nonce || '';
-	if (!ajaxNonce) {
-		return;
-	}
+		var ajaxNonce = metaSync.sa_connect_nonce || '';
+		if (!ajaxNonce) {
+			return;
+		}
 
 		// Make AJAX call to generate SSO URL
 		var ajaxUrl = ajaxurl || metaSync.ajax_url;
@@ -102,11 +237,11 @@
 			url: ajaxUrl,
 			type: 'POST',
 			data: {
-				action: 'generate_sso_url',
+				action: 'generate_searchatlas_connect_url',
 				nonce: ajaxNonce
 			},
 			timeout: 30000, // 30 second timeout
-			success: function(response) {
+			success: function (response) {
 	
 				
 				if (response.success) {
@@ -114,13 +249,13 @@
 					// Update button state
 					$button.removeClass('connecting dashboard-loading')
 						   .addClass('authenticating no-loading') // Maintain no-loading class
-						   .html('<span class="metasync-sso-loading"></span> Opening Authentication...');
+						   .html('<span class="metasync-sa-connect-loading"></span> Opening Authentication...');
 					
 	
 					
-										// Small delay for better UX (let user see the message)
-					setTimeout(function() {
-						console.log('🔍 Opening SSO popup with URL:', response.data.sso_url);
+					// Small delay for better UX (let user see the message)
+					setTimeout(function () {
+						console.log('🔍 Opening connect popup with URL:', response.data.connect_url);
 						
 						// Detect mobile device for better experience
 						var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -128,13 +263,13 @@
 						
 	
 						
-											if (isMobile) {
+						if (isMobile) {
 						// On mobile, open in same tab for better experience
-							showSSOInfo('📱 Mobile Authentication', 
-								'Opening ' + (window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas') + ' authentication. You\'ll be redirected back after logging in.');
-							window.location.href = response.data.sso_url;
+							showConnectInfo('📱 Mobile Authentication', 
+								'Opening ' + getPluginName() + ' authentication. You\'ll be redirected back after logging in.');
+							window.location.href = response.data.connect_url;
 							return;
-				} else {
+						} else {
 							// Desktop: enhanced popup window
 							var screenWidth = window.screen.width;
 							var screenHeight = window.screen.height;
@@ -155,70 +290,74 @@
 	
 						
 						// Open SSO URL in popup with enhanced window properties
-						ssoWindow = window.open(
-							response.data.sso_url, 
-							'searchatlas-sso',
+						saConnectWindow = window.open(
+							response.data.connect_url, 
+							'searchatlas-connect',
 							windowFeatures
 						);
 						
 	
 						
 						// Enhanced popup blocked detection
-						setTimeout(function() {
-							if (!ssoWindow || ssoWindow.closed || typeof ssoWindow.closed == 'undefined') {
-								showSSOError('🚫 Popup Blocked', 
+						setTimeout(function () {
+							if (!saConnectWindow || saConnectWindow.closed || typeof saConnectWindow.closed === 'undefined') {
+								showConnectError('🚫 Popup Blocked', 
 									'Your browser blocked the authentication popup. Please allow popups for this site and try again.',
 									[{
 										text: '🔄 Try Again',
-										action: function() { handleSSOConnect(); }
+										action: function () {
+											handleSearchAtlasConnect(); 
+										}
 									}, {
 										text: '📝 How to Enable Popups',
-										action: function() { 
+										action: function () { 
 											showPopupHelp();
 										}
 									}, {
 										text: '🖥️ Open in New Tab',
-										action: function() {
-											window.open(response.data.sso_url, '_blank');
-											startEnhancedSSOPolling(response.data.nonce_token);
+										action: function () {
+											window.open(response.data.connect_url, '_blank');
+											startSearchAtlasPolling(response.data.nonce_token);
 										}
 									}]
 								);
-								resetSSOButton();
+								resetConnectButton();
 								return;
 							}
 							
 							// Add focus to popup window
 							try {
-								ssoWindow.focus();
+								saConnectWindow.focus();
 							} catch(e) {
 								// Ignore focus errors
 							}
 							
 							// Update progress display and start polling
 							updateProgress(10, 1, 6); // Show initial progress
-							console.log('🔍 Starting SSO polling with nonce:', response.data.nonce_token);
-							setTimeout(function() {
-								startEnhancedSSOPolling(response.data.nonce_token);
+							console.log('🔍 Starting connect polling with nonce:', response.data.nonce_token);
+							setTimeout(function () {
+								startSearchAtlasPolling(response.data.nonce_token);
 							}, 200);
 							
 						}, 100); // Small delay to let popup settle
 						
 					}, 500); // 500ms delay for better UX
 					
-							} else {
-				var errorMessage = response.data.message || 'Failed to generate SSO URL';
-					showSSOError('❌ Connection Failed', 
+				} else {
+					var errorMessage = response.data.message || 'Failed to generate connect URL';
+					showConnectError('❌ Connection Failed', 
 						errorMessage,
 						[{
 							text: '🔄 Retry Connection',
-							action: function() { handleSSOConnect(); }
+							action: function () {
+								handleSearchAtlasConnect(); 
+							}
 						}]
 					);
-					resetSSOButton();
+					resetConnectButton();
 				}
 			},
-			error: function(xhr, status, error) {
+			error: function (xhr, status, error) {
 				console.error('🐛 DEBUG: AJAX error occurred:', {
 					xhr: xhr,
 					status: status,
@@ -229,8 +368,7 @@
 					ajaxUrl: ajaxUrl
 				});
 				
-				var pluginName = window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
-				var errorMessage = 'Network error occurred while connecting to ' + pluginName;
+				var errorMessage = 'Network error occurred while connecting to ' + getPluginName();
 				
 				// Provide specific error messages based on the error type
 				if (status === 'timeout') {
@@ -249,13 +387,15 @@
 					errorMessage = xhr.responseJSON.message;
 				}
 				
-				showSSOError('🌐 Network Error', errorMessage,
+				showConnectError('🌐 Network Error', errorMessage,
 					[{
 						text: '🔄 Retry Connection',
-						action: function() { handleSSOConnect(); }
+						action: function () {
+							handleSearchAtlasConnect(); 
+						}
 					}, {
 						text: '🔧 Check Network',
-						action: function() { 
+						action: function () { 
 							console.log('Network diagnostics:', {
 								status: status,
 								error: error,
@@ -264,36 +404,35 @@
 						}
 					}]
 				);
-				resetSSOButton();
+				resetConnectButton();
 			}
 		});
 	}
 
-	function resetSSOButton() {
-		var $button = $("#connect-searchatlas-sso");
-		var $progressContainer = $(".metasync-sso-progress");
-		var hasApiKey = $("#searchatlas-api-key").val().trim() !== '';
+	function resetConnectButton() {
+		var $button = $('#connect-searchatlas-btn');
+		var $progressContainer = $('.metasync-sa-connect-progress');
+		var hasApiKey = $('#searchatlas-api-key').val().trim() !== '';
 		
-		var pluginName = window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
 		$button.prop('disabled', false)
 			   .removeClass('connecting authenticating success dashboard-loading') // Remove all loading classes
-			   .html(hasApiKey ? '🔄 Re-authenticate with ' + pluginName : '🔗 Connect to ' + pluginName);
+			   .html(hasApiKey ? '🔄 Re-authenticate with ' + getPluginName() : '🔗 Connect to ' + getPluginName());
 		$progressContainer.hide();
 	}
 
-	function startEnhancedSSOPolling(nonceToken) {
+	function startSearchAtlasPolling(nonceToken) {
 		var pollCount = 0;
 		var maxPolls = 12; // Poll for 60 seconds (12 * 5 seconds)
-		var $progressContainer = $(".metasync-sso-progress");
-		var $progressFill = $(".metasync-sso-progress-fill");
-		var $progressText = $(".metasync-sso-progress-text");
-		var $button = $("#connect-searchatlas-sso");
+		var $progressContainer = $('.metasync-sa-connect-progress');
+		var $progressFill = $('.metasync-sa-connect-progress-fill');
+		var $progressText = $('.metasync-sa-connect-progress-text');
+		var $button = $('#connect-searchatlas-btn');
 		
 		// Progress display should already be initialized, just update it
 		updateProgress(0, 0, maxPolls);
 
 		
-		ssoPollingInterval = setInterval(function() {
+		saConnectPollingInterval = setInterval(function () {
 			pollCount++;
 			
 
@@ -302,10 +441,10 @@
 			updateProgress(progress, pollCount, maxPolls);
 			
 			// Check if window was closed manually - but continue polling
-			if (ssoWindow && ssoWindow.closed) {
+			if (saConnectWindow && saConnectWindow.closed) {
 				// Popup closed, but continue polling to check for authentication success
-				console.log('🔍 SSO popup closed, continuing to poll for authentication success...');
-				ssoWindow = null; // Clear reference to closed window
+				console.log('🔍 Connect popup closed, continuing to poll for authentication success...');
+				saConnectWindow = null; // Clear reference to closed window
 				
 				// Update UI to show we're still checking
 				updateProgress(75, pollCount, maxPolls); 
@@ -316,22 +455,26 @@
 			
 			// Stop polling after max attempts
 			if (pollCount >= maxPolls) {
-				stopEnhancedSSOPolling();
-				if (ssoWindow) ssoWindow.close();
+				stopSearchAtlasPolling();
+				if (saConnectWindow) {
+					saConnectWindow.close();
+				}
 				
 				// ✅ Reset the authentication flow while keeping the timeout component
-				resetSSOButton();
+				resetConnectButton();
 				
-				showSSOError('⏰ Authentication Timeout', 
+				showConnectError('⏰ Authentication Timeout', 
 					'The authentication process timed out after 60 seconds. Please complete the authentication more quickly or check for network issues.',
 					[{
 						text: '🔄 Try Again',
-						action: function() { handleSSOConnect(); }
+						action: function () {
+							handleSearchAtlasConnect(); 
+						}
 					}, {
 						text: '💬 Contact Support',
-						action: function() { 
+						action: function () { 
 							var supportEmail = metaSync.support_email || 'support@searchatlas.com';
-							window.open('mailto:' + supportEmail + '?subject=SSO Authentication Timeout (30s)', '_blank');
+							window.open('mailto:' + supportEmail + '?subject=Connect Authentication Timeout (30s)', '_blank');
 						}
 					}]
 				);
@@ -341,7 +484,7 @@
 			// Update button state periodically  
 			if (pollCount % 2 === 0) { // Every 10 seconds
 				var timeLeft = Math.ceil((maxPolls - pollCount) * 5);
-				$button.html('<span class="metasync-sso-loading"></span> Waiting for Authentication (' + timeLeft + 's left)');
+				$button.html('<span class="metasync-sa-connect-loading"></span> Waiting for Authentication (' + timeLeft + 's left)');
 			}
 
 			// Check if API key was updated
@@ -349,14 +492,16 @@
 				url: ajaxurl,
 				type: 'POST',
 				data: {
-					action: 'check_sso_status',
-					nonce: metaSync.sso_nonce || '',
+					action: 'check_searchatlas_connect_status',
+					nonce: metaSync.sa_connect_nonce || '',
 					nonce_token: nonceToken
 				},
-				success: function(response) {
+				success: function (response) {
 					if (response.success && response.data.updated) {
-						stopEnhancedSSOPolling();
-						if (ssoWindow) ssoWindow.close();
+						stopSearchAtlasPolling();
+						if (saConnectWindow) {
+							saConnectWindow.close();
+						}
 						
 						// Show completion animation
 						updateProgress(100, maxPolls, maxPolls);
@@ -375,89 +520,107 @@
 								type: 'POST',
 								data: {
 									action: 'get_plugin_auth_token',
-									nonce: metaSync.sso_nonce || ''
+									nonce: metaSync.sa_connect_nonce || ''
 								},
-								success: function(tokenResponse) {
+								success: function (tokenResponse) {
 									if (tokenResponse.success && tokenResponse.data.plugin_auth_token) {
-										$("#apikey").val(tokenResponse.data.plugin_auth_token);
-										console.log('🔑 Plugin Auth Token field updated after SSO success');
+										$('#apikey').val(tokenResponse.data.plugin_auth_token);
+										console.log('🔑 Plugin Auth Token field updated after connect success');
 									}
 								},
-								error: function() {
-									console.log('⚠️ Could not refresh Plugin Auth Token field, but SSO authentication was successful');
+								error: function () {
+									console.log('⚠️ Could not refresh Plugin Auth Token field, but connect authentication was successful');
 								}
 							});
 							
 							$button.removeClass('connecting authenticating dashboard-loading')
-								   .addClass('success no-loading')
-								   .html('✅ Authentication Complete!');
-							
+								.addClass('success no-loading')
+								.html('✅ Authentication Complete!');
+
 							// Add success animation to container
-							$button.closest('.metasync-sso-container').addClass('metasync-sso-success-animation');
-							setTimeout(function() {
-								$button.closest('.metasync-sso-container').removeClass('metasync-sso-success-animation');
+							$button.closest('.metasync-sa-connect-container').addClass('metasync-sa-connect-success-animation');
+							setTimeout(function () {
+								$button.closest('.metasync-sa-connect-container').removeClass('metasync-sa-connect-success-animation');
 							}, 600);
+						
+							// Track 1-click activation in Mixpanel
+							var hasExistingApiKey = $('#searchatlas-api-key').val() && $('#searchatlas-api-key').val().trim() !== '';
+							$.ajax({
+								url: metaSync.ajax_url,
+								type: 'POST',
+								data: {
+									action: 'metasync_track_one_click_activation',
+									auth_method: 'searchatlas_connect',
+									is_reconnection: hasExistingApiKey
+								}
+							});
 							
-							showSSOSuccess('🎉 Authentication Successful', 
-								'Your ' + (window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas') + ' account has been synced successfully! The page will reload to apply your new settings.',
+							showConnectSuccess('🎉 Authentication Successful', 
+								'Your ' + getPluginName() + ' account has been synced successfully! The page will reload to apply your new settings.',
 								[{
 									text: '🔄 Reload Now',
-									action: function() { location.reload(); }
+									action: function () {
+										location.reload(); 
+									}
 								}]
 							);
-							
+
 							// Auto-reload with countdown
 							var countdown = 3;
-							var countdownInterval = setInterval(function() {
+							var countdownInterval = setInterval(function () {
 								countdown--;
 								if (countdown > 0) {
 									$button.html('✅ Reloading in ' + countdown + '...');
 								} else {
 									clearInterval(countdownInterval);
-								location.reload();
+									location.reload();
 								}
 							}, 1000);
 							
 						} else if (statusCode === 404) {
 							// Website not registered
 							var effectiveDomain = response.data.effective_domain || metaSync.dashboard_domain;
-							showSSONotRegistered(effectiveDomain);
-							resetSSOButton();
+							showConnectNotRegistered(effectiveDomain);
+							resetConnectButton();
 							
 						} else if (statusCode === 500) {
 							// Server error
-							showSSOError('🔧 Server Error', 
+							showConnectError('🔧 Server Error', 
 								'A server error occurred during authentication. This is usually temporary.',
 								[{
 									text: '🔄 Try Again',
-									action: function() { handleSSOConnect(); }
+									action: function () {
+										handleSearchAtlasConnect(); 
+									}
 								}, {
-																	text: '💬 Contact Support',
-								action: function() { 
-									var supportEmail = metaSync.support_email || 'support@searchatlas.com';
-									window.open('mailto:' + supportEmail + '?subject=SSO Server Error (Code 500)', '_blank');
-								}
+									text: '💬 Contact Support',
+									action: function () { 
+										var supportEmail = metaSync.support_email || 'support@searchatlas.com';
+										window.open('mailto:' + supportEmail + '?subject=Connect Server Error (Code 500)', '_blank');
+									}
 								}]
 							);
-							resetSSOButton();
+							resetConnectButton();
 							
 						} else {
 							// Unknown status
-							showSSOError('❓ Unexpected Status', 
+							showConnectError('❓ Unexpected Status', 
 								'Received an unexpected status code (' + statusCode + ') during authentication.',
 								[{
 									text: '🔄 Try Again',
-									action: function() { handleSSOConnect(); }
+									action: function () {
+										handleSearchAtlasConnect(); 
+									}
 								}]
 							);
-							resetSSOButton();
+							resetConnectButton();
 						}
 					}
 				},
-				error: function(xhr, status, error) {
+				error: function (xhr, status, error) {
 					// Continue polling even if individual request fails, but provide feedback
 					if (pollCount % 6 === 0) { // Every 30 seconds, show a subtle warning
-						console.log('SSO polling request failed, continuing... Error:', error);
+						console.log('Connect polling request failed, continuing... Error:', error);
 						// Don't show error to user for temporary network issues during polling
 					}
 
@@ -467,39 +630,39 @@
 	}
 
 	function initializeProgressDisplay() {
-		var $progressContainer = $(".metasync-sso-progress");
-		var $button = $("#connect-searchatlas-sso");
+		var $progressContainer = $('.metasync-sa-connect-progress');
+		var $button = $('#connect-searchatlas-btn');
 		
 		// Hide any existing status messages to avoid duplication
-		hideSSOStatus();
+		hideConnectStatus();
 		
 		// Create progress elements if they don't exist
 		if ($progressContainer.length === 0) {
 			var progressHTML = `
-				<div class="metasync-sso-progress">
-					<div class="metasync-sso-progress-header">
+				<div class="metasync-sa-connect-progress">
+					<div class="metasync-sa-connect-progress-header">
 						<strong>🔐 Authentication in Progress</strong>
-						<span class="metasync-sso-progress-time">Connecting...</span>
+						<span class="metasync-sa-connect-progress-time">Connecting...</span>
 					</div>
-					<div class="metasync-sso-progress-bar">
-						<div class="metasync-sso-progress-fill"></div>
+					<div class="metasync-sa-connect-progress-bar">
+						<div class="metasync-sa-connect-progress-fill"></div>
 					</div>
-					<div class="metasync-sso-progress-text">
-						Establishing secure connection to ' + (window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas') + '...
+					<div class="metasync-sa-connect-progress-text">
+						Establishing secure connection to ' + getPluginName() + '...
 					</div>
 				</div>
 			`;
-			$button.closest('.metasync-sso-container').append(progressHTML);
-			$progressContainer = $(".metasync-sso-progress");
+			$button.closest('.metasync-sa-connect-container').append(progressHTML);
+			$progressContainer = $('.metasync-sa-connect-progress');
 		}
 		
-		$progressContainer.show().find('.metasync-sso-progress-fill').css('width', '0%');
+		$progressContainer.show().find('.metasync-sa-connect-progress-fill').css('width', '0%');
 	}
 
 	function updateProgress(percentage, currentPoll, maxPolls) {
-		var $progressFill = $(".metasync-sso-progress-fill");
-		var $progressTime = $(".metasync-sso-progress-time");
-		var $progressText = $(".metasync-sso-progress-text");
+		var $progressFill = $('.metasync-sa-connect-progress-fill');
+		var $progressTime = $('.metasync-sa-connect-progress-time');
+		var $progressText = $('.metasync-sa-connect-progress-text');
 		
 		// Update progress bar
 		$progressFill.css('width', percentage + '%');
@@ -522,66 +685,66 @@
 	}
 
 	// Update the old function name for compatibility
-	function startSSOPolling(nonceToken) {
-		return startEnhancedSSOPolling(nonceToken);
+	function startConnectPolling(nonceToken) {
+		return startSearchAtlasPolling(nonceToken);
 	}
 
-	function stopEnhancedSSOPolling() {
-		if (ssoPollingInterval) {
-			clearInterval(ssoPollingInterval);
-			ssoPollingInterval = null;
+	function stopSearchAtlasPolling() {
+		if (saConnectPollingInterval) {
+			clearInterval(saConnectPollingInterval);
+			saConnectPollingInterval = null;
 		}
 	}
 
 	// Legacy function for backward compatibility
-	function stopSSOPolling() {
-		return stopEnhancedSSOPolling();
+	function stopConnectPolling() {
+		return stopSearchAtlasPolling();
 	}
 
-	function showSSOSuccess(title, message, actions) {
-		showSSOStatus('success', title, message, actions);
+	function showConnectSuccess(title, message, actions) {
+		showConnectStatus('success', title, message, actions);
 	}
 
-	function showSSOError(title, message, actions) {
-		showSSOStatus('error', title, message, actions);
+	function showConnectError(title, message, actions) {
+		showConnectStatus('error', title, message, actions);
 	}
 
-	function showSSOInfo(title, message, actions) {
-		showSSOStatus('info', title, message, actions);
+	function showConnectInfo(title, message, actions) {
+		showConnectStatus('info', title, message, actions);
 	}
 
-	function showSSOWarning(title, message, actions) {
-		showSSOStatus('warning', title, message, actions);
+	function showConnectWarning(title, message, actions) {
+		showConnectStatus('warning', title, message, actions);
 	}
 
-	function showSSOStatus(type, title, message, actions) {
-		var $statusContainer = $("#sso-status-message");
-		var $button = $("#connect-searchatlas-sso");
+	function showConnectStatus(type, title, message, actions) {
+		var $statusContainer = $('#sa-connect-status-message');
+		var $button = $('#connect-searchatlas-btn');
 		
 		// Create enhanced status container if it doesn't exist
-		if ($statusContainer.length === 0 || !$statusContainer.hasClass('metasync-sso-status')) {
+		if ($statusContainer.length === 0 || !$statusContainer.hasClass('metasync-sa-connect-status')) {
 			// Create new enhanced status container
-			var statusHTML = '<div id="sso-status-message" class="metasync-sso-status"></div>';
-			$button.closest('.metasync-sso-container').length === 0 ? 
+			var statusHTML = '<div id="sa-connect-status-message" class="metasync-sa-connect-status"></div>';
+			$button.closest('.metasync-sa-connect-container').length === 0 ? 
 				$button.parent().append(statusHTML) :
-				$button.closest('.metasync-sso-container').append(statusHTML);
-			$statusContainer = $("#sso-status-message");
+				$button.closest('.metasync-sa-connect-container').append(statusHTML);
+			$statusContainer = $('#sa-connect-status-message');
 		}
 		
 		// Build status content
-		var html = '<div class="metasync-sso-status-content">';
-		html += '<div class="metasync-sso-status-title">' + title + '</div>';
+		var html = '<div class="metasync-sa-connect-status-content">';
+		html += '<div class="metasync-sa-connect-status-title">' + title + '</div>';
 		if (message) {
-			html += '<div class="metasync-sso-status-message">' + message + '</div>';
+			html += '<div class="metasync-sa-connect-status-message">' + message + '</div>';
 		}
 		html += '</div>';
 		
 		// Add action buttons if provided
 		if (actions && actions.length > 0) {
-			html += '<div class="metasync-sso-actions">';
-			actions.forEach(function(action, index) {
+			html += '<div class="metasync-sa-connect-actions">';
+			actions.forEach(function (action, index) {
 				var buttonClass = action.primary ? 'primary' : 'secondary';
-				html += '<button type="button" class="metasync-sso-btn ' + buttonClass + '" data-action="' + index + '">';
+				html += '<button type="button" class="metasync-sa-connect-btn ' + buttonClass + '" data-action="' + index + '">';
 				html += action.text;
 				html += '</button>';
 			});
@@ -598,7 +761,7 @@
 		
 		// Bind action handlers
 		if (actions && actions.length > 0) {
-			$statusContainer.find('.metasync-sso-btn').off('click').on('click', function() {
+			$statusContainer.find('.metasync-sa-connect-btn').off('click').on('click', function () {
 				var $actionBtn = $(this);
 				var actionIndex = parseInt($actionBtn.data('action'));
 				if (actions[actionIndex] && typeof actions[actionIndex].action === 'function') {
@@ -606,8 +769,8 @@
 					$actionBtn.prop('disabled', true)
 							 .addClass('no-loading') // Prevent dashboard.js conflicts
 							 .removeClass('dashboard-loading')
-							 .html('<span class="metasync-sso-loading"></span> ' + originalText);
-					setTimeout(function() {
+							 .html('<span class="metasync-sa-connect-loading"></span> ' + originalText);
+					setTimeout(function () {
 						actions[actionIndex].action();
 					}, 100);
 				}
@@ -616,7 +779,7 @@
 		
 		// Auto-scroll to status message for better visibility
 		if (type === 'error' || type === 'warning' || type === 'success') {
-			setTimeout(function() {
+			setTimeout(function () {
 				$('html, body').animate({
 					scrollTop: $statusContainer.offset().top - 100
 				}, 300);
@@ -624,38 +787,40 @@
 		}
 	}
 
-	function showSSONotRegistered(dashboardDomain) {
+	function showConnectNotRegistered(dashboardDomain) {
 		// Use dashboard domain if provided, otherwise fallback to effective domain (includes whitelabel)
 		var domain = dashboardDomain || metaSync.dashboard_domain;
 		var registerUrl = domain + '/seo-automation-v3/create-project';
 		
-		showSSOWarning(
+		showConnectWarning(
 			'⚠️ Website Not Registered',
-			'Your website hasn\'t been registered with ' + (window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas') + ' yet. Registration is required to enable seamless SSO authentication and access to all features.',
+			'Your website hasn\'t been registered with ' + getPluginName() + ' yet. Registration is required to enable 1-click connect to retrieve your Search Atlas API key and Otto UUID.',
 			[{
 				text: '🌐 Register Website',
-				action: function() { 
+				action: function () { 
 					window.open(registerUrl, '_blank');
 				},
 				primary: true
 			}, {
 				text: '📚 Learn More About Registration',
-				action: function() { 
+				action: function () { 
 					var docDomain = metaSync.documentation_domain || 'https://searchatlas.com';
 					window.open(docDomain, '_blank');
 				}
 			}, {
 				text: '🔄 Try Authentication Again',
-				action: function() { 
-					setTimeout(function() { handleSSOConnect(); }, 500);
+				action: function () { 
+					setTimeout(function () {
+						handleSearchAtlasConnect(); 
+					}, 500);
 				}
 			}]
 		);
 	}
 
-	function hideSSOStatus() {
-		$("#sso-status-message").slideUp(300);
-		$(".metasync-sso-progress").slideUp(300);
+	function hideConnectStatus() {
+		$('#sa-connect-status-message').slideUp(300);
+		$('.metasync-sa-connect-progress').slideUp(300);
 	}
 
 	function showPopupHelp() {
@@ -683,15 +848,17 @@
 			</div>
 		`;
 		
-		showSSOInfo('📝 Popup Help', helpContent, [{
+		showConnectInfo('📝 Popup Help', helpContent, [{
 			text: '✅ Got it, Try Again',
-			action: function() { handleSSOConnect(); },
+			action: function () {
+				handleSearchAtlasConnect(); 
+			},
 			primary: true
 		}]);
 	}
 
 	function enhancedErrorRecovery(error, context) {
-		console.group('🔍 SSO Error Diagnostics');
+		console.group('🔍 Connect Error Diagnostics');
 		console.log('Error Context:', context);
 		console.log('Error Details:', error);
 		console.log('Browser Info:', {
@@ -724,7 +891,7 @@
 			recoverySuggestions = [
 				'Complete authentication within 60 seconds',
 				'Check if the popup window needs attention',
-				'Ensure you have your ' + (window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas') + ' login ready',
+				'Ensure you have your ' + getPluginName() + ' login ready',
 				'Try the authentication process again',
 				'Contact support if timeouts persist'
 			];
@@ -735,15 +902,15 @@
 
 	// Add enhanced page visibility handling
 	function handlePageVisibilityChange() {
-		if (document.hidden && ssoWindow && !ssoWindow.closed) {
+		if (document.hidden && saConnectWindow && !saConnectWindow.closed) {
 			// Page became hidden while SSO is in progress
-			showSSOInfo('👁️ Page Hidden', 
+			showConnectInfo('👁️ Page Hidden', 
 				'This page is now in the background. The authentication will continue, but you may want to return to this tab to see the results.');
 		}
 	}
 
 	// Initialize enhanced features when document is ready
-	$(document).ready(function() {
+	$(document).ready(function () {
 		
 		// Hide Jetpack identity crisis container on plugin pages
 		if ($('.metasync-dashboard-wrap').length > 0) {
@@ -765,22 +932,22 @@
 		
 		// Check global variables are available
 		
-				// Test AJAX connectivity using our specific endpoint
-	if (typeof ajaxurl !== 'undefined' && ajaxurl) {
-		$.ajax({
+		// Test AJAX connectivity using our specific endpoint
+		if (typeof ajaxurl !== 'undefined' && ajaxurl) {
+			$.ajax({
 				url: ajaxurl,
 				type: 'POST',
 				data: {
-					action: 'test_sso_ajax_endpoint',
-					nonce: metaSync.sso_nonce
+					action: 'test_searchatlas_ajax_endpoint',
+					nonce: metaSync.sa_connect_nonce
 				},
 				timeout: 10000,
-							success: function(response) {
+				success: function (response) {
 					if (!response.success) {
 						console.warn('🐛 DEBUG: AJAX endpoint reached but returned success=false:', response.data);
 					}
 				},
-				error: function(xhr, status, error) {
+				error: function (xhr, status, error) {
 					console.error('🐛 DEBUG: AJAX test failed:', {
 						xhr: xhr,
 						status: status,
@@ -789,63 +956,62 @@
 						ajaxurl: ajaxurl
 					});
 					
-									// Try alternative AJAX test
+					// Try alternative AJAX test
 					$.post(ajaxurl, {
 						action: 'wp_ajax_nopriv_heartbeat'
-								}).done(function(response2) {
-					}).fail(function(xhr2) {
+					}).done(function (response2) {
+					}).fail(function (xhr2) {
 						console.error('🐛 DEBUG: Alternative AJAX also failed:', xhr2);
 					});
 				}
 			});
 		}
 		
-	// Check if SSO button exists and is functional
-	var $ssoButton = $('#connect-searchatlas-sso');
+		// Check if SSO button exists and is functional
+		var $connectButton = $('#connect-searchatlas-btn');
 		
-	// Test direct click event binding and fix dashboard interference
-		if ($ssoButton.length > 0) {
+		// Test direct click event binding and fix dashboard interference
+		if ($connectButton.length > 0) {
 		// Aggressively prevent dashboard loading interference
-		$ssoButton.addClass('no-loading metasync-sso-protected');
-		$ssoButton.removeClass('dashboard-loading');
-		$ssoButton.prop('disabled', false);
+			preventDashboardInterference($connectButton);
 			
-					$ssoButton.off('click').on('click', function(e) {
+			$connectButton.off('click').on('click', function (e) {
 				
 				// Prevent dashboard.js from interfering
-				$(this).removeClass('dashboard-loading');
-				$(this).prop('disabled', false);
+				preventDashboardInterference($(this));
 				
-				// Call handleSSOConnect if not already disabled by another process
-							if (!$(this).hasClass('connecting') && !$(this).hasClass('authenticating')) {
-					handleSSOConnect();
-							} else {
+				// Call handleSearchAtlasConnect if not already disabled by another process
+				if (!$(this).hasClass('connecting') && !$(this).hasClass('authenticating')) {
+					handleSearchAtlasConnect();
+				} else {
 				}
 			});
 		}
 		
 		// Add page visibility change handler
-		if (typeof document.hidden !== "undefined") {
-			document.addEventListener("visibilitychange", handlePageVisibilityChange);
+		if (typeof document.hidden !== 'undefined') {
+			document.addEventListener('visibilitychange', handlePageVisibilityChange);
 		}
 		
 		// Add keyboard shortcuts for better accessibility
-		$(document).on('keydown', function(e) {
+		$(document).on('keydown', function (e) {
 			// Escape key to cancel ongoing SSO process
-			if (e.key === 'Escape' && ssoPollingInterval) {
+			if (e.key === 'Escape' && saConnectPollingInterval) {
 				if (confirm('Cancel the ongoing authentication process?')) {
-					stopEnhancedSSOPolling();
-					if (ssoWindow) ssoWindow.close();
-					showSSOInfo('⏸️ Authentication Cancelled', 'You cancelled the authentication process.');
-					resetSSOButton();
+					stopSearchAtlasPolling();
+					if (saConnectWindow) {
+						saConnectWindow.close();
+					}
+					showConnectInfo('⏸️ Authentication Cancelled', 'You cancelled the authentication process.');
+					resetConnectButton();
 				}
 			}
 		});
 		
 		// Add connection status indicator
 		function updateConnectionStatus() {
-			var $button = $("#connect-searchatlas-sso");
-			var $apiKeyField = $("#searchatlas-api-key");
+			var $button = $('#connect-searchatlas-btn');
+			var $apiKeyField = $('#searchatlas-api-key');
 			
 			// Only update status if we're on a page with the API key field (General Settings)
 			// On other pages, preserve the PHP-determined status in the header
@@ -860,37 +1026,24 @@
 			// Update button text based on connection state
 			if (!$button.prop('disabled')) {
 				if (isFullyConnected) {
-					var pluginName = window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
-					$button.html('🔄 Re-authenticate with ' + pluginName);
+					$button.html('🔄 Re-authenticate with ' + getPluginName());
 				} else if (hasApiKey && !hasOttoUuid) {
 					$button.html('🔧 Complete Authentication Setup');
 				} else {
-					var pluginName = window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
-					$button.html('🔗 Connect to ' + pluginName);
+					$button.html('🔗 Connect to ' + getPluginName());
 				}
 			}
 			
 			// Update header status indicator (only on General Settings page)
-			var $statusIndicator = $('.metasync-integration-status');
-			if ($statusIndicator.length > 0) {
-							if (isFullyConnected) {
-				$statusIndicator.removeClass('not-integrated').addClass('integrated');
-				$statusIndicator.find('.status-text').text('Synced');
-				var pluginName = window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
-				var ottoName = window.MetasyncConfig && window.MetasyncConfig.ottoName ? window.MetasyncConfig.ottoName : 'OTTO';
-				$statusIndicator.attr('title', pluginName + ' API key and ' + ottoName + ' UUID are configured');
-				} else {
-					$statusIndicator.removeClass('integrated').addClass('not-integrated');
-					$statusIndicator.find('.status-text').text('Not Synced');
-					var pluginName = window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
-					var ottoName = window.MetasyncConfig && window.MetasyncConfig.ottoName ? window.MetasyncConfig.ottoName : 'OTTO';
-					$statusIndicator.attr('title', 'Missing ' + pluginName + ' API key or ' + ottoName + ' UUID');
-				}
+			if (isFullyConnected) {
+				updateHeaderStatus(true, 'Synced', getPluginName() + ' API key and ' + getOttoName() + ' UUID are configured');
+			} else {
+				updateHeaderStatus(false, 'Not Synced', 'Missing ' + getPluginName() + ' API key or ' + getOttoName() + ' UUID');
 			}
 		}
 		
 		// Monitor API key field changes
-		$("#searchatlas-api-key").on('input', updateConnectionStatus);
+		$('#searchatlas-api-key').on('input', updateConnectionStatus);
 		
 		// Initial status update
 		updateConnectionStatus();
@@ -901,15 +1054,15 @@
 		// Settings dropdown now handled by inline script in HTML
 		
 		// Add debug function for connection status (accessible in console)
-		window.debugConnectionStatus = function() {
-			var apiKey = $("#searchatlas-api-key").val();
+		window.debugConnectionStatus = function () {
+			var apiKey = $('#searchatlas-api-key').val();
 			var hasApiKey = apiKey.trim() !== '';
 			
 			console.log('🔍 Connection Status Debug:', {
 				searchatlas_api_key: hasApiKey ? (apiKey.substring(0, 8) + '...') : 'EMPTY',
 				otto_pixel_uuid: metaSync.otto_pixel_uuid || 'NOT SET',
 				connection_state: hasApiKey && metaSync.otto_pixel_uuid ? 'CONNECTED' : 
-								 hasApiKey ? 'PARTIAL (Missing ' + (window.MetasyncConfig && window.MetasyncConfig.ottoName ? window.MetasyncConfig.ottoName : 'OTTO') + ' UUID)' : 'NOT CONNECTED',
+								 hasApiKey ? 'PARTIAL (Missing ' + getOttoName() + ' UUID)' : 'NOT CONNECTED',
 				dashboard_tab_visible: hasApiKey && metaSync.otto_pixel_uuid ? 'YES' : 'NO',
 				status_indicator_should_show: hasApiKey && metaSync.otto_pixel_uuid ? 'Synced' : 'Not Synced'
 			});
@@ -937,7 +1090,7 @@
 		$wrapper.append(loadingHTML);
 		
 		// Handle iframe load events
-		$iframe.on('load', function() {
+		$iframe.on('load', function () {
 			$('.metasync-dashboard-iframe-loading').fadeOut(300);
 			
 			// Log successful load
@@ -945,7 +1098,7 @@
 		});
 		
 		// Handle iframe error events  
-		$iframe.on('error', function() {
+		$iframe.on('error', function () {
 			$('.metasync-dashboard-iframe-loading').html(
 				'<div style="text-align: center; color: #dc3232;">' +
 				'<h3>❌ Dashboard Loading Error</h3>' +
@@ -958,7 +1111,7 @@
 		});
 		
 		// Add keyboard shortcut for refreshing iframe
-		$(document).on('keydown', function(e) {
+		$(document).on('keydown', function (e) {
 			// Ctrl/Cmd + R on dashboard page refreshes iframe
 			if ((e.ctrlKey || e.metaKey) && e.key === 'r' && $iframe.length > 0) {
 				e.preventDefault();
@@ -1000,7 +1153,7 @@
 		// Refresh iframe
 		var currentSrc = $iframe.attr('src');
 		$iframe.attr('src', '');
-		setTimeout(function() {
+		setTimeout(function () {
 			$iframe.attr('src', currentSrc);
 		}, 100);
 		
@@ -1008,20 +1161,19 @@
 	}
 
 	/**
-	 * Handle SSO Authentication Reset
-	 * Shows confirmation dialog and processes the reset
+	 * Handle Search Atlas Authentication Reset.
+	 * Shows confirmation dialog and clears the Search Atlas API key and Otto UUID.
 	 */
-	function handleSSOResetAuth() {
+	function handleSearchAtlasResetAuth() {
 		// Show confirmation dialog
-		var pluginName = window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
 		var confirmed = confirm(
-			'⚠️ Disconnect ' + pluginName + ' Account\n\n' +
+			'⚠️ Disconnect ' + getPluginName() + ' Account\n\n' +
 			'This will:\n' +
-			'• Remove your ' + pluginName + ' API key\n' +
+			'• Remove your ' + getPluginName() + ' API key\n' +
 			'• Clear all authentication tokens\n' +
 			'• Reset connection timestamps\n' +
 			'• Clear cached authentication data\n\n' +
-			'You will need to re-authenticate to use ' + pluginName + ' features.\n\n' +
+			'You will need to re-authenticate to use ' + getPluginName() + ' features.\n\n' +
 			'Are you sure you want to continue?'
 		);
 
@@ -1029,18 +1181,18 @@
 			return;
 		}
 
-		var $resetButton = $("#reset-searchatlas-auth");
-		var $connectButton = $("#connect-searchatlas-sso");
-		var $apiKeyField = $("#searchatlas-api-key");
+		var $resetButton = $('#reset-searchatlas-auth');
+		var $connectButton = $('#connect-searchatlas-btn');
+		var $apiKeyField = $('#searchatlas-api-key');
 
 		// Show loading state (prevent dashboard.js conflicts)
 		$resetButton.prop('disabled', true)
-					.addClass('no-loading') // Prevent dashboard.js interference
-					.removeClass('dashboard-loading')
-					.html('<span class="metasync-sso-loading"></span> Disconnecting...');
+			.addClass('no-loading') // Prevent dashboard.js interference
+			.removeClass('dashboard-loading')
+			.html('<span class="metasync-sa-connect-loading"></span> Disconnecting...');
 
 		// Show status message
-		showSSOInfo('🔄 Disconnecting', 'Clearing your ' + (window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas') + ' authentication data...');
+		showConnectInfo('🔄 Disconnecting', 'Clearing your ' + getPluginName() + ' authentication data...');
 
 		// Make AJAX call to reset authentication
 		$.ajax({
@@ -1050,29 +1202,28 @@
 				action: 'reset_searchatlas_authentication',
 				nonce: metaSync.reset_auth_nonce
 			},
-			success: function(response) {
+			success: function (response) {
 				if (response.success) {
 					// Clear the API key field
 					$apiKeyField.val('');
 					
 					// Update button states
-					var pluginName = window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
-					$connectButton.html('🔗 Connect to ' + pluginName);
+					$connectButton.html('🔗 Connect to ' + getPluginName());
 					$resetButton.remove(); // Remove reset button since no longer connected
 					
 					// Show clean success message without duplicate connect functionality
-					showSSOSuccess('✅ Account Disconnected', 
-						'Your ' + (window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas') + ' authentication has been completely reset. All authentication data has been cleared.',
+					showConnectSuccess('✅ Account Disconnected', 
+						'Your ' + getPluginName() + ' authentication has been completely reset. All authentication data has been cleared.',
 						[{
 							text: '📄 View What Was Cleared',
-							action: function() {
+							action: function () {
 								showClearedDataDetails(response.data.cleared_data);
 							},
 							primary: true
 						}, {
 							text: '✅ Got it',
-							action: function() {
-								hideSSOStatus();
+							action: function () {
+								hideConnectStatus();
 							}
 						}]
 					);
@@ -1081,31 +1232,35 @@
 					updateUIForDisconnectedState();
 
 				} else {
-					showSSOError('❌ Reset Failed', 
+					showConnectError('❌ Reset Failed', 
 						response.data.message || 'Failed to reset authentication',
 						[{
 							text: '🔄 Try Again',
-							action: function() { handleSSOResetAuth(); }
+							action: function () {
+								handleSearchAtlasResetAuth(); 
+							}
 						}, {
-													text: '💬 Contact Support',
-						action: function() { 
-							var supportEmail = metaSync.support_email || 'support@searchatlas.com';
-							window.open('mailto:' + supportEmail + '?subject=Authentication Reset Failed', '_blank');
-						}
+							text: '💬 Contact Support',
+							action: function () { 
+								var supportEmail = metaSync.support_email || 'support@searchatlas.com';
+								window.open('mailto:' + supportEmail + '?subject=Authentication Reset Failed', '_blank');
+							}
 						}]
 					);
 				}
 			},
-			error: function(xhr, status, error) {
-				showSSOError('🌐 Network Error', 
+			error: function (xhr, status, error) {
+				showConnectError('🌐 Network Error', 
 					'A network error occurred while trying to reset authentication.',
 					[{
 						text: '🔄 Try Again',
-						action: function() { handleSSOResetAuth(); }
+						action: function () {
+							handleSearchAtlasResetAuth(); 
+						}
 					}]
 				);
 			},
-			complete: function() {
+			complete: function () {
 				// Reset button state
 				$resetButton.prop('disabled', false)
 						   .removeClass('dashboard-loading no-loading')
@@ -1125,18 +1280,17 @@
 			details += '<li><strong>' + displayName + ':</strong> ' + clearedData[key] + '</li>';
 		}
 		
-		var pluginName = window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
-		details += '</ul><p style="color: #666; font-size: 13px;">This data has been permanently removed. You can safely reconnect with a new or existing ' + pluginName + ' account.</p></div>';
+		details += '</ul><p style="color: #666; font-size: 13px;">This data has been permanently removed. You can safely reconnect with a new or existing ' + getPluginName() + ' account.</p></div>';
 		
-		showSSOInfo('📋 Reset Details', details, [{
+		showConnectInfo('📋 Reset Details', details, [{
 			text: '✅ Got it',
-			action: function() { 
-				hideSSOStatus();
+			action: function () { 
+				hideConnectStatus();
 				// Highlight the main connect button briefly to guide user attention
-				var $mainButton = $('#connect-searchatlas-sso');
+				var $mainButton = $('#connect-searchatlas-btn');
 				if ($mainButton.length > 0) {
 					$mainButton.addClass('metasync-pulse');
-					setTimeout(function() {
+					setTimeout(function () {
 						$mainButton.removeClass('metasync-pulse');
 					}, 2000);
 				}
@@ -1150,28 +1304,19 @@
 	 */
 	function updateUIForDisconnectedState() {
 		// Update API key field placeholder
-		$("#searchatlas-api-key").attr('placeholder', 'Your API key will appear here after authentication');
+		$('#searchatlas-api-key').attr('placeholder', 'Your API key will appear here after authentication');
 		
 		// ✅ Clear OTTO Pixel UUID field
 		$('input[name="metasync_options[general][otto_pixel_uuid]"]').val('');
 		
-		// ✅ Uncheck Enable OTTO Server Side Rendering checkbox
-		$('#otto_enable').prop('checked', false);
+		// Note: OTTO SSR is always enabled by default, no checkbox to uncheck
 		
 		// Remove synced indicator from API key field
-		$('.metasync-sso-container').find('span:contains("✓ Synced")').remove();
+		$('.metasync-sa-connect-container').find('span:contains("✓ Synced")').remove();
 		$('label[for="searchatlas-api-key"]').find('span').remove(); // Remove any status spans
 		
 		// Update header status indicator to "Not Synced"
-		var $statusIndicator = $('.metasync-integration-status');
-		if ($statusIndicator.length > 0) {
-			$statusIndicator.removeClass('integrated').addClass('not-integrated');
-			$statusIndicator.find('.status-text').text('Not Synced');
-			var pluginName = window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
-			var ottoName = window.MetasyncConfig && window.MetasyncConfig.ottoName ? window.MetasyncConfig.ottoName : 'OTTO';
-			$statusIndicator.attr('title', 'Missing ' + pluginName + ' API key or ' + ottoName + ' UUID');
-			console.log('🔄 Updated header status to: Not Synced');
-		}
+		updateHeaderStatus(false, 'Not Synced', 'Missing ' + getPluginName() + ' API key or ' + getOttoName() + ' UUID');
 		
 		// Update metaSync object for JavaScript state tracking
 		if (typeof metaSync !== 'undefined') {
@@ -1181,8 +1326,8 @@
 		}
 		
 		// Update descriptions to reflect disconnected state
-		$('.metasync-sso-description').html(
-			'Connect your ' + (window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas') + ' account with one click. This will automatically configure your API key below and enable all plugin features.'
+		$('.metasync-sa-connect-description').html(
+			'Connect your ' + getPluginName() + ' account with one click. This will automatically configure your API key below and enable all plugin features.'
 		);
 		
 		// Clear timestamp display if it exists
@@ -1193,14 +1338,13 @@
 		console.log('🔄 UI updated to reflect disconnected state - cleared API key, OTTO UUID, and OTTO enable checkbox');
 		
 		// Show clean success message without duplicate connect button
-		setTimeout(function() {
-			var pluginName = window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
-			showSSOSuccess('✅ Account Disconnected', 
-				'Your ' + pluginName + ' authentication has been completely reset. Use the "Connect to ' + pluginName + '" button above to reconnect.',
+		setTimeout(function () {
+			showConnectSuccess('✅ Account Disconnected', 
+				'Your ' + getPluginName() + ' authentication has been completely reset. Use the "Connect to ' + getPluginName() + '" button above to reconnect.',
 				[{
 					text: '✅ Got it',
-					action: function() { 
-						hideSSOStatus();
+					action: function () { 
+						hideConnectStatus();
 					},
 					primary: true
 				}]
@@ -1215,7 +1359,7 @@
 	function updateUIForConnectedState(apiKey, ottoPixelUuid) {
 		// Update API key field
 		if (apiKey) {
-			$("#searchatlas-api-key").val(apiKey);
+			$('#searchatlas-api-key').val(apiKey);
 		}
 		
 		// ✅ Update OTTO Pixel UUID field
@@ -1223,17 +1367,10 @@
 			$('input[name="metasync_options[general][otto_pixel_uuid]"]').val(ottoPixelUuid);
 		}
 		
-		// ✅ Check Enable OTTO Server Side Rendering checkbox
-		$('#otto_enable').prop('checked', true);
+		// Note: OTTO SSR is always enabled by default, no checkbox needed
 		
 		// Update header status indicator to "Synced"
-		var $statusIndicator = $('.metasync-integration-status');
-		if ($statusIndicator.length > 0) {
-			$statusIndicator.removeClass('not-integrated').addClass('integrated');
-			$statusIndicator.find('.status-text').text('Synced');
-			$statusIndicator.attr('title', 'Authentication completed - heartbeat sync will be validated on next page load');
-			console.log('🔄 Updated header status to: Synced');
-		}
+		updateHeaderStatus(true, 'Synced', 'Authentication completed - heartbeat sync will be validated on next page load');
 		
 		// Update metaSync object for JavaScript state tracking
 		if (typeof metaSync !== 'undefined') {
@@ -1245,11 +1382,11 @@
 		}
 		
 		// Update descriptions to reflect connected state
-		$('.metasync-sso-description').html(
-			'Your ' + (window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas') + ' account is connected and synced successfully. All plugin features are now enabled.'
+		$('.metasync-sa-connect-description').html(
+			'Your ' + getPluginName() + ' account is connected and synced successfully. All plugin features are now enabled.'
 		);
 		
-		console.log('✅ UI updated to reflect connected state - API key set, OTTO UUID set, and OTTO enabled');
+		console.log('✅ UI updated to reflect connected state - API key set, OTTO UUID set (SSR always enabled)');
 	}
 
 	function addClassTableRowLocalSEO() {
@@ -1305,9 +1442,9 @@
 
 	function getLocalSeoOnLoadPage() {
 		if (document.getElementsByClassName('form-table') && document.getElementById('local_seo_person_organization')) {
-			var $type = $("#local_seo_person_organization").val();
+			var $type = $('#local_seo_person_organization').val();
 			const classes = ['17', '18', '19', '20', '21', '24', '25'];
-			if ($type == "Person") {
+			if ($type === 'Person') {
 				for (let i = 0; i < classes.length; i++) {
 					$('.metasync-seo-' + classes[i]).hide();
 				}
@@ -1323,7 +1460,7 @@
 
 	function siteInfoOnLoadPage() {
 		if (document.getElementsByClassName('form-table') && document.getElementById('site_info_type')) {
-			var $type = $("#site_info_type").val();
+			var $type = $('#site_info_type').val();
 			const classes = ['18', '19'];
 			if ($type === 'blog' || $type === 'portfolio' || $type === 'otherpersonal') {
 				for (let i = 0; i < classes.length; i++) {
@@ -1343,18 +1480,18 @@
 
 	function hideElementById(id) {
 		if ($('#' + id)) {
-			$('#' + id).hide()
+			$('#' + id).hide();
 		}
 	}
 
 	function removeValueById(id) {
 		if ($('#' + id)) {
-			$('#' + id).val('')
+			$('#' + id).val('');
 		}
 	}
 
 	$(function () {
-		$("#addNewTime").on("click", function () {
+		$('#addNewTime').on('click', function () {
 			$('#daysTime').append(
 				'<li>' +
 				'<select name="metasync_options[localseo][days][]">' +
@@ -1379,7 +1516,7 @@
 	}
 
 	$(function () {
-		$("#addNewNumber").on("click", function () {
+		$('#addNewNumber').on('click', function () {
 			$('#phone-numbers').append(
 				'<li>' +
 				'<select name="metasync_options[localseo][phonetype][]">' +
@@ -1407,7 +1544,7 @@
 		$(this).parent().remove();
 	}
 	$(function () {
-		$("#addNewSourceUrl").on("click", function () {
+		$('#addNewSourceUrl').on('click', function () {
 			$('#source_urls').append(
 				'<li>' +
 				'<input type="text" class="regular-text" name="source_url[]">' +
@@ -1428,91 +1565,87 @@
 
 		setToken();
 
-		$('body').on("click", "#wp_metasync_sync", function (e) {
+		$('body').on('click', '#wp_metasync_sync', function (e) {
 			e.preventDefault();
 			metasync_syncPostsAndPages();
 		});
-		$('body').on("click", "#metasync_settings_genkey_btn", function () {
-			$("#apikey").val(metasyncGenerateAPIKey());
+		$('body').on('click', '#metasync_settings_genkey_btn', function () {
+			$('#apikey').val(metasyncGenerateAPIKey());
 		});
-		$('body').on("click", "#lgloginbtn", function () {
+		$('body').on('click', '#lgloginbtn', function () {
 			// Hide any existing error messages first
-			$("#lgerror").addClass('hidden').hide();
-			
-			if ($('#lgusername').val() == "" || $('#lgpassword').val() == "") {
+			$('#lgerror').addClass('hidden').hide();
+		
+			if ($('#lgusername').val() === '' || $('#lgpassword').val() === '') {
 				$('.input.lguser').toggleClass('hidden');
 			} else {
 				metasyncLGLogin($('#lgusername').val(), $('#lgpassword').val());
 			}
 		});
 
-	// Enhanced SSO Connect button event handler
-	// Aggressive event binding that overrides dashboard.js interference
-	$('body').off('click', '#connect-searchatlas-sso').on('click', '#connect-searchatlas-sso', function (e) {
+		// Enhanced SSO Connect button event handler
+		// Aggressive event binding that overrides dashboard.js interference
+		$('body').off('click', '#connect-searchatlas-btn').on('click', '#connect-searchatlas-btn', function (e) {
 			
 			// Aggressively prevent dashboard interference
-			$(this).removeClass('dashboard-loading');
-			$(this).addClass('no-loading metasync-sso-protected');
+			preventDashboardInterference($(this));
 			
 			// Only proceed if button is not in SSO process
 			if (!$(this).hasClass('connecting') && !$(this).hasClass('authenticating')) {
-			e.preventDefault();
+				e.preventDefault();
 				e.stopPropagation();
 				
 	
-			handleSSOConnect();
-					} else {
+				handleSearchAtlasConnect();
+			} else {
 			}
 		});
 		
 		// Also add a direct event listener as backup
-		setTimeout(function() {
-			var $btn = $('#connect-searchatlas-sso');
-					if ($btn.length > 0) {
-							$btn[0].addEventListener('click', function(e) {
+		setTimeout(function () {
+			var $btn = $('#connect-searchatlas-btn');
+			if ($btn.length > 0) {
+				$btn[0].addEventListener('click', function (e) {
 					e.preventDefault();
 					e.stopPropagation();
 					
 					// Force enable the button and clean classes
-					$(this).removeClass('dashboard-loading disabled');
-					$(this).addClass('no-loading metasync-sso-protected');
-					$(this).prop('disabled', false);
+					preventDashboardInterference($(this));
 					
-									if (!$(this).hasClass('connecting') && !$(this).hasClass('authenticating')) {
-						handleSSOConnect();
+					if (!$(this).hasClass('connecting') && !$(this).hasClass('authenticating')) {
+						handleSearchAtlasConnect();
 					}
 				}, true); // Use capture phase to get event before other handlers
 			}
 		}, 500);
 		
 		// Monitor button state changes and fix interference
-			setTimeout(function() {
-		var $btn = $('#connect-searchatlas-sso');
-		if ($btn.length > 0) {
+		setTimeout(function () {
+			var $btn = $('#connect-searchatlas-btn');
+			if ($btn.length > 0) {
 			// Store original button state for restoration
-			var buttonState = {
-				disabled: $btn.prop('disabled'),
-				style: $btn.attr('style'),
-				pointerEvents: $btn.css('pointer-events'),
-				zIndex: $btn.css('z-index'),
-				position: $btn.css('position'),
-				classes: $btn.attr('class')
-			};
+				var buttonState = {
+					disabled: $btn.prop('disabled'),
+					style: $btn.attr('style'),
+					pointerEvents: $btn.css('pointer-events'),
+					zIndex: $btn.css('z-index'),
+					position: $btn.css('position'),
+					classes: $btn.attr('class')
+				};
 				
 				// Monitor for unwanted changes to the button
-				var observer = new MutationObserver(function(mutations) {
-					mutations.forEach(function(mutation) {
-										if (mutation.type === 'attributes') {
-														// Monitor for unwanted attribute changes
+				var observer = new MutationObserver(function (mutations) {
+					mutations.forEach(function (mutation) {
+						if (mutation.type === 'attributes') {
+							// Monitor for unwanted attribute changes
 													
 							// Fix dashboard interference automatically
-												if (mutation.attributeName === 'class' && $btn.hasClass('dashboard-loading')) {
-								$btn.removeClass('dashboard-loading');
-								$btn.addClass('no-loading metasync-sso-protected');
+							if (mutation.attributeName === 'class' && $btn.hasClass('dashboard-loading')) {
+								preventDashboardInterference($btn);
 							}
 							
-												if (mutation.attributeName === 'disabled' && $btn.prop('disabled') && !$btn.hasClass('connecting')) {
-								$btn.prop('disabled', false);
+							if (mutation.attributeName === 'disabled' && $btn.prop('disabled') && !$btn.hasClass('connecting')) {
+								preventDashboardInterference($btn);
 							}
 						}
 					});
@@ -1527,47 +1660,47 @@
 		}, 1000);
 
 		// SSO Reset button event handler
-		$('body').on("click", "#reset-searchatlas-auth", function (e) {
+		$('body').on('click', '#reset-searchatlas-auth', function (e) {
 			e.preventDefault();
-			handleSSOResetAuth();
+			handleSearchAtlasResetAuth();
 		});
 
-		$('body').on("click", "#local_seo_logo_close_btn", function () {
+		$('body').on('click', '#local_seo_logo_close_btn', function () {
 			removeValueById('local_seo_logo');
 			hideElementById('local_seo_business_logo');
 			hideElementById('local_seo_logo_close_btn');
 		});
 
-		$('body').on("click", "#site_google_logo_close_btn", function () {
+		$('body').on('click', '#site_google_logo_close_btn', function () {
 			removeValueById('site_google_logo');
 			hideElementById('site_google_logo_img');
 			hideElementById('site_google_logo_close_btn');
 		});
 
-		$('body').on("click", "#site_social_image_close_btn", function () {
+		$('body').on('click', '#site_social_image_close_btn', function () {
 			removeValueById('site_social_share_image');
 			hideElementById('site_social_share_img');
 			hideElementById('site_social_image_close_btn');
 		});
 
-		$('body').on("click", "#logo_upload_button", function () {
+		$('body').on('click', '#logo_upload_button', function () {
 			uploadMedia('Logo', 'Add', 'local_seo_logo', 'local_seo_business_logo', 'local_seo_logo_close_btn');
 		});
 
-		$('body').on("click", "#google_logo_btn", function () {
+		$('body').on('click', '#google_logo_btn', function () {
 			uploadMedia('Site Google Logo', 'Add', 'site_google_logo', 'site_google_logo_img', 'site_google_logo_close_btn');
 		});
 
-		$('body').on("click", "#social_share_image_btn", function () {
+		$('body').on('click', '#social_share_image_btn', function () {
 			uploadMedia('Site Social Share Image', 'Add', 'site_social_share_image', 'site_social_share_img', 'site_social_image_close_btn');
 		});
 
-		$('body').on("click", "#robots_common1", function () {
+		$('body').on('click', '#robots_common1', function () {
 			$('#robots_common1').prop('checked', true);
 			$('#robots_common2').prop('checked', false);
 		});
 
-		$('body').on("click", "#robots_common2", function () {
+		$('body').on('click', '#robots_common2', function () {
 			$('#robots_common1').prop('checked', false);
 			$('#robots_common2').prop('checked', true);
 		});
@@ -1580,7 +1713,7 @@
 
 		siteInfoOnLoadPage();
 
-		$("#local_seo_person_organization").change(function () {
+		$('#local_seo_person_organization').change(function () {
 			const classes = ['17', '18', '19', '20', '21', '24', '25'];
 			if (this.value === 'Person') {
 				for (let i = 0; i < classes.length; i++) {
@@ -1595,7 +1728,7 @@
 			}
 		});
 
-		$("#site_info_type").change(function () {
+		$('#site_info_type').change(function () {
 			const classes = ['18', '19'];
 			if (this.value === 'blog' || this.value === 'portfolio' || this.value === 'otherpersonal') {
 				for (let i = 0; i < classes.length; i++) {
@@ -1610,7 +1743,7 @@
 
 		$('#metasync-giapi-response').hide();
 
-		$('body').on("click", "#metasync-btn-send", function () {
+		$('body').on('click', '#metasync-btn-send', function () {
 
 			var url = $('#metasync-giapi-url');
 			var action = $('input[type="radio"]:checked');
@@ -1626,10 +1759,10 @@
 			}
 
 			jQuery.ajax({
-				method: "POST",
-				url: "admin-ajax.php",
+				method: 'POST',
+				url: 'admin-ajax.php',
 				data: {
-					action: "send_giapi",
+					action: 'send_giapi',
 					metasync_giapi_url: url.val(),
 					metasync_giapi_action: action.val()
 				}
@@ -1671,12 +1804,12 @@
 				});
 		});
 
-		$('body').on("click", "#cancel-redirection", function () {
+		$('body').on('click', '#cancel-redirection', function () {
 			$('#add-redirection-form').hide();
 			$('#add-redirection').focus();
 		});
 
-		$('body').on("click", ".redirect_type", function () {
+		$('body').on('click', '.redirect_type', function () {
 			if ($(this).val() === '410' || $(this).val() === '451') {
 				$('#destination_url').val('');
 				$('#destination').hide();
@@ -1685,26 +1818,27 @@
 			}
 		});
 
-		if ($("#post_redirection").is(':checked')) {
-			$('.hide').fadeIn('slow')
+		if ($('#post_redirection').is(':checked')) {
+			$('.hide').fadeIn('slow');
 		}
-		$('body').on("change", "#post_redirection", function () {
-			if (this.checked)
-				$('.hide').fadeIn('slow')
-			else
-				$('.hide').fadeOut('slow')
+		$('body').on('change', '#post_redirection', function () {
+			if (this.checked) {
+				$('.hide').fadeIn('slow');
+			} else {
+				$('.hide').fadeOut('slow');
+			}
 		});
 
 		$(document).ready(function () {
-			if ($("#post_redirection").is(':checked')
-				&& ($("#post_redirection_type").val() === '410'
-					|| $("#post_redirection_type").val() === '451')) {
+			if ($('#post_redirection').is(':checked')
+				&& ($('#post_redirection_type').val() === '410'
+					|| $('#post_redirection_type').val() === '451')) {
 				$('#post_redirect_url').hide();
 			}
 		});
 
-		$("#post_redirection_type").change(function () {
-			if ($("#post_redirection").is(':checked')
+		$('#post_redirection_type').change(function () {
+			if ($('#post_redirection').is(':checked')
 				&& ($(this).val() === '410'
 					|| $(this).val() === '451')) {
 				$('#post_redirect_url').hide();
@@ -1717,25 +1851,26 @@
 
 	$(function () {
 		var psconsole = $('#error-code-box');
-		if (psconsole.length)
+		if (psconsole.length) {
 			psconsole.scrollTop(psconsole[0].scrollHeight - psconsole.height());
+		}
 	});
 
 	$(function () {
-		$("#copy-clipboard-btn").on("click", function () {
-			var hiddenInput = document.createElement("input");
-			hiddenInput.setAttribute("value", document.getElementById('error-code-box').value);
+		$('#copy-clipboard-btn').on('click', function () {
+			var hiddenInput = document.createElement('input');
+			hiddenInput.setAttribute('value', document.getElementById('error-code-box').value);
 			document.body.appendChild(hiddenInput);
 			hiddenInput.select();
-			document.execCommand("copy");
+			document.execCommand('copy');
 			document.body.removeChild(hiddenInput);
 		});
 	});
 
 	function dateFormat() {
-		var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+		var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 		var m = new Date();
-		return months[m.getMonth()] + " " + ('0' + m.getDate()).slice(-2) + ", " + m.getFullYear() + "  " + (m.getHours() > 12 ? '0' + m.getHours() % 12 : '0' + m.getHours()).slice(-2) + ":" + ('0' + m.getMinutes()).slice(-2) + ":" + ('0' + m.getSeconds()).slice(-2) + ' ' + (m.getHours() > 12 ? 'PM' : 'AM');
+		return months[m.getMonth()] + ' ' + ('0' + m.getDate()).slice(-2) + ', ' + m.getFullYear() + '  ' + (m.getHours() > 12 ? '0' + m.getHours() % 12 : '0' + m.getHours()).slice(-2) + ':' + ('0' + m.getMinutes()).slice(-2) + ':' + ('0' + m.getSeconds()).slice(-2) + ' ' + (m.getHours() > 12 ? 'PM' : 'AM');
 	}
 
 	function sendCustomerParams(is_hb = false) {
@@ -1754,10 +1889,10 @@
 		};
 
 		jQuery.ajax({
-			type: "post",
-			url: "admin-ajax.php",
+			type: 'post',
+			url: 'admin-ajax.php',
 			data: requestData,
-			beforeSend: function() {
+			beforeSend: function () {
 				if (showAlerts) {
 					// Show loading state on button
 					$('#sendAuthToken').prop('disabled', true).html('🔄 Syncing...');
@@ -1770,22 +1905,14 @@
 				}
 
 				if ($('#searchatlas-api-key') && $('#searchatlas-api-key').val() === '') {
-					var pluginName = window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
-					$('#sendAuthTokenTimestamp').html('Please save your ' + pluginName + ' API key');
+					$('#sendAuthTokenTimestamp').html('Please save your ' + getPluginName() + ' API key');
 					$('#sendAuthTokenTimestamp').css({ color: 'red' });
 
 					// Update header status to "Not Synced" for missing API key
-					var $statusIndicator = $('.metasync-integration-status');
-					if ($statusIndicator.length > 0) {
-						$statusIndicator.removeClass('integrated').addClass('not-integrated');
-						$statusIndicator.find('.status-text').text('Not Synced');
-						$statusIndicator.attr('title', 'Not Synced - API key required');
-						console.log('🔄 Updated header status to: Not Synced (API key required)');
-					}
+					updateHeaderStatus(false, 'Not Synced', 'Not Synced - API key required');
 
 					if (showAlerts) {
-						var pluginName = window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
-						showSyncError('⚠️ API Key Required', 'Please save your ' + pluginName + ' API key in the settings above before syncing.');
+						showSyncError('⚠️ API Key Required', 'Please save your ' + getPluginName() + ' API key in the settings above before syncing.');
 					}
 
 				} else if (response && response.throttled) {
@@ -1799,7 +1926,7 @@
 						$('#sendAuthToken').prop('disabled', true).html('⏰ Throttled (' + remainingMinutes + 'm)');
 						
 						// Start countdown timer
-						var countdownInterval = setInterval(function() {
+						var countdownInterval = setInterval(function () {
 							remainingMinutes--;
 							if (remainingMinutes <= 0) {
 								clearInterval(countdownInterval);
@@ -1814,46 +1941,26 @@
 					}
 					
 					// Update header status to show throttling
-					var $statusIndicator = $('.metasync-integration-status');
-					if ($statusIndicator.length > 0) {
-						$statusIndicator.removeClass('integrated').addClass('not-integrated');
-						$statusIndicator.find('.status-text').text('Throttled');
-						$statusIndicator.attr('title', 'Throttled - Please wait ' + remainingMinutes + ' minutes');
-						console.log('🔄 Updated header status to: Throttled (' + remainingMinutes + ' minutes)');
-					}
+					updateHeaderStatus(false, 'Throttled', 'Throttled - Please wait ' + remainingMinutes + ' minutes');
 					
 					if (showAlerts) {
 						showSyncError('⏰ Request Throttled', response.message || 'Please wait ' + remainingMinutes + ' minutes before making another sync request.');
 					}
 
 				} else if (response && response.detail) {
-					var pluginName = window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
-					$('#sendAuthTokenTimestamp').html('Please provide a valid ' + pluginName + ' API key');
+					$('#sendAuthTokenTimestamp').html('Please provide a valid ' + getPluginName() + ' API key');
 					$('#sendAuthTokenTimestamp').css({ color: 'red' });
 					
 					// Update header status to "Not Synced" for invalid API key
-					var $statusIndicator = $('.metasync-integration-status');
-					if ($statusIndicator.length > 0) {
-						$statusIndicator.removeClass('integrated').addClass('not-integrated');
-						$statusIndicator.find('.status-text').text('Not Synced');
-						$statusIndicator.attr('title', 'Not Synced - Invalid API key');
-						console.log('🔄 Updated header status to: Not Synced (invalid API key)');
-					}
+					updateHeaderStatus(false, 'Not Synced', 'Not Synced - Invalid API key');
 					
 					if (showAlerts) {
-						var pluginName = window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas';
-						showSyncError('❌ Invalid API Key', 'Please provide a valid ' + pluginName + ' API key.');
+						showSyncError('❌ Invalid API Key', 'Please provide a valid ' + getPluginName() + ' API key.');
 					}
 
-				} else if (response == null || !response.id) {
+				} else if (response === null || !response.id) {
 					// Update header status to "Not Synced" after failed sync
-					var $statusIndicator = $('.metasync-integration-status');
-					if ($statusIndicator.length > 0) {
-						$statusIndicator.removeClass('integrated').addClass('not-integrated');
-						$statusIndicator.find('.status-text').text('Not Synced');
-						$statusIndicator.attr('title', 'Not Synced - Data synchronization failed');
-						console.log('🔄 Updated header status to: Not Synced (after failed sync)');
-					}
+					updateHeaderStatus(false, 'Not Synced', 'Not Synced - Data synchronization failed');
 					
 					if (showAlerts) {
 						showSyncError('❌ Sync Failed', 'Something went wrong during synchronization. Please check your connection and try again.');
@@ -1866,95 +1973,46 @@
 					$('#sendAuthTokenTimestamp').css({ color: 'green' });
 					
 					// Update header status to "Synced" immediately after successful sync
-					var $statusIndicator = $('.metasync-integration-status');
-					if ($statusIndicator.length > 0) {
-						$statusIndicator.removeClass('not-integrated').addClass('integrated');
-						$statusIndicator.find('.status-text').text('Synced');
-						$statusIndicator.attr('title', 'Synced - Data synchronization completed successfully');
-						console.log('🔄 Updated header status to: Synced (after successful sync)');
-					}
+					updateHeaderStatus(true, 'Synced', 'Synced - Data synchronization completed successfully');
 					
 					if (showAlerts) {
-						showSyncSuccess('✅ Sync Complete', 'Your categories and user data have been successfully synchronized with ' + (window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas') + '.');
+						showSyncSuccess('✅ Sync Complete', 'Your categories and user data have been successfully synchronized with ' + getPluginName() + '.');
 					}
 				}
 			},
-			error: function(xhr, status, error) {
+			error: function (xhr, status, error) {
 				// Update header status to "Not Synced" for network errors
-				var $statusIndicator = $('.metasync-integration-status');
-				if ($statusIndicator.length > 0) {
-					$statusIndicator.removeClass('integrated').addClass('not-integrated');
-					$statusIndicator.find('.status-text').text('Not Synced');
-					$statusIndicator.attr('title', 'Not Synced - Network error during sync');
-					console.log('🔄 Updated header status to: Not Synced (network error)');
-				}
+				updateHeaderStatus(false, 'Not Synced', 'Not Synced - Network error during sync');
 				
 				// Reset button state
 				if (showAlerts) {
 					$('#sendAuthToken').prop('disabled', false).html('🔄 Sync Now');
-					showSyncError('❌ Network Error', 'Failed to connect to ' + (window.MetasyncConfig && window.MetasyncConfig.pluginName ? window.MetasyncConfig.pluginName : 'Search Atlas') + '. Please check your internet connection and try again.');
+					showSyncError('❌ Network Error', 'Failed to connect to ' + getPluginName() + '. Please check your internet connection and try again.');
 				}
 			}
 		});
 	}
 
 	/**
-	 * Show sync success notification using existing alert components
+	 * Show sync success notification (wrapper for consolidated function)
 	 */
 	function showSyncSuccess(title, message) {
-		const successNotice = '<div class="notice notice-success is-dismissible metasync-sync-notice" style="margin: 20px 0; padding: 12px;">' +
-			'<p><strong>' + title + '</strong><br/>' + message + '</p>' +
-		'</div>';
-		
-		// Insert between navigation menu and page content
-		const $navWrapper = $('.metasync-nav-wrapper');
-		if ($navWrapper.length > 0) {
-			// Position after navigation menu but before first dashboard card or form
-			$navWrapper.after(successNotice);
-		} else {
-			// Fallback: insert at top of settings page
-			$('.metasync-dashboard-wrap').prepend(successNotice);
-		}
-		
-		// Scroll to the top to ensure visibility
-		$('html, body').animate({ scrollTop: 0 }, 'slow');
-		
-		// Auto-remove success notice after 4 seconds
-		setTimeout(function() {
-			$('.metasync-sync-notice').fadeOut(300, function() { 
-				$(this).remove(); 
-			});
-		}, 4000);
+		showPluginNotice('success', title, message, 'metasync-sync-notice', 4000);
 	}
 
 	/**
-	 * Show sync error notification using existing alert components
+	 * Show sync error notification (wrapper for consolidated function)
 	 */
 	function showSyncError(title, message) {
-		const errorNotice = '<div class="notice notice-error is-dismissible metasync-sync-error" style="margin: 20px 0; padding: 12px;">' +
-			'<p><strong>' + title + '</strong><br/>' + message + '</p>' +
-		'</div>';
-		
-		// Insert between navigation menu and page content
-		const $navWrapper = $('.metasync-nav-wrapper');
-		if ($navWrapper.length > 0) {
-			// Position after navigation menu but before first dashboard card or form
-			$navWrapper.after(errorNotice);
-		} else {
-			// Fallback: insert at top of settings page
-			$('.metasync-dashboard-wrap').prepend(errorNotice);
-		}
-		
-		// Scroll to the top to ensure visibility
-		$('html, body').animate({ scrollTop: 0 }, 'slow');
+		showPluginNotice('error', title, message, 'metasync-sync-error', 0);
 	}
 
 	function clear_otto_caches() {
 		jQuery.ajax({
 			url: ajaxurl,
-			type: "GET",
+			type: 'GET',
 			data: {
-				action: "clear_otto_cache",
+				action: 'clear_otto_cache',
 				clear_otto_cache: 1
 			},
 			success: function (response) {
@@ -1968,21 +2026,35 @@
 	jQuery(document).ready(function () {
 
 		// sendCustomerParams();
-		$("#sendAuthToken").on("click", function (e) {
+		$('#sendAuthToken').on('click', function (e) {
 			e.preventDefault();
 			sendCustomerParams();
 			
 		});
 
 		// handle otto clear cache button
-		$('#clear_otto_caches').on('click', function(e){
+		$('#clear_otto_caches').on('click', function (e){
 			e.preventDefault();
 			clear_otto_caches();
 		});
 
 		// Handle General Setting Page form Submit
-		$('#metaSyncGeneralSetting').on('submit', function(e) {
-			e.preventDefault(); // Prevent the default form submission
+		$('#metaSyncGeneralSetting').on('submit', function (e) {
+			// Check if this is a "Clear Error Logs" submission
+			var formData = $(this).serialize();
+			if (formData.indexOf('clear_log=yes') !== -1) {
+				// This is a clear error logs submission - allow normal HTML form submission
+				console.log('Clear Error Logs form detected - allowing HTML submission');
+				return true; // Let the form submit normally
+			}
+			
+			// Check if this is a "Plugin Access Roles" submission - allow normal HTML form submission
+			if (formData.indexOf('save_plugin_access_roles=yes') !== -1) {
+				console.log('Plugin Access Roles form detected - allowing HTML submission');
+				return true; // Let the form submit normally
+			}
+			
+			e.preventDefault(); // Prevent the default form submission for regular settings
 			var actionField = $(this).find('input[name="action"]');
 			var optionPage= $(this).find('input[name="option_page"]');
 			var wpHttpReferer= $(this).find('input[name="_wp_http_referer"]');
@@ -1993,81 +2065,67 @@
 				wpHttpReferer.remove(); // Remove the action field if it exists
 				wpnonce.remove(); // Remove the action field if it exists
 			}
-			// Gather the form data
-			var formData = $(this).serialize(); // Serialize form data
+			// Re-serialize the form data after removing unwanted fields
+			formData = $(this).serialize(); 
 			
-			// Debug: Check if whitelabel logo field is being submitted
-			var logoField = $('input[name="metasync_options[whitelabel][logo]"]');
-			console.log('Logo field found:', logoField.length > 0);
-			console.log('Logo field value:', logoField.val());
-			console.log('Logo field visible:', logoField.is(':visible'));
-			console.log('Form data being sent:', formData);
-			
-			// Check if whitelabel data is in form data
-			if (formData.indexOf('whitelabel') !== -1) {
-				console.log('✓ WhiteLabel data found in form submission');
-			} else {
-				console.log('✗ WhiteLabel data NOT found in form submission');
-				
-				// FIX: Manually add whitelabel fields if they exist but aren't serialized
-				var logoValue = logoField.val();
-				var domainField = $('input[name="metasync_options[whitelabel][domain]"]');
-				var domainValue = domainField.val();
-				
-				if (logoValue || domainValue) {
-					console.log('Adding whitelabel data manually to form submission');
-					if (logoValue) {
-						formData += '&metasync_options[whitelabel][logo]=' + encodeURIComponent(logoValue);
-					}
-					if (domainValue) {
-						formData += '&metasync_options[whitelabel][domain]=' + encodeURIComponent(domainValue);
-					}
+			// Check if whitelabel data is in form data, if not add it manually
+			if (formData.indexOf('whitelabel') === -1) {
+				// Manually collect and add ALL whitelabel fields using helper function
+				var whitelabelData = collectWhitelabelFields();
+				if (whitelabelData) {
+					formData += '&' + whitelabelData;
 				}
 			}
-	
+
+			// Get current tab from URL
+			var urlParams = new URLSearchParams(window.location.search);
+			var currentTab = urlParams.get('tab') || 'general';
+
 			$.ajax({
 				url: metaSync.ajax_url, // The AJAX URL provided by WordPress
 				type: 'POST',
-				data: formData + '&action=meta_sync_save_settings', // Add the action to identify the AJAX request
-				success: function(response) {
+				data: formData + '&action=meta_sync_save_settings&active_tab=' + encodeURIComponent(currentTab), // Add the action and current tab
+				success: function (response) {
 					// Handle success response
 					if(response.success){
 					// get value of input field white_label_plugin_menu_slug
 						const whiteLableUrl = $('#metaSyncGeneralSetting input[name="metasync_options[general][white_label_plugin_menu_slug]"]').val();
-					// check condition if it is empty or not and redirect it
+						// check condition if it is empty or not and redirect it
 					
-					// add the tag query to the window location
-					let tabParam = new URLSearchParams(window.location.search).get('tab');
-					let tabQuery = tabParam ? '&tab=' + encodeURIComponent(tabParam) : '';
+						// add the tag query to the window location
+						let tabParam = new URLSearchParams(window.location.search).get('tab');
+						let tabQuery = tabParam ? '&tab=' + encodeURIComponent(tabParam) : '';
 					
-					window.location = metaSync.admin_url + '?page=' + (whiteLableUrl === '' ? 'searchatlas' : whiteLableUrl) + tabQuery;
+						// Handle undefined or empty white label URL
+						const pageSlug = (whiteLableUrl && whiteLableUrl !== '') ? whiteLableUrl : 'searchatlas';
+						window.location = metaSync.admin_url + '?page=' + pageSlug + tabQuery;
 					}else {
-							// Handle error response
-							const errors = response.data?.errors || [];
+						// Handle error response
+						const errors = response.data?.errors || [];
 
-							// Create a notice element to display the errors
-							let html = '<div class="notice notice-error metasync-error-wrap">';
-							if (Array.isArray(errors)) {
-								html += '<ul>';
-								errors.forEach(function(err) {
-									html += '<li>' + err + '</li>';
-								});
-								html += '</ul>';
-							}
-							html += '</div>';
-
-							// Remove previous error notices
-							$('.metasync-error-wrap').remove();
-							
-							// Insert the error message before the form
-							$('#metaSyncGeneralSetting').before(html);
-
-							// Scroll to the top to ensure visibility
-							$('html, body').animate({ scrollTop: 0 }, 'slow');
+						// Create a notice element to display the errors
+						let html = '<div class="notice notice-error metasync-error-wrap">';
+						if (Array.isArray(errors)) {
+							html += '<ul>';
+							errors.forEach(function (err) {
+								html += '<li>' + err + '</li>';
+							});
+							html += '</ul>';
 						}
+						html += '</div>';
+
+						// Remove previous error notices
+						$('.metasync-error-wrap').remove();
+							
+						// Insert the error message before the form
+						$('#metaSyncGeneralSetting').before(html);
+
+						// Scroll to the top to ensure visibility
+						$('html, body').animate({ scrollTop: 0 }, 'slow');
+					}
 					
 				},
-				error: function(error) {
+				error: function (error) {
 					// Handle error response
 					alert('There was an error saving the settings.');
 					console.log(error);
@@ -2102,8 +2160,18 @@
 		var hasUnsavedChanges = false;
 		var initialFormData = {};
 		
+		// Check if we're on the Advanced tab (has its own save buttons per section)
+		function isAdvancedTab() {
+			return window.location.href.indexOf('tab=advanced') > -1;
+		}
+		
 		// Initialize form change detection
 		function initializeUnsavedChangesDetection() {
+			// Skip unsaved changes detection on Advanced tab - it has its own section-specific save buttons
+			if (isAdvancedTab()) {
+				return;
+			}
+			
 			var $forms = $('#metaSyncGeneralSetting, form[method="post"][action*="options.php"]');
 			
 			if ($forms.length === 0) {
@@ -2111,28 +2179,33 @@
 			}
 			
 			// Store initial form data
-			$forms.each(function() {
+			$forms.each(function () {
 				var formId = $(this).attr('id') || 'form_' + Math.random().toString(36).substr(2, 9);
 				initialFormData[formId] = $(this).serialize();
 			});
 			
 			// Track changes on form inputs
-			$forms.on('input change', 'input, select, textarea', function() {
+			$forms.on('input change', 'input, select, textarea', function () {
 				checkForChanges();
 			});
 			
 			// Special handling for media uploads and other dynamic changes
-			$forms.on('DOMSubtreeModified', function() {
+			$forms.on('DOMSubtreeModified', function () {
 				setTimeout(checkForChanges, 100); // Small delay to allow DOM changes to complete
 			});
 		}
 		
 		// Check if form data has changed
 		function checkForChanges() {
+			// Skip on Advanced tab
+			if (isAdvancedTab()) {
+				return;
+			}
+			
 			var $forms = $('#metaSyncGeneralSetting, form[method="post"][action*="options.php"]');
 			var currentHasChanges = false;
 			
-			$forms.each(function() {
+			$forms.each(function () {
 				var formId = $(this).attr('id') || 'form_' + Math.random().toString(36).substr(2, 9);
 				var currentData = $(this).serialize();
 				
@@ -2152,7 +2225,7 @@
 			
 			if (hasUnsavedChanges) {
 				// Add modern visual indicator to save buttons
-				$saveButtons.each(function() {
+				$saveButtons.each(function () {
 					if (!$(this).find('.unsaved-indicator').length) {
 						$(this).prepend('<span class="unsaved-indicator">●</span>');
 					}
@@ -2197,7 +2270,7 @@
 			}
 			
 			// Show with animation
-			setTimeout(function() {
+			setTimeout(function () {
 				$notification.addClass('show');
 			}, 100);
 		}
@@ -2209,7 +2282,7 @@
 		}
 		
 		// Scroll to save button functionality
-		window.scrollToSaveButton = function() {
+		window.scrollToSaveButton = function () {
 			var $saveButton = $('input[type="submit"], button[type="submit"]').filter('[name="submit"], [value*="Save"]').first();
 			if ($saveButton.length) {
 				// Hide notification temporarily while scrolling
@@ -2217,12 +2290,12 @@
 				
 				$('html, body').animate({
 					scrollTop: $saveButton.offset().top - 100
-				}, 500, function() {
+				}, 500, function () {
 					// Add highlight animation
 					$saveButton.css('animation', 'save-button-highlight 1s ease-in-out');
 					
 					// Remove animation after it completes
-					setTimeout(function() {
+					setTimeout(function () {
 						$saveButton.css('animation', '');
 					}, 1000);
 				});
@@ -2230,7 +2303,7 @@
 		};
 		
 		// Discard changes functionality
-		window.discardChanges = function() {
+		window.discardChanges = function () {
 			if (confirm('Are you sure you want to discard all unsaved changes? This action cannot be undone.')) {
 				// Reload the page to discard changes
 				window.location.reload();
@@ -2240,7 +2313,7 @@
 
 		
 		// Warning for in-page navigation (tab links)
-		$('.metasync-nav-tab, .nav-tab').on('click', function(e) {
+		$('.metasync-nav-tab, .nav-tab').on('click', function (e) {
 			if (hasUnsavedChanges) {
 				var tabName = $(this).text().trim();
 				var confirmed = confirm('⚠️ Unsaved Changes Alert\n\nYou have unsaved changes that will be lost if you navigate to "' + tabName + '".\n\nWould you like to:\n• Click "Cancel" to stay and save your changes\n• Click "OK" to discard changes and continue');
@@ -2256,13 +2329,13 @@
 		});
 		
 		// Clear unsaved changes flag when form is successfully submitted
-		$('#metaSyncGeneralSetting').on('submit', function() {
+		$('#metaSyncGeneralSetting').on('submit', function () {
 			// Form submission handler already exists above, so we just need to listen for successful response
 			var originalAjaxHandler = $(this).data('events') && $(this).data('events').submit;
 		});
 		
 		// Listen for successful form submission to clear the unsaved changes flag
-		$(document).ajaxSuccess(function(event, xhr, settings) {
+		$(document).ajaxSuccess(function (event, xhr, settings) {
 			if (settings.data && settings.data.indexOf('action=meta_sync_save_settings') > -1) {
 				try {
 					var response = JSON.parse(xhr.responseText);
@@ -2271,7 +2344,7 @@
 						updateUnsavedChangesIndicator();
 						// Update initial form data after successful save
 						var $forms = $('#metaSyncGeneralSetting, form[method="post"][action*="options.php"]');
-						$forms.each(function() {
+						$forms.each(function () {
 							var formId = $(this).attr('id') || 'form_' + Math.random().toString(36).substr(2, 9);
 							initialFormData[formId] = $(this).serialize();
 						});
@@ -2283,7 +2356,7 @@
 		});
 
 		// Save Changes function - use AJAX instead of form submission
-		window.saveChanges = function() {
+		window.saveChanges = function () {
 			isSaving = true;
 			
 			// Completely remove the floating notification immediately when clicked
@@ -2297,29 +2370,25 @@
 				// Get form data and submit via AJAX
 				var formData = $form.serialize();
 				
-				// Ensure whitelabel data is included even if not serialized due to tab visibility
-				var logoField = $('input[name="metasync_options[whitelabel][logo]"]');
-				var domainField = $('input[name="metasync_options[whitelabel][domain]"]');
-				if ((logoField.length > 0 && logoField.val()) || (domainField.length > 0 && domainField.val())) {
-					if (formData.indexOf('whitelabel') === -1) {
-						var logoValue = logoField.val();
-						var domainValue = domainField.val();
-						if (logoValue) {
-							formData += '&metasync_options[whitelabel][logo]=' + encodeURIComponent(logoValue);
-						}
-						if (domainValue) {
-							formData += '&metasync_options[whitelabel][domain]=' + encodeURIComponent(domainValue);
-						}
+				// Ensure ALL whitelabel data is included using helper function
+				if (formData.indexOf('whitelabel') === -1) {
+					var whitelabelData = collectWhitelabelFields();
+					if (whitelabelData) {
+						formData += '&' + whitelabelData;
 					}
 				}
 				
-				formData += '&action=meta_sync_save_settings';
-				
+				// Get current tab from URL
+				var urlParams = new URLSearchParams(window.location.search);
+				var currentTab = urlParams.get('tab') || 'general';
+
+				formData += '&action=meta_sync_save_settings&active_tab=' + encodeURIComponent(currentTab);
+
 				$.ajax({
 					url: metaSync.ajax_url,
 					type: 'POST',
 					data: formData,
-					success: function(response) {
+					success: function (response) {
 						if (response.success) {
 							// Clear unsaved changes flag
 							hasUnsavedChanges = false;
@@ -2341,8 +2410,10 @@
 							// Scroll to the success message for better visibility
 							$('html, body').animate({ scrollTop: 0 }, 'slow');
 							
-							setTimeout(function() {
-								$('.metasync-save-notice').fadeOut(300, function() { $(this).remove(); });
+							setTimeout(function () {
+								$('.metasync-save-notice').fadeOut(300, function () {
+									$(this).remove(); 
+								});
 							}, 3000);
 						} else {
 							// Handle validation errors
@@ -2375,13 +2446,15 @@
 							// Scroll to the error message for better visibility
 							$('html, body').animate({ scrollTop: 0 }, 'slow');
 							
-							setTimeout(function() {
-								$('.metasync-error-wrap').fadeOut(300, function() { $(this).remove(); });
+							setTimeout(function () {
+								$('.metasync-error-wrap').fadeOut(300, function () {
+									$(this).remove(); 
+								});
 							}, 5000);
 						}
 						isSaving = false;
 					},
-					error: function(xhr, status, error) {
+					error: function (xhr, status, error) {
 						// Handle AJAX error
 						var errorMessage = 'There was an error saving the settings. Please try again.';
 						if (xhr.responseJSON && xhr.responseJSON.data && xhr.responseJSON.data.message) {
@@ -2403,8 +2476,10 @@
 						// Scroll to the error message for better visibility
 						$('html, body').animate({ scrollTop: 0 }, 'slow');
 						
-						setTimeout(function() {
-							$('.metasync-ajax-error').fadeOut(300, function() { $(this).remove(); });
+						setTimeout(function () {
+							$('.metasync-ajax-error').fadeOut(300, function () {
+								$(this).remove(); 
+							});
 						}, 5000);
 						
 						isSaving = false;
@@ -2415,7 +2490,7 @@
 		
 		// Enhanced beforeunload message (disabled when saving)
 		var isSaving = false;
-		$(window).on('beforeunload', function(e) {
+		$(window).on('beforeunload', function (e) {
 			if (hasUnsavedChanges && !isSaving) {
 				var message = '🔄 You have unsaved changes in MetaSync settings that will be lost if you leave this page.';
 				e.returnValue = message; // For older browsers
@@ -2425,6 +2500,487 @@
 		
 		// Initialize the detection when page loads
 		setTimeout(initializeUnsavedChangesDetection, 1000); // Small delay to ensure all elements are loaded
+
+		// Indexation Control form AJAX save functionality
+		function initializeSeoControlsSaveHandler() {
+			// Only initialize if we're on the Indexation Control page
+			if ($('#metaSyncSeoControlsForm').length > 0) {
+				// Override the saveChanges function for Indexation Control form
+				window.saveChanges = function () {
+					var $form = $('#metaSyncSeoControlsForm');
+					if ($form.length > 0) {
+						// Get form data and submit via AJAX
+						var formData = $form.serialize();
+						formData += '&action=meta_sync_save_seo_controls';
+						
+						// Remove the notification immediately
+						var $notification = $('.metasync-unsaved-notification');
+						if ($notification.length > 0) {
+							$notification.remove();
+						}
+						
+						// Clear previous messages
+						$('#seo-controls-messages').empty();
+						
+						$.ajax({
+							url: ajaxurl || metaSync.ajax_url,
+							type: 'POST',
+							data: formData,
+							dataType: 'json',
+							success: function (response) {
+								if (response.success) {
+									// Show success message above Indexation Control section
+									$('#seo-controls-messages').html(
+										'<div class="notice notice-success is-dismissible" style="margin-bottom: 20px;">' +
+										'<p><strong>✅ Success!</strong> ' + response.data.message + '</p>' +
+										'</div>'
+									);
+									
+									// Clear unsaved changes state
+									hasUnsavedChanges = false;
+									if (typeof updateUnsavedChangesIndicator === 'function') {
+										updateUnsavedChangesIndicator();
+									}
+									
+									// Auto-hide success notice after 5 seconds
+									setTimeout(function () {
+										$('#seo-controls-messages .notice-success').fadeOut();
+									}, 5000);
+								} else {
+									// Show error message above Indexation Control section
+									$('#seo-controls-messages').html(
+										'<div class="notice notice-error is-dismissible" style="margin-bottom: 20px;">' +
+										'<p><strong>❌ Error!</strong> ' + (response.data.message || 'Failed to save settings') + '</p>' +
+										'</div>'
+									);
+								}
+								
+								// Make dismiss buttons work
+								$('#seo-controls-messages .notice-dismissible').each(function () {
+									var $notice = $(this);
+									if (!$notice.find('.notice-dismiss').length) {
+										$notice.append('<button type="button" class="notice-dismiss"><span class="screen-reader-text">Dismiss this notice.</span></button>');
+									}
+									$notice.find('.notice-dismiss').on('click', function () {
+										$notice.fadeOut();
+									});
+								});
+							},
+							error: function (xhr, status, error) {
+								// Show error message above Indexation Control section
+								$('#seo-controls-messages').html(
+									'<div class="notice notice-error is-dismissible" style="margin-bottom: 20px;">' +
+									'<p><strong>❌ Error!</strong> Network error occurred while saving.</p>' +
+									'</div>'
+								);
+								console.error('AJAX Error:', error);
+							}
+						});
+					} else {
+						// Fallback to regular form submission
+						$('form[method="post"]').first().submit();
+					}
+				};
+			}
+		}
+
+		// Initialize Indexation Control functionality
+		initializeSeoControlsSaveHandler();
+
+		/**
+		 * Handle "All Roles" checkbox behavior for Content Genius sync
+		 * When "All Roles" is checked, uncheck all other role checkboxes
+		 * When any specific role is checked, uncheck "All Roles"
+		 * 
+		 * @since 1.0.0
+		 * @returns {void}
+		 */
+		function initializeContentGeniusRoleCheckboxes() {
+			try {
+				// Cache selectors for better performance
+				var allRolesCheckbox = $('input[name="metasync_options[general][content_genius_sync_roles][]"][value="all"]');
+				var roleCheckboxes = $('input[name="metasync_options[general][content_genius_sync_roles][]"]').not('[value="all"]');
+				
+				// Exit early if elements don't exist
+				if (allRolesCheckbox.length === 0 && roleCheckboxes.length === 0) {
+					return;
+				}
+				
+				// When "All Roles" is checked, uncheck all other checkboxes
+				if (allRolesCheckbox.length > 0) {
+					allRolesCheckbox.off('change.metasyncRoles').on('change.metasyncRoles', function () {
+						try {
+							if ($(this).is(':checked')) {
+								roleCheckboxes.prop('checked', false);
+								// Visual feedback
+								roleCheckboxes.closest('.metasync-role-option').removeClass('active');
+								$(this).closest('.metasync-role-option-all').addClass('active');
+							} else {
+								$(this).closest('.metasync-role-option-all').removeClass('active');
+							}
+						} catch (e) {
+							console.warn('MetaSync: Error handling "All Roles" checkbox change:', e);
+						}
+					});
+				}
+				
+				// When any specific role is checked, uncheck "All Roles"
+				if (roleCheckboxes.length > 0) {
+					roleCheckboxes.off('change.metasyncRoles').on('change.metasyncRoles', function () {
+						try {
+							if ($(this).is(':checked')) {
+								allRolesCheckbox.prop('checked', false);
+								allRolesCheckbox.closest('.metasync-role-option-all').removeClass('active');
+								// Visual feedback
+								$(this).closest('.metasync-role-option').addClass('active');
+							} else {
+								$(this).closest('.metasync-role-option').removeClass('active');
+							}
+						} catch (e) {
+							console.warn('MetaSync: Error handling role checkbox change:', e);
+						}
+					});
+				}
+				
+				// Initialize active states on page load
+				initializeRoleCheckboxStates();
+				
+			} catch (error) {
+				console.error('MetaSync: Failed to initialize Content Genius role checkboxes:', error);
+			}
+		}
+		
+		/**
+		 * Initialize active states for role checkboxes on page load
+		 * 
+		 * @since 1.0.0
+		 * @returns {void}
+		 */
+		function initializeRoleCheckboxStates() {
+			try {
+				var allRolesCheckbox = $('input[name="metasync_options[general][content_genius_sync_roles][]"][value="all"]');
+				var roleCheckboxes = $('input[name="metasync_options[general][content_genius_sync_roles][]"]').not('[value="all"]');
+				
+				// Set active state for "All Roles" if checked
+				if (allRolesCheckbox.is(':checked')) {
+					allRolesCheckbox.closest('.metasync-role-option-all').addClass('active');
+				}
+				
+				// Set active state for checked roles
+				roleCheckboxes.each(function () {
+					if ($(this).is(':checked')) {
+						$(this).closest('.metasync-role-option').addClass('active');
+					}
+				});
+			} catch (e) {
+				console.warn('MetaSync: Error initializing role checkbox states:', e);
+			}
+		}
+		
+		// Initialize Content Genius role checkboxes with safety wrapper
+		if (typeof $ !== 'undefined' && $.fn) {
+			initializeContentGeniusRoleCheckboxes();
+		} else {
+			console.warn('MetaSync: jQuery not available for role checkbox initialization');
+		}
+
+		// ========================================
+		// SETTINGS ACCORDION FUNCTIONALITY
+		// ========================================
+
+		/**
+	 * Initialize accordion sections with localStorage state persistence
+	 */
+		function initSettingsAccordion() {
+			var $accordionSections = $('.metasync-accordion-section');
+
+			if ($accordionSections.length === 0) {
+				return; // No accordion on this page
+			}
+
+			console.log('🎨 Initializing settings accordion with ' + $accordionSections.length + ' sections');
+
+			// Restore saved state from localStorage
+			restoreAccordionState();
+
+			// Click handler for accordion headers
+			$('.metasync-accordion-header').on('click', function (e) {
+				toggleAccordionSection($(this));
+			});
+
+			// Keyboard navigation (Enter/Space)
+			$('.metasync-accordion-header').on('keydown', function (e) {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					toggleAccordionSection($(this));
+				}
+			});
+		}
+
+		/**
+	 * Toggle accordion section open/closed
+	 * @param {jQuery} $header - The clicked header element
+	 */
+		function toggleAccordionSection($header) {
+			var $section = $header.closest('.metasync-accordion-section');
+			var $content = $section.find('.metasync-accordion-content');
+			var isOpen = $header.attr('aria-expanded') === 'true';
+			var sectionKey = $section.data('section');
+
+			if (isOpen) {
+			// Close section
+				$header.attr('aria-expanded', 'false');
+				$content.attr('data-state', 'closed');
+				console.log('📁 Closed accordion section: ' + sectionKey);
+			} else {
+			// Open section
+				$header.attr('aria-expanded', 'true');
+				$content.attr('data-state', 'open');
+				console.log('📂 Opened accordion section: ' + sectionKey);
+			}
+
+			// Save state to localStorage
+			saveAccordionState();
+		}
+
+		/**
+	 * Save accordion state to localStorage
+	 */
+		function saveAccordionState() {
+			var state = {};
+
+			$('.metasync-accordion-section').each(function () {
+				var sectionKey = $(this).data('section');
+				var isOpen = $(this).find('.metasync-accordion-header').attr('aria-expanded') === 'true';
+				state[sectionKey] = isOpen;
+			});
+
+			try {
+				localStorage.setItem('metasync_accordion_state', JSON.stringify(state));
+			} catch (e) {
+				console.warn('⚠️ Could not save accordion state to localStorage:', e);
+			}
+		}
+
+		/**
+	 * Restore accordion state from localStorage
+	 */
+		function restoreAccordionState() {
+			try {
+				var savedState = localStorage.getItem('metasync_accordion_state');
+				if (!savedState) {
+					return; // No saved state, use defaults
+				}
+
+				var state = JSON.parse(savedState);
+
+				$('.metasync-accordion-section').each(function () {
+					var $section = $(this);
+					var sectionKey = $section.data('section');
+					var $header = $section.find('.metasync-accordion-header');
+					var $content = $section.find('.metasync-accordion-content');
+
+					if (Object.prototype.hasOwnProperty.call(state, sectionKey)) {
+						var shouldBeOpen = state[sectionKey];
+						$header.attr('aria-expanded', shouldBeOpen ? 'true' : 'false');
+						$content.attr('data-state', shouldBeOpen ? 'open' : 'closed');
+					}
+				});
+
+				console.log('💾 Restored accordion state from localStorage');
+			} catch (e) {
+				console.warn('⚠️ Could not restore accordion state:', e);
+			}
+		}
+
+		// Initialize accordion when DOM is ready
+		initSettingsAccordion();
+
+		// ========================================
+		// TOOLTIP SYSTEM
+		// ========================================
+
+		/**
+	 * Initialize tooltip functionality
+	 */
+		function initTooltipSystem() {
+			console.log('🔍 Tooltip system initialization started');
+
+			var $tooltipTriggers = $('.metasync-tooltip-trigger');
+			var currentTooltip = null;
+
+			console.log('🔍 Found ' + $tooltipTriggers.length + ' tooltip triggers');
+
+			if ($tooltipTriggers.length === 0) {
+				console.warn('⚠️ No tooltip triggers found on this page');
+				return; // No tooltips on this page
+			}
+
+			console.log('💡 Initializing tooltip system with ' + $tooltipTriggers.length + ' tooltips');
+
+			// Click handler for tooltip triggers
+			$tooltipTriggers.on('click', function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+
+				var $trigger = $(this);
+				var tooltipId = $trigger.data('tooltip-id');
+				var $tooltip = $('#tooltip-' + tooltipId);
+
+				console.log('🖱️ Tooltip trigger clicked:', tooltipId);
+				console.log('🎯 Tooltip element found:', $tooltip.length);
+
+				// Close other tooltips
+				if (currentTooltip && currentTooltip[0] !== $tooltip[0]) {
+					currentTooltip.removeClass('show');
+				}
+
+				// Toggle current tooltip
+				if ($tooltip.hasClass('show')) {
+					$tooltip.removeClass('show');
+					currentTooltip = null;
+				} else {
+					$tooltip.addClass('show');
+					currentTooltip = $tooltip;
+					positionTooltip($trigger, $tooltip);
+				}
+			});
+
+			// Hover handler (desktop only)
+			var hideTimeout;
+
+			if (window.innerWidth > 768) {
+			// Show tooltip on trigger hover
+				$tooltipTriggers.on('mouseenter', function () {
+					var $trigger = $(this);
+					var tooltipId = $trigger.data('tooltip-id');
+					var $tooltip = $('#tooltip-' + tooltipId);
+
+					// Clear any pending hide timeout
+					clearTimeout(hideTimeout);
+
+					console.log('🖱️ Hover on trigger:', tooltipId);
+
+					// Close other tooltips
+					if (currentTooltip && currentTooltip[0] !== $tooltip[0]) {
+						currentTooltip.removeClass('show');
+					}
+
+					$tooltip.addClass('show');
+					currentTooltip = $tooltip;
+					positionTooltip($trigger, $tooltip);
+				});
+
+				// Start hide timer when leaving trigger
+				$tooltipTriggers.on('mouseleave', function () {
+					var tooltipId = $(this).data('tooltip-id');
+					var $tooltip = $('#tooltip-' + tooltipId);
+
+					console.log('🖱️ Mouse left trigger:', tooltipId);
+
+					// Delay hiding to allow moving to tooltip
+					hideTimeout = setTimeout(function () {
+					// Only hide if not hovering tooltip
+						if (!$tooltip.is(':hover')) {
+							console.log('⏱️ Hiding tooltip:', tooltipId);
+							$tooltip.removeClass('show');
+							if (currentTooltip && currentTooltip[0] === $tooltip[0]) {
+								currentTooltip = null;
+							}
+						} else {
+							console.log('✋ Mouse is over tooltip, keeping visible');
+						}
+					}, 200);
+				});
+
+				// Cancel hide when entering tooltip
+				$('.metasync-tooltip').on('mouseenter', function () {
+					console.log('🎯 Mouse entered tooltip');
+					clearTimeout(hideTimeout);
+					$(this).addClass('show');
+				});
+
+				// Hide when leaving tooltip
+				$('.metasync-tooltip').on('mouseleave', function () {
+					console.log('🎯 Mouse left tooltip');
+					var $tooltip = $(this);
+
+					hideTimeout = setTimeout(function () {
+						var tooltipId = $tooltip.attr('id').replace('tooltip-', '');
+						var $trigger = $('[data-tooltip-id="' + tooltipId + '"]');
+
+						// Only hide if not hovering trigger
+						if (!$trigger.is(':hover')) {
+							console.log('⏱️ Hiding tooltip from tooltip leave');
+							$tooltip.removeClass('show');
+							if (currentTooltip && currentTooltip[0] === $tooltip[0]) {
+								currentTooltip = null;
+							}
+						} else {
+							console.log('✋ Mouse is back on trigger, keeping visible');
+						}
+					}, 200);
+				});
+			}
+
+			// Close tooltip when clicking outside
+			$(document).on('click', function (e) {
+				if (!$(e.target).closest('.metasync-tooltip-trigger, .metasync-tooltip').length) {
+					if (currentTooltip) {
+						currentTooltip.removeClass('show');
+						currentTooltip = null;
+					}
+				}
+			});
+
+			// Keyboard accessibility - ESC to close
+			$(document).on('keydown', function (e) {
+				if (e.key === 'Escape' && currentTooltip) {
+					currentTooltip.removeClass('show');
+					currentTooltip = null;
+				}
+			});
+
+			// Reposition tooltips on window resize
+			$(window).on('resize', function () {
+				if (currentTooltip) {
+					var tooltipId = currentTooltip.attr('id').replace('tooltip-', '');
+					var $trigger = $('[data-tooltip-id="' + tooltipId + '"]');
+					positionTooltip($trigger, currentTooltip);
+				}
+			});
+		}
+
+		/**
+	 * Position tooltip relative to trigger
+	 * @param {jQuery} $trigger - The trigger button
+	 * @param {jQuery} $tooltip - The tooltip element
+	 */
+		function positionTooltip($trigger, $tooltip) {
+		// Skip positioning on mobile (uses fixed positioning)
+			if (window.innerWidth <= 768) {
+				return;
+			}
+
+			var triggerRect = $trigger[0].getBoundingClientRect();
+			var tooltipWidth = $tooltip.outerWidth();
+			var viewportWidth = $(window).width();
+			var spaceRight = viewportWidth - triggerRect.right;
+
+			// Check if tooltip would overflow on the right
+			if (spaceRight < tooltipWidth + 20) {
+			// Position on the left side
+				$tooltip.attr('data-position', 'left');
+			} else {
+			// Position on the right side (default)
+				$tooltip.attr('data-position', 'right');
+			}
+		}
+
+		// Initialize tooltip system
+		initTooltipSystem();
+
+
 	});
 
 })(jQuery);

@@ -3,6 +3,10 @@
 <head>
 	<meta charset="<?php bloginfo('charset'); ?>" />
 	<?php
+	// If this file is called directly, abort.
+	if (!defined('ABSPATH')) {
+		exit;
+	}
 	wp_head();
 	?>
 

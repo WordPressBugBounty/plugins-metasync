@@ -56,7 +56,9 @@ class MetaSyncHiddenPostManager
         $attachment_id = media_handle_sideload($file_array, 0);
     
         # Clean up the temp file
+        if (file_exists($tmp_file_path)) {
         @unlink($tmp_file_path); # Delete only the temp copy, not the original file
+        }
     
         if (is_wp_error($attachment_id)) {
             return ''; # Return empty if upload fails

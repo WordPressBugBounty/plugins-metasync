@@ -1,0 +1,362 @@
+/**
+ * MetaSync Custom Pages Editor Styles
+ * 
+ * Enhanced styling for the custom HTML pages editor
+ */
+
+/* Meta Box Container */
+.metasync-custom-html-container {
+    padding: 15px;
+    background: #fff;
+}
+
+/* HTML Mode Toggle */
+.metasync-html-mode {
+    padding: 15px;
+    background: #f6f7f7;
+    border-left: 4px solid #2271b1;
+    margin-bottom: 20px;
+}
+
+.metasync-html-mode label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.metasync-html-mode input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
+}
+
+.metasync-html-mode .description {
+    color: #646970;
+    font-weight: normal;
+}
+
+/* HTML Controls Section */
+#metasync-html-controls {
+    margin-top: 20px;
+}
+
+/* File Upload Section */
+.metasync-html-upload {
+    padding: 20px;
+    background: #f9f9f9;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+
+.metasync-html-upload h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #1d2327;
+    font-size: 15px;
+}
+
+.metasync-file-input {
+    display: block;
+    margin: 15px 0;
+    padding: 8px;
+    border: 2px dashed #c3c4c7;
+    border-radius: 4px;
+    background: #fff;
+    width: 100%;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.metasync-file-input:hover {
+    border-color: #2271b1;
+}
+
+.current-file {
+    padding: 12px;
+    background: #e7f5fe;
+    border-left: 4px solid #2271b1;
+    margin-top: 10px;
+    border-radius: 2px;
+}
+
+.current-file strong {
+    color: #1d2327;
+}
+
+/* Editor Section */
+.metasync-html-editor {
+    margin-top: 20px;
+    position: relative;
+}
+
+.metasync-html-editor h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #1d2327;
+    font-size: 15px;
+}
+
+.metasync-html-editor .description {
+    margin-bottom: 12px;
+    color: #646970;
+}
+
+/* CodeMirror Enhancements */
+.metasync-html-editor .CodeMirror {
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 13px;
+    height: auto;
+    min-height: 400px;
+}
+
+.metasync-html-editor .CodeMirror-scroll {
+    min-height: 400px;
+}
+
+/* Fullscreen Mode */
+.CodeMirror-fullscreen {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 100% !important;
+    z-index: 100000;
+    background: #fff;
+}
+
+.CodeMirror-fullscreen .CodeMirror-scroll {
+    min-height: 100%;
+    height: 100%;
+}
+
+/* Editor Toolbar */
+.metasync-editor-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding: 8px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+}
+
+.metasync-fullscreen-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+.metasync-fullscreen-btn .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+}
+
+/* Preview Section */
+.metasync-html-preview {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid #dcdcde;
+}
+
+#metasync-preview-html {
+    font-size: 14px;
+    padding: 8px 16px;
+}
+
+/* Keyboard Shortcuts Info */
+.metasync-keyboard-shortcuts {
+    margin-top: 20px;
+    padding: 15px;
+    background: #f0f6fc;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+}
+
+.metasync-keyboard-shortcuts h4 {
+    margin: 0 0 10px 0;
+    color: #1d2327;
+    font-size: 14px;
+}
+
+.metasync-keyboard-shortcuts ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.metasync-keyboard-shortcuts li {
+    padding: 6px 0;
+    font-size: 13px;
+    color: #50575e;
+}
+
+.metasync-keyboard-shortcuts kbd {
+    display: inline-block;
+    padding: 2px 6px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 11px;
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 3px;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.1);
+    min-width: 20px;
+    text-align: center;
+}
+
+/* Admin Notices */
+.metasync-custom-html-container .notice {
+    margin: 15px 0;
+    padding: 12px;
+}
+
+/* Responsive */
+@media screen and (max-width: 782px) {
+    .metasync-html-mode label {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .metasync-html-editor .CodeMirror {
+        font-size: 12px;
+    }
+    
+    .metasync-editor-toolbar {
+        flex-wrap: wrap;
+    }
+}
+
+/* Loading State */
+.metasync-loading {
+    position: relative;
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+.metasync-loading::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    border: 2px solid #2271b1;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: metasync-spin 0.6s linear infinite;
+}
+
+@keyframes metasync-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Success/Error States */
+.metasync-success {
+    padding: 10px;
+    background: #d7f1e0;
+    border-left: 4px solid #00a32a;
+    margin: 10px 0;
+    border-radius: 2px;
+}
+
+.metasync-error {
+    padding: 10px;
+    background: #fcf0f1;
+    border-left: 4px solid #d63638;
+    margin: 10px 0;
+    border-radius: 2px;
+}
+
+/* Syntax Highlighting Improvements */
+.cm-s-default .cm-tag {
+    color: #2271b1;
+}
+
+.cm-s-default .cm-attribute {
+    color: #d63638;
+}
+
+.cm-s-default .cm-string {
+    color: #00a32a;
+}
+
+.cm-s-default .cm-comment {
+    color: #787c82;
+    font-style: italic;
+}
+
+/* Line Numbers */
+.CodeMirror-linenumber {
+    color: #787c82;
+    padding: 0 8px;
+}
+
+.CodeMirror-gutters {
+    background: #f6f7f7;
+    border-right: 1px solid #dcdcde;
+}
+
+/* Active Line Highlight */
+.CodeMirror-activeline-background {
+    background: #f0f6fc;
+}
+
+/* Matching Tag Highlight */
+.CodeMirror-matchingtag {
+    background: rgba(255, 235, 59, 0.3);
+}
+
+/* Scrollbar Styling */
+.CodeMirror-scrollbar-filler,
+.CodeMirror-gutter-filler {
+    background-color: #f6f7f7;
+}
+
+.CodeMirror-vscrollbar::-webkit-scrollbar,
+.CodeMirror-hscrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.CodeMirror-vscrollbar::-webkit-scrollbar-track,
+.CodeMirror-hscrollbar::-webkit-scrollbar-track {
+    background: #f6f7f7;
+}
+
+.CodeMirror-vscrollbar::-webkit-scrollbar-thumb,
+.CodeMirror-hscrollbar::-webkit-scrollbar-thumb {
+    background: #c3c4c7;
+    border-radius: 5px;
+}
+
+.CodeMirror-vscrollbar::-webkit-scrollbar-thumb:hover,
+.CodeMirror-hscrollbar::-webkit-scrollbar-thumb:hover {
+    background: #8c8f94;
+}
+
+/* WordPress Editor Compatibility */
+.edit-post-visual-editor .metasync-custom-html-container {
+    margin: 0;
+}
+
+/* Post Type Specific Styles */
+.post-type-metasync_custom_page .editor-styles-wrapper {
+    padding: 20px;
+}
+
+.post-type-metasync_custom_page .edit-post-sidebar {
+    z-index: 99999;
+}
+

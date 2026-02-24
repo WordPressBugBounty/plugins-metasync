@@ -61,7 +61,7 @@ class Metasync_Common
 	public function get_file_name_by_url($url)
 	{
 		if (stripos($url, "https://cdn.midjourney.com/") !== false) {
-			return pathinfo(str_replace("/", "_", parse_url($url, PHP_URL_PATH)), PATHINFO_FILENAME);
+			return pathinfo(str_replace("/", "_", parse_url($url, PHP_URL_PATH) ?? ''), PATHINFO_FILENAME);
 		} elseif (stripos($url, "https://drive.google.com/") !== false) {
 			$parse_url = wp_parse_url($url);
 			$args = [];
@@ -147,7 +147,10 @@ class Metasync_Common
 			if (isset($mime_extensions[$mime])) {
 				$extension = $mime_extensions[$mime];
 			} else {
-				@unlink($tmp);
+				// Safely delete temporary file if it exists
+				if (file_exists($tmp)) {
+					unlink($tmp);
+				}
 				return false;
 			}
 		}
@@ -158,7 +161,7 @@ class Metasync_Common
 				Generate a sanitized post_name by replacing double dashes with a single dash
     			and appending the file extension with a hyphen
 			*/
-			'post_name' => str_replace('--', '-', $filename) ."-".$extension,
+			'post_name' => str_replace('--', '-', $filename ?? '') ."-".$extension,
 			'tmp_name' => $tmp,
 		);
 
@@ -183,7 +186,11 @@ class Metasync_Common
 				wp_get_original_image_path($attachment_id)
 			);
 			wp_update_attachment_metadata($attachment_id, $attach_data);
-			@unlink($tmp);
+			
+			// Safely delete temporary file if it exists
+			if (file_exists($tmp)) {
+				unlink($tmp);
+			}
 
 			if (is_wp_error($attachment_id)) return false;
 			return $attachment_id;

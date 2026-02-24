@@ -1,4 +1,9 @@
 <?php
+// If this file is called directly, abort.
+if (!defined('ABSPATH')) {
+	exit;
+}
+
 
 /**
  * The file that defines the core plugin class
@@ -75,8 +80,7 @@ class Metasync
 	public const HOMEPAGE_DOMAIN = "https://searchatlas.com";
 	public const DASHBOARD_DOMAIN = "https://dashboard.searchatlas.com";
 	public const API_DOMAIN = "https://api.searchatlas.com";
-	public const CA_API_DOMAIN = "https://ca.searchatlas.com";	
-	public const LOGGER_API_DOMAIN = "https://wp-logger.api.searchatlas.com";
+	public const CA_API_DOMAIN = "https://ca.searchatlas.com";
 	public const SUPPORT_EMAIL = "support@searchatlas.com";
 	public const DOCUMENTATION_DOMAIN = "https://help.searchatlas.com";
 
@@ -99,7 +103,7 @@ class Metasync
 		$this->plugin_name = 'metasync';
 
 		$this->load_dependencies();
-		$this->set_locale();
+		// $this->set_locale(); // Language support removed - using default only
 		$this->init_api_key_monitor();
 		$this->define_admin_hooks();
 		$this->define_public_hooks();
@@ -134,7 +138,7 @@ class Metasync
 		 * The class responsible for defining internationalization functionality
 		 * of the plugin.
 		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-i18n.php';
+		// require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-i18n.php'; // Language support removed
 
 		/**
 		 * The class responsible for monitoring API key changes and triggering heartbeat updates
@@ -146,6 +150,11 @@ class Metasync
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-admin.php';
 		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-post-meta-setting.php';
+
+		/**
+		 * The class responsible for displaying and managing error logs in admin settings.
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'site-error-logs/class-metasync-error-logs.php';
 
 		/**
 		 * The class responsible for defining all actions that occur in the public-facing
@@ -168,6 +177,11 @@ class Metasync
 		 * side of the site.
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'code-snippets/class-metasync-code-snippets.php';
+
+		/**
+		 * The class responsible for Open Graph and Twitter Card meta tags functionality
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-opengraph.php';
 
 
 
@@ -195,20 +209,67 @@ class Metasync
 		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-common.php';
 
 		/**
+		 * The class responsible for access control functionality
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-access-control.php';
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-access-control-ui.php';
+
+		/**
+		 * The class responsible for authentication management
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-auth-manager.php';
+
+		/**
+		 * The class responsible for endpoint management (production/staging switching)
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-endpoint-manager.php';
+
+		/**
+		 * The class responsible for developer panel functionality
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-dev-panel.php';
+
+		/**
 		 * The class responsible for defining all actions that occur in the admin area.
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'heartbeat-error-monitor/class-metasync-heartbeat-error-monitor-database.php';
 		require_once plugin_dir_path(dirname(__FILE__)) . 'heartbeat-error-monitor/class-metasync-heartbeat-error-monitor.php';
 
+		/**
+		 * The class responsible for redirection functionality.
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'redirections/class-metasync-redirection-database.php';
+		require_once plugin_dir_path(dirname(__FILE__)) . 'redirections/class-metasync-redirection.php';
+		require_once plugin_dir_path(dirname(__FILE__)) . 'redirections/class-metasync-auto-redirect.php';
 
+		/**
+		 * The class responsible for custom HTML pages functionality.
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'custom-pages/class-metasync-custom-pages.php';
 
 		/**
 		 * The class responsible for defining all actions that occur in the template.
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-template.php';
 
+		/**
+		 * The class responsible for Google Index API functionality
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php';
+
+		/**
+		 * The class responsible for Schema Markup functionality.
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'schema-markup/class-metasync-schema-markup.php';
+
+		/**
+		 * The class responsible for OTTO Frontend Toolbar functionality.
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'otto-frontend-toolbar/class-metasync-otto-frontend-toolbar.php';
+
 		$this->loader = new Metasync_Loader();
 		$this->db_heartbeat_errors = new Metasync_HeartBeat_Error_Monitor_Database();
+		$this->db_redirection = new Metasync_Redirection_Database();
 	}
 
 	/**
@@ -220,12 +281,15 @@ class Metasync
 	 * @since    1.0.0
 	 * @access   private
 	 */
+	// Language support removed - using default only
+	/*
 	private function set_locale()
 	{
 		$plugin_i18n = new Metasync_i18n();
 
 		$this->loader->add_action('plugins_loaded', $plugin_i18n, 'load_plugin_textdomain');
 	}
+	*/
 
 	/**
 	 * Initialize the API Key Monitor for comprehensive API key change detection
@@ -256,36 +320,61 @@ class Metasync
 
 		$plugin_admin = new Metasync_Admin($this->get_plugin_name(), $this->get_version(), $this->database, $this->db_redirection, $this->db_heartbeat_errors); // , $this->data_error_log_list
 
-		# add sso validation - only when token is present
-		#$this->loader->add_action('wp', $plugin_admin, 'conditional_sso_validation');
-		# wp hook changed to init 
-		$this->loader->add_action('init', $plugin_admin, 'conditional_sso_validation');
+		// Initialize OTTO Debug class for developers
+		if (class_exists('Metasync_Otto_Debug')) {
+			$otto_debug = new Metasync_Otto_Debug($this->get_plugin_name(), $this->get_version());
+		}
 
 		$this->loader->add_action('admin_enqueue_scripts', $plugin_admin, 'enqueue_styles');
 		$this->loader->add_action('admin_enqueue_scripts', $plugin_admin, 'enqueue_scripts');
 
+		# Redirection import AJAX handler
+		$redirection_handler = new Metasync_Redirection($this->db_redirection);
+		$this->loader->add_action('wp_ajax_metasync_import_redirections', $redirection_handler, 'handle_import_ajax');
+		
 		// HeartBeat API Receive Respond and Settings.
 		$this->loader->add_action('heartbeat_settings', $plugin_admin, 'metasync_heartbeat_settings');
 		$this->loader->add_action('heartbeat_received', $plugin_admin, 'metasync_received_data', 10, 2);
 		$this->loader->add_action('wp_ajax_lgSendCustomerParams', $plugin_admin, 'lgSendCustomerParams');
 		
-		// SSO Authentication endpoints
-		$this->loader->add_action('wp_ajax_generate_sso_url', $plugin_admin, 'generate_sso_url');
-		$this->loader->add_action('wp_ajax_check_sso_status', $plugin_admin, 'check_sso_status');
+		// Search Atlas Connect endpoints - authenticates with Search Atlas platform to retrieve SA API key and Otto UUID
+		$this->loader->add_action('wp_ajax_generate_searchatlas_connect_url', $plugin_admin, 'generate_searchatlas_connect_url');
+		$this->loader->add_action('wp_ajax_check_searchatlas_connect_status', $plugin_admin, 'check_searchatlas_connect_status');
 		$this->loader->add_action('wp_ajax_reset_searchatlas_authentication', $plugin_admin, 'reset_searchatlas_authentication');
-		
-		// Enhanced SSO Development/Testing endpoints
-		$this->loader->add_action('wp_ajax_test_enhanced_sso_tokens', $plugin_admin, 'test_enhanced_sso_tokens');
+
+		// Auto-update filter
+		$this->loader->add_filter('auto_update_plugin', $plugin_admin, 'control_plugin_auto_updates', 10, 2);
+
+		// Search Atlas Connect development/testing endpoints
+		$this->loader->add_action('wp_ajax_test_enhanced_searchatlas_tokens', $plugin_admin, 'test_enhanced_searchatlas_tokens');
 		$this->loader->add_action('wp_ajax_test_whitelabel_domain', $plugin_admin, 'test_whitelabel_domain');
-		$this->loader->add_action('wp_ajax_test_sso_ajax_endpoint', $plugin_admin, 'test_sso_ajax_endpoint');
+		$this->loader->add_action('wp_ajax_test_searchatlas_ajax_endpoint', $plugin_admin, 'test_searchatlas_ajax_endpoint');
 		$this->loader->add_action('wp_ajax_simple_ajax_test', $plugin_admin, 'simple_ajax_test');
 
 
 		$post_meta_setting = new Metasync_Post_Meta_Settings();
-		$this->loader->add_action('admin_init', $post_meta_setting, 'add_post_mata_data', 2);
+		$this->loader->add_action('admin_init', $post_meta_setting, 'add_post_meta_data', 2);
 		$this->loader->add_action('admin_init', $post_meta_setting, 'show_top_admin_bar', 9);
 		$this->loader->add_action('wp', $post_meta_setting, 'show_top_admin_bar', 9);
 
+		// Initialize XML Sitemap auto-update hooks if enabled (admin only)
+		if (is_admin() && get_option('metasync_sitemap_auto_update', false)) {
+			require_once plugin_dir_path(dirname(__FILE__)) . 'sitemap/class-metasync-sitemap-generator.php';
+			$sitemap_generator = new Metasync_Sitemap_Generator();
+			$sitemap_generator->setup_auto_update_hooks();
+		}
+		// Initialize Schema Markup functionality
+		$schema_markup = new Metasync_Schema_Markup($this->get_plugin_name(), $this->get_version());
+		$this->loader->add_action('wp_ajax_metasync_get_schema_fields', $schema_markup, 'ajax_get_schema_fields');
+		$this->loader->add_action('wp_ajax_metasync_preview_schema', $schema_markup, 'ajax_preview_schema');
+
+		// Initialize Developer Panel (for endpoint switching)
+		if (class_exists('Metasync_Dev_Panel')) {
+			$dev_panel = new Metasync_Dev_Panel($this->get_plugin_name(), $this->get_version());
+		}
+
+		// Initialize endpoint URL filtering for staging mode
+		$this->init_endpoint_filtering();
 
 	}
 
@@ -316,10 +405,38 @@ class Metasync
 		$this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_styles');
 		$this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_scripts');
 		$this->loader->add_action('wp_head', $plugin_public, 'hook_metasync_metatags', 1, 1);
+		$this->loader->add_action('template_redirect', $plugin_public, 'inject_archive_seo_controls');
+		
+		// Sitemap exclusions for disabled archive types
+		$this->loader->add_filter('wp_sitemaps_taxonomies', $plugin_public, 'filter_sitemap_taxonomies');
+		$this->loader->add_filter('wp_sitemaps_users_entry', $plugin_public, 'filter_sitemap_users', 10, 2);
+		$this->loader->add_filter('wp_sitemaps_add_provider', $plugin_public, 'filter_sitemap_providers', 10, 2);
+		$this->loader->add_filter('wp_sitemaps_index_entry', $plugin_public, 'filter_sitemap_index_entries', 10, 4);
 		
 		// AMP cleanup functionality - remove metasync_optimized attribute from head on AMP pages
 		$this->loader->add_action('template_redirect', $plugin_public, 'cleanup_amp_head_attribute', 1);
 		$this->loader->add_action('wp_footer', $plugin_public, 'end_amp_head_cleanup', 999);
+		
+		// Redirection functionality
+		$redirection = new Metasync_Redirection($this->db_redirection);
+		$this->loader->add_action('template_redirect', $redirection, 'handle_template_redirect', 5);
+		
+		# Prevent WordPress from redirecting to draft posts via redirect_canonical
+		$this->loader->add_filter('redirect_canonical', $redirection, 'prevent_draft_post_redirects', 10, 2);
+		
+		# Prevent WordPress old slug redirects to unpublished posts only
+		$this->loader->add_filter('old_slug_redirect_post_id', $redirection, 'prevent_old_slug_redirect_to_drafts', 10, 1);
+		
+		// Auto-redirect on slug change - creates 301 redirect when post/page slug is changed
+		$auto_redirect = new Metasync_Auto_Redirect($this->db_redirection);
+		$auto_redirect->init();
+		
+		# Custom HTML Pages functionality
+		# No additional loader hooks needed - class registers its own hooks
+		$custom_pages = new Metasync_Custom_Pages();
+
+		// 404 Error monitoring
+		$this->loader->add_action('template_redirect', $this, 'handle_404_monitoring', 10);
 		$this->loader->add_action('plugin_action_links_' . $get_plugin_basename, $plugin_public, 'metasync_plugin_links');
 		$this->loader->add_action('rest_api_init', $plugin_public, 'metasync_register_rest_routes');
 		$this->loader->add_action('init', $plugin_public, 'metasync_plugin_init', 5);
@@ -336,8 +453,118 @@ class Metasync
 
 		$this->loader->add_action('wp_trash_post', $templateCrawler , 'prevent_post_deletion'); # Prevent post deletion when moved to trash
         $this->loader->add_action('before_delete_post', $templateCrawler , 'prevent_post_deletion'); # Prevent permanent deletion
-		$this->loader->add_filter('metasync_hidden_post_manager', $templateCrawler , 'init'); # run the crawler
+		# $this->loader->add_filter('metasync_hidden_post_manager', $templateCrawler , 'init'); # run the crawler
+		# Hidden post manager now runs via cron instead of filter (to avoid interfering with post create/update)
+		$this->loader->add_action('metasync_hidden_post_check', $templateCrawler , 'init'); # run the crawler via cron
 
+		// Open Graph and Social Media Tags
+		$opengraph = new Metasync_OpenGraph($this->get_plugin_name(), $this->get_version());
+		$opengraph->init();
+
+		# Save current theme info to database (safe context - admin/init hooks)
+		$this->loader->add_action('after_switch_theme', $this, 'save_current_theme_info');
+		$this->loader->add_action('admin_init', $this, 'ensure_theme_info_saved');
+
+		// OTTO Frontend Toolbar
+		$otto_toolbar = new Metasync_Otto_Frontend_Toolbar($this->get_plugin_name(), $this->get_version());
+		$this->loader->add_action('wp_enqueue_scripts', $otto_toolbar, 'enqueue_styles');
+		$this->loader->add_action('wp_enqueue_scripts', $otto_toolbar, 'enqueue_scripts');
+		$this->loader->add_action('admin_bar_menu', $otto_toolbar, 'add_admin_bar_menu', 100);
+		$this->loader->add_action('wp_footer', $otto_toolbar, 'render_debug_bar', 999);
+	}
+
+	/**
+	 * Initialize endpoint URL filtering for staging mode
+	 * Intercepts HTTP requests and replaces production URLs with staging URLs
+	 */
+	private function init_endpoint_filtering() {
+		// Only add filter if Endpoint Manager is available and staging mode is active
+		if (!class_exists('Metasync_Endpoint_Manager') || !Metasync_Endpoint_Manager::is_staging_mode()) {
+			return;
+		}
+
+		// Add filter to intercept HTTP requests before they're sent
+		add_filter('pre_http_request', array($this, 'filter_http_request_urls'), 10, 3);
+	}
+
+	/**
+	 * Filter HTTP request URLs to replace production endpoints with staging
+	 *
+	 * @param false|array|WP_Error $preempt Whether to preempt an HTTP request's return value.
+	 * @param array $args HTTP request arguments.
+	 * @param string $url The request URL.
+	 * @return false|array|WP_Error
+	 */
+	public function filter_http_request_urls($preempt, $args, $url) {
+		// Only process if we're not preempting the request
+		if ($preempt !== false) {
+			return $preempt;
+		}
+
+		// Only process if staging mode is active
+		if (!class_exists('Metasync_Endpoint_Manager') || !Metasync_Endpoint_Manager::is_staging_mode()) {
+			return $preempt;
+		}
+
+		// Define URL replacements (production => staging)
+		$url_replacements = array(
+			'https://dashboard.searchatlas.com' => 'https://dashboard.staging.searchatlas.com',
+			'https://api.searchatlas.com' => 'https://api.staging.searchatlas.com',
+			'https://ca.searchatlas.com' => 'https://ca.staging.searchatlas.com',
+			'https://sa.searchatlas.com' => 'https://sa.staging.searchatlas.com',
+		);
+
+		// Check if URL needs to be replaced
+		$original_url = $url;
+		foreach ($url_replacements as $production => $staging) {
+			if (strpos($url, $production) === 0) {
+				$url = str_replace($production, $staging, $url);
+				error_log("MetaSync Endpoint Filter: Replaced {$production} with {$staging} in URL: {$original_url}");
+				break;
+			}
+		}
+
+		// If URL was changed, modify the args and make the request ourselves
+		if ($url !== $original_url) {
+			// Make the request with the modified URL
+			return wp_remote_request($url, $args);
+		}
+
+		return $preempt;
+	}
+
+	/**
+	 * Save current theme information to MetaSync options
+	 * This runs in WordPress admin context, not during REST API requests
+	 * Safe to use wp_get_theme() here
+	 */
+	public function save_current_theme_info() {
+		$theme = wp_get_theme();
+		$metasync_data = self::get_option();
+		
+		if (!isset($metasync_data['general'])) {
+			$metasync_data['general'] = array();
+		}
+		
+		$metasync_data['general']['current_theme_name'] = $theme->get('Name');
+		$metasync_data['general']['current_theme_template'] = $theme->get_template();
+		$metasync_data['general']['theme_info_updated'] = time();
+		
+		self::set_option($metasync_data);
+	}
+	
+	/**
+	 * Ensure theme info is saved on admin_init if not already saved
+	 * This ensures theme info is available even if theme wasn't switched
+	 */
+	public function ensure_theme_info_saved() {
+		$metasync_data = self::get_option('general');
+		
+		# Only run once per day to avoid overhead
+		if (empty($metasync_data['theme_info_updated']) || 
+		    (time() - $metasync_data['theme_info_updated']) > 86400) {
+			$this->save_current_theme_info();
+		}
 	}
 
 	public static function get_option($key = null, $default = null)
@@ -385,12 +612,12 @@ class Metasync
 	public static function get_dashboard_domain()
 	{
 		$whitelabel = self::get_whitelabel_settings();
-		
+
 		// Priority 1: Use whitelabel domain if it's not empty (regardless of is_whitelabel flag)
 		if (!empty($whitelabel['domain'])) {
 			return $whitelabel['domain'];
 		}
-		
+
 		// Priority 2: Use production default domain when whitelabel_domain is empty
 		return self::DASHBOARD_DOMAIN;
 	}
@@ -442,6 +669,53 @@ class Metasync
 		}
 		
 		return 'OTTO';
+	}
+
+	/**
+	 * Check if the current user has access to the plugin based on role settings
+	 * 
+	 * @return bool True if user has access, false otherwise
+	 */
+	public static function current_user_has_plugin_access()
+	{
+		$user = wp_get_current_user();
+		if (!$user || !$user->exists()) {
+			return false;
+		}
+
+		// Administrators always have access
+		if (in_array('administrator', (array) $user->roles)) {
+			return true;
+		}
+
+		// Get the plugin access roles setting
+		$general_options = self::get_option('general');
+		
+		// If setting not configured, default to admin-only access
+		if (!isset($general_options['plugin_access_roles'])) {
+			return false;
+		}
+		
+		$allowed_roles = $general_options['plugin_access_roles'];
+		
+		// If it's a string (single role), convert to array
+		if (!is_array($allowed_roles)) {
+			$allowed_roles = array($allowed_roles);
+		}
+		
+		// If "all" is selected, allow access
+		if (in_array('all', $allowed_roles)) {
+			return true;
+		}
+		
+		// If array is empty, deny access (only admins allowed)
+		if (empty($allowed_roles)) {
+			return false;
+		}
+		
+		// Check if user has any of the allowed roles
+		$user_roles = (array) $user->roles;
+		return !empty(array_intersect($user_roles, $allowed_roles));
 	}
 
 	/**
@@ -534,6 +808,125 @@ class Metasync
 			// Fallback logging if structured logging fails
 			error_log('MetaSync API Key Event Logging Error: ' . $e->getMessage());
 		}
+	}
+
+	/**
+	 * Handle 404 error monitoring
+	 */
+	public function handle_404_monitoring()
+	{
+		// Only process on frontend
+		if (is_admin()) {
+			return;
+		}
+
+		// Check if this is a 404 error
+		if (!is_404()) {
+			return;
+		}
+
+		// PROTECTION 1: Exclude static assets to reduce noise
+		$request_uri = $_SERVER['REQUEST_URI'] ?? '';
+		$static_extensions = ['.css', '.js', '.jpg', '.jpeg', '.png', '.gif', '.ico', '.svg', '.woff', '.woff2', '.ttf', '.eot', '.map','.webp'];
+		foreach ($static_extensions as $ext) {
+			if (stripos($request_uri, $ext) !== false) {
+				return; // Skip logging static asset 404s
+			}
+		}
+
+		// PROTECTION 2: Bot detection - Block known bot patterns
+		$user_agent = $_SERVER['HTTP_USER_AGENT'] ?? '';
+		$bot_patterns = ['bot', 'crawler', 'spider', 'scraper', 'curl', 'wget', 'python', 'java'];
+		foreach ($bot_patterns as $pattern) {
+			if (stripos($user_agent, $pattern) !== false) {
+				// Rate limit bot 404s more aggressively
+				$bot_rate_key = 'metasync_404_bot_rate';
+				$bot_hits = get_transient($bot_rate_key);
+				if ($bot_hits !== false && $bot_hits >= 10) {
+					// Bot has hit 10+ 404s in last minute - stop logging
+					return;
+				}
+				set_transient($bot_rate_key, $bot_hits === false ? 1 : $bot_hits + 1, 60);
+				break;
+			}
+		}
+
+		// PROTECTION 3: Global rate limiting - Prevent 404 logging storms
+		$global_rate_key = 'metasync_404_global_rate';
+		$global_hits = get_transient($global_rate_key);
+		if ($global_hits !== false && $global_hits >= 50) {
+			// More than 50 404s per minute - stop logging to protect database
+			if ($global_hits === 50) {
+				error_log('MetaSync 404 Monitor: Rate limit exceeded - 50+ 404s per minute. Pausing logging.');
+			}
+			set_transient($global_rate_key, $global_hits + 1, 60);
+			return;
+		}
+		set_transient($global_rate_key, $global_hits === false ? 1 : $global_hits + 1, 60);
+
+		// Get current URL
+		$current_url = $this->get_current_url();
+
+		// PROTECTION 4: Per-URL caching - Prevent same URL from being logged repeatedly
+		$url_cache_key = 'metasync_404_cached_' . md5($current_url);
+		if (get_transient($url_cache_key)) {
+			// This URL was already logged in last 5 minutes - skip DB write
+			return;
+		}
+
+		// PROTECTION 5: URL validation - Skip obviously malicious URLs
+		if (strlen($current_url) > 500 || preg_match('/[<>{}\\\\|]/', $current_url)) {
+			return; // Skip potentially malicious or malformed URLs
+		}
+
+		// Initialize 404 monitor database
+		require_once plugin_dir_path(dirname(__FILE__)) . '404-monitor/class-metasync-404-monitor-database.php';
+		$db_404 = new Metasync_Error_Monitor_Database();
+
+		// Get user agent (sanitized)
+		$user_agent = isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field($_SERVER['HTTP_USER_AGENT']) : '';
+
+		// Log the 404 error
+		$result = $db_404->update([
+			'uri' => $current_url,
+			'user_agent' => $user_agent,
+			'date_time' => current_time('mysql'),
+			'hits_count' => 1
+		]);
+
+		// Cache this URL for 5 minutes to prevent repeated DB writes
+		set_transient($url_cache_key, true, 300);
+	}
+
+	/**
+	 * Get current URL
+	 */
+	private function get_current_url()
+	{
+		$protocol = is_ssl() ? 'https://' : 'http://';
+		
+		// Safely get HTTP_HOST with fallback
+		$host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '';
+		if (empty($host) && isset($_SERVER['SERVER_NAME'])) {
+			$host = $_SERVER['SERVER_NAME'];
+		}
+		if (empty($host)) {
+			// Fallback to WordPress site URL if available
+			$host = parse_url(home_url(), PHP_URL_HOST);
+		}
+		
+		// Safely get REQUEST_URI with fallback
+		$uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '/';
+		
+		// Decode URL-encoded characters
+		$uri = urldecode($uri);
+		
+		// Ensure URI starts with /
+		if (!str_starts_with($uri, '/')) {
+			$uri = '/' . $uri;
+		}
+		
+		return $protocol . $host . $uri;
 	}
 
 	/**

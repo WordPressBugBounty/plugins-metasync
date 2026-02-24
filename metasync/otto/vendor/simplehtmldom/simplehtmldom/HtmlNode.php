@@ -1053,7 +1053,11 @@ class HtmlNode
 			$targetCharset !== '' &&
 			$sourceCharset !== $targetCharset &&
 			!($targetCharset === 'UTF-8' &&  self::is_utf8($text))) {
-			$converted_text = iconv($sourceCharset, $targetCharset, $text);
+			#Added //TRANSLIT//IGNORE suffix to handle illegal characters gracefully (transliterates when possible, ignores invalid characters)	
+			$converted_text = @iconv($sourceCharset, $targetCharset . '//TRANSLIT//IGNORE', $text);
+		if ($converted_text === false) {
+			$converted_text = $text;
+		}
 		}
 
 		// Let's make sure that we don't have that silly BOM issue with any of the utf-8 text we output.

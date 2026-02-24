@@ -1,4 +1,9 @@
 <?php
+// If this file is called directly, abort.
+if (!defined('ABSPATH')) {
+	exit;
+}
+
 
 /**
  * The public-facing functionality of the plugin.
@@ -152,28 +157,52 @@ class Metasync_Public
 		 * class.
 		 */
 
-		 # Enqueue the JavaScript file 'otto-tracker.js'
+		 # Enqueue the JavaScript file 'otto-tracker.js' with defer for better performance
+		# Load in footer (true) and add defer attribute to prevent render blocking
 		wp_enqueue_script($this->plugin_name . '-tracker', plugin_dir_url(__FILE__) . 'js/otto-tracker.min.js', array('jquery'), $this->version, true);
-		wp_enqueue_script($this->plugin_name, plugin_dir_url(__FILE__) . 'js/metasync-public.js', array('jquery'), $this->version, false);
+		wp_enqueue_script($this->plugin_name, plugin_dir_url(__FILE__) . 'js/metasync-public.js', array('jquery'), $this->version, true);
 
 		
 		# Get the Otto Pixel UUID from plugin settings.
 		$otto_uuid = Metasync::get_option('general')['otto_pixel_uuid'] ?? '';
 
-		# Check if the Otto Pixel is enabled.
-		$otto_enabled = Metasync::get_option('general')['otto_enable'] ?? false;
-
 		# Get the current full page URL safely.
 		$page_url = esc_url(home_url(add_query_arg([], $_SERVER['REQUEST_URI'])));
 
 		# Pass PHP data to the JavaScript file using wp_localize_script.
-		if ($otto_enabled && !empty($otto_uuid)) {
+		# OTTO SSR is always enabled by default when UUID is set
+		if (!empty($otto_uuid)) {
 			wp_localize_script($this->plugin_name . '-tracker', 'saOttoData', [
 				'otto_uuid' => $otto_uuid,
 				'page_url'  => $page_url,
 				'context'   => null,
+				'enable_metadesc' => true, // Always enabled by default
 			]);
 		}
+
+		# Add defer attribute to OTTO scripts for performance optimization
+		add_filter('script_loader_tag', array($this, 'add_defer_attribute'), 10, 2);
+	}
+
+	/**
+	 * Add defer attribute to OTTO scripts to prevent render blocking
+	 * This improves PageSpeed scores by allowing scripts to load asynchronously
+	 *
+	 * @since    1.0.0
+	 * @param    string    $tag     The script tag
+	 * @param    string    $handle  The script handle
+	 * @return   string    Modified script tag with defer attribute
+	 */
+	public function add_defer_attribute($tag, $handle) {
+		# Only add defer to our OTTO scripts
+		if ($handle === $this->plugin_name . '-tracker' || $handle === $this->plugin_name) {
+			# Check if defer is not already present
+			if (strpos($tag, 'defer') === false) {
+				# Add defer attribute before the closing >
+				$tag = str_replace(' src', ' defer src', $tag);
+			}
+		}
+		return $tag;
 	}
 	public function metasyn_otto_ajax() {
 		// Check nonce for security
@@ -215,9 +244,14 @@ class Metasync_Public
 		if (!$last_update_time || ($current_time - $last_update_time) >= $interval) {
 			// Get the current URL
 			$current_url = get_permalink($post_id);
-	
+
+			// Use endpoint manager to get the correct API URL
+			$api_endpoint = class_exists('Metasync_Endpoint_Manager')
+				? Metasync_Endpoint_Manager::get_endpoint('OTTO_URL_DETAILS')
+				: 'https://sa.searchatlas.com/api/v2/otto-url-details';
+
 			// Call the API
-			$response = wp_remote_get('https://sa.searchatlas.com/api/v2/otto-url-details/?url=' . $current_url);
+			$response = wp_remote_get($api_endpoint . '/?url=' . urlencode($current_url));
 
 			// Check if the API call was successful
 			if (!is_wp_error($response)) {
@@ -633,20 +667,83 @@ class Metasync_Public
 			)
 		);
 
-		# SSO Callback endpoint for platform integration
+		# Search Atlas Connect callback endpoint - SA platform calls this with API key and Otto UUID
 		register_rest_route(
 			$this::namespace,
-			'sso/callback',
+			'searchatlas/connect/callback',
 			array(
 				array(
 					'methods' => 'POST',
-					'callback' => array($this, 'handle_sso_callback'),
-					'permission_callback' => array($this, 'validate_sso_callback_permission')
+					'callback' => array($this, 'handle_searchatlas_api_callback'),
+					'permission_callback' => array($this, 'validate_searchatlas_callback_permission')
 				),
 				'schema' => array($this, 'get_item_schema'),
 			)
 		);
-		
+
+		# Key file creation endpoint
+		register_rest_route(
+			$this::namespace,
+			'createKeyFile',
+			array(
+				array(
+					'methods' => 'POST',
+					'callback' => array($this, 'create_key_file'),
+					'permission_callback' => array($this, 'rest_authorization_middleware')
+				),
+				'schema' => array($this, 'get_item_schema'),
+			)
+		);
+
+		# OTTO SSR Status endpoint - Public endpoint to check if OTTO SSR is enabled
+		register_rest_route(
+			$this::namespace,
+			'otto_ssr_status',
+			array(
+				array(
+					'methods' => 'GET',
+					'callback' => array($this, 'get_otto_ssr_status'),
+					'permission_callback' => '__return_true' // Public access
+				),
+				array(
+					'methods' => 'POST',
+					'callback' => array($this, 'set_otto_ssr_status'),
+					'permission_callback' => array($this, 'rest_authorization_middleware')
+				),
+				'schema' => array($this, 'get_item_schema'),
+			)
+		);
+
+		# OTTO Configuration Status endpoint - Check if OTTO is active and properly configured
+		register_rest_route(
+			$this::namespace,
+			'otto_config_status',
+			array(
+				array(
+					'methods' => 'GET',
+					'callback' => array($this, 'get_otto_config_status'),
+					'permission_callback' => '__return_true' // Public access
+				),
+				'schema' => array($this, 'get_item_schema'),
+			)
+		);
+
+		# Plugin Version endpoint - Returns the active plugin version
+		register_rest_route(
+			$this::namespace,
+			'version',
+			array(
+				array(
+					'methods' => 'GET',
+					'callback' => array($this, 'get_plugin_version'),
+					'permission_callback' => '__return_true' // Public access
+				),
+				'schema' => array($this, 'get_item_schema'),
+			)
+		);
+
+		# Support Token Authentication endpoint
+
 	}
 
 	/**
@@ -733,6 +830,119 @@ class Metasync_Public
 			'featured_image'   => $featured_image
 		);
 
+		return rest_ensure_response($response_data);
+	}
+
+	/**
+	 * Get OTTO SSR status endpoint
+	 * Public endpoint to check if OTTO Server Side Rendering is enabled
+	 * 
+	 * @param WP_REST_Request $request Request object
+	 * @return WP_REST_Response Response with active status
+	 */
+	public function get_otto_ssr_status($request) {
+		# OTTO SSR is always enabled by default
+		# Prepare response - always return active as true
+		$response_data = array(
+			'active' => 'true'
+		);
+		
+		return rest_ensure_response($response_data);
+	}
+
+	/**
+	 * Set OTTO SSR status endpoint
+	 * Authenticated endpoint to activate or deactivate OTTO Server Side Rendering
+	 * 
+	 * @param WP_REST_Request $request Request object
+	 * @return WP_REST_Response Response with updated active status
+	 */
+	public function set_otto_ssr_status($request) {
+		# OTTO SSR is always enabled by default - this endpoint is kept for backwards compatibility
+		# Prepare response - SSR is always active
+		$response_data = array(
+			'active' => 'true',
+			'message' => 'OTTO SSR is always enabled by default.',
+			'success' => true
+		);
+		
+		return rest_ensure_response($response_data);
+	}
+
+	/**
+	 * Get OTTO Configuration Status endpoint
+	 * Public endpoint to check if OTTO is active and API Key/UUID are correctly set
+	 * 
+	 * @param WP_REST_Request $request Request object
+	 * @return WP_REST_Response Response with configuration status
+	 */
+	public function get_otto_config_status($request) {
+		# Get MetaSync options
+		$metasync_options = get_option('metasync_options');
+		$general_options = $metasync_options['general'] ?? array();
+		
+		# OTTO SSR is always enabled by default
+		$is_otto_active = true;
+		
+		# Check if API Key is set (not empty)
+		$api_key = $general_options['searchatlas_api_key'] ?? '';
+		$has_api_key = !empty($api_key);
+		
+		# Check if UUID is set (not empty)
+		$otto_uuid = $general_options['otto_pixel_uuid'] ?? '';
+		$has_uuid = !empty($otto_uuid);
+		
+		# Determine if fully configured (API key and UUID set - SSR always active)
+		$is_configured = $has_api_key && $has_uuid;
+		
+		# Prepare response
+		$response_data = array(
+			'configured' => $is_configured,
+			'otto_active' => $is_otto_active,
+			'has_api_key' => $has_api_key,
+			'has_uuid' => $has_uuid
+		);
+		
+		return rest_ensure_response($response_data);
+	}
+
+	/**
+	 * Get Plugin Version endpoint
+	 * Public endpoint that returns the active plugin version
+	 * 
+	 * @param WP_REST_Request $request Request object
+	 * @return WP_REST_Response Response with version information
+	 * @since 2.5.15
+	 */
+	public function get_plugin_version($request) {
+		# Get the plugin version from the constant
+		$plugin_version = defined('METASYNC_VERSION') ? METASYNC_VERSION : 'unknown';
+		
+		# Get plugin name and other metadata
+		$plugin_name = Metasync::get_effective_plugin_name();
+		$plugin_slug = 'metasync';
+		
+		# Get plugin file path to retrieve additional metadata if needed
+		$plugin_file = plugin_dir_path(dirname(__FILE__)) . 'metasync.php';
+		$plugin_data = array();
+		
+		if (file_exists($plugin_file) && function_exists('get_plugin_data')) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+			$plugin_data = get_plugin_data($plugin_file, false, false);
+		}
+		
+		# Prepare response
+		$response_data = array(
+			'version' => $plugin_version,
+			'plugin_name' => $plugin_name,
+			'plugin_slug' => $plugin_slug,
+			'wordpress_version' => get_bloginfo('version'),
+			'php_version' => PHP_VERSION,
+			'plugin_uri' => !empty($plugin_data['PluginURI']) ? $plugin_data['PluginURI'] : '',
+			'author' => !empty($plugin_data['Author']) ? $plugin_data['Author'] : 'Search Atlas',
+			'author_uri' => !empty($plugin_data['AuthorURI']) ? $plugin_data['AuthorURI'] : 'https://searchatlas.com',
+		);
+		
 		return rest_ensure_response($response_data);
 	}
 	
@@ -906,7 +1116,19 @@ class Metasync_Public
 	private function elementorBlockData($content){
 		$dom = new DOMDocument();
 		// Load HTML string
-		@$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));		
+		# @$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));	
+		
+		# Fix deprecated issue in PHP 8.2
+		# Check if the php version is below 8.2.0
+		if (version_compare(PHP_VERSION, '8.2.0', '<')) {
+			# Use mb_convert_encoding for PHP < 8.2
+			@$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
+		} else {
+			# Use mb_encode_numericentity for PHP >= 8.2
+			$encoded_content = mb_encode_numericentity($content, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
+			@$dom->loadHTML($encoded_content);
+		}	
+
 		$outputArray = [];
 		foreach ( $dom->getElementsByTagName('*') as $rootElement) {	
 			if($rootElement->nodeName!=='html' && $rootElement->nodeName!=='body' &&
@@ -924,10 +1146,80 @@ class Metasync_Public
 	}
 
 	private function gutenbergBlockData($content) {
-	
-		$dom = new DOMDocument();
-		// Load HTML string
-		@$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
+		// Validate and sanitize content before parsing
+		if (empty($content) || !is_string($content)) {
+			return [];
+		}
+
+		// Trim and ensure content is valid
+		$content = trim($content);
+		if (empty($content)) {
+			return [];
+		}
+
+		// Clean content: remove any leading/trailing whitespace and ensure it starts with a valid HTML tag
+		// If content starts with an entity or invalid character, wrap it
+		$content = preg_replace('/^[\s\x{200B}-\x{200D}\x{FEFF}]+/u', '', $content);
+		$content = preg_replace('/[\s\x{200B}-\x{200D}\x{FEFF}]+$/u', '', $content);
+
+		// Use modern Dom\HTMLDocument for PHP 8.4+ which natively supports HTML5
+		// Otherwise fall back to DOMDocument with error suppression
+		$dom = null;
+		if (class_exists('Dom\HTMLDocument')) {
+			// PHP 8.4+ with native HTML5 support
+			// Wrap content in HTML structure if it's not already a complete document
+			$wrapped_content = trim($content);
+			$isCompleteDocument = (stripos($wrapped_content, '<!DOCTYPE') === 0) || (stripos($wrapped_content, '<html') === 0);
+			
+			if (!$isCompleteDocument) {
+				// Ensure content is properly formatted before wrapping
+				$wrapped_content = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' . $wrapped_content . '</body></html>';
+			}
+			
+			try {
+				$dom = @Dom\HTMLDocument::createFromString($wrapped_content);
+				if ($dom === null) {
+					throw new Exception('Dom\HTMLDocument::createFromString returned null');
+				}
+			} catch (Throwable $e) {
+				// Fallback to DOMDocument if Dom\HTMLDocument fails
+				if (defined('WP_DEBUG_LOG') && WP_DEBUG_LOG) {
+					error_log('MetaSync: Dom\HTMLDocument error, falling back to DOMDocument: ' . $e->getMessage());
+				}
+				$dom = new DOMDocument();
+				libxml_use_internal_errors(true);
+				$encoded_content = mb_encode_numericentity($content, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
+				@$dom->loadHTML($encoded_content);
+				libxml_clear_errors();
+				libxml_use_internal_errors(false);
+			}
+		} else {
+			// Fallback for older PHP versions
+			$dom = new DOMDocument();
+
+			// Suppress libxml errors for HTML5 tags that aren't recognized in older libxml
+			libxml_use_internal_errors(true);
+
+			// Ensure content is wrapped in a proper HTML structure
+			$htmlContent = $content;
+			if (!preg_match('/^\s*<(!DOCTYPE|html|body)/i', $content)) {
+				$htmlContent = '<!DOCTYPE html><html><body>' . $content . '</body></html>';
+			}
+
+			if (version_compare(PHP_VERSION, '8.2.0', '<')) {
+				// Use mb_convert_encoding for PHP < 8.2
+				$dom->loadHTML(mb_convert_encoding($htmlContent, 'HTML-ENTITIES', 'UTF-8'));
+			} else {
+				// Use mb_encode_numericentity for PHP >= 8.2
+				$encoded_content = mb_encode_numericentity($htmlContent, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
+				$dom->loadHTML($encoded_content);
+			}
+
+			// Clear any libxml errors and restore error handling
+			libxml_clear_errors();
+			libxml_use_internal_errors(false);
+		}
+
 		$outputArray = [];
 	
 		// Iterate through each element in the HTML
@@ -945,7 +1237,7 @@ class Metasync_Public
 	}
 	
 	private function htmlToGutenbergBlock($node) {
-		$nodeName = $node->nodeName;
+		$nodeName = strtolower($node->nodeName);
 	
 		$result = [];
 
@@ -953,7 +1245,7 @@ class Metasync_Public
 			// Text node
 			return $node->nodeValue;
 		} else{
-			if (in_array(strtolower($node->nodeName), array('h1', 'h2', 'h3', 'h4', 'h5','h6'))) {
+			if (in_array($nodeName, array('h1', 'h2', 'h3', 'h4', 'h5','h6'))) {
 				$level = intval(substr($nodeName, 1));
 				return [
 					"blockName" => "core/heading",
@@ -966,7 +1258,7 @@ class Metasync_Public
 						$node->ownerDocument->saveHTML($node)
 					]
 				];
-			} elseif ($node->nodeName === 'img') {			
+			} elseif ($nodeName === 'img') {			
 				$src_url = $node->getAttribute('src');
 				// get alt text from the image tag
 				$alt_text = $node->getAttribute('alt');
@@ -978,7 +1270,8 @@ class Metasync_Public
 				$new_src_url = wp_get_attachment_url($attachment_id);
 
 				
-				$node->setAttribute('alt', $node->getAttribute('alt'));
+				$alt_attr = $node->getAttribute('alt');
+				$node->setAttribute('alt', $alt_attr !== null ? $alt_attr : '');
 				$node->setAttribute('src', $src_url);
 				$node->setAttribute('class', "wp-image-".$attachment_id);
 				//format the inner content for the image tag
@@ -999,7 +1292,7 @@ class Metasync_Public
             		),					
 					]
 				];
-			}elseif ($node->nodeName === 'iframe') {
+			}elseif ($nodeName === 'iframe') {
 				return [
 					"blockName" => "core/html",
 					"attrs" => [],
@@ -1009,7 +1302,7 @@ class Metasync_Public
 						$node->ownerDocument->saveHTML($node) 
 					]
 				];
-			}elseif ($node->nodeName === 'p') {
+			}elseif ($nodeName === 'p') {
 				return [
 					"blockName" => "core/paragraph",
 					"attrs" => [],
@@ -1019,9 +1312,9 @@ class Metasync_Public
 						$node->ownerDocument->saveHTML($node) 
 					]
 				];
-			} elseif ($node->nodeName === 'table') {
+			} elseif ($nodeName === 'table') {
 				$tableHtml = $node->ownerDocument->saveHTML($node);
-				if($node->nodeName === 'table'){
+				if($nodeName === 'table'){
 					$node->setAttribute('class', 'metasyncTable-block');
 				}	
 				return [
@@ -1034,12 +1327,12 @@ class Metasync_Public
 					]
 				];
 					
-			}elseif($node->nodeName === 'ol'||$node->nodeName === 'ul'){
+			}elseif($nodeName === 'ol'||$nodeName === 'ul'){
 				//list-item
 				return [
 					"blockName" => "core/list",
 					"attrs" => [
-						'ordered'=> ($node->nodeName === 'ol'?true:false)
+						'ordered'=> ($nodeName === 'ol'?true:false)
 					],
 					"innerBlocks" => [],
 					"innerHTML" => $node->ownerDocument->saveHTML($node) ,
@@ -1047,7 +1340,7 @@ class Metasync_Public
 						$node->ownerDocument->saveHTML($node) 
 					]
 				];
-			}elseif ($node->nodeName === 'blockquote') {
+			}elseif ($nodeName === 'blockquote') {
 				# Add the standard Gutenberg quote class to ensure proper styling
 				$node->setAttribute('class', 'wp-block-quote');
 				# Convert the full blockquote HTML
@@ -1128,7 +1421,18 @@ class Metasync_Public
 	private function diviBlockData($content){
 		$dom = new DOMDocument();
 		// Load HTML string
-		@$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));	
+		# @$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));	
+		# Fix deprecated issue in PHP 8.2
+		# Check if the php version is below 8.2.0
+		if (version_compare(PHP_VERSION, '8.2.0', '<')) {
+			# Use mb_convert_encoding for PHP < 8.2
+			@$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
+		} else {
+			# Use mb_encode_numericentity for PHP >= 8.2
+			$encoded_content = mb_encode_numericentity($content, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
+			@$dom->loadHTML($encoded_content);
+		}
+
 		$outputArray = '[et_pb_section fb_built="1" _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" global_colors_info="{}"][et_pb_row _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" global_colors_info="{}"][et_pb_column type="4_4" _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" global_colors_info="{}"]';
 		foreach ( $dom->getElementsByTagName('*') as $rootElement) {	
 			if($rootElement->nodeName!=='html' && $rootElement->nodeName!=='body' &&
@@ -1158,7 +1462,7 @@ class Metasync_Public
 		$internalErrors = libxml_use_internal_errors(true);
 
 		# Replace newlines with <br> before parsing
-		$item['post_content'] = str_replace(["\r\n", "\r", "\n"], "<br>", $item['post_content']);
+		$item['post_content'] = str_replace(["\r\n", "\r", "\n"], "<br>", $item['post_content'] ?? '');
 
 		// Check if the php version is below 8.2.0
 		if (version_compare(PHP_VERSION, '8.2.0', '<')) {
@@ -1171,9 +1475,20 @@ class Metasync_Public
 		}
 		libxml_use_internal_errors($internalErrors);
 		$images = $post_content->getElementsByTagName('img');
-		$enabled_plugin_editor = Metasync::get_option('general')['enabled_plugin_editor'] ?? '';
+		
+		# Auto-detect the active page builder
 		$elementor_active = did_action( 'elementor/loaded' );
-        $divi_active = (wp_get_theme()->name == 'Divi'?true:false);
+		# For Divi theme check if the theme name is Divi or the template is Divi or the parent theme is Divi
+		$divi_active = (wp_get_theme()->name == 'Divi' || wp_get_theme()->get_template() == 'Divi');
+		
+		# Auto-select page builder based on what's active (priority: Elementor > Divi > Gutenberg)
+		if ($elementor_active) {
+			$enabled_plugin_editor = 'elementor';
+		} elseif ($divi_active) {
+			$enabled_plugin_editor = 'divi';
+		} else {
+			$enabled_plugin_editor = 'gutenberg';
+		}
 
 		$content = $post_content->saveHTML();
 		$content = trim(str_replace([
@@ -1183,16 +1498,9 @@ class Metasync_Public
 			'</head>',
 			'<body>',
 			'</body>'
-		], '', $content));
+		], '', $content ?? ''));
 		if($otto_enable){
 			return array('content'=>$content);
-		}
-
-		if(!$elementor_active && $enabled_plugin_editor=='elementor'){
-			$enabled_plugin_editor='';
-		}
-		if(!$divi_active && $enabled_plugin_editor=='divi'){
-			$enabled_plugin_editor='';
 		}
 
 		# fix to avoid downloading images twice for gutenberg
@@ -1216,7 +1524,7 @@ class Metasync_Public
 			'</head>',
 			'<body>',
 			'</body>'
-		], '', $content));
+		], '', $content ?? ''));
 		if($landing_page_option){
 			return array('content'=>$content);
 		}
@@ -1225,7 +1533,18 @@ class Metasync_Public
 			// Load HTML string into DOMDocument
 			$dom = new DOMDocument();
 			libxml_use_internal_errors(true); // Suppress errors
-			@$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
+			# @$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
+			# Fix deprecated issue in PHP 8.2
+			# Check if the php version is below 8.2.0
+			if (version_compare(PHP_VERSION, '8.2.0', '<')) {
+				# Use mb_convert_encoding for PHP < 8.2
+				@$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
+			} else {
+				# Use mb_encode_numericentity for PHP >= 8.2
+				$encoded_content = mb_encode_numericentity($content, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
+				@$dom->loadHTML($encoded_content);
+			}
+
 			libxml_clear_errors(); // Clear any errors
 			// Find all <figure> elements and remove them
 			// $figureElements = $dom->getElementsByTagName('figure');
@@ -1289,7 +1608,18 @@ class Metasync_Public
 		}else if($enabled_plugin_editor=='divi'){
 			$dom = new DOMDocument();
 			libxml_use_internal_errors(true); // Suppress errors
-			@$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
+			# @$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
+			# Fix deprecated issue in PHP 8.2
+			# Check if the php version is below 8.2.0
+			if (version_compare(PHP_VERSION, '8.2.0', '<')) {
+				# Use mb_convert_encoding for PHP < 8.2
+				@$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
+			} else {
+				# Use mb_encode_numericentity for PHP >= 8.2
+				$encoded_content = mb_encode_numericentity($content, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
+				@$dom->loadHTML($encoded_content);
+			}
+
 			libxml_clear_errors(); // Clear any errors
 			// Find all <figure> elements and remove them
 			// $figureElements = $dom->getElementsByTagName('figure');
@@ -1366,6 +1696,65 @@ class Metasync_Public
 		return $attachment_id;
 	}
 
+	/**
+	 * Index a post with Google Indexing API
+	 * 
+	 * @param int $post_id WordPress post ID
+	 * @param string $post_type WordPress post type (post, page, etc.)
+	 * @param string $post_status WordPress post status (publish, draft, etc.)
+	 */
+	public function metasync_google_index_post($post_id, $post_type, $post_status)
+	{
+		// Only index published posts/pages
+		if ($post_status !== 'publish') {
+			return;
+		}
+
+		// Only index posts and pages (can be extended as needed)
+		$allowed_post_types = array('post', 'page');
+		if (!in_array($post_type, $allowed_post_types)) {
+			return;
+		}
+
+		try {
+			// Load Google Index functionality if not already loaded
+			if (!function_exists('google_index_post')) {
+				$google_index_path = plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php';
+				if (file_exists($google_index_path)) {
+					require_once $google_index_path;
+				} else {
+					error_log('MetaSync Google Index: google-index-init.php not found at ' . $google_index_path);
+					return;
+				}
+			}
+
+			// Attempt to index the post with Google
+			if (function_exists('google_index_post')) {
+				$result = google_index_post($post_id, $post_type, 'update');
+				
+				if (isset($result['success']) && $result['success']) {
+					error_log(sprintf(
+						'MetaSync Google Index: Successfully indexed %s (ID: %d, Type: %s)',
+						get_the_title($post_id),
+						$post_id,
+						$post_type
+					));
+				} else {
+					error_log(sprintf(
+						'MetaSync Google Index: Failed to index %s (ID: %d, Type: %s) - %s',
+						get_the_title($post_id),
+						$post_id,
+						$post_type,
+						isset($result['error']['message']) ? $result['error']['message'] : 'Unknown error'
+					));
+				}
+			}
+		} catch (Exception $e) {
+			// Log any exceptions but don't break the main functionality
+			error_log('MetaSync Google Index Exception: ' . $e->getMessage());
+		}
+	}
+
 	public function create_item($request)
 	{
 		// Checking for type of object for response type
@@ -1403,27 +1792,41 @@ class Metasync_Public
 
 				# Get Current Post type
 				$current_post_type = isset($item['post_type']) ? sanitize_text_field($item['post_type']) : 'post';
-
-				# Get the setting for the post template
-				$title_and_feature_image = $this->append_content_if_missing_elements($current_post_type);
-
+				/**
+				 * Check if current theme is Flatsome using SAVED theme info (not wp_get_theme())
+				 * Theme info is saved by admin hooks, so no security triggers during REST API
+				 */
+				$metasync_general = Metasync::get_option('general');
+				$theme_name = $metasync_general['current_theme_name'] ?? '';
+				$theme_template = $metasync_general['current_theme_template'] ?? '';
 				
+				$is_flatsome_theme = false;
+				if (!empty($theme_name) && stripos($theme_name, 'Flatsome') !== false) {
+					$is_flatsome_theme = true;
+				} elseif (!empty($theme_template) && stripos($theme_template, 'flatsome') !== false) {
+					$is_flatsome_theme = true;
+				}
 
-				# Check if the post title is there in the template or not
-				if(!$title_and_feature_image['image_in_content'] && !empty($item['hero_image_url'])){
+				# Skip title/image prepending for Flatsome (it displays them by default)
+				if (!$is_flatsome_theme) {
+					# Get the setting for the post template
+					$title_and_feature_image = $this->append_content_if_missing_elements($current_post_type);
+
+					# Check if the post title is there in the template or not
+					if(!$title_and_feature_image['image_in_content'] && !empty($item['hero_image_url'])){
+						
+						# Prepend the feature image
+						$item['post_content'] = '<img src="'.$item['hero_image_url'].'" />'.$item['post_content'] ;
+					}
+
+					# Check if the post title is there in the template or not
+					if(!$title_and_feature_image['title_in_headings']){
+
+						# Prepend the post title
+						$item['post_content'] = '<h1>'.$item['post_title'].'</h1>'.$item['post_content'] ;
+					}
 					
-					# Prepend the feature image
-					$item['post_content'] = '<img src="'.$item['hero_image_url'].'" />'.$item['post_content'] ;
-				}
-
-				# Check if the post title is there in the template or not
-				if(!$title_and_feature_image['title_in_headings']){
-
-					# Prepend the post title
-					$item['post_content'] = '<h1>'.$item['post_title'].'</h1>'.$item['post_content'] ;
-				}
-				
-				
+				}	
 				#  This will be used by create_page function
 				$content = $this->metasync_upload_post_content($item,false,false); 
             }elseif(isset($item['is_landing_page']) && $item['is_landing_page'] == true){
@@ -1462,7 +1865,7 @@ class Metasync_Public
 				if (!$is_valid_date) {
 					return new WP_Error(
 						'rest_post_invalid_date',
-						__('Post date is not valid'),
+						esc_html__('Post date is not valid'),
 						array('status' => 400)
 					);
 				}
@@ -1473,7 +1876,7 @@ class Metasync_Public
 				// 	$newDate = date('Y-m-d', strtotime('-2 month'));
 				// 	return new WP_Error(
 				// 		'rest_post_greater_date',
-				// 		__("Post date should be greater then " . $newDate),
+				// 		esc_html__("Post date should be greater then " . $newDate),
 				// 		array('status' => 400)
 				// 	);
 				// }
@@ -1481,7 +1884,7 @@ class Metasync_Public
 				// if ($post_date_str > strtotime(date('Y-m-d'))) {
 				// 	return new WP_Error(
 				// 		'rest_post_less_date',
-				// 		__("Post date should be less then Today"),
+				// 		esc_html__("Post date should be less then Today"),
 				// 		array('status' => 400)
 				// 	);
 				// }
@@ -1493,7 +1896,10 @@ class Metasync_Public
 			$post_status_new = isset($item['post_status']) ? sanitize_text_field($item['post_status']) : 'publish';
 			$post_permalink = $item['permalink'] = isset($item['permalink']) ? $item['permalink'] : sanitize_title($new_post['post_title']);
 
-			$getPostID_byURL = @get_page_by_path($item['permalink'], OBJECT, $new_post['post_type'])->ID;
+			# $getPostID_byURL = @get_page_by_path($item['permalink'], OBJECT, $new_post['post_type'])->ID;
+			# Fix to avoid PHP error if the get_page_by_path returns null
+			$getPostID_byURL = @get_page_by_path($item['permalink'], OBJECT, $new_post['post_type']);
+			$getPostID_byURL = $getPostID_byURL ? $getPostID_byURL->ID : null;
 			if ($getPostID_byURL == NULL) {
 				// check if the post_title is set and not empty when called by otto_ai_page
 				if(isset($new_post['post_title']) && $new_post['post_title']!==''){
@@ -1605,7 +2011,10 @@ class Metasync_Public
 			}
 
 			$post_cattegories = [];
-			if ($new_post['post_type'] === 'post' && is_array(@$item['post_categories'])) {
+			# if ($new_post['post_type'] === 'post' && is_array(@$item['post_categories'])) {
+
+			# fixed Undefined array key issue
+			if ($new_post['post_type'] === 'post' && isset($item['post_categories']) && is_array($item['post_categories'])) {
 				$append_categories = isset($item['append_categories']) && $item['append_categories'] == true ? true : false;
 				$post_cattegories = $this->metasync_handle_post_category($post_id, $item['post_categories'], $append_categories);
 			}
@@ -1616,7 +2025,10 @@ class Metasync_Public
 			}
 
 			$post_tags = [];
-			if ($new_post['post_type'] === 'post' && is_array(@$item['post_tags'])) {
+			# if ($new_post['post_type'] === 'post' && is_array(@$item['post_tags'])) {
+
+			# fixed Undefined array key 'post_tags issue
+			if ($new_post['post_type'] === 'post' && isset($item['post_tags']) && is_array($item['post_tags'])) {
 				$append_tags = isset($item['append_tags']) && $item['append_tags'] == true ? true : false;
 				$post_tags = $this->metasync_set_post_tags($post_id, $item['post_tags'], $append_tags);
 			}
@@ -1633,10 +2045,10 @@ class Metasync_Public
 			if (!is_wp_error($post_id) && $post_id > 0) {
 				$action = ($getPostID_byURL === NULL) ? 'Created' : 'Updated';
 				$title_preview = mb_strlen($new_post['post_title']) > 30 ? mb_substr($new_post['post_title'], 0, 30) . '...' : $new_post['post_title'];
-				
+
 				# Use appropriate title based on post type
 				$content_type_label = ($new_post['post_type'] === 'page') ? 'Page' : 'Post';
-				
+
 				metasync_log_sync_history([
 					'title' => "{$content_type_label} {$action} ({$title_preview})",
 					'source' => 'Content Genius',
@@ -1651,6 +2063,17 @@ class Metasync_Public
 						'action' => strtolower($action)
 					])
 				]);
+
+				# Track Content Genius event in Mixpanel
+				try {
+					$mixpanel = Metasync_Mixpanel::get_instance();
+					$mixpanel->track_content_genius_event($post_id, strtolower($action));
+				} catch (Exception $e) {
+					error_log('MetaSync: Mixpanel tracking failed for Content Genius - ' . $e->getMessage());
+				}
+
+			// Google Indexing Integration
+			$this->metasync_google_index_post($post_id, $new_post['post_type'], $new_post['post_status']);
 			}
 
 			$respCreatePosts[$index] = array_merge($new_post, $post_meta);
@@ -1692,14 +2115,14 @@ class Metasync_Public
 			wp_delete_post($post_id);
 			return new WP_Error(
 				'rest_post_delete_success',
-				__(''),
+				esc_html__(''),
 				// HTTP 204 requires no body for response
 				array('status' => 204)
 			);
 		}
 		return new WP_Error(
 			'rest_post_delete_fail',
-			__('No post found in the database with requested ID.'),
+			esc_html__('No post found in the database with requested ID.'),
 			array('status' => 400)
 		);
 	}
@@ -2020,13 +2443,19 @@ class Metasync_Public
 
 					if ($post_id == 0) {
 						// try to get post_id by permalink
-						$post_id = @get_page_by_path(sanitize_text_field($post['permalink']), OBJECT, 'post')->ID;
+						# $post_id = @get_page_by_path(sanitize_text_field($post['permalink']), OBJECT, 'post')->ID;
+						# Fix to avoid PHP error if the get_page_by_path returns null
+						$post_by_path = @get_page_by_path(sanitize_text_field($post['permalink']), OBJECT, 'post');
+						$post_id = $post_by_path ? $post_by_path->ID : 0;
 					}
 
 					if ($post_id == 0) {
 						// try to get permalink from URL
 						$url_to_permalink = $this->common->get_permalink_from_url($safe_url);
-						$post_id = @get_page_by_path($url_to_permalink, OBJECT, 'post')->ID;
+						# $post_id = @get_page_by_path($url_to_permalink, OBJECT, 'post')->ID;
+						# Fix to avoid PHP error if the get_page_by_path returns null
+						$post_by_path = @get_page_by_path($url_to_permalink, OBJECT, 'post');
+						$post_id = $post_by_path ? $post_by_path->ID : 0;
 					}
 				}
 			}
@@ -2043,7 +2472,7 @@ class Metasync_Public
 			if (!$post_data) {
 				return new WP_Error(
 					'rest_post_update_fail',
-					__('No post found in the database with requested ID.'),
+					esc_html__('No post found in the database with requested ID.'),
 					array('status' => 400)
 				);
 			}
@@ -2078,23 +2507,40 @@ class Metasync_Public
 				# Above we are updating the post_type so we have to get latest value that has been change on the server 
 				$post_fresh_data = get_post($post['post_id']);
 
-				# Get the setting for the post template
-				$title_and_feature_image = $this->append_content_if_missing_elements($post_fresh_data->post_type);
-
-				# Check if the post title is there in the template or not
-				if(!$title_and_feature_image['image_in_content'] && !empty($post['hero_image_url'])){
-					
-					# Prepend the feature image
-					$post['post_content'] = '<img src="'.$post['hero_image_url'].'" />'.$post['post_content'] ;
+				/**
+				 * Check if current theme is Flatsome using SAVED theme info (not wp_get_theme())
+				 * Theme info is saved by admin hooks, so no security triggers during REST API
+				 */
+				$metasync_general = Metasync::get_option('general');
+				$theme_name = $metasync_general['current_theme_name'] ?? '';
+				$theme_template = $metasync_general['current_theme_template'] ?? '';
+				
+				$is_flatsome_theme = false;
+				if (!empty($theme_name) && stripos($theme_name, 'Flatsome') !== false) {
+					$is_flatsome_theme = true;
+				} elseif (!empty($theme_template) && stripos($theme_template, 'flatsome') !== false) {
+					$is_flatsome_theme = true;
 				}
 
-				# Check if the post title is there in the template or not
-				if(!$title_and_feature_image['title_in_headings']){
+				# Skip title/image prepending for Flatsome (it displays them by default)
+				if (!$is_flatsome_theme) {
+					# Get the setting for the post template
+					$title_and_feature_image = $this->append_content_if_missing_elements($post_fresh_data->post_type);
 
-					# Prepend the post title
-					$post['post_content'] = '<h1>'.$post['post_title'].'</h1>'.$post['post_content'] ;
+					# Check if the post title is there in the template or not
+					if(!$title_and_feature_image['image_in_content'] && !empty($post['hero_image_url'])){
+						
+						# Prepend the feature image
+						$post['post_content'] = '<img src="'.$post['hero_image_url'].'" />'.$post['post_content'] ;
+					}
+
+					# Check if the post title is there in the template or not
+					if(!$title_and_feature_image['title_in_headings']){
+
+						# Prepend the post title
+						$post['post_content'] = '<h1>'.$post['post_title'].'</h1>'.$post['post_content'] ;
+					}
 				}
-
 				// This will be used by update_page function
 				$content = $this->metasync_upload_post_content($post,false,false); 
 				$update_params['post_content'] = $content['content'];
@@ -2159,7 +2605,7 @@ class Metasync_Public
 				if (!$is_valid_date) {
 					return new WP_Error(
 						'rest_post_invalid_date',
-						__('Post date is not valid'),
+						esc_html__('Post date is not valid'),
 						array('status' => 400)
 					);
 				}
@@ -2171,7 +2617,7 @@ class Metasync_Public
 					$newDate = date('Y-m-d', strtotime('-2 month'));
 					return new WP_Error(
 						'rest_post_greater_date',
-						__("Post date should be greater then " . $newDate),
+						esc_html__("Post date should be greater then " . $newDate),
 						array('status' => 400)
 					);
 				}
@@ -2179,7 +2625,7 @@ class Metasync_Public
 				if ($post_date_str > strtotime(date('Y-m-d'))) {
 					return new WP_Error(
 						'rest_post_greater_date',
-						__('Post date should be less then Today'),
+						esc_html__('Post date should be less then Today'),
 						array('status' => 400)
 					);
 				}
@@ -2187,13 +2633,19 @@ class Metasync_Public
 			}
 
 			$post_cattegories = [];
-			if ($post_data && $post_data->post_type === 'post' && is_array(@$post['post_categories'])) {
+			# if ($post_data && $post_data->post_type === 'post' && is_array(@$post['post_categories'])) {
+
+			# fixed Undefined array key issue
+			if ($post_data && $post_data->post_type === 'post' && isset($post['post_categories']) && is_array($post['post_categories'])) {
 				$append_categories = isset($post['append_categories']) && $post['append_categories'] == true ? true : false;
 				$post_cattegories = $this->metasync_handle_post_category($post_id, $post['post_categories'], $append_categories);
 			}
 			
 			$post_tags = [];
-			if ($post_data && $post_data->post_type === 'post' && is_array(@$post['post_tags'])) {
+			# if ($post_data && $post_data->post_type === 'post' && is_array(@$post['post_tags'])) {
+
+			# fixed Undefined array key 'post_tags' issue
+			if ($post_data && $post_data->post_type === 'post' && isset($post['post_tags']) && is_array($post['post_tags'])) {
 				$append_tags = isset($post['append_tags']) && $post['append_tags'] == true ? true : false;
 				$post_tags = $this->metasync_set_post_tags($post_id, $post['post_tags'], $append_tags);
 			}
@@ -2286,10 +2738,10 @@ class Metasync_Public
 				$title_preview = mb_strlen($post_title) > 30 ? mb_substr($post_title, 0, 30) . '...' : $post_title;
 				$post_status = $update_params['post_status'] ?? $post_data->post_status ?? 'draft';
 				$post_type = $post_data->post_type ?? 'post';
-				
+
 				# Use appropriate title based on post type
 				$content_type_label = ($post_type === 'page') ? 'Page' : 'Post';
-				
+
 				metasync_log_sync_history([
 					'title' => "{$content_type_label} Updated ({$title_preview})",
 					'source' => 'Content Genius',
@@ -2305,6 +2757,14 @@ class Metasync_Public
 						'updated_fields' => array_keys($update_params)
 					])
 				]);
+
+				# Track Content Genius event in Mixpanel
+				try {
+					$mixpanel = Metasync_Mixpanel::get_instance();
+					$mixpanel->track_content_genius_event($post_id, 'updated');
+				} catch (Exception $e) {
+					error_log('MetaSync: Mixpanel tracking failed for Content Genius - ' . $e->getMessage());
+				}
 			}
 
 			ksort($update_params);
@@ -2411,7 +2871,7 @@ class Metasync_Public
 		if(!isset($post_data->post_type)){				
 			return new WP_Error(
 				'rest_page_type_fail',
-				__('No page found in the database with requested ID.'),
+				esc_html__('No page found in the database with requested ID.'),
 				array('status' => 400)
 			);
 		}
@@ -2499,7 +2959,24 @@ class Metasync_Public
 			'username' => wp_unslash(sanitize_email($post_data['username'])),
 			'password' => wp_unslash(sanitize_text_field($post_data['password']))
 		);
-		$response = wp_remote_post(Metasync::API_DOMAIN . '/api/token/', array('body' => $payload));
+
+		$api_domain = class_exists('Metasync_Endpoint_Manager')
+			? Metasync_Endpoint_Manager::get_endpoint('API_DOMAIN')
+			: Metasync::API_DOMAIN;
+
+		# PERFORMANCE OPTIMIZATION: Add timeout to prevent hung requests
+		$response = wp_remote_post($api_domain . '/api/token/', array(
+			'body' => $payload,
+			'timeout' => 10,
+		));
+
+		# Error handling for timeout or connection failures
+		if (is_wp_error($response)) {
+			error_log('MetaSync: Token API failed: ' . $response->get_error_message());
+			wp_send_json_error(array('message' => 'Token API request failed'));
+			wp_die();
+		}
+
 		$get_object = isset($response['body']) ? json_decode($response['body']) : array();
 		if (!empty($get_object)) {
 			wp_send_json($get_object);
@@ -2531,23 +3008,50 @@ class Metasync_Public
 	}
 
 	/**
-	 * SSO Callback Permission Validation
+	 * Search Atlas Connect Callback Permission Validation
+	 *
+	 * Validates the nonce token before Search Atlas delivers the API key and Otto UUID.
+	 * Does NOT create a WordPress login session.
 	 * Validates the nonce token in the x-api-key header
 	 */
-	public function validate_sso_callback_permission($request)
+	public function validate_searchatlas_callback_permission($request)
 	{
 		try {
+			error_log('MetaSync SA Connect: validate_searchatlas_callback_permission() called');
 			// Step 1: Validate nonce token format from header
 			$nonce_token = $request->get_header('x-api-key');
-			$format_validation = $this->validate_sso_nonce_format($nonce_token);
-		
+			$format_validation = $this->validate_searchatlas_nonce_format($nonce_token);
+
 			if (is_wp_error($format_validation)) {
 				return $format_validation;
 			}
 
-			// Step 2: Validate nonce token by regenerating it
-			if (!$this->validate_deterministic_sso_token($nonce_token)) {
-				
+			// Step 2: Validate token exists and is not expired (READ-ONLY check)
+			// BUGFIX: Don't call validate_deterministic_searchatlas_token() here because it marks token as used!
+			// Just check if token exists and hasn't expired
+			if (empty($nonce_token) || strlen($nonce_token) < 32) {
+				return new WP_Error(
+					'invalid_nonce_token',
+					'Invalid nonce token format',
+					array('status' => 401)
+				);
+			}
+
+			// Check token exists in transients (read-only - don't modify)
+			$transient_key = get_transient('metasync_sa_connect_active_' . $nonce_token);
+			if (empty($transient_key)) {
+				error_log('MetaSync SA Connect Permission: Token not found in transients');
+				return new WP_Error(
+					'invalid_nonce_token',
+					'Invalid or expired nonce token',
+					array('status' => 401)
+				);
+			}
+
+			// Check token metadata exists (read-only)
+			$token_metadata = get_transient($transient_key);
+			if (empty($token_metadata) || !is_array($token_metadata)) {
+				error_log('MetaSync SA Connect Permission: Token metadata not found');
 				return new WP_Error(
 					'invalid_nonce_token',
 					'Invalid nonce token',
@@ -2555,6 +3059,19 @@ class Metasync_Public
 				);
 			}
 
+			// Check not expired (read-only)
+			if (isset($token_metadata['expires']) && time() > $token_metadata['expires']) {
+				error_log('MetaSync SA Connect Permission: Token expired');
+				return new WP_Error(
+					'invalid_nonce_token',
+					'Nonce token expired',
+					array('status' => 401)
+				);
+			}
+
+			error_log('MetaSync SA Connect Permission: Token validation passed (read-only check)');
+			// Permission granted - but don't mark token as used yet!
+			// The main handler will do that after successful processing
 			return true;
 		} catch (Exception $e) {
 			return new WP_Error(
@@ -2566,25 +3083,69 @@ class Metasync_Public
 	}
 
     /**
-     * Validate Plugin Auth Token directly
-     * Simply compare provided token with Plugin Auth Token
+     * Validate Search Atlas connect token for callback
+     * SECURITY FIX (CVE-2025-14386): Only validates against time-limited transient tokens
+     * Tokens must be created by generate_searchatlas_connect_url() and stored in transients
      */
-    private function validate_deterministic_sso_token($token)
+    private function validate_deterministic_searchatlas_token($token)
     {
-        // Get Plugin Auth Token
-        $general_options = Metasync::get_option('general') ?? [];
-        $plugin_auth_token = $general_options['apikey'] ?? '';
-        
-        // Debug logging to verify what we're comparing
-        if (empty($plugin_auth_token)) {
-            error_log('SSO Token Validation - No plugin auth token available');
-            return false; // No plugin auth token available
+        if (empty($token) || strlen($token) < 32) {
+            error_log('MetaSync SA Connect Callback: Token validation failed - invalid token format');
+            return false;
         }
-    
-        // Compare tokens directly
-        $result = hash_equals($plugin_auth_token, $token);
-    
-        return $result;
+
+        // SECURITY FIX: Token MUST exist in transients (created by generate_searchatlas_connect_url)
+        // We do NOT fall back to apikey - this was the vulnerability!
+        $transient_key = get_transient('metasync_sa_connect_active_' . $token);
+        
+        if (empty($transient_key)) {
+            error_log('MetaSync SA Connect Callback: Token not found in active tokens - rejected');
+            return false;
+        }
+
+        // Token found in transients - validate metadata
+        $token_metadata = get_transient($transient_key);
+
+        if (empty($token_metadata) || !is_array($token_metadata)) {
+            error_log('MetaSync SA Connect Callback: Token metadata not found');
+            delete_transient('metasync_sa_connect_active_' . $token);
+            return false;
+        }
+
+        error_log('MetaSync SA Connect Callback: Token metadata retrieved, callback_used = ' .
+            (isset($token_metadata['callback_used']) ? ($token_metadata['callback_used'] ? 'true' : 'false') : 'not set'));
+        error_log('MetaSync SA Connect Callback: Token metadata used = ' .
+            (isset($token_metadata['used']) ? ($token_metadata['used'] ? 'true' : 'false') : 'not set'));
+
+        // Check expiration
+        if (isset($token_metadata['expires']) && time() > $token_metadata['expires']) {
+            error_log('MetaSync SA Connect Callback: Token expired');
+            delete_transient($transient_key);
+            delete_transient('metasync_sa_connect_active_' . $token);
+            return false;
+        }
+
+        // Check if already used for callback (single-use enforcement)
+        if (isset($token_metadata['callback_used']) && $token_metadata['callback_used'] === true) {
+            error_log('MetaSync SA Connect Callback: Token already used for callback - rejected');
+            return false;
+        }
+        
+        // Mark token as used for callback (single-use)
+        $token_metadata['callback_used'] = true;
+        $token_metadata['callback_at'] = time();
+        // BUGFIX: Keep metadata for 5 minutes to allow user login to complete
+        set_transient($transient_key, $token_metadata, 300); // Keep for 5 minutes for user login
+
+        // BUGFIX: Only delete the active token mapping if BOTH operations are complete
+        // This allows user login and API callback to happen in any order without race conditions
+        if (isset($token_metadata['used']) && $token_metadata['used'] === true) {
+            // Both callback and login are done - safe to delete mapping
+            delete_transient('metasync_sa_connect_active_' . $token);
+        }
+        // Otherwise, keep the mapping so user login can still find the token
+
+        return true;
     }
 
     /**
@@ -2599,7 +3160,7 @@ class Metasync_Public
         }
         
         // Check if token data indicates enhanced version
-        $nonce_data = get_option('metasync_sso_nonce_' . $token);
+        $nonce_data = get_option('metasync_sa_connect_nonce_' . $token);
         if ($nonce_data) {
             $data = json_decode($nonce_data, true);
             return isset($data['enhanced']) && $data['enhanced'] === true;
@@ -2609,11 +3170,11 @@ class Metasync_Public
     }
 
     /**
-     * Validate enhanced SALT-based SSO token
+     * Validate enhanced SALT-based Search Atlas connect token
      */
-    private function validate_enhanced_sso_token($token)
+    private function validate_enhanced_searchatlas_token($token)
     {
-        $nonce_data = get_option('metasync_sso_nonce_' . $token);
+        $nonce_data = get_option('metasync_sa_connect_nonce_' . $token);
         
         if (!$nonce_data) {
             return false;
@@ -2627,7 +3188,7 @@ class Metasync_Public
 
         // Check if token has expired
         if (isset($nonce_data['expires']) && $nonce_data['expires'] < time()) {
-            delete_option('metasync_sso_nonce_' . $token);
+            delete_option('metasync_sa_connect_nonce_' . $token);
             return false;
         }
 
@@ -2648,11 +3209,11 @@ class Metasync_Public
     }
 
     /**
-     * Validate legacy SSO token (backward compatibility)
+     * Validate legacy Search Atlas connect token (backward compatibility)
      */
-    private function validate_legacy_sso_token($token)
+    private function validate_legacy_searchatlas_token($token)
     {
-        $nonce_data = get_option('metasync_sso_nonce_' . $token);
+        $nonce_data = get_option('metasync_sa_connect_nonce_' . $token);
         
         if (!$nonce_data) {
             return false;
@@ -2662,7 +3223,7 @@ class Metasync_Public
 
         // Check if token has expired
         if (isset($nonce_data['expires']) && $nonce_data['expires'] < time()) {
-            delete_option('metasync_sso_nonce_' . $token);
+            delete_option('metasync_sa_connect_nonce_' . $token);
             return false;
         }
 
@@ -2703,7 +3264,7 @@ class Metasync_Public
      */
     private function is_token_rate_limited($token)
     {
-        $rate_limit_key = 'sso_rate_limit_' . substr($token, 0, 8);
+        $rate_limit_key = 'sa_connect_rate_limit_' . substr($token, 0, 8);
         $attempts = get_transient($rate_limit_key);
         
         if ($attempts === false) {
@@ -2721,15 +3282,20 @@ class Metasync_Public
 
 
 	/**
-	 * Handle SSO Callback
+	 * Handle Search Atlas Connect Callback (REST API)
+	 *
+	 * Called by the Search Atlas platform after admin authenticates on their dashboard.
+	 * Receives the Search Atlas API key and Otto UUID and stores them in WordPress options.
+	 * Does NOT create a WordPress login session.
 	 * Processes the callback from Search Atlas platform with new API key
 	 */
-	public function handle_sso_callback($request)
+	public function handle_searchatlas_api_callback($request)
 	{
 		try {
+			error_log('MetaSync SA Connect: handle_searchatlas_api_callback() called');
 			// Step 1: Validate nonce token from header
 			$nonce_token = $request->get_header('x-api-key');
-			$nonce_validation = $this->validate_sso_nonce_format($nonce_token);
+			$nonce_validation = $this->validate_searchatlas_nonce_format($nonce_token);
 			
 			if (is_wp_error($nonce_validation)) {
 				return $nonce_validation;
@@ -2737,21 +3303,21 @@ class Metasync_Public
 			
 			// Step 2: Validate request body structure
 			$body_params = $request->get_json_params();
-			$body_validation = $this->validate_sso_request_body($body_params);
+			$body_validation = $this->validate_searchatlas_request_body($body_params);
 			
 			if (is_wp_error($body_validation)) {
 				return $body_validation;
 			}
 			
 			// Step 3: Extract and validate individual parameters
-			$validated_params = $this->extract_and_validate_sso_params($body_params);
+			$validated_params = $this->extract_and_validate_searchatlas_params($body_params);
 			
 			if (is_wp_error($validated_params)) {
 				return $validated_params;
 			}
 			
 			// Step 4: Validate nonce token by regenerating it
-			if (!$this->validate_deterministic_sso_token($nonce_token)) {
+			if (!$this->validate_deterministic_searchatlas_token($nonce_token)) {
 				return new WP_Error(
 					'invalid_nonce', 
 					'Invalid nonce token',
@@ -2760,7 +3326,7 @@ class Metasync_Public
 			}
 			
 			// Step 5: Process the callback and update settings
-			$success = $this->mark_sso_nonce_used(
+			$success = $this->mark_searchatlas_nonce_used(
 				$nonce_token,
 				$validated_params['api_key'],
 				$validated_params['uuid'],
@@ -2783,7 +3349,7 @@ class Metasync_Public
 			// Step 6: Return success response
 			return rest_ensure_response(array(
 				'success' => true,
-				'message' => 'SSO callback processed successfully',
+				'message' => 'Search Atlas connect callback processed successfully',
 				'data' => array(
 					'status_code' => $validated_params['status_code'],
 					'api_key_updated' => $validated_params['status_code'] === 200,
@@ -2795,19 +3361,19 @@ class Metasync_Public
 		} catch (Exception $e) {
 			return new WP_Error(
 				'internal_error',
-				'Internal server error occurred while processing SSO callback',
+				'Internal server error occurred while processing Search Atlas connect callback',
 				array('status' => 500)
 			);
 		}
 	}
 
 	/**
-	 * Validate SSO nonce token format
+	 * Validate Search Atlas connect nonce token format
 	 * 
 	 * @param string $nonce_token The nonce token to validate
 	 * @return true|WP_Error True if valid, WP_Error if invalid
 	 */
-	private function validate_sso_nonce_format($nonce_token)
+	private function validate_searchatlas_nonce_format($nonce_token)
 	{
 		// Check if nonce token is provided
 		if (empty($nonce_token)) {
@@ -2831,12 +3397,12 @@ class Metasync_Public
 	}
 	
 	/**
-	 * Validate SSO request body structure
+	 * Validate Search Atlas connect request body structure
 	 * 
 	 * @param mixed $body_params Request body parameters
 	 * @return true|WP_Error True if valid, WP_Error if invalid
 	 */
-	private function validate_sso_request_body($body_params)
+	private function validate_searchatlas_request_body($body_params)
 	{
 		// Check if body exists and is valid JSON
 		if (empty($body_params)) {
@@ -2860,12 +3426,12 @@ class Metasync_Public
 	}
 	
 	/**
-	 * Extract and validate individual SSO parameters
+	 * Extract and validate individual Search Atlas connect parameters
 	 * 
 	 * @param array $body_params Request body parameters
 	 * @return array|WP_Error Validated parameters array or WP_Error
 	 */
-	private function extract_and_validate_sso_params($body_params)
+	private function extract_and_validate_searchatlas_params($body_params)
 	{
 		$validation_errors = array();
 		
@@ -3008,7 +3574,7 @@ class Metasync_Public
 	}
 
 	/**
-	 * Create standardized error response for SSO endpoints
+	 * Create standardized error response for Search Atlas connect endpoints
 	 * 
 	 * @param string $error_code Error code identifier
 	 * @param string $message Human-readable error message
@@ -3021,21 +3587,25 @@ class Metasync_Public
 		$error_data = array_merge(array(
 			'status' => $status_code,
 			'timestamp' => current_time('mysql', true),
-			'endpoint' => 'sso/callback'
+			'endpoint' => 'searchatlas/connect/callback'
 		), $additional_data);
 		
 		return new WP_Error($error_code, $message, $error_data);
 	}
 
     /**
-     * Mark SSO nonce as used and update API key
+     * Mark Search Atlas connect nonce as used and store the API key and Otto UUID
      * Enhanced with whitelabel support including logo and company name
      */
-    public function mark_sso_nonce_used($token, $new_api_key, $new_otto_uuid, $status_code = 200, $is_whitelabel = false, $whitelabel_domain = '', $whitelabel_logo = '', $whitelabel_company_name = '', $whitelabel_otto = '')
+    public function mark_searchatlas_nonce_used($token, $new_api_key, $new_otto_uuid, $status_code = 200, $is_whitelabel = false, $whitelabel_domain = '', $whitelabel_logo = '', $whitelabel_company_name = '', $whitelabel_otto = '')
     {
         try {
+            // DEBUG: Log that callback processing started
+            error_log('MetaSync SA Connect: mark_searchatlas_nonce_used() called with status_code=' . $status_code);
+
             // Validate token parameter
             if (empty($token)) {
+                error_log('MetaSync SA Connect: mark_searchatlas_nonce_used() failed - empty token');
                 return false;
             }
 
@@ -3054,21 +3624,25 @@ class Metasync_Public
             }
             // Only update the API key in settings if status_code is 200 (success)
             if ($status_code === 200) {
+                error_log('MetaSync SA Connect: Status code is 200, updating API key and setting success transient');
                 $options['general']['searchatlas_api_key'] = $new_api_key;
                 $options['general']['otto_pixel_uuid'] = $new_otto_uuid;
-                $options['general']['otto_enable'] = 'true';  // Automatically enable Server Side Rendering
-                
+                // Note: OTTO SSR is always enabled by default, no need to set
+
                 // Update authentication timestamp for polling detection (legacy - keeping for compatibility)
                 $options['general']['send_auth_token_timestamp'] = current_time('mysql');
-                
+
                 // ✅ NEW: Set nonce-specific success flag for polling detection
                 // This ensures only the specific nonce that was authenticated reports success
-                $success_key = 'metasync_sso_success_' . md5($token);
+                $success_key = 'metasync_sa_connect_success_' . md5($token);
                 set_transient($success_key, true, 300); // 5 minutes expiry
-                
+                error_log('MetaSync SA Connect: Success transient set - key: ' . $success_key);
+
                 // Clear JWT token cache when API key is updated to ensure fresh tokens
                 $this->clear_jwt_token_cache();
-                
+
+            } else {
+                error_log('MetaSync SA Connect: Status code is NOT 200 (got ' . $status_code . '), NOT setting success transient');
             }
             
             // Map whitelabel fields consistently (regardless of status_code)
@@ -3117,20 +3691,22 @@ class Metasync_Public
             }
             
             $save_result = Metasync::set_option($options);
-            
+
             if (!$save_result) {
-                error_log('SSO mark_sso_nonce_used: Failed to save plugin options');
+                error_log('MetaSync SA Connect: mark_searchatlas_nonce_used - Failed to save plugin options');
             } else {
-                // Trigger immediate heartbeat check after successful SSO authentication
+                error_log('MetaSync SA Connect: mark_searchatlas_nonce_used - Options saved successfully');
+                // Trigger immediate heartbeat check after successful Search Atlas connect authentication
                 if ($status_code === 200) {
-                    $this->trigger_immediate_heartbeat_after_sso();
+                    $this->trigger_immediate_heartbeat_after_sa_connect();
                 }
             }
-            
+
+            error_log('MetaSync SA Connect: mark_searchatlas_nonce_used() completed successfully, returning true');
             return true;
             
         } catch (Exception $e) {
-            error_log('SSO mark_sso_nonce_used Error: ' . $e->getMessage());
+            error_log('MetaSync SA Connect: mark_searchatlas_nonce_used Error - ' . $e->getMessage());
         return false;
         }
     }
@@ -3163,21 +3739,21 @@ class Metasync_Public
     }
     
     /**
-     * Trigger immediate heartbeat check after successful SSO authentication
+     * Trigger immediate heartbeat check after successful Search Atlas connect authentication
      * This provides immediate feedback to the user about connection status
      */
-    private function trigger_immediate_heartbeat_after_sso()
+    private function trigger_immediate_heartbeat_after_sa_connect()
     {
         try {
             // Use WordPress action system to trigger immediate heartbeat check
             // This is more reliable than trying to access admin class directly
-            do_action('metasync_trigger_immediate_heartbeat', 'SSO Authentication - successful login');
+            do_action('metasync_trigger_immediate_heartbeat', 'Search Atlas Connect - API key and UUID retrieved');
             
             // Also ensure heartbeat cron is scheduled now that we have an API key
             do_action('metasync_ensure_heartbeat_cron_scheduled');
             
         } catch (Exception $e) {
-            error_log('SSO: Error triggering immediate heartbeat check - ' . $e->getMessage());
+            error_log('MetaSync SA Connect: Error triggering immediate heartbeat check - ' . $e->getMessage());
         }
     }
 
@@ -3197,13 +3773,13 @@ class Metasync_Public
 			// In JSON Schema you can specify object properties in the properties attribute.
 			'properties' => array(
 				'id' => array(
-					'description' => esc_html__('Unique identifier for the object.', 'my-textdomain'),
+					'description' => esc_htmlesc_html__('Unique identifier for the object.', 'my-textdomain'),
 					'type' => 'integer',
 					'context' => array('view', 'edit', 'embed'),
 					'readonly' => true,
 				),
 				'content' => array(
-					'description' => esc_html__('The content for the object.', 'my-textdomain'),
+					'description' => esc_htmlesc_html__('The content for the object.', 'my-textdomain'),
 					'type' => 'string',
 				),
 			),
@@ -3309,15 +3885,7 @@ class Metasync_Public
 			'description' => $get_page_meta['meta_description'][0] ?? '',
 			'robots' => $get_page_meta['meta_robots'][0] ?? 'index',
 		);
-		$metasync_option = Metasync::get_option('general');
-		/*
-		#Remove Error Suppressants
-		#Check if the "enable_metadesc" key is set
-		*/
-		if (isset($metasync_option['enable_metadesc']) && $metasync_option['enable_metadesc'] !== 'true') {
-			unset($list_page_meta['description']);
-			unset($list_page_meta['robots']);
-		}
+		// Note: enable_metadesc is always enabled by default - no check needed
 
 		$getSearchEngineOptions = Metasync::get_option('searchengines');
 		$keysSearchEngines = [
@@ -3373,17 +3941,88 @@ class Metasync_Public
 		$image = [];
 		$image_mime_type = '';
 
-		if ($post && get_the_post_thumbnail_url($post->ID)) {
-
+		// SAFE IMAGE HANDLING: Prevents timeout when images are deleted from filesystem
+		// Constructs URLs directly from metadata without triggering WordPress HTTP validation
+		if ($post) {
 			$image_id = get_post_thumbnail_id($post->ID);
-			$image = wp_get_attachment_image_src($image_id, '');
-			if (!empty($image)) {
-				$image_mime_type = wp_get_image_mime($image[0]);
+
+			if ($image_id) {
+				// Verify attachment exists in database
+				$attachment = get_post($image_id);
+
+				if ($attachment && $attachment->post_type === 'attachment') {
+					// Check if physical file exists before constructing URL
+					$file_path = get_attached_file($image_id);
+
+					if ($file_path && file_exists($file_path)) {
+						// Get metadata to construct URL directly
+						$metadata = wp_get_attachment_metadata($image_id);
+
+						if ($metadata && !empty($metadata['file'])) {
+							$upload_dir = wp_upload_dir();
+							$image_url = $upload_dir['baseurl'] . '/' . $metadata['file'];
+
+							// Get image dimensions from metadata (not from file)
+							$width = $metadata['width'] ?? 0;
+							$height = $metadata['height'] ?? 0;
+
+							// Determine MIME type from file extension (safe, no HTTP calls)
+							$file_ext = strtolower(pathinfo($metadata['file'], PATHINFO_EXTENSION));
+							$mime_types = [
+								'jpg' => 'image/jpeg',
+								'jpeg' => 'image/jpeg',
+								'png' => 'image/png',
+								'gif' => 'image/gif',
+								'webp' => 'image/webp',
+								'svg' => 'image/svg+xml'
+							];
+							$image_mime_type = $mime_types[$file_ext] ?? 'image/jpeg';
+
+							// Build image array in same format as wp_get_attachment_image_src
+							$image = [$image_url, $width, $height];
+						}
+					} else {
+						// File doesn't exist - clean up orphaned thumbnail reference
+						delete_post_meta($post->ID, '_thumbnail_id');
+					}
+				} else {
+					// Attachment doesn't exist - clean up orphaned reference
+					delete_post_meta($post->ID, '_thumbnail_id');
+				}
 			}
-		} else if ($site_info && isset($site_info['social_share_image'])) {
-			$image = wp_get_attachment_image_src($site_info['social_share_image'], '');
-			if (!empty($image)) {
-				$image_mime_type = wp_get_image_mime($image[0]);
+		}
+
+		// Fallback to site default image if post has no featured image
+		if (empty($image) && $site_info && isset($site_info['social_share_image'])) {
+			$fallback_id = $site_info['social_share_image'];
+			$attachment = get_post($fallback_id);
+
+			if ($attachment && $attachment->post_type === 'attachment') {
+				$file_path = get_attached_file($fallback_id);
+
+				if ($file_path && file_exists($file_path)) {
+					$metadata = wp_get_attachment_metadata($fallback_id);
+
+					if ($metadata && !empty($metadata['file'])) {
+						$upload_dir = wp_upload_dir();
+						$image_url = $upload_dir['baseurl'] . '/' . $metadata['file'];
+						$width = $metadata['width'] ?? 0;
+						$height = $metadata['height'] ?? 0;
+
+						$file_ext = strtolower(pathinfo($metadata['file'], PATHINFO_EXTENSION));
+						$mime_types = [
+							'jpg' => 'image/jpeg',
+							'jpeg' => 'image/jpeg',
+							'png' => 'image/png',
+							'gif' => 'image/gif',
+							'webp' => 'image/webp',
+							'svg' => 'image/svg+xml'
+						];
+						$image_mime_type = $mime_types[$file_ext] ?? 'image/jpeg';
+
+						$image = [$image_url, $width, $height];
+					}
+				}
 			}
 		}
 
@@ -3393,7 +4032,7 @@ class Metasync_Public
 			'og:type' => 'article',
 			'og:title' => $post->post_title . ' - ' . get_bloginfo('name'),
 			'og:description' => $post_text ?? '',
-			'og:url' => get_permalink($post->ID),
+			'og:url' => $this->get_canonical_url($post),
 			'og:site_name' => get_bloginfo('name'),
 			'og:updated_time' => $post->post_modified,
 			'og:image' => $image ? $image[0] : '',
@@ -3484,7 +4123,7 @@ class Metasync_Public
 			$menu_slug = $general_options['white_label_plugin_menu_slug'];
 		}
 
-		$links[] = '<a href="' . get_admin_url(null, 'admin.php?page=' .$menu_slug) . '">' . __('Settings') . '</a>';
+		$links[] = '<a href="' . get_admin_url(null, 'admin.php?page=' .$menu_slug) . '">' . esc_html__('Settings', 'metasync') . '</a>';
 		return $links;
 	}
 
@@ -3507,7 +4146,7 @@ class Metasync_Public
 		$schema = array(
 			'@context' => "http://schema.org",
 			'@type' => "Article",
-			'headline' => str_replace($this->escapers, $this->replacements, $post->post_title),
+			'headline' => str_replace($this->escapers, $this->replacements, $post->post_title ?? ''),
 			'image' => wp_get_attachment_image_url($thumbnail_id, 'full'),
 			'url' => get_permalink(),
 			'datePublished' => $post->post_modified,
@@ -3518,7 +4157,7 @@ class Metasync_Public
 			),
 			'publisher' => array(
 				'@type' => "Organization",
-				'name' => str_replace($this->escapers, $this->replacements, get_bloginfo('name')),
+				'name' => str_replace($this->escapers, $this->replacements, get_bloginfo('name') ?? ''),
 				'url' => get_site_url(),
 				'logo' => array(
 					'@type' => "ImageObject",
@@ -3540,15 +4179,22 @@ class Metasync_Public
 			return;
 		}
 
-		wp_remote_post(
+		# PERFORMANCE OPTIMIZATION: Add timeout and error handling
+		$response = wp_remote_post(
 			'https://graph.facebook.com/',
 			[
 				'body' => [
 					'id' => $facebook_app,
 					'access_token' => $facebook_secret,
 				],
+				'timeout' => 5,
 			]
 		);
+
+		# Error handling (fail silently, not critical)
+		if (is_wp_error($response)) {
+			error_log('MetaSync: Facebook Graph API failed: ' . $response->get_error_message());
+		}
 	}
 	// Callback function to retrieve pages tree
 	public function get_pages_list($data) {
@@ -3586,7 +4232,7 @@ class Metasync_Public
 	public function append_content_if_missing_elements($post_type) {
 
 		# Run the MetaSyncHiddenPostManager folder
-		apply_filters('metasync_hidden_post_manager', '');
+		# apply_filters('metasync_hidden_post_manager', '');
 		# Get Latest Metasync Option
 		$metasyncData = Metasync::get_option();
 
@@ -3643,5 +4289,572 @@ class Metasync_Public
 		}
 		return $title;
 	}
+
+	/**
+	 * Get the canonical URL for a post
+	 */
+	private function get_canonical_url($post) {
+		# Try to get the permalink using WordPress function
+		$permalink = get_permalink($post->ID);
+
+		# If permalink is not available or is the default query URL, try alternative methods
+		if (!$permalink || strpos($permalink, '?p=') !== false || strpos($permalink, '?page_id=') !== false) {
+			# Force WordPress to generate the proper permalink by temporarily setting post status
+			$original_status = $post->post_status;
+			if ($post->post_status === 'auto-draft') {
+				$post->post_status = 'publish';
+			}
+
+			# Try get_permalink again with the updated status
+			$permalink = get_permalink($post->ID);
+
+			# Restore original status
+			$post->post_status = $original_status;
+		}
+
+		# If still not working, use WordPress core functions to build proper permalink
+		if (!$permalink || strpos($permalink, '?p=') !== false || strpos($permalink, '?page_id=') !== false) {
+			# Use WordPress core function that respects permalink structure
+			# This properly handles custom structures, hierarchies, and post types
+			# Load admin function if not already available, Without this it is causing error on post the preview page
+			if (!function_exists('get_sample_permalink')) {
+				require_once ABSPATH . 'wp-admin/includes/post.php';
+			}
+			$permalink = get_sample_permalink($post->ID);
+
+			if (is_array($permalink)) {
+				# get_sample_permalink returns array with template and slug
+				# Replace %postname% or %pagename% with actual slug
+				$permalink = str_replace(
+					array('%pagename%', '%postname%'),
+					$post->post_name,
+					$permalink[0]
+				);
+			}
+
+			# Final fallback: if still problematic, construct URL respecting post type structure
+			if (!$permalink || strpos($permalink, '?p=') !== false || strpos($permalink, '?page_id=') !== false) {
+				if (!empty($post->post_name)) {
+					# For pages, check if there's a parent hierarchy
+					if ($post->post_type === 'page' && $post->post_parent) {
+						# Get parent page path for proper hierarchy
+						$parent = get_post($post->post_parent);
+						$parent_path = '';
+
+						# Build full path including all parent pages
+						while ($parent) {
+							$parent_path = $parent->post_name . '/' . $parent_path;
+							$parent = $parent->post_parent ? get_post($parent->post_parent) : null;
+						}
+
+						$permalink = home_url('/' . $parent_path . $post->post_name . '/');
+					} else {
+						# For posts and pages without parents, use post type archive base
+						$post_type_obj = get_post_type_object($post->post_type);
+						$slug = $post_type_obj->rewrite['slug'] ?? '';
+
+						if ($slug && $post->post_type !== 'page') {
+							$permalink = home_url('/' . $slug . '/' . $post->post_name . '/');
+						} else {
+							$permalink = home_url('/' . $post->post_name . '/');
+						}
+					}
+				} else {
+					# Fallback to post ID format if no slug available
+					$permalink = home_url('/?p=' . $post->ID);
+				}
+			}
+		}
+
+		return $permalink;
+	}
+
+	/**
+	 * Create key file endpoint for Bing Webmaster Tools. It's called by OTTO/UCMS.
+	 * Creates a .txt file in WordPress root with the provided key as filename and content
+	 * 
+	 * @param WP_REST_Request $request The REST request object
+	 * @return WP_REST_Response|WP_Error Response object
+	 */
+	public function create_key_file($request) {
+		# Get the JSON data from the request
+		$data = $request->get_json_params();
+		
+		# Try alternative parameter methods
+		$body_params = $request->get_body_params();
+		$key_param = $request->get_param('key');
+		$post_key = $_POST['key'] ?? null;
+		$request_key = $_REQUEST['key'] ?? null;
+		$get_key = $_GET['key'] ?? null;
+		
+		# Try to get key from multiple sources
+		$key_value = null;
+		
+		# Try JSON first
+		if (!empty($data['key'])) {
+			$key_value = $data['key'];
+		}
+		# Try body params (form data)
+		elseif (!empty($body_params['key'])) {
+			$key_value = $body_params['key'];
+		}
+		# Try direct parameter
+		elseif (!empty($key_param)) {
+			$key_value = $key_param;
+		}
+		# Try $_POST (for multipart/form-data)
+		elseif (!empty($post_key)) {
+			$key_value = $post_key;
+		}
+		# Try $_REQUEST (fallback)
+		elseif (!empty($request_key)) {
+			$key_value = $request_key;
+		}
+		# Try $_GET (query parameters)
+		elseif (!empty($get_key)) {
+			$key_value = $get_key;
+		}
+		
+		# Validate that key is provided
+		if (empty($key_value)) {
+			return rest_ensure_response(array(
+				'error' => 'Key parameter is required',
+				'code' => 'missing_key'
+			), 400);
+		}
+		
+		# Use the found key value
+		$data['key'] = $key_value;
+		
+		# Sanitize the key to ensure it's safe for filename
+		$key = sanitize_file_name($data['key']);
+		
+		# Validate key is not empty after sanitization
+		if (empty($key)) {
+			return rest_ensure_response(array(
+				'error' => 'Invalid key provided',
+				'code' => 'invalid_key'
+			), 400);
+		}
+		
+		# Get WordPress root directory
+		$wp_root = ABSPATH;
+		
+		# Construct the file path
+		$file_path = $wp_root . $key . '.txt';
+		
+		# Check if file already exists
+		if (file_exists($file_path)) {
+			return rest_ensure_response(array(
+				'error' => 'File already exists',
+				'code' => 'file_exists',
+				'file_path' => $file_path
+			), 409);
+		}
+		
+		# Attempt to create the file
+		$result = file_put_contents($file_path, $key);
+		
+		# Check if file creation was successful
+		if ($result === false) {
+			return rest_ensure_response(array(
+				'error' => 'Failed to create file',
+				'code' => 'file_creation_failed',
+				'file_path' => $file_path
+			), 500);
+		}
+		
+		# Return success response
+		return rest_ensure_response(array(
+			'success' => true,
+			'message' => 'Key file created successfully',
+			'file_path' => $file_path,
+			'key' => $key,
+			'file_size' => $result
+		), 200);
+	}
+
+	/**
+	 * Inject noindex meta tag for archive pages based on indexation control settings
+	 * 
+	 * @since 1.0.0
+	 */
+	/**
+	 * Set up indexation controls for archive pages
+	 * 
+	 * Called via template_redirect hook to set up early before any output.
+	 * This ensures we can capture and clean robots tags from other plugins.
+	 * 
+	 * Logic:
+	 * 1. If user wants to add noindex - always do it (override other plugins)
+	 * 2. If user wants to allow indexing - only remove other plugins' tags if override setting is enabled
+	 * 
+	 * @since 1.0.0
+	 */
+	public function inject_archive_seo_controls() {
+		// Check if we're on a managed archive type
+		if (!$this->is_managed_archive()) {
+			return;
+		}
+		
+		// Get settings
+		$seo_controls = Metasync::get_option('seo_controls', array());
+		$should_noindex = $this->should_noindex_archive();
+		$override_enabled = ($seo_controls['override_robots_tags'] ?? 'false') === 'true' || ($seo_controls['override_robots_tags'] ?? false) === true;
+		
+		// Run buffer if either:
+		// 1. User wants to add noindex (always override other plugins), OR
+		// 2. User wants to allow indexing AND override setting is enabled
+		if ($should_noindex || $override_enabled) {
+			// Override WordPress core robots tag
+			add_filter('wp_robots', array($this, 'override_wp_robots'), 999);
+			
+			// Start buffering to remove other plugins' robots tags
+			add_action('wp_head', array($this, 'start_robots_buffer'), 0);
+			add_action('wp_head', array($this, 'end_robots_buffer'), PHP_INT_MAX);
+		}
+		// Otherwise: User wants to allow indexing AND override is disabled - don't interfere
+	}
+	
+	/**
+	 * Check if current page is a managed archive type
+	 * 
+	 * Returns true if we're on any archive type that has indexation controls,
+	 * regardless of whether noindex is enabled or not.
+	 * 
+	 * @since 1.0.0
+	 * @return bool True if on a managed archive type, false otherwise
+	 */
+	private function is_managed_archive() {
+		return is_date() || is_tag() || is_author() || is_category() || is_tax('post_format');
+	}
+	
+	/**
+	 * Check if current archive is empty (has no posts)
+	 * 
+	 * Applies to category, tag, author, and post format archives.
+	 * Date archives are excluded as they're typically either indexed
+	 * or not entirely (less meaningful to check for empty state).
+	 * 
+	 * @since 1.0.0
+	 * @return bool True if archive is empty (0 posts)
+	 */
+	private function is_empty_archive() {
+		global $wp_query;
+		
+		// Check taxonomy and author archives (excluding date archives)
+		if (!is_category() && !is_tag() && !is_author() && !is_tax('post_format')) {
+			return false;
+		}
+		
+		// Check if the archive has no posts
+		return $wp_query->post_count === 0;
+	}
+	
+	/**
+	 * Check if current archive should be noindexed
+	 * 
+	 * @since 1.0.0
+	 * @return bool True if should add noindex, false otherwise
+	 */
+	private function should_noindex_archive() {
+		// Get indexation control settings
+		$seo_controls = Metasync::get_option('seo_controls', array());
+		
+		// Check empty archives setting first (applies to categories/tags only)
+		$noindex_empty_archives = $seo_controls['noindex_empty_archives'] ?? false;
+		if (($noindex_empty_archives === 'true' || $noindex_empty_archives === true) && $this->is_empty_archive()) {
+			return true;
+		}
+		
+		// Date Archives
+		if (is_date()) {
+			$index_date_archives = $seo_controls['index_date_archives'] ?? false;
+			// Handle both string and boolean values for compatibility
+			if ($index_date_archives === 'true' || $index_date_archives === true) {
+				return true;
+			}
+		}
+		
+		// Tag Archives
+		elseif (is_tag()) {
+			$index_tag_archives = $seo_controls['index_tag_archives'] ?? false;
+			// Handle both string and boolean values for compatibility
+			if ($index_tag_archives === 'true' || $index_tag_archives === true) {
+				return true;
+			}
+		}
+	
+		// Author Archives
+		elseif (is_author()) {
+			$index_author_archives = $seo_controls['index_author_archives'] ?? false;
+			// Handle both string and boolean values for compatibility
+			if ($index_author_archives === 'true' || $index_author_archives === true) {
+				return true;
+			}
+		}
+		
+		// Category Archives
+		elseif (is_category()) {
+			$index_category_archives = $seo_controls['index_category_archives'] ?? false;
+			// Handle both string and boolean values for compatibility
+			if ($index_category_archives === 'true' || $index_category_archives === true) {
+				return true;
+			}
+		}
+		
+		// Format Archives (post format taxonomy)
+		elseif (is_tax('post_format')) {
+			$index_format_archives = $seo_controls['index_format_archives'] ?? false;
+			if ($index_format_archives === 'true' || $index_format_archives === true) {
+				return true;
+			}
+		}
+		
+		return false;
+	}
+	
+	/**
+	 * Override WordPress core robots directives
+	 * 
+	 * Handles both cases:
+	 * 1. When noindex is enabled: Add noindex directive
+	 * 2. When indexing is allowed: Return empty array (removes WP core robots tag)
+	 * 
+	 * @since 1.0.0
+	 * @param array $robots Associative array of robots directives
+	 * @return array Modified robots directives
+	 */
+	public function override_wp_robots($robots) {
+		if ($this->should_noindex_archive()) {
+			// Case 1: Add noindex directive
+			return array(
+				'noindex' => true,
+				'follow' => true,
+				'max-image-preview' => 'large', // Maintain good image preview for social sharing
+			);
+		} else {
+			// Case 2: Allow indexing - return empty array to remove WP core robots tag
+			// Default behavior without robots tag is to index
+			return array();
+		}
+	}
+	
+	/**
+	 * Start output buffering to capture robots meta tags from other plugins
+	 * 
+	 * @since 1.0.0
+	 */
+	public function start_robots_buffer() {
+		ob_start();
+	}
+	
+	/**
+	 * End output buffering, remove existing robots tags, and optionally add ours
+	 * 
+	 * This handles BOTH cases:
+	 * 1. When noindex is enabled: Remove other tags and add noindex tag
+	 * 2. When indexing is allowed: Remove other plugins' noindex tags
+	 * 
+	 * This ensures our indexation settings always take precedence over other plugins.
+	 * 
+	 * @since 1.0.0
+	 */
+	public function end_robots_buffer() {
+		// Only proceed if we're on a managed archive
+		if (!$this->is_managed_archive()) {
+			ob_end_flush();
+			return;
+		}
+		
+		// Get buffered content
+		$content = ob_get_clean();
+		
+		// Remove all existing robots meta tags (handles various formats)
+		// This is done for BOTH noindex and index cases to ensure clean slate
+		
+		// Pattern 1: name="robots" content="..."
+		$content = preg_replace(
+			'/<meta\s+name=["\']robots["\']\s+content=["\'][^"\']*["\']\s*\/?>\s*/i',
+			'',
+			$content
+		);
+		
+		// Pattern 2: content="..." name="robots"
+		$content = preg_replace(
+			'/<meta\s+content=["\'][^"\']*["\']\s+name=["\']robots["\']\s*\/?>\s*/i',
+			'',
+			$content
+		);
+		
+		// Pattern 3: Single quotes or no quotes (rare but possible)
+		$content = preg_replace(
+			"/<meta\s+name='robots'\s+content='[^']*'\s*\/?>\s*/i",
+			'',
+			$content
+		);
+		
+		// Pattern 4: property="robots" (some plugins use property attribute)
+		$content = preg_replace(
+			'/<meta\s+property=["\']robots["\']\s+content=["\'][^"\']*["\']\s*\/?>\s*/i',
+			'',
+			$content
+		);
+		
+		// Pattern 5: Search engine specific directives (googlebot, bingbot, etc.)
+		$content = preg_replace(
+			'/<meta\s+name=["\'](?:googlebot|bingbot|googlebot-news|slurp)["\']\s+content=["\'][^"\']*["\']\s*\/?>\s*/i',
+			'',
+			$content
+		);
+		
+		// Output cleaned content
+		echo $content;
+		
+		// Add our robots tag or comment based on settings
+		if ($this->should_noindex_archive()) {
+			// Case 1: User wants to disallow indexing - add noindex tag
+			echo '<!-- MetaSync Indexation Control: Noindex Applied (Overriding other plugins) -->' . "\n";
+			echo '<meta name="robots" content="noindex, follow">' . "\n";
+		} else {
+			// Case 2: User wants to allow indexing AND override is enabled
+			// Just remove other plugins' tags, don't add our own
+			// Default behavior without robots tag is to allow indexing
+			echo '<!-- MetaSync Indexation Control: Index Allowed (Override enabled - Other noindex tags removed) -->' . "\n";
+		}
+	}
+
+	/**
+	 * Filter taxonomy sitemap entries to exclude disabled archive types
+	 * 
+	 * @since 1.0.0
+	 * @param array $taxonomies Array of taxonomy objects
+	 * @return array Modified array of taxonomy objects
+	 */
+	public function filter_sitemap_taxonomies($taxonomies) {
+		// Get indexation control settings
+		$seo_controls = Metasync::get_option('seo_controls', array());
+		
+		// Check if tag archives are disabled
+		$index_tag_archives = $seo_controls['index_tag_archives'] ?? false;
+		if ($index_tag_archives === 'true' || $index_tag_archives === true) {
+			// Remove post_tag taxonomy from sitemap
+			unset($taxonomies['post_tag']);
+		}
+		
+		// Check if category archives are disabled
+		$index_category_archives = $seo_controls['index_category_archives'] ?? false;
+		if ($index_category_archives === 'true' || $index_category_archives === true) {
+			// Remove category taxonomy from sitemap
+			unset($taxonomies['category']);
+		}
+		
+		// Check if format archives are disabled
+		$index_format_archives = $seo_controls['index_format_archives'] ?? false;
+		if ($index_format_archives === 'true' || $index_format_archives === true) {
+			// Remove post_format taxonomy from sitemap
+			unset($taxonomies['post_format']);
+		}
+		
+		return $taxonomies;
+	}
+
+	/**
+	 * Filter user sitemap entries to exclude disabled author archives
+	 * 
+	 * @since 1.0.0
+	 * @param array $entry Sitemap entry for user
+	 * @param WP_User $user User object
+	 * @return array|false Modified sitemap entry or false to exclude
+	 */
+	public function filter_sitemap_users($entry, $user) {
+		// Get indexation control settings
+		$seo_controls = Metasync::get_option('seo_controls', array());
+		
+		// Check if author archives are disabled
+		$index_author_archives = $seo_controls['index_author_archives'] ?? false;
+		if ($index_author_archives === 'true' || $index_author_archives === true) {
+			// Exclude this user from sitemap
+			return false;
+		}
+		
+		return $entry;
+	}
+
+	/**
+	 * Filter sitemap providers to exclude disabled archive types
+	 * 
+	 * @since 1.0.0
+	 * @param bool $provider Whether to add the provider
+	 * @param string $name Provider name
+	 * @return bool Whether to add the provider
+	 */
+	public function filter_sitemap_providers($provider, $name) {
+		// Get indexation control settings
+		$seo_controls = Metasync::get_option('seo_controls', array());
+		
+		// Check if users/authors sitemap provider should be disabled
+		if ($name === 'users') {
+			$index_author_archives = $seo_controls['index_author_archives'] ?? false;
+			if ($index_author_archives === 'true' || $index_author_archives === true) {
+				return false;  // Exclude users sitemap provider entirely
+			}
+		}
+		
+		return $provider;
+	}
+
+	/**
+	 * Filter sitemap index entries to exclude disabled archive types
+	 * 
+	 * @since 1.0.0
+	 * @param array $sitemap_entry Sitemap entry array
+	 * @param string $object_type Object type (posts, taxonomies, users)
+	 * @param string $subtype Subtype (post type or taxonomy name)
+	 * @param int $page Page number
+	 * @return array|false Modified sitemap entry or false to exclude
+	 */
+	public function filter_sitemap_index_entries($sitemap_entry, $object_type, $subtype, $page) {
+		// Get indexation control settings
+		$seo_controls = Metasync::get_option('seo_controls', array());
+		
+		// Handle taxonomy sitemaps
+		if ($object_type === 'taxonomies') {
+			// Check if tag archives are disabled
+			if ($subtype === 'post_tag') {
+				$index_tag_archives = $seo_controls['index_tag_archives'] ?? false;
+				if ($index_tag_archives === 'true' || $index_tag_archives === true) {
+					return false; // Exclude from sitemap index
+				}
+			}
+			
+			// Check if category archives are disabled
+			if ($subtype === 'category') {
+				$index_category_archives = $seo_controls['index_category_archives'] ?? false;
+				if ($index_category_archives === 'true' || $index_category_archives === true) {
+					return false; // Exclude from sitemap index
+				}
+			}
+			
+			// Check if format archives are disabled
+			if ($subtype === 'post_format') {
+				$index_format_archives = $seo_controls['index_format_archives'] ?? false;
+				if ($index_format_archives === 'true' || $index_format_archives === true) {
+					return false; // Exclude from sitemap index
+				}
+			}
+		}
+		
+		// Handle user/author sitemaps
+		if ($object_type === 'users') {
+			$index_author_archives = $seo_controls['index_author_archives'] ?? false;
+			if ($index_author_archives === 'true' || $index_author_archives === true) {
+				return false; // Exclude from sitemap index
+			}
+		}
+		
+		return $sitemap_entry;
+	}
+
 }
 

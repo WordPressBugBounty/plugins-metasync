@@ -1,4 +1,9 @@
 <?php
+// If this file is called directly, abort.
+if (!defined('ABSPATH')) {
+	exit;
+}
+
 /**
  * WordPress-Native Sentry Integration
  * 
@@ -134,9 +139,54 @@ class MetaSync_Sentry_WordPress {
     }
     
     /**
+     * Check if the current environment is localhost/development
+     */
+    private function isLocalhost() {
+        $host = parse_url(home_url(), PHP_URL_HOST);
+        
+        // Check for common localhost patterns
+        $localhost_patterns = [
+            'localhost',
+            '127.0.0.1',
+            '::1',
+            '0.0.0.0',
+            '.local',
+            '.test',
+            '.dev',
+            '.localhost'
+        ];
+        
+        foreach ($localhost_patterns as $pattern) {
+            if (strpos($host, $pattern) !== false) {
+                return true;
+            }
+        }
+        
+        // Check if host is an IP address in private ranges
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            $ip = ip2long($host);
+            if ($ip !== false) {
+                // Private IP ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+                if (($ip >= ip2long('10.0.0.0') && $ip <= ip2long('10.255.255.255')) ||
+                    ($ip >= ip2long('172.16.0.0') && $ip <= ip2long('172.31.255.255')) ||
+                    ($ip >= ip2long('192.168.0.0') && $ip <= ip2long('192.168.255.255'))) {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+
+    /**
      * Send data to Sentry API using WordPress HTTP functions (proxied through our system with JWT)
      */
     private function sendToSentry($data) {
+        // Skip sending to Sentry if running on localhost/development environment
+        if ($this->isLocalhost()) {
+            return false;
+        }
+        
         // Get JWT token for authentication
         if (!function_exists('metasync_get_jwt_token')) {
             return false;
@@ -286,27 +336,55 @@ class MetaSync_Sentry_WordPress {
     }
     
     /**
-     * Get tags for the event
+     * Get cached tags for the event (optimized)
      */
     private function getTags() {
-        return [
+        // Cache static tags
+        $cache_key = 'metasync_sentry_tags';
+        $cached_tags = wp_cache_get($cache_key, 'metasync');
+        
+        if ($cached_tags !== false) {
+            // Add dynamic tags that change per request
+            $cached_tags['server_name'] = $_SERVER['HTTP_HOST'] ?? 'unknown';
+            return $cached_tags;
+        }
+        
+        $tags = [
             'wp_version' => get_bloginfo('version'),
             'php_version' => PHP_VERSION,
             'plugin_version' => $this->release,
             'environment' => $this->environment,
-            'server_name' => $_SERVER['HTTP_HOST'] ?? 'unknown',
             'wp_url' => home_url(),
-            'plugin_name' => 'metasync'
+            'plugin_name' => 'metasync',
+            // Dynamic tag added per request
+            'server_name' => $_SERVER['HTTP_HOST'] ?? 'unknown'
         ];
+        
+        // Cache for 1 hour
+        wp_cache_set($cache_key, $tags, 'metasync', HOUR_IN_SECONDS);
+        
+        return $tags;
     }
     
     /**
-     * Get system context information
+     * Get cached system context for Sentry (optimized)
      */
     private function getSystemContext() {
-        global $wpdb;
+        // Use WordPress object cache to avoid repeated expensive operations
+        $cache_key = 'metasync_system_context';
+        $cached_context = wp_cache_get($cache_key, 'metasync');
         
-        return [
+        if ($cached_context !== false) {
+            // Add dynamic data that changes per request
+            $cached_context['memory_usage'] = memory_get_usage(true);
+            $cached_context['memory_peak'] = memory_get_peak_usage(true);
+            $cached_context['request_uri'] = $_SERVER['REQUEST_URI'] ?? 'unknown';
+            return $cached_context;
+        }
+        
+        // Collect static system context (expensive operations)
+        global $wpdb;
+        $context = [
             'wp_url' => home_url(),
             'plugin_version' => $this->release,
             'plugin_name' => 'Search Engine Labs SEO (MetaSync)',
@@ -314,8 +392,6 @@ class MetaSync_Sentry_WordPress {
             'site_title' => get_bloginfo('name'),
             'site_admin_email' => get_bloginfo('admin_email'),
             'php_version' => PHP_VERSION,
-            'memory_usage' => memory_get_usage(true),
-            'memory_peak' => memory_get_peak_usage(true),
             'memory_limit' => ini_get('memory_limit'),
             'max_execution_time' => ini_get('max_execution_time'),
             'active_plugins' => count(get_option('active_plugins', [])),
@@ -323,15 +399,31 @@ class MetaSync_Sentry_WordPress {
             'multisite' => is_multisite(),
             'mysql_version' => method_exists($wpdb, 'get_var') ? $wpdb->get_var('SELECT VERSION()') : 'unknown',
             'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'unknown',
+            // Dynamic data added per request
+            'memory_usage' => memory_get_usage(true),
+            'memory_peak' => memory_get_peak_usage(true),
             'request_uri' => $_SERVER['REQUEST_URI'] ?? 'unknown'
         ];
+        
+        // Cache static context for 1 hour
+        wp_cache_set($cache_key, $context, 'metasync', HOUR_IN_SECONDS);
+        
+        return $context;
     }
     
     /**
-     * Get contexts for Sentry
+     * Get cached contexts for Sentry (optimized)
      */
     private function getContexts() {
-        return [
+        // Cache static context data
+        $cache_key = 'metasync_sentry_contexts';
+        $cached_contexts = wp_cache_get($cache_key, 'metasync');
+        
+        if ($cached_contexts !== false) {
+            return $cached_contexts;
+        }
+        
+        $contexts = [
             'runtime' => [
                 'name' => 'php',
                 'version' => PHP_VERSION
@@ -344,16 +436,34 @@ class MetaSync_Sentry_WordPress {
                 'app_version' => $this->release
             ]
         ];
+        
+        // Cache for 1 hour
+        wp_cache_set($cache_key, $contexts, 'metasync', HOUR_IN_SECONDS);
+        
+        return $contexts;
     }
     
     /**
-     * Get user context (anonymized)
+     * Get cached user context (anonymized)
      */
     private function getUserContext() {
-        return [
+        // Cache user context since it's based on static site data
+        $cache_key = 'metasync_user_context';
+        $cached_context = wp_cache_get($cache_key, 'metasync');
+        
+        if ($cached_context !== false) {
+            return $cached_context;
+        }
+        
+        $context = [
             'id' => substr(md5(home_url() . get_bloginfo('name')), 0, 16),
             'ip_address' => '{{auto}}' // Let Sentry handle IP detection and anonymization
         ];
+        
+        // Cache for 1 hour
+        wp_cache_set($cache_key, $context, 'metasync', HOUR_IN_SECONDS);
+        
+        return $context;
     }
     
     /**
@@ -362,6 +472,11 @@ class MetaSync_Sentry_WordPress {
     private function detectEnvironment() {
         
         if (defined('WP_DEBUG') && WP_DEBUG) {
+            return 'development';
+        }
+        
+        // Check if running on localhost/development environment
+        if ($this->isLocalhost()) {
             return 'development';
         }
         

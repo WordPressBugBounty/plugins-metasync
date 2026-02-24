@@ -1,4 +1,9 @@
 <?php
+// If this file is called directly, abort.
+if (!defined('ABSPATH')) {
+	exit;
+}
+
 /**
  * Main Telemetry Manager Class
  * 
@@ -7,13 +12,7 @@
 class Metasync_Telemetry_Manager {
 
     /**
-     * Telemetry sender instance
-     * @var Metasync_Telemetry_Sender
-     */
-    private $telemetry_sender;
-
-    /**
-     * Telemetry collector instance
+     * Telemetry collector instance (Sentry format)
      * @var Metasync_Sentry_Telemetry
      */
     private $telemetry_collector;
@@ -55,6 +54,18 @@ class Metasync_Telemetry_Manager {
     private $max_tracked_errors = 100;
 
     /**
+     * Cached memory limit to avoid repeated parsing
+     * @var int|null
+     */
+    private static $cached_memory_limit = null;
+
+    /**
+     * Memory check counter for reduced frequency
+     * @var int
+     */
+    private static $memory_check_counter = 0;
+
+    /**
      * Singleton instance
      * @var Metasync_Telemetry_Manager
      */
@@ -78,7 +89,7 @@ class Metasync_Telemetry_Manager {
     private function __construct() {
         $this->plugin_start_time = microtime(true);
         $this->init_telemetry();
-        $this->setup_hooks();
+        #$this->setup_hooks();
     }
 
     /**
@@ -94,12 +105,11 @@ class Metasync_Telemetry_Manager {
 
         try {
             $this->telemetry_collector = new Metasync_Sentry_Telemetry();
-            $this->telemetry_sender = new Metasync_Telemetry_Sender();
-            
+
             // Initialize WordPress-native Sentry integration
             global $metasync_sentry_wordpress;
             $this->sentry_integration = $metasync_sentry_wordpress;
-            
+
         } catch (Exception $e) {
             // Fallback if telemetry initialization fails
             // error_log('MetaSync: Telemetry initialization failed: ' . $e->getMessage());
@@ -128,20 +138,15 @@ class Metasync_Telemetry_Manager {
         add_action('wp_footer', array($this, 'end_page_timer'));
 
         // Database query monitoring (if SAVEQUERIES is enabled)
-        if (defined('SAVEQUERIES') && SAVEQUERIES) {
+        if (defined('SAVEQUERIES') && constant('SAVEQUERIES')) {
             add_action('shutdown', array($this, 'analyze_db_queries'));
         }
 
-        // Admin hooks for plugin management telemetry
-        add_action('activated_plugin', array($this, 'on_plugin_activated'), 10, 2);
-        add_action('deactivated_plugin', array($this, 'on_plugin_deactivated'), 10, 2);
-
-        // Telemetry queue processing
-        add_action('metasync_telemetry_queue_flush', array($this, 'flush_telemetry_queue'));
+        // Removed: Plugin activation/deactivation hooks - already handled by wordpress-error-handler.php
+        // Removed: Queue processing - now using Sentry directly
 
         // Hook into existing log manager for integration
         add_action('metasync_log_preparation', array($this, 'on_log_preparation'));
-        add_action('metasync_log_upload', array($this, 'on_log_upload'));
     }
 
     /**
@@ -151,7 +156,7 @@ class Metasync_Telemetry_Manager {
      */
     private function is_telemetry_enabled() {
         // Allow users to opt out via wp-config.php
-        if (defined('METASYNC_DISABLE_TELEMETRY') && METASYNC_DISABLE_TELEMETRY) {
+        if (defined('METASYNC_DISABLE_TELEMETRY') && constant('METASYNC_DISABLE_TELEMETRY')) {
             return false;
         }
 
@@ -162,7 +167,7 @@ class Metasync_Telemetry_Manager {
         }
 
         // Check if we're in development/testing environment
-        if (defined('WP_DEBUG') && WP_DEBUG && defined('WP_LOCAL_DEV') && WP_LOCAL_DEV) {
+        if (defined('WP_DEBUG') && WP_DEBUG && defined('WP_LOCAL_DEV') && constant('WP_LOCAL_DEV')) {
             return false;
         }
 
@@ -295,45 +300,10 @@ class Metasync_Telemetry_Manager {
     }
 
     /**
-     * Handle plugin activation
-     * 
-     * @param string $plugin Plugin file
-     * @param bool $network_wide Network activation
+     * REMOVED: Plugin activation/deactivation tracking
+     * These are now handled automatically by MetaSync_WordPress_Error_Handler
+     * in wordpress-error-handler.php (lines 98-99, 198-224)
      */
-    public function on_plugin_activated($plugin, $network_wide) {
-        if (!$this->telemetry_enabled) return;
-
-        // Only track our own plugin activation
-        if (strpos($plugin, 'metasync') === false) {
-            return;
-        }
-
-        $this->send_activation(array(
-            'plugin_file' => $plugin,
-            'network_wide' => $network_wide,
-            'wp_version' => get_bloginfo('version'),
-            'php_version' => PHP_VERSION
-        ));
-    }
-
-    /**
-     * Handle plugin deactivation
-     * 
-     * @param string $plugin Plugin file
-     */
-    public function on_plugin_deactivated($plugin) {
-        if (!$this->telemetry_enabled) return;
-
-        // Only track our own plugin deactivation
-        if (strpos($plugin, 'metasync') === false) {
-            return;
-        }
-
-        $this->send_deactivation(array(
-            'plugin_file' => $plugin,
-            'reason' => 'user_deactivated'
-        ));
-    }
 
     /**
      * Handle log preparation event
@@ -346,83 +316,66 @@ class Metasync_Telemetry_Manager {
         ));
     }
 
-    /**
-     * Handle log upload event
-     */
-    public function on_log_upload() {
-        if (!$this->telemetry_enabled) return;
-
-        $this->send_message('Log upload initiated', 'debug', array(
-            'event_type' => 'log_upload'
-        ));
-    }
 
     /**
-     * Flush telemetry queue
+     * Flush telemetry queue - REMOVED (now using Sentry directly)
      */
     public function flush_telemetry_queue() {
-        if (!$this->telemetry_enabled || !$this->telemetry_sender) return;
-
-        $results = $this->telemetry_sender->flush_queue();
-        
+        // No longer needed - Sentry handles sending directly
     }
 
     /**
-     * Send exception telemetry
-     * 
+     * Send exception telemetry to Sentry
+     *
      * @param Exception|Error|string $exception Exception to send
      * @param array $context Additional context
-     * @param bool $use_queue Whether to use queue
+     * @param bool $use_queue Deprecated - kept for backward compatibility
      */
     public function send_exception($exception, $context = array(), $use_queue = true, $background = true) {
-        if (!$this->telemetry_enabled || !$this->telemetry_sender) return;
+        if (!$this->telemetry_enabled) return;
 
         // Generate error fingerprint for deduplication
         $error_fingerprint = $this->generate_error_fingerprint('exception', $exception, $context);
-        
+
         // Check if this error has already been sent
         if ($this->is_error_already_sent($error_fingerprint)) {
             return; // Skip sending duplicate error
         }
 
         // Check memory usage before sending telemetry
-        $memory_usage = memory_get_usage(true);
-        $memory_limit = $this->parse_memory_limit(ini_get('memory_limit'));
-        
-        // If memory usage is over 50% of limit, skip telemetry entirely
-        if ($memory_usage > ($memory_limit * 0.5)) {
+        if (!$this->is_memory_usage_safe(0.5)) {
             // error_log('MetaSync Telemetry: EMERGENCY - Disabling due to high memory usage');
             $this->telemetry_enabled = false; // Disable for this request
             return;
         }
 
-        // Send to custom backend in background and check if successful
-        $success = $this->telemetry_sender->send_exception($exception, $context, $use_queue, $background);
-        
-        // Only mark as sent if the telemetry call was successful
-        if ($success) {
-            $this->mark_error_as_sent($error_fingerprint);
+        // Send directly to Sentry
+        if ($this->sentry_integration) {
+            $success = $this->sentry_integration->captureException($exception, $context);
+
+            // Only mark as sent if the telemetry call was successful
+            if ($success) {
+                $this->mark_error_as_sent($error_fingerprint);
+            }
         }
-        
-        // Skip Sentry to save memory and improve performance
     }
 
     /**
-     * Send message telemetry
-     * 
+     * Send message telemetry to Sentry
+     *
      * @param string $message Message to send
      * @param string $level Log level
      * @param array $context Additional context
-     * @param bool $use_queue Whether to use queue
+     * @param bool $use_queue Deprecated - kept for backward compatibility
      */
     public function send_message($message, $level = 'info', $context = array(), $use_queue = true) {
-        if (!$this->telemetry_enabled || !$this->telemetry_sender) return;
+        if (!$this->telemetry_enabled) return;
 
         // Generate error fingerprint for deduplication (only for error level messages)
         $error_fingerprint = null;
         if (in_array($level, ['error', 'fatal', 'critical'])) {
             $error_fingerprint = $this->generate_error_fingerprint('message', $message, $context);
-            
+
             // Check if this error has already been sent
             if ($this->is_error_already_sent($error_fingerprint)) {
                 return; // Skip sending duplicate error
@@ -430,95 +383,100 @@ class Metasync_Telemetry_Manager {
         }
 
         // EMERGENCY MEMORY CHECK - Skip if memory usage is high
-        $memory_usage = memory_get_usage(true);
-        $memory_limit = $this->parse_memory_limit(ini_get('memory_limit'));
-        
-        // If memory usage is over 50% of limit, skip telemetry entirely
-        if ($memory_usage > ($memory_limit * 0.5)) {
+        if (!$this->is_memory_usage_safe(0.5)) {
             // error_log('MetaSync Telemetry: EMERGENCY - Disabling due to high memory usage');
             $this->telemetry_enabled = false; // Disable for this request
             return;
         }
 
-        // Use background processing to prevent blocking the main thread
-        $use_queue = true;
-        $background = true;
+        // Send directly to Sentry
+        if ($this->sentry_integration) {
+            $success = $this->sentry_integration->captureMessage($message, $level, $context);
 
-        // Send to custom backend in background and check if successful
-        $success = $this->telemetry_sender->send_message($message, $level, $context, $use_queue, $background);
-        
-        // Only mark as sent if the telemetry call was successful and it's an error-level message
-        if ($success && $error_fingerprint) {
-            $this->mark_error_as_sent($error_fingerprint);
+            // Only mark as sent if the telemetry call was successful and it's an error-level message
+            if ($success && $error_fingerprint) {
+                $this->mark_error_as_sent($error_fingerprint);
+            }
         }
-        
-        // Skip Sentry to save memory
     }
 
     /**
-     * Send activation telemetry
-     * 
+     * Send activation telemetry to Sentry
+     *
      * @param array $context Additional context
      */
     public function send_activation($context = array()) {
-        if (!$this->telemetry_enabled || !$this->telemetry_sender) return;
+        if (!$this->telemetry_enabled) return;
 
-        $this->telemetry_sender->send_activation($context);
+        if ($this->sentry_integration && $this->telemetry_collector) {
+            $telemetry_data = $this->telemetry_collector->capture_activation($context);
+            $this->sentry_integration->captureMessage('Plugin activated', 'info', $context);
+        }
     }
 
     /**
-     * Send deactivation telemetry
-     * 
+     * Send deactivation telemetry to Sentry
+     *
      * @param array $context Additional context
      */
     public function send_deactivation($context = array()) {
-        if (!$this->telemetry_enabled || !$this->telemetry_sender) return;
+        if (!$this->telemetry_enabled) return;
 
-        $this->telemetry_sender->send_deactivation($context);
+        if ($this->sentry_integration && $this->telemetry_collector) {
+            $telemetry_data = $this->telemetry_collector->capture_deactivation($context);
+            $this->sentry_integration->captureMessage('Plugin deactivated', 'info', $context);
+        }
     }
 
     /**
-     * Send performance telemetry
-     * 
+     * Send performance telemetry to Sentry
+     *
      * @param string $operation Operation name
      * @param float $duration Duration in seconds
      * @param array $context Additional context
-     * @param bool $use_queue Whether to use queue
+     * @param bool $use_queue Deprecated - kept for backward compatibility
      */
     public function send_performance($operation, $duration, $context = array(), $use_queue = true) {
-        if (!$this->telemetry_enabled || !$this->telemetry_sender) return;
+        if (!$this->telemetry_enabled) return;
 
-        $this->telemetry_sender->send_performance($operation, $duration, $context, $use_queue);
+        if ($this->sentry_integration && $this->telemetry_collector) {
+            $telemetry_data = $this->telemetry_collector->capture_performance($operation, $duration, $context);
+            $this->sentry_integration->captureMessage("Performance: {$operation}", 'info', array_merge($context, array(
+                'duration' => $duration,
+                'operation' => $operation
+            )));
+        }
     }
 
     /**
-     * Test telemetry connection
-     * 
+     * Test telemetry connection (Sentry)
+     *
      * @return array Test results
      */
     public function test_telemetry_connection() {
-        if (!$this->telemetry_enabled || !$this->telemetry_sender) {
+        if (!$this->telemetry_enabled) {
             return array('success' => false, 'error' => 'Telemetry not enabled or not initialized');
         }
 
-        return $this->telemetry_sender->test_connection();
+        return $this->test_sentry_connection();
     }
 
     /**
      * Get telemetry statistics
-     * 
+     *
      * @return array Telemetry stats
      */
     public function get_telemetry_stats() {
-        if (!$this->telemetry_enabled || !$this->telemetry_sender) {
+        if (!$this->telemetry_enabled) {
             return array('enabled' => false);
         }
 
-        $stats = $this->telemetry_sender->get_queue_stats();
+        $stats = array();
         $stats['enabled'] = true;
         $stats['php_version'] = PHP_VERSION;
         $stats['plugin_version'] = defined('METASYNC_VERSION') ? METASYNC_VERSION : '1.0.0';
         $stats['sentry_enabled'] = function_exists('metasync_sentry_capture_exception');
+        $stats['backend'] = 'sentry';
 
         return $stats;
     }
@@ -544,6 +502,45 @@ class Metasync_Telemetry_Manager {
         }
 
         return array('success' => false, 'error' => 'Sentry WordPress integration not available');
+    }
+
+    /**
+     * Get cached memory limit to avoid repeated parsing
+     * 
+     * @return int Memory limit in bytes
+     */
+    private function get_cached_memory_limit() {
+        if (self::$cached_memory_limit === null) {
+            self::$cached_memory_limit = $this->parse_memory_limit(ini_get('memory_limit'));
+        }
+        return self::$cached_memory_limit;
+    }
+
+    /**
+     * Check if memory check should be performed (reduced frequency)
+     * 
+     * @return bool True if memory should be checked
+     */
+    private function should_check_memory() {
+        return (++self::$memory_check_counter % 10) === 0;
+    }
+
+    /**
+     * Optimized memory usage check with caching
+     * 
+     * @param float $threshold Memory threshold (0.0 to 1.0)
+     * @return bool True if memory usage is below threshold
+     */
+    private function is_memory_usage_safe($threshold = 0.5) {
+        // Only check memory every 10th call to reduce overhead
+        if (!$this->should_check_memory()) {
+            return true; // Assume safe if not checking
+        }
+
+        $memory_usage = memory_get_usage(true);
+        $memory_limit = $this->get_cached_memory_limit();
+        
+        return $memory_usage <= ($memory_limit * $threshold);
     }
 
     /**

@@ -1,4 +1,9 @@
 <?php
+// If this file is called directly, abort.
+if (!defined('ABSPATH')) {
+	exit;
+}
+
 
 /**
  * Instant Indexing API of Google Console page contents.
@@ -11,14 +16,14 @@
 		<div class="dashboard-card">
 			<h2>⚠️ Configuration Required</h2>
 			<p class="description" style="color: var(--dashboard-text-secondary); font-size: 16px; line-height: 1.6;">
-				<?php
-				echo wp_kses_post(
-					sprintf(
-						'Please goto the %s page to configure the Google Instant Indexing.',
-						'<a href="' . esc_url(admin_url('admin.php?page=metasync-settings-instant-index')) . '" style="color: var(--dashboard-accent);">Google Instant Indexing Settings</a>'
-					)
-				);
-				?>
+			<?php
+			echo wp_kses_post(
+				sprintf(
+					'Please goto the %s page to configure the Google Instant Indexing.',
+					'<a href="' . esc_url(admin_url('admin.php?page=metasync-settings-seo-controls')) . '" style="color: var(--dashboard-accent);">Indexation Control</a>'
+				)
+			);
+			?>
 			</p>
 		</div>
 	<?php return;

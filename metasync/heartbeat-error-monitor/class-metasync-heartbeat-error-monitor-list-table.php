@@ -1,4 +1,9 @@
 <?php
+// If this file is called directly, abort.
+if (!defined('ABSPATH')) {
+	exit;
+}
+
 
 class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 {
@@ -35,11 +40,11 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 	{
 		$columns = array(
 			'cb'       			=> '<input type="checkbox" />', // Render a checkbox instead of text.
-			'id'    			=> _x('ID', 'Column label', 'metasync_heartbeat_error_logs'),
-			'attribute_name'    => _x('Attribute Name', 'Column label', 'metasync_heartbeat_error_logs'),
-			'object_count'    	=> _x('Records', 'Column label', 'metasync_heartbeat_error_logs'),
-			'error_description'	=> _x('Description', 'Column label', 'metasync_heartbeat_error_logs'),
-			'created_at'		=> _x('Created At', 'Column label', 'metasync_heartbeat_error_logs'),
+			'id'    			=> _x('ID', 'Column label', 'metasync'),
+			'attribute_name'    => _x('Attribute Name', 'Column label', 'metasync'),
+			'object_count'    	=> _x('Records', 'Column label', 'metasync'),
+			'error_description'	=> _x('Description', 'Column label', 'metasync'),
+			'created_at'		=> _x('Created At', 'Column label', 'metasync'),
 		);
 
 		return $columns;
@@ -106,13 +111,13 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 		// $actions['redirect'] = sprintf(
 		// 	'<a href="%1$s">%2$s</a>',
 		// 	esc_url(wp_nonce_url(add_query_arg($redirect_query_args, 'admin.php'), 'redirectid_' . $item['id'])),
-		// 	_x('Redirect', 'List table row action', 'metasync_heartbeat_error_logs')
+		// 	_x('Redirect', 'List table row action', 'metasync')
 		// );
 
 		$actions['delete'] = sprintf(
 			'<a href="%1$s">%2$s</a>',
 			esc_url(wp_nonce_url(add_query_arg($delete_query_args, 'admin.php'), 'deleteid_' . $item['id'])),
-			_x('Delete', 'List table row action', 'metasync_heartbeat_error_logs')
+			_x('Delete', 'List table row action', 'metasync')
 		);
 
 		// Return the title contents.
@@ -127,8 +132,8 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 	protected function get_bulk_actions()
 	{
 		$actions = array(
-			'delete_bulk' => _x('Delete', 'List table bulk action', 'metasync_heartbeat_error_logs'),
-			'empty' => _x('Empty Table', 'List table bulk action', 'metasync_heartbeat_error_logs'),
+			'delete_bulk' => _x('Delete', 'List table bulk action', 'metasync'),
+			'empty' => _x('Empty Table', 'List table bulk action', 'metasync'),
 		);
 
 		return $actions;

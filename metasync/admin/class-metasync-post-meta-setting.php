@@ -24,32 +24,53 @@ class Metasync_Post_Meta_Settings
 	{
 		$this->common = new Metasync_Common();
 
-		add_action('admin_init', [$this, 'add_post_mata_data'], 2);
+		add_action('admin_init', [$this, 'add_post_meta_data'], 2);
 		add_action('save_post', [$this, 'common_robots_meta_box_save']);
 		add_action('save_post', [$this, 'advance_robots_meta_box_save']);
 		add_action('save_post', [$this, 'redirection_meta_box_save']);
 		add_action('save_post', [$this, 'canonical_meta_box_save']);
 	}
 
-	public function add_post_mata_data()
+	public function add_post_meta_data()
 	{
-		add_meta_box('common-robots-mata', 'Common Robots Mata', [$this, 'common_robots_meta_box_display'], ['page', 'post'], 'normal', 'default');
-		add_meta_box('advance-robots-mata', 'Advance Robots Mata', [$this, 'advance_robots_meta_box_display'], ['page', 'post'], 'normal', 'default');
-		add_meta_box('post-redirection-mata', 'Redirection', [$this, 'post_redirection_display'], ['page', 'post'], 'normal', 'default');
-		add_meta_box('post-canonical-mata', 'Canonical', [$this, 'post_canonical_display'], ['page', 'post'], 'normal', 'default');
+		// Don't show meta boxes if user's role doesn't have plugin access
+		if (!Metasync::current_user_has_plugin_access()) {
+			return;
+		}
+
+		$plugin_name = Metasync::get_effective_plugin_name();
+		$general_settings = Metasync::get_option('general', []);
+
+		// Only add meta boxes if not disabled in settings
+		if (empty($general_settings['disable_common_robots_metabox'])) {
+			add_meta_box('common-robots-meta', "Common Robots Meta by $plugin_name", [$this, 'common_robots_meta_box_display'], ['page', 'post'], 'normal', 'default');
+		}
+
+		if (empty($general_settings['disable_advance_robots_metabox'])) {
+			add_meta_box('advance-robots-meta', "Advance Robots Meta by $plugin_name", [$this, 'advance_robots_meta_box_display'], ['page', 'post'], 'normal', 'default');
+		}
+
+		if (empty($general_settings['disable_redirection_metabox'])) {
+			add_meta_box('post-redirection-meta', "Redirection by $plugin_name", [$this, 'post_redirection_display'], ['page', 'post'], 'normal', 'default');
+		}
+
+		if (empty($general_settings['disable_canonical_metabox'])) {
+			add_meta_box('post-canonical-meta', "Canonical by $plugin_name", [$this, 'post_canonical_display'], ['page', 'post'], 'normal', 'default');
+		}
 	}
 
 	public function common_robots_meta_box_display()
 	{
 		global $post;
 		$post_meta_robots = get_post_meta($post->ID, 'metasync_common_robots', true);
-		$common_meta_robots = Metasync::get_option('common_robots_mata') ?? '';
+		// Check new spelling first, fall back to old for backward compatibility
+		$common_meta_robots = Metasync::get_option('common_robots_meta') ?? Metasync::get_option('common_robots_mata') ?? '';
 		$common_robots = $post_meta_robots ? $post_meta_robots : $common_meta_robots;
 		wp_nonce_field('metasync_common_robots_nonce', 'metasync_common_robots_nonce');
 ?>
 		<ul class="checkbox-list">
 			<li>
-				<input type="checkbox" name="common_robots_mata[index]" id="robots_common1" value="index" <?php isset($common_robots['index']) ? checked('index', $common_robots['index']) : '' ?>>
+				<input type="checkbox" name="common_robots_meta[index]" id="robots_common1" value="index" <?php isset($common_robots['index']) ? checked('index', $common_robots['index']) : '' ?>>
 				<label for="robots_common1">Index </br>
 					<span class="description">
 						<span>Search engines to index and show these pages in the search results.</span>
@@ -57,7 +78,7 @@ class Metasync_Post_Meta_Settings
 				</label>
 			</li>
 			<li>
-				<input type="checkbox" name="common_robots_mata[noindex]" id="robots_common2" value="noindex" <?php isset($common_robots['noindex']) ? checked('noindex', $common_robots['noindex']) : '' ?>>
+				<input type="checkbox" name="common_robots_meta[noindex]" id="robots_common2" value="noindex" <?php isset($common_robots['noindex']) ? checked('noindex', $common_robots['noindex']) : '' ?>>
 				<label for="robots_common2">No Index </br>
 					<span class="description">
 						<span>Search engines not indexed and displayed this pages in search engine results</span>
@@ -65,7 +86,7 @@ class Metasync_Post_Meta_Settings
 				</label>
 			</li>
 			<li>
-				<input type="checkbox" name="common_robots_mata[nofollow]" id="robots_common3" value="nofollow" <?php isset($common_robots['nofollow']) ? checked('nofollow', $common_robots['nofollow']) : '' ?>>
+				<input type="checkbox" name="common_robots_meta[nofollow]" id="robots_common3" value="nofollow" <?php isset($common_robots['nofollow']) ? checked('nofollow', $common_robots['nofollow']) : '' ?>>
 				<label for="robots_common3">No Follow </br>
 					<span class="description">
 						<span>Search engines not follow the links on the pages</span>
@@ -73,7 +94,7 @@ class Metasync_Post_Meta_Settings
 				</label>
 			</li>
 			<li>
-				<input type="checkbox" name="common_robots_mata[noarchive]" id="robots_common4" value="noarchive" <?php isset($common_robots['noarchive']) ? checked('noarchive', $common_robots['noarchive']) : '' ?>>
+				<input type="checkbox" name="common_robots_meta[noarchive]" id="robots_common4" value="noarchive" <?php isset($common_robots['noarchive']) ? checked('noarchive', $common_robots['noarchive']) : '' ?>>
 				<label for="robots_common4">No Archive </br>
 					<span class="description">
 						<span>Search engines not showing Cached links for pages</span>
@@ -81,7 +102,7 @@ class Metasync_Post_Meta_Settings
 				</label>
 			</li>
 			<li>
-				<input type="checkbox" name="common_robots_mata[noimageindex]" id="robots_common5" value="noimageindex" <?php isset($common_robots['noimageindex']) ? checked('noimageindex', $common_robots['noimageindex']) : '' ?>>
+				<input type="checkbox" name="common_robots_meta[noimageindex]" id="robots_common5" value="noimageindex" <?php isset($common_robots['noimageindex']) ? checked('noimageindex', $common_robots['noimageindex']) : '' ?>>
 				<label for="robots_common5">No Image Index </br>
 					<span class="description">
 						<span>If you do not want to apear your pages as the referring page for images that appear in image search results</span>
@@ -89,7 +110,7 @@ class Metasync_Post_Meta_Settings
 				</label>
 			</li>
 			<li>
-				<input type="checkbox" name="common_robots_mata[nosnippet]" id="robots_common6" value="nosnippet" <?php isset($common_robots['nosnippet']) ? checked('nosnippet', $common_robots['nosnippet']) : '' ?>>
+				<input type="checkbox" name="common_robots_meta[nosnippet]" id="robots_common6" value="nosnippet" <?php isset($common_robots['nosnippet']) ? checked('nosnippet', $common_robots['nosnippet']) : '' ?>>
 				<label for="robots_common6">No Snippet </br>
 					<span class="description">
 						<span>Search engines not snippet to show in the search results</span>
@@ -105,7 +126,8 @@ class Metasync_Post_Meta_Settings
 	{
 		global $post;
 		$post_meta_robots = get_post_meta($post->ID, 'metasync_advance_robots', true);
-		$common_meta_robots = Metasync::get_option('advance_robots_mata') ?? '';
+		// Check new spelling first, fall back to old for backward compatibility
+		$common_meta_robots = Metasync::get_option('advance_robots_meta') ?? Metasync::get_option('advance_robots_mata') ?? '';
 		$advance_robots = $post_meta_robots ? $post_meta_robots : $common_meta_robots;
 		$snippet_advance_robots_enable = $advance_robots['max-snippet']['enable'] ?? '';
 		$snippet_advance_robots_length = $advance_robots['max-snippet']['length'] ?? '';
@@ -118,9 +140,9 @@ class Metasync_Post_Meta_Settings
 		<ul class="checkbox-list">
 			<li>
 				<label for="advanced_robots_snippet">
-					<input type="checkbox" name="advanced_robots_mata[max-snippet][enable]" id="advanced_robots_snippet" value="1" <?php checked('1', esc_attr($snippet_advance_robots_enable)) ?>>
+					<input type="checkbox" name="advanced_robots_meta[max-snippet][enable]" id="advanced_robots_snippet" value="1" <?php checked('1', esc_attr($snippet_advance_robots_enable)) ?>>
 					Snippet </br>
-					<input type="number" class="input-length" name="advanced_robots_mata[max-snippet][length]" id="advanced_robots_snippet_value" value="<?php echo esc_attr($snippet_advance_robots_length); ?>" min="-1"> </br>
+					<input type="number" class="input-length" name="advanced_robots_meta[max-snippet][length]" id="advanced_robots_snippet_value" value="<?php echo esc_attr($snippet_advance_robots_length); ?>" min="-1"> </br>
 					<span class="description">
 						<span>Add maximum text-length, in characters, of a snippet for your page.</span>
 					</span>
@@ -128,9 +150,9 @@ class Metasync_Post_Meta_Settings
 			</li>
 			<li>
 				<label for="advanced_robots_video">
-					<input type="checkbox" name="advanced_robots_mata[max-video-preview][enable]" id="advanced_robots_video" value="1" <?php checked('1', esc_attr($video_advance_robots_enable)) ?>>
+					<input type="checkbox" name="advanced_robots_meta[max-video-preview][enable]" id="advanced_robots_video" value="1" <?php checked('1', esc_attr($video_advance_robots_enable)) ?>>
 					Video Preview </br>
-					<input type="number" class="input-length" name="advanced_robots_mata[max-video-preview][length]" id="advanced_robots_video_value" value="<?php echo esc_attr($video_advance_robots_length); ?>" min="-1"> </br>
+					<input type="number" class="input-length" name="advanced_robots_meta[max-video-preview][length]" id="advanced_robots_video_value" value="<?php echo esc_attr($video_advance_robots_length); ?>" min="-1"> </br>
 					<span class="description">
 						<span>Add maximum duration in seconds of an animated video preview.</span>
 					</span>
@@ -138,9 +160,9 @@ class Metasync_Post_Meta_Settings
 			</li>
 			<li>
 				<label for="advanced_robots_image">
-					<input type="checkbox" name="advanced_robots_mata[max-image-preview][enable]" id="advanced_robots_image" value="1" <?php checked('1', esc_attr($image_advance_robots_enable)) ?>>
+					<input type="checkbox" name="advanced_robots_meta[max-image-preview][enable]" id="advanced_robots_image" value="1" <?php checked('1', esc_attr($image_advance_robots_enable)) ?>>
 					Image Preview </br>
-					<select class="input-length" name="advanced_robots_mata[max-image-preview][length]' ?>" id="advanced_robots_image_value">
+					<select class="input-length" name="advanced_robots_meta[max-image-preview][length]' ?>" id="advanced_robots_image_value">
 						<option value="large" <?php selected(esc_attr($image_advance_robots_length), 'large'); ?>>Large</option>
 						<option value="standard" <?php selected(esc_attr($image_advance_robots_length), 'standard'); ?>>Standard</option>
 						<option value="none" <?php selected(esc_attr($image_advance_robots_length), 'none'); ?>>None</option>
@@ -166,11 +188,11 @@ class Metasync_Post_Meta_Settings
 	?>
 		<ul class="checkbox-list">
 			<li>
-				<input type="checkbox" name="post_redirect_mata[enable]" id="post_redirection" value="true" <?php checked('true', esc_attr($enable)); ?>>
+				<input type="checkbox" name="post_redirect_meta[enable]" id="post_redirection" value="true" <?php checked('true', esc_attr($enable)); ?>>
 				<label for="post_redirection">Redirection</label>
 			</li>
 			<li class="hide"> Redirection Type:
-				<select class="regular-text" name="post_redirect_mata[type]" id="post_redirection_type">
+				<select class="regular-text" name="post_redirect_meta[type]" id="post_redirection_type">
 					<option value="301" <?php selected(esc_attr($type), '301'); ?>>301 Permanent Move</option>
 					<option value="302" <?php selected(esc_attr($type), '302'); ?>>302 Temprary Move</option>
 					<option value="307" <?php selected(esc_attr($type), '307'); ?>>307 Temprary Redirect</option>
@@ -179,7 +201,7 @@ class Metasync_Post_Meta_Settings
 				</select>
 			</li>
 			<li class="hide" id="post_redirect_url"> Destination URL:
-				<input type="text" class="regular-text" name="post_redirect_mata[url]" id="post_redirect_url_val" value="<?php echo esc_attr($url); ?>">
+				<input type="text" class="regular-text" name="post_redirect_meta[url]" id="post_redirect_url_val" value="<?php echo esc_attr($url); ?>">
 			</li>
 		</ul>
 	<?php
@@ -194,7 +216,7 @@ class Metasync_Post_Meta_Settings
 	?>
 		<ul>
 			<li> Canonical URL:
-				<input type="text" class="regular-text" name="post_canonical_url_mata" placeholder="<?php echo get_permalink($post->ID) ?>" value="<?php echo esc_attr($post_canonical); ?>">
+				<input type="text" class="regular-text" name="post_canonical_url_meta" placeholder="<?php echo get_permalink($post->ID) ?>" value="<?php echo esc_attr($post_canonical); ?>">
 			</li>
 		</ul>
 <?php
@@ -206,14 +228,17 @@ class Metasync_Post_Meta_Settings
 			return;
 
 		$post_data =  sanitize_post($_POST);
-		if (!isset($post_data['metasync_common_robots_nonce'], $post_data['common_robots_mata']) || !wp_verify_nonce($post_data['metasync_common_robots_nonce'], 'metasync_common_robots_nonce'))
+		// Check for new field name first, then old for backward compatibility
+		$field_name = isset($post_data['common_robots_meta']) ? 'common_robots_meta' : 'common_robots_mata';
+
+		if (!isset($post_data['metasync_common_robots_nonce'], $post_data[$field_name]) || !wp_verify_nonce($post_data['metasync_common_robots_nonce'], 'metasync_common_robots_nonce'))
 			return;
 
 		$old_common_robots = get_post_meta($post_id, 'metasync_common_robots', true);
 
 		$common_robots = [];
-		if (!empty($post_data['common_robots_mata'])) {
-			$common_robots = $this->common->sanitize_array($post_data['common_robots_mata']);
+		if (!empty($post_data[$field_name])) {
+			$common_robots = $this->common->sanitize_array($post_data[$field_name]);
 		}
 
 		if (!empty($common_robots))
@@ -228,12 +253,15 @@ class Metasync_Post_Meta_Settings
 			return;
 
 		$post_data =  sanitize_post($_POST);
-		if (!isset($post_data['metasync_advance_robots_nonce'], $post_data['advanced_robots_mata']) || !wp_verify_nonce($post_data['metasync_advance_robots_nonce'], 'metasync_advance_robots_nonce'))
+		// Check for new field name first, then old for backward compatibility
+		$field_name = isset($post_data['advanced_robots_meta']) ? 'advanced_robots_meta' : 'advanced_robots_mata';
+
+		if (!isset($post_data['metasync_advance_robots_nonce'], $post_data[$field_name]) || !wp_verify_nonce($post_data['metasync_advance_robots_nonce'], 'metasync_advance_robots_nonce'))
 			return;
 
 		$old_advance_robots = get_post_meta($post_id, 'metasync_advance_robots', true);
 
-		$advance_robots = $this->common->sanitize_array($post_data['advanced_robots_mata']);
+		$advance_robots = $this->common->sanitize_array($post_data[$field_name]);
 
 		if (!empty($advance_robots))
 			update_post_meta($post_id, 'metasync_advance_robots', $advance_robots);
@@ -247,12 +275,15 @@ class Metasync_Post_Meta_Settings
 			return;
 
 		$post_data =  sanitize_post($_POST);
-		if (!isset($post_data['metasync_post_redirection_nonce'], $post_data['post_redirect_mata']) || !wp_verify_nonce($post_data['metasync_post_redirection_nonce'], 'metasync_post_redirection_nonce'))
+		// Check for new field name first, then old for backward compatibility
+		$field_name = isset($post_data['post_redirect_meta']) ? 'post_redirect_meta' : 'post_redirect_mata';
+
+		if (!isset($post_data['metasync_post_redirection_nonce'], $post_data[$field_name]) || !wp_verify_nonce($post_data['metasync_post_redirection_nonce'], 'metasync_post_redirection_nonce'))
 			return;
 
 		$old_post_redirection_meta = get_post_meta($post_id, 'metasync_post_redirection_meta', true);
 
-		$post_redirection_meta = $this->common->sanitize_array($post_data['post_redirect_mata']);
+		$post_redirection_meta = $this->common->sanitize_array($post_data[$field_name]);
 
 		if (isset($post_redirection_meta['enable']))
 			update_post_meta($post_id, 'metasync_post_redirection_meta', $post_redirection_meta);
@@ -266,12 +297,15 @@ class Metasync_Post_Meta_Settings
 			return;
 
 		$post_data =  sanitize_post($_POST);
-		if (!isset($post_data['metasync_post_canonical_nonce'], $post_data['post_canonical_url_mata']) || !wp_verify_nonce($post_data['metasync_post_canonical_nonce'], 'metasync_post_canonical_nonce'))
+		// Check for new field name first, then old for backward compatibility
+		$field_name = isset($post_data['post_canonical_url_meta']) ? 'post_canonical_url_meta' : 'post_canonical_url_mata';
+
+		if (!isset($post_data['metasync_post_canonical_nonce'], $post_data[$field_name]) || !wp_verify_nonce($post_data['metasync_post_canonical_nonce'], 'metasync_post_canonical_nonce'))
 			return;
 
 		$old_post_canonical_meta = get_post_meta($post_id, 'meta_canonical', true);
 
-		$post_canonical_meta = $this->common->sanitize_array($post_data['post_canonical_url_mata']);
+		$post_canonical_meta = $this->common->sanitize_array($post_data[$field_name]);
 
 		if (!empty($post_canonical_meta))
 			update_post_meta($post_id, 'meta_canonical', $post_canonical_meta);
@@ -280,7 +314,7 @@ class Metasync_Post_Meta_Settings
 	}
 
 	public function show_top_admin_bar() {
-		if ( current_user_can( 'manage_options' ) ) {
+		if ( Metasync::current_user_has_plugin_access() ) {
 			show_admin_bar( true );
 		}
 	}

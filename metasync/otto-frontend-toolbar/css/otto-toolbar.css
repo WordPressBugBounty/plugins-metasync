@@ -1,0 +1,723 @@
+/**
+ * OTTO Frontend Toolbar Styles
+ *
+ * Styling for the OTTO control toolbar in WordPress admin bar
+ *
+ * @package    Metasync
+ * @subpackage Metasync/otto-frontend-toolbar/css
+ * @since      1.0.0
+ */
+
+/* OTTO Control Menu Signal Icon */
+#wpadminbar #wp-admin-bar-metasync-otto-control .metasync-otto-signal-icon {
+	display: inline-block;
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	margin-left: 8px;
+	vertical-align: middle;
+	position: relative;
+	top: -1px;
+}
+
+/* Green signal when OTTO is enabled */
+#wpadminbar .metasync-otto-enabled > .ab-item .metasync-otto-signal-icon {
+	background-color: #46b450;
+	box-shadow: 0 0 4px rgba(70, 180, 80, 0.6);
+}
+
+/* Red signal when OTTO is disabled */
+#wpadminbar .metasync-otto-disabled > .ab-item .metasync-otto-signal-icon {
+	background-color: #dc3232;
+	box-shadow: 0 0 4px rgba(220, 50, 50, 0.6);
+}
+
+/* Parent menu text color - Green when enabled */
+#wpadminbar #wp-admin-bar-metasync-otto-control.metasync-otto-enabled > .ab-item,
+#wpadminbar #wp-admin-bar-metasync-otto-control.metasync-otto-enabled > .ab-item .ab-label {
+	color: #46b450 !important;
+	background-color: transparent !important;
+}
+
+/* Parent menu text color - Red when disabled */
+#wpadminbar #wp-admin-bar-metasync-otto-control.metasync-otto-disabled > .ab-item,
+#wpadminbar #wp-admin-bar-metasync-otto-control.metasync-otto-disabled > .ab-item .ab-label {
+	color: #dc3232 !important;
+	background-color: transparent !important;
+}
+
+/* Hover state - maintain text color */
+#wpadminbar #wp-admin-bar-metasync-otto-control.metasync-otto-enabled:hover > .ab-item,
+#wpadminbar #wp-admin-bar-metasync-otto-control.metasync-otto-enabled.hover > .ab-item,
+#wpadminbar #wp-admin-bar-metasync-otto-control.metasync-otto-enabled:hover > .ab-item .ab-label,
+#wpadminbar #wp-admin-bar-metasync-otto-control.metasync-otto-enabled.hover > .ab-item .ab-label {
+	background-color: #32373c !important;
+	color: #46b450 !important;
+}
+
+#wpadminbar #wp-admin-bar-metasync-otto-control.metasync-otto-disabled:hover > .ab-item,
+#wpadminbar #wp-admin-bar-metasync-otto-control.metasync-otto-disabled.hover > .ab-item,
+#wpadminbar #wp-admin-bar-metasync-otto-control.metasync-otto-disabled:hover > .ab-item .ab-label,
+#wpadminbar #wp-admin-bar-metasync-otto-control.metasync-otto-disabled.hover > .ab-item .ab-label {
+	background-color: #32373c !important;
+	color: #dc3232 !important;
+}
+
+/* Menu item hover states */
+#wpadminbar .metasync-otto-toggle:hover {
+	background-color: #0073aa !important;
+	color: #fff !important;
+}
+
+#wpadminbar .metasync-otto-toggle.active {
+	background-color: #46b450 !important;
+	color: #fff !important;
+}
+
+/* Loading state */
+#wpadminbar .metasync-otto-control-menu.loading > .ab-item {
+	opacity: 0.6;
+	pointer-events: none;
+}
+
+/* Notification styles */
+.metasync-otto-notification {
+	position: fixed;
+	top: 50px;
+	right: 20px;
+	padding: 15px 20px;
+	background-color: #fff;
+	border-left: 4px solid #46b450;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+	z-index: 99999;
+	max-width: 400px;
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+	font-size: 14px;
+	line-height: 1.5;
+	animation: slideInRight 0.3s ease-out;
+}
+
+.metasync-otto-notification.error {
+	border-left-color: #dc3232;
+}
+
+.metasync-otto-notification.success {
+	border-left-color: #46b450;
+}
+
+.metasync-otto-notification.info {
+	border-left-color: #0073aa;
+}
+
+.metasync-otto-notification.warning {
+	border-left-color: #f0b849;
+}
+
+@keyframes slideInRight {
+	from {
+		transform: translateX(100%);
+		opacity: 0;
+	}
+	to {
+		transform: translateX(0);
+		opacity: 1;
+	}
+}
+
+@keyframes slideOutRight {
+	from {
+		transform: translateX(0);
+		opacity: 1;
+	}
+	to {
+		transform: translateX(100%);
+		opacity: 0;
+	}
+}
+
+.metasync-otto-notification.hiding {
+	animation: slideOutRight 0.3s ease-in;
+}
+
+/* Responsive adjustments */
+@media screen and (max-width: 782px) {
+	#wpadminbar #wp-admin-bar-metasync-otto-control > .ab-item .ab-label {
+		display: inline;
+	}
+	
+	.metasync-otto-notification {
+		top: 60px;
+		right: 10px;
+		left: 10px;
+		max-width: none;
+	}
+}
+
+@media screen and (max-width: 600px) {
+	#wpadminbar #wp-admin-bar-metasync-otto-control {
+		display: block;
+	}
+}
+
+/* ===========================
+   OTTO Debug Bar (Sticky Bottom Left)
+   =========================== */
+
+.metasync-otto-debug-bar {
+	position: fixed;
+	bottom: 20px;
+	left: 20px;
+	background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+	border-radius: 8px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(102, 126, 234, 0.4);
+	padding: 12px 16px;
+	z-index: 999999;
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+	transition: all 0.3s ease;
+}
+
+.metasync-otto-debug-bar:hover {
+	transform: translateY(-2px);
+	box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(102, 126, 234, 0.6);
+}
+
+/* Status Section */
+.otto-debug-status {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.otto-status-indicator {
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	display: inline-block;
+}
+
+.metasync-otto-debug-bar.otto-enabled .otto-status-indicator {
+	background-color: #46b450;
+	box-shadow: 0 0 8px rgba(70, 180, 80, 0.8);
+}
+
+.metasync-otto-debug-bar.otto-disabled .otto-status-indicator {
+	background-color: #dc3232;
+	box-shadow: 0 0 8px rgba(220, 50, 50, 0.8);
+}
+
+.otto-status-text {
+	color: #fff;
+	font-size: 14px;
+	font-weight: 600;
+	letter-spacing: 0.3px;
+}
+
+/* Preview Button */
+.otto-preview-btn {
+	background: #3949AB;
+	color: #fff;
+	border: none;
+	border-radius: 6px;
+	padding: 8px 14px;
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	transition: background-color 0.2s;
+	text-decoration: none;
+	line-height: 1.4;
+	height: 38px;
+}
+
+.otto-preview-btn:hover {
+	background: #283593;
+	text-decoration: none;
+}
+
+.otto-preview-btn .dashicons {
+	width: 18px;
+	height: 18px;
+	font-size: 18px;
+}
+
+/* Debug Button */
+.otto-debug-btn {
+	background: #f0b849;
+	color: #1e1e1e;
+	border: none;
+	border-radius: 6px;
+	padding: 8px 14px;
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	transition: background-color 0.2s;
+	text-decoration: none;
+	line-height: 1.4;
+	height: 38px;
+}
+
+.otto-debug-btn:hover {
+	background: #d9a333;
+	text-decoration: none;
+}
+
+.otto-debug-btn .dashicons {
+	width: 18px;
+	height: 18px;
+	font-size: 18px;
+}
+
+/* Preview Overlay */
+.metasync-otto-preview-overlay {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: transparent;
+	z-index: 9999999;
+	display: none;
+	opacity: 0;
+}
+
+.metasync-otto-preview-overlay.active {
+	display: block;
+}
+
+.otto-preview-header {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	background: #2c3338;
+	padding: 16px 24px;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	border-bottom: 2px solid #f0b849;
+	z-index: 10;
+	height: 60px;
+}
+
+.otto-preview-title {
+	color: #fff;
+	font-size: 16px;
+	font-weight: 600;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.otto-preview-title .dashicons {
+	color: #f0b849;
+	width: 20px;
+	height: 20px;
+	font-size: 20px;
+}
+
+.otto-preview-close {
+	background: #dc3232;
+	color: #fff;
+	border: none;
+	border-radius: 6px;
+	padding: 10px 16px;
+	font-size: 14px;
+	font-weight: 600;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	transition: background-color 0.2s;
+	text-decoration: none;
+}
+
+.otto-preview-close:hover {
+	background: #c72a2a;
+	text-decoration: none;
+}
+
+.otto-preview-close .dashicons {
+	width: 18px;
+	height: 18px;
+	font-size: 18px;
+}
+
+/* Preview Loading */
+.otto-preview-loading {
+	position: fixed;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	text-align: center;
+	color: #333;
+	z-index: 9999999;
+	background: rgba(255, 255, 255, 0.95);
+	padding: 30px 50px;
+	border-radius: 8px;
+	box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.otto-preview-loading.hidden {
+	display: none;
+}
+
+.otto-loading-spinner {
+	width: 50px;
+	height: 50px;
+	margin: 0 auto 20px;
+	border: 4px solid rgba(0, 115, 170, 0.2);
+	border-top-color: #0073aa;
+	border-radius: 50%;
+	animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.otto-preview-loading p {
+	font-size: 16px;
+	font-weight: 600;
+	margin: 0;
+	color: #333;
+}
+
+/* Preview Iframe */
+.metasync-otto-preview-iframe {
+	position: absolute;
+	top: 60px;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	border: none;
+	width: 100%;
+	height: calc(100% - 60px);
+	background: #fff;
+	transition: opacity 0.3s ease;
+	display: block;
+}
+
+/* Responsive adjustments for debug bar */
+@media screen and (max-width: 768px) {
+	.metasync-otto-debug-bar {
+		bottom: 10px;
+		left: 10px;
+		right: 10px;
+		width: auto;
+		flex-direction: column;
+		gap: 12px;
+		padding: 14px;
+	}
+	
+	.otto-debug-status {
+		width: 100%;
+		justify-content: center;
+	}
+	
+	.otto-preview-btn {
+		width: 100%;
+		justify-content: center;
+	}
+	
+	.otto-preview-header {
+		flex-direction: column;
+		gap: 12px;
+		padding: 12px 16px;
+	}
+	
+	.otto-preview-close {
+		width: 100%;
+		justify-content: center;
+	}
+}
+
+/* Hide debug bar in preview mode */
+body.otto-preview-active .metasync-otto-debug-bar {
+	display: none;
+}
+
+/* ===========================
+   OTTO Debug Tray
+   =========================== */
+
+.metasync-otto-debug-tray {
+	position: fixed;
+	right: -600px;
+	top: 0;
+	width: 600px;
+	height: 100vh;
+	background: #fff;
+	box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+	z-index: 999998;
+	transition: right 0.3s ease;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.metasync-otto-debug-tray.active {
+	right: 0;
+}
+
+.otto-debug-tray-header {
+	background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+	color: #fff;
+	padding: 20px;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	border-bottom: 3px solid #f0b849;
+}
+
+.otto-debug-tray-header h3 {
+	margin: 0;
+	font-size: 18px;
+	font-weight: 600;
+}
+
+.otto-debug-tray-close {
+	background: #dc3232;
+	color: #fff;
+	border: none;
+	border-radius: 4px;
+	padding: 8px 12px;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	transition: background-color 0.2s;
+	text-decoration: none;
+}
+
+.otto-debug-tray-close:hover {
+	background: #c72a2a;
+	text-decoration: none;
+}
+
+.otto-debug-tray-close .dashicons {
+	width: 18px;
+	height: 18px;
+	font-size: 18px;
+}
+
+.otto-debug-tray-content {
+	flex: 1;
+	overflow-y: auto;
+	padding: 20px;
+}
+
+.otto-debug-loading {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding: 60px 20px;
+}
+
+/* Debug Tray Footer with Toggle */
+.otto-debug-tray-footer {
+	background: #f5f5f5;
+	padding: 20px;
+	border-top: 2px solid #e0e0e0;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+}
+
+.otto-toggle-container {
+	display: flex;
+	align-items: center;
+	gap: 15px;
+}
+
+.otto-toggle-label {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 14px;
+	font-weight: 500;
+	color: #2c3338;
+	margin: 0;
+}
+
+.otto-toggle-text {
+	color: #555;
+}
+
+.otto-toggle-status-text {
+	font-weight: 600;
+	min-width: 70px;
+}
+
+.otto-toggle-switch {
+	position: relative;
+	display: inline-block;
+	width: 54px;
+	height: 28px;
+	margin: 0;
+	cursor: pointer;
+}
+
+.otto-toggle-switch input[type="checkbox"] {
+	opacity: 0;
+	width: 0;
+	height: 0;
+	position: absolute;
+}
+
+.otto-toggle-slider {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background-color: #dc3232;
+	transition: 0.3s;
+	border-radius: 28px;
+	cursor: pointer;
+}
+
+.otto-toggle-slider:before {
+	position: absolute;
+	content: "";
+	height: 20px;
+	width: 20px;
+	left: 4px;
+	bottom: 4px;
+	background-color: white;
+	transition: 0.3s;
+	border-radius: 50%;
+}
+
+.otto-toggle-switch input[type="checkbox"]:checked + .otto-toggle-slider {
+	background-color: #46b450;
+}
+
+.otto-toggle-switch input[type="checkbox"]:checked + .otto-toggle-slider:before {
+	transform: translateX(26px);
+}
+
+.otto-toggle-switch input[type="checkbox"]:disabled + .otto-toggle-slider {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+/* Comparison Table */
+.otto-comparison-table {
+	width: 100%;
+	border-collapse: collapse;
+	margin-top: 20px;
+}
+
+.otto-comparison-table th,
+.otto-comparison-table td {
+	border: 1px solid #e0e0e0;
+	padding: 15px;
+	text-align: left;
+	vertical-align: top;
+}
+
+.otto-comparison-table th {
+	background: #f5f5f5;
+	font-weight: 600;
+	font-size: 16px;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+}
+
+.otto-comparison-table th.original-col {
+	color: #dc3232;
+}
+
+.otto-comparison-table th.otto-col {
+	color: #0073aa;
+}
+
+.otto-comparison-table tr:nth-child(even) {
+	background: #fafafa;
+}
+
+.otto-comparison-table .field-label {
+	font-weight: 600;
+	color: #333;
+	display: block;
+	margin-bottom: 8px;
+	font-size: 14px;
+}
+
+.otto-comparison-table .field-value {
+	color: #666;
+	font-size: 13px;
+	line-height: 1.6;
+	word-break: break-word;
+}
+
+.otto-comparison-table .field-value pre {
+	background: #f5f5f5;
+	padding: 10px;
+	border-radius: 4px;
+	overflow-x: auto;
+	font-size: 12px;
+	margin: 5px 0;
+}
+
+.otto-debug-error {
+	background: #ffebee;
+	border-left: 4px solid #dc3232;
+	padding: 15px 20px;
+	margin: 20px 0;
+	border-radius: 4px;
+}
+
+.otto-debug-error strong {
+	color: #dc3232;
+	display: block;
+	margin-bottom: 8px;
+}
+
+/* Anchor tags in comparison table */
+.otto-comparison-table .field-value a {
+	color: #2271b1;
+	text-decoration: none;
+	word-break: break-all;
+}
+
+.otto-comparison-table .field-value a:hover {
+	color: #135e96;
+	text-decoration: underline;
+}
+
+.otto-comparison-table .field-value a code {
+	color: #d63638;
+	cursor: pointer;
+}
+
+.otto-comparison-table .field-value a:hover code {
+	text-decoration: underline;
+}
+
+/* Responsive */
+@media screen and (max-width: 768px) {
+	.metasync-otto-debug-tray {
+		width: 100%;
+		right: -100%;
+	}
+	
+	.otto-comparison-table {
+		font-size: 12px;
+	}
+	
+	.otto-comparison-table th,
+	.otto-comparison-table td {
+		padding: 10px;
+	}
+}

@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.5.6
+Stable tag: 2.5.18
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,149 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.5.18 =
+* Removed JWT-based temporary support access token system
+* Improved internal code documentation
+
+= 2.5.18 =
+* Removed JWT-based temporary support access token system
+* Improved internal code documentation
+
+= 2.5.18 =
+* Removed JWT-based temporary support access token system
+* Improved internal code documentation
+
+= 2.5.18 =
+* Removed JWT-based temporary support access token system
+* Improved internal code documentation
+
+= 2.5.18 =
+* Removed JWT-based temporary support access token system
+* Improved internal code documentation
+
+= 2.5.18 =
+* Removed JWT-based temporary support access token system
+* Improved internal code documentation
+
+= 2.5.18 =
+* Removed JWT-based temporary support access token system
+* Improved internal code documentation
+
+= 2.5.18 =
+* Removed JWT-based temporary support access token system
+* Improved internal code documentation
+
+= 2.5.17 =
+* New: Administrator-Controlled Remote Support - Support access now requires explicit consent with secure, time-limited JWT tokens you generate and control
+* New: Support Access Management UI - Generate, view, and revoke support tokens directly from plugin settings
+* New: Email notifications when support tokens are generated, used, or revoked
+* Security: Connect to Search Atlas now uses time-limited, single-use tokens instead of persistent credentials
+* Security: Added rate limiting to Connect to Search Atlas authentication
+
+= 2.5.16 =
+* New: Administrator-Controlled Remote Support - Support access now requires explicit consent with secure, time-limited tokens you generate and control
+* Security: Enhanced Search Atlas SSO authentication with time-limited tokens
+* Security: Improved access control for administrative functions
+* Security: Added rate limiting to authentication endpoints
+* Improvement: Optimized token validation for better performance
+
+= 2.5.15 =
+* **Fix:** Improved compatibility with the **NitroPack** cache plugin.
+* **Fix:** Resolved a compatibility issue with the **Divi Timeline** widget.
+* **Fix:** Resolved a compatibility issue with the **Divi MultiView** widget.
+* **Fix:** Fixed an issue where static text in Advanced Settings displayed "OTTO/SA" instead of the **White Label** name.
+* **Fix:** Improved input validation within the **Redirection** form.
+* **Fix:** Fixed an issue where the **Cancel** button in the Redirection feature was not triggering.
+* **Fix:** Resolved an issue where **General Settings** would reset after a White Label password was set.
+* **Improvement:** Enhanced the filter and search modules in the **Redirection** section.
+* **Improvement:** When a new sitemap is generated, the **robots.txt** file will now automatically update with the correct link.
+* **Improvement:** Simplified plugin navigation for a better user experience.
+* **Improvement:** Removed deprecated files and unnecessary logs to optimize performance.
+* **Improvement:** Added **MCP** support.
+* **Improvement:** Added data persistence with **granularity** support.
+* **Improvement:** Improved notification messaging to better inform users about plugin updates.
+* **Feature:** Added full support for **Oxygen Builder**.
+* **Feature:** **Plugin Access Control:** Added a setting under Advanced Settings to define which user roles can access the plugin.
+* **Feature:** **Advanced Access Control:** White Label users can now disable specific settings or features per user role (**Settings \> White Label \> Advanced Access Control**).
+* **Feature:** Added a dedicated **Import SEO Data** screen.
+* **Feature:** Added an option to set all external links to `target="_blank"` (**Settings \> General \> Post/Page Settings**).
+* **Feature:** Added an option to add `rel="nofollow"` to all external links (**SEO \> Indexation \> Indexation Control**).
+* **Miscellaneous:** Minor cross-compatibility improvements for legacy PHP versions.
+
+= 2.5.14 =
+* **Fix:** Fixed a case of compatibility with Formidable Form Builder
+* **Fix:** Fixed a case of compatibility with Essentials Theme
+* **Fix:** Small adjustments in overall code for performance
+* **Improvement:** Improvement of OTTO SSR system
+* **Improvement:** Small adjustments in the UX
+* **Improvement:** Improvement of suggestions persistence in WP DB.
+
+= 2.5.13 =
+* **Fix:** Fixed a case where new published article was only showing headers 
+* **Fix:** Fixed a case of compatibility with Essentials Theme
+* **Fix:** Small adjustments in overall code for performance
+* **New Feature: Whitelabel Plugin Export -** We included a feature to export a version of the plugin with your WL info. You could now easily install the plugin through different hosts, without the need to manually update/include the WL settings.
+* **New Feature: Import from RankMath/Yoast/AIOSEO -** We included a feature to import Robots.txt, Sitemap.xml, Schemas and Indexation Options from SEO Plugins.
+* **New Feature: Advanced Settings -> Clear Transient Cache -** We included a feature to clear the transient cache used to boost page performance. The cache stores the deployed changes from the platform, avoiding unnecessary process to apply the changes. 
+* **Improvement:** Small adjustments in OTTO SSR
+* **Improvement:** Small adjustments in Light Theme version
+* **Improvement:** We included a option in the Settings to Disable OTTO Toolbar.
+* **Improvement:** Otto Toolbar is Whitelabel friendly (Apply WL name)
+
+= 2.5.12 =
+* **Fix:** Fixed a case of compatibility with Slider Revolution
+* **Fix:** Fixed a case of duplication in content synced
+* **Fix:** Small adjustments in PHP Warnings being triggered
+* **Fix:** Fixed a case of custom child theme triggering errors in error log
+* **New Feature: Light/Dark Theme -** We included a feature that allow users to switch the plugin colors to a light version.
+* **New Feature: Content Genius Authors -** We included a feature under settings where you could choose what user roles would be synced with Content Genius
+* **New Feature: OTTO Changes Viewer -** We included a feature to check what changes are being applied in a page optimized by OTTO.
+* **Improvement:** We improved the OTTO detection system.
+* **Improvement:** Changes in Robots.txt could be rollbacked with a historic of changes
+* **Improvement:** We included a option in the Indexation feature to disallow Category pages.
+* **Improvement:** Small optimizations in the code for page speed improvement.
+
+= 2.5.11 =
+* **Fix:** Fixed a case of compatibility with Woocommerce
+* **Fix:** Fixed a case of redirections not working when the target URL was deleted
+* **Fix:** Fixed a case of Error Logs not displaying correctly
+* **Fix:** Fixed a case of PHP Warning due outdated PHP version
+* **Fix:** Fixed a case of custom child theme triggering errors in error log
+* **New Feature: Report a Issue -** We included a feature that allow users to notify Issues directly from the plugin.
+* **Improvement:** We improved the Whitelabel settings to hide specific features if needed.
+* **Improvement:** Improvements on system messages
+
+= 2.5.10 =
+* **Fix:** Fixed a case of compatibility with Gravity Forms
+* **Fix:** Fixed a case of compatibility with Elementor Pro
+* **Fix:** Fixed a case of compatibility with DIVI
+* **Fix:** Fixed a case where the post editor preview was blocked
+* **Fix:** Fixed a case of original meta title and meta description being overwritten by OTTO
+* **New Feature: Custom Pages -** We included a feature that allow users to create custom pages bypassing existing Themes and Styles.
+* **New Feature:** **OTTO Excluded URLs -** We included under Compatibility Tab, a option to Turn off OTTO changes per URL.
+* **New Feature:** **Import Redirections -** Users could now import redirections from .csv file or directly from Yoast/RankMath/AIOSEO.
+* **Improvement:** We improved the Whitelabel settings to hide specific features if needed.
+* **Improvement:** Minor changes in core functions.
+* **Improvement:** Excluded from Sitemap generator URLs that aren't related with live pages.
+
+= 2.5.9 =
+* **Fix:** Fixed a case where the plugin was duplicanting the meta description tag
+* **Fix:** Fixed a case where the post editor was preventing user to save OG tags.
+* **New Feature:** We included in advanced settings a option to test the connectivity between host and the platform.
+* **New Feature:** Users could generate SITEMAP.xml directly in the plugin (This function will disable current sitemap.xml plugins)
+* **New Feature:** User could Enable/Disable storing OTTO Meta Title and Meta Description into the Database. When enabled, it will overwrite Meta Title and Meta Description of Yoast/RankMath, etc, and the old meta title and meta description
+* **Improvement:** We improved the Whitelabel settings to hide specific features if needed.
+* **Improvement:** Minor changes in cross-compatibility with outdated PHP versions.
+
+= 2.5.8 =
+* **Fix:** Some conditions was preventing saving new/edit posts directly from the editor
+* **Fix:** Non-standard tags found in body of the page, are being detect as plain text.
+* **New Feature:** White Label Clients could turn on/off Plugin features in Whitelabel Settings.
+* **Improvement:** Minor changes in cross-compatibility with outdated PHP versions.
+
+= 2.5.7 =
+
+
 = 2.5.6 =
 * **Prevention**: New error detection system.
 * **White Label**: 1-click Auth will sync the logo from the WL dashboard

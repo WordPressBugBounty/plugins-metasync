@@ -31,14 +31,15 @@ class Metasync_Optimal_Settings
 			return wp_robots_noindex(['noindex' => true]);
 		};
 
-		$common_robots_mata = Metasync::get_option('common_robots_mata') ?? [];
-		$advance_robots_mata = Metasync::get_option('advance_robots_mata') ?? [];
+		// Check new spelling first, fall back to old for backward compatibility
+		$common_robots_meta = Metasync::get_option('common_robots_meta') ?? Metasync::get_option('common_robots_mata') ?? [];
+		$advance_robots_meta = Metasync::get_option('advance_robots_meta') ?? Metasync::get_option('advance_robots_mata') ?? [];
 
 		$common_robots_post_meta = get_post_meta($post->ID, 'metasync_common_robots', true);
 		$advance_robots_post_meta = get_post_meta($post->ID, 'metasync_advance_robots', true);
 
-		$common_robots = $common_robots_post_meta ? $common_robots_post_meta : $common_robots_mata;
-		$advance_robots = $advance_robots_post_meta ? $advance_robots_post_meta : $advance_robots_mata;
+		$common_robots = $common_robots_post_meta ? $common_robots_post_meta : $common_robots_meta;
+		$advance_robots = $advance_robots_post_meta ? $advance_robots_post_meta : $advance_robots_meta;
 
 		$robots          = ['index' => true];
 		$advanced_robots = [];

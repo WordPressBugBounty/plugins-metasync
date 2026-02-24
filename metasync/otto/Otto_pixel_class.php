@@ -1,4 +1,9 @@
 <?php
+// If this file is called directly, abort.
+if (!defined('ABSPATH')) {
+	exit;
+}
+
 /**
  * This class handles the Otto Pixel Functions
  */
@@ -13,8 +18,14 @@ Class Metasync_otto_pixel{
 	# no cache wp pages 
 	public $no_cache_pages = ['wp-login.php'];
 
+    # OTTO UUID
+    private $otto_uuid;
+
     # 
     function __construct($otto_uuid){
+        
+        # store the UUID
+        $this->otto_uuid = $otto_uuid;
         
         # load the html class
         $this->o_html = new Metasync_otto_html($otto_uuid);
@@ -22,38 +33,11 @@ Class Metasync_otto_pixel{
     }
 
     # method to handle cache refresh
-    # mech : deletes the cache files and cals the file to referesh it
+    # NOTE: Cache system removed - always process in real-time
     function refresh_cache($route){
-        
-        #enforce dirs
-        $cache_dir = $this->enforce_dirs();
-        
-        # if cache is disabled, return success
-        if($cache_dir === false){
-            return true;
-        }
-
-        $cache_route = rtrim($route, '/');
-        # create file path from route
-        $file_name = md5($cache_route).'.html';
-
-        # create file path
-        $file_path = $cache_dir . '/' . $file_name;
-
-        # check if the file exists
-        if(!is_file($file_path)){
-
-            return false;
-        }
-
-        # now we do have the file 
-        # step 1 : remove the file
-        if( unlink($file_path) ) {
-
-            # revisit the address to recreate the file
-            return;
-        }
-
+        # No-op: Cache system has been removed
+        # All pages are processed in real-time from OTTO API
+        return true;
     }
 
 
@@ -152,6 +136,13 @@ Class Metasync_otto_pixel{
 
     # get the current route
     function get_route(){
+
+         # check if we're in an HTTP context
+        if(empty($_SERVER['HTTP_HOST']) || empty($_SERVER['REQUEST_URI'])){
+            # not in HTTP context (CLI, cron, etc.), return false
+            return false;
+        }
+        
         # get req scheme
         $scheme = ( is_ssl() ? 'https' : 'http' );
        
@@ -166,131 +157,46 @@ Class Metasync_otto_pixel{
     }
 
     # get the html for a route 
-    function get_route_html($route){
-
-        # enforce cache dir
-        $cache_dir = $this->enforce_dirs();
-
-         # Since cache is disabled, always do real-time processing (SSR)
-        if($cache_dir === false){
-            # Cache disabled - process route in real-time (SSR)
-            return $this->o_html->process_route($route, '');
+    # OPTION 1 IMPLEMENTATION: Use transient cache for suggestions
+    function get_route_html($route, $cache_track_key = null, $suggestions = null){
+        # If suggestions already provided (from render_route_html), use them directly
+        if ($suggestions !== null && is_array($suggestions)) {
+            # Process route with provided suggestions data
+            return $this->o_html->process_route_with_data($route, $suggestions, '');
         }
-
-        # DISABLED: Cache functionality below is preserved but won't be reached since cache is disabled
-
-        $cache_route = rtrim($route, '/');
-
-        # get md5 hash of route
-        $file_name = md5($cache_route).'.html';
-
-        # check the appropriate dir
-        if(is_page()){
-
-            # set the pages path
-            $cache_dir = $cache_dir . '/pages';
-        }
-        elseif(is_singular('post')){
-
-            # set the pages path
-            $cache_dir = $cache_dir . '/posts';
-        }
-        else{
-            # set the pages path
-            $cache_dir = $cache_dir . '/others';
-        }
-
-        # get file path
-        $file_path = $cache_dir . '/'. $file_name;
-
-        # real time pages
-        # set real time page to always true so that we do real time rendering of change
-        $real_time_page = True;
-		
-		# check user is logged in
-		if(is_user_logged_in()) {
-			$real_time_page = True;
-		}
-		
-        # if file exists show content
-        if(!is_file($file_path) || $real_time_page == True){
-
-            # call the html class
-            $route_html = $this->o_html->process_route($route, $file_path);
-        }
-        else{
-
-            # show the file contents
-            $route_html = file_get_contents($file_path);
-        }
-
-
-        # exit to prevent further excecution
-        return $route_html;
-    }
-
-    # enforce new caching dirs
-    function enforce_dirs(){
-
-        # DISABLED: Cache directory creation temporarily disabled due to client complaints
-        return false;
-
-        # dirs
-        $dirs = array(
-            '/metasync_caches',
-            '/metasync_caches/pages',
-            '/metasync_caches/posts',
-            '/metasync_caches/others'
-        );
-
-        # loop and enfors
-        foreach ($dirs as $key => $value) {
-            #
-            $dirs[$key] = $this->create_dirs($value);
-        }
-
-        # return the root cache dir
-        return $dirs[0];
-    }
-
-    # enforce caching dir
-    function create_dirs($the_path){
         
-        # check that we have the WP_CONTENT_DIR defined
-        if(!defined('WP_CONTENT_DIR')){
+        # Get OTTO UUID from options
+        global $metasync_options;
+        $otto_uuid = $metasync_options['general']['otto_pixel_uuid'] ?? '';
+        
+        if (empty($otto_uuid)) {
             return false;
         }
-
-        # Get the path to the wp-content directory
-        $wp_content_dir = WP_CONTENT_DIR;
-
-        # Define the path for the metasync_caches directory
-        $cache_dir = $wp_content_dir . $the_path;
-
-        # DISABLED: Cache directory creation temporarily disabled
-        return false;
-
-        # Check if the directory exists
-        if (!is_dir($cache_dir)) {
-            
-            # Try to create the directory
-            if (!mkdir($cache_dir, 0755, true)) {
-                
-                # Log an error if directory creation fails
-                error_log('Metasync : Failed to create directory: ' . $cache_dir);
-                
-                # Return false on failure
-                return false;
-            }
+        
+        # Get suggestions from transient cache (with API fallback)
+        $transient_cache = new Metasync_Otto_Transient_Cache($otto_uuid);
+        $track_key = $cache_track_key ?: md5($route);
+        $suggestions = $transient_cache->get_suggestions($route, $track_key);
+        
+        if (!$suggestions || !$transient_cache->has_payload($suggestions)) {
+            # No suggestions available
+            return false;
         }
-
-        # Return true if the directory exists or was successfully created
-        return $cache_dir;
+        
+        # Process route with cached suggestions data
+        return $this->o_html->process_route_with_data($route, $suggestions, '');
     }
+
 
     # render route html
     function render_route_html(){
-        
+
+        # Disable SG Cache for Brizy pages FIRST - before any other processing
+        # Using global function defined in otto_pixel.php
+        if (function_exists('metasync_otto_disable_sg_cache_for_brizy')) {
+            metasync_otto_disable_sg_cache_for_brizy();
+        }
+
         # get the route
         $route = $this->get_route();
 
@@ -315,67 +221,219 @@ Class Metasync_otto_pixel{
         }
         */
 
-        # Handle canonical redirection before Otto processing
-        #$this->handle_canonical_redirection($route);
-
-        # check if URL has been crawled by Otto before processing
-        if(!$this->is_url_crawled($route)){
-            # URL not crawled by Otto
+        # OPTION 1 IMPLEMENTATION: Check transient cache instead of notification data
+        # This makes the system self-healing - works even if notifications fail
+        
+        # Get OTTO UUID from options
+        global $metasync_options;
+        $otto_uuid = $metasync_options['general']['otto_pixel_uuid'] ?? '';
+        
+        if (empty($otto_uuid)) {
+            return;
+        }
+        
+        $transient_cache = new Metasync_Otto_Transient_Cache($otto_uuid);
+        
+        # Create tracking key for cache status
+        $cache_track_key = 'otto_' . md5($route);
+        
+        # Check if URL has OTTO suggestions (checks transient, calls API if needed)
+        # Use get_suggestions directly to track cache status
+        $suggestions = $transient_cache->get_suggestions($route, $cache_track_key);
+        
+        if (!$suggestions || !$transient_cache->has_payload($suggestions)) {
+            # No suggestions available for this URL
+            # Set header to indicate cache status
+            if (!headers_sent()) {
+                $cache_status = Metasync_Otto_Transient_Cache::get_cache_status($cache_track_key);
+                header('X-MetaSync-OTTO-Cache: ' . ($cache_status ?: 'NO_SUGGESTIONS'));
+                header('X-MetaSync-OTTO-Method: NONE');
+            }
             return;
         }
 
         # comment out for fixing pagination issues
         # $route = rtrim($route, '/');
         
+        # Analyze what OTTO is providing for SEO plugin blocking
+        $blocking_flags = $this->analyze_otto_blocking($suggestions);
 
-        # check if we have the route html
-        $route_html = $this->get_route_html($route);
+        # Get cache status for headers
+        $cache_status = Metasync_Otto_Transient_Cache::get_cache_status($cache_track_key);
+
+        # HYBRID APPROACH: Choose best render method based on environment
+        # Priority: Output Buffer (fast) > HTTP Request (fallback)
+        # Wrapped in try-catch to ensure fallback works if anything fails
+        try {
+            # Safety check: ensure render strategy class exists
+            if (!class_exists('Metasync_Otto_Render_Strategy')) {
+                # Class not loaded - use HTTP method as fallback
+                $this->render_via_http($route, $suggestions, $cache_track_key, $cache_status);
+                return;
+            }
+
+            $render_method = Metasync_Otto_Render_Strategy::determine_method();
+
+            if ($render_method === Metasync_Otto_Render_Strategy::METHOD_BUFFER) {
+                # FAST PATH: Use output buffer approach
+                $result = $this->render_via_buffer($route, $suggestions, $blocking_flags, $cache_status);
+                
+                if ($result === true) {
+                    # Buffer is now active, WordPress will continue rendering
+                    # OTTO modifications will be applied when buffer flushes
+                    return;
+                }
+                
+                # Buffer approach failed, fall back to HTTP method
+                $render_method = Metasync_Otto_Render_Strategy::METHOD_HTTP;
+            }
+
+            if ($render_method === Metasync_Otto_Render_Strategy::METHOD_HTTP) {
+                # FALLBACK PATH: Use traditional HTTP request approach
+                $this->render_via_http($route, $suggestions, $cache_track_key, $cache_status);
+            }
+        } catch (Exception $e) {
+            # Any exception in the render strategy - fall back to HTTP method
+            $this->render_via_http($route, $suggestions, $cache_track_key, $cache_status);
+        } catch (Error $e) {
+            # PHP 7+ Error (like TypeError) - fall back to HTTP method
+            $this->render_via_http($route, $suggestions, $cache_track_key, $cache_status);
+        }
+    }
+
+    /**
+     * Analyze OTTO suggestions to determine what to block from SEO plugins
+     * 
+     * @param array $suggestions OTTO suggestions data
+     * @return array Blocking flags
+     */
+    private function analyze_otto_blocking($suggestions) {
+        $has_otto_title = false;
+        $has_otto_description = false;
+
+        if (!empty($suggestions['header_replacements']) && is_array($suggestions['header_replacements'])) {
+            foreach ($suggestions['header_replacements'] as $item) {
+                if (!empty($item['type'])) {
+                    # Check if OTTO has title
+                    if ($item['type'] == 'title' && !empty($item['recommended_value'])) {
+                        $has_otto_title = true;
+                    }
+                    # Check if OTTO has description
+                    if ($item['type'] == 'meta') {
+                        if ((!empty($item['name']) && $item['name'] == 'description' && !empty($item['recommended_value'])) ||
+                            (!empty($item['property']) && strpos($item['property'], 'description') !== false && !empty($item['recommended_value']))) {
+                            $has_otto_description = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        # Check header_html_insertion for description
+        if (!empty($suggestions['header_html_insertion'])) {
+            if (preg_match('/<meta[^>]*name=["\']description["\'][^>]*>/i', $suggestions['header_html_insertion'])) {
+                $has_otto_description = true;
+            }
+        }
+
+        return [
+            'block_title' => $has_otto_title,
+            'block_description' => $has_otto_description,
+        ];
+    }
+
+    /**
+     * Render page using output buffer approach (FAST)
+     * Eliminates the internal HTTP request by capturing WordPress output directly
+     * 
+     * @param string $route Current page route
+     * @param array $suggestions OTTO suggestions data
+     * @param array $blocking_flags SEO plugin blocking flags
+     * @param string $cache_status Cache status for headers
+     * @return bool True if buffer started successfully, false to fall back to HTTP
+     */
+    private function render_via_buffer($route, $suggestions, $blocking_flags, $cache_status) {
+        # Try to start output buffer
+        $buffer_started = Metasync_Otto_Render_Strategy::start_buffer(
+            $suggestions,
+            $route,
+            $this->o_html,
+            $blocking_flags
+        );
+
+        if (!$buffer_started) {
+            # Buffer failed to start
+            return false;
+        }
+
+        # Buffer is active - send headers now (before any output)
+        if (!headers_sent()) {
+            Metasync_Otto_Render_Strategy::send_headers($cache_status);
+        }
+
+        # Block SEO plugins if needed (for the buffered output)
+        if ($blocking_flags['block_title'] || $blocking_flags['block_description']) {
+            if (function_exists('metasync_otto_block_seo_plugins')) {
+                metasync_otto_block_seo_plugins(
+                    $blocking_flags['block_title'],
+                    $blocking_flags['block_description']
+                );
+            }
+        }
+
+        # Return true - WordPress will continue rendering, buffer will capture and process
+        return true;
+    }
+
+    /**
+     * Render page using HTTP request approach (FALLBACK)
+     * Makes internal wp_remote_get request to fetch page HTML
+     * 
+     * @param string $route Current page route
+     * @param array $suggestions OTTO suggestions data
+     * @param string $cache_track_key Cache tracking key
+     * @param string $cache_status Cache status for headers
+     */
+    private function render_via_http($route, $suggestions, $cache_track_key, $cache_status) {
+        # Set method indicator
+        Metasync_Otto_Render_Strategy::set_current_method(Metasync_Otto_Render_Strategy::METHOD_HTTP);
+
+        # check if we have the route html (pass suggestions to avoid duplicate API call)
+        $route_html = $this->get_route_html($route, $cache_track_key, $suggestions);
 
         # check that route html is valid
         if(empty($route_html)){
             return false;
         }
 
+        $route_html_string = $route_html->__toString();
+        
+        if (strpos($route_html_string, 'pix-sliding-headline-2') !== false || strpos($route_html_string, 'pix-intro-sliding-text') !== false) {
+            # Only apply fix within sliding text contexts to avoid breaking other layouts
+            $route_html_string = preg_replace('#(</span></span>)(<span\s+class=["\'][^"\']*slide-in-container[^"\']*["\'][^>]*>)#i', '$1 $2', $route_html_string);
+        }
+
+        # Check for Revolution Slider to determine if special handling is needed
+        # Check for both Revolution Slider 6 (<rs-module-wrap>) and Revolution Slider 7 (<sr7-module>)
+        $has_revslider = (strpos($route_html_string, '<rs-module-wrap') !== false || strpos($route_html_string, '<sr7-module') !== false);
+        
+        if($has_revslider){
+            # Revolution Slider detected - fire WordPress hooks to ensure proper initialization
+            # Use output buffering to prevent hooks from corrupting Otto's processed HTML
+            ob_start();
+            do_action('wp_enqueue_scripts');
+            $discarded_output = ob_get_clean();
+           
+        }
+        
+        # Send response headers
+        Metasync_Otto_Render_Strategy::send_headers($cache_status);
+
         # continue to render the html
-        echo $route_html;
+        echo $route_html_string;
 
         # prevent further wp execution
         exit();
     }
 
-	# handle canonical redirection like WordPress does
-    function handle_canonical_redirection($current_url){
-        
-        # parse the current URL
-        $parsed_url = parse_url($current_url);
-        $path = $parsed_url['path'] ?? '';
-        
-        # skip if empty path or has file extension
-        if (empty($path) || pathinfo($path, PATHINFO_EXTENSION)) {
-            return;
-        }
-        
-        # get current trailing slash status
-        $has_trailing_slash = substr($path, -1) === '/';
-        
-        # determine what WordPress expects based on permalink structure
-        $permalink_structure = get_option('permalink_structure');
-        $should_have_trailing_slash = !empty($permalink_structure) && substr($permalink_structure, -1) === '/';
-        
-        # Initialize variable to hold the corrected canonical URL if needed
-        $canonical_url = null;
-        if ($should_have_trailing_slash && !$has_trailing_slash) {
-            # WordPress expects trailing slash but URL doesn't have one
-            $canonical_url = $current_url . '/';
-        } elseif (!$should_have_trailing_slash && $has_trailing_slash) {
-            # WordPress doesn't expect trailing slash but URL has one
-            $canonical_url = rtrim($current_url, '/');
-        }
-        
-        # perform redirect if needed
-        if ($canonical_url && $canonical_url !== $current_url) {
-            wp_redirect($canonical_url, 301);
-            exit();
-        }
-    }
 }

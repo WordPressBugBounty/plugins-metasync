@@ -1,4 +1,9 @@
 <?php
+// If this file is called directly, abort.
+if (!defined('ABSPATH')) {
+	exit;
+}
+
 
 # uses the simple html dom library
 use simplehtmldom\HtmlWeb;
@@ -11,7 +16,7 @@ use simplehtmldom\HtmlDocument;
 Class Metasync_otto_html{
 
     # html dom
-    private $dom; 
+    private $dom;
 
     # the file path to save to
     private $html_file;
@@ -20,17 +25,32 @@ Class Metasync_otto_html{
     private $site_uuid;
 
     # the otto endpoint url
-    private $otto_end_point = 'https://sa.searchatlas.com/api/v2/otto-url-details';
-    
-    # 
+    private $otto_end_point;
+
+    # PERFORMANCE OPTIMIZATION: Defer DOM reload until final save
+    # Reduces 6-10 serialize/deserialize cycles to just 1
+    private $deferred_reload = false;
+
+    # PERFORMANCE OPTIMIZATION: Cache commonly accessed DOM elements
+    # Eliminates 8-10 full DOM traversals per page
+    private $cached_elements = [];
+
+    #
     function __construct($otto_uuid){
 
         # set the site uuid using the provided string
         $this->site_uuid = $otto_uuid;
 
-        # laod the simple html dom parser
-        $this->dom = new HtmlDocument();
-    }   
+        # Use endpoint manager if available, otherwise fallback to production
+        if (class_exists('Metasync_Endpoint_Manager')) {
+            $this->otto_end_point = Metasync_Endpoint_Manager::get_endpoint('OTTO_URL_DETAILS');
+        } else {
+            $this->otto_end_point = 'https://sa.searchatlas.com/api/v2/otto-url-details';
+        }
+
+        # laod the simple html dom parser with UTF-8 charset to handle special characters
+        $this->dom = new HtmlDocument(null, true, true, 'UTF-8');
+    }
 
     /**
      * Check Route Method
@@ -48,8 +68,22 @@ Class Metasync_otto_html{
             $this->otto_end_point
         );
 
-        # Perform the GET request
-        $response = wp_remote_get($url_with_params);
+        # PERFORMANCE FIX: Add timeout to prevent blocking
+        $args = array(
+            'timeout' => 5, // 5 second max timeout (allow time for redirects)
+            'redirection' => 5, // CRITICAL FIX: Allow redirects (API returns 301)
+            'user-agent' => 'MetaSync-OTTO-SSR/2.0',
+            'sslverify' => true
+        );
+
+        # Perform the GET request with timeout
+        $response = wp_remote_get($url_with_params, $args);
+
+        # Check for errors
+        if (is_wp_error($response)) {
+            error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ': API call failed - ' . $response->get_error_message());
+            return false;
+        }
 
         # get the response body
         $body = wp_remote_retrieve_body($response);
@@ -59,6 +93,7 @@ Class Metasync_otto_html{
 
         # if no change data skip
         if (empty($body) || $response_code !== 200){
+            error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ': API returned empty or non-200. Code: ' . $response_code);
             return false;
         }
 
@@ -67,16 +102,65 @@ Class Metasync_otto_html{
 
         # load change data
         $change_data = json_decode($body, true);
-
-        # send the data to the hmtl processor code
-        if(!empty($body)){
-            
-            # return the processed route html
-            return $this->handle_route_html($route, $change_data);
+        
+        # Process with the fetched data
+        return $this->process_route_with_data($route, $change_data, $file_path);
+    }
+    
+    /**
+     * Process route with pre-fetched suggestions data
+     * OPTION 1: Used when data comes from transient cache
+     * @param route : The route to check
+     * @param change_data : Pre-fetched OTTO suggestions data
+     * @param path : The path of the html file to save
+     */
+    function process_route_with_data($route, $change_data, $file_path){
+        
+        if (empty($change_data) || !is_array($change_data)) {
+            return false;
         }
         
-        # otherwise return false
-        return false;
+        # set the html file path
+        $this->html_file = $file_path;
+        
+        # Analyze what Otto is providing and store for conditional SEO blocking
+        $has_otto_title = false;
+        $has_otto_description = false;
+        
+        if (!empty($change_data['header_replacements']) && is_array($change_data['header_replacements'])) {
+            foreach ($change_data['header_replacements'] as $item) {
+                if (!empty($item['type'])) {
+                    # Check if Otto has title
+                    if ($item['type'] == 'title' && !empty($item['recommended_value'])) {
+                        $has_otto_title = true;
+                    }
+                    # Check if Otto has description
+                    if ($item['type'] == 'meta') {
+                        if ((!empty($item['name']) && $item['name'] == 'description' && !empty($item['recommended_value'])) ||
+                            (!empty($item['property']) && strpos($item['property'], 'description') !== false && !empty($item['recommended_value']))) {
+                            $has_otto_description = true;
+                        }
+                    }
+                }
+            }
+        }
+        
+        # Check header_html_insertion for description
+        if (!empty($change_data['header_html_insertion'])) {
+            if (preg_match('/<meta[^>]*name=["\']description["\'][^>]*>/i', $change_data['header_html_insertion'])) {
+                $has_otto_description = true;
+            }
+        }
+        
+        # Store blocking flags to pass to handle_route_html
+        # This will be added to the internal fetch URL as parameters
+        $change_data['_otto_blocking'] = array(
+            'block_title' => $has_otto_title,
+            'block_description' => $has_otto_description
+        );
+        
+        # Process the route with the suggestions data
+        return $this->handle_route_html($route, $change_data);
         
     }
 
@@ -122,56 +206,124 @@ Class Metasync_otto_html{
 
     function handle_route_html($route, $replacement_data){
 
-        # lablel the Otto Route 
-        # label otto requests to avoid loops
-        $request_body = add_query_arg(
-            [
-                'is_otto_page_fetch' => 1
-            ],
-            $route
-        );
+        # Detect if current page uses Brizy and disable SG Cache if so
+        # Using global function defined in otto_pixel.php
+        if (function_exists('metasync_otto_disable_sg_cache_for_brizy')) {
+            metasync_otto_disable_sg_cache_for_brizy();
+        }
 
+        # lablel the Otto Route
+        # label otto requests to avoid loops
+        // $request_body = add_query_arg(
+        //     [
+        //         'is_otto_page_fetch' => 1
+        //     ],
+        //     $route
+        // );
+        # Add blocking flags as URL parameters (no database writes!)
+        $url_params = ['is_otto_page_fetch' => 1];
+        
+        # Add blocking flags if available
+        if (!empty($replacement_data['_otto_blocking'])) {
+            $url_params['otto_block_title'] = $replacement_data['_otto_blocking']['block_title'] ? '1' : '0';
+            $url_params['otto_block_desc'] = $replacement_data['_otto_blocking']['block_description'] ? '1' : '0';
+        }
+        
+        $request_body = add_query_arg($url_params, $route);
+        
+        # TUNNEL/PROXY SUPPORT: If site is behind a tunnel (ngrok, zrok, etc.)
+        # and loopback requests fail, try using localhost instead
+        $request_body = apply_filters('metasync_otto_internal_fetch_url', $request_body, $route);
 		# set cookie header var
 		$cookie_header = '';
 		
 		# loop cookies to set header
 		foreach ($_COOKIE as $name => $value) {
 			
+            # handle array values by converting to string
+			$cookie_value = is_array($value) ? serialize($value) : $value;
+
 			# add cookie to header
-			$cookie_header .= $name . '=' . $value . '; ';
+			# $cookie_header .= $name . '=' . $value . '; ';
+            $cookie_header .= $name . '=' . $cookie_value . '; ';
 		}
 		
 		# trim the string
 		$cookie_header = rtrim($cookie_header, '; ');
 
-		# Set up the request arguments for wp_remote_get
+		# Allow timeout customization for slow tunnel environments
+		$fetch_timeout = apply_filters('metasync_otto_internal_fetch_timeout', 5);
+		
 		$args = array(
-			'sslverify' => false,
+			'sslverify' => false, // Disabled for localhost/tunnel environments
+			'timeout' => $fetch_timeout, // Configurable timeout for tunnels
+			'redirection' => 5,
+			'httpversion' => '1.1',
 			'headers' => array(
 				'Cookie' => $cookie_header,
+				'Cache-Control' => 'no-cache, no-store, must-revalidate',
+				'Pragma' => 'no-cache',
+				'X-OTTO-Internal-Fetch' => '1',
+				'User-Agent' => 'MetaSync-OTTO-SSR/3.0',
+				'X-Forwarded-Host' => $_SERVER['HTTP_HOST'] ?? '', // Preserve original host for tunnels
 			)
 		);
-		
+
         # get the associateed route html
         $route_html = wp_remote_get($request_body, $args);
-		
+
+		# Check for timeout or connection errors
+		if (is_wp_error($route_html)) {
+			$error_msg = $route_html->get_error_message();
+			error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ' DEBUG: FAILED - wp_remote_get error: ' . $error_msg . ' for route: ' . $route);
+			return false;
+		}
+
         # get body
         $html_body = wp_remote_retrieve_body($route_html);
 
         # Get the response code
         $response_code = wp_remote_retrieve_response_code($route_html);
 
+
         # check not empty
         if(empty($html_body) || $response_code !== 200){
-            
+			error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ' DEBUG: FAILED - Empty body or non-200 status for route: ' . $route);
             return false;
         }
+
+        # Remove XML declaration
+        $html_body = preg_replace('/<\?xml[^?]*\?>\s*/i', '', $html_body);
 
         # now that the html is not empty
         # load it into the simple html dom
         $this->dom->load($html_body);
 
+        # Force UTF-8 charset to preserve emojis and special characters
+        # This overrides any charset detection from HTML meta tags
+        $this->dom->_charset = 'UTF-8';
+        $this->dom->_target_charset = 'UTF-8';
+
+        # PERFORMANCE OPTIMIZATION: Pre-cache commonly accessed DOM elements
+        # This eliminates 8-10 full DOM traversals per page
+        $this->cache_elements();
+
+        # PERFORMANCE OPTIMIZATION: Enable deferred reload to skip intermediate reloads
+        # This reduces 6-10 DOM serialize/deserialize cycles to just 1 final reload
+        $this->deferred_reload = true;
+
         # now lets do the magic
+
+        # COMPATIBILITY FIX: Transform 'value' to 'recommended_value' if needed
+        # Some API versions return 'value' instead of 'recommended_value'
+        if (!empty($replacement_data['header_replacements'])) {
+            foreach ($replacement_data['header_replacements'] as &$item) {
+                if (isset($item['value']) && !isset($item['recommended_value'])) {
+                    $item['recommended_value'] = $item['value'];
+                }
+            }
+            unset($item); // Break reference
+        }
 
         # start the header html insertion
         $this->insert_header_html($replacement_data);
@@ -188,11 +340,72 @@ Class Metasync_otto_html{
         # final cleanup: ensure metasync_optimized attribute is removed from AMP pages
         $this->cleanup_amp_metasync_attribute();
 
-        # save the document
-        $this->save_reload();
+        # CRITICAL FIX: SimpleHtmlDom save() doesn't persist outertext/innertext changes
+        # Use the same manual string replacement approach as process_html_directly
+        $this->deferred_reload = false;
 
-        # return the dom html
-        return $this->dom;
+        # Get the HTML as string
+        $result_html = $this->dom->save();
+
+        # Apply manual replacements (same logic as process_html_directly)
+
+        # Apply header replacements manually
+        if (!empty($replacement_data['header_replacements'])) {
+            foreach ($replacement_data['header_replacements'] as $item) {
+                $type = $item['type'] ?? '';
+                $value = $item['recommended_value'] ?? $item['value'] ?? '';
+
+                if (empty($value)) continue;
+
+                if ($type === 'title') {
+                    $new_value = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+                    $result_html = preg_replace('/<title[^>]*>.*?<\/title>/is', '<title>' . $new_value . '</title>', $result_html, 1);
+                } elseif ($type === 'meta') {
+                    $name = $item['name'] ?? '';
+                    $property = $item['property'] ?? '';
+                    $new_value = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+
+                    if (!empty($name)) {
+                        $pattern = '/<meta\s+(?:name=["\']' . preg_quote($name, '/') . '["\']\s+content=["\'][^"\']*["\']|content=["\'][^"\']*["\']\s+name=["\']' . preg_quote($name, '/') . '["\'])\s*\/?>/i';
+                        $replacement = '<meta name="' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '" content="' . $new_value . '">';
+                        $count = 0;
+                        $result_html = preg_replace($pattern, $replacement, $result_html, -1, $count);
+
+                        if ($count === 0) {
+                            $result_html = preg_replace('/(<head[^>]*>)/i', '$1' . "\n" . $replacement, $result_html, 1);
+                        }
+                    } elseif (!empty($property)) {
+                        $pattern = '/<meta\s+property=["\']' . preg_quote($property, '/') . '["\']\s+content=["\'][^"\']*["\']\s*\/?>/i';
+                        $replacement = '<meta property="' . htmlspecialchars($property, ENT_QUOTES, 'UTF-8') . '" content="' . $new_value . '">';
+                        $count = 0;
+                        $result_html = preg_replace($pattern, $replacement, $result_html, -1, $count);
+
+                        if ($count === 0) {
+                            $result_html = preg_replace('/(<head[^>]*>)/i', '$1' . "\n" . $replacement, $result_html, 1);
+                        }
+                    }
+                } elseif ($type === 'h1' || $type === 'heading') {
+                    $new_value = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+                    $result_html = preg_replace('/<h1[^>]*>.*?<\/h1>/is', '<h1>' . $new_value . '</h1>', $result_html, 1);
+                }
+            }
+        }
+
+        # Apply insertions
+        if (!empty($replacement_data['header_html_insertion'])) {
+            $result_html = preg_replace('/(<\/head>)/i', $replacement_data['header_html_insertion'] . "\n" . '$1', $result_html, 1);
+        }
+        if (!empty($replacement_data['body_top_html_insertion'])) {
+            $result_html = preg_replace('/(<body[^>]*>)/i', '$1' . "\n" . $replacement_data['body_top_html_insertion'], $result_html, 1);
+        }
+        if (!empty($replacement_data['body_bottom_html_insertion'])) {
+            $result_html = preg_replace('/(<\/body>)/i', $replacement_data['body_bottom_html_insertion'] . "\n" . '$1', $result_html, 1);
+        }
+        if (!empty($replacement_data['footer_html_insertion'])) {
+            $result_html = preg_replace('/(<\/html>)/i', $replacement_data['footer_html_insertion'] . "\n" . '$1', $result_html, 1);
+        }
+
+        return $result_html;
     }
 
     # do the footer html insertion
@@ -203,8 +416,8 @@ Class Metasync_otto_html{
             return;
         }
 
-        # otherwise do the replacement
-        $footer = $this->dom->find('footer', 0);
+        # OPTIMIZED: Use cached element instead of DOM traversal
+        $footer = $this->get_cached_element('footer');
 
         # check that footer is object
         if(!is_object($footer) || !isset($footer->innertext, $footer->outertext)){
@@ -215,7 +428,7 @@ Class Metasync_otto_html{
         $attributes_string = $this->get_tag_attributes($footer);
 
         # now do the actual html replacements
-        $footer->outertext = '<footer 7' . $attributes_string . '>' . $footer->innertext . $replacement_data['footer_html_insertion'].'</footer>';
+        $footer->outertext = '<footer' . $attributes_string . '>' . $footer->innertext . $replacement_data['footer_html_insertion'].'</footer>';
 
         # save the document
         $this->save_reload();
@@ -232,6 +445,18 @@ Class Metasync_otto_html{
 
         # do the body substitutions
         $this->do_body_substitutions($replacement_data);
+
+        # Check if the feature is enabled in general settings (Post/Page Editor Settings)
+        $general_settings = get_option('metasync_options')['general'] ?? [];
+        if (!empty($general_settings['open_external_links']) && $general_settings['open_external_links'] == '1') {
+            $this->add_target_blank_to_external_links();
+        }
+
+        # Check if the feature is enabled in seo_controls settings (Indexation Control)
+        $seo_controls = get_option('metasync_options')['seo_controls'] ?? [];
+        if (!empty($seo_controls['add_nofollow_to_external_links']) && $seo_controls['add_nofollow_to_external_links'] === 'true') {
+            $this->add_nofollow_to_external_links();
+        }
     }
 
     # body substitutions data
@@ -275,24 +500,80 @@ Class Metasync_otto_html{
      * @see do_body_substitutions();
      */
 
-    # image substitions 
+    # image substitions
     function handle_images($image_data){
 
-        # find all images in dom
-        $images = $this->dom->find('img');
-    
-        # loop images and handle alt
+        if (empty($image_data) || !is_array($image_data)) {
+            return;
+        }
+
+        # OPTIMIZED: Use cached images instead of DOM traversal
+        $images = $this->get_cached_element('imgs', []);
+
+        if (empty($images)) {
+            return;
+        }
+
+        # PERFORMANCE OPTIMIZATION: O(n²) reduced to O(n)
+        # Single pass with hash map lookup instead of nested loop
         foreach($images AS $key => $image){
+            # Get image src
+            $image_src = $image->src;
 
-            # loop image data to identify matching src
-            foreach ($image_data as $src => $alt_text) {
-                
-                # check if row src matches image srce
-                if($src == $image->src){
+            if (empty($image_src)) {
+                continue;
+            }
 
-                    # set the alt text
-                    $image->alt = $alt_text;
+            # Hash map lookup O(1) instead of loop O(n)
+            if (isset($image_data[$image_src])) {
+                # set the alt text
+                $image->alt = $image_data[$image_src];
+
+                $multi_view_attr = $image->getAttribute('data-et-multi-view');
+                if (!empty($multi_view_attr)) {
+                    $this->update_divi_multi_view_alt($image, $image_data[$image_src]);
                 }
+            }
+        }
+    }
+
+    /**
+     * Update Divi's multi-view data attribute with alt text
+     * Divi stores image attributes in a JSON structure within data-et-multi-view
+     * 
+     * @param object $image The image DOM element
+     * @param string $alt_text The alt text to set
+     */
+    private function update_divi_multi_view_alt($image, $alt_text) {
+        $multi_view_attr = $image->getAttribute('data-et-multi-view');
+        
+        if (!empty($multi_view_attr)) {
+            try {
+                # Decode the JSON
+                $multi_view_data = json_decode($multi_view_attr, true);
+                
+                if ($multi_view_data && isset($multi_view_data['schema']['attrs'])) {
+                    # Update alt in desktop view
+                    if (isset($multi_view_data['schema']['attrs']['desktop'])) {
+                        $multi_view_data['schema']['attrs']['desktop']['alt'] = $alt_text;
+                    }
+                    
+                    # Update alt in other views if they exist (phone, tablet, etc.)
+                    foreach ($multi_view_data['schema']['attrs'] as $view => $attrs) {
+                        if (isset($attrs['alt'])) {
+                            $multi_view_data['schema']['attrs'][$view]['alt'] = $alt_text;
+                        }
+                    }
+                    
+                    # Encode back to JSON and update the attribute
+                    $updated_json = json_encode($multi_view_data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                    $image->setAttribute('data-et-multi-view', $updated_json);
+                    
+                   # error_log('MetaSync OTTO DEBUG: Updated Divi multi-view alt text');
+                }
+            } catch (Exception $e) {
+                # If JSON decode fails, just log and continue
+                # error_log('MetaSync OTTO DEBUG: Failed to update Divi multi-view - ' . $e->getMessage());
             }
         }
     }
@@ -345,6 +626,137 @@ Class Metasync_otto_html{
 
         }
     }
+    
+    /**
+     * Add rel="nofollow" attribute to external links
+     * Works for both buffer and HTTP rendering methods
+     * Only processes links that don't already have rel="nofollow"
+     */
+    function add_nofollow_to_external_links(){
+        
+        # find all links in the body
+        $links = $this->dom->find('a');
+        
+        # get home URL for comparison
+        $home_url = rtrim(home_url(), '/');
+        $home_url_lower = strtolower($home_url);
+        
+        # loop through all links
+        foreach ($links as $key => $link) {
+            
+            # get the href attribute
+            $href = $link->href ?? '';
+            
+            # skip if href is empty
+            if (empty($href)) {
+                continue;
+            }
+            
+            # check if link is external
+            if ($this->is_external_link($href, $home_url, $home_url_lower)) {
+                # get existing rel attribute
+                $existing_rel = $link->rel ?? '';
+                
+                # check if nofollow already exists
+                if (empty($existing_rel)) {
+                    # no rel attribute, add nofollow
+                    $link->rel = 'nofollow';
+                } elseif (strpos($existing_rel, 'nofollow') === false) {
+                    # rel exists but nofollow is not present, add it
+                    $link->rel = trim($existing_rel . ' nofollow');
+                }
+                # if nofollow already exists, do nothing
+            }
+        }
+        
+        # Note: No need to call save_reload() here - it's called at the end of process_html_directly()
+        # This avoids redundant DOM save/reload operations and improves performance
+    }
+
+    /**
+     * Check if a URL is external
+     * 
+     * @param string $url The URL to check
+     * @param string $home_url The home URL without trailing slash
+     * @param string $home_url_lower Lowercase version of home URL
+     * @return bool True if external, false if internal
+     */
+    private function is_external_link($url, $home_url, $home_url_lower) {
+        # Empty or anchor-only links are internal
+        if (empty($url) || $url === '#' || strpos($url, '#') === 0) {
+            return false;
+        }
+
+        # Relative URLs (starting with /) are internal
+        if (strpos($url, '/') === 0 && strpos($url, '//') !== 0) {
+            return false;
+        }
+
+        # Check if URL starts with home URL (case-insensitive)
+        $url_lower = strtolower($url);
+        if (strpos($url_lower, $home_url_lower) === 0) {
+            return false;
+        }
+
+        # If it's a protocol-relative URL (//example.com), check if it matches our domain
+        if (strpos($url, '//') === 0) {
+            $parsed_home = parse_url($home_url);
+            $parsed_link = parse_url($url);
+            
+            if (isset($parsed_home['host']) && isset($parsed_link['host'])) {
+                if (strtolower($parsed_home['host']) === strtolower($parsed_link['host'])) {
+                    return false;
+                }
+            }
+        }
+
+        # All other URLs are considered external
+        return true;
+    }
+
+     /**
+     * Add target="_blank" attribute to external links
+     * Works for both buffer and HTTP rendering methods
+     * Only processes links that don't already have a target attribute
+     */
+    function add_target_blank_to_external_links(){
+        
+        # find all links in the body
+        $links = $this->dom->find('a');
+        
+        # get home URL for comparison
+        $home_url = rtrim(home_url(), '/');
+        $home_url_lower = strtolower($home_url);
+        
+        # loop through all links
+        foreach ($links as $key => $link) {
+            
+            # get the href attribute
+            $href = $link->href ?? '';
+            
+            # skip if href is empty or already has target attribute
+            if (empty($href) || !empty($link->target)) {
+                continue;
+            }
+            
+            # check if link is external
+            if ($this->is_external_link($href, $home_url, $home_url_lower)) {
+                # add target="_blank" attribute
+                $link->target = '_blank';
+                
+                # add rel="noopener noreferrer" for security
+                $existing_rel = $link->rel ?? '';
+                if (empty($existing_rel)) {
+                    $link->rel = 'noopener noreferrer';
+                } elseif (strpos($existing_rel, 'noopener') === false) {
+                    $link->rel = trim($existing_rel . ' noopener noreferrer');
+                }
+            }
+        }
+        
+        # Note: No need to call save_reload() here - it's called at the end of process_html_directly()
+        # This avoids redundant DOM save/reload operations and improves performance
+    }
 
     # body bottom html replacement code
     function do_body_bottom_html($insert_data){
@@ -354,8 +766,8 @@ Class Metasync_otto_html{
             return;
         }
 
-        # otherwise do the replacement
-        $body = $this->dom->find('body', 0);
+        # OPTIMIZED: Use cached body element
+        $body = $this->get_cached_element('body');
 
         # set the link property if not empty
         if(empty($body->outertext)){
@@ -367,7 +779,7 @@ Class Metasync_otto_html{
         $attributes_string = $this->get_tag_attributes($body);
 
         # now do the actual html replacements
-        $body->outertext = '<body 7' . $attributes_string . '>' . $body->innertext . $insert_data['body_bottom_html_insertion'].'</body>';
+        $body->outertext = '<body' . $attributes_string . '>' . $body->innertext . $insert_data['body_bottom_html_insertion'].'</body>';
 
         # save the document
         $this->save_reload();
@@ -381,14 +793,14 @@ Class Metasync_otto_html{
             return;
         }
 
-        # otherwise do the replacement
-        $body = $this->dom->find('body', 0);
+        # OPTIMIZED: Use cached body element
+        $body = $this->get_cached_element('body');
 
         # get the tag attributes
         $attributes_string = $this->get_tag_attributes($body);
 
         # now do the actual html replacements
-        $body->outertext = '<body 5' . $attributes_string . '>'.$insert_data['body_top_html_insertion'].$body->innertext . '</body>';
+        $body->outertext = '<body' . $attributes_string . '>'.$insert_data['body_top_html_insertion'].$body->innertext . '</body>';
     }
 
     # this function does the header replacements
@@ -397,7 +809,7 @@ Class Metasync_otto_html{
         # check that we have header replacements
         if(empty($replacement_data['header_replacements']) || !is_array($replacement_data['header_replacements'])){
             return;
-        }        
+        }
 
         # now lets do the replacement work
         foreach($replacement_data['header_replacements'] AS $key => $data){
@@ -412,7 +824,7 @@ Class Metasync_otto_html{
 
                 # handle the title logic
                 $this->replace_title($data);
-                
+
                 #
                 continue;
             }
@@ -428,7 +840,7 @@ Class Metasync_otto_html{
                     $link->href = $data['recommended_value'] ?? $link->href;
                 }
 
-                # 
+                #
                 continue;
             }
 
@@ -449,14 +861,17 @@ Class Metasync_otto_html{
         # set the selector
         $meta_selector = '';
 
-        # extend selector 
+        # extend selector
         if(!empty($name)){
-            $meta_selector .=   "meta[name=".trim($name)."],";
+            $meta_selector .= 'meta[name="' . trim($name) . '"]';
         }
 
         # extent if property is defined
         if(!empty($property)){
-            $meta_selector .= "meta[property=".trim($property)."]";
+            if (!empty($meta_selector)) {
+                $meta_selector .= ',';
+            }
+            $meta_selector .= 'meta[property="' . trim($property) . '"]';
         }
 
         # find the meta gat in the dom
@@ -465,21 +880,36 @@ Class Metasync_otto_html{
         # if tag not exists add it
         if(empty($meta_tag)){
             if($data['type'] == 'meta'){
-            
-                # get the attribute 
+
+                # get the attribute
                 $attribute = $property ? 'property' : 'name';
-                
+
                 # call the create metatag function
-                $this->create_metatag($attribute, $data);
+                $result = $this->create_metatag($attribute, $data);
             }
 
-            # otherwise reut
+            # return after creation
             return;
         }
 
-        # do the replacement
-        $meta_tag->content = $data['recommended_value'] ?? $meta_tag->content;
-        
+        # CRITICAL FIX: Clear cache and get fresh reference
+        $this->cached_elements = [];
+
+        # Get fresh meta tag reference using same selector
+        $meta_tag_fresh = $this->dom->find($meta_selector, 0);
+
+        if ($meta_tag_fresh) {
+            # Use outertext for replacement
+            $new_value = htmlspecialchars($data['recommended_value'] ?? '', ENT_QUOTES, 'UTF-8');
+
+            # Determine attribute name
+            $attr_name = !empty($data['name']) ? 'name' : 'property';
+            $attr_value = !empty($data['name']) ? $data['name'] : ($data['property'] ?? '');
+
+            # Build new meta tag
+            $meta_tag_fresh->outertext = '<meta ' . $attr_name . '="' . htmlspecialchars($attr_value, ENT_QUOTES, 'UTF-8') . '" content="' . $new_value . '">';
+        }
+
 
     }
 
@@ -491,15 +921,23 @@ Class Metasync_otto_html{
 
         # if none
         if($title === false){
-
             return $this->create_title($title_data);
         }
 
-        # add the recommended value to the title
-        $title->innertext = $title_data['recommended_value'];
+        # CRITICAL FIX: Clear element cache and get fresh reference
+        $this->cached_elements = [];
 
-        # save and reload DOM
-        $this->save_reload();
+        # Get fresh title element reference
+        $title_fresh = $this->dom->find('title', 0);
+
+        if ($title_fresh) {
+            # Use outertext for replacement
+            $new_value = htmlspecialchars($title_data['recommended_value'], ENT_QUOTES, 'UTF-8');
+            $title_fresh->outertext = '<title>' . $new_value . '</title>';
+        }
+
+        # Don't save_reload here - will happen at the end
+        # $this->save_reload();
     }
 
     # Function to create a title when it's missing
@@ -539,7 +977,7 @@ Class Metasync_otto_html{
         $attributes_string = !empty($attributes) ? ' ' . implode(' ', $attributes) : '';
 
         # Rebuild the <head> tag, inserting the <title> at the beginning
-        $head->outertext = '<head 2' . $attributes_string . '>' . $title_html . $head->innertext . '</head>';
+        $head->outertext = '<head' . $attributes_string . '>' . $title_html . $head->innertext . '</head>';
 
         # save and reload DOM
         $this->save_reload();
@@ -582,7 +1020,7 @@ Class Metasync_otto_html{
         $attributes_string = !empty($attributes) ? ' ' . implode(' ', $attributes) : '';
 
         # Rebuild the <head> tag, inserting the <title> at the beginning
-        $head->outertext = '<head 5' . $attributes_string . '>' . $meta_tag . $head->innertext . '</head>';
+        $head->outertext = '<head' . $attributes_string . '>' . $meta_tag . $head->innertext . '</head>';
 
         # save and reload DOM
         $this->save_reload();
@@ -678,16 +1116,55 @@ Class Metasync_otto_html{
         }
     }
 
+    /**
+     * PERFORMANCE OPTIMIZATION: Pre-cache commonly accessed DOM elements
+     * Reduces 8-10 full DOM traversals to 1 initial traversal
+     * Call this once after loading HTML, before processing
+     */
+    private function cache_elements() {
+        if (!$this->dom) {
+            return;
+        }
+
+        # Cache all commonly accessed elements in one pass
+        $this->cached_elements = [
+            'html'      => $this->dom->find('html', 0),
+            'head'      => $this->dom->find('head', 0),
+            'body'      => $this->dom->find('body', 0),
+            'footer'    => $this->dom->find('footer', 0),
+            'title'     => $this->dom->find('title', 0),
+            'imgs'      => $this->dom->find('img'),
+            'links'     => $this->dom->find('a'),
+            'canonical' => $this->dom->find('link[rel="canonical"]', 0),
+        ];
+    }
+
+    /**
+     * Get cached element by key, with fallback to DOM find
+     * @param string $key Element key from cache
+     * @param mixed $fallback Fallback value if not cached
+     * @return mixed Cached element or fallback
+     */
+    private function get_cached_element($key, $fallback = null) {
+        return $this->cached_elements[$key] ?? $fallback;
+    }
+
     # this function saves are reloads the dom for modifications to avoid conflict
     function save_reload(){
 
+        # PERFORMANCE OPTIMIZATION: Skip reload if deferred
+        # This reduces multiple serialize/deserialize cycles to just one final reload
+        if ($this->deferred_reload) {
+            return;
+        }
+
         # Cleanup metasync_optimized attribute on AMP pages before saving
         $this->cleanup_amp_metasync_attribute();
-        
+
         # DISABLED: Cache file creation temporarily disabled
 
         # if(file_put_contents($this->html_file, $this->dom)){
-            
+
             # load the modified file to the DOM
            # $this->dom = new HtmlDocument($this->html_file );
         # }
@@ -696,7 +1173,7 @@ Class Metasync_otto_html{
         # reson for adding is to prevent caching logged in user pages
         # why not just skip saving? it broke the DOM Library
         # check user is logged in clear the file
-        
+
 		# if(is_user_logged_in()) {
 		#	unlink($this->html_file);
 		# }
@@ -706,12 +1183,345 @@ Class Metasync_otto_html{
         if($this->dom){
             # Get current DOM as HTML string
             $current_html = $this->dom->save();
-            
+
             # Reload DOM from the HTML string to refresh internal state
             # This replaces the file save/reload cycle that SimpleHtmlDOM expects
             $this->dom->load($current_html);
+
+            # Force UTF-8 charset after reload to preserve emojis
+            $this->dom->_charset = 'UTF-8';
+            $this->dom->_target_charset = 'UTF-8';
         }
-        
+
+    }
+
+    /**
+     * Process HTML directly without HTTP request (for buffer approach)
+     * This is the FAST path - eliminates the internal wp_remote_get call
+     * 
+     * CRITICAL: This method is called from the output buffer callback.
+     * If it fails, we must return false so the original HTML can be used.
+     * 
+     * @param string $html The raw HTML captured from output buffer
+     * @param array $replacement_data OTTO suggestions/replacement data
+     * @return HtmlDocument|false Modified DOM or false on failure
+     * @since 2.6.0
+     */
+    function process_html_directly($html, $replacement_data) {
+        try {
+            # Validate inputs
+            if (empty($html) || empty($replacement_data) || !is_array($replacement_data)) {
+                return false;
+            }
+
+            # Validate HTML is actual HTML content
+            if (stripos($html, '<html') === false && stripos($html, '<!DOCTYPE') === false) {
+                return false;
+            }
+
+            # Remove XML declaration if present
+            $html = preg_replace('/<\?xml[^?]*\?>\s*/i', '', $html);
+
+            # Load HTML into DOM
+            $this->dom->load($html);
+
+            # Force UTF-8 charset to preserve emojis and special characters
+            $this->dom->_charset = 'UTF-8';
+            $this->dom->_target_charset = 'UTF-8';
+
+            # PERFORMANCE OPTIMIZATION: Pre-cache commonly accessed DOM elements
+            # This eliminates 8-10 full DOM traversals per page
+            $this->cache_elements();
+
+            # PERFORMANCE OPTIMIZATION: Enable deferred reload to skip intermediate reloads
+            # This reduces 6-10 DOM serialize/deserialize cycles to just 1 final reload
+            $this->deferred_reload = true;
+
+            # Apply blocking flags if available (for SEO plugin coordination)
+            if (!empty($replacement_data['_otto_blocking'])) {
+                $block_title = $replacement_data['_otto_blocking']['block_title'] ?? false;
+                $block_description = $replacement_data['_otto_blocking']['block_description'] ?? false;
+
+                # Remove SEO plugin meta tags if OTTO is providing them
+                if ($block_title || $block_description) {
+                    $this->remove_conflicting_seo_tags($block_title, $block_description);
+                }
+            }
+
+            # Apply all OTTO modifications (same as handle_route_html but without HTTP fetch)
+
+            # COMPATIBILITY FIX: Transform 'value' to 'recommended_value' if needed
+            # Some API versions return 'value' instead of 'recommended_value'
+            if (!empty($replacement_data['header_replacements'])) {
+                foreach ($replacement_data['header_replacements'] as &$item) {
+                    if (isset($item['value']) && !isset($item['recommended_value'])) {
+                        $item['recommended_value'] = $item['value'];
+                    }
+                }
+                unset($item); // Break reference
+            }
+
+            # 1. Header HTML insertion
+            $this->insert_header_html($replacement_data);
+
+            # 2. Header replacements (title, meta, canonical)
+            $this->do_header_replacements($replacement_data);
+
+            # 3. Body replacements (top, bottom, substitutions)
+            $this->do_body_replacements($replacement_data);
+
+            # 4. Footer HTML insertion
+            $this->do_footer_html_insertion($replacement_data);
+
+            # 5. Final cleanup for AMP pages
+            $this->cleanup_amp_metasync_attribute();
+
+            # CRITICAL FIX: Clear cached elements and force DOM to refresh
+            $this->deferred_reload = false;
+            $this->cached_elements = []; // Clear our custom cache
+
+            # Clear SimpleHtmlDom's internal cache
+            if (method_exists($this->dom, 'clear')) {
+                $this->dom->clear();
+            }
+
+
+            # Try getting HTML via root element instead of save()
+            $root = $this->dom->root;
+            if ($root && isset($root->outertext)) {
+                $result_html = $root->outertext;
+            } else {
+                # Fallback to save() method
+                $result_html = $this->dom->save();
+            }
+
+            # DEBUG: Check if DOM changes persisted
+            if (preg_match('/<title[^>]*>(.*?)<\/title>/is', $result_html, $matches)) {
+            }
+
+            # Apply header replacements manually via string replacement
+            if (!empty($replacement_data['header_replacements'])) {
+
+                foreach ($replacement_data['header_replacements'] as $idx => $item) {
+                    $type = $item['type'] ?? '';
+                    $value = $item['recommended_value'] ?? $item['value'] ?? '';
+
+
+                    if (empty($value)) {
+                        continue;
+                    }
+
+                    if ($type === 'title') {
+                        # Replace title tag
+                        $new_value = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+                        $result_html = preg_replace('/<title[^>]*>.*?<\/title>/is', '<title>' . $new_value . '</title>', $result_html, 1);
+                    } elseif ($type === 'meta') {
+                        $name = $item['name'] ?? '';
+                        $property = $item['property'] ?? '';
+                        $new_value = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+
+                        if (!empty($name)) {
+                            # MEMORY OPTIMIZED: Count meta tags without storing all matches
+                            # preg_match_all requires $matches, so we pass it but unset immediately
+                            $before_count = preg_match_all('/<meta[^>]+name=["\']' . preg_quote($name, '/') . '["\'][^>]*>/i', $result_html, $before_matches);
+
+                            # Free memory immediately after use
+                            unset($before_matches);
+
+                            # IMPROVED FIX: Remove ALL existing meta tags with this name
+                            # This pattern matches ANY meta tag with name="X" regardless of:
+                            # - Attribute order (name before/after content)
+                            # - Additional attributes (id, class, data-*, etc.)
+                            # - Quote style (single or double quotes)
+                            # - Whitespace variations
+                            # The pattern uses [^>]* to match ANY characters until the closing >
+                            $removed_count = preg_replace_callback(
+                                '/<meta\s+[^>]*name=["\']' . preg_quote($name, '/') . '["\'][^>]*>/i',
+                                function($match) use ($log_file) {
+                                    return ''; // Remove the tag
+                                },
+                                $result_html,
+                                -1, // Remove all occurrences
+                                $total_removed
+                            );
+
+                            # Update the HTML with removed tags
+                            if ($total_removed > 0) {
+                                $result_html = $removed_count;
+                            }
+
+
+                            # MEMORY OPTIMIZED: Verify removal - count again but free memory immediately
+                            $after_count = preg_match_all('/<meta[^>]+name=["\']' . preg_quote($name, '/') . '["\'][^>]*>/i', $result_html, $after_matches);
+                            unset($after_matches);
+
+                            # Now insert ONE new meta tag at the TOP of <head>
+                            $replacement = '<meta name="' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '" content="' . $new_value . '" data-otto="true">';
+                            $result_html = preg_replace('/(<head[^>]*>)/i', '$1' . "\n" . $replacement, $result_html, 1);
+                        } elseif (!empty($property)) {
+                            # Replace meta property tag
+                            $pattern = '/<meta\s+property=["\']' . preg_quote($property, '/') . '["\']\s+content=["\'][^"\']*["\']\s*\/?>/i';
+                            $replacement = '<meta property="' . htmlspecialchars($property, ENT_QUOTES, 'UTF-8') . '" content="' . $new_value . '">';
+
+                            if (preg_match($pattern, $result_html)) {
+                                $result_html = preg_replace($pattern, $replacement, $result_html, 1);
+                            } else {
+                                # Meta tag doesn't exist, insert it in head
+                                $result_html = preg_replace('/(<head[^>]*>)/i', '$1' . "\n" . $replacement, $result_html, 1);
+                            }
+                        }
+                    } elseif ($type === 'h1' || $type === 'heading') {
+                        # Replace first H1 tag
+                        $new_value = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+                        $pattern = '/<h1[^>]*>.*?<\/h1>/is';
+
+                        if (preg_match($pattern, $result_html)) {
+                            $result_html = preg_replace($pattern, '<h1>' . $new_value . '</h1>', $result_html, 1);
+                        } else {
+                        }
+                    }
+                }
+            }
+
+            # Apply header HTML insertion (for schema, etc.)
+            if (!empty($replacement_data['header_html_insertion'])) {
+                $header_html = $replacement_data['header_html_insertion'];
+                # Insert before </head>
+                $result_html = preg_replace('/(<\/head>)/i', $header_html . "\n" . '$1', $result_html, 1);
+            }
+
+            # Apply body top HTML insertion
+            if (!empty($replacement_data['body_top_html_insertion'])) {
+                $body_top_html = $replacement_data['body_top_html_insertion'];
+                # Insert after <body>
+                $result_html = preg_replace('/(<body[^>]*>)/i', '$1' . "\n" . $body_top_html, $result_html, 1);
+            }
+
+            # Apply body bottom HTML insertion
+            if (!empty($replacement_data['body_bottom_html_insertion'])) {
+                $body_bottom_html = $replacement_data['body_bottom_html_insertion'];
+                # Insert before </body>
+                $result_html = preg_replace('/(<\/body>)/i', $body_bottom_html . "\n" . '$1', $result_html, 1);
+            }
+
+            # Apply footer HTML insertion
+            if (!empty($replacement_data['footer_html_insertion'])) {
+                $footer_html = $replacement_data['footer_html_insertion'];
+                # Insert before </html>
+                $result_html = preg_replace('/(<\/html>)/i', $footer_html . "\n" . '$1', $result_html, 1);
+            }
+
+            # DEBUG: Check what we're returning
+            if (preg_match('/<title[^>]*>(.*?)<\/title>/is', $result_html, $matches)) {
+            }
+
+            # FINAL VERIFICATION: Count meta descriptions in returned HTML
+            $final_meta_count = preg_match_all('/<meta[^>]+name=["\']description["\'][^>]*>/i', $result_html, $final_meta_matches);
+            if ($final_meta_count > 0) {
+                foreach ($final_meta_matches[0] as $idx => $meta) {
+                }
+            }
+
+            if ($final_meta_count > 1) {
+            }
+
+            # AGGRESSIVE DUPLICATE REMOVAL: Remove any meta description without data-otto marker
+            # This catches meta descriptions added by theme/plugins/custom code AFTER OTTO processing
+            # Especially needed when no SEO plugin is active but theme adds meta tags
+
+            $removal_count = 0;
+            $result_html = preg_replace_callback(
+                '/<meta\s+([^>]*name=["\']description["\'][^>]*)>/i',
+                function($match) use ($log_file, &$removal_count) {
+                    # Keep only if it has data-otto="true"
+                    if (stripos($match[1], 'data-otto') !== false) {
+                        return $match[0]; // Keep OTTO's meta tag
+                    }
+                    # Remove any other meta description
+                    $removal_count++;
+                    return '';
+                },
+                $result_html
+            );
+
+
+            # MEMORY OPTIMIZED: Free all large objects and arrays before returning
+            # This ensures memory is released immediately, especially important for high-traffic sites
+            unset($final_meta_matches, $matches);
+
+            # Clear SimpleHtmlDom internal cache to free memory
+            # Note: We don't unset $this->dom as the object may be reused
+            if ($this->dom && method_exists($this->dom, 'clear')) {
+                $this->dom->clear();
+            }
+
+            # Clear element cache array
+            $this->cached_elements = [];
+
+            return $result_html;
+
+        } catch (Exception $e) {
+            error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ': Exception in process_html_directly - ' . $e->getMessage());
+            return false;
+        } catch (Error $e) {
+            error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ': Error in process_html_directly - ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Remove conflicting SEO plugin meta tags from DOM
+     * Called when OTTO is providing its own title/description
+     * 
+     * @param bool $remove_title Remove title-related tags
+     * @param bool $remove_description Remove description-related tags
+     * @since 2.6.0
+     */
+    private function remove_conflicting_seo_tags($remove_title = false, $remove_description = false) {
+        if (!$this->dom) {
+            return;
+        }
+
+        # Find head element
+        $head = $this->dom->find('head', 0);
+        if (!$head) {
+            return;
+        }
+
+        if ($remove_description) {
+            # Remove meta description tags from SEO plugins
+            $desc_selectors = [
+                'meta[name=description]',
+                'meta[property=og:description]',
+                'meta[name=twitter:description]',
+            ];
+
+            foreach ($desc_selectors as $selector) {
+                $tags = $this->dom->find($selector);
+                foreach ($tags as $tag) {
+                    # Check if this is from an SEO plugin (has specific patterns)
+                    $tag->outertext = ''; # Remove the tag
+                }
+            }
+        }
+
+        if ($remove_title) {
+            # Remove Open Graph and Twitter title tags (keep main <title>)
+            $title_selectors = [
+                'meta[property=og:title]',
+                'meta[name=twitter:title]',
+            ];
+
+            foreach ($title_selectors as $selector) {
+                $tags = $this->dom->find($selector);
+                foreach ($tags as $tag) {
+                    $tag->outertext = ''; # Remove the tag
+                }
+            }
+        }
+
+        # Save changes
+        $this->save_reload();
     }
 
 

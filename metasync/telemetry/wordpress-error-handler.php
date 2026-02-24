@@ -259,9 +259,54 @@ class MetaSync_WordPress_Error_Handler {
     }
     
     /**
+     * Check if the current environment is localhost/development
+     */
+    private function is_localhost() {
+        $host = parse_url(home_url(), PHP_URL_HOST);
+        
+        // Check for common localhost patterns
+        $localhost_patterns = [
+            'localhost',
+            '127.0.0.1',
+            '::1',
+            '0.0.0.0',
+            '.local',
+            '.test',
+            '.dev',
+            '.localhost'
+        ];
+        
+        foreach ($localhost_patterns as $pattern) {
+            if (strpos($host, $pattern) !== false) {
+                return true;
+            }
+        }
+        
+        // Check if host is an IP address in private ranges
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            $ip = ip2long($host);
+            if ($ip !== false) {
+                // Private IP ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+                if (($ip >= ip2long('10.0.0.0') && $ip <= ip2long('10.255.255.255')) ||
+                    ($ip >= ip2long('172.16.0.0') && $ip <= ip2long('172.31.255.255')) ||
+                    ($ip >= ip2long('192.168.0.0') && $ip <= ip2long('192.168.255.255'))) {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+
+    /**
      * Send error to Sentry with required metadata
      */
     private function send_to_sentry($error_type, $message, $context = array()) {
+        // Skip sending to Sentry if running on localhost/development environment
+        if ($this->is_localhost()) {
+            return;
+        }
+        
         // Generate error fingerprint for deduplication
         $error_fingerprint = $this->generate_error_fingerprint($error_type, $message, $context);
         
@@ -296,28 +341,18 @@ class MetaSync_WordPress_Error_Handler {
         // Determine severity level
         $level = $this->get_sentry_level($error_type);
         
-        // Track if Sentry call was successful
+        // Send directly to Sentry (wordpress-error-handler is the primary/only error capture point)
         $sentry_success = false;
-        
-        // Send to Sentry using the WordPress integration
+
         if (function_exists('metasync_sentry_capture_exception') && isset($context['exception_object'])) {
             $sentry_success = metasync_sentry_capture_exception($context['exception_object'], $context);
         } elseif (function_exists('metasync_sentry_capture_message')) {
             $sentry_success = metasync_sentry_capture_message($message, $level, $context);
         }
-        
+
         // Only mark as sent if Sentry call was successful
         if ($sentry_success) {
             $this->mark_error_as_sent($error_fingerprint);
-        }
-        
-        // Also send to custom telemetry backend if available (regardless of Sentry success)
-        if (function_exists('metasync_telemetry')) {
-            if (isset($context['exception_object'])) {
-                metasync_telemetry()->send_exception($context['exception_object'], $context);
-            } else {
-                metasync_telemetry()->send_message($message, $level, $context);
-            }
         }
     }
     
