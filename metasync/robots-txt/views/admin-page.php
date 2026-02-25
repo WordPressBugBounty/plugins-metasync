@@ -36,12 +36,18 @@ $robots_url = trailingslashit($site_url) . 'robots.txt';
                     <h2><?php esc_html_e('Edit robots.txt', 'metasync'); ?></h2>
                     <div class="metasync-robots-info">
                         <span class="metasync-robots-status">
-                            <?php if ($file_exists): ?>
+                            <?php 
+                            $robots_txt = Metasync_Robots_Txt::get_instance();
+                            $is_virtual = $robots_txt->is_virtual_mode();
+                            if ($file_exists): ?>
                                 <span class="dashicons dashicons-yes-alt" style="color: #46b450;"></span>
-                                <?php esc_html_e('File exists', 'metasync'); ?>
+                                <?php esc_html_e('Generated', 'metasync'); ?>
+                                <?php if ($is_virtual): ?>
+                                    <span style="color: #2271b1; font-size: 12px; margin-left: 5px;">(Virtual)</span>
+                                <?php endif; ?>
                             <?php else: ?>
                                 <span class="dashicons dashicons-warning" style="color: #f0b849;"></span>
-                                <?php esc_html_e('File does not exist', 'metasync'); ?>
+                                <?php esc_html_e('Not Generated', 'metasync'); ?>
                             <?php endif; ?>
                         </span>
                         <a href="<?php echo esc_url(admin_url('admin.php?page=metasync-import-external&tab=robots')); ?>" class="button button-secondary" style="margin-right: 10px;">

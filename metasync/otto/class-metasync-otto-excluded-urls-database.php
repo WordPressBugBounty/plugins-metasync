@@ -65,6 +65,26 @@ class Metasync_Otto_Excluded_URLs_Database
 	}
 
 	/**
+	 * Get a single record by ID
+	 *
+	 * @param int $id Record ID
+	 * @return object|null Record object or null if not found
+	 */
+	public function get_record_by_id($id)
+	{
+		global $wpdb;
+
+		$this->ensure_table_structure();
+
+		$table_name = $this->get_table_name();
+
+		return $wpdb->get_row($wpdb->prepare(
+			"SELECT * FROM `$table_name` WHERE id = %d",
+			$id
+		));
+	}
+
+	/**
 	 * Get total count of excluded URLs
 	 *
 	 * @return int Total count
@@ -167,7 +187,9 @@ class Metasync_Otto_Excluded_URLs_Database
 					break;
 
 				case 'regex':
-					if (@preg_match($pattern, $url)) {
+					// Normalize with delimiters
+					$test_pattern = Metasync_Redirection::normalize_regex_pattern($pattern);
+					if (@preg_match($test_pattern, $url)) {
 						return true;
 					}
 					break;
@@ -190,6 +212,7 @@ class Metasync_Otto_Excluded_URLs_Database
 		// Ensure table structure is up to date
 		$this->ensure_table_structure();
 
+		$created_at = current_time('mysql');
 		$args = wp_parse_args(
 			$args,
 			[
@@ -197,9 +220,17 @@ class Metasync_Otto_Excluded_URLs_Database
 				'pattern_type'   => 'exact',
 				'description'    => '',
 				'status'         => 'active',
-				'created_at'     => current_time('mysql'),
+				'is_permanent'   => 0,
+				'auto_excluded'  => 0,
+				'recheck_after'  => null,
+				'created_at'     => $created_at,
 			]
 		);
+
+		// Auto-excluded URLs: set recheck_after to 7 days from creation by default
+		if (!empty($args['auto_excluded']) && $args['recheck_after'] === null) {
+			$args['recheck_after'] = gmdate('Y-m-d H:i:s', strtotime('+7 days', strtotime($created_at)));
+		}
 
 		// Validate URL pattern
 		if (empty($args['url_pattern'])) {
@@ -221,11 +252,12 @@ class Metasync_Otto_Excluded_URLs_Database
 
 			// If existing entry is inactive, reactivate it instead of creating duplicate
 			if ($existing->status === 'inactive') {
-				$wpdb->update(
-					$table_name,
-					['status' => 'active', 'description' => $args['description']],
-					['id' => $existing->id]
-				);
+				$update_data = ['status' => 'active', 'description' => $args['description']];
+				if (!empty($args['auto_excluded'])) {
+					$update_data['auto_excluded'] = 1;
+					$update_data['recheck_after'] = gmdate('Y-m-d H:i:s', strtotime('+7 days'));
+				}
+				$wpdb->update($table_name, $update_data, ['id' => $existing->id]);
 				$this->clear_cache();
 				return 'reactivated';
 			}
@@ -385,6 +417,39 @@ class Metasync_Otto_Excluded_URLs_Database
 	public function clear_cache()
 	{
 		wp_cache_delete('metasync_otto_excluded_urls', 'metasync');
+	}
+
+	/**
+	 * Get auto-excluded 404 URLs that are due for recheck
+	 * Uses recheck_after timestamp: returns records where recheck_after <= now
+	 * Excludes permanent exclusions (is_permanent = 1) - those are never rechecked
+	 * Limited to max 50 URLs per run to avoid overloading
+	 *
+	 * @param int $limit Maximum number of URLs to return (default 50)
+	 * @return array Array of records with id, url_pattern, created_at, is_permanent, recheck_after
+	 */
+	public function get_auto_excluded_404_urls_due_for_recheck($limit = 50)
+	{
+		global $wpdb;
+
+		$this->ensure_table_structure();
+
+		$table_name = $this->get_table_name();
+		$now = current_time('mysql');
+		$limit = max(1, min(100, intval($limit)));
+
+		return $wpdb->get_results($wpdb->prepare(
+			"SELECT id, url_pattern, pattern_type, created_at, is_permanent, recheck_after FROM `$table_name`
+			WHERE auto_excluded = 1 AND status = %s AND pattern_type = %s
+			AND (is_permanent = 0 OR is_permanent IS NULL)
+			AND recheck_after IS NOT NULL AND recheck_after <= %s
+			ORDER BY recheck_after ASC
+			LIMIT %d",
+			'active',
+			'exact',
+			$now,
+			$limit
+		));
 	}
 
 	/**

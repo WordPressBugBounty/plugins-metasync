@@ -740,7 +740,7 @@ class Metasync_External_Importer
             }
 
             // Decode Yoast schema JSON
-            $yoast_schema = json_decode($post_obj->meta_value, true);
+            $yoast_schema = json_decode((string)($post_obj->meta_value ?? ''), true);
             if (empty($yoast_schema) || !is_array($yoast_schema)) {
                 continue;
             }
@@ -889,7 +889,7 @@ class Metasync_External_Importer
             }
 
             // Decode AIOSEO schema options
-            $schema_options = json_decode($aioseo_data->schema_type_options, true);
+            $schema_options = json_decode((string)($aioseo_data->schema_type_options ?? ''), true);
             if (!is_array($schema_options)) {
                 $schema_options = [];
             }

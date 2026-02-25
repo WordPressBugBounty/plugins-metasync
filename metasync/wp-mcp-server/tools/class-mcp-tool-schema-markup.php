@@ -117,7 +117,7 @@ class MCP_Tool_Update_Schema_Markup extends MCP_Tool_Base {
                         'properties' => [
                             'type' => [
                                 'type' => 'string',
-                                'enum' => ['article', 'FAQPage', 'product', 'recipe'],
+                                'enum' => ['article', 'FAQPage', 'product', 'recipe', 'LocalBusiness', 'HowTo', 'VideoObject', 'BreadcrumbList'],
                             ],
                             'fields' => [
                                 'type' => 'object',
@@ -143,9 +143,7 @@ class MCP_Tool_Update_Schema_Markup extends MCP_Tool_Base {
             throw new Exception(sprintf("Post not found: %d", absint($post_id)));
         }
 
-        if (!current_user_can('edit_post', $post_id)) {
-            throw new Exception('You do not have permission to edit this post');
-        }
+        $this->check_post_permission($post_id);
 
         // Build schema data
         $schema_data = [
@@ -192,7 +190,7 @@ class MCP_Tool_Add_Schema_Type extends MCP_Tool_Base {
     }
 
     public function get_description() {
-        return 'Add a new schema type (article, FAQ, product, recipe) to a post';
+        return 'Add a new schema type (article, FAQ, product, recipe, LocalBusiness, HowTo, VideoObject, BreadcrumbList) to a post';
     }
 
     public function get_input_schema() {
@@ -231,9 +229,7 @@ class MCP_Tool_Add_Schema_Type extends MCP_Tool_Base {
             throw new Exception(sprintf("Post not found: %d", absint($post_id)));
         }
 
-        if (!current_user_can('edit_post', $post_id)) {
-            throw new Exception('You do not have permission to edit this post');
-        }
+        $this->check_post_permission($post_id);
 
         // Get existing schema data
         $schema_data = get_post_meta($post_id, 'metasync_schema_markup', true);
@@ -312,9 +308,7 @@ class MCP_Tool_Remove_Schema_Type extends MCP_Tool_Base {
             throw new Exception(sprintf("Post not found: %d", absint($post_id)));
         }
 
-        if (!current_user_can('edit_post', $post_id)) {
-            throw new Exception('You do not have permission to edit this post');
-        }
+        $this->check_post_permission($post_id);
 
         // Get existing schema data
         $schema_data = get_post_meta($post_id, 'metasync_schema_markup', true);

@@ -53,13 +53,24 @@ class MCP_Tool_Instant_Index_Update extends MCP_Tool_Base {
         }
 
         // Get the instant index class
-        require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'instant-index/class-metasync-instant-index.php';
+        $instant_index_class = plugin_dir_path(dirname(dirname(__FILE__))) . 'instant-index/class-metasync-instant-index.php';
+        if (!file_exists($instant_index_class)) {
+            throw new Exception('Google Instant Index module is not available');
+        }
+
+        require_once $instant_index_class;
         $instant_index = new Metasync_Instant_Index();
 
         // Check if API is configured
         $json_key = $instant_index->get_setting('json_key');
         if (empty($json_key)) {
             throw new Exception('Google Instant Index API is not configured. Please add your JSON key in settings.');
+        }
+
+        // Check if Google API vendor files are available
+        $vendor_autoload = plugin_dir_path(dirname(dirname(__FILE__))) . 'instant-index/vendor/autoload.php';
+        if (!file_exists($vendor_autoload)) {
+            throw new Exception('Google API libraries are not installed. Please install dependencies via Composer.');
         }
 
         // Send update request
@@ -117,13 +128,24 @@ class MCP_Tool_Instant_Index_Delete extends MCP_Tool_Base {
         }
 
         // Get the instant index class
-        require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'instant-index/class-metasync-instant-index.php';
+        $instant_index_class = plugin_dir_path(dirname(dirname(__FILE__))) . 'instant-index/class-metasync-instant-index.php';
+        if (!file_exists($instant_index_class)) {
+            throw new Exception('Google Instant Index module is not available');
+        }
+
+        require_once $instant_index_class;
         $instant_index = new Metasync_Instant_Index();
 
         // Check if API is configured
         $json_key = $instant_index->get_setting('json_key');
         if (empty($json_key)) {
             throw new Exception('Google Instant Index API is not configured. Please add your JSON key in settings.');
+        }
+
+        // Check if Google API vendor files are available
+        $vendor_autoload = plugin_dir_path(dirname(dirname(__FILE__))) . 'instant-index/vendor/autoload.php';
+        if (!file_exists($vendor_autoload)) {
+            throw new Exception('Google API libraries are not installed. Please install dependencies via Composer.');
         }
 
         // Send delete request
@@ -181,13 +203,24 @@ class MCP_Tool_Instant_Index_Status extends MCP_Tool_Base {
         }
 
         // Get the instant index class
-        require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'instant-index/class-metasync-instant-index.php';
+        $instant_index_class = plugin_dir_path(dirname(dirname(__FILE__))) . 'instant-index/class-metasync-instant-index.php';
+        if (!file_exists($instant_index_class)) {
+            throw new Exception('Google Instant Index module is not available');
+        }
+
+        require_once $instant_index_class;
         $instant_index = new Metasync_Instant_Index();
 
         // Check if API is configured
         $json_key = $instant_index->get_setting('json_key');
         if (empty($json_key)) {
             throw new Exception('Google Instant Index API is not configured. Please add your JSON key in settings.');
+        }
+
+        // Check if Google API vendor files are available
+        $vendor_autoload = plugin_dir_path(dirname(dirname(__FILE__))) . 'instant-index/vendor/autoload.php';
+        if (!file_exists($vendor_autoload)) {
+            throw new Exception('Google API libraries are not installed. Please install dependencies via Composer.');
         }
 
         // Get status
@@ -300,7 +333,7 @@ class MCP_Tool_Get_Instant_Index_Settings extends MCP_Tool_Base {
     public function get_input_schema() {
         return [
             'type' => 'object',
-            'properties' => [],
+            'properties' => (object)[],
         ];
     }
 

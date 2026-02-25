@@ -132,6 +132,22 @@ class Metasync_Otto_Transient_Cache {
             # Rate limited - try to use stale cache
             $stale = get_transient($keys['stale']);
             if ($stale !== false) {
+                # NEW: Structured error logging with category and code
+                if (class_exists('Metasync_Error_Logger')) {
+                    Metasync_Error_Logger::log(
+                        Metasync_Error_Logger::CATEGORY_API_RATE_LIMIT,
+                        Metasync_Error_Logger::SEVERITY_INFO,
+                        'OTTO API rate limited - using stale cache',
+                        [
+                            'url' => $url,
+                            'fallback' => 'stale_cache',
+                            'api_endpoint' => 'OTTO Suggestions API',
+                            'operation' => 'get_suggestions'
+                        ]
+                    );
+                }
+                
+                error_log('MetaSync OTTO: Rate limited, using stale cache for ' . $url);
                 self::$cache_status[$cache_status_key] = 'STALE';
                 return $stale;
             }
@@ -225,11 +241,26 @@ class Metasync_Otto_Transient_Cache {
     
     /**
      * Fetch suggestions from OTTO API
-     * 
+     *
      * @param string $url The page URL
      * @return array|false API response or false on failure
      */
     private function fetch_from_api($url) {
+        # Check if endpoint is in backoff mode (explicit check for better error handling)
+        if (class_exists('Metasync_API_Backoff_Manager')) {
+            $backoff_manager = Metasync_API_Backoff_Manager::get_instance();
+            if ($backoff_manager->is_endpoint_in_backoff($this->api_endpoint)) {
+                error_log('MetaSync OTTO: API call skipped - endpoint in backoff mode');
+                # Try to use stale cache if available
+                $stale = get_transient($this->get_stale_key($url));
+                if ($stale !== false) {
+                    error_log('MetaSync OTTO: Using stale cache due to backoff');
+                    return $stale;
+                }
+                return false;
+            }
+        }
+
         # Construct API URL
         $api_url = add_query_arg(
             [
@@ -238,7 +269,7 @@ class Metasync_Otto_Transient_Cache {
             ],
             $this->api_endpoint
         );
-        
+
         # Make API request with short timeout
         $response = wp_remote_get($api_url, [
             'timeout' => self::API_TIMEOUT,
@@ -246,29 +277,53 @@ class Metasync_Otto_Transient_Cache {
             'user-agent' => 'MetaSync-OTTO-Transient-Cache/1.0',
             'sslverify' => true,
         ]);
-        
+
         # Check for errors
         if (is_wp_error($response)) {
+            $error_message = $response->get_error_message();
+
+            # Check if error is due to backoff
+            if ($response->get_error_code() === 'api_backoff_active') {
+                error_log('MetaSync OTTO: API call blocked by backoff - ' . $error_message);
+                # Try to use stale cache
+                $stale = get_transient($this->get_stale_key($url));
+                if ($stale !== false) {
+                    error_log('MetaSync OTTO: Using stale cache due to backoff');
+                    return $stale;
+                }
+            } else {
+                error_log('MetaSync OTTO: API call failed for ' . $url . ' - ' . $error_message);
+            }
             return false;
         }
-        
+
         # Check response code
         $response_code = wp_remote_retrieve_response_code($response);
         if ($response_code !== 200) {
+            error_log('MetaSync OTTO: API returned non-200 for ' . $url . ' - Code: ' . $response_code);
+            # For 429/503, the backoff manager will handle it automatically
+            # Try to use stale cache for these errors
+            if (in_array($response_code, [429, 503], true)) {
+                $stale = get_transient($this->get_stale_key($url));
+                if ($stale !== false) {
+                    error_log('MetaSync OTTO: Using stale cache due to rate limit/service unavailable');
+                    return $stale;
+                }
+            }
             return false;
         }
-        
+
         # Parse response body
         $body = wp_remote_retrieve_body($response);
         if (empty($body)) {
             return false;
         }
-        
+
         $data = json_decode($body, true);
         if (json_last_error() !== JSON_ERROR_NONE) {
             return false;
         }
-        
+
         return $data;
     }
     
@@ -314,6 +369,21 @@ class Metasync_Otto_Transient_Cache {
     }
     
     /**
+     * Get OTTO API rate limit from execution settings
+     * Falls back to default constant if setting not configured
+     * 
+     * @return int Rate limit (calls per minute)
+     */
+    private function get_rate_limit() {
+        $execution_settings = get_option('metasync_execution_settings', array());
+        if (isset($execution_settings['otto_rate_limit'])) {
+            return (int) $execution_settings['otto_rate_limit'];
+        }
+        // Fallback to default constant
+        return self::MAX_API_CALLS_PER_MINUTE;
+    }
+    
+    /**
      * Check if we can make an API call (rate limiting)
      * 
      * @return bool True if under rate limit
@@ -325,8 +395,11 @@ class Metasync_Otto_Transient_Cache {
         # Get current count
         $count = (int) get_transient($rate_key);
         
+        # Get rate limit from execution settings
+        $rate_limit = $this->get_rate_limit();
+        
         # Check if under limit
-        if ($count >= self::MAX_API_CALLS_PER_MINUTE) {
+        if ($count >= $rate_limit) {
             return false;
         }
         

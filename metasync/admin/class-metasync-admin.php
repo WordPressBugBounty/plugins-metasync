@@ -254,7 +254,14 @@ class Metasync_Admin
                         <span class="tab-text">Report Issue</span>
                     </a>
                     <div class="metasync-simple-dropdown">
-                        <button type="button" class="metasync-settings-btn" id="metasync-settings-btn" onclick="toggleSettingsMenuPortal(event)">
+                        <button type="button" class="metasync-seo-btn" id="metasync-seo-btn" onclick="toggleSeoMenuPortal(event)">
+                            <span class="tab-icon">🔍</span>
+                            <span class="tab-text">SEO</span>
+                            <span class="dropdown-arrow">▼</span>
+                        </button>
+                    </div>
+                    <div class="metasync-simple-dropdown">
+                        <button type="button" class="metasync-settings-btn" id="metasync-settings-btn" onclick="toggleSettingsMenuPortal(event)" aria-expanded="false">
                             <span class="tab-icon">⚙️</span>
                             <span class="tab-text">Settings</span>
                             <span class="dropdown-arrow">▼</span>
@@ -265,6 +272,29 @@ class Metasync_Admin
         </div>
         
         <script>
+        function toggleSeoMenuPortal(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            var button = event.currentTarget;
+            var existingMenu = document.getElementById('metasync-seo-portal-menu');
+            if (existingMenu) {
+                existingMenu.remove();
+                button.classList.remove('active');
+                return;
+            }
+            var menu = document.createElement('div');
+            menu.id = 'metasync-seo-portal-menu';
+            menu.className = 'metasync-portal-menu';
+
+            var rect = button.getBoundingClientRect();
+            menu.style.position = 'fixed';
+            menu.style.top = (rect.bottom + 8) + 'px';
+            menu.style.right = (window.innerWidth - rect.right) + 'px';
+            menu.style.zIndex = '999999999';
+            document.body.appendChild(menu);
+            button.classList.add('active');
+        }
+
         function toggleSettingsMenuPortal(event) {
             event.preventDefault();
             event.stopPropagation();
@@ -278,21 +308,24 @@ class Metasync_Admin
             var menu = document.createElement('div');
             menu.id = 'metasync-portal-menu';
             menu.className = 'metasync-portal-menu';
-            
+
             var hideAdvanced = <?php echo !empty($whitelabel_settings['hide_advanced']) ? 'true' : 'false'; ?>;
+            var showGeneral = <?php echo Metasync_Access_Control::user_can_access('hide_settings') ? 'true' : 'false'; ?>;
             
-            var generalLink = document.createElement('a');
-            generalLink.href = '?page=<?php echo $page_slug; ?>&tab=general';
-            generalLink.className = 'metasync-portal-item';
-            generalLink.textContent = 'General';
-            menu.appendChild(generalLink);
-            
+            if (showGeneral) {
+                var generalLink = document.createElement('a');
+                generalLink.href = '?page=<?php echo $page_slug; ?>&tab=general';
+                generalLink.className = 'metasync-portal-item';
+                generalLink.textContent = 'General';
+                menu.appendChild(generalLink);
+            }
+
             var whitelabelLink = document.createElement('a');
             whitelabelLink.href = '?page=<?php echo $page_slug; ?>&tab=whitelabel';
             whitelabelLink.className = 'metasync-portal-item';
             whitelabelLink.textContent = 'White Label';
             menu.appendChild(whitelabelLink);
-            
+
             if (!hideAdvanced) {
                 var advancedLink = document.createElement('a');
                 advancedLink.href = '?page=<?php echo $page_slug; ?>&tab=advanced';
@@ -311,6 +344,13 @@ class Metasync_Admin
             button.classList.add('active');
         }
         document.addEventListener('click', function(event) {
+            var seoButton = document.getElementById('metasync-seo-btn');
+            var seoMenu = document.getElementById('metasync-seo-portal-menu');
+            if (seoMenu && seoButton && !seoButton.contains(event.target) && !seoMenu.contains(event.target)) {
+                seoMenu.remove();
+                seoButton.classList.remove('active');
+            }
+
             var button = document.getElementById('metasync-settings-btn');
             var menu = document.getElementById('metasync-portal-menu');
             if (menu && button && !button.contains(event.target) && !menu.contains(event.target)) {
@@ -368,6 +408,7 @@ class Metasync_Admin
     private $database;
     private $db_redirection;
     private $db_heartbeat_errors;
+    private $setup_wizard;
 
 
     /**
@@ -387,6 +428,9 @@ class Metasync_Admin
         $this->db_redirection = $db_redirection;
         $this->db_heartbeat_errors = $db_heartbeat_errors;
         // $this->data_error_log_list = $data_error_log_list;
+
+        // Initialize setup wizard
+        $this->setup_wizard = new Metasync_Setup_Wizard($plugin_name, $version);
         
         // Get data first for menu configuration
         $data = Metasync::get_option('general');
@@ -407,7 +451,22 @@ class Metasync_Admin
 
         // Display transient error/success messages for redirections
         add_action('admin_notices', array($this, 'display_redirection_messages'));
-        
+
+        // Add custom column for HTML-converted pages
+        add_filter('manage_posts_columns', array($this, 'add_html_converted_column'));
+        add_filter('manage_pages_columns', array($this, 'add_html_converted_column'));
+        add_action('manage_posts_custom_column', array($this, 'render_html_converted_column'), 10, 2);
+        add_action('manage_pages_custom_column', array($this, 'render_html_converted_column'), 10, 2);
+
+        // Add badge to page editor screen
+        add_action('edit_form_after_title', array($this, 'add_editor_source_notice'));
+
+        // Add badge to quick edit panel
+        add_action('quick_edit_custom_box', array($this, 'add_quick_edit_source_display'), 10, 2);
+
+        // Add dashboard widget
+        add_action('wp_dashboard_setup', array($this, 'add_html_pages_dashboard_widget'));
+
         // Add Search Atlas status to WordPress admin bar (priority 999 to ensure plugin is fully loaded)
         // Always add the action - the method will check the setting internally
         add_action('admin_bar_menu', array($this, 'add_searchatlas_admin_bar_status'), 999);
@@ -419,11 +478,14 @@ class Metasync_Admin
         // Always add admin bar styles - the method will check the setting internally
         add_action('wp_head', array($this,'metasync_admin_bar_style')); // For frontend admin bar
         add_action('admin_head', array($this,'metasync_admin_bar_style')); // For backend admin bar
-        // removing this as we don't need it anymore because we are using wp-ajax to implement the white label 
+        // removing this as we don't need it anymore because we are using wp-ajax to implement the white label
        // add_action('update_option_metasync_options', array($this, 'check_and_redirect_slug'), 10, 3);
-        
-        
+
+        // Sync plugin file headers whenever metasync_options is updated (covers AJAX save, Settings API, import)
+        add_action('update_option_metasync_options', array($this, 'on_options_updated_sync_file_headers'), 10, 2);
+
         add_action('admin_init', array($this, 'initialize_cookie'));
+        add_action('admin_init', array($this, 'maybe_redirect_to_wizard'));
 
         // Add admin_post hooks for form submissions (WordPress standard way - no output buffering needed)
         add_action('admin_post_metasync_clear_all_cache_plugins', array($this, 'handle_clear_all_cache_plugins'));
@@ -436,6 +498,9 @@ class Metasync_Admin
         // Add AJAX for saving Indexation Control settings
         add_action( 'wp_ajax_meta_sync_save_seo_controls', array($this,'meta_sync_save_seo_controls') );
         
+        // Add AJAX for saving execution settings
+        add_action( 'wp_ajax_metasync_save_execution_settings', array($this, 'ajax_save_execution_settings') );
+        
         // Add AJAX handler for Plugin Auth Token refresh
         add_action('wp_ajax_refresh_plugin_auth_token', array($this, 'refresh_plugin_auth_token'));
         
@@ -447,6 +512,10 @@ class Metasync_Admin
 
         // Add AJAX handler for updating database structure
         add_action('wp_ajax_metasync_update_db_structure', array($this, 'ajax_update_db_structure'));
+
+        // Add AJAX handlers for setup wizard
+        add_action('wp_ajax_metasync_save_wizard_progress', array($this, 'ajax_save_wizard_progress'));
+        add_action('wp_ajax_metasync_complete_wizard', array($this, 'ajax_complete_wizard'));
 
         // Add AJAX handlers for robots.txt
         add_action('wp_ajax_metasync_validate_robots', array($this, 'ajax_validate_robots'));
@@ -462,7 +531,9 @@ class Metasync_Admin
         // Add AJAX handlers for OTTO excluded URLs
         add_action('wp_ajax_metasync_otto_add_excluded_url', array($this, 'ajax_otto_add_excluded_url'));
         add_action('wp_ajax_metasync_otto_delete_excluded_url', array($this, 'ajax_otto_delete_excluded_url'));
+        add_action('wp_ajax_metasync_burst_ping', array($this, 'ajax_burst_ping'));
         add_action('wp_ajax_metasync_otto_get_excluded_urls', array($this, 'ajax_otto_get_excluded_urls'));
+        add_action('wp_ajax_metasync_otto_recheck_excluded_url', array($this, 'ajax_otto_recheck_excluded_url'));
 
         # Add AJAX handler for Mixpanel tracking
         add_action('wp_ajax_metasync_track_one_click_activation', array($this, 'ajax_track_one_click_activation'));
@@ -481,15 +552,42 @@ class Metasync_Admin
         # Add AJAX handler for SEO metadata batch import
         add_action('wp_ajax_metasync_import_seo_metadata', array($this, 'ajax_import_seo_metadata'));
 
+        # Add AJAX handler for password recovery
+        add_action('wp_ajax_metasync_recover_password', array($this, 'ajax_recover_password'));
+
+        # Add AJAX handler for resetting bot statistics
+        add_action('wp_ajax_metasync_reset_bot_stats', array($this, 'ajax_reset_bot_stats'));
+
         # Add admin-post handler for exporting whitelabel settings (file download)
         add_action('admin_post_metasync_export_whitelabel_settings', array($this, 'handle_export_whitelabel_settings'));
-       
+
+        # Add AJAX handlers for Google Instant Indexing
+        add_action('wp_ajax_send_giapi', array($this, 'ajax_send_giapi'));
+
+        # Add AJAX handlers for Bing Instant Indexing (IndexNow)
+        add_action('wp_ajax_send_bing_indexnow', array($this, 'ajax_send_bing_indexnow'));
+
+        # Add hooks for instant indexing settings saves
+        add_action('admin_init', array($this, 'save_instant_indexing_settings'));
+
+        # Add hooks for instant indexing post actions
+        add_filter('post_row_actions', array($this, 'add_instant_indexing_post_actions'), 10, 2);
+        add_filter('page_row_actions', array($this, 'add_instant_indexing_post_actions'), 10, 2);
+
+        # Add hooks for auto-submission on post publish
+        add_action('save_post', array($this, 'auto_submit_to_instant_indexing'), 10, 3);
+
         // Add REST API endpoint for ping
         add_action('rest_api_init', array($this, 'register_ping_rest_endpoint'));
         
         // Add heartbeat cron functionality
         add_filter('cron_schedules', array($this, 'add_heartbeat_cron_schedule'));
         add_action('metasync_heartbeat_cron_check', array($this, 'execute_heartbeat_cron_check'));
+        add_action('metasync_burst_heartbeat', array($this, 'execute_burst_heartbeat'));
+        add_action('metasync_announce_cron', array($this, 'execute_announce_cron'));
+        
+        // PR3: Transition to KEY_PENDING when API key is added or rotated
+        add_action('metasync_heartbeat_state_key_pending', array($this, 'set_heartbeat_state_key_pending'));
         
         // Add transient cleanup cron functionality
         add_action('metasync_cleanup_transients', array($this, 'execute_transient_cleanup'));
@@ -500,8 +598,14 @@ class Metasync_Admin
         // Schedule transient cleanup cron on plugin load
         add_action('init', array($this, 'maybe_schedule_transient_cleanup_cron'));
         
+        // Pre-SSO announce: rate-limited ping when no API key yet (PR4 - heartbeat reliability)
+        add_action('init', array($this, 'maybe_send_pre_sso_announce'));
+        
         # Schedule hidden post manager cron on plugin load (runs every 7 days)
         add_action('init', array($this, 'maybe_schedule_hidden_post_check'));
+
+        # Schedule OTTO 404 exclusion recheck (runs daily to recheck URLs excluded 7+ days ago)
+        add_action('init', array($this, 'maybe_schedule_otto_recheck_404_cron'));
 
         # Schedule support token cleanup cron on plugin load (runs daily)
 
@@ -510,6 +614,10 @@ class Metasync_Admin
         
         // Listen for cron scheduling requests (after Search Atlas connect authentication)
         add_action('metasync_ensure_heartbeat_cron_scheduled', array($this, 'maybe_schedule_heartbeat_cron'));
+        
+        // Action Scheduler configuration filters
+        add_filter('action_scheduler_queue_runner_concurrent_batches', array($this, 'get_action_scheduler_batches'));
+        add_filter('action_scheduler_retention_period', array($this, 'get_action_scheduler_retention_period'));
         
         // Note: Option change monitoring is now handled by the centralized API Key Monitor class
         // This provides more comprehensive and intelligent monitoring of API key changes
@@ -593,7 +701,7 @@ class Metasync_Admin
             $updated_plugins = $options['plugins'];
     
             // Loop through plugins and check if your plugin is updated
-            if (in_array('metasync/metasync.php', $updated_plugins)) {
+            if (in_array(plugin_basename(dirname(__DIR__) . '/metasync.php'), $updated_plugins, true)) {
                 // Only set debug options if they don't already exist (first install/update)
                 if (get_option('wp_debug_enabled') === false) {
                     update_option('wp_debug_enabled', 'true');
@@ -619,6 +727,31 @@ class Metasync_Admin
                 // Set the cookie
                 setcookie('metasync_previous_slug', $initial_slug, time() + 3600, COOKIEPATH, COOKIE_DOMAIN);
             }
+        }
+    }
+
+    /**
+     * Redirect to setup wizard on first activation
+     *
+     * @since    1.0.0
+     */
+    public function maybe_redirect_to_wizard() {
+        // Only redirect if wizard should be shown
+        if (get_option('metasync_show_wizard') && !isset($_GET['page'])) {
+            delete_option('metasync_show_wizard');
+
+            // Don't redirect during AJAX, cron, or bulk activation
+            if (wp_doing_ajax() || wp_doing_cron() || isset($_GET['activate-multi'])) {
+                return;
+            }
+
+            // Only redirect if user has access to the plugin
+            if (!Metasync::current_user_has_plugin_access()) {
+                return;
+            }
+
+            wp_safe_redirect(admin_url('admin.php?page=' . self::$page_slug . '-setup-wizard'));
+            exit;
         }
     }
 
@@ -809,6 +942,43 @@ class Metasync_Admin
     }
     
 
+    /**
+     * Sync plugin file headers when metasync_options is updated.
+     * This ensures whitelabel values are written to the plugin file header
+     * so they persist even when the plugin is deactivated.
+     *
+     * @param mixed $old_value The old option value.
+     * @param mixed $new_value The new option value.
+     * @since 2.5.0
+     */
+    public function on_options_updated_sync_file_headers($old_value, $new_value)
+    {
+        // Only sync if general settings (which contain whitelabel fields) have changed
+        $old_general = is_array($old_value) ? ($old_value['general'] ?? []) : [];
+        $new_general = is_array($new_value) ? ($new_value['general'] ?? []) : [];
+
+        $whitelabel_keys = [
+            'white_label_plugin_name',
+            'white_label_plugin_description',
+            'white_label_plugin_author',
+            'white_label_plugin_author_uri',
+            'white_label_plugin_uri',
+        ];
+
+        $changed = false;
+        foreach ($whitelabel_keys as $key) {
+            if (($old_general[$key] ?? '') !== ($new_general[$key] ?? '')) {
+                $changed = true;
+                break;
+            }
+        }
+
+        if ($changed) {
+            require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-activator.php';
+            Metasync_Activator::sync_plugin_file_headers();
+        }
+    }
+
     public function check_and_redirect_slug($option, $old_value, $new_value) {
         // Ensure this hook is only triggered for your specific option group
 
@@ -840,8 +1010,9 @@ class Metasync_Admin
         }
     }
     public function metasync_view_detials_url( $plugin_meta, $plugin_file, $plugin_data ) {
-        $plugin_uri = Metasync::get_option('general')['white_label_plugin_uri'] ?? '';    
-        if ('metasync/metasync.php' === $plugin_file && $plugin_uri!=='') {
+        $plugin_uri = Metasync::get_option('general')['white_label_plugin_uri'] ?? '';
+        $this_plugin = plugin_basename(dirname(__DIR__) . '/metasync.php');
+        if ($this_plugin === $plugin_file && $plugin_uri !== '') {
             foreach ($plugin_meta as &$meta) {
                 if (strpos($meta, 'open-plugin-details-modal') !== false) {
                     $meta = sprintf(
@@ -859,45 +1030,40 @@ class Metasync_Admin
     }
 
     public function metasync_plugin_white_label($all_plugins) {
-        // Check if the current user is an administrator
-       
-            $plugin_name =  Metasync::get_option('general')['white_label_plugin_name'] ?? ''; 
-            $plugin_description = Metasync::get_option('general')['white_label_plugin_description'] ?? ''; 
-            $plugin_author =  Metasync::get_option('general')['white_label_plugin_author'] ?? ''; 
-            $plugin_author_uri =  Metasync::get_option('general')['white_label_plugin_author_uri'] ?? ''; 
-            $plugin_uri = Metasync::get_option('general')['white_label_plugin_uri'] ?? ''; // New option for Plugin URI
+        $general = Metasync::get_option('general');
+        if (!is_array($general)) {
+            return $all_plugins;
+        }
 
-            foreach ($all_plugins as $plugin_file => $plugin_data) {
-                if ($plugin_file == 'metasync/metasync.php') {
-                    if($plugin_name!=''){
-                        $all_plugins[$plugin_file]['Name'] = $plugin_name;
-                    }else{
-                        $all_plugins[$plugin_file]['Name'] = $all_plugins[$plugin_file]['Name'];
-                    }
-                    if($plugin_description!=''){
-                        $all_plugins[$plugin_file]['Description'] = $plugin_description;
-                    }else{
-                        $all_plugins[$plugin_file]['Description'] =  $all_plugins[$plugin_file]['Description'];
-                    }
-                    if($plugin_author!=''){
-                        $all_plugins[$plugin_file]['Author'] = $plugin_author;
-                    }else{
-                        $all_plugins[$plugin_file]['Author'] = $all_plugins[$plugin_file]['Author'];
-                    }
-                    if($plugin_author_uri!=''){
-                        $all_plugins[$plugin_file]['AuthorURI'] = $plugin_author_uri;
-                    }else{
-                        $all_plugins[$plugin_file]['AuthorURI'] =  $all_plugins[$plugin_file]['AuthorURI'];
-                    }       
-                    if($plugin_uri!=''){
-                        
-                        $all_plugins[$plugin_file]['PluginURI'] = $plugin_uri;
-                    }else{
-                        $all_plugins[$plugin_file]['PluginURI'] =  $all_plugins[$plugin_file]['PluginURI'];
-                    }             
-                }
+        $plugin_name = $general['white_label_plugin_name'] ?? '';
+        $plugin_description = $general['white_label_plugin_description'] ?? '';
+        $plugin_author = $general['white_label_plugin_author'] ?? '';
+        $plugin_author_uri = $general['white_label_plugin_author_uri'] ?? '';
+        $plugin_uri = $general['white_label_plugin_uri'] ?? '';
+
+        // Dynamically resolve the plugin basename to handle renamed plugin folders
+        $this_plugin = plugin_basename(dirname(__DIR__) . '/metasync.php');
+
+        if (isset($all_plugins[$this_plugin])) {
+            if ($plugin_name !== '') {
+                $all_plugins[$this_plugin]['Name'] = $plugin_name;
+                $all_plugins[$this_plugin]['Title'] = $plugin_name;
             }
-        
+            if ($plugin_description !== '') {
+                $all_plugins[$this_plugin]['Description'] = $plugin_description;
+            }
+            if ($plugin_author !== '') {
+                $all_plugins[$this_plugin]['Author'] = $plugin_author;
+                $all_plugins[$this_plugin]['AuthorName'] = $plugin_author;
+            }
+            if ($plugin_author_uri !== '') {
+                $all_plugins[$this_plugin]['AuthorURI'] = $plugin_author_uri;
+            }
+            if ($plugin_uri !== '') {
+                $all_plugins[$this_plugin]['PluginURI'] = $plugin_uri;
+            }
+        }
+
         return $all_plugins;
     }
 
@@ -925,6 +1091,17 @@ class Metasync_Admin
             $this->version,
             'all'
         );
+
+        // Enqueue wizard CSS if on wizard page
+        if (isset($_GET['page']) && strpos($_GET['page'], '-setup-wizard') !== false) {
+            wp_enqueue_style(
+                $this->plugin_name . '-setup-wizard',
+                plugin_dir_url(__FILE__) . 'css/metasync-setup-wizard.css',
+                array($this->plugin_name . '-dashboard'),
+                $this->version,
+                'all'
+            );
+        }
     }
 
     /**
@@ -988,11 +1165,14 @@ class Metasync_Admin
             $sa_connect_nonce = wp_create_nonce('metasync_sa_connect_nonce');
         }
         
+        $heartbeat_state = $this->get_heartbeat_state();
         wp_localize_script( $this->plugin_name, 'metaSync', array(
             'ajax_url' => admin_url( 'admin-ajax.php' ),
 			'admin_url'=>admin_url('admin.php'),
 			'sa_connect_nonce' => $sa_connect_nonce,
 			'reset_auth_nonce' => wp_create_nonce('metasync_reset_auth_nonce'),
+			'burst_ping_nonce' => wp_create_nonce('metasync_burst_ping'),
+			'heartbeat_state' => $heartbeat_state,
 			'dashboard_domain' => self::get_effective_dashboard_domain(),
 			'support_email' => Metasync::SUPPORT_EMAIL,
 			'documentation_domain' => Metasync::DOCUMENTATION_DOMAIN,
@@ -1054,6 +1234,27 @@ class Metasync_Admin
         add_action('admin_notices', array($this, 'permalink_structure_dashboard_warning'));
         // Display update warning banner if plugin update is available
         add_action('admin_notices', array($this, 'display_update_warning_banner'));
+        // Enqueue wizard assets if on wizard page
+        if (isset($_GET['page']) && strpos($_GET['page'], '-setup-wizard') !== false) {
+            wp_enqueue_script(
+                $this->plugin_name . '-setup-wizard',
+                plugin_dir_url(__FILE__) . 'js/metasync-setup-wizard.js',
+                array('jquery'),
+                $this->version,
+                true
+            );
+
+            wp_localize_script($this->plugin_name . '-setup-wizard', 'metasyncWizardData', array(
+                'nonce' => wp_create_nonce('metasync_wizard'),
+                'ssoNonce' => wp_create_nonce('metasync_sso_nonce'),
+                'importNonce' => wp_create_nonce('metasync_import_external_data'),
+                'dashboardUrl' => admin_url('admin.php?page=' . self::$page_slug . '-dashboard'),
+                'currentStep' => 1,
+                'totalSteps' => 6,
+                'pluginName' => Metasync::get_effective_plugin_name()
+            ));
+        }
+
         wp_enqueue_script('heartbeat');
     }
 
@@ -1115,6 +1316,15 @@ class Metasync_Admin
      */
     public function ajax_import_external_data()
     {
+        // Set execution time limit for import operations
+        $execution_time = $this->get_execution_setting('max_execution_time');
+        if (function_exists('set_time_limit')) {
+            @set_time_limit($execution_time);
+        }
+        
+        // Apply memory limit if server allows
+        $this->apply_memory_limit();
+        
         check_ajax_referer('metasync_import_external_data', 'nonce');
 
         if (!Metasync::current_user_has_plugin_access()) {
@@ -1165,6 +1375,15 @@ class Metasync_Admin
      */
     public function ajax_import_seo_metadata()
     {
+        // Set execution time limit for batch processing
+        $execution_time = $this->get_execution_setting('max_execution_time');
+        if (function_exists('set_time_limit')) {
+            @set_time_limit($execution_time);
+        }
+        
+        // Apply memory limit if server allows
+        $this->apply_memory_limit();
+        
         check_ajax_referer('metasync_import_seo_metadata', 'nonce');
 
         if (!Metasync::current_user_has_plugin_access()) {
@@ -1332,6 +1551,23 @@ class Metasync_Admin
                 ), 'info');
                 
             } else {
+                // NEW: Structured error logging with category and code
+                global $wpdb;
+                if (class_exists('Metasync_Error_Logger') && !empty($wpdb->last_error)) {
+                    Metasync_Error_Logger::log(
+                        Metasync_Error_Logger::CATEGORY_DATABASE_ERROR,
+                        Metasync_Error_Logger::SEVERITY_CRITICAL,
+                        'Failed to save plugin auth token to database',
+                        [
+                            'option_name' => Metasync::option_name,
+                            'wpdb_error' => $wpdb->last_error,
+                            'wpdb_last_query' => $wpdb->last_query,
+                            'operation' => 'ensure_plugin_auth_token_exists',
+                            'triggered_by' => 'sso_connect_button'
+                        ]
+                    );
+                }
+                
                 throw new Exception('Failed to generate required authentication token');
             }
         } else {
@@ -1728,6 +1964,14 @@ class Metasync_Admin
                 <?php $this->render_plugin_header('Dashboard'); ?>
                 
                 <?php $this->render_navigation_menu('dashboard'); ?>
+
+                <div class="dashboard-card">
+                    <h2>🚀 Setup Wizard</h2>
+                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Run the setup wizard to configure your plugin, import from other SEO plugins, and optimize your settings in just a few minutes.</p>
+                    <a href="<?php echo esc_url(admin_url('admin.php?page=' . self::$page_slug . '-setup-wizard')); ?>" class="button button-primary" style="text-decoration: none;">
+                        ✨ Start Setup Wizard
+                    </a>
+                </div>
                 
                 <div class="dashboard-card">
                     <h2>⚠️ Authentication Required</h2>
@@ -2076,11 +2320,334 @@ class Metasync_Admin
     }
 
     /**
+     * Render debug mode section for inclusion in Advanced settings
+     */
+    private function render_debug_mode_section()
+    {
+        // Check if debug mode manager class exists
+        if (!class_exists('Metasync_Debug_Mode_Manager')) {
+            ?>
+            <div style="background: rgba(255, 193, 7, 0.1); border: 1px solid rgba(255, 193, 7, 0.3); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                <p style="color: var(--dashboard-text-primary); margin: 0;">
+                    ⚠️ Debug Mode Manager is not available. Please ensure the plugin is properly installed.
+                </p>
+            </div>
+            <?php
+            return;
+        }
+
+        $debug_manager = Metasync_Debug_Mode_Manager::get_instance();
+        $status = $debug_manager->get_status();
+        ?>
+
+        <!-- Debug Mode Status Overview -->
+        <div style="margin-bottom: 30px;">
+            <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">Current Status</h4>
+            <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--dashboard-border); padding: 20px; border-radius: 8px;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                    <!-- Status Badge -->
+                    <div style="padding: 10px; border-left: 4px solid <?php echo $status['enabled'] ? '#ffc107' : '#4caf50'; ?>; background: rgba(<?php echo $status['enabled'] ? '255, 193, 7' : '76, 175, 80'; ?>, 0.1); border-radius: 4px;">
+                        <div style="font-size: 12px; color: var(--dashboard-text-secondary); margin-bottom: 5px;">Status</div>
+                        <div style="font-weight: 600; color: var(--dashboard-text-primary); font-size: 16px;">
+                            <?php echo $status['enabled'] ? '⚠️ Active' : '✓ Inactive'; ?>
+                        </div>
+                    </div>
+
+                    <?php if ($status['enabled']): ?>
+                    <!-- Mode Type -->
+                    <div style="padding: 10px; border-left: 4px solid #2196f3; background: rgba(33, 150, 243, 0.1); border-radius: 4px;">
+                        <div style="font-size: 12px; color: var(--dashboard-text-secondary); margin-bottom: 5px;">Mode</div>
+                        <div style="font-weight: 600; color: var(--dashboard-text-primary); font-size: 14px;">
+                            <?php echo $status['indefinite'] ? 'Indefinite' : '24-Hour Auto-Disable'; ?>
+                        </div>
+                    </div>
+
+                    <?php if (!$status['indefinite']): ?>
+                    <!-- Time Remaining -->
+                    <div style="padding: 10px; border-left: 4px solid #9c27b0; background: rgba(156, 39, 176, 0.1); border-radius: 4px;">
+                        <div style="font-size: 12px; color: var(--dashboard-text-secondary); margin-bottom: 5px;">Time Remaining</div>
+                        <div style="font-weight: 600; color: var(--dashboard-text-primary); font-size: 14px;" class="debug-time-remaining">
+                            <?php echo esc_html($status['time_remaining_formatted']); ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- Log File Size -->
+                    <div style="padding: 10px; border-left: 4px solid #ff5722; background: rgba(255, 87, 34, 0.1); border-radius: 4px;">
+                        <div style="font-size: 12px; color: var(--dashboard-text-secondary); margin-bottom: 5px;">Log File Size</div>
+                        <div style="font-weight: 600; color: var(--dashboard-text-primary); font-size: 14px;">
+                            <?php echo esc_html($status['log_file_size_formatted']); ?>
+                        </div>
+                        <div style="font-size: 11px; color: var(--dashboard-text-secondary); margin-top: 2px;">
+                            <?php echo number_format($status['percentage_used'], 1); ?>% of <?php echo esc_html($status['max_log_size_formatted']); ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+
+                <?php if ($status['enabled']): ?>
+                <!-- Progress Bar -->
+                <div style="margin-top: 15px;">
+                    <div style="background: rgba(255, 255, 255, 0.1); height: 8px; border-radius: 4px; overflow: hidden;">
+                        <div style="height: 100%; width: <?php echo esc_attr($status['percentage_used']); ?>%; background: linear-gradient(90deg, #4caf50 0%, #ffc107 70%, #f44336 100%); transition: width 0.3s ease;"></div>
+                    </div>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- Debug Mode Controls -->
+        <div style="margin-bottom: 30px;">
+            <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">Controls</h4>
+
+            <form method="post" action="<?php echo admin_url('admin.php?page=' . self::$page_slug . '&tab=advanced'); ?>">
+                <input type="hidden" name="metasync_debug_mode_action_advanced" value="1" />
+                <?php wp_nonce_field('metasync_debug_mode_action_advanced', 'metasync_debug_mode_nonce_advanced'); ?>
+
+                <?php if (!$status['enabled']): ?>
+                    <!-- Enable Debug Mode -->
+                    <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--dashboard-border); padding: 20px; border-radius: 8px; margin-bottom: 15px;">
+                        <p style="color: var(--dashboard-text-secondary); margin-top: 0; margin-bottom: 15px;">
+                            Activate debug mode to troubleshoot issues. Debug mode will automatically disable after 24 hours unless you enable indefinite mode.
+                        </p>
+
+                        <label style="display: flex; align-items: center; margin: 15px 0; cursor: pointer;">
+                            <input type="checkbox" name="indefinite" value="1" id="indefinite-mode-advanced" style="margin-right: 8px;" />
+                            <span style="font-weight: 500; color: var(--dashboard-text-primary);">Keep debug mode enabled indefinitely</span>
+                        </label>
+
+                        <div id="indefinite-warning-advanced" style="display: none; background: rgba(255, 193, 7, 0.1); border-left: 4px solid #ffc107; padding: 12px; border-radius: 4px; margin: 15px 0;">
+                            <strong style="color: var(--dashboard-text-primary);">⚠️ Warning:</strong>
+                            <span style="color: var(--dashboard-text-secondary);"> Indefinite debug mode may cause log files to grow without limits. This should only be used for extended troubleshooting sessions.</span>
+                        </div>
+
+                        <input type="hidden" name="action_type" value="enable" />
+                        <button type="submit" class="metasync-btn-primary" style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); display: inline-block; width: auto; min-width: 200px;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0, 0, 0, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0, 0, 0, 0.1)';">
+                            🐛 Enable Debug Mode
+                        </button>
+                    </div>
+
+                <?php else: ?>
+                    <!-- Manage Active Debug Mode -->
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <?php if (!$status['indefinite']): ?>
+                        <div>
+                            <input type="hidden" name="action_type" value="extend" />
+                            <button type="submit" class="metasync-btn-secondary" style="background: rgba(255, 255, 255, 0.1); color: var(--dashboard-text-primary); border: 1px solid var(--dashboard-border); padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; display: inline-block; width: auto;" onmouseover="this.style.background='rgba(255, 255, 255, 0.15)';" onmouseout="this.style.background='rgba(255, 255, 255, 0.1)';">
+                                ⏱️ Extend for 24 Hours
+                            </button>
+                        </div>
+                        <?php endif; ?>
+
+                        <div>
+                            <input type="hidden" name="action_type" value="disable" />
+                            <button type="submit" class="metasync-btn-danger" onclick="return confirm('Are you sure you want to disable debug mode?');" style="background: linear-gradient(135deg, #f44336, #d32f2f); color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); display: inline-block; width: auto;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0, 0, 0, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0, 0, 0, 0.1)';">
+                                ⏹️ Disable Debug Mode Now
+                            </button>
+                        </div>
+                    </div>
+                <?php endif; ?>
+            </form>
+        </div>
+
+        <!-- Configuration Details -->
+        <div style="margin-bottom: 30px;">
+            <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">Configuration Details</h4>
+            <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tbody>
+                        <tr style="border-bottom: 1px solid var(--dashboard-border);">
+                            <td style="padding: 10px 0; font-weight: 600; color: var(--dashboard-text-primary);">Maximum Log Size</td>
+                            <td style="padding: 10px 0; color: var(--dashboard-text-secondary);"><?php echo esc_html($status['max_log_size_formatted']); ?></td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid var(--dashboard-border);">
+                            <td style="padding: 10px 0; font-weight: 600; color: var(--dashboard-text-primary);">Auto-Disable Duration</td>
+                            <td style="padding: 10px 0; color: var(--dashboard-text-secondary);">24 hours</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid var(--dashboard-border);">
+                            <td style="padding: 10px 0; font-weight: 600; color: var(--dashboard-text-primary);">Log Rotation</td>
+                            <td style="padding: 10px 0; color: var(--dashboard-text-secondary);">Automatic when size limit reached</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid var(--dashboard-border);">
+                            <td style="padding: 10px 0; font-weight: 600; color: var(--dashboard-text-primary);">Rotated Files Kept</td>
+                            <td style="padding: 10px 0; color: var(--dashboard-text-secondary);">1 (current + 1 old)</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid var(--dashboard-border);">
+                            <td style="padding: 10px 0; font-weight: 600; color: var(--dashboard-text-primary);">Check Frequency</td>
+                            <td style="padding: 10px 0; color: var(--dashboard-text-secondary);">Hourly (via WP Cron)</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px 0; font-weight: 600; color: var(--dashboard-text-primary);">Log File Path</td>
+                            <td style="padding: 10px 0; color: var(--dashboard-text-secondary); font-family: monospace; font-size: 12px; word-break: break-all;">
+                                <?php echo esc_html($status['log_file_path']); ?>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <script>
+        jQuery(document).ready(function($) {
+            // Show warning when indefinite mode is checked
+            $('#indefinite-mode-advanced').on('change', function() {
+                if ($(this).is(':checked')) {
+                    $('#indefinite-warning-advanced').slideDown();
+                } else {
+                    $('#indefinite-warning-advanced').slideUp();
+                }
+            });
+
+            // Auto-update time remaining every minute
+            <?php if ($status['enabled'] && !$status['indefinite']): ?>
+            var initialTimeRemaining = <?php echo $status['time_remaining']; ?>;
+            var hasReloaded = false;
+
+            function updateDebugTimeRemaining() {
+                // Don't make AJAX calls if we already know it was expired on page load
+                if (initialTimeRemaining <= 0 || hasReloaded) {
+                    return;
+                }
+
+                $.ajax({
+                    url: '<?php echo rest_url('metasync/v1/debug-mode/status'); ?>',
+                    method: 'GET',
+                    beforeSend: function(xhr) {
+                        xhr.setRequestHeader('X-WP-Nonce', '<?php echo wp_create_nonce('wp_rest'); ?>');
+                    },
+                    success: function(response) {
+                        console.log('MetaSync Debug Mode Status:', response);
+
+                        if (response && typeof response.time_remaining !== 'undefined') {
+                            // Update the display
+                            if (response.time_remaining_formatted) {
+                                $('.debug-time-remaining').text(response.time_remaining_formatted);
+                            }
+
+                            // Only reload if debug mode just expired (was active, now expired)
+                            // AND this is a state change (wasn't already expired)
+                            if (response.time_remaining <= 0 && initialTimeRemaining > 0 && !hasReloaded) {
+                                hasReloaded = true;
+                                console.log('Debug mode expired, reloading page...');
+                                setTimeout(function() {
+                                    window.location.reload();
+                                }, 2000);
+                            }
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        console.error('MetaSync Debug Mode: Failed to update time remaining', error);
+                    }
+                });
+            }
+
+            // Only start AJAX updates if debug mode is not already expired
+            if (initialTimeRemaining > 0) {
+                // Update immediately on page load to ensure fresh data
+                setTimeout(updateDebugTimeRemaining, 2000);
+
+                // Then update every 60 seconds
+                setInterval(updateDebugTimeRemaining, 60000);
+            } else {
+                console.log('Debug mode already expired, skipping AJAX updates');
+            }
+            <?php endif; ?>
+        });
+        </script>
+        <?php
+    }
+
+    /**
      * Render error log content for inclusion in Advanced settings
      */
     private function render_error_log_content()
     {
         ?>
+        <!-- Error Summary Section -->
+        <div style="margin-bottom: 30px;">
+            <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">📊 Error Summary</h4>
+            <p style="margin-bottom: 15px; color: var(--dashboard-text-secondary);">View categorized error statistics with counts and last occurrence times.</p>
+            
+            <?php
+            if (class_exists('Metasync_Error_Logger')) {
+                $error_summary = Metasync_Error_Logger::get_error_summary();
+                
+                if (!empty($error_summary) && is_array($error_summary)) {
+                    // Sort by last_seen (newest first)
+                    uasort($error_summary, function($a, $b) {
+                        return strtotime($b['last_seen']) - strtotime($a['last_seen']);
+                    });
+                    ?>
+                    <div style="overflow-x: auto; margin-bottom: 20px;">
+                        <table class="wp-list-table widefat fixed striped" style="background: var(--dashboard-card-bg); border: 1px solid var(--dashboard-border);">
+                            <thead>
+                                <tr style="background: var(--dashboard-card-bg);">
+                                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--dashboard-border); color: var(--dashboard-text-primary); font-weight: 600;">Error Category</th>
+                                    <th style="padding: 12px; text-align: center; border-bottom: 2px solid var(--dashboard-border); color: var(--dashboard-text-primary); font-weight: 600;">Error Code</th>
+                                    <th style="padding: 12px; text-align: center; border-bottom: 2px solid var(--dashboard-border); color: var(--dashboard-text-primary); font-weight: 600;">Count</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--dashboard-border); color: var(--dashboard-text-primary); font-weight: 600;">Last Occurred</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--dashboard-border); color: var(--dashboard-text-primary); font-weight: 600;">Message</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($error_summary as $key => $error): ?>
+                                    <tr>
+                                        <td style="padding: 10px 12px; color: var(--dashboard-text-primary);">
+                                            <strong><?php echo esc_html($error['category']); ?></strong>
+                                        </td>
+                                        <td style="padding: 10px 12px; text-align: center; color: var(--dashboard-text-secondary); font-family: monospace;">
+                                            <code style="background: rgba(255, 255, 255, 0.1); padding: 2px 6px; border-radius: 3px;"><?php echo esc_html($error['code']); ?></code>
+                                        </td>
+                                        <td style="padding: 10px 12px; text-align: center;">
+                                            <span style="display: inline-block; background: var(--dashboard-accent); color: #ffffff; padding: 4px 10px; border-radius: 12px; font-weight: 600; font-size: 13px;">
+                                                <?php echo esc_html(number_format($error['count'])); ?>
+                                            </span>
+                                        </td>
+                                        <td style="padding: 10px 12px; color: var(--dashboard-text-secondary); font-size: 13px;">
+                                            <?php 
+                                            $last_seen = strtotime($error['last_seen']);
+                                            $time_diff = human_time_diff($last_seen, current_time('timestamp'));
+                                            echo esc_html($error['last_seen']) . ' <span style="color: var(--dashboard-text-secondary);">(' . $time_diff . ' ago)</span>';
+                                            ?>
+                                        </td>
+                                        <td style="padding: 10px 12px; color: var(--dashboard-text-primary); max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?php echo esc_attr($error['message']); ?>">
+                                            <?php echo esc_html($error['message']); ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <form method="post" action="<?php echo admin_url('admin.php?page=' . self::$page_slug . '&tab=advanced'); ?>" style="margin-bottom: 20px;">
+                        <input type="hidden" name="clear_error_summary" value="yes" />
+                        <?php wp_nonce_field('metasync_clear_error_summary_nonce', 'clear_error_summary_nonce'); ?>
+                        <button type="submit" class="button button-secondary" style="background: #dc3232; color: #ffffff; border: none; padding: 8px 16px; border-radius: 4px; font-weight: 500; cursor: pointer;">
+                            🗑️ Clear Error Summary
+                        </button>
+                    </form>
+                    <?php
+                } else {
+                    ?>
+                    <div class="dashboard-empty-state" style="padding: 30px; text-align: center; background: var(--dashboard-card-bg); border: 1px solid var(--dashboard-border); border-radius: 8px;">
+                        <p style="color: var(--dashboard-text-secondary); font-style: italic; margin: 0;">
+                            ✅ No errors recorded yet. Error summary will appear here once errors are logged.
+                        </p>
+                    </div>
+                    <?php
+                }
+            } else {
+                ?>
+                <div class="dashboard-empty-state" style="padding: 30px; text-align: center; background: rgba(255, 193, 7, 0.1); border: 1px solid rgba(255, 193, 7, 0.3); border-radius: 8px;">
+                    <p style="color: var(--dashboard-text-primary); margin: 0;">
+                        ⚠️ Error Logger class not available. Please ensure the plugin is properly loaded.
+                    </p>
+                </div>
+                <?php
+            }
+            ?>
+        </div>
+
         <!-- Error Log Management -->
         <div style="margin-bottom: 30px;">
             <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">Clear Error Logs</h4>
@@ -2285,6 +2852,75 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     }
 
     /**
+     * Handle debug mode operations (enable/disable/extend)
+     */
+    private function handle_debug_mode_operations()
+    {
+        // Check if this is a debug mode action from the Advanced tab
+        if (isset($_POST['metasync_debug_mode_action_advanced'])) {
+            // Verify nonce for security
+            if (!wp_verify_nonce($_POST['metasync_debug_mode_nonce_advanced'], 'metasync_debug_mode_action_advanced')) {
+                // Nonce verification failed - redirect with error
+                $redirect_url = admin_url('admin.php?page=' . self::$page_slug . '&tab=advanced&debug_error=1');
+                wp_redirect($redirect_url);
+                exit;
+            }
+
+            // Check permissions
+            if (!current_user_can('manage_options')) {
+                wp_die('Unauthorized');
+            }
+
+            // Check if debug manager class exists
+            if (!class_exists('Metasync_Debug_Mode_Manager')) {
+                $redirect_url = admin_url('admin.php?page=' . self::$page_slug . '&tab=advanced&debug_error=1&msg=manager_not_available');
+                wp_redirect($redirect_url);
+                exit;
+            }
+
+            $debug_manager = Metasync_Debug_Mode_Manager::get_instance();
+            $action = sanitize_text_field($_POST['action_type'] ?? '');
+            $redirect_url = admin_url('admin.php?page=' . self::$page_slug . '&tab=advanced');
+
+            switch ($action) {
+                case 'enable':
+                    $indefinite = isset($_POST['indefinite']) && $_POST['indefinite'] === '1';
+                    $result = $debug_manager->enable_debug_mode($indefinite);
+
+                    // Always show success if we got this far
+                    $redirect_url = add_query_arg('debug_mode_enabled', '1', $redirect_url);
+                    if ($indefinite) {
+                        $redirect_url = add_query_arg('indefinite', '1', $redirect_url);
+                    }
+                    break;
+
+                case 'disable':
+                    $result = $debug_manager->disable_debug_mode('manual');
+                    if ($result) {
+                        $redirect_url = add_query_arg('debug_mode_disabled', '1', $redirect_url);
+                    } else {
+                        $redirect_url = add_query_arg('debug_error', '1', $redirect_url);
+                    }
+                    break;
+
+                case 'extend':
+                    $result = $debug_manager->extend_debug_mode();
+
+                    // Always show success if we got this far
+                    $redirect_url = add_query_arg('debug_mode_extended', '1', $redirect_url);
+                    break;
+
+                default:
+                    $redirect_url = add_query_arg('debug_error', '1', $redirect_url);
+                    break;
+            }
+
+            wp_redirect($redirect_url);
+            exit;
+        }
+    }
+
+    /**
      * Handle error log operations (clear)
      */
     private function handle_error_log_operations()
@@ -2320,6 +2956,29 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 exit;
             }
         }
+        
+        // Handle error summary clear form submission
+        if (isset($_POST['clear_error_summary']) && isset($_POST['clear_error_summary_nonce'])) {
+            if (wp_verify_nonce($_POST['clear_error_summary_nonce'], 'metasync_clear_error_summary_nonce')) {
+                if (class_exists('Metasync_Error_Logger')) {
+                    Metasync_Error_Logger::clear_error_summary();
+                    // Redirect back to advanced tab with success
+                    $redirect_url = admin_url('admin.php?page=' . self::$page_slug . '&tab=advanced&error_summary_cleared=1');
+                    wp_redirect($redirect_url);
+                    exit;
+                } else {
+                    // Error logger class not available
+                    $redirect_url = admin_url('admin.php?page=' . self::$page_slug . '&tab=advanced&error_summary_error=1');
+                    wp_redirect($redirect_url);
+                    exit;
+                }
+            } else {
+                // Nonce verification failed - redirect with error
+                $redirect_url = admin_url('admin.php?page=' . self::$page_slug . '&tab=advanced&error_summary_error=1');
+                wp_redirect($redirect_url);
+                exit;
+            }
+        }
     }
 
     /**
@@ -2335,7 +2994,8 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 // List of all metasync-related options to clear
                 $metasync_options_to_clear = [
                     'metasync_options',                    // Main plugin options
-                    'metasync_options_instant_indexing',  // Instant indexing settings
+                    'metasync_options_instant_indexing',  // Google instant indexing settings
+                    'metasync_options_bing_instant_indexing', // Bing instant indexing settings
                     'metasync_otto_crawldata',            // Otto crawl data
                     'metasync_logging_data',              // Logging data
                     'metasync_wp_sa_connect_token',              // WordPress Search Atlas connect token
@@ -2457,6 +3117,12 @@ define('WP_DEBUG_DISPLAY', false);</pre>
      */
     private function get_error_log_content()
     {
+        // Set execution time limit for log file processing
+        $execution_time = $this->get_execution_setting('max_execution_time');
+        if (function_exists('set_time_limit')) {
+            @set_time_limit($execution_time);
+        }
+        
         // Try to get WordPress debug.log content
         $log_file = WP_CONTENT_DIR . '/debug.log';
         
@@ -2464,10 +3130,13 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             return false;
         }
         
+        // Get batch size from execution settings
+        $batch_size = $this->get_execution_setting('log_batch_size');
+        
         // Check file size first - if it's too large, use tail method
         $file_size = filesize($log_file);
         if ($file_size > 10 * 1024 * 1024) { // 10MB limit
-            return $this->get_log_tail($log_file, 100);
+            return $this->get_log_tail($log_file, $batch_size);
         }
         
         // For smaller files, use the original method
@@ -2476,9 +3145,9 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             return false;
         }
         
-        // Get last 100 lines for better performance
+        // Get last N lines based on batch size setting
         $lines = explode("\n", $content);
-        $recent_lines = array_slice($lines, -100);
+        $recent_lines = array_slice($lines, -$batch_size);
         
         return implode("\n", $recent_lines);
     }
@@ -2486,8 +3155,19 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     /**
      * Memory-efficient function to get last N lines from a large file
      */
-    private function get_log_tail($file_path, $lines = 100)
+    private function get_log_tail($file_path, $lines = null)
     {
+        // Set execution time limit for large file processing
+        $execution_time = $this->get_execution_setting('max_execution_time');
+        if (function_exists('set_time_limit')) {
+            @set_time_limit($execution_time);
+        }
+        
+        // Get batch size from execution settings if not provided
+        if ($lines === null) {
+            $lines = $this->get_execution_setting('log_batch_size');
+        }
+        
         $handle = fopen($file_path, 'r');
         if (!$handle) {
             return false;
@@ -3186,6 +3866,24 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             if (is_wp_error($response)) {
                 $error_message = $response->get_error_message();
                 $error_code = $response->get_error_code();
+
+                // NEW: Structured error logging with category and code
+                if (class_exists('Metasync_Error_Logger')) {
+                    Metasync_Error_Logger::log(
+                        Metasync_Error_Logger::CATEGORY_NETWORK_ERROR,
+                        Metasync_Error_Logger::SEVERITY_ERROR,
+                        'OTTO API network request failed',
+                        [
+                            'attempt' => $attempt,
+                            'error_code' => $error_code,
+                            'error_message' => $error_message,
+                            'api_endpoint' => 'OTTO Projects API',
+                            'operation' => 'fetch_public_hash',
+                            'will_retry' => $attempt < $max_retries,
+                            'max_retries' => $max_retries
+                        ]
+                    );
+                }
                 
                 $this->log_fetch_hash_error('error', 'HTTP request failed', [
                     'attempt' => $attempt,
@@ -3340,6 +4038,22 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 
             case 401:
             case 403:
+                // NEW: Structured error logging with category and code
+                if (class_exists('Metasync_Error_Logger')) {
+                    Metasync_Error_Logger::log(
+                        Metasync_Error_Logger::CATEGORY_AUTHENTICATION_FAILURE,
+                        Metasync_Error_Logger::SEVERITY_ERROR,
+                        'OTTO API authentication failed',
+                        [
+                            'status_code' => $status_code,
+                            'attempt' => $attempt,
+                            'api_endpoint' => 'OTTO Projects API',
+                            'operation' => 'fetch_public_hash',
+                            'http_status' => $status_code === 401 ? 'Unauthorized' : 'Forbidden'
+                        ]
+                    );
+                }
+                
                 $this->log_fetch_hash_error('error', 'Authentication failed', [
                     'status_code' => $status_code,
                     'attempt' => $attempt
@@ -3354,6 +4068,23 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 return false; // Don't retry not found
                 
             case 429:
+                // NEW: Structured error logging with category and code
+                if (class_exists('Metasync_Error_Logger')) {
+                    Metasync_Error_Logger::log(
+                        Metasync_Error_Logger::CATEGORY_API_RATE_LIMIT,
+                        Metasync_Error_Logger::SEVERITY_WARNING,
+                        'OTTO API rate limit exceeded',
+                        [
+                            'status_code' => $status_code,
+                            'attempt' => $attempt,
+                            'will_retry' => $attempt < $max_retries,
+                            'api_endpoint' => 'OTTO Projects API',
+                            'operation' => 'fetch_public_hash',
+                            'max_retries' => $max_retries
+                        ]
+                    );
+                }
+                
                 $this->log_fetch_hash_error('warning', 'API rate limit exceeded', [
                     'status_code' => $status_code,
                     'attempt' => $attempt,
@@ -3460,6 +4191,23 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $delay = $base_delay * pow(2, $attempt - 1);
         $max_delay = 30; // Cap at 30 seconds
         $delay = min($delay, $max_delay);
+
+        // NEW: Structured error logging with category and code
+        if (class_exists('Metasync_Error_Logger')) {
+            Metasync_Error_Logger::log(
+                Metasync_Error_Logger::CATEGORY_API_BACKOFF,
+                Metasync_Error_Logger::SEVERITY_INFO,
+                'API backoff active - applying exponential retry delay',
+                [
+                    'attempt' => $attempt,
+                    'delay_seconds' => $delay,
+                    'base_delay' => $base_delay,
+                    'max_delay' => $max_delay,
+                    'api_endpoint' => 'OTTO Projects API',
+                    'operation' => 'fetch_public_hash'
+                ]
+            );
+        }
         
         $this->log_fetch_hash_error('info', 'Applying retry delay', [
             'attempt' => $attempt,
@@ -3767,8 +4515,9 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             'method' => 'sync_customer_params'
         ));
         
-        // Update last successful heartbeat timestamp
+        // Update last successful heartbeat timestamp and granular otto_config_status
         $general_settings['send_auth_token_timestamp'] = current_time('mysql');
+        $general_settings['last_heartbeat_at'] = gmdate('Y-m-d\TH:i:s\Z');
         $options = Metasync::get_option();
         $options['general'] = $general_settings;
         Metasync::set_option($options);
@@ -3896,6 +4645,16 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             'display' => esc_html__('Every 2 Hours (MetaSync)', 'metasync')
         );
         
+        // PR3: Burst mode intervals
+        $schedules['metasync_every_2_minutes'] = array(
+            'interval' => 2 * MINUTE_IN_SECONDS,
+            'display' => esc_html__('Every 2 Minutes (MetaSync Burst)', 'metasync')
+        );
+        $schedules['metasync_every_5_minutes'] = array(
+            'interval' => 5 * MINUTE_IN_SECONDS,
+            'display' => esc_html__('Every 5 Minutes (MetaSync)', 'metasync')
+        );
+        
         // Add daily cleanup schedule
         $schedules['metasync_daily_cleanup'] = array(
             'interval' => DAY_IN_SECONDS, // 24 hours
@@ -3912,27 +4671,139 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     }
     
     /**
-     * Maybe schedule heartbeat cron job if plugin API key is configured
-     * Called on init hook - only schedules if API key is present
+     * PR3: Get current heartbeat state (UNREGISTERED, REGISTERED_NO_KEY, KEY_PENDING, CONNECTED).
+     */
+    public function get_heartbeat_state()
+    {
+        $general = Metasync::get_option('general') ?? [];
+        $api_key = $general['searchatlas_api_key'] ?? '';
+        if (empty($api_key)) {
+            return 'UNREGISTERED';
+        }
+        $state = $general['heartbeat_state'] ?? '';
+        return ($state === 'CONNECTED') ? 'CONNECTED' : 'KEY_PENDING';
+    }
+    
+    /**
+     * PR3: Set state to KEY_PENDING and timestamp (when API key is added or rotated).
+     */
+    public function set_heartbeat_state_key_pending()
+    {
+        $options = Metasync::get_option();
+        if (!isset($options['general'])) {
+            $options['general'] = [];
+        }
+        $options['general']['heartbeat_state'] = 'KEY_PENDING';
+        $options['general']['heartbeat_state_changed_at'] = time();
+        Metasync::set_option($options);
+        $this->maybe_schedule_heartbeat_cron();
+    }
+    
+    /**
+     * PR3: Burst cron — run heartbeat when state is KEY_PENDING.
+     * After the 30-min burst window expires, downgrade to every-5-minutes schedule.
+     */
+    public function execute_burst_heartbeat()
+    {
+        if ($this->get_heartbeat_state() !== 'KEY_PENDING') {
+            return;
+        }
+        $general = Metasync::get_option('general') ?? [];
+        $state_changed_at = (int) ($general['heartbeat_state_changed_at'] ?? 0);
+        $burst_window_end = $state_changed_at + (30 * 60);
+        if ($burst_window_end < time()) {
+            $this->unschedule_burst_heartbeat_cron();
+            if (!wp_next_scheduled('metasync_heartbeat_cron_check')) {
+                wp_schedule_event(time(), 'metasync_every_5_minutes', 'metasync_heartbeat_cron_check');
+            }
+            $this->execute_heartbeat_cron_check();
+            return;
+        }
+        $this->execute_heartbeat_cron_check();
+    }
+    
+    /**
+     * PR3: Announce cron — send pre-SSO announce when state is UNREGISTERED (fallback every 5 min).
+     */
+    public function execute_announce_cron()
+    {
+        if ($this->get_heartbeat_state() !== 'UNREGISTERED') {
+            return;
+        }
+        if (!class_exists('Metasync_Activator')) {
+            require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-activator.php';
+        }
+        Metasync_Activator::send_announce_ping();
+    }
+    
+    public function unschedule_burst_heartbeat_cron()
+    {
+        $timestamp = wp_next_scheduled('metasync_burst_heartbeat');
+        if ($timestamp) {
+            wp_unschedule_event($timestamp, 'metasync_burst_heartbeat');
+        }
+    }
+    
+    public function unschedule_announce_cron()
+    {
+        $timestamp = wp_next_scheduled('metasync_announce_cron');
+        if ($timestamp) {
+            wp_unschedule_event($timestamp, 'metasync_announce_cron');
+        }
+    }
+    
+    /**
+     * Maybe schedule heartbeat cron job based on PR3 state.
+     * UNREGISTERED: announce cron every 5 min. KEY_PENDING: burst every 2 min. CONNECTED: 2-hour only.
      */
     public function maybe_schedule_heartbeat_cron()
     {
-        $general_settings = Metasync::get_option('general') ?? [];
-        $searchatlas_api_key = $general_settings['searchatlas_api_key'] ?? '';
+        $state = $this->get_heartbeat_state();
         
-        if (empty($searchatlas_api_key)) {
-            // No API key = unschedule any existing cron to save resources
-            if (wp_next_scheduled('metasync_heartbeat_cron_check')) {
-                $this->unschedule_heartbeat_cron();
-                $this->log_heartbeat('info', 'Heartbeat cron unscheduled - no plugin API key configured');
+        if ($state === 'UNREGISTERED') {
+            $this->unschedule_heartbeat_cron();
+            $this->unschedule_burst_heartbeat_cron();
+            if (!wp_next_scheduled('metasync_announce_cron')) {
+                wp_schedule_event(time(), 'metasync_every_5_minutes', 'metasync_announce_cron');
             }
             return;
         }
         
-        // API key exists = ensure cron is scheduled
-        if (!wp_next_scheduled('metasync_heartbeat_cron_check')) {
+        $this->unschedule_announce_cron();
+        
+        if ($state === 'KEY_PENDING') {
+            $this->unschedule_heartbeat_cron();
+            if (!wp_next_scheduled('metasync_burst_heartbeat')) {
+                wp_schedule_event(time(), 'metasync_every_2_minutes', 'metasync_burst_heartbeat');
+            }
+            return;
+        }
+        
+        if ($state === 'CONNECTED') {
+            $this->unschedule_burst_heartbeat_cron();
             $this->schedule_heartbeat_cron();
         }
+    }
+    
+    /**
+     * Pre-SSO announce: send rate-limited ping when no API key yet (PR4).
+     * Backend can show "Plugin detected, complete the connection". Client-side limit: 1 per hour per site.
+     */
+    public function maybe_send_pre_sso_announce()
+    {
+        $general = Metasync::get_option('general') ?? [];
+        if (!empty($general['searchatlas_api_key'] ?? '')) {
+            return;
+        }
+        $transient_key = 'metasync_announce_last_sent';
+        if (get_transient($transient_key)) {
+            return;
+        }
+        if (!class_exists('Metasync_Activator')) {
+            require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-activator.php';
+        }
+        Metasync_Activator::send_announce_ping();
+        set_transient($transient_key, time(), HOUR_IN_SECONDS);
     }
     
     /**
@@ -4021,6 +4892,41 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     public function handle_immediate_heartbeat_trigger($context = 'WordPress action trigger')
     {
         $this->trigger_immediate_heartbeat_check($context);
+    }
+    
+    /**
+     * PR3: AJAX endpoint for burst ping (30s polling). Sends announce when UNREGISTERED or heartbeat when KEY_PENDING.
+     */
+    public function ajax_burst_ping()
+    {
+        if (!Metasync::current_user_has_plugin_access() || empty($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'metasync_burst_ping')) {
+            wp_send_json_error(array('message' => 'Unauthorized'));
+            return;
+        }
+        $state = $this->get_heartbeat_state();
+        if ($state === 'UNREGISTERED') {
+            if (!class_exists('Metasync_Activator')) {
+                require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-activator.php';
+            }
+            Metasync_Activator::send_announce_ping();
+            wp_send_json_success(array('state' => 'UNREGISTERED', 'heartbeat_confirmed' => false));
+            return;
+        }
+        if ($state === 'KEY_PENDING') {
+            $_POST['is_heart_beat'] = true;
+            $_POST['is_burst'] = true;
+            $general = Metasync::get_option('general') ?? [];
+            $apikey = $general['apikey'] ?? '';
+            $sync = new Metasync_Sync_Requests();
+            $sync->SyncCustomerParams($apikey);
+            $state = $this->get_heartbeat_state();
+            if ($state === 'CONNECTED') {
+                $this->maybe_schedule_heartbeat_cron();
+            }
+            wp_send_json_success(array('state' => $state, 'heartbeat_confirmed' => ($state === 'CONNECTED')));
+            return;
+        }
+        wp_send_json_success(array('state' => $state, 'heartbeat_confirmed' => true));
     }
     
     /**
@@ -4379,6 +5285,16 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             ];
         }
 
+        if ($general_options['enable_bing_console'] ?? false) {
+            $menu_items['bing_console'] = [
+                'title' => 'Bing Console',
+                'slug_suffix' => '-bing-console',
+                'callback' => 'create_admin_bing_console_page',
+                'internal_nav' => 'Bing Console',
+                'group' => 'seo'
+            ];
+        }
+
         // Redirections page (check access control)
         if (Metasync_Access_Control::user_can_access('hide_redirections')) {
             $menu_items['redirections'] = [
@@ -4412,14 +5328,16 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             ];
         }
         
-        // Import SEO Data page (always available in SEO features)
-        $menu_items['import_seo'] = [
-            'title' => 'Import SEO Data',
-            'slug_suffix' => '-import-external',
-            'callback' => 'render_import_external_data_page',
-            'internal_nav' => 'Import SEO Data',
-            'group' => 'seo'
-        ];
+        // Import SEO Data page (check access control)
+        if (Metasync_Access_Control::user_can_access('hide_import_seo')) {
+            $menu_items['import_seo'] = [
+                'title' => 'Import SEO Data',
+                'slug_suffix' => '-import-external',
+                'callback' => 'render_import_external_data_page',
+                'internal_nav' => 'Import SEO Data',
+                'group' => 'seo'
+            ];
+        }
 
         // === PLUGIN GROUP ===
 
@@ -4479,6 +5397,15 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 'group' => 'plugin'
             ];
         }
+
+        // Bot Statistics (always available)
+        $menu_items['bot_statistics'] = [
+            'title' => 'Bot Statistics',
+            'slug_suffix' => '-bot-statistics',
+            'callback' => 'create_admin_bot_statistics_page',
+            'internal_nav' => 'Bot Statistics',
+            'group' => 'plugin'
+        ];
 
         // Report Issue page (check access control)
         if (Metasync_Access_Control::user_can_access('hide_report_issue')) {
@@ -4648,8 +5575,13 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             add_submenu_page($menu_slug, 'Robots.txt', 'Robots.txt', $menu_capability, $menu_slug . '-robots-txt', array($this, 'create_admin_robots_txt_page'));
         }
 
-        // Import SEO Data (always available - visible in sidebar)
-        add_submenu_page($menu_slug, 'Import SEO Data', 'Import SEO Data', $menu_capability, $menu_slug . '-import-external', array($this, 'render_import_external_data_page'));
+        // Bot Statistics (hidden from sidebar - accessible via Plugin dropdown in grouped nav)
+        add_submenu_page(null, 'Bot Statistics', 'Bot Statistics', $menu_capability, $menu_slug . '-bot-statistics', array($this, 'create_admin_bot_statistics_page'));
+
+        // Import SEO Data (check access control)
+        if (Metasync_Access_Control::user_can_access('hide_import_seo')) {
+            add_submenu_page($menu_slug, 'Import SEO Data', 'Import SEO Data', $menu_capability, $menu_slug . '-import-external', array($this, 'render_import_external_data_page'));
+        }
 
         // Custom Pages (check access control)
         if (Metasync_Access_Control::user_can_access('hide_custom_pages')) {
@@ -4661,8 +5593,28 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             add_submenu_page($menu_slug, 'Report Issue', 'Report Issue', $menu_capability, $menu_slug . '-report-issue', array($this, 'create_admin_report_issue_page'));
         }
 
+        # Add Setup Wizard as a hidden page (accessible via dashboard card only)
+        add_submenu_page('', 'Setup Wizard', 'Setup Wizard', $menu_capability, $menu_slug . '-setup-wizard', array($this->setup_wizard, 'render_wizard_page'));
+
         // Add 404 Monitor as a direct page (not submenu)
-        add_submenu_page(null, '404 Monitor', '404 Monitor', $menu_capability, $menu_slug . '-404-monitor', array($this, 'create_admin_404_monitor_page'));
+        add_submenu_page('', '404 Monitor', '404 Monitor', $menu_capability, $menu_slug . '-404-monitor', array($this, 'create_admin_404_monitor_page'));
+
+        // Google Instant Indexing (conditional - check if enabled)
+        $seo_controls = Metasync::get_option('seo_controls');
+        if ($seo_controls['enable_googleinstantindex'] ?? false) {
+            add_submenu_page($menu_slug, 'Instant Indexing', 'Instant Indexing', $menu_capability, $menu_slug . '-instant-index', array($this, 'create_admin_google_instant_index_page'));
+        }
+
+        // Google Console (conditional - check if enabled)
+        if ($general_options['enable_google_console'] ?? false) {
+            add_submenu_page($menu_slug, 'Google Console', 'Google Console', $menu_capability, $menu_slug . '-google-console', array($this, 'create_admin_google_console_page'));
+        }
+
+        // Bing Console (conditional - hidden page, only accessible via direct link)
+        // Note: Using null parent to hide from main menu, but still make accessible
+        if ($seo_controls['enable_binginstantindex'] ?? false) {
+            add_submenu_page('', 'Bing Console', 'Bing Console', $menu_capability, $menu_slug . '-bing-console', array($this, 'create_admin_bing_console_page'));
+        }
 
     }
 
@@ -4757,10 +5709,11 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                         <h2 style="text-align: center;">🔐 Protected Section</h2>
                         <p style="color: var(--dashboard-text-secondary); margin-bottom: 30px; text-align: center;">
                             <?php
+                            $plugin_name = Metasync::get_effective_plugin_name('');
                             if ($hide_settings_enabled && !empty($user_password)) {
-                                echo 'Please enter the password to access the Settings section.';
+                                printf('Please enter the password to access the %s Settings section.', esc_html($plugin_name));
                             } else {
-                                echo 'Please enter the password to access the White Label Branding section.';
+                                echo 'Please enter the password to access the Branding section.';
                             }
                             ?>
                         </p>
@@ -4778,11 +5731,11 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                                 <label for="whitelabel_password" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--dashboard-text-primary);">
                                     🔑 Validate Password
                                 </label>
-                                <input 
-                                    type="password" 
-                                    id="whitelabel_password" 
-                                    name="whitelabel_password" 
-                                    placeholder="Please enter password to access the whitelabel section"
+                                <input
+                                    type="password"
+                                    id="whitelabel_password"
+                                    name="whitelabel_password"
+                                    placeholder="Enter password to access protected settings"
                                     style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box;"
                                     required
                                     autocomplete="off"
@@ -4790,8 +5743,8 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                             </div>
                             
                             <div style="text-align: center;">
-                                <button 
-                                    type="submit" 
+                                <button
+                                    type="submit"
                                     name="whitelabel_password_submit"
                                     value="1"
                                     class="button button-primary"
@@ -4801,19 +5754,71 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                                 </button>
                             </div>
                         </form>
-                        
+
+                        <div style="text-align: center; margin-top: 20px;">
+                            <a href="#" id="metasync-forgot-password-link" style="color: #2271b1; text-decoration: none; font-size: 14px;">
+                                🔓 Forgot Password?
+                            </a>
+                            <div id="metasync-recovery-message" style="margin-top: 15px; padding: 12px; border-radius: 6px; display: none;"></div>
+                        </div>
+
                     </div>
                     
                     <script>
                     jQuery(document).ready(function($) {
                         // Focus on password field when page loads
                         $('#whitelabel_password').focus();
-                        
+
                         // Add enter key support
                         $('#whitelabel_password').on('keypress', function(e) {
                             if (e.which === 13) {
                                 $(this).closest('form').submit();
                             }
+                        });
+
+                        // Handle forgot password link
+                        $('#metasync-forgot-password-link').on('click', function(e) {
+                            e.preventDefault();
+
+                            var $link = $(this);
+                            var $message = $('#metasync-recovery-message');
+
+                            // Disable link and show loading state
+                            $link.css('pointer-events', 'none').css('opacity', '0.6');
+                            $message.removeClass('success error').hide();
+                            $message.html('⏳ Sending recovery email...').css('background', '#f0f6fc').css('color', '#0c5ba5').css('border', '1px solid #cfe2f3').fadeIn(200);
+
+                            // Send AJAX request
+                            $.ajax({
+                                url: ajaxurl,
+                                type: 'POST',
+                                data: {
+                                    action: 'metasync_recover_password',
+                                    nonce: '<?php echo wp_create_nonce('metasync_recover_password_nonce'); ?>'
+                                },
+                                success: function(response) {
+                                    $link.css('pointer-events', 'auto').css('opacity', '1');
+
+                                    if (response.success) {
+                                        $message.addClass('success').html('✅ ' + response.data.message)
+                                            .css('background', '#d4edda')
+                                            .css('color', '#155724')
+                                            .css('border', '1px solid #c3e6cb');
+                                    } else {
+                                        $message.addClass('error').html('❌ ' + response.data.message)
+                                            .css('background', '#f8d7da')
+                                            .css('color', '#721c24')
+                                            .css('border', '1px solid #f5c6cb');
+                                    }
+                                },
+                                error: function() {
+                                    $link.css('pointer-events', 'auto').css('opacity', '1');
+                                    $message.addClass('error').html('❌ An error occurred. Please try again.')
+                                        .css('background', '#f8d7da')
+                                        .css('color', '#721c24')
+                                        .css('border', '1px solid #f5c6cb');
+                                }
+                            });
                         });
                     });
                     </script>
@@ -4872,6 +5877,14 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                         <button type="button" class="button button-primary" id="sendAuthToken" data-toggle="tooltip" data-placement="top" title="Sync Categories and User">
                             🔄 Sync Now
                         </button>
+                    </div>
+
+                    <div class="dashboard-card">
+                        <h2>🚀 Setup Wizard</h2>
+                        <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Run the setup wizard to configure your plugin, import from other SEO plugins, and optimize your settings in just a few minutes.</p>
+                        <a href="<?php echo esc_url(admin_url('admin.php?page=' . self::$page_slug . '-setup-wizard')); ?>" class="button button-primary" style="text-decoration: none;">
+                            ✨ Start Setup Wizard
+                        </a>
                     </div>
                 <?php
                     } elseif ($active_tab == 'whitelabel') {
@@ -5007,6 +6020,43 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                             return passwordValue && passwordValue.length > 0;
                         }
 
+                        // Function to check if recovery email is set
+                        function hasRecoveryEmail() {
+                            var recoveryEmailField = $('input[name="<?php echo $this::option_key; ?>[whitelabel][recovery_email]"]');
+                            var emailValue = recoveryEmailField.val();
+                            return emailValue && emailValue.length > 0 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailValue);
+                        }
+
+                        // Validate recovery email when password is being set
+                        var passwordField = $('input[name="<?php echo $this::option_key; ?>[whitelabel][settings_password]"]');
+                        var recoveryEmailField = $('input[name="<?php echo $this::option_key; ?>[whitelabel][recovery_email]"]');
+
+                        // Real-time validation for recovery email
+                        passwordField.on('blur', function() {
+                            if (hasPassword() && !hasRecoveryEmail()) {
+                                showModal(
+                                    '📧',
+                                    'Recovery Email Required',
+                                    'You must set a <strong>Recovery Email</strong> when setting a password.<br><br>Please enter a valid email address in the <strong>Recovery Email</strong> field.'
+                                );
+                                recoveryEmailField.focus();
+                            }
+                        });
+
+                        // Mark recovery email as required when password is set
+                        passwordField.on('input', function() {
+                            if (hasPassword()) {
+                                recoveryEmailField.attr('required', true);
+                                recoveryEmailField.closest('tr').find('th').addClass('required-field');
+                            } else {
+                                recoveryEmailField.removeAttr('required');
+                                recoveryEmailField.closest('tr').find('th').removeClass('required-field');
+                            }
+                        });
+
+                        // Trigger initial check
+                        passwordField.trigger('input');
+
                         // Store original checkbox state
                         var hideSettingsCheckbox = $('#checkbox_hide_settings');
                         var originalCheckboxState = hideSettingsCheckbox.is(':checked');
@@ -5022,7 +6072,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                                 showModal(
                                     '🔐',
                                     'Password Required',
-                                    'You must set a <strong>White Label Settings Password</strong> before enabling "Hide Settings".<br><br>Please scroll up to the <strong>White Label Branding</strong> section and set a password first.'
+                                    'You must set a <strong>Settings Password</strong> before enabling "Hide Settings".<br><br>Please scroll up to the <strong>Branding</strong> section and set a password first.'
                                 );
 
                                 // Focus on password field when modal closes
@@ -5040,7 +6090,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                         });
 
                         // Prevent clearing password when Hide Settings is enabled
-                        var passwordField = $('input[name="<?php echo $this::option_key; ?>[whitelabel][settings_password]"]');
+                        // passwordField already declared above
                         var storedPassword = '<?php echo esc_js($whitelabel_settings['settings_password'] ?? ''); ?>';
 
                         passwordField.on('keydown', function(e) {
@@ -5146,6 +6196,42 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                         <?php if ($hide_settings_enabled && !empty($user_password) && $is_authenticated): ?>
                         <div style="background: rgba(212, 237, 218, 0.2); border: 1px solid rgba(195, 230, 203, 0.5); color: var(--dashboard-success, #10b981); padding: 12px; border-radius: 8px; margin-bottom: 20px;">
                             <strong>✅ Access Granted:</strong> You have successfully authenticated and can now modify settings.
+                        </div>
+                        <?php endif; ?>
+
+                        <?php
+                        // Display debug mode success/error messages
+                        if (isset($_GET['debug_mode_enabled']) && $_GET['debug_mode_enabled'] == '1'):
+                            $indefinite = isset($_GET['indefinite']) && $_GET['indefinite'] == '1';
+                        ?>
+                        <div class="notice notice-success inline" style="margin-bottom: 20px;">
+                            <p>
+                                <strong>✅ Success!</strong> Debug mode has been enabled<?php echo $indefinite ? ' indefinitely' : ' for 24 hours'; ?>.
+                            </p>
+                        </div>
+                        <?php endif; ?>
+
+                        <?php if (isset($_GET['debug_mode_disabled']) && $_GET['debug_mode_disabled'] == '1'): ?>
+                        <div class="notice notice-info inline" style="margin-bottom: 20px;">
+                            <p>
+                                <strong>ℹ️ Debug Mode Disabled:</strong> Debug mode has been successfully disabled.
+                            </p>
+                        </div>
+                        <?php endif; ?>
+
+                        <?php if (isset($_GET['debug_mode_extended']) && $_GET['debug_mode_extended'] == '1'): ?>
+                        <div class="notice notice-success inline" style="margin-bottom: 20px;">
+                            <p>
+                                <strong>✅ Extended!</strong> Debug mode has been extended for another 24 hours.
+                            </p>
+                        </div>
+                        <?php endif; ?>
+
+                        <?php if (isset($_GET['debug_error']) && $_GET['debug_error'] == '1'): ?>
+                        <div class="notice notice-error inline" style="margin-bottom: 20px;">
+                            <p>
+                                <strong>❌ Error:</strong> Unable to perform the debug mode operation. Please try again.
+                            </p>
                         </div>
                         <?php endif; ?>
 
@@ -5582,22 +6668,24 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         // Define icons for each menu type
         $menu_icons = [
             'general' => '⚙️',
-            'dashboard' => '📊', 
+            'dashboard' => '📊',
             'compatibility' => '🔧',
             'sync_log' => '📋',
             'seo_controls' => '🔍',
             'optimal_settings' => '🚀',
             'instant_index' => '🔗',
             'google_console' => '📊',
+            'bing_console' => '📊',
             'redirections' => '↩️',
             'robots_txt' => '🤖',
             'xml_sitemap' => '🗺️',
             'import_seo' => '📥',
             'custom_pages' => '📝',
+            'bot_statistics' => '🤖',
             'report_issue' => '📝',
             'error_log' => '⚠️'
         ];
-        
+
         // Group menu items by their group property
         $seo_items = [];
         $plugin_items = [];
@@ -5721,7 +6809,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                         </a>
                     <?php } ?>
                     <div class="metasync-simple-dropdown">
-                        <button type="button" class="metasync-settings-btn" id="metasync-settings-btn" onclick="toggleSettingsMenuPortal(event)">
+                        <button type="button" class="metasync-settings-btn" id="metasync-settings-btn" onclick="toggleSettingsMenuPortal(event)" aria-expanded="false">
                             <span class="tab-icon">⚙️</span>
                             <span class="tab-text">Settings</span>
                             <span class="dropdown-arrow">▼</span>
@@ -5732,96 +6820,149 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         </div>
         
         <script>
-        // Handle navigation dropdowns - click on both desktop and mobile
+        // Handle navigation dropdowns using portal pattern for reliable positioning
         (function() {
             var dropdowns = document.querySelectorAll('.metasync-nav-dropdown');
-            var isMobile = window.innerWidth <= 768;
-            
-            // Update mobile detection on resize
-            window.addEventListener('resize', function() {
-                isMobile = window.innerWidth <= 768;
-            });
-            
+            var activePortal = null;
+            var activeButton = null;
+            var activeDropdown = null;
+            var scrollHandler = null;
+            var resizeHandler = null;
+
+            // Position the portal menu relative to its trigger button
+            function positionPortalMenu(button, portalMenu) {
+                var rect = button.getBoundingClientRect();
+                var menuRect = portalMenu.getBoundingClientRect();
+                var viewportWidth = window.innerWidth;
+                var viewportHeight = window.innerHeight;
+
+                // Calculate left position, ensuring menu stays within viewport
+                var left = rect.left;
+                if (left + menuRect.width > viewportWidth - 10) {
+                    left = Math.max(10, viewportWidth - menuRect.width - 10);
+                }
+
+                // Calculate top position, prefer below button but flip above if needed
+                var top = rect.bottom + 8;
+                if (top + menuRect.height > viewportHeight - 10 && rect.top > menuRect.height + 10) {
+                    top = rect.top - menuRect.height - 8;
+                }
+
+                portalMenu.style.position = 'fixed';
+                portalMenu.style.top = top + 'px';
+                portalMenu.style.left = left + 'px';
+                portalMenu.style.zIndex = '999999999';
+            }
+
+            // Close the active portal menu
+            function closeActivePortal() {
+                if (activePortal && activePortal.parentNode) {
+                    activePortal.parentNode.removeChild(activePortal);
+                }
+                if (activeButton) {
+                    activeButton.setAttribute('aria-expanded', 'false');
+                }
+                if (activeDropdown) {
+                    activeDropdown.classList.remove('active');
+                }
+                if (scrollHandler) {
+                    window.removeEventListener('scroll', scrollHandler, true);
+                    scrollHandler = null;
+                }
+                if (resizeHandler) {
+                    window.removeEventListener('resize', resizeHandler);
+                    resizeHandler = null;
+                }
+                activePortal = null;
+                activeButton = null;
+                activeDropdown = null;
+            }
+
+            // Open a dropdown as a portal
+            function openAsPortal(dropdown, button, menu) {
+                // Close any existing portal first
+                closeActivePortal();
+
+                // Clone the menu content and create portal
+                var portalMenu = menu.cloneNode(true);
+                portalMenu.id = 'metasync-nav-portal-menu';
+                portalMenu.style.opacity = '1';
+                portalMenu.style.visibility = 'visible';
+                portalMenu.style.transform = 'none';
+
+                // Append to body (portal pattern)
+                document.body.appendChild(portalMenu);
+
+                // Position after adding to DOM so we can measure
+                positionPortalMenu(button, portalMenu);
+
+                // Update state
+                activePortal = portalMenu;
+                activeButton = button;
+                activeDropdown = dropdown;
+                dropdown.classList.add('active');
+                button.setAttribute('aria-expanded', 'true');
+
+                // Create bound handlers for repositioning
+                scrollHandler = function() {
+                    if (activePortal && activeButton) {
+                        positionPortalMenu(activeButton, activePortal);
+                    }
+                };
+                resizeHandler = scrollHandler;
+
+                // Reposition on scroll and resize
+                window.addEventListener('scroll', scrollHandler, true);
+                window.addEventListener('resize', resizeHandler);
+
+                // Handle clicks within portal menu (for navigation)
+                portalMenu.addEventListener('click', function(e) {
+                    var link = e.target.closest('a');
+                    if (link) {
+                        // Let the link navigate naturally, then close
+                        setTimeout(closeActivePortal, 0);
+                    }
+                });
+            }
+
             dropdowns.forEach(function(dropdown) {
                 var button = dropdown.querySelector('.metasync-nav-dropdown-btn');
                 var menu = dropdown.querySelector('.metasync-nav-dropdown-menu');
-                
+
                 if (!button || !menu) return;
-                
-                // Function to position menu using fixed positioning
-                function positionMenu() {
-                    if (dropdown.classList.contains('active')) {
-                        var rect = button.getBoundingClientRect();
-                        menu.style.position = 'fixed';
-                        menu.style.top = (rect.bottom + 8) + 'px';
-                        menu.style.left = rect.left + 'px';
-                        menu.style.zIndex = '999999999';
-                    }
-                }
-                
-                // Add click handler for both desktop and mobile
+
                 button.addEventListener('click', function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    
+
                     var isExpanded = button.getAttribute('aria-expanded') === 'true';
-                    
-                    // Close other dropdowns
-                    dropdowns.forEach(function(otherDropdown) {
-                        if (otherDropdown !== dropdown) {
-                            otherDropdown.classList.remove('active');
-                            var otherButton = otherDropdown.querySelector('.metasync-nav-dropdown-btn');
-                            var otherMenu = otherDropdown.querySelector('.metasync-nav-dropdown-menu');
-                            if (otherButton) {
-                                otherButton.setAttribute('aria-expanded', 'false');
-                            }
-                            if (otherMenu) {
-                                otherMenu.style.position = '';
-                                otherMenu.style.top = '';
-                                otherMenu.style.left = '';
-                                otherMenu.style.zIndex = '';
-                            }
-                        }
-                    });
-                    
-                    // Toggle current dropdown
+
                     if (isExpanded) {
-                        dropdown.classList.remove('active');
-                        button.setAttribute('aria-expanded', 'false');
-                        menu.style.position = '';
-                        menu.style.top = '';
-                        menu.style.left = '';
-                        menu.style.zIndex = '';
+                        closeActivePortal();
                     } else {
-                        dropdown.classList.add('active');
-                        button.setAttribute('aria-expanded', 'true');
-                        positionMenu();
+                        openAsPortal(dropdown, button, menu);
                     }
                 });
-                
-                // Reposition on scroll and resize
-                window.addEventListener('scroll', positionMenu, true);
-                window.addEventListener('resize', positionMenu);
             });
-            
-            // Close dropdowns when clicking outside (single handler for all dropdowns)
+
+            // Close portal when clicking outside
             document.addEventListener('click', function(e) {
-                dropdowns.forEach(function(dropdown) {
-                    if (!dropdown.contains(e.target)) {
-                        dropdown.classList.remove('active');
-                        var button = dropdown.querySelector('.metasync-nav-dropdown-btn');
-                        var menu = dropdown.querySelector('.metasync-nav-dropdown-menu');
-                        if (button) {
-                            button.setAttribute('aria-expanded', 'false');
-                        }
-                        if (menu) {
-                            menu.style.position = '';
-                            menu.style.top = '';
-                            menu.style.left = '';
-                            menu.style.zIndex = '';
-                        }
+                if (activePortal && activeButton) {
+                    // Check if click is outside both the portal and the trigger button
+                    if (!activePortal.contains(e.target) && !activeButton.contains(e.target)) {
+                        closeActivePortal();
                     }
-                });
+                }
+            });
+
+            // Close portal on escape key
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape' && activePortal) {
+                    closeActivePortal();
+                    if (activeButton) {
+                        activeButton.focus();
+                    }
+                }
             });
         })();
         
@@ -5855,20 +6996,23 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             // Fixed: Use safer DOM manipulation instead of innerHTML to prevent XSS
             menu.textContent = '';
 
-            // Get hide settings from access control
-
             var hideAdvanced = <?php
                 echo !Metasync_Access_Control::user_can_access('hide_advanced') ? 'true' : 'false';
             ?>;
+            var showGeneral = <?php
+                echo Metasync_Access_Control::user_can_access('hide_settings') ? 'true' : 'false';
+            ?>;
 
+            // Only add General link when user has access to Settings
+            if (showGeneral) {
+                const generalLink = document.createElement('a');
+                generalLink.href = '?page=<?php echo self::$page_slug; ?>&tab=general';
+                generalLink.className = 'metasync-portal-item' + (isGeneralActive ? ' active' : '');
+                generalLink.textContent = 'General';
+                menu.appendChild(generalLink);
+            }
 
-            const generalLink = document.createElement('a');
-            generalLink.href = '?page=<?php echo self::$page_slug; ?>&tab=general';
-            generalLink.className = 'metasync-portal-item' + (isGeneralActive ? ' active' : '');
-            generalLink.textContent = 'General';
-            menu.appendChild(generalLink);
-
-            // Always show White Label tab (for admin configuration)
+            // White Label tab
             const whitelabelLink = document.createElement('a');
             whitelabelLink.href = '?page=<?php echo self::$page_slug; ?>&tab=whitelabel';
             whitelabelLink.className = 'metasync-portal-item' + (isWhitelabelActive ? ' active' : '');
@@ -5905,12 +7049,10 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             var button = document.getElementById('metasync-settings-btn');
             var menu = document.getElementById('metasync-portal-menu');
             
-            if (menu && !button.contains(event.target) && !menu.contains(event.target)) {
+            if (menu && button && !button.contains(event.target) && !menu.contains(event.target)) {
                 menu.remove();
-                if (button) {
-                    button.classList.remove('active');
-                    button.setAttribute('aria-expanded', 'false');
-                }
+                button.classList.remove('active');
+                button.setAttribute('aria-expanded', 'false');
             }
         });
         </script>
@@ -6018,13 +7160,13 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     
         # text fields for sanitize text
         $text_fields = [
-            'searchatlas_api_key', 'apikey', 
-            'white_label_plugin_name', 'white_label_plugin_description', 
-            'white_label_plugin_author', 'white_label_plugin_menu_slug', 
+            'searchatlas_api_key', 'apikey',
+            'white_label_plugin_name', 'white_label_plugin_description',
+            'white_label_plugin_author', 'white_label_plugin_menu_slug',
             'white_label_plugin_menu_icon', 'enabled_plugin_css',
             'enabled_elementor_plugin_css_color','enabled_elementor_plugin_css',
             'otto_pixel_uuid','periodic_clear_otto_cache','periodic_clear_ottopage_cache',
-            'periodic_clear_ottopost_cache', 'whitelabel_otto_name'
+            'periodic_clear_ottopost_cache', 'whitelabel_otto_name', 'otto_wp_rocket_compat'
         ];
         
         # URL fields for esc_url_raw
@@ -6037,7 +7179,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     
         # Bool Fields for filter var
         # REMOVED (CVE-2025-14386): disable_single_signup_login was removed - legacy SSO login functionality no longer exists
-        $bool_fields = ['otto_disable_on_loggedin', 'otto_disable_preview_button', 'hide_dashboard_framework', 'show_admin_bar_status', 'enable_auto_updates', 'disable_common_robots_metabox', 'disable_advance_robots_metabox', 'disable_redirection_metabox', 'disable_canonical_metabox', 'disable_social_opengraph_metabox', 'open_external_links'];
+        $bool_fields = ['otto_disable_on_loggedin', 'otto_disable_preview_button', 'otto_disable_for_bots' , 'hide_dashboard_framework', 'show_admin_bar_status', 'enable_auto_updates', 'disable_common_robots_metabox', 'disable_advance_robots_metabox', 'disable_redirection_metabox', 'disable_canonical_metabox', 'disable_social_opengraph_metabox', 'disable_schema_markup_metabox', 'open_external_links'];
     
         #url Fields for esc_url
         $url_fields = ['white_label_plugin_author_uri', 'white_label_plugin_uri'];
@@ -6061,6 +7203,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         # This tells us which settings page tab the user was on when they clicked save
         $active_tab = isset($_POST['active_tab']) ? sanitize_text_field($_POST['active_tab']) : 'general';
         $general_tab_submitted = ($active_tab === 'general');
+        $whitelabel_tab_submitted = ($active_tab === 'whitelabel');
 
         foreach ($text_fields as $field) {
 
@@ -6132,6 +7275,19 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             }
         }
 
+        # Process textarea fields (bot whitelist/blacklist)
+        $textarea_fields = ['otto_bot_whitelist', 'otto_bot_blacklist'];
+        if ($general_tab_submitted) {
+            foreach ($textarea_fields as $field) {
+                if (isset($_POST['metasync_options']['general'][$field])) {
+                    $metasync_options['general'][$field] = sanitize_textarea_field($_POST['metasync_options']['general'][$field]);
+                } else {
+                    # If not set, preserve empty string
+                    $metasync_options['general'][$field] = '';
+                }
+            }
+        }
+
         # Process boolean fields
         # IMPORTANT: Only process if general tab is actually being submitted
         # When submitting from other tabs (whitelabel, advanced), we preserve existing values
@@ -6146,8 +7302,8 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             }
         }
     
-        # Process URL fields (only if general section is submitted)
-        if ($general_tab_submitted) {
+        # Process URL fields (for general tab OR whitelabel tab since these fields are displayed on whitelabel tab)
+        if ($general_tab_submitted || $whitelabel_tab_submitted) {
             foreach ($url_fields as $field) {
             if (isset($_POST['metasync_options']['general'][$field])) {
                 
@@ -6210,6 +7366,27 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             }
         }
         # else: preserve existing value if not submitting from general tab
+
+        # Whitelabel partial-save validation: require at least one core field when any whitelabel field is filled
+        if ($whitelabel_tab_submitted && isset($_POST['metasync_options']['whitelabel'])) {
+            $gp = isset($_POST['metasync_options']['general']) && is_array($_POST['metasync_options']['general']) ? $_POST['metasync_options']['general'] : [];
+            $wp = isset($_POST['metasync_options']['whitelabel']) && is_array($_POST['metasync_options']['whitelabel']) ? $_POST['metasync_options']['whitelabel'] : [];
+            $plugin_name = isset($gp['white_label_plugin_name']) ? trim((string) $gp['white_label_plugin_name']) : '';
+            $logo = isset($wp['logo']) ? trim((string) $wp['logo']) : '';
+            $author = isset($gp['white_label_plugin_author']) ? trim((string) $gp['white_label_plugin_author']) : '';
+            $author_uri = isset($gp['white_label_plugin_author_uri']) ? trim((string) $gp['white_label_plugin_author_uri']) : '';
+            $plugin_uri = isset($gp['white_label_plugin_uri']) ? trim((string) $gp['white_label_plugin_uri']) : '';
+            $domain = isset($wp['domain']) ? trim((string) $wp['domain']) : '';
+            $description = isset($gp['white_label_plugin_description']) ? trim((string) $gp['white_label_plugin_description']) : '';
+
+            $has_core_field = (!empty($plugin_name) || (!empty($logo) && filter_var($logo, FILTER_VALIDATE_URL)) || !empty($author));
+            $has_optional_only = (!empty($author_uri) || !empty($plugin_uri) || (!empty($domain) && filter_var($domain, FILTER_VALIDATE_URL)) || !empty($description));
+
+            if ($has_optional_only && !$has_core_field) {
+                $validation_errors[] = 'Add at least one of: Plugin Name, Logo URL, or Author to save whitelabel settings.';
+            }
+        }
+
         #check If there are any validation errors collected
         if (!empty($validation_errors)) {
 
@@ -6328,6 +7505,32 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 $metasync_options['whitelabel']['hide_settings'] = 0;
             }
 
+            // Handle recovery email field
+            if (isset($whitelabel_data['recovery_email'])) {
+                $recovery_email = trim($whitelabel_data['recovery_email']);
+                if (!empty($recovery_email)) {
+                    $sanitized_email = sanitize_email($recovery_email);
+                    if (is_email($sanitized_email)) {
+                        $metasync_options['whitelabel']['recovery_email'] = $sanitized_email;
+                    }
+                } else {
+                    $metasync_options['whitelabel']['recovery_email'] = '';
+                }
+            } else {
+                // Preserve existing recovery email if not submitted
+                if (isset($existing_whitelabel['recovery_email'])) {
+                    $metasync_options['whitelabel']['recovery_email'] = $existing_whitelabel['recovery_email'];
+                }
+            }
+
+            // Validate that recovery email is set when password is set
+            $has_password = !empty($metasync_options['whitelabel']['settings_password']);
+            $has_recovery_email = !empty($metasync_options['whitelabel']['recovery_email']);
+            if ($has_password && !$has_recovery_email) {
+                // Clear password if recovery email is not provided
+                $metasync_options['whitelabel']['settings_password'] = '';
+            }
+
             // Process access control settings
             if (isset($whitelabel_data['access_control'])) {
                 $metasync_options['whitelabel']['access_control'] = Metasync_Access_Control::sanitize_access_control($whitelabel_data['access_control']);
@@ -6341,16 +7544,14 @@ define('WP_DEBUG_DISPLAY', false);</pre>
 
             // Update timestamp
             $metasync_options['whitelabel']['updated_at'] = time();
-            
+
             // Save the updated options (this was missing!)
             Metasync::set_option($metasync_options);
-            
-        } else {
-            error_log('AJAX Handler: No WhiteLabel data found in POST submission');
+
         }
     
         # set the redirect url - use the correct settings page slug
-        $redirect_url = isset($_GET['tab']) ? 
+        $redirect_url = isset($_GET['tab']) ?
                         admin_url('admin.php?page=' . self::$page_slug . '-settings&tab='.$_GET['tab']) :
                         admin_url('admin.php?page=' . self::$page_slug . '-settings');
 
@@ -6359,6 +7560,133 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             'message' => 'Settings saved successfully!',
             'redirect_url' => $redirect_url
         ));
+    }
+
+    /**
+     * AJAX handler for saving execution settings
+     */
+    public function ajax_save_execution_settings() {
+        // Check nonce for security
+        if (!isset($_POST['execution_settings_nonce']) || !wp_verify_nonce($_POST['execution_settings_nonce'], 'metasync_execution_settings_nonce')) {
+            wp_send_json_error(array('message' => 'Invalid security token. Please refresh the page and try again.'));
+            return;
+        }
+
+        // Check user permissions
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(array('message' => 'Insufficient permissions to save settings.'));
+            return;
+        }
+
+        // Get and sanitize all settings
+        $settings = array(
+            'max_execution_time' => isset($_POST['max_execution_time']) ? absint($_POST['max_execution_time']) : 30,
+            'max_memory_limit' => isset($_POST['max_memory_limit']) ? absint($_POST['max_memory_limit']) : 256,
+            'log_batch_size' => isset($_POST['log_batch_size']) ? absint($_POST['log_batch_size']) : 1000,
+            'action_scheduler_batches' => isset($_POST['action_scheduler_batches']) ? absint($_POST['action_scheduler_batches']) : 1,
+            'otto_rate_limit' => isset($_POST['otto_rate_limit']) ? absint($_POST['otto_rate_limit']) : 10,
+            'queue_cleanup_days' => isset($_POST['queue_cleanup_days']) ? absint($_POST['queue_cleanup_days']) : 31
+        );
+
+        // Get server limits for validation
+        $server_limits = $this->get_server_limits();
+        
+        // Validate ranges
+        if ($settings['max_execution_time'] < 1 || $settings['max_execution_time'] > 300) {
+            wp_send_json_error(array('message' => 'Max Execution Time must be between 1 and 300 seconds.'));
+            return;
+        }
+        
+        // Check if execution time exceeds server limit
+        if ($server_limits['max_execution_time_raw'] != -1 && $settings['max_execution_time'] > $server_limits['max_execution_time_raw']) {
+            wp_send_json_error(array('message' => sprintf('Max Execution Time exceeds server limit of %d seconds. Please reduce the value.', $server_limits['max_execution_time_raw'])));
+            return;
+        }
+
+        // Only validate memory limit if server allows changing it
+        $can_change_memory = $this->can_change_memory_limit();
+        if ($can_change_memory && ($settings['max_memory_limit'] < 64 || $settings['max_memory_limit'] > 512)) {
+            wp_send_json_error(array('message' => 'Max Memory Limit must be between 64 and 512 MB.'));
+            return;
+        }
+        
+        // Check if memory limit exceeds server limit
+        if ($can_change_memory && $server_limits['memory_limit_raw'] != -1 && $settings['max_memory_limit'] > $server_limits['memory_limit_raw']) {
+            wp_send_json_error(array('message' => sprintf('Max Memory Limit exceeds server limit of %d MB. Please reduce the value.', $server_limits['memory_limit_raw'])));
+            return;
+        }
+        
+        // If server doesn't allow changing memory limit, ignore the submitted value
+        if (!$can_change_memory) {
+            // Keep existing setting or use default
+            $existing_settings = get_option('metasync_execution_settings', array());
+            $settings['max_memory_limit'] = isset($existing_settings['max_memory_limit']) 
+                ? $existing_settings['max_memory_limit'] 
+                : 256; // Default fallback
+        }
+
+        if ($settings['log_batch_size'] < 100 || $settings['log_batch_size'] > 5000) {
+            wp_send_json_error(array('message' => 'Log Batch Size must be between 100 and 5000 lines.'));
+            return;
+        }
+
+        if ($settings['action_scheduler_batches'] < 1 || $settings['action_scheduler_batches'] > 10) {
+            wp_send_json_error(array('message' => 'Action Scheduler Concurrent Batches must be between 1 and 10.'));
+            return;
+        }
+
+        if ($settings['otto_rate_limit'] < 1 || $settings['otto_rate_limit'] > 60) {
+            wp_send_json_error(array('message' => 'OTTO API Calls Per Minute must be between 1 and 60.'));
+            return;
+        }
+
+        if ($settings['queue_cleanup_days'] < 7 || $settings['queue_cleanup_days'] > 90) {
+            wp_send_json_error(array('message' => 'Queue Auto-Cleanup Days must be between 7 and 90 days.'));
+            return;
+        }
+
+        // Save settings
+        $saved = update_option('metasync_execution_settings', $settings);
+
+        if ($saved !== false) {
+            wp_send_json_success(array(
+                'message' => 'Execution settings saved successfully!'
+            ));
+        } else {
+            wp_send_json_error(array('message' => 'Failed to save settings. Please try again.'));
+        }
+    }
+
+    /**
+     * Get Action Scheduler concurrent batches from execution settings
+     * 
+     * @param int $default_batches Default concurrent batches
+     * @return int Configured concurrent batches
+     */
+    public function get_action_scheduler_batches($default_batches) {
+        // Only apply if Action Scheduler is active
+        if (!class_exists('ActionScheduler')) {
+            return $default_batches;
+        }
+        
+        return $this->get_execution_setting('action_scheduler_batches');
+    }
+
+    /**
+     * Get Action Scheduler retention period from execution settings
+     * Converts days to seconds for Action Scheduler
+     * 
+     * @param int $default_seconds Default retention period in seconds
+     * @return int Configured retention period in seconds
+     */
+    public function get_action_scheduler_retention_period($default_seconds) {
+        // Only apply if Action Scheduler is active
+        if (!class_exists('ActionScheduler')) {
+            return $default_seconds; // Default is 30 days = 2592000 seconds
+        }
+        
+        $cleanup_days = $this->get_execution_setting('queue_cleanup_days');
+        return $cleanup_days * DAY_IN_SECONDS;
     }
 
     /*
@@ -6577,7 +7905,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 update_option('metasync_sitemap_auto_update', false);
                 echo '<div class="notice notice-success"><p>' . esc_html__('Auto-update disabled!', 'metasync') . '</p></div>';
             } elseif (isset($_POST['delete_sitemap'])) {
-                // Delete the sitemap file
+                // Delete the sitemap file (physical and/or virtual)
                 $deleted = $sitemap_generator->delete_sitemap();
                 if ($deleted) {
                     // Also disable auto-update when deleting
@@ -6763,14 +8091,35 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     {
         ?>
         <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
+
         <?php $this->render_plugin_header('Google Console'); ?>
-        
+
         <?php $this->render_navigation_menu('google_console'); ?>
-        
+
         <?php
         $instant_index = new Metasync_Instant_Index();
         $instant_index->show_google_instant_indexing_console();
+        ?>
+        </div>
+        <?php
+    }
+
+    /**
+     * Bing Console page callback
+     */
+    public function create_admin_bing_console_page()
+    {
+        ?>
+        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
+
+        <?php $this->render_plugin_header('Bing Console'); ?>
+
+        <?php $this->render_navigation_menu('bing_console'); ?>
+
+        <?php
+        require_once plugin_dir_path(dirname(__FILE__)) . 'bing-index/class-metasync-bing-instant-index.php';
+        $bing_instant_index = new Metasync_Bing_Instant_Index();
+        $bing_instant_index->show_bing_instant_indexing_console();
         ?>
         </div>
         <?php
@@ -7159,15 +8508,37 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 // Regex pattern type selected but no pattern provided
                 set_transient('metasync_redirection_error', 'Please enter a regex pattern when using "Regex Pattern" as the pattern type.', 45);
                 $this->safe_redirect(admin_url('admin.php?page=searchatlas-redirections'));
+                return;
             }
 
             // Test if the regex pattern is valid
-            $is_valid = @preg_match($regex_pattern, '');
+            // Add delimiters if missing - check if pattern is properly enclosed in matching delimiters
+            $test_pattern = $regex_pattern;
+            $delimiter_chars = ['/', '#', '~', '%', '@'];
+            $has_valid_delimiters = false;
+
+            if (strlen($test_pattern) >= 2) {
+                $first_char = $test_pattern[0];
+                if (in_array($first_char, $delimiter_chars)) {
+                    // Find the last occurrence of the delimiter (before any modifiers)
+                    $last_pos = strrpos($test_pattern, $first_char);
+                    // Valid if delimiter appears at start and somewhere after (not just at position 0)
+                    if ($last_pos > 0) {
+                        $has_valid_delimiters = true;
+                    }
+                }
+            }
+
+            if (!$has_valid_delimiters) {
+                $test_pattern = '/' . $test_pattern . '/';
+            }
+            $is_valid = @preg_match($test_pattern, '');            
             if ($is_valid === false) {
                 $error_message = error_get_last();
                 $error_text = isset($error_message['message']) ? $error_message['message'] : 'Unknown regex error';
                 set_transient('metasync_redirection_error', 'Invalid Regex Pattern: ' . $error_text . ' Please fix the regex pattern and try again.', 45);
                 $this->safe_redirect(admin_url('admin.php?page=searchatlas-redirections'));
+                return;
             }
         }
 
@@ -7603,6 +8974,86 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         } catch (Exception $e) {
             wp_send_json_error('Database update failed: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * AJAX handler to save wizard progress
+     *
+     * @since    1.0.0
+     */
+    public function ajax_save_wizard_progress()
+    {
+        check_ajax_referer('metasync_wizard', 'nonce');
+
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+        }
+
+        $step = isset($_POST['step']) ? intval($_POST['step']) : 0;
+        $data = isset($_POST['data']) ? $_POST['data'] : array();
+
+        // Get current options
+        $options = get_option('metasync_options', array());
+
+        // Save step-specific data to options
+        if (isset($data['verification'])) {
+            if (!isset($options['general'])) {
+                $options['general'] = array();
+            }
+            $options['general']['google_verification'] = sanitize_text_field($data['verification']['google']);
+            $options['general']['bing_verification'] = sanitize_text_field($data['verification']['bing']);
+        }
+
+        if (isset($data['seo_settings'])) {
+            if (!isset($options['seo_controls'])) {
+                $options['seo_controls'] = array();
+            }
+            
+            $options['seo_controls']['index_date_archives'] = $data['seo_settings']['date_archives'] ? 'false' : 'true';
+            $options['seo_controls']['index_author_archives'] = $data['seo_settings']['author_archives'] ? 'false' : 'true';
+            $options['seo_controls']['index_category_archives'] = $data['seo_settings']['category_archives'] ? 'false' : 'true';
+            $options['seo_controls']['index_tag_archives'] = $data['seo_settings']['tag_archives'] ? 'false' : 'true';
+        }
+
+        if (isset($data['schema'])) {
+            if (!isset($options['general'])) {
+                $options['general'] = array();
+            }
+            $options['general']['enable_schema_markup'] = $data['schema']['enabled'];
+            $options['general']['default_schema_type'] = sanitize_text_field($data['schema']['default_type']);
+        }
+
+        update_option('metasync_options', $options);
+
+        wp_send_json_success(array('message' => 'Progress saved'));
+    }
+
+    /**
+     * AJAX handler to complete wizard
+     *
+     * @since    1.0.0
+     */
+    public function ajax_complete_wizard()
+    {
+        check_ajax_referer('metasync_wizard', 'nonce');
+
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+        }
+
+        // Mark wizard as completed
+        update_option('metasync_wizard_completed', array(
+            'completed' => true,
+            'completed_at' => current_time('mysql'),
+            'completed_by' => get_current_user_id(),
+            'version' => METASYNC_VERSION
+        ));
+
+        // Clean up wizard state
+        $user_id = get_current_user_id();
+        delete_transient("metasync_wizard_state_{$user_id}");
+
+        wp_send_json_success(array('message' => 'Wizard completed'));
     }
 
     /**
@@ -8126,7 +9577,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                         <div style="display:flex; justify-content: space-between; align-items:center;">
                             <div style="flex:1;">
                                 <h2 style="margin: 0;">🌐 Host Blocking Test</h2>
-                                <p style="color: var(--dashboard-text-secondary); margin: 6px 0 0 0;">Verify if this site can reach Search Atlas services.</p>
+                                <p style="color: var(--dashboard-text-secondary); margin: 6px 0 0 0;">Verify if this site can reach <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> services.</p>
                             </div>
                         </div>
                     </summary>
@@ -8669,10 +10120,11 @@ define('WP_DEBUG_DISPLAY', false);</pre>
 
                         var html = '<table class="wp-list-table widefat fixed striped" style="margin-top: 10px;">';
                         html += '<thead><tr>';
-                        html += '<th style="width: 40%;">URL Pattern</th>';
-                        html += '<th style="width: 15%;">Match Type</th>';
-                        html += '<th style="width: 30%;">Description</th>';
-                        html += '<th style="width: 15%;">Actions</th>';
+                        html += '<th style="width: 30%;">URL Pattern</th>';
+                        html += '<th style="width: 12%;">Match Type</th>';
+                        html += '<th style="width: 25%;">Description</th>';
+                        html += '<th style="width: 13%;">Recheck After</th>';
+                        html += '<th style="width: 20%;">Actions</th>';
                         html += '</tr></thead><tbody>';
 
                         records.forEach(function(record) {
@@ -8680,7 +10132,11 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                             html += '<td><code>' + escapeHtml(record.url_pattern) + '</code></td>';
                             html += '<td><span class="otto-pattern-type-badge otto-pattern-' + record.pattern_type + '">' + formatPatternType(record.pattern_type) + '</span></td>';
                             html += '<td>' + (record.description ? escapeHtml(record.description) : '<span style="color: #999;">—</span>') + '</td>';
-                            html += '<td><button type="button" class="button button-small otto-delete-url" data-id="' + record.id + '" style="color: #dc3545;">🗑️ Delete</button></td>';
+                            html += '<td>' + formatRecheckAfter(record) + '</td>';
+                            html += '<td><span class="otto-actions">';
+                            html += '<button type="button" class="button button-small otto-recheck-url" data-id="' + record.id + '" style="margin-right: 5px;">🔄 Recheck</button>';
+                            html += '<button type="button" class="button button-small otto-delete-url" data-id="' + record.id + '" style="color: #dc3545;">🗑️ Delete</button>';
+                            html += '</span></td>';
                             html += '</tr>';
                         });
 
@@ -8728,11 +10184,52 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                             deleteExcludedURL(id);
                         });
 
+                        // Attach recheck button handlers
+                        $('.otto-recheck-url').on('click', function(e) {
+                            e.preventDefault();
+                            var $btn = $(this);
+                            var id = $btn.data('id');
+                            recheckExcludedURL(id, $btn);
+                        });
+
                         // Attach pagination handlers
                         $('.otto-page-nav').on('click', function(e) {
                             e.preventDefault();
                             var page = $(this).data('page');
                             loadExcludedURLs(page);
+                        });
+                    }
+
+                    function recheckExcludedURL(id, $btn) {
+                        var originalText = $btn.text();
+                        $btn.prop('disabled', true).text('Checking...');
+
+                        $.ajax({
+                            url: ajaxUrl,
+                            type: 'POST',
+                            data: {
+                                action: 'metasync_otto_recheck_excluded_url',
+                                nonce: nonce,
+                                id: id
+                            },
+                            success: function(response) {
+                                $btn.prop('disabled', false).text(originalText);
+                                if (response.success) {
+                                    if (response.data.available) {
+                                        if (confirm('This URL is now available. Do you want to remove it from the excluded list?')) {
+                                            deleteExcludedURL(id);
+                                        }
+                                    } else {
+                                        alert('This URL is still returning 404.');
+                                    }
+                                } else {
+                                    alert('Error: ' + (response.data.message || 'Recheck failed'));
+                                }
+                            },
+                            error: function(xhr, status, err) {
+                                $btn.prop('disabled', false).text(originalText);
+                                alert('An error occurred while rechecking. Please try again.');
+                            }
                         });
                     }
 
@@ -8782,6 +10279,18 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                             'regex': 'Regex'
                         };
                         return types[type] || type;
+                    }
+
+                    function formatRecheckAfter(record) {
+                        if (!record.auto_excluded || !record.recheck_after) {
+                            return '<span style="color: #999;">NA</span>';
+                        }
+                        var d = new Date(record.recheck_after.replace(' ', 'T'));
+                        if (isNaN(d.getTime())) {
+                            return escapeHtml(record.recheck_after);
+                        }
+                        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                        return months[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
                     }
 
                     function escapeHtml(text) {
@@ -8914,12 +10423,16 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 border: 1px solid #dcdcde;
             }
 
+            #otto-excluded-urls-table-container .otto-delete-url,
+            #otto-excluded-urls-table-container .otto-recheck-url {
+                padding: 4px 10px;
+                font-size: 12px;
+            }
+
             #otto-excluded-urls-table-container .otto-delete-url {
                 background: #dc3545 !important;
                 color: #fff !important;
                 border-color: #dc3545 !important;
-                padding: 4px 10px;
-                font-size: 12px;
             }
 
             #otto-excluded-urls-table-container .otto-delete-url:hover {
@@ -9848,11 +11361,25 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 'description' => 'Configure ' . Metasync::get_whitelabel_otto_name() . ' rendering and display options',
                 'icon' => '🚀',
                 'priority' => 20,
-                'default_open' => false, // Closed by default
+                'default_open' => false, 
                 'fields' => array(
                     'otto_pixel_uuid',
                     'otto_disable_on_loggedin',
-                    'otto_disable_preview_button'
+                    'otto_disable_preview_button',
+                    'otto_wp_rocket_compat',
+                )
+            ),
+            'bot_detection' => array(
+                'title' => 'Bot Detection & Filtering',
+                'description' => 'Manage bot traffic and reduce unnecessary API calls',
+                'icon' => '🤖',
+                'priority' => 25,
+                'default_open' => false, 
+                'fields' => array(
+                    'otto_disable_for_bots',
+                    'otto_bot_whitelist',
+                    'otto_bot_blacklist',
+                    'otto_bot_statistics_link'
                 )
             ),
             'editor_settings' => array(
@@ -9867,6 +11394,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     'disable_redirection_metabox',
                     'disable_canonical_metabox',
                     'disable_social_opengraph_metabox',
+                    'disable_schema_markup_metabox',
                     'open_external_links'
                 )
             ),
@@ -9917,7 +11445,16 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 'render_callback' => array($this, 'render_plugin_access_roles_section')
             );
         }
-        
+
+        $config['debug_mode'] = array(
+            'title' => 'Debug Mode',
+            'description' => 'Manage debug mode with automatic disable and safety limits',
+            'icon' => '🐛',
+            'priority' => 8,
+            'default_open' => false,
+            'render_callback' => array($this, 'render_debug_mode_section')
+        );
+
         $config['error_logs'] = array(
             'title' => 'Error Logs',
             'description' => 'View and manage error logs to troubleshoot issues',
@@ -9925,6 +11462,15 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             'priority' => 10,
             'default_open' => true, // First section open by default
             'render_callback' => array($this, 'render_error_log_content')
+        );
+        
+        $config['execution_settings'] = array(
+            'title' => 'Execution Settings',
+            'description' => 'Configure resource limits and execution parameters',
+            'icon' => '⚡',
+            'priority' => 15,
+            'default_open' => false,
+            'render_callback' => array($this, 'render_execution_settings_section')
         );
         
         $config['otto_cache'] = array(
@@ -10077,6 +11623,257 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     }
 
     /**
+     * Render Bing Index (IndexNow) section
+     *
+     * @since 2.6.0
+     * @return void
+     */
+    public function render_bing_index_section() {
+        require_once plugin_dir_path(dirname(__FILE__)) . 'bing-index/class-metasync-bing-instant-index.php';
+        $bing_index = new Metasync_Bing_Instant_Index();
+        $api_key = $bing_index->get_setting('api_key');
+        $endpoint = $bing_index->get_setting('endpoint', 'indexnow');
+        $post_types_settings = $bing_index->get_setting('post_types', []);
+        $is_configured = !empty($api_key);
+
+        // Get all public post types
+        $post_types = get_post_types(['public' => true], 'objects');
+
+        ?>
+        <div style="padding: 20px;">
+            <!-- About IndexNow (Collapsible) -->
+            <details style="margin-bottom: 20px;">
+                <summary style="cursor: pointer; font-weight: 600; color: var(--dashboard-text-primary);">
+                    ℹ️ About IndexNow Protocol
+                </summary>
+                <div style="margin-top: 10px; padding: 15px; background: rgba(255, 255, 255, 0.03); border-radius: 4px;">
+                    <p style="color: var(--dashboard-text-secondary); margin: 0 0 10px 0;">
+                        IndexNow is a simple protocol that allows websites to instantly notify search engines about URL changes.
+                        It's supported by Bing, Yandex, Naver, Seznam, and other search engines.
+                    </p>
+                    <ul style="color: var(--dashboard-text-secondary); margin: 0 0 10px 20px;">
+                        <li>✓ Instant notification to multiple search engines</li>
+                        <li>✓ Simple API key authentication (no OAuth required)</li>
+                        <li>✓ Supports batch URL submissions (up to 10,000 URLs)</li>
+                        <li>✓ Free to use with no quotas</li>
+                        <li>✓ Fire-and-forget protocol (no status checking needed)</li>
+                    </ul>
+                    <p style="color: var(--dashboard-text-secondary); margin: 0;">
+                        <strong>Resources:</strong>
+                        <a href="https://www.indexnow.org/documentation" target="_blank" style="color: var(--dashboard-accent);">IndexNow Documentation</a> |
+                        <a href="https://www.bing.com/webmasters" target="_blank" style="color: var(--dashboard-accent);">Bing Webmaster Tools</a>
+                    </p>
+                </div>
+            </details>
+
+            <!-- Configuration Status -->
+            <div style="margin-bottom: 20px;">
+                <?php if ($is_configured): ?>
+                    <div style="padding: 12px; background: rgba(76, 175, 80, 0.1); border-left: 4px solid #4caf50; border-radius: 4px;">
+                        <p style="margin: 0; color: var(--dashboard-text-primary);">
+                            <strong style="color: #4caf50;">✅ IndexNow API Configured</strong><br>
+                            <span style="color: var(--dashboard-text-secondary); font-size: 0.95em;">
+                                API Key: <code style="padding: 2px 6px; background: rgba(0,0,0,0.1); border-radius: 3px;"><?php echo esc_html(substr($api_key, 0, 8) . '...' . substr($api_key, -8)); ?></code>
+                            </span>
+                        </p>
+                    </div>
+                <?php else: ?>
+                    <div style="padding: 12px; background: rgba(255, 152, 0, 0.1); border-left: 4px solid #ff9800; border-radius: 4px;">
+                        <p style="margin: 0; color: var(--dashboard-text-primary);">
+                            <strong style="color: #ff9800;">⚠️ Configuration Required</strong><br>
+                            <span style="color: var(--dashboard-text-secondary); font-size: 0.95em;">
+                                Configure your IndexNow API key below to enable instant indexing with Bing and other search engines.
+                            </span>
+                        </p>
+                    </div>
+                <?php endif; ?>
+            </div>
+
+            <!-- Settings Fields -->
+            <table class="form-table" style="margin-top: 0;">
+                <tr>
+                    <th scope="row" style="width: 200px; padding-top: 15px;">
+                        <label for="metasync_bing_api_key_inline">IndexNow API Key <span style="color: #d63638;">*</span></label>
+                    </th>
+                    <td style="padding-top: 15px;">
+                        <input type="text"
+                               name="metasync_bing_api_key_inline"
+                               id="metasync_bing_api_key_inline"
+                               class="large-text"
+                               value="<?php echo esc_attr($api_key); ?>"
+                               placeholder="Enter your IndexNow API key (32+ character hexadecimal string)" />
+                        <br>
+                        <button type="button"
+                                id="generate-bing-api-key-inline"
+                                class="button button-secondary"
+                                style="margin-top: 8px;">
+                            🔑 Generate Random API Key
+                        </button>
+                        <p class="description" style="margin-top: 8px;">
+                            Your IndexNow API key is required to submit URLs for instant indexing. You can generate a random key or use your own (32+ character hexadecimal string).
+                            After saving, a verification file will be automatically created at your site root.
+                        </p>
+                    </td>
+                </tr>
+
+                <tr>
+                    <th scope="row" style="padding-top: 15px;">
+                        <label>API Endpoint</label>
+                    </th>
+                    <td style="padding-top: 15px;">
+                        <fieldset>
+                            <label style="display: block; margin-bottom: 8px;">
+                                <input type="radio"
+                                       name="metasync_bing_endpoint_inline"
+                                       value="indexnow"
+                                       <?php checked($endpoint, 'indexnow'); ?>>
+                                <strong>IndexNow.org</strong> (Recommended)
+                                <span style="color: var(--dashboard-text-secondary); font-size: 0.9em; display: block; margin-left: 24px;">
+                                    Notifies Bing, Yandex, Naver, Seznam, and other participating search engines
+                                </span>
+                            </label>
+                            <label style="display: block;">
+                                <input type="radio"
+                                       name="metasync_bing_endpoint_inline"
+                                       value="bing"
+                                       <?php checked($endpoint, 'bing'); ?>>
+                                <strong>Bing.com</strong> (Bing-specific)
+                                <span style="color: var(--dashboard-text-secondary); font-size: 0.9em; display: block; margin-left: 24px;">
+                                    Direct submission to Bing only
+                                </span>
+                            </label>
+                        </fieldset>
+                        <p class="description">
+                            Select which endpoint to use for submitting URLs. The IndexNow.org endpoint is recommended as it notifies multiple search engines at once.
+                        </p>
+                    </td>
+                </tr>
+
+                <tr>
+                    <th scope="row" style="padding-top: 15px;">
+                        <label>Auto-Submit Post Types</label>
+                    </th>
+                    <td style="padding-top: 15px;">
+                        <fieldset>
+                            <?php foreach ($post_types as $post_type): ?>
+                                <label style="display: inline-block; margin-right: 20px; margin-bottom: 8px;">
+                                    <input type="checkbox"
+                                           name="metasync_bing_post_types_inline[<?php echo esc_attr($post_type->name); ?>]"
+                                           value="<?php echo esc_attr($post_type->name); ?>"
+                                           <?php checked(in_array($post_type->name, $post_types_settings, true)); ?>>
+                                    <?php echo esc_html($post_type->label); ?>
+                                </label>
+                            <?php endforeach; ?>
+                        </fieldset>
+                        <p class="description">
+                            Selected post types will be automatically submitted to IndexNow when published or updated.
+                        </p>
+                    </td>
+                </tr>
+
+                <tr>
+                    <th scope="row" style="padding-top: 15px;">
+                        <label>Plugin Source Control</label>
+                    </th>
+                    <td style="padding-top: 15px;">
+                        <fieldset>
+                            <label style="display: flex; align-items: flex-start; gap: 8px;">
+                                <input type="checkbox"
+                                       name="metasync_bing_disable_other_plugins_inline"
+                                       value="1"
+                                       <?php checked($bing_index->get_setting('disable_other_plugins', true), true); ?>
+                                       style="margin-top: 2px;">
+                                <span>
+                                    <strong>Disable other IndexNow plugins</strong>
+                                    <span style="display: block; color: var(--dashboard-text-secondary); font-size: 0.9em; margin-top: 4px; font-weight: normal;">
+                                        When enabled, Our plugin will be the exclusive source for IndexNow submissions in Bing Webmaster Tools.
+                                        This disables IndexNow features in Yoast SEO, Rank Math, and other competing plugins to prevent duplicate submissions.
+                                    </span>
+                                </span>
+                            </label>
+                        </fieldset>
+                    </td>
+                </tr>
+            </table>
+
+        </div>
+
+        <script>
+        jQuery(document).ready(function($) {
+            // Generate random API key
+            $('#generate-bing-api-key-inline').on('click', function() {
+                const array = new Uint8Array(16);
+                crypto.getRandomValues(array);
+                const hexString = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+                $('#metasync_bing_api_key_inline').val(hexString);
+
+                // Auto-enable toggle when API key is generated
+                $('#enable_binginstantindex').prop('checked', true);
+
+                // Trigger change event for unsaved changes detection
+                $('#metasync_bing_api_key_inline').trigger('change');
+            });
+
+            // Auto-enable toggle when API key is entered manually
+            $('#metasync_bing_api_key_inline').on('input', function() {
+                const apiKey = $(this).val().trim();
+                if (apiKey.length >= 8) {
+                    $('#enable_binginstantindex').prop('checked', true);
+                }
+            });
+
+            // Show/hide API configuration based on enable toggle
+            function toggleBingConfig() {
+                const isEnabled = $('#enable_binginstantindex').is(':checked');
+                const $apiConfig = $('#enable_binginstantindex').closest('tr').nextAll('tr').first();
+                if (isEnabled) {
+                    $apiConfig.show();
+                } else {
+                    $apiConfig.hide();
+                }
+            }
+
+            // Initial state
+            toggleBingConfig();
+
+            // Toggle on change
+            $('#enable_binginstantindex').on('change', toggleBingConfig);
+        });
+        </script>
+
+        <style>
+        /* Styling for Bing Index API section */
+        .form-table th {
+            color: var(--dashboard-text-primary);
+        }
+
+        .form-table td {
+            color: var(--dashboard-text-secondary);
+        }
+
+        .form-table code {
+            padding: 2px 6px;
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+
+        details summary {
+            transition: color 0.2s;
+        }
+
+        details summary:hover {
+            color: var(--dashboard-accent);
+        }
+
+        details[open] summary {
+            margin-bottom: 10px;
+        }
+        </style>
+        <?php
+    }
+
+    /**
      * Render Plugin Access Roles section for Advanced tab accordion
      */
     private function render_plugin_access_roles_section() {
@@ -10220,6 +12017,625 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     }
 
     /**
+     * Get default execution settings
+     *
+     * @return array Default execution settings
+     */
+    private function get_default_execution_settings() {
+        return array(
+            'max_execution_time' => 30,
+            'max_memory_limit' => 256,
+            'log_batch_size' => 1000,
+            'action_scheduler_batches' => 1,
+            'otto_rate_limit' => 10,
+            'queue_cleanup_days' => 31
+        );
+    }
+
+    /**
+     * Get execution setting value
+     *
+     * @param string $key Setting key
+     * @param mixed $default Default value if setting doesn't exist
+     * @return mixed Setting value or default
+     */
+    public function get_execution_setting($key, $default = null) {
+        $settings = get_option('metasync_execution_settings', array());
+        $defaults = $this->get_default_execution_settings();
+        
+        if (empty($settings)) {
+            return isset($defaults[$key]) ? $defaults[$key] : $default;
+        }
+        
+        return isset($settings[$key]) ? $settings[$key] : (isset($defaults[$key]) ? $defaults[$key] : $default);
+    }
+
+    /**
+     * Get all execution settings
+     *
+     * @return array All execution settings with defaults merged
+     */
+    public function get_all_execution_settings() {
+        $settings = get_option('metasync_execution_settings', array());
+        $defaults = $this->get_default_execution_settings();
+        
+        return wp_parse_args($settings, $defaults);
+    }
+
+    /**
+     * Check if server allows changing memory limit
+     * Tests if ini_set('memory_limit') is allowed
+     *
+     * @return bool True if memory limit can be changed, false otherwise
+     */
+    private function can_change_memory_limit() {
+        // Get current memory limit
+        $current_limit = ini_get('memory_limit');
+        
+        // Try to set memory limit (test if allowed)
+        // Use a safe test value that won't actually change anything meaningful
+        $test_result = @ini_set('memory_limit', $current_limit);
+        
+        // If ini_set returns false or null, memory limit cannot be changed
+        // If it returns the old value or a value, it can be changed
+        return $test_result !== false;
+    }
+
+    /**
+     * Get PHP server limits for display
+     *
+     * @return array Server limits (execution_time, memory_limit, can_change_memory)
+     */
+    private function get_server_limits() {
+        $max_execution_time = ini_get('max_execution_time');
+        $memory_limit = ini_get('memory_limit');
+        
+        // Parse memory limit to MB
+        $memory_limit_mb = $this->parse_memory_limit_to_mb($memory_limit);
+        
+        // Get WordPress admin memory limit for reference
+        // WordPress uses WP_MAX_MEMORY_LIMIT for admin screens (usually 256M)
+        // and WP_MEMORY_LIMIT for frontend (usually 40M)
+        $wp_memory_limit = null;
+        if (defined('WP_MAX_MEMORY_LIMIT')) {
+            $wp_memory_limit = WP_MAX_MEMORY_LIMIT;
+        } elseif (defined('WP_MEMORY_LIMIT')) {
+            $wp_memory_limit = WP_MEMORY_LIMIT;
+        }
+        $wp_memory_limit_mb = $wp_memory_limit ? $this->parse_memory_limit_to_mb($wp_memory_limit) : null;
+        
+        // IMPORTANT: The actual PHP limit is what PHP will enforce, not WordPress's setting
+        // WordPress may set WP_MAX_MEMORY_LIMIT to 256M, but PHP's php.ini limit might be 128M
+        // When WordPress calls ini_set('memory_limit', '256M'), PHP will cap it at the actual limit (128M)
+        // So we MUST validate against the actual PHP limit, not WordPress's setting
+        
+        // IMPORTANT: We need to detect the ACTUAL PHP limit that will be enforced
+        // WordPress sets WP_MAX_MEMORY_LIMIT to 256M, but PHP's php.ini limit might be 128M
+        // When WordPress calls ini_set('memory_limit', '256M'), PHP may accept it
+        // but will cap actual usage at the php.ini limit (128M)
+        // So ini_get might return 256M, but PHP will only allow 128M in practice
+        
+        // The solution: When WordPress is configured for 256M, assume PHP's actual limit is 128M
+        // This is conservative but prevents validation errors (common server configuration)
+        $actual_php_limit_mb = $memory_limit_mb;
+        if ($wp_memory_limit_mb && $wp_memory_limit_mb >= 256) {
+            // WordPress is configured for 256M, but PHP's actual limit is likely 128M
+            // Use 128M for validation to match what PHP will actually enforce
+            // This prevents the "exceeds server limit" error when user enters > 128M
+            $actual_php_limit_mb = 128;
+        }
+        
+        // Check if memory limit can be changed
+        $can_change_memory = $this->can_change_memory_limit();
+        
+        // Build display string showing actual PHP limit
+        $memory_limit_display = $actual_php_limit_mb == -1 ? 'Unlimited' : $actual_php_limit_mb . ' MB';
+        
+        return array(
+            'max_execution_time' => $max_execution_time == -1 ? 'Unlimited' : $max_execution_time . ' seconds',
+            'memory_limit' => $memory_limit_display,
+            'max_execution_time_raw' => $max_execution_time,
+            'memory_limit_raw' => $actual_php_limit_mb, // Use actual PHP limit for validation
+            'can_change_memory' => $can_change_memory
+        );
+    }
+
+    /**
+     * Apply memory limit from execution settings
+     * Only applies if server allows changing memory limit
+     *
+     * @return bool True if memory limit was applied, false otherwise
+     */
+    public function apply_memory_limit() {
+        // Check if server allows changing memory limit
+        if (!$this->can_change_memory_limit()) {
+            return false;
+        }
+        
+        $memory_limit_mb = $this->get_execution_setting('max_memory_limit');
+        
+        // Apply memory limit
+        $result = @ini_set('memory_limit', $memory_limit_mb . 'M');
+        
+        return $result !== false;
+    }
+
+    /**
+     * Parse memory limit string to MB
+     *
+     * @param string $memory_limit Memory limit string (e.g., "256M", "1G")
+     * @return int Memory limit in MB
+     */
+    private function parse_memory_limit_to_mb($memory_limit) {
+        if ($memory_limit == -1 || $memory_limit == '-1') {
+            return -1; // Unlimited
+        }
+        
+        $memory_limit = trim($memory_limit);
+        $last = strtolower(substr($memory_limit, -1));
+        $value = (int) $memory_limit;
+        
+        switch ($last) {
+            case 'g':
+                $value *= 1024;
+                break;
+            case 'm':
+                // Already in MB
+                break;
+            case 'k':
+                $value /= 1024;
+                break;
+        }
+        
+        return $value;
+    }
+
+    /**
+     * Render Execution Settings section for Advanced tab accordion
+     */
+    private function render_execution_settings_section() {
+        $settings = $this->get_all_execution_settings();
+        $server_limits = $this->get_server_limits();
+        
+        // Check for warnings (values exceeding server limits)
+        $warnings = array();
+        if ($server_limits['max_execution_time_raw'] != -1 && $settings['max_execution_time'] > $server_limits['max_execution_time_raw']) {
+            $warnings['max_execution_time'] = true;
+        }
+        if ($server_limits['memory_limit_raw'] != -1 && $settings['max_memory_limit'] > $server_limits['memory_limit_raw']) {
+            $warnings['max_memory_limit'] = true;
+        }
+        ?>
+        <div style="background: var(--dashboard-card-bg); padding: 20px; border-radius: 8px;">
+            <p style="color: var(--dashboard-text-secondary); margin: 0 0 20px 0;">
+                Configure resource limits and execution parameters for plugin operations. Adjust these settings based on your server capabilities.
+            </p>
+            
+            <form id="metasync-execution-settings-form" method="post">
+                <?php wp_nonce_field('metasync_execution_settings_nonce', 'execution_settings_nonce'); ?>
+                
+                <!-- Execution & Memory Section -->
+                <div style="background: var(--dashboard-card-bg-alt, rgba(255,255,255,0.05)); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                    <h3 style="color: var(--dashboard-text-primary); margin: 0 0 16px 0; font-size: 16px; font-weight: 600;">Execution & Memory</h3>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px; font-weight: 500;">
+                            Max Execution Time:
+                        </label>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <input type="number" 
+                                   id="max_execution_time" 
+                                   name="max_execution_time" 
+                                   value="<?php echo esc_attr($settings['max_execution_time']); ?>" 
+                                   min="1" 
+                                   max="300" 
+                                   required
+                                   style="width: 100px; padding: 8px; border: 1px solid var(--dashboard-border); border-radius: 6px; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary);" />
+                            <span style="color: var(--dashboard-text-secondary);">seconds</span>
+                        </div>
+                        <p style="color: var(--dashboard-text-secondary); font-size: 12px; margin: 4px 0 0 0;">
+                            Server Limit: <?php echo esc_html($server_limits['max_execution_time']); ?>
+                        </p>
+                        <p id="max_execution_time_warning" style="display: none; color: #f59e0b; font-size: 12px; margin: 4px 0 0 0;">
+                            <span style="margin-right: 4px;">⚠️</span>
+                            <span>Configured value exceeds server limit</span>
+                        </p>
+                        <?php if (isset($warnings['max_execution_time'])): ?>
+                        <script>
+                        jQuery(document).ready(function($) {
+                            $('#max_execution_time_warning').show();
+                        });
+                        </script>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <div>
+                        <label style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px; font-weight: 500;">
+                            Max Memory Limit:
+                        </label>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <input type="number" 
+                                   id="max_memory_limit" 
+                                   name="max_memory_limit" 
+                                   value="<?php echo esc_attr($settings['max_memory_limit']); ?>" 
+                                   min="64" 
+                                   max="512" 
+                                   <?php if (!$server_limits['can_change_memory']): ?>
+                                   readonly
+                                   disabled
+                                   <?php endif; ?>
+                                   required
+                                   style="width: 100px; padding: 8px; border: 1px solid var(--dashboard-border); border-radius: 6px; background: <?php echo $server_limits['can_change_memory'] ? 'var(--dashboard-card-bg)' : 'rgba(128, 128, 128, 0.1)'; ?>; color: <?php echo $server_limits['can_change_memory'] ? 'var(--dashboard-text-primary)' : 'var(--dashboard-text-secondary)'; ?>; cursor: <?php echo $server_limits['can_change_memory'] ? 'text' : 'not-allowed'; ?>;" />
+                            <span style="color: var(--dashboard-text-secondary);">MB</span>
+                        </div>
+                        <p style="color: var(--dashboard-text-secondary); font-size: 12px; margin: 4px 0 0 0;">
+                            Server Limit: <?php echo esc_html($server_limits['memory_limit']); ?>
+                        </p>
+                        <?php if (!$server_limits['can_change_memory']): ?>
+                        <p style="color: #f59e0b; font-size: 12px; margin: 4px 0 0 0; display: flex; align-items: center; gap: 4px;">
+                            <span>🔒</span>
+                            <span>Server does not allow changing memory limit. This setting is read-only.</span>
+                        </p>
+                        <?php else: ?>
+                        <p id="max_memory_limit_warning" style="display: none; color: #f59e0b; font-size: 12px; margin: 4px 0 0 0;">
+                            <span style="margin-right: 4px;">⚠️</span>
+                            <span>Configured value exceeds server limit</span>
+                        </p>
+                        <?php if (isset($warnings['max_memory_limit'])): ?>
+                        <script>
+                        jQuery(document).ready(function($) {
+                            $('#max_memory_limit_warning').show();
+                        });
+                        </script>
+                        <?php endif; ?>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                
+                <!-- Batch Processing Section -->
+                <div style="background: var(--dashboard-card-bg-alt, rgba(255,255,255,0.05)); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                    <h3 style="color: var(--dashboard-text-primary); margin: 0 0 16px 0; font-size: 16px; font-weight: 600;">Batch Processing</h3>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px; font-weight: 500;">
+                            Log Processing Batch Size:
+                        </label>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <input type="number" 
+                                   id="log_batch_size" 
+                                   name="log_batch_size" 
+                                   value="<?php echo esc_attr($settings['log_batch_size']); ?>" 
+                                   min="100" 
+                                   max="5000" 
+                                   required
+                                   style="width: 100px; padding: 8px; border: 1px solid var(--dashboard-border); border-radius: 6px; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary);" />
+                            <span style="color: var(--dashboard-text-secondary);">lines</span>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px; font-weight: 500;">
+                            Action Scheduler Concurrent Batches:
+                        </label>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <input type="number" 
+                                   id="action_scheduler_batches" 
+                                   name="action_scheduler_batches" 
+                                   value="<?php echo esc_attr($settings['action_scheduler_batches']); ?>" 
+                                   min="1" 
+                                   max="10" 
+                                   required
+                                   style="width: 100px; padding: 8px; border: 1px solid var(--dashboard-border); border-radius: 6px; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary);" />
+                        </div>
+                        <p style="color: #f59e0b; font-size: 12px; margin: 4px 0 0 0; display: flex; align-items: center; gap: 4px;">
+                            <span>⚠️</span>
+                            <span>Higher values increase server load</span>
+                        </p>
+                    </div>
+                </div>
+                
+                <!-- API Rate Limiting Section -->
+                <div style="background: var(--dashboard-card-bg-alt, rgba(255,255,255,0.05)); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                    <h3 style="color: var(--dashboard-text-primary); margin: 0 0 16px 0; font-size: 16px; font-weight: 600;">API Rate Limiting</h3>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px; font-weight: 500;">
+                            OTTO API Calls Per Minute:
+                        </label>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <input type="number" 
+                                   id="otto_rate_limit" 
+                                   name="otto_rate_limit" 
+                                   value="<?php echo esc_attr($settings['otto_rate_limit']); ?>" 
+                                   min="1" 
+                                   max="60" 
+                                   required
+                                   style="width: 100px; padding: 8px; border: 1px solid var(--dashboard-border); border-radius: 6px; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary);" />
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px; font-weight: 500;">
+                            Queue Auto-Cleanup:
+                        </label>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <input type="number" 
+                                   id="queue_cleanup_days" 
+                                   name="queue_cleanup_days" 
+                                   value="<?php echo esc_attr($settings['queue_cleanup_days']); ?>" 
+                                   min="7" 
+                                   max="90" 
+                                   required
+                                   style="width: 100px; padding: 8px; border: 1px solid var(--dashboard-border); border-radius: 6px; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary);" />
+                            <span style="color: var(--dashboard-text-secondary);">days</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Save Button -->
+                <div style="margin-top: 20px;">
+                    <button type="submit" 
+                            id="metasync-execution-settings-save-btn"
+                            class="button button-primary" 
+                            style="padding: 10px 20px; font-size: 14px; font-weight: 500;">
+                        <span class="save-text">Save Settings</span>
+                        <span class="save-spinner" style="display: none; margin-left: 8px;">⏳</span>
+                    </button>
+                </div>
+                
+                <!-- Success/Error Messages -->
+                <div id="metasync-execution-settings-message" style="display: none; margin-top: 16px; padding: 12px; border-radius: 6px;"></div>
+            </form>
+        </div>
+        
+        <script>
+        jQuery(document).ready(function($) {
+            var $form = $('#metasync-execution-settings-form');
+            var $saveBtn = $('#metasync-execution-settings-save-btn');
+            var $message = $('#metasync-execution-settings-message');
+            
+            // Server limit values from PHP
+            var serverMaxExecTime = <?php echo $server_limits['max_execution_time_raw'] == -1 ? 'Infinity' : $server_limits['max_execution_time_raw']; ?>;
+            var serverMaxMemory = <?php echo $server_limits['memory_limit_raw'] == -1 ? 'Infinity' : $server_limits['memory_limit_raw']; ?>;
+            var canChangeMemory = <?php echo $server_limits['can_change_memory'] ? 'true' : 'false'; ?>;
+            
+            // Real-time validation for server limits
+            function checkServerLimits() {
+                var maxExecTime = parseInt($('#max_execution_time').val()) || 0;
+                var maxMemory = parseInt($('#max_memory_limit').val()) || 0;
+                
+                // Check execution time limit
+                if (serverMaxExecTime !== Infinity && maxExecTime > serverMaxExecTime) {
+                    $('#max_execution_time_warning').show();
+                } else {
+                    $('#max_execution_time_warning').hide();
+                }
+                
+                // Check memory limit (only if server allows changing it)
+                if (canChangeMemory && serverMaxMemory !== Infinity && maxMemory > serverMaxMemory) {
+                    $('#max_memory_limit_warning').show();
+                } else {
+                    $('#max_memory_limit_warning').hide();
+                }
+            }
+            
+            // Real-time validation on input change
+            $('#max_execution_time, #max_memory_limit').on('input change', function() {
+                checkServerLimits();
+                // Remove error styling when user starts typing
+                $(this).css('border-color', 'var(--dashboard-border)');
+            });
+            
+            // Add visual feedback for invalid inputs
+            function highlightInvalidField($field, isValid) {
+                if (isValid) {
+                    $field.css({
+                        'border-color': 'var(--dashboard-border)',
+                        'box-shadow': 'none'
+                    });
+                } else {
+                    $field.css({
+                        'border-color': '#ef4444',
+                        'box-shadow': '0 0 0 3px rgba(239, 68, 68, 0.1)'
+                    });
+                }
+            }
+            
+            // Validate individual fields on blur
+            $('#max_execution_time').on('blur', function() {
+                var value = parseInt($(this).val()) || 0;
+                var isValid = value >= 1 && value <= 300 && (serverMaxExecTime === Infinity || value <= serverMaxExecTime);
+                highlightInvalidField($(this), isValid);
+            });
+            
+            $('#max_memory_limit').on('blur', function() {
+                if (!canChangeMemory) return;
+                var value = parseInt($(this).val()) || 0;
+                var isValid = value >= 64 && value <= 512 && (serverMaxMemory === Infinity || value <= serverMaxMemory);
+                highlightInvalidField($(this), isValid);
+            });
+            
+            // Initial check on page load
+            checkServerLimits();
+            
+            // Form submission
+            $form.on('submit', function(e) {
+                e.preventDefault();
+                
+                var formData = {
+                    action: 'metasync_save_execution_settings',
+                    execution_settings_nonce: $('#execution_settings_nonce').val(),
+                    max_execution_time: $('#max_execution_time').val(),
+                    max_memory_limit: $('#max_memory_limit').val(),
+                    log_batch_size: $('#log_batch_size').val(),
+                    action_scheduler_batches: $('#action_scheduler_batches').val(),
+                    otto_rate_limit: $('#otto_rate_limit').val(),
+                    queue_cleanup_days: $('#queue_cleanup_days').val()
+                };
+                
+                // Clear previous error highlights
+                $('input[type="number"]').css({
+                    'border-color': 'var(--dashboard-border)',
+                    'box-shadow': 'none'
+                });
+                
+                // Validate ranges
+                var hasError = false;
+                var errorField = null;
+                
+                if (formData.max_execution_time < 1 || formData.max_execution_time > 300) {
+                    showMessage('Max Execution Time must be between 1 and 300 seconds.', 'error');
+                    highlightInvalidField($('#max_execution_time'), false);
+                    errorField = $('#max_execution_time');
+                    hasError = true;
+                } else if (serverMaxExecTime !== Infinity && formData.max_execution_time > serverMaxExecTime) {
+                    showMessage('Max Execution Time exceeds server limit of ' + serverMaxExecTime + ' seconds. Please reduce the value.', 'error');
+                    highlightInvalidField($('#max_execution_time'), false);
+                    errorField = $('#max_execution_time');
+                    hasError = true;
+                }
+                
+                // Only validate memory limit if server allows changing it
+                if (canChangeMemory) {
+                    if (formData.max_memory_limit < 64 || formData.max_memory_limit > 512) {
+                        showMessage('Max Memory Limit must be between 64 and 512 MB.', 'error');
+                        highlightInvalidField($('#max_memory_limit'), false);
+                        if (!hasError) {
+                            errorField = $('#max_memory_limit');
+                            hasError = true;
+                        }
+                    } else if (serverMaxMemory !== Infinity && formData.max_memory_limit > serverMaxMemory) {
+                        showMessage('Max Memory Limit exceeds server limit of ' + serverMaxMemory + ' MB. Please reduce the value.', 'error');
+                        highlightInvalidField($('#max_memory_limit'), false);
+                        if (!hasError) {
+                            errorField = $('#max_memory_limit');
+                            hasError = true;
+                        }
+                    }
+                }
+                
+                if (formData.log_batch_size < 100 || formData.log_batch_size > 5000) {
+                    showMessage('Log Batch Size must be between 100 and 5000 lines.', 'error');
+                    highlightInvalidField($('#log_batch_size'), false);
+                    if (!hasError) {
+                        errorField = $('#log_batch_size');
+                        hasError = true;
+                    }
+                }
+                if (formData.action_scheduler_batches < 1 || formData.action_scheduler_batches > 10) {
+                    showMessage('Action Scheduler Batches must be between 1 and 10.', 'error');
+                    highlightInvalidField($('#action_scheduler_batches'), false);
+                    if (!hasError) {
+                        errorField = $('#action_scheduler_batches');
+                        hasError = true;
+                    }
+                }
+                if (formData.otto_rate_limit < 1 || formData.otto_rate_limit > 60) {
+                    showMessage('OTTO Rate Limit must be between 1 and 60 calls per minute.', 'error');
+                    highlightInvalidField($('#otto_rate_limit'), false);
+                    if (!hasError) {
+                        errorField = $('#otto_rate_limit');
+                        hasError = true;
+                    }
+                }
+                if (formData.queue_cleanup_days < 7 || formData.queue_cleanup_days > 90) {
+                    showMessage('Queue Cleanup Days must be between 7 and 90 days.', 'error');
+                    highlightInvalidField($('#queue_cleanup_days'), false);
+                    if (!hasError) {
+                        errorField = $('#queue_cleanup_days');
+                        hasError = true;
+                    }
+                }
+                
+                if (hasError) {
+                    if (errorField) {
+                        errorField.focus();
+                        // Scroll to error field
+                        $('html, body').animate({
+                            scrollTop: errorField.offset().top - 100
+                        }, 300);
+                    }
+                    return;
+                }
+                
+                // Show loading state
+                $saveBtn.prop('disabled', true);
+                $saveBtn.find('.save-text').text('Saving...');
+                $saveBtn.find('.save-spinner').show();
+                $message.hide();
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: formData,
+                    success: function(response) {
+                        if (response.success) {
+                            showMessage(response.data.message || 'Settings saved successfully!', 'success');
+                            // Re-enable button
+                            $saveBtn.prop('disabled', false);
+                            $saveBtn.find('.save-text').text('Save Settings');
+                            $saveBtn.find('.save-spinner').hide();
+                            // Re-check server limits after save
+                            setTimeout(function() {
+                                checkServerLimits();
+                            }, 100);
+                            // Scroll to top to show success message
+                            $('html, body').animate({
+                                scrollTop: $form.offset().top - 100
+                            }, 300);
+                        } else {
+                            showMessage(response.data.message || 'Error saving settings.', 'error');
+                            $saveBtn.prop('disabled', false);
+                            $saveBtn.find('.save-text').text('Save Settings');
+                            $saveBtn.find('.save-spinner').hide();
+                            // Scroll to show error message
+                            $('html, body').animate({
+                                scrollTop: $message.offset().top - 100
+                            }, 300);
+                        }
+                    },
+                    error: function() {
+                        showMessage('An error occurred while saving settings. Please try again.', 'error');
+                        $saveBtn.prop('disabled', false);
+                        $saveBtn.find('.save-text').text('Save Settings');
+                        $saveBtn.find('.save-spinner').hide();
+                        // Scroll to show error message
+                        $('html, body').animate({
+                            scrollTop: $message.offset().top - 100
+                        }, 300);
+                    }
+                });
+            });
+            
+            function showMessage(text, type) {
+                $message.removeClass('notice-success notice-error')
+                        .addClass('notice-' + type)
+                        .css({
+                            'background': type === 'success' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                            'border': '1px solid ' + (type === 'success' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'),
+                            'color': type === 'success' ? '#22c55e' : '#ef4444',
+                            'padding': '12px 16px',
+                            'border-radius': '6px',
+                            'font-size': '14px',
+                            'line-height': '1.5',
+                            'display': 'block'
+                        })
+                        .html('<strong style="margin-right: 8px;">' + (type === 'success' ? '✓' : '✗') + '</strong>' + text)
+                        .show();
+                
+                // Auto-hide success messages after 5 seconds
+                if (type === 'success') {
+                    setTimeout(function() {
+                        $message.fadeOut(300);
+                    }, 5000);
+                }
+            }
+        });
+        </script>
+        <?php
+    }
+
+    /**
      * Get tooltip content for settings fields
      *
      * @return array Field ID => Tooltip text mapping
@@ -10236,11 +12652,16 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             'otto_disable_on_loggedin' => sprintf('Disable %s modifications when you are logged in to WordPress. This allows you to see and edit the original content without %s\'s enhancements during editing sessions.', $otto_name, $otto_name),
             'otto_disable_preview_button' => sprintf('Hide the %s frontend toolbar that displays the status indicator, preview button, and debug button. Enable this for a cleaner frontend experience.', $otto_name),
             'otto_wp_rocket_compat' => sprintf('WP Rocket Compatibility Mode: Controls how %s interacts with WP Rocket. "Auto" (recommended) allows both to work together by avoiding DONOTCACHEPAGE constant unless necessary for Brizy pages or SG Optimizer conflicts. This ensures WP Rocket\'s JavaScript delay and optimization features continue working.', $otto_name),
+            'otto_disable_for_bots' => sprintf('Enable bot detection to automatically skip %s processing for search engine crawlers, SEO tools, and other bots. This reduces unnecessary API calls and improves performance.', $otto_name),
+            'otto_bot_whitelist' => sprintf('Enter bot names or user-agent patterns (one per line) that should always be processed by %s, even when "Disable for Bots" is enabled. For example: Googlebot, Bingbot. This allows you to ensure specific search engines always see your optimized content.', $otto_name),
+            'otto_bot_blacklist' => sprintf('Enter bot names or user-agent patterns (one per line) that should always be blocked from %s processing, regardless of other settings. For example: BadBot, MaliciousCrawler. Use this to exclude problematic crawlers or unwanted traffic sources.', $otto_name),
+            'otto_bot_statistics_link' => 'View detailed bot detection statistics including total hits, API calls saved, breakdown by bot type, and unique bot entries with hit counts.',
             'disable_common_robots_metabox' => 'Hide the Common Robots meta box from post and page edit screens. This removes the robots meta tag controls (index/noindex, follow/nofollow) from the editor interface.',
             'disable_advance_robots_metabox' => 'Hide the Advanced Robots meta box from post and page edit screens. This removes advanced robots directives like max-snippet, max-image-preview, and max-video-preview settings.',
             'disable_redirection_metabox' => 'Hide the Redirection meta box from post and page edit screens. This removes the URL redirect configuration options from the editor interface.',
             'disable_canonical_metabox' => 'Hide the Canonical URL meta box from post and page edit screens. This removes the canonical URL override field from the editor interface.',
             'disable_social_opengraph_metabox' => 'Hide the Social Media & Open Graph meta box from post and page edit screens. This removes Facebook, Twitter, and other social media meta tag controls from the editor.',
+            'disable_schema_markup_metabox' => 'Hide the Schema Markup meta box from post and page edit screens. This removes the structured data (Article, FAQ, Product, Recipe, etc.) configuration from the editor interface.',
             'open_external_links' => 'Automatically add target="_blank" attribute to external links appearing in your posts, pages, and other post types when rendered by Otto.',
             'content_genius_sync_roles' => 'Select which WordPress user roles should be synchronized with Content Genius. This determines which users will have their profiles and permissions synced for content collaboration.',
             'permalink_structure' => sprintf('Displays your current WordPress permalink structure. %s works best with pretty permalinks (not "Plain"). If you see a warning, visit Settings > Permalinks to change your structure.', $plugin_name),
@@ -10387,6 +12808,9 @@ define('WP_DEBUG_DISPLAY', false);</pre>
 
         // Note: Cache clearing operations now use admin_post hooks (WordPress standard)
         // See handle_clear_all_cache_plugins(), handle_clear_otto_cache_all(), handle_clear_otto_cache_url()
+
+        // Handle debug mode operations before any output
+        $this->handle_debug_mode_operations();
 
         // Handle error log operations before any output
         $this->handle_error_log_operations();
@@ -10625,6 +13049,55 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             $SECTION_SEO_CONTROLS_INSTANT_INDEX
         );
 
+        // Bing Instant Indexing Section
+        add_settings_section(
+            'seo_controls_bing_instant_index', // ID
+            '', // Title - will be handled by custom rendering
+            function(){
+                // Close the previous dashboard-card and start a new one for Bing instant indexing
+                echo '</div>'; // Close Google Instant Indexing card
+                echo '<div class="dashboard-card" style="margin-top: 20px;">';
+                echo '<h2>🔗 Bing Instant Indexing (IndexNow)</h2>';
+                echo '<p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure IndexNow API for instant URL submission to Bing, Yandex, and other search engines that support the IndexNow protocol.</p>';
+            },
+            self::$page_slug . '_seo-controls' // Page
+        );
+
+        add_settings_field(
+            'enable_binginstantindex',
+            'Enable Bing Instant Indexing',
+            function() {
+                // Auto-enable if API key is configured
+                $bing_settings = get_option('metasync_options_bing_instant_indexing', []);
+                $has_api_key = !empty($bing_settings['api_key']);
+
+                $enable_binginstantindex = Metasync::get_option('seo_controls')['enable_binginstantindex'] ?? 'false';
+
+                // Auto-check if API key exists
+                if ($has_api_key && $enable_binginstantindex !== 'true') {
+                    $enable_binginstantindex = 'true';
+                }
+
+                printf(
+                    '<input type="checkbox" id="enable_binginstantindex" name="' . $this::option_key . '[seo_controls][enable_binginstantindex]" value="true" %s %s />',
+                    isset($enable_binginstantindex) && $enable_binginstantindex == 'true' ? 'checked' : '',
+                    $has_api_key ? 'data-auto-enabled="true"' : ''
+                );
+                printf('<span class="description"><strong>Enable Bing Instant Indexing:</strong> Automatically enabled when you configure an API key below. When enabled, this activates the IndexNow protocol to instantly notify Bing, Yandex, and other search engines about URL changes.</span>');
+            },
+            self::$page_slug . '_seo-controls',
+            'seo_controls_bing_instant_index'
+        );
+
+        // Bing Index API configuration
+        add_settings_field(
+            'bing_index_api_config',
+            'IndexNow API Configuration',
+            array($this, 'render_bing_index_section'),
+            self::$page_slug . '_seo-controls',
+            'seo_controls_bing_instant_index'
+        );
+
         add_settings_field(
             'searchatlas_api_key',
             $this->get_effective_menu_title() .  ' API Key',
@@ -10721,6 +13194,87 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             self::$page_slug . '_general',
             $SECTION_METASYNC
         );
+
+        /**
+         * BOT DETECTION SETTINGS FOR OTTO
+         * @since 1.0.0
+         */
+
+        # Checkbox to disable OTTO for bot traffic
+        add_settings_field(
+            'otto_disable_for_bots',
+            'Disable ' . $whitelabel_otto_name . ' for Bot Traffic',
+            function() use ($whitelabel_otto_name) {
+                $otto_disable_for_bots = Metasync::get_option('general')['otto_disable_for_bots'] ?? false;
+                printf(
+                    '<input type="checkbox" id="otto_disable_for_bots" name="' . $this::option_key . '[general][otto_disable_for_bots]" value="true" %s />',
+                    filter_var($otto_disable_for_bots, FILTER_VALIDATE_BOOLEAN) ? 'checked' : ''
+                );
+                printf('<span class="description"> Skip %s processing for detected bots (search engines, crawlers, SEO tools) to reduce unnecessary API calls. View bot statistics in the Bot Statistics page under the SEO dropdown.</span>', esc_html($whitelabel_otto_name));
+            },
+            self::$page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        # Textarea for bot whitelist
+        add_settings_field(
+            'otto_bot_whitelist',
+            'Bot Whitelist',
+            function() use ($whitelabel_otto_name) {
+                $otto_bot_whitelist = Metasync::get_option('general')['otto_bot_whitelist'] ?? '';
+                printf(
+                    '<textarea id="otto_bot_whitelist" name="' . $this::option_key . '[general][otto_bot_whitelist]" rows="5" cols="50" style="width: 100%%; max-width: 500px; font-family: monospace;">%s</textarea>',
+                    esc_textarea($otto_bot_whitelist)
+                );
+                echo '<p class="description">';
+                echo 'Enter bot names or user-agent patterns (one per line) that should <strong>always</strong> be processed by ' . esc_html($whitelabel_otto_name) . ', even when "Disable for Bots" is enabled.<br>';
+                echo '<strong>Example:</strong><br>';
+                echo 'Googlebot<br>';
+                echo 'Bingbot';
+                echo '</p>';
+            },
+            self::$page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        # Textarea for bot blacklist
+        add_settings_field(
+            'otto_bot_blacklist',
+            'Bot Blacklist',
+            function() use ($whitelabel_otto_name) {
+                $otto_bot_blacklist = Metasync::get_option('general')['otto_bot_blacklist'] ?? '';
+                printf(
+                    '<textarea id="otto_bot_blacklist" name="' . $this::option_key . '[general][otto_bot_blacklist]" rows="5" cols="50" style="width: 100%%; max-width: 500px; font-family: monospace;">%s</textarea>',
+                    esc_textarea($otto_bot_blacklist)
+                );
+                echo '<p class="description">';
+                echo 'Enter bot names or user-agent patterns (one per line) that should <strong>always</strong> be blocked from ' . esc_html($whitelabel_otto_name) . ' processing, regardless of other settings.<br>';
+                echo '<strong>Example:</strong><br>';
+                echo 'BadBot<br>';
+                echo 'MaliciousCrawler';
+                echo '</p>';
+            },
+            self::$page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+
+        # Link button to Bot Statistics page
+        add_settings_field(
+            'otto_bot_statistics_link',
+            'Bot Detection Statistics',
+            function() {
+                printf(
+                    '<a href="%s" class="button button-secondary"><span>🤖</span> View Bot Statistics</a>',
+                    esc_url(admin_url('admin.php?page=' . self::$page_slug . '-bot-statistics'))
+                );
+                printf('<p class="description">View detailed bot detection statistics, breakdown by bot type, and unique bot entries with hit counts.</p>');
+            },
+            self::$page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        # END BOT DETECTION SETTINGS
 
         add_settings_field(
             'periodic_clear_ottopage_cache',
@@ -10872,6 +13426,21 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     $disabled ? 'checked' : ''
                 );
                 printf('<span class="description"> Hide the Social Media & Open Graph meta box on post/page edit screens</span>');
+            },
+            self::$page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        add_settings_field(
+            'disable_schema_markup_metabox',
+            'Disable Schema Markup Meta Box',
+            function() {
+                $disabled = Metasync::get_option('general')['disable_schema_markup_metabox'] ?? false;
+                printf(
+                    '<input type="checkbox" id="disable_schema_markup_metabox" name="' . $this::option_key . '[general][disable_schema_markup_metabox]" value="1" %s />',
+                    $disabled ? 'checked' : ''
+                );
+                printf('<span class="description"> Hide the Schema Markup meta box on post/page edit screens</span>');
             },
             self::$page_slug . '_general',
             $SECTION_METASYNC
@@ -11075,12 +13644,12 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         
         add_settings_field(
             'whitelabel_otto_name',
-            Metasync::get_whitelabel_otto_name() . ' Name',
+                'OTTO Name',
             function(){
                 $value = Metasync::get_option('general')['whitelabel_otto_name'] ?? '';
                 printf('<input type="text" name="' . $this::option_key . '[general][whitelabel_otto_name]" value="' . esc_attr($value) . '" />');
                 $example_name = !empty($value) ? $value : 'OTTO';
-                printf('<p class="description">This name will be used for %s feature references (e.g., "Enable %s Server Side Rendering").</p>', esc_html($example_name), esc_html($example_name));
+                printf('<p class="description">This name will be used for OTTO feature references (e.g., "Enable %s Server Side Rendering").</p>', esc_html($example_name));
             },
             self::$page_slug . '_branding',
             $SECTION_METASYNC
@@ -11241,12 +13810,26 @@ define('WP_DEBUG_DISPLAY', false);</pre>
 
         add_settings_field(
             'whitelabel_settings_password',
-            'White Label Settings Password',
+            'Settings Password',
             function() {
                 $whitelabel_settings = Metasync::get_whitelabel_settings();
                 $value = $whitelabel_settings['settings_password'] ?? '';
                 printf('<input type="password" name="' . $this::option_key . '[whitelabel][settings_password]" value="' . esc_attr($value) . '" size="30" autocomplete="new-password" />');
-                printf('<p class="description">Set a custom password to protect this White Label section.</p>');
+                printf('<p class="description">Set a custom password to protect the branding settings section.</p>');
+            },
+            self::$page_slug . '_branding',
+            $SECTION_METASYNC
+        );
+
+        add_settings_field(
+            'whitelabel_recovery_email',
+            'Recovery Email',
+            function() {
+                $whitelabel_settings = Metasync::get_whitelabel_settings();
+                $value = $whitelabel_settings['recovery_email'] ?? '';
+                $has_password = !empty($whitelabel_settings['settings_password']);
+                printf('<input type="email" name="' . $this::option_key . '[whitelabel][recovery_email]" value="' . esc_attr($value) . '" size="30" autocomplete="email" %s />', $has_password ? 'required' : '');
+                printf('<p class="description">Email address to receive password recovery. <strong>Required when password is set.</strong></p>');
             },
             self::$page_slug . '_branding',
             $SECTION_METASYNC
@@ -11266,6 +13849,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     public function sanitize($input)
     {
         $new_input = Metasync::get_option();
+        $whitelabel_validation_failed = false;
 
         # Determine which tab is being submitted (same logic as AJAX handler)
         # Check POST first (from AJAX), then GET (from form action URL)
@@ -11312,6 +13896,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 'disable_redirection_metabox',
                 'disable_canonical_metabox',
                 'disable_social_opengraph_metabox',
+                'disable_schema_markup_metabox',
                 'open_external_links'
             ];
 
@@ -11535,15 +14120,35 @@ define('WP_DEBUG_DISPLAY', false);</pre>
 
         # Handle whitelabel URL fields with improved empty value handling
         if (isset($input['whitelabel'])) {
-            // Debug logging for whitelabel form submission
-            
             // Get existing whitelabel settings first
             $existing_whitelabel = Metasync::get_option()['whitelabel'] ?? [];
-            
-            
+
+            // Whitelabel partial-save validation: require at least one core field when any whitelabel field is filled
+            $general_input = $input['general'] ?? [];
+            $plugin_name = isset($general_input['white_label_plugin_name']) ? trim((string) $general_input['white_label_plugin_name']) : '';
+            $logo = isset($input['whitelabel']['logo']) ? trim((string) $input['whitelabel']['logo']) : '';
+            $author = isset($general_input['white_label_plugin_author']) ? trim((string) $general_input['white_label_plugin_author']) : '';
+            $author_uri = isset($general_input['white_label_plugin_author_uri']) ? trim((string) $general_input['white_label_plugin_author_uri']) : '';
+            $plugin_uri = isset($general_input['white_label_plugin_uri']) ? trim((string) $general_input['white_label_plugin_uri']) : '';
+            $domain = isset($input['whitelabel']['domain']) ? trim((string) $input['whitelabel']['domain']) : '';
+            $description = isset($general_input['white_label_plugin_description']) ? trim((string) $general_input['white_label_plugin_description']) : '';
+
+            $has_core_field = (!empty($plugin_name) || (!empty($logo) && filter_var($logo, FILTER_VALIDATE_URL)) || !empty($author));
+            $has_optional_only = (!empty($author_uri) || !empty($plugin_uri) || (!empty($domain) && filter_var($domain, FILTER_VALIDATE_URL)) || !empty($description));
+
+            if ($has_optional_only && !$has_core_field) {
+                add_settings_error(
+                    'metasync_options',
+                    'whitelabel_partial',
+                    'Add at least one of: Plugin Name, Logo URL, or Author to save whitelabel settings.',
+                    'error'
+                );
+                $new_input['whitelabel'] = $existing_whitelabel;
+                $whitelabel_validation_failed = true;
+            } else {
             // Initialize whitelabel array based on existing settings
             $new_input['whitelabel'] = $existing_whitelabel;
-            
+
             // Handle logo field (explicitly handle clearing)
             if (isset($input['whitelabel']['logo'])) {
                 $logo_value = trim($input['whitelabel']['logo']);
@@ -11578,9 +14183,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                         $new_input['_trigger_heartbeat_after_save'] = 'Domain cleared from: ' . $old_domain;
                     }
                 }
-            } else {
-                // Domain field not in submission - this might be the issue
-                error_log('Whitelabel Settings: Domain field not present in form submission');
             }
             
             // Handle settings password field
@@ -11596,6 +14198,45 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 }
             }
 
+            // Handle recovery email field
+            if (isset($input['whitelabel']['recovery_email'])) {
+                $recovery_email = trim($input['whitelabel']['recovery_email']);
+                if (!empty($recovery_email)) {
+                    $sanitized_email = sanitize_email($recovery_email);
+                    if (is_email($sanitized_email)) {
+                        $new_input['whitelabel']['recovery_email'] = $sanitized_email;
+                    } else {
+                        add_settings_error(
+                            'metasync_messages',
+                            'metasync_message',
+                            __('Invalid recovery email address.', 'metasync'),
+                            'error'
+                        );
+                    }
+                } else {
+                    $new_input['whitelabel']['recovery_email'] = '';
+                }
+            } else {
+                // Preserve existing recovery email if not submitted
+                if (isset($existing_whitelabel['recovery_email'])) {
+                    $new_input['whitelabel']['recovery_email'] = $existing_whitelabel['recovery_email'];
+                }
+            }
+
+            // Validate that recovery email is set when password is set
+            $has_password = !empty($new_input['whitelabel']['settings_password']);
+            $has_recovery_email = !empty($new_input['whitelabel']['recovery_email']);
+            if ($has_password && !$has_recovery_email) {
+                add_settings_error(
+                    'metasync_messages',
+                    'metasync_message',
+                    __('Password Recovery Email is required when a password is set.', 'metasync'),
+                    'error'
+                );
+                // Clear password if recovery email is not provided
+                $new_input['whitelabel']['settings_password'] = '';
+            }
+
             // Process access control settings
             if (isset($input['whitelabel']['access_control'])) {
                 $new_input['whitelabel']['access_control'] = Metasync_Access_Control::sanitize_access_control($input['whitelabel']['access_control']);
@@ -11603,8 +14244,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
 
             // Update timestamp when whitelabel settings change
             $new_input['whitelabel']['updated_at'] = time();
-            
-    
+            }
         } else {
             // No whitelabel data in submission - check if user wants to clear existing settings
             $existing_whitelabel = Metasync::get_option()['whitelabel'] ?? [];
@@ -11667,6 +14307,11 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         }
 
         $result = array_merge($new_input, $input);
+
+        // When whitelabel validation failed, prevent invalid partial data from being saved
+        if ($whitelabel_validation_failed) {
+            $result['whitelabel'] = Metasync::get_option()['whitelabel'] ?? [];
+        }
 
         return $result;
     }
@@ -11786,7 +14431,16 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             printf('Connect your %s account with one click. This will automatically configure your API key and %s UUID below, enabling all plugin features.', esc_html(Metasync::get_effective_plugin_name()), esc_html(Metasync::get_whitelabel_otto_name()));
         }
         printf('</div>');
-        
+
+        // MCP Consent Notice
+        ?>
+        <div class="metasync-mcp-consent" style="margin-top: 15px; padding: 12px 15px; background: #f0f9ff; border-left: 3px solid #0ea5e9; border-radius: 4px;">
+            <p style="margin: 0; color: #334155; font-size: 13px; line-height: 1.6;">
+                <strong>🤖 AI-Powered SEO Automation:</strong> By authenticating, you authorize <strong><?php echo esc_html(Metasync::get_effective_plugin_name()); ?> Brain</strong> (our AI assistant) to access your WordPress admin capabilities through the Model Context Protocol (MCP). This enables intelligent automation for SEO optimizations, content enhancements, and performance improvements.
+            </p>
+        </div>
+        <?php
+
         // Connect buttons container
         printf('<div class="metasync-sa-connect-buttons">');
         
@@ -11852,8 +14506,16 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             printf('This field will be automatically populated when you authenticate using the button above. You can also manually enter your API key if you have one.');
         }
         printf('</p>');
+
+        // Manual Authentication Consent Notice
+        ?>
+        <p class="description" style="margin-top: 10px; padding: 8px 12px; background: #fff9e6; border-left: 3px solid #f0b849; border-radius: 4px; font-size: 12px;">
+            <strong>📝 Manual Authentication:</strong> If you manually enter your <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> API Key and OTTO UUID, you also consent to the same AI-powered automation permissions described above.
+        </p>
+        <?php
+
         printf('</div>');
-        
+
         if(  isset(Metasync::get_option('general')['searchatlas_api_key'])&&Metasync::get_option('general')['searchatlas_api_key']!=''){
             $timestamp = @Metasync::get_option('general')['send_auth_token_timestamp'];
             printf(
@@ -12986,47 +15648,87 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         Method to handle Ajax request from "Indexation Control" page
     */
     public function meta_sync_save_seo_controls() {
-        # Check nonce for security and return early if invalid
-        if (!isset($_POST['meta_sync_seo_controls_nonce']) || !wp_verify_nonce($_POST['meta_sync_seo_controls_nonce'], 'meta_sync_seo_controls_nonce')) {
-            #send invalid nonce message
-            wp_send_json_error(array('message' => 'Invalid nonce'));
-            return;
-        }
+        try {
+            # Check nonce for security and return early if invalid
+            if (!isset($_POST['meta_sync_seo_controls_nonce']) || !wp_verify_nonce($_POST['meta_sync_seo_controls_nonce'], 'meta_sync_seo_controls_nonce')) {
+                #send invalid nonce message
+                wp_send_json_error(array('message' => 'Invalid nonce'));
+                return;
+            }
 
-        # Get current options
-        $current_options = Metasync::get_option();
-        
+            # Get current options
+            $current_options = Metasync::get_option();
+
+            # Store original options for comparison later
+            $original_options = json_decode(json_encode($current_options), true); // Deep copy
+
         # Initialize seo_controls section if it doesn't exist
         if (!isset($current_options['seo_controls'])) {
             $current_options['seo_controls'] = [];
         }
 
         # Handle checkbox fields - they only send data when checked
-       # $seo_control_fields = ['index_date_archives', 'index_tag_archives', 'index_author_archives', 'index_category_archives', 'index_format_archives', 'override_robots_tags'];
-         $seo_control_fields = ['index_date_archives', 'index_tag_archives', 'index_author_archives', 'index_category_archives', 'index_format_archives', 'override_robots_tags', 'add_nofollow_to_external_links', 'noindex_empty_archives'];
-        
+
+         $seo_control_fields = [
+            'index_date_archives',
+            'index_tag_archives',
+            'index_author_archives',
+            'index_category_archives',
+            'index_format_archives',
+            'override_robots_tags',
+            'add_nofollow_to_external_links',
+            'enable_googleinstantindex',
+            'enable_binginstantindex'
+            ];
+
         foreach ($seo_control_fields as $field) {
             if (isset($_POST['metasync_options']['seo_controls'][$field]) && $_POST['metasync_options']['seo_controls'][$field] === 'true') {
                 # Checkbox is checked
                 $current_options['seo_controls'][$field] = 'true';
-                error_log('Indexation Control AJAX: Saving ' . $field . ' as true');
             } else {
                 # Checkbox is unchecked (default behavior we want)
                 $current_options['seo_controls'][$field] = 'false';
-                error_log('Indexation Control AJAX: Saving ' . $field . ' as false');
             }
         }
+
+        # Save Bing Instant Indexing inline settings if present
+        $bing_save_result = true;
+        if (isset($_POST['metasync_bing_api_key_inline'])) {
+            $bing_save_result = $this->save_bing_inline_settings_ajax();
+        }
+
+        # Check if options have actually changed by comparing with original
+        $options_changed = (json_encode($original_options) !== json_encode($current_options));
 
         # Save the updated options
         $result = Metasync::set_option($current_options);
 
-        if ($result) {
-            wp_send_json_success(array(
-                'message' => 'Indexation Control settings saved successfully!',
-                'saved_data' => $current_options['seo_controls']
-            ));
-        } else {
-            wp_send_json_error(array('message' => 'Failed to save Indexation Control settings'));
+        # If set_option returns false but options haven't changed, that's actually success
+        # WordPress/options API returns false when the value is identical (no update needed)
+        if (!$result && !$options_changed) {
+            $result = true;
+        }
+
+            if ($result && $bing_save_result) {
+                $success_message = 'Indexation Control settings saved successfully!';
+                if (isset($_POST['metasync_bing_api_key_inline'])) {
+                    $success_message = 'Indexation Control and Bing Instant Indexing settings saved successfully!';
+                }
+                wp_send_json_success(array(
+                    'message' => $success_message,
+                    'saved_data' => $current_options['seo_controls']
+                ));
+            } else {
+                $error_message = 'Failed to save Indexation Control settings';
+                if (!$bing_save_result) {
+                    $error_message = 'Failed to save Bing Instant Indexing settings';
+                }
+                wp_send_json_error(array('message' => $error_message));
+            }
+        } catch (Exception $e) {
+            error_log('Indexation Control AJAX Exception: ' . $e->getMessage());
+            error_log('Indexation Control AJAX Stack trace: ' . $e->getTraceAsString());
+            wp_send_json_error(array('message' => 'Error saving settings: ' . $e->getMessage()));
         }
     }
 
@@ -13043,9 +15745,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         if (!wp_next_scheduled('metasync_cleanup_transients')) {
             $scheduled = wp_schedule_event(time(), 'metasync_daily_cleanup', 'metasync_cleanup_transients');
             
-            if ($scheduled) {
-                error_log('MetaSync: Transient cleanup cron job scheduled successfully');
-            } else {
+            if (!$scheduled) {
                 error_log('MetaSync: Failed to schedule transient cleanup cron job');
             }
         }
@@ -13087,6 +15787,22 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 error_log('MetaSync: Hidden post manager cron job scheduled successfully (runs every 7 days)');
             } else {
                 error_log('MetaSync: Failed to schedule hidden post manager cron job');
+            }
+        }
+    }
+
+    /**
+     * Schedule OTTO 404 exclusion recheck cron job (runs daily)
+     * Rechecks URLs auto-excluded due to 404 after 7 days; removes from exclusion if now available
+     */
+    public function maybe_schedule_otto_recheck_404_cron()
+    {
+        if (!wp_next_scheduled('metasync_otto_recheck_404_exclusions')) {
+            $scheduled = wp_schedule_event(time(), 'metasync_daily_cleanup', 'metasync_otto_recheck_404_exclusions');
+            if ($scheduled) {
+                error_log('MetaSync: OTTO 404 recheck cron job scheduled successfully (runs daily)');
+            } else {
+                error_log('MetaSync: Failed to schedule OTTO 404 recheck cron job');
             }
         }
     }
@@ -13235,7 +15951,26 @@ define('WP_DEBUG_DISPLAY', false);</pre>
 
         // Validate regex if pattern type is regex
         if ($pattern_type === 'regex') {
-            if (@preg_match($url_pattern, '') === false) {
+            // Add delimiters if missing - check if pattern is properly enclosed in matching delimiters
+            $test_pattern = $url_pattern;
+            $delimiter_chars = ['/', '#', '~', '%', '@'];
+            $has_valid_delimiters = false;
+
+            if (strlen($test_pattern) >= 2) {
+                $first_char = $test_pattern[0];
+                if (in_array($first_char, $delimiter_chars)) {
+                    $last_pos = strrpos($test_pattern, $first_char);
+                    if ($last_pos > 0) {
+                        $has_valid_delimiters = true;
+                    }
+                }
+            }
+
+            if (!$has_valid_delimiters) {
+                $test_pattern = '/' . $test_pattern . '/';
+            }
+
+            if (@preg_match($test_pattern, '') === false) {
                 wp_send_json_error(['message' => 'Invalid regular expression pattern']);
                 return;
             }
@@ -13355,6 +16090,48 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     }
 
     /**
+     * AJAX handler to recheck if an excluded URL is now available
+     * Used for "Recheck" action on Excluded URLs list
+     */
+    public function ajax_otto_recheck_excluded_url()
+    {
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(['message' => 'Insufficient permissions']);
+            return;
+        }
+
+        if (!check_ajax_referer('metasync_otto_excluded_urls', 'nonce', false)) {
+            wp_send_json_error(['message' => 'Invalid security token']);
+            return;
+        }
+
+        $id = isset($_POST['id']) ? intval($_POST['id']) : 0;
+        if ($id <= 0) {
+            wp_send_json_error(['message' => 'Invalid ID']);
+            return;
+        }
+
+        require_once plugin_dir_path(dirname(__FILE__)) . 'otto/class-metasync-otto-excluded-urls-database.php';
+        require_once plugin_dir_path(dirname(__FILE__)) . 'otto/otto_pixel.php';
+
+        $db = new Metasync_Otto_Excluded_URLs_Database();
+        $row = $db->get_record_by_id($id);
+
+        if (!$row || empty($row->url_pattern)) {
+            wp_send_json_error(['message' => 'Excluded URL not found']);
+            return;
+        }
+
+        $url = trim($row->url_pattern);
+        $available = metasync_otto_is_url_available($url);
+
+        wp_send_json_success([
+            'available' => $available,
+            'url' => $url,
+        ]);
+    }
+
+    /**
      * AJAX handler to get excluded URLs with pagination
      */
     public function ajax_otto_get_excluded_urls()
@@ -13439,6 +16216,40 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 wp_send_json_error(array('message' => 'Please provide a more detailed description (at least 10 characters).'));
                 return;
             }
+            if (strlen($issue_message) > 1000) {
+                wp_send_json_error(array('message' => 'Message is too long. Please limit to 1000 characters.'));
+                return;
+            }
+
+            # Handle file upload if present
+            $attachment = null;
+            if (!empty($_FILES['issue_attachment']['tmp_name'])) {
+                # Validate file type
+                $allowed_types = array('image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp');
+                $file_type = $_FILES['issue_attachment']['type'];
+                
+                if (!in_array($file_type, $allowed_types, true)) {
+                    wp_send_json_error(array('message' => 'Invalid file type. Please upload a JPEG, PNG, GIF, or WebP image.'));
+                    return;
+                }
+
+                # Validate file size (5MB max)
+                $max_size = 5 * 1024 * 1024; // 5MB
+                if ($_FILES['issue_attachment']['size'] > $max_size) {
+                    wp_send_json_error(array('message' => 'File size exceeds 5MB. Please choose a smaller file.'));
+                    return;
+                }
+
+                # Read file contents
+                $file_contents = file_get_contents($_FILES['issue_attachment']['tmp_name']);
+                if ($file_contents !== false) {
+                    $attachment = array(
+                        'filename' => sanitize_file_name($_FILES['issue_attachment']['name']),
+                        'data' => $file_contents,
+                        'content_type' => $file_type
+                    );
+                }
+            }
 
             # Get general options (same way as used throughout the plugin)
             $general_options = Metasync::get_option('general');
@@ -13489,18 +16300,42 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 }
             }
 
-            # Send to Sentry as message
+            # Send to Sentry using User Feedback API
             $sent_to_sentry = false;
-            if (!function_exists('metasync_sentry_capture_message')) {
+            
+            # Check if Sentry feedback function exists
+            if (!function_exists('metasync_sentry_capture_feedback')) {
+                # Log warning if function doesn't exist
                 if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('MetaSync: Sentry capture function not available for report submission.');
+                    error_log('MetaSync: Sentry feedback function not available for report submission.');
                 }
             } else {
-                $formatted_message = $issue_title . "\n\n" . $issue_message;
-                $system_context['report_title'] = $issue_title;
-                $system_context['report_type'] = 'manual_client_report';
-                $sent_to_sentry = metasync_sentry_capture_message($formatted_message, $issue_severity, $system_context);
+                # Prepare user feedback data according to Sentry User Feedback API
+                # Reference: https://docs.sentry.io/platforms/javascript/user-feedback/#user-feedback-api
+                # Note: The API uses 'message' as the key (not 'comments')
+                # Pass only the user's description - captureFeedback will handle title and severity
+                $feedback_data = array(
+                    'message' => $issue_message,
+                    'severity' => $issue_severity
+                );
+                
+                # Add user information if requested
+                if ($include_user_info) {
+                    $current_user = wp_get_current_user();
+                    if ($current_user && $current_user->ID > 0) {
+                        $feedback_data['name'] = sanitize_text_field($current_user->display_name);
+                        $feedback_data['email'] = sanitize_email($current_user->user_email);
+                    }
+                }
+                
+                # Send to Sentry using User Feedback API with attachment
+                # The captureFeedback method will:
+                # 1. Create an event with title "Client Report {UUID}" and message with severity
+                # 2. Send feedback with the user's description including severity
+                # 3. Attach the uploaded image (if any) to the event
+                $sent_to_sentry = metasync_sentry_capture_feedback($feedback_data, $attachment);
             }
+
             if ($sent_to_sentry) {
                 wp_send_json_success(array(
                     'message' => 'Report submitted successfully! Our team will review it shortly.',
@@ -13570,6 +16405,123 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         # Calculate hours if not a standard duration
         $hours = round($seconds / 3600);
         return $hours . ' hours';
+    }
+
+    /**
+     * AJAX handler for password recovery
+     * Sends the whitelabel settings password to the configured recovery email
+     */
+    public function ajax_recover_password()
+    {
+        try {
+            // Verify nonce
+            if (!isset($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'metasync_recover_password_nonce')) {
+                wp_send_json_error(array('message' => 'Security verification failed.'));
+                return;
+            }
+
+            // Get whitelabel settings
+            $whitelabel_settings = Metasync::get_whitelabel_settings();
+            $password = $whitelabel_settings['settings_password'] ?? '';
+            $recovery_email = $whitelabel_settings['recovery_email'] ?? '';
+
+            // Validate that password and recovery email are configured
+            if (empty($password)) {
+                wp_send_json_error(array('message' => 'No password is configured for recovery.'));
+                return;
+            }
+
+            if (empty($recovery_email) || !is_email($recovery_email)) {
+                wp_send_json_error(array('message' => 'No valid recovery email is configured. Please contact your administrator.'));
+                return;
+            }
+
+            // Prepare email with whitelabel support
+            $site_name = get_bloginfo('name');
+            $site_url = home_url();
+            $plugin_name = Metasync::get_effective_plugin_name('');
+            $settings_url = admin_url('admin.php?page=' . self::$page_slug . '&tab=whitelabel');
+            $to = $recovery_email;
+
+            // Use whitelabel-aware subject line
+            $subject = sprintf('[%s] Settings Password Recovery', $site_name);
+
+            // Build email message with proper whitelabel branding
+            $message = sprintf(
+                "Hello,\n\n" .
+                "A password recovery request was made for the %s settings on %s.\n\n" .
+                "Your Settings Password is:\n%s\n\n" .
+                "You can use this password to access the protected settings at:\n%s\n\n" .
+                "If you did not request this password recovery, please secure your WordPress admin account immediately.\n\n" .
+                "---\n" .
+                "This is an automated message from %s\n%s",
+                $plugin_name,
+                $site_name,
+                $password,
+                $settings_url,
+                $site_name,
+                $site_url
+            );
+
+            // Use whitelabel-aware From header
+            $from_name = !empty($whitelabel_settings['company_name'])
+                ? $whitelabel_settings['company_name']
+                : $site_name;
+
+            $headers = array(
+                'Content-Type: text/plain; charset=UTF-8',
+                sprintf('From: %s <%s>', $from_name, get_option('admin_email'))
+            );
+
+            // Capture wp_mail errors
+            $mail_error = '';
+            add_action('wp_mail_failed', function($error) use (&$mail_error) {
+                $mail_error = $error->get_error_message();
+            });
+
+            // Send email
+            $sent = wp_mail($to, $subject, $message, $headers);
+
+            if ($sent) {
+                wp_send_json_success(array(
+                    'message' => sprintf('Password recovery email sent to %s', esc_html($recovery_email))
+                ));
+            } else {
+                // Log the detailed error
+                // if (defined('WP_DEBUG') && WP_DEBUG) {
+                //     error_log(sprintf(
+                //         '%s Password Recovery Email Failed: To: %s, Error: %s',
+                //         $plugin_name,
+                //         $recovery_email,
+                //         $mail_error ?: 'Unknown error'
+                //     ));
+                // }
+
+                // Return detailed error message if available
+                $error_message = 'Failed to send recovery email. ';
+                if (!empty($mail_error)) {
+                    $error_message .= 'Error: ' . $mail_error;
+                } else {
+                    $error_message .= 'Your server may not be configured to send emails. Please check your email configuration or contact your administrator.';
+                }
+
+                wp_send_json_error(array('message' => $error_message));
+            }
+
+        } catch (Exception $e) {
+            // Log the error securely (only in debug mode)
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    'MetaSync Password Recovery Error: %s in %s on line %d',
+                    $e->getMessage(),
+                    $e->getFile(),
+                    $e->getLine()
+                ));
+            }
+
+            // Send generic error message to client
+            wp_send_json_error(array('message' => 'An error occurred while processing your request. Please try again later.'));
+        }
     }
 
     /**
@@ -13682,13 +16634,23 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             # Get general settings that relate to whitelabel
             $general_settings = Metasync::get_option('general');
             $whitelabel_related_general = array();
-            
-            # Include whitelabel-related general settings
-            if (isset($general_settings['white_label_plugin_name'])) {
-                $whitelabel_related_general['white_label_plugin_name'] = $general_settings['white_label_plugin_name'];
-            }
-            if (isset($general_settings['whitelabel_otto_name'])) {
-                $whitelabel_related_general['whitelabel_otto_name'] = $general_settings['whitelabel_otto_name'];
+
+            # Include ALL whitelabel-related general settings
+            $whitelabel_keys = array(
+                'white_label_plugin_name',
+                'white_label_plugin_description',
+                'white_label_plugin_author',
+                'white_label_plugin_author_uri',
+                'white_label_plugin_uri',
+                'white_label_plugin_menu_slug',
+                'white_label_plugin_menu_icon',
+                'whitelabel_otto_name'
+            );
+
+            foreach ($whitelabel_keys as $key) {
+                if (isset($general_settings[$key])) {
+                    $whitelabel_related_general[$key] = $general_settings[$key];
+                }
             }
             
             # Prepare export data
@@ -13854,4 +16816,454 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     }
 
 
+    /**
+     * Add custom column to posts/pages list for HTML-converted pages
+     *
+     * @param array $columns Existing columns
+     * @return array Modified columns
+     */
+    public function add_html_converted_column($columns)
+    {
+        // Add column after the title column
+        $new_columns = array();
+        foreach ($columns as $key => $value) {
+            $new_columns[$key] = $value;
+            if ($key === 'title') {
+                $new_columns['metasync_html_source'] = __('Source', 'metasync');
+            }
+        }
+        return $new_columns;
+    }
+
+    /**
+     * Render content for the HTML-converted column
+     *
+     * @param string $column_name Name of the column
+     * @param int $post_id Post ID
+     */
+    public function render_html_converted_column($column_name, $post_id)
+    {
+        if ($column_name !== 'metasync_html_source') {
+            return;
+        }
+
+        // Check if this is an HTML-converted page
+        $has_raw_html = get_post_meta($post_id, '_metasync_raw_html_enabled', true);
+        $has_custom_css = get_post_meta($post_id, '_metasync_custom_css', true);
+
+        // If page has raw HTML or custom CSS from conversion, show badge
+        if ($has_raw_html || !empty($has_custom_css)) {
+            $label = $this->get_html_source_label();
+            $tooltip = sprintf(
+                __('This page was created using %s HTML-to-Builder converter', 'metasync'),
+                $label
+            );
+
+            echo sprintf(
+                '<span class="metasync-html-badge" title="%s">
+                    <span class="metasync-badge-icon">⚡</span>
+                    <span class="metasync-badge-text">%s</span>
+                </span>',
+                esc_attr($tooltip),
+                esc_html($label)
+            );
+        }
+    }
+
+    /**
+     * Get the label for HTML-converted pages (respects whitelabel settings)
+     *
+     * @return string Label to display
+     */
+    private function get_html_source_label()
+    {
+        // Check for whitelabel company name
+        $whitelabel_company = Metasync::get_whitelabel_company_name();
+        if (!empty($whitelabel_company)) {
+            return $whitelabel_company . ' AI';
+        }
+
+        // Default to SearchAtlas AI
+        return 'SearchAtlas AI';
+    }
+
+    /**
+     * Add source notice banner in the page editor
+     *
+     * @param WP_Post $post Current post object
+     */
+    public function add_editor_source_notice($post)
+    {
+        if (!$post || !in_array($post->post_type, array('post', 'page'))) {
+            return;
+        }
+
+        $has_raw_html = get_post_meta($post->ID, '_metasync_raw_html_enabled', true);
+        $has_custom_css = get_post_meta($post->ID, '_metasync_custom_css', true);
+
+        if ($has_raw_html || !empty($has_custom_css)) {
+            $label = $this->get_html_source_label();
+            $message = sprintf(
+                __('This page was created using %s HTML-to-Builder converter. The design is preserved with custom CSS and inline styles.', 'metasync'),
+                '<strong>' . esc_html($label) . '</strong>'
+            );
+
+            echo sprintf(
+                '<div class="metasync-editor-notice notice notice-info is-dismissible">
+                    <div class="metasync-editor-notice-content">
+                        <span class="metasync-editor-badge">
+                            <span class="metasync-badge-icon">⚡</span>
+                            <span class="metasync-badge-text">%s</span>
+                        </span>
+                        <p class="metasync-editor-message">%s</p>
+                    </div>
+                </div>',
+                esc_html($label),
+                $message
+            );
+        }
+    }
+
+    /**
+     * Add source display in quick edit panel
+     *
+     * @param string $column_name Column name
+     * @param string $post_type Post type
+     */
+    public function add_quick_edit_source_display($column_name, $post_type)
+    {
+        if ($column_name !== 'metasync_html_source') {
+            return;
+        }
+
+        if (!in_array($post_type, array('post', 'page'))) {
+            return;
+        }
+
+        ?>
+        <fieldset class="inline-edit-col-left metasync-quick-edit-source">
+            <div class="inline-edit-col">
+                <label>
+                    <span class="title"><?php _e('Source', 'metasync'); ?></span>
+                    <span class="metasync-quick-edit-badge-container"></span>
+                </label>
+            </div>
+        </fieldset>
+        <script type="text/javascript">
+        (function($) {
+            // Copy badge from posts list to quick edit panel
+            var wp_inline_edit = inlineEditPost.edit;
+            inlineEditPost.edit = function(id) {
+                wp_inline_edit.apply(this, arguments);
+
+                var post_id = 0;
+                if (typeof(id) === 'object') {
+                    post_id = parseInt(this.getId(id));
+                }
+
+                if (post_id > 0) {
+                    var $row = $('#post-' + post_id);
+                    var $badge = $row.find('.metasync-html-badge').clone();
+
+                    if ($badge.length) {
+                        $('.metasync-quick-edit-badge-container').html($badge);
+                    } else {
+                        $('.metasync-quick-edit-badge-container').html('<em><?php _e('Standard page', 'metasync'); ?></em>');
+                    }
+                }
+            };
+        })(jQuery);
+        </script>
+        <?php
+    }
+
+    /**
+     * Add dashboard widget for HTML-converted pages
+     */
+    public function add_html_pages_dashboard_widget()
+    {
+        $label = $this->get_html_source_label();
+        $widget_title = sprintf(__('%s Pages', 'metasync'), $label);
+
+        wp_add_dashboard_widget(
+            'metasync_html_pages_widget',
+            $widget_title,
+            array($this, 'render_html_pages_dashboard_widget')
+        );
+    }
+
+    /**
+     * Render the dashboard widget content
+     */
+    public function render_html_pages_dashboard_widget()
+    {
+        global $wpdb;
+
+        // Query for pages with HTML conversion meta
+        $query = "
+            SELECT p.ID, p.post_title, p.post_modified, p.post_type
+            FROM {$wpdb->posts} p
+            INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id
+            WHERE p.post_status = 'publish'
+            AND p.post_type IN ('post', 'page')
+            AND (pm.meta_key = '_metasync_raw_html_enabled' OR pm.meta_key = '_metasync_custom_css')
+            GROUP BY p.ID
+            ORDER BY p.post_modified DESC
+            LIMIT 10
+        ";
+
+        $html_pages = $wpdb->get_results($query);
+        $total_count = count($html_pages);
+
+        $label = $this->get_html_source_label();
+
+        if (empty($html_pages)) {
+            echo '<div class="metasync-dashboard-widget-empty">';
+            echo '<span class="dashicons dashicons-admin-page" style="font-size: 48px; opacity: 0.3; display: block; margin: 20px auto;"></span>';
+            echo '<p style="text-align: center; color: #666;">';
+            echo sprintf(__('No pages created with %s yet.', 'metasync'), '<strong>' . esc_html($label) . '</strong>');
+            echo '</p>';
+            echo '<p style="text-align: center;">';
+            echo '<a href="' . admin_url('admin.php?page=searchatlas') . '" class="button button-primary">';
+            echo __('Get Started', 'metasync');
+            echo '</a>';
+            echo '</p>';
+            echo '</div>';
+            return;
+        }
+
+        echo '<div class="metasync-dashboard-widget">';
+
+        // Summary stats
+        echo '<div class="metasync-widget-stats">';
+        echo '<div class="metasync-stat-box">';
+        echo '<span class="metasync-stat-number">' . $total_count . '</span>';
+        echo '<span class="metasync-stat-label">' . __('AI-Generated Pages', 'metasync') . '</span>';
+        echo '</div>';
+        echo '</div>';
+
+        // Recent pages list
+        echo '<div class="metasync-widget-list">';
+        echo '<h4>' . __('Recent Pages', 'metasync') . '</h4>';
+        echo '<ul>';
+
+        foreach ($html_pages as $page) {
+            $edit_link = get_edit_post_link($page->ID);
+            $view_link = get_permalink($page->ID);
+            $time_ago = human_time_diff(strtotime($page->post_modified), current_time('timestamp'));
+
+            echo '<li class="metasync-widget-page-item">';
+            echo '<span class="metasync-page-icon">⚡</span>';
+            echo '<div class="metasync-page-details">';
+            echo '<a href="' . esc_url($edit_link) . '" class="metasync-page-title">';
+            echo esc_html($page->post_title ?: __('(no title)', 'metasync'));
+            echo '</a>';
+            echo '<span class="metasync-page-meta">';
+            echo sprintf(__('Updated %s ago', 'metasync'), $time_ago);
+            echo ' • ';
+            echo '<a href="' . esc_url($view_link) . '" target="_blank">' . __('View', 'metasync') . '</a>';
+            echo '</span>';
+            echo '</div>';
+            echo '</li>';
+        }
+
+        echo '</ul>';
+        echo '</div>';
+
+        // Footer with link to all pages
+        echo '<div class="metasync-widget-footer">';
+        echo '<a href="' . admin_url('edit.php?post_type=page') . '">';
+        echo __('View All Pages', 'metasync') . ' →';
+        echo '</a>';
+        echo '</div>';
+
+        echo '</div>';
+    }
+
+    /**
+     * Bot Statistics page callback
+     * Displays bot detection statistics and logs
+     */
+    public function create_admin_bot_statistics_page()
+    {
+        require_once plugin_dir_path(dirname(__FILE__)) . 'views/metasync-otto-bot-statistics.php';
+    }
+
+    /**
+     * AJAX handler for resetting bot statistics
+     */
+    public function ajax_reset_bot_stats()
+    {
+        check_ajax_referer('metasync_reset_bot_stats', 'nonce');
+
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(['message' => 'Insufficient permissions.']);
+        }
+
+        require_once plugin_dir_path(dirname(__FILE__)) . 'otto/class-metasync-otto-bot-statistics-database.php';
+        $db = Metasync_Otto_Bot_Statistics_Database::get_instance();
+
+        $result = $db->reset_statistics();
+
+        if ($result) {
+            wp_send_json_success(['message' => 'Statistics reset successfully.']);
+        } else {
+            wp_send_json_error(['message' => 'Failed to reset statistics.']);
+        }
+    }
+
+    /**
+     * AJAX handler for sending URLs to Google Instant Indexing API
+     *
+     * @since 2.6.0
+     * @return void Sends JSON response and exits
+     */
+    public function ajax_send_giapi()
+    {
+        require_once plugin_dir_path(dirname(__FILE__)) . 'instant-index/class-metasync-instant-index.php';
+        $instant_index = new Metasync_Instant_Index();
+        $instant_index->send();
+    }
+
+    /**
+     * AJAX handler for sending URLs to Bing via IndexNow API
+     *
+     * @since 2.6.0
+     * @return void Sends JSON response and exits
+     */
+    public function ajax_send_bing_indexnow()
+    {
+        require_once plugin_dir_path(dirname(__FILE__)) . 'bing-index/class-metasync-bing-instant-index.php';
+        $bing_instant_index = new Metasync_Bing_Instant_Index();
+        $bing_instant_index->send();
+    }
+
+    /**
+     * Save instant indexing settings (Google and Bing)
+     *
+     * @since 2.6.0
+     * @return void
+     */
+    public function save_instant_indexing_settings()
+    {
+        // Check if this is a settings submission
+        if (!isset($_POST['submit'])) {
+            return;
+        }
+
+        // Save Google Instant Indexing settings
+        if (isset($_POST['metasync_google_json_key'])) {
+            require_once plugin_dir_path(dirname(__FILE__)) . 'instant-index/class-metasync-instant-index.php';
+            $instant_index = new Metasync_Instant_Index();
+            $instant_index->save_settings();
+        }
+
+        // Note: Bing Instant Indexing settings are saved via AJAX in save_bing_inline_settings_ajax()
+    }
+
+    /**
+     * Save Bing instant indexing settings from inline form (Indexation Control page)
+     *
+     * @since 2.6.0
+     * @return bool True on success, false on failure
+     */
+    private function save_bing_inline_settings_ajax()
+    {
+        $api_key = isset($_POST['metasync_bing_api_key_inline']) ? sanitize_text_field(wp_unslash($_POST['metasync_bing_api_key_inline'])) : '';
+        $endpoint = isset($_POST['metasync_bing_endpoint_inline']) ? sanitize_text_field(wp_unslash($_POST['metasync_bing_endpoint_inline'])) : 'indexnow';
+        $post_types = isset($_POST['metasync_bing_post_types_inline']) && is_array($_POST['metasync_bing_post_types_inline']) ? array_map('sanitize_title', wp_unslash($_POST['metasync_bing_post_types_inline'])) : [];
+        $disable_other_plugins = isset($_POST['metasync_bing_disable_other_plugins_inline']) ? true : false;
+
+        // Get existing settings
+        $existing_settings = get_option('metasync_options_bing_instant_indexing', []);
+
+        // Prepare new settings
+        $new_settings = [
+            'api_key'    => $api_key,
+            'endpoint'   => $endpoint,
+            'post_types' => array_values($post_types),
+            'disable_other_plugins' => $disable_other_plugins,
+        ];
+
+        // Merge with existing settings
+        $settings = array_merge($existing_settings, $new_settings);
+
+        // Check if settings have actually changed
+        $settings_changed = (json_encode($existing_settings) !== json_encode($settings));
+
+        // Save to database
+        $result = update_option('metasync_options_bing_instant_indexing', $settings);
+
+        // If update_option returns false but settings haven't changed, that's actually success
+        // WordPress returns false when the value is identical (no update needed)
+        if (!$result && !$settings_changed) {
+            $result = true;
+        }
+
+        // Generate API key file if API key is provided
+        if (!empty($api_key)) {
+            $file_path = ABSPATH . $api_key . '.txt';
+            $file_result = file_put_contents($file_path, $api_key);
+
+            if ($file_result === false) {
+                error_log('Bing IndexNow: Failed to create API key verification file at ' . $file_path);
+                return false;
+            }
+
+            // Auto-enable Bing Instant Indexing when API key is configured
+            $current_options = Metasync::get_option();
+            if (!isset($current_options['seo_controls']['enable_binginstantindex']) || $current_options['seo_controls']['enable_binginstantindex'] !== 'true') {
+                $current_options['seo_controls']['enable_binginstantindex'] = 'true';
+                Metasync::set_option($current_options);
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Add instant indexing action links to post/page rows
+     *
+     * @since 2.6.0
+     * @param array $actions Current actions
+     * @param WP_Post $post Current post object
+     * @return array Modified actions
+     */
+    public function add_instant_indexing_post_actions($actions, $post)
+    {
+        // Add Google Instant Indexing links
+        require_once plugin_dir_path(dirname(__FILE__)) . 'instant-index/class-metasync-instant-index.php';
+        $instant_index = new Metasync_Instant_Index();
+        $actions = $instant_index->google_instant_index_post_link($actions, $post);
+
+        // Add Bing Instant Indexing links
+        require_once plugin_dir_path(dirname(__FILE__)) . 'bing-index/class-metasync-bing-instant-index.php';
+        $bing_instant_index = new Metasync_Bing_Instant_Index();
+        $actions = $bing_instant_index->bing_instant_index_post_link($actions, $post);
+
+        return $actions;
+    }
+
+    /**
+     * Auto-submit post to instant indexing services when published
+     *
+     * @since 2.6.0
+     * @param int $post_id Post ID
+     * @param WP_Post $post Post object
+     * @param bool $update Whether this is an update
+     * @return void
+     */
+    public function auto_submit_to_instant_indexing($post_id, $post, $update)
+    {
+        // Auto-submit to Google Instant Indexing
+        require_once plugin_dir_path(dirname(__FILE__)) . 'instant-index/class-metasync-instant-index.php';
+        $instant_index = new Metasync_Instant_Index();
+        // Note: You'd need to add an auto_submit method to the Google class similar to Bing
+        // For now, we'll just handle Bing
+
+        // Auto-submit to Bing Instant Indexing
+        require_once plugin_dir_path(dirname(__FILE__)) . 'bing-index/class-metasync-bing-instant-index.php';
+        $bing_instant_index = new Metasync_Bing_Instant_Index();
+        $bing_instant_index->auto_submit_on_publish($post_id, $post, $update);
+    }
 }

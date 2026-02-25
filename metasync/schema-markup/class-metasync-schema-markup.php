@@ -45,6 +45,12 @@ class Metasync_Schema_Markup
             return;
         }
 
+        // Don't show metabox if disabled in Post/Page Editor Settings
+        $general_settings = Metasync::get_option('general', []);
+        if (!empty($general_settings['disable_schema_markup_metabox'])) {
+            return;
+        }
+
         $plugin_name = Metasync::get_effective_plugin_name();
 
         add_meta_box(
@@ -1081,6 +1087,10 @@ class Metasync_Schema_Markup
         }
 
         global $post;
+        // Check if $post object exists and has an ID
+        if (!$post || !isset($post->ID)) {
+            return;
+        }
         $schema_data = get_post_meta($post->ID, 'metasync_schema_markup', true);
 
         if (empty($schema_data) || !$schema_data['enabled'] || empty($schema_data['types'])) {

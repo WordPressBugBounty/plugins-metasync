@@ -212,4 +212,58 @@ class Metasync_Robots_Txt_Database
         global $wpdb;
         $wpdb->query("DROP TABLE IF EXISTS {$this->table_name}");
     }
+
+    /**
+     * Store virtual robots.txt content (when physical file cannot be created)
+     *
+     * @param string $content Content to store
+     * @return bool True on success, false on failure
+     */
+    public function store_virtual_content($content)
+    {
+        return update_option('metasync_robots_txt_virtual', $content, false);
+    }
+
+    /**
+     * Get virtual robots.txt content
+     *
+     * @return string|false Content or false if not found
+     */
+    public function get_virtual_content()
+    {
+        return get_option('metasync_robots_txt_virtual', false);
+    }
+
+    /**
+     * Check if virtual mode is active
+     *
+     * @return bool True if virtual mode is active
+     */
+    public function is_virtual_mode()
+    {
+        return get_option('metasync_robots_txt_virtual_mode', false) === true;
+    }
+
+    /**
+     * Set virtual mode flag
+     *
+     * @param bool $enabled Whether virtual mode is enabled
+     * @return bool True on success
+     */
+    public function set_virtual_mode($enabled)
+    {
+        return update_option('metasync_robots_txt_virtual_mode', $enabled, false);
+    }
+
+    /**
+     * Clear virtual content and mode
+     *
+     * @return bool True on success
+     */
+    public function clear_virtual_content()
+    {
+        delete_option('metasync_robots_txt_virtual');
+        delete_option('metasync_robots_txt_virtual_mode');
+        return true;
+    }
 }

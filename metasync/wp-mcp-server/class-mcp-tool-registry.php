@@ -86,9 +86,6 @@ class MCP_Tool_Registry {
         // Store tool
         $this->tools[$name] = $tool;
 
-        // Clear cache
-        delete_transient(self::CACHE_KEY);
-
         // Fire action
         do_action('metasync_mcp_tool_registered', $name, $tool);
 

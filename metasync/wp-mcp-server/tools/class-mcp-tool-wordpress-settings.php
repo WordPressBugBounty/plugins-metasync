@@ -32,7 +32,7 @@ class MCP_Tool_Get_Site_Info extends MCP_Tool_Base {
     public function get_input_schema() {
         return [
             'type' => 'object',
-            'properties' => [],
+            'properties' => (object)[],
         ];
     }
 
@@ -131,7 +131,7 @@ class MCP_Tool_Get_Permalink_Structure extends MCP_Tool_Base {
     public function get_input_schema() {
         return [
             'type' => 'object',
-            'properties' => [],
+            'properties' => (object)[],
         ];
     }
 
@@ -252,7 +252,7 @@ class MCP_Tool_Get_Reading_Settings extends MCP_Tool_Base {
     public function get_input_schema() {
         return [
             'type' => 'object',
-            'properties' => [],
+            'properties' => (object)[],
         ];
     }
 
@@ -401,7 +401,7 @@ class MCP_Tool_Get_Search_Visibility extends MCP_Tool_Base {
     public function get_input_schema() {
         return [
             'type' => 'object',
-            'properties' => [],
+            'properties' => (object)[],
         ];
     }
 
@@ -493,7 +493,7 @@ class MCP_Tool_Get_Date_Format extends MCP_Tool_Base {
     public function get_input_schema() {
         return [
             'type' => 'object',
-            'properties' => [],
+            'properties' => (object)[],
         ];
     }
 
@@ -531,7 +531,7 @@ class MCP_Tool_Get_Discussion_Settings extends MCP_Tool_Base {
     public function get_input_schema() {
         return [
             'type' => 'object',
-            'properties' => [],
+            'properties' => (object)[],
         ];
     }
 

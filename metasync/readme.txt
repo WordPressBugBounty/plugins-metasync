@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.5.18
+Stable tag: 2.5.19
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,33 +70,46 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
-= 2.5.18 =
-* Removed JWT-based temporary support access token system
-* Improved internal code documentation
+= 2.5.19 =
+New Features
 
-= 2.5.18 =
-* Removed JWT-based temporary support access token system
-* Improved internal code documentation
+  - SEO Sidebar in Post Editor — Edit Meta Title, Meta Description and URL slug directly from the post/page
+   editor sidebar
+  - Bot Detection Layer for OTTO — Detects and tracks bots with statistics dashboard
+  - Bing Instant Indexing — Submit URLs directly to Bing
+  - Plugin Setup Wizard — Guided setup process for new users
+  - Execution Settings — New controls under Advanced Settings
+  - Debug Mode Auto-Disable & Safety Limits — Automatically disables after a set period
+  - Enhanced Error Categorization — Improved monitoring with categorized error tracking
+  - Virtual robots.txt / sitemap.xml — Served virtually when host blocks direct file writes
+  - OTTO 404-Specific Filtering — Filter OTTO suggestions for 404 pages
+  - Heartbeat reliability improvements
 
-= 2.5.18 =
-* Removed JWT-based temporary support access token system
-* Improved internal code documentation
+  Improvements
 
-= 2.5.18 =
-* Removed JWT-based temporary support access token system
-* Improved internal code documentation
+  - Schema Markup disable option — Can now be toggled per Post/Page Editor settings
+  - Whitelabel form validation — Prevents partial saves without whitelabel mode activation
+  - Host Blocking in whitelabel — Host blocking now covered by whitelabel settings
+  - Support Token rate limiting — Properly enforced during login
+  - Report Issue with Sentry User Feedback — Image attachments supported
+  - MCP Tool API key auth — Fixed permission checks for API key-authenticated requests
 
-= 2.5.18 =
-* Removed JWT-based temporary support access token system
-* Improved internal code documentation
+  Bug Fixes
 
-= 2.5.18 =
-* Removed JWT-based temporary support access token system
-* Improved internal code documentation
+  - Fixed OTTO removing original meta description when no OTTO description deployed
+  - Fixed plugin breaking Elementor front-end spacing when span tag was inner H1
+  - Fixed WP Rocket + Kinsta cache conflict causing meta titles/descriptions to disappear
+  - Fixed ALT text not applied on home page and other pages for Custom Theme
+  - Fixed Plugin URI and Author URI not being saved
+  - Fixed UI issues in admin screens
+  - Fixed sync logs not showing newest info after filtering
+  - Fixed exported whitelabel settings not uploading to another site
+  - Fixed plugin settings hiding in plugin menu but not under WordPress General settings
+  - Fixed Import SEO Data missing from access control list
 
-= 2.5.18 =
-* Removed JWT-based temporary support access token system
-* Improved internal code documentation
+  Stability / PHP 8.1+ Compatibility
+
+  - 13 improvements with deprecated PHP functions below PHP V8.0
 
 = 2.5.18 =
 * Removed JWT-based temporary support access token system

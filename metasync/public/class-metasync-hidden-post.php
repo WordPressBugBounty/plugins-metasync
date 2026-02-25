@@ -427,8 +427,9 @@ class MetaSyncHiddenPostManager
         global $wpdb;
         $post = get_post($post_id);
 
-        if ($post->post_type === $this->hidden_post_type) {
-            //    wp_die('This post cannot be deleted.'); # Block deletion
-        }
+        // Check if post exists before accessing its properties
+        if ($post && $post->post_type === $this->hidden_post_type) {
+        }            //    wp_die('This post cannot be deleted.'); # Block deletion
+
     }
 }

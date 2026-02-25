@@ -88,6 +88,27 @@ function init_metasync_telemetry() {
         // Only initialize if memory is still safe
         $memory_after_options = memory_get_usage(true);
         if ($memory_after_options > ($memory_limit * 0.8)) {
+            // NEW: Structured error logging with category and code
+            if (class_exists('Metasync_Error_Logger')) {
+                $memory_used_mb = round($memory_after_options / 1024 / 1024, 2);
+                $memory_limit_mb = round($memory_limit / 1024 / 1024, 2);
+                $memory_percent = round(($memory_after_options / $memory_limit) * 100, 1);
+                
+                Metasync_Error_Logger::log(
+                    Metasync_Error_Logger::CATEGORY_MEMORY_EXHAUSTED,
+                    Metasync_Error_Logger::SEVERITY_CRITICAL,
+                    'Memory limit nearly exhausted - telemetry initialization skipped',
+                    [
+                        'memory_used_mb' => $memory_used_mb,
+                        'memory_limit_mb' => $memory_limit_mb,
+                        'memory_percent' => $memory_percent,
+                        'threshold' => '80%',
+                        'operation' => 'telemetry_init',
+                        'action' => 'skipped_initialization'
+                    ]
+                );
+            }
+            
             // error_log('MetaSync Telemetry: Skipping manager initialization due to memory usage');
             return;
         }

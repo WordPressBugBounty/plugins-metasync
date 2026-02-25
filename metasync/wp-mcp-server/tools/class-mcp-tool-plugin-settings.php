@@ -165,7 +165,8 @@ class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
                 'disable_advance_robots_metabox',
                 'disable_redirection_metabox',
                 'disable_canonical_metabox',
-                'disable_social_opengraph_metabox'
+                'disable_social_opengraph_metabox',
+                'disable_schema_markup_metabox'
             ],
             'features' => [
                 'enabled_elementor_plugin_css',
@@ -347,7 +348,7 @@ class MCP_Tool_List_Plugin_Settings_Schema extends MCP_Tool_Base {
     public function get_input_schema() {
         return [
             'type' => 'object',
-            'properties' => [],
+            'properties' => (object)[],
             'required' => []
         ];
     }
@@ -493,6 +494,10 @@ class MCP_Tool_List_Plugin_Settings_Schema extends MCP_Tool_Base {
                     'disable_social_opengraph_metabox' => [
                         'type' => 'boolean',
                         'description' => 'Disable social/OpenGraph meta box in post editor'
+                    ],
+                    'disable_schema_markup_metabox' => [
+                        'type' => 'boolean',
+                        'description' => 'Disable schema markup meta box in post editor'
                     ]
                 ]
             ],
@@ -541,7 +546,7 @@ class MCP_Tool_Get_MCP_Settings extends MCP_Tool_Base {
     public function get_input_schema() {
         return [
             'type' => 'object',
-            'properties' => [],
+            'properties' => (object)[],
             'required' => []
         ];
     }

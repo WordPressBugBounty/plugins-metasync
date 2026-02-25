@@ -56,15 +56,128 @@ class MetaSync_Sentry_WordPress {
      */
     public function captureException($exception, $extra = []) {
         $data = $this->formatException($exception, $extra);
-        return $this->sendToSentry($data);
+        $result = $this->sendToSentry($data);
+        return is_array($result) ? $result['success'] : $result;
     }
     
     /**
      * Capture a message and send to Sentry
      */
-    public function captureMessage($message, $level = 'info', $extra = []) {
+    public function captureMessage($message, $level = 'info', $extra = [], $attachment = null) {
         $data = $this->formatMessage($message, $level, $extra);
-        return $this->sendToSentry($data);
+        $result = $this->sendToSentry($data, 'event', $attachment);
+        return is_array($result) ? $result['success'] : $result;
+    }
+    
+    /**
+     * Capture user feedback and send to Sentry
+     * 
+     * Since Sentry requires user feedback to be associated with an event,
+     * this method first creates an event with the feedback message, then
+     * associates the feedback with that event.
+     * 
+     * @param array $feedback Feedback data with keys: name (optional), email (optional), message (required), event_id (optional), severity (optional)
+     * @param array|null $attachment Optional attachment data
+     * @return bool|array Success status, or array with success and event_id
+     */
+    public function captureFeedback($feedback, $attachment = null) {
+        // Get the feedback message
+        $message = '';
+        if (isset($feedback['message']) && !empty($feedback['message'])) {
+            $message = $feedback['message'];
+        } elseif (isset($feedback['comments']) && !empty($feedback['comments'])) {
+            $message = $feedback['comments'];
+        }
+        
+        if (empty($message)) {
+            return false;
+        }
+        
+        // Get severity level if provided
+        $severity = isset($feedback['severity']) ? sanitize_text_field($feedback['severity']) : '';
+        $valid_severity_levels = array('info', 'warning', 'error', 'fatal');
+        
+        // Get otto_pixel_uuid from general options (same way as used in admin handler)
+        $general_options = class_exists('Metasync') ? Metasync::get_option('general') : get_option('metasync_options', [])['general'] ?? [];
+        if (!is_array($general_options)) {
+            $general_options = [];
+        }
+        $project_uuid = isset($general_options['otto_pixel_uuid']) ? sanitize_text_field($general_options['otto_pixel_uuid']) : '';
+        
+        // Format event title as "Client Report {UUID}"
+        $event_title = !empty($project_uuid) ? 'Client Report ' . $project_uuid : 'Client Report (UUID Not Configured)';
+        
+        // Build the message with title, severity, and user description
+        // Format: "Client Report {uuid}\nSeverity: {level}\n\n{user description}"
+        $formatted_message = $event_title;
+        if (!empty($severity) && in_array($severity, $valid_severity_levels, true)) {
+            $severity_label = ucfirst($severity);
+            $formatted_message .= "\nSeverity: {$severity_label}";
+        }
+
+        // Add attachment indicator if an attachment is present
+        if ($attachment && !empty($attachment['filename'])) {
+            $formatted_message .= "\nAttachment: " . $attachment['filename'];
+        }
+
+        $formatted_message .= "\n\n" . $message;
+        
+        // If event_id is already provided, use it directly
+        if (isset($feedback['event_id']) && !empty($feedback['event_id'])) {
+            // Update the feedback message with formatted message (title + severity + description)
+            $feedback['message'] = $formatted_message;
+            $data = $this->formatFeedback($feedback);
+            $result = $this->sendToSentry($data, 'user_report', $attachment);
+            return is_array($result) ? $result['success'] : $result;
+        }
+        
+        // Determine event level based on severity
+        $event_level = !empty($severity) && in_array($severity, $valid_severity_levels, true) ? $severity : 'info';
+        
+        // Create an event with the formatted message (title + severity + user description)
+        // The title will also be set in culprit field for Sentry to display
+        $event_data = $this->formatMessage($formatted_message, $event_level, [
+            'feedback_source' => 'user_report',
+            'original_feedback' => $feedback,
+            'report_title' => $event_title
+        ]);
+        
+        // Set the culprit (title) field for Sentry to display as the event title
+        // The culprit field is what Sentry uses to show the title in the issues list
+        $event_data['culprit'] = $event_title;
+        
+        // Add the category tag
+        if (isset($event_data['tags']) && is_array($event_data['tags'])) {
+            $event_data['tags']['category'] = 'user-feedback';
+        } else {
+            $event_data['tags'] = ['category' => 'user-feedback'];
+        }
+        
+        // Send the event first with attachment
+        $event_result = $this->sendToSentry($event_data, 'event', $attachment);
+        
+        // Extract event_id from response
+        $event_id = null;
+        if (is_array($event_result) && isset($event_result['event_id'])) {
+            $event_id = $event_result['event_id'];
+        } elseif (is_array($event_result) && $event_result['success']) {
+            // If event was sent but no event_id in response, use the one we generated
+            $event_id = $event_data['event_id'] ?? null;
+        }
+        
+        // If event creation failed, return false
+        if (!$event_id) {
+            return false;
+        }
+        
+        // Now send the feedback with the event_id (no attachment on feedback, it's already on the event)
+        // Make sure the feedback message includes title, severity, and user description
+        $feedback['event_id'] = $event_id;
+        $feedback['message'] = $formatted_message; // Use the formatted message (title + severity + description)
+        $data = $this->formatFeedback($feedback);
+        $feedback_result = $this->sendToSentry($data, 'user_report');
+        
+        return is_array($feedback_result) ? $feedback_result['success'] : $feedback_result;
     }
     
     /**
@@ -139,6 +252,54 @@ class MetaSync_Sentry_WordPress {
     }
     
     /**
+     * Format user feedback data for Sentry User Feedback API
+     * 
+     * @param array $feedback Feedback data with keys: name, email, message (or comments), event_id
+     * @return array Formatted feedback data
+     */
+    private function formatFeedback($feedback) {
+        // Support both 'message' (JavaScript SDK API) and 'comments' (envelope format)
+        // The JavaScript SDK accepts 'message' but converts it to 'comments' in the envelope
+        $comments = '';
+        if (isset($feedback['message']) && !empty($feedback['message'])) {
+            $comments = $feedback['message'];
+        } elseif (isset($feedback['comments']) && !empty($feedback['comments'])) {
+            $comments = $feedback['comments'];
+        }
+        
+        // Validate required fields
+        if (empty($comments)) {
+            throw new InvalidArgumentException('Message/comments field is required for user feedback');
+        }
+        
+        // Build feedback payload according to Sentry User Feedback API envelope format
+        // Reference: https://docs.sentry.io/platforms/javascript/user-feedback/#user-feedback-api
+        // IMPORTANT: The envelope format uses 'comments' as the key (not 'message')
+        // The JavaScript SDK accepts 'message' but converts it to 'comments' internally
+        $feedback_data = [
+            'comments' => sanitize_textarea_field($comments)
+        ];
+        
+        // Add optional name field
+        if (isset($feedback['name']) && !empty(trim($feedback['name']))) {
+            $feedback_data['name'] = sanitize_text_field($feedback['name']);
+        }
+        
+        // Add optional email field
+        if (isset($feedback['email']) && !empty(trim($feedback['email']))) {
+            $feedback_data['email'] = sanitize_email($feedback['email']);
+        }
+        
+        // Add event_id if provided (to associate feedback with an event)
+        // Note: In envelope format, event_id can be in the payload
+        if (isset($feedback['event_id']) && !empty($feedback['event_id'])) {
+            $feedback_data['event_id'] = sanitize_text_field($feedback['event_id']);
+        }
+        
+        return $feedback_data;
+    }
+    
+    /**
      * Check if the current environment is localhost/development
      */
     private function isLocalhost() {
@@ -180,8 +341,13 @@ class MetaSync_Sentry_WordPress {
 
     /**
      * Send data to Sentry API using WordPress HTTP functions (proxied through our system with JWT)
+     * 
+     * @param array $data Sentry event or feedback data
+     * @param string $item_type Type of item: 'event' or 'user_report'
+     * @param array|null $attachment Optional attachment data
+     * @return bool|array Success status, or array with success and event_id
      */
-    private function sendToSentry($data) {
+    private function sendToSentry($data, $item_type = 'event', $attachment = null) {
         // Skip sending to Sentry if running on localhost/development environment
         if ($this->isLocalhost()) {
             return false;
@@ -207,8 +373,8 @@ class MetaSync_Sentry_WordPress {
         // Use WordPress Sentry tunnel endpoint
         $url = 'https://wordpress.telemetry.infra.searchatlas.com/api/4509950439849985/envelope/';
 
-        // Convert Sentry data to envelope format
-        $envelope = $this->createSentryEnvelope($data);
+        // Convert Sentry data to envelope format, including attachment if present
+        $envelope = $this->createSentryEnvelope($data, $item_type, $attachment);
 
         $plugin_version = defined('METASYNC_VERSION') ? METASYNC_VERSION : '1.0.0';
 
@@ -237,7 +403,28 @@ class MetaSync_Sentry_WordPress {
         $response_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $error = curl_error($ch);
 
-        curl_close($ch);
+        #curl_close($ch);
+
+        // Log errors in debug mode for troubleshooting
+        if (defined('WP_DEBUG') && WP_DEBUG && WP_DEBUG_LOG) {
+            if ($error) {
+                error_log(sprintf(
+                    'MetaSync Sentry Error (%s): %s | Response Code: %s | Item Type: %s',
+                    $item_type,
+                    $error,
+                    $response_code,
+                    $item_type
+                ));
+            } elseif ($response_code < 200 || $response_code >= 300) {
+                error_log(sprintf(
+                    'MetaSync Sentry HTTP Error (%s): Response Code: %s | Response: %s | Item Type: %s',
+                    $item_type,
+                    $response_code,
+                    substr($response, 0, 200),
+                    $item_type
+                ));
+            }
+        }
 
         // Return false silently on any error or timeout
         if ($error) {
@@ -245,34 +432,71 @@ class MetaSync_Sentry_WordPress {
         }
 
         $success = $response_code >= 200 && $response_code < 300;
-
-        return $success;
+        
+        // Parse response to extract event_id if available
+        $event_id = null;
+        if ($success && !empty($response)) {
+            $response_data = json_decode($response, true);
+            if (is_array($response_data) && isset($response_data['id'])) {
+                $event_id = $response_data['id'];
+            }
+        }
+        
+        // Return array with success status and event_id if available
+        return [
+            'success' => $success,
+            'event_id' => $event_id
+        ];
     }
     
     /**
-     * Create Sentry envelope format from event data
+     * Create Sentry envelope format from event or feedback data
      * 
-     * @param array $data Sentry event data
+     * @param array $data Sentry event or feedback data
+     * @param string $item_type Type of item: 'event' or 'user_report'
+     * @param array|null $attachment Optional attachment data
      * @return string Envelope format string
      */
-    private function createSentryEnvelope($data) {
+    private function createSentryEnvelope($data, $item_type = 'event', $attachment = null) {
         // Envelope header
         // Note: When sending to the envelope endpoint directly, we don't include DSN
         // The project ID is already in the URL path
         $envelope_header = [
-            'event_id' => $data['event_id'] ?? null,
             'sent_at' => gmdate('c')
         ];
+        
+        // Add event_id to header if present (for events) or if it's in feedback data
+        if ($item_type === 'event' && isset($data['event_id'])) {
+            $envelope_header['event_id'] = $data['event_id'];
+        } elseif ($item_type === 'user_report' && isset($data['event_id'])) {
+            // For user feedback, event_id is in the payload, not header
+            // But we can still include it in header if needed
+        }
 
-        // Item header
+        // Item header - determine type based on parameter
         $item_header = [
-            'type' => 'event'
+            'type' => $item_type
         ];
 
         // Create envelope format: header\nitem_header\nitem_payload
         $envelope = wp_json_encode($envelope_header) . "\n";
         $envelope .= wp_json_encode($item_header) . "\n";
         $envelope .= wp_json_encode($data) . "\n";
+
+        // Add attachment if present
+        if ($attachment && isset($attachment['data']) && isset($attachment['filename'])) {
+            // Attachment item header
+            $attachment_header = [
+                'type' => 'attachment',
+                'length' => strlen($attachment['data']),
+                'filename' => $attachment['filename'],
+                'content_type' => $attachment['content_type'] ?? 'application/octet-stream'
+            ];
+
+            // Add attachment to envelope
+            $envelope .= wp_json_encode($attachment_header) . "\n";
+            $envelope .= $attachment['data'] . "\n";
+        }
 
         return $envelope;
     }
@@ -297,12 +521,36 @@ class MetaSync_Sentry_WordPress {
             ]
         ];
         
-        $success = $this->sendToSentry($test_data);
+        $result = $this->sendToSentry($test_data);
+        $success = is_array($result) ? $result['success'] : $result;
         
         return [
             'success' => $success,
             'message' => $success ? 'Sentry tunnel connection successful' : 'Sentry tunnel connection failed',
             'endpoint' => 'https://wordpress.telemetry.infra.searchatlas.com/api/4509950439849985/envelope/',
+            'jwt_available' => function_exists('metasync_get_jwt_token') && !empty(metasync_get_jwt_token())
+        ];
+    }
+    
+    /**
+     * Test user feedback submission
+     * 
+     * @return array Test results
+     */
+    public function testUserFeedback() {
+        $test_feedback = [
+            'name' => 'Test User',
+            'email' => 'test@example.com',
+            'message' => '🧪 Test user feedback submission - ' . gmdate('Y-m-d H:i:s') . ' - This is a test to verify the User Feedback API is working correctly.'
+        ];
+        
+        $success = $this->captureFeedback($test_feedback);
+        
+        return [
+            'success' => $success,
+            'message' => $success ? 'User feedback test sent successfully' : 'User feedback test failed',
+            'endpoint' => 'https://wordpress.telemetry.infra.searchatlas.com/api/4509950439849985/envelope/',
+            'item_type' => 'user_report',
             'jwt_available' => function_exists('metasync_get_jwt_token') && !empty(metasync_get_jwt_token())
         ];
     }
@@ -518,7 +766,8 @@ class MetaSync_Sentry_WordPress {
             'source' => 'connection_test'
         ]);
         
-        $success = $this->sendToSentry($test_data);
+        $result = $this->sendToSentry($test_data);
+        $success = is_array($result) ? $result['success'] : $result;
         
         return [
             'success' => $success,
@@ -585,14 +834,32 @@ function metasync_sentry_capture_exception($exception, $extra = []) {
 /**
  * Helper function to capture messages
  */
-function metasync_sentry_capture_message($message, $level = 'info', $extra = []) {
+function metasync_sentry_capture_message($message, $level = 'info', $extra = [], $attachment = null) {
     global $metasync_sentry_wordpress;
     if (!$metasync_sentry_wordpress) {
         $metasync_sentry_wordpress = init_metasync_sentry_wordpress();
     }
     
     if ($metasync_sentry_wordpress) {
-        return $metasync_sentry_wordpress->captureMessage($message, $level, $extra);
+        return $metasync_sentry_wordpress->captureMessage($message, $level, $extra, $attachment);
+    }
+    return false;
+}
+
+/**
+ * Helper function to capture user feedback
+ * 
+ * @param array $feedback Feedback data with keys: name (optional), email (optional), message (required), event_id (optional)
+ * @return bool Success status
+ */
+function metasync_sentry_capture_feedback($feedback, $attachment = null) {
+    global $metasync_sentry_wordpress;
+    if (!$metasync_sentry_wordpress) {
+        $metasync_sentry_wordpress = init_metasync_sentry_wordpress();
+    }
+    
+    if ($metasync_sentry_wordpress) {
+        return $metasync_sentry_wordpress->captureFeedback($feedback, $attachment);
     }
     return false;
 }
@@ -618,6 +885,29 @@ function metasync_sentry_test_connection() {
     return [
         'success' => false,
         'error' => 'Sentry not initialized. Check DSN configuration.'
+    ];
+}
+
+/**
+ * Test user feedback submission
+ * 
+ * @return array Test results
+ */
+function metasync_sentry_test_user_feedback() {
+    global $metasync_sentry_wordpress;
+    if (!$metasync_sentry_wordpress) {
+        $metasync_sentry_wordpress = init_metasync_sentry_wordpress();
+    }
+    
+    if ($metasync_sentry_wordpress) {
+        if (method_exists($metasync_sentry_wordpress, 'testUserFeedback')) {
+            return $metasync_sentry_wordpress->testUserFeedback();
+        }
+    }
+    
+    return [
+        'success' => false,
+        'error' => 'Sentry not initialized or test method not available.'
     ];
 }
 

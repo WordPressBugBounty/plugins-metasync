@@ -7,6 +7,9 @@ use Exception;
 use InvalidArgumentException;
 use UnexpectedValueException;
 use DateTime;
+use BeforeValidException;
+use ExpiredException;
+use SignatureInvalidException;
 
 /**
  * JSON Web Token implementation, based on this spec:

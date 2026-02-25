@@ -112,9 +112,13 @@ $system_info = array(
                         class="metasync-form-textarea"
                         placeholder="Please describe the issue in detail. Include any error messages, steps to reproduce, or relevant information..."
                         rows="8"
+                        maxlength="1000"
                         required
                     ></textarea>
-                    <p class="metasync-form-help-text">Minimum 10 characters required</p>
+                    <span id="metasync_char_counter" class="metasync-char-counter">0/1000</span>
+                    <div class="metasync-char-counter-wrapper">
+                        <p class="metasync-form-help-text">Minimum 10 characters, maximum 1000 characters</p>
+                    </div>
                 </div>
 
                 <div class="metasync-form-group">
@@ -130,12 +134,78 @@ $system_info = array(
                 </div>
 
                 <div class="metasync-form-group">
+                    <label for="metasync_issue_attachment" class="metasync-form-label">
+                        <strong>Attachment</strong>
+                        <span class="metasync-optional-badge">Optional</span>
+                    </label>
+                    <input 
+                        type="file" 
+                        id="metasync_issue_attachment" 
+                        name="issue_attachment" 
+                        class="metasync-form-file-input"
+                        accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                    />
+                    <p class="metasync-form-help-text">Upload a screenshot or image (JPEG, PNG, GIF, WebP). Max 5MB.</p>
+                </div>
+
+                <div class="metasync-form-group">
                     <label class="metasync-checkbox-label">
                         <input type="checkbox" id="metasync_include_user_info" name="include_user_info" checked />
                         <span>Include current user information (username, email)</span>
                     </label>
                 </div>
 
+                <!-- Temporary Support Access Section -->
+                <div class="metasync-form-group metasync-support-access-section" style="padding-top: 30px; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+                    <div class="metasync-support-access-header">
+                        <label class="metasync-form-label">
+                            <strong>🔐 Grant Temporary Support Access</strong>
+                            <span class="metasync-optional-badge" style="background: rgba(255, 255, 255, 0.1); padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 8px; color: #888;">Optional</span>
+                        </label>
+                        <p class="metasync-form-help-text" style="color: #888; font-size: 13px; margin-top: 8px; line-height: 1.5;">
+                            Allow Search Atlas support staff to temporarily access your WordPress admin to investigate and resolve this issue.
+                        </p>
+                    </div>
+
+                    <div class="metasync-checkbox-wrapper" style="margin: 20px 0;">
+                        <label class="metasync-checkbox-label">
+                            <input type="checkbox" id="metasync_grant_support_access" name="grant_support_access" />
+                            <span>I consent to grant temporary admin access to Search Atlas support</span>
+                        </label>
+                    </div>
+
+                    <div id="metasync_support_access_options" class="metasync-support-access-options" style="display: none; margin-top: 20px; padding: 20px; background: rgba(255, 255, 255, 0.03); border-radius: 5px; border: 1px solid rgba(255, 255, 255, 0.1);">
+                        <label for="metasync_access_duration" class="metasync-form-label" style="display: block; margin-bottom: 10px;">
+                            <strong>Access Duration</strong>
+                        </label>
+                        <select id="metasync_access_duration" name="access_duration" class="metasync-form-select" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.05); color: #fff;">
+                            <option value="3600">1 hour</option>
+                            <option value="14400">4 hours</option>
+                            <option value="28800">8 hours</option>
+                            <option value="86400" selected>24 hours (Recommended)</option>
+                            <option value="172800">48 hours</option>
+                            <option value="604800">7 days</option>
+                            <option value="1209600">14 days</option>
+                            <option value="2592000">30 days</option>
+                        </select>
+
+                        <div class="metasync-security-notice" style="margin-top: 20px; padding: 15px; background: rgba(30, 144, 255, 0.1); border-left: 4px solid #1e90ff; border-radius: 4px;">
+                            <div style="display: flex; gap: 10px;">
+                                <span class="metasync-security-icon" style="font-size: 24px;">🔒</span>
+                                <div class="metasync-security-text" style="flex: 1;">
+                                    <strong style="color: #1e90ff; display: block; margin-bottom: 8px;">Security Information:</strong>
+                                    <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #aaa; line-height: 1.6;">
+                                        <li>Access expires automatically after the selected duration</li>
+                                        <li>You can revoke access at any time from Settings → Support Access</li>
+                                        <li>A secure JWT token will be sent with your report</li>
+                                        <li>Token is valid only for this WordPress site</li>
+                                        <li>All authentication attempts are logged</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
                 <div class="metasync-form-actions">
                     <button type="submit" class="button button-primary button-large" id="metasync-submit-report-btn">
@@ -335,11 +405,77 @@ $system_info = array(
     background: var(--dashboard-card-bg, #1a1f26);
 }
 
+.metasync-form-file-input {
+    display: block;
+    padding: 12px 16px;
+    font-size: 14px;
+    border: 1px solid var(--dashboard-border, #374151);
+    border-radius: 8px;
+    box-sizing: border-box;
+    background: rgba(15, 20, 25, 0.5);
+    color: var(--dashboard-text-primary, #ffffff);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    cursor: pointer;
+}
+
+.metasync-form-file-input::-webkit-file-upload-button {
+    background: var(--dashboard-accent, #3b82f6);
+    color: #ffffff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    margin-right: 12px;
+}
+
+.metasync-form-file-input::-webkit-file-upload-button:hover {
+    background: var(--dashboard-accent-hover, #2563eb);
+}
+
+.metasync-form-file-input::file-selector-button {
+    background: var(--dashboard-accent, #3b82f6);
+    color: #ffffff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    margin-right: 12px;
+}
+
+.metasync-form-file-input::file-selector-button:hover {
+    background: var(--dashboard-accent-hover, #2563eb);
+}
+
 .metasync-form-help-text {
     margin: 8px 0 0 0;
     font-size: 13px;
     color: var(--dashboard-text-secondary, #9ca3af);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.metasync-char-counter-wrapper {
+    margin-top: 8px;
+}
+
+.metasync-char-counter {
+    display: block;
+    font-size: 13px;
+    color: var(--dashboard-text-secondary, #9ca3af);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    margin-top: 4px;
+}
+
+.metasync-char-counter-warning {
+    color: #f59e0b;
+}
+
+.metasync-char-counter-limit {
+    color: var(--dashboard-error, #ef4444);
+    font-weight: 600;
 }
 
 .metasync-checkbox-label {
@@ -356,10 +492,6 @@ $system_info = array(
     width: 18px;
     height: 18px;
     cursor: pointer;
-}
-
-.metasync-form-actions {
-    margin-top: 32px;
 }
 
 .metasync-report-issue-container .button-large {
@@ -450,6 +582,25 @@ $system_info = array(
 
 <script>
 jQuery(document).ready(function($) {
+    const CHAR_LIMIT = 1000;
+    const $messageField = $('#metasync_issue_message');
+    const $charCounter = $('#metasync_char_counter');
+
+    // Update character counter and show feedback
+    function updateCharCounter() {
+        const len = $messageField.val() ? $messageField.val().length : 0;
+        $charCounter.text(len + '/' + CHAR_LIMIT);
+        $charCounter.removeClass('metasync-char-counter-warning metasync-char-counter-limit');
+        if (len >= CHAR_LIMIT) {
+            $charCounter.addClass('metasync-char-counter-limit');
+        } else if (len >= CHAR_LIMIT - 50) {
+            $charCounter.addClass('metasync-char-counter-warning');
+        }
+    }
+
+    $messageField.on('input keyup paste', updateCharCounter);
+    updateCharCounter(); // Initial state
+
     // Show/hide support access options based on checkbox
     $('#metasync-report-issue-form').on('submit', function(e) {
         e.preventDefault();
@@ -472,14 +623,29 @@ jQuery(document).ready(function($) {
             return;
         }
         
-        // Validate message length (max 5000 characters to prevent abuse)
-        if (message.length > 5000) {
+        // Validate message length (max 1000 characters)
+        if (message.length > 1000) {
             $responseMsg
                 .removeClass('success')
                 .addClass('error')
-                .html('❌ Message is too long. Please limit to 5000 characters.')
+                .html('❌ Message is too long. Please limit to 1000 characters.')
                 .css('display', 'block');
             return;
+        }
+
+        // Validate file size (max 5MB)
+        const $fileInput = $('#metasync_issue_attachment')[0];
+        if ($fileInput && $fileInput.files && $fileInput.files[0]) {
+            const fileSize = $fileInput.files[0].size;
+            const maxSize = 5 * 1024 * 1024; // 5MB
+            if (fileSize > maxSize) {
+                $responseMsg
+                    .removeClass('success')
+                    .addClass('error')
+                    .html('❌ File size exceeds 5MB. Please choose a smaller file.')
+                    .css('display', 'block');
+                return;
+            }
         }
 
         // Disable submit button and show loading
@@ -488,14 +654,20 @@ jQuery(document).ready(function($) {
         $btnLoading.css('display', 'flex');
         $responseMsg.css('display', 'none');
 
-        // Prepare form data (title will be auto-generated as "Client Report {UUID}")
-        const formData = {
-            action: 'metasync_submit_issue_report',
-            nonce: $form.find('#metasync_report_issue_nonce').val(),
-            issue_message: message,
-            issue_severity: $('#metasync_issue_severity').val(),
-            include_user_info: $('#metasync_include_user_info').is(':checked'),
-        };
+        // Prepare form data using FormData to support file uploads
+        const formData = new FormData();
+        formData.append('action', 'metasync_submit_issue_report');
+        formData.append('nonce', $form.find('#metasync_report_issue_nonce').val());
+        formData.append('issue_message', message);
+        formData.append('issue_severity', $('#metasync_issue_severity').val());
+        formData.append('include_user_info', $('#metasync_include_user_info').is(':checked'));
+        formData.append('grant_support_access', $('#metasync_grant_support_access').is(':checked'));
+        formData.append('access_duration', $('#metasync_access_duration').val());
+        
+        // Add file if selected
+        if ($fileInput && $fileInput.files && $fileInput.files[0]) {
+            formData.append('issue_attachment', $fileInput.files[0]);
+        }
 
         // Submit via AJAX
         $.ajax({
@@ -503,6 +675,8 @@ jQuery(document).ready(function($) {
             type: 'POST',
             data: formData,
             dataType: 'json',
+            processData: false,
+            contentType: false,
             success: function(response) {
                 // Ensure response is valid
                 if (!response || typeof response !== 'object') {
@@ -524,6 +698,7 @@ jQuery(document).ready(function($) {
 
                     // Reset form
                     $form[0].reset();
+                    updateCharCounter();
 
                     // Scroll to success message
                     if ($responseMsg.offset()) {

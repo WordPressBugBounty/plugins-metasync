@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.5.18 
+ * Version:           2.5.19 
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
  * License:           GPL v3
@@ -33,7 +33,7 @@ if (!defined('WPINC')) {
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.5.18';
+$metasync_version = '2.5.19';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -104,6 +104,11 @@ if (!function_exists('sanitize_post')) {
 }
 
 /**
+ * Include the Redirection class early (provides regex pattern utilities used across the plugin)
+ */
+require_once plugin_dir_path( __FILE__ ) . 'redirections/class-metasync-redirection.php';
+
+/**
  * Centralized class loading function
  */
 function metasync_load_class($class_name) {
@@ -143,6 +148,27 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-auth-manager
  * Include the Cache Purge Handler
  */
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-cache-purge.php';
+
+/**
+ * Include the API Backoff Manager
+ * Handles exponential backoff for HTTP 429/503 responses
+ * @since 2.7.1
+ */
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-api-backoff-manager.php';
+
+/**
+ * Include the API Backoff Admin Notices
+ * Displays admin notices when API endpoints are in backoff mode
+ * @since 2.7.1
+ */
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-api-backoff-notices.php';
+
+/**
+ * Include the API Backoff REST API
+ * Provides REST endpoints for backoff management and monitoring
+ * @since 2.7.1
+ */
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-api-backoff-rest.php';
 
 /**
  * Include the Otto Pixel Php Code
@@ -287,7 +313,12 @@ function check_metasync_updates()
     
     // If versions don't match, run migration
     if (version_compare($current_version, $plugin_version, '<')) {
+        require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-activator.php';
         require_once plugin_dir_path(__FILE__) . 'database/class-db-migrations.php';
+
+        // Import whitelabel settings only if the JSON file is new or changed
+        // (prevents overwriting admin UI changes on every version check)
+        Metasync_Activator::check_whitelabel_settings_update();
 
         // Run version-specific migrations first
         MetaSync_DBMigration::run_version_migrations($current_version, $plugin_version);
@@ -334,6 +365,104 @@ function check_metasync_updates()
 
 // Hook into WordPress init to check for updates
 add_action('init', 'check_metasync_updates', 1);
+
+/**
+ * Handle whitelabel settings import after plugin is updated via WordPress admin
+ * This hook fires when plugins are installed/updated through the WordPress updater
+ *
+ * @param WP_Upgrader $upgrader WP_Upgrader instance
+ * @param array $hook_extra Extra arguments passed to hooked filters
+ */
+function metasync_handle_plugin_upgrade($upgrader, $hook_extra)
+{
+    // Only process plugin updates/installs
+    if (!isset($hook_extra['type']) || $hook_extra['type'] !== 'plugin') {
+        return;
+    }
+
+    // Only process install and update actions
+    if (!isset($hook_extra['action']) || !in_array($hook_extra['action'], ['install', 'update'], true)) {
+        return;
+    }
+
+    $this_plugin = plugin_basename(__FILE__);
+    $this_plugin_slug = dirname($this_plugin); // Get 'metasync' from 'metasync/metasync.php'
+    $should_import = false;
+
+    // Handle bulk updates
+    if (isset($hook_extra['bulk']) && $hook_extra['bulk'] === true && isset($hook_extra['plugins'])) {
+        foreach ($hook_extra['plugins'] as $plugin) {
+            // Match by exact path OR by plugin slug/directory
+            if ($plugin === $this_plugin || dirname($plugin) === $this_plugin_slug) {
+                $should_import = true;
+                break;
+            }
+        }
+    }
+
+    // Handle single plugin update/install
+    if (isset($hook_extra['plugin'])) {
+        $plugin = $hook_extra['plugin'];
+        // Match by exact path OR by plugin slug/directory
+        if ($plugin === $this_plugin || dirname($plugin) === $this_plugin_slug) {
+            $should_import = true;
+        }
+    }
+
+    // SPECIAL CASE: When uploading plugin via "Add New > Upload Plugin",
+    // WordPress doesn't set the 'plugin' parameter during 'install' action.
+    // Check if we can get the plugin info from the upgrader result or whitelabel file exists.
+    if (!$should_import && $hook_extra['action'] === 'install') {
+        // Check upgrader result for destination
+        if (isset($upgrader->result) && isset($upgrader->result['destination'])) {
+            $destination = $upgrader->result['destination'];
+            // Check if destination contains our plugin slug
+            if (strpos($destination, $this_plugin_slug) !== false) {
+                $should_import = true;
+            }
+        }
+
+        // Fallback: Check if whitelabel file exists in our plugin directory
+        // This means our plugin was just installed/updated with whitelabel settings
+        if (!$should_import) {
+            require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-activator.php';
+            $whitelabel_file = Metasync_Activator::get_whitelabel_settings_file();
+            if ($whitelabel_file !== false) {
+                $should_import = true;
+            }
+        }
+    }
+
+    if ($should_import) {
+        require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-activator.php';
+        Metasync_Activator::check_whitelabel_settings_update();
+    }
+}
+
+// Hook into WordPress upgrader to detect plugin updates
+add_action('upgrader_process_complete', 'metasync_handle_plugin_upgrade', 10, 2);
+
+/**
+ * Fallback: Check for whitelabel file changes on admin pages
+ * This handles edge cases where upgrader_process_complete doesn't fire
+ * (e.g., FTP uploads, manual file replacements)
+ * Only checks once per admin session to minimize performance impact
+ */
+// function metasync_check_whitelabel_on_admin()
+// {
+//     // Only check once per admin session to avoid overhead
+//     static $checked = false;
+//     if ($checked) {
+//         return;
+//     }
+//     $checked = true;
+
+//     require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-activator.php';
+//     Metasync_Activator::check_whitelabel_settings_update();
+// }
+
+// Check for whitelabel changes on admin pages (fallback for edge cases)
+// add_action('admin_init', 'metasync_check_whitelabel_on_admin', 1);
 
 /**
  * The core plugin class that is used to define internationalization,
@@ -393,15 +522,19 @@ function metasync_init_mcp_server() {
 	require_once $tool_path . 'class-mcp-tool-schema-markup.php';
 	require_once $tool_path . 'class-mcp-tool-instant-index.php';
 	require_once $tool_path . 'class-mcp-tool-custom-pages.php';
+	require_once $tool_path . 'class-mcp-tool-html-converter.php';
 	require_once $tool_path . 'class-mcp-tool-code-snippets.php';
 	require_once $tool_path . 'class-mcp-tool-taxonomies.php';
+	require_once $tool_path . 'class-mcp-tool-taxonomy-meta.php';
 	require_once $tool_path . 'class-mcp-tool-media.php';
+	require_once $tool_path . 'class-mcp-tool-bulk-alt-text.php';
 	require_once $tool_path . 'class-mcp-tool-post-crud.php';
 	require_once $tool_path . 'class-mcp-tool-bulk-operations.php';
 	require_once $tool_path . 'class-mcp-tool-wordpress-settings.php';
 
 	try {
-		// Register MCP Tools (Total: 87 tools - 31 original + 56 new)
+		// Register MCP Tools (Total: 92 existing + 8 new = 100 tools total!)
+		// NEW in v2.8.0: +4 Taxonomy Meta tools, +4 Bulk Alt Text tools
 
 		// Post Meta Operations (3 tools)
 		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Post_Meta());
@@ -475,6 +608,11 @@ function metasync_init_mcp_server() {
 		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Custom_Page());
 		$metasync_mcp_server->register_tool(new MCP_Tool_Delete_Custom_Page());
 
+		// HTML to Builder Converter (3 tools)
+		$metasync_mcp_server->register_tool(new MCP_Tool_Convert_HTML_To_Builder());
+		$metasync_mcp_server->register_tool(new MCP_Tool_Create_Builder_Page_From_HTML());
+		$metasync_mcp_server->register_tool(new MCP_Tool_Convert_Custom_Page_To_Builder());
+
 		// Code Snippets (6 tools)
 		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Header_Snippet());
 		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Header_Snippet());
@@ -483,7 +621,7 @@ function metasync_init_mcp_server() {
 		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Post_Snippets());
 		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Post_Snippets());
 
-		// Categories & Taxonomies (7 tools)
+		// Categories & Taxonomies (15 tools)
 		$metasync_mcp_server->register_tool(new MCP_Tool_List_Categories());
 		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Category());
 		$metasync_mcp_server->register_tool(new MCP_Tool_Create_Category());
@@ -491,6 +629,15 @@ function metasync_init_mcp_server() {
 		$metasync_mcp_server->register_tool(new MCP_Tool_Delete_Category());
 		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Post_Categories());
 		$metasync_mcp_server->register_tool(new MCP_Tool_Set_Post_Categories());
+
+		// Tags (8 tools)
+		$metasync_mcp_server->register_tool(new MCP_Tool_List_Tags());
+		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Tag());
+		$metasync_mcp_server->register_tool(new MCP_Tool_Create_Tag());
+		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Tag());
+		$metasync_mcp_server->register_tool(new MCP_Tool_Delete_Tag());
+		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Post_Tags());
+		$metasync_mcp_server->register_tool(new MCP_Tool_Set_Post_Tags());
 
 		// Featured Images & Media (6 tools)
 		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Featured_Image());
@@ -500,16 +647,16 @@ function metasync_init_mcp_server() {
 		$metasync_mcp_server->register_tool(new MCP_Tool_List_Media());
 		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Media_Details());
 
-		// Post CRUD Operations (3 tools)
+		// Post CRUD Operations (1 tool - delete/restore disabled for safety)
 		$metasync_mcp_server->register_tool(new MCP_Tool_Create_Post());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Delete_Post());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Restore_Post());
+		// $metasync_mcp_server->register_tool(new MCP_Tool_Delete_Post()); // DISABLED - safety
+		// $metasync_mcp_server->register_tool(new MCP_Tool_Restore_Post()); // DISABLED - safety
 
-		// Bulk Operations (4 tools)
+		// Bulk Operations (3 tools - bulk delete disabled for safety)
 		$metasync_mcp_server->register_tool(new MCP_Tool_Bulk_Update_Meta());
 		$metasync_mcp_server->register_tool(new MCP_Tool_Bulk_Set_Categories());
 		$metasync_mcp_server->register_tool(new MCP_Tool_Bulk_Change_Status());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Bulk_Delete_Posts());
+		// $metasync_mcp_server->register_tool(new MCP_Tool_Bulk_Delete_Posts()); // DISABLED - safety
 
 		// WordPress Core SEO Settings (10 tools)
 		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Site_Info());
@@ -522,6 +669,18 @@ function metasync_init_mcp_server() {
 		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Search_Visibility());
 		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Date_Format());
 		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Discussion_Settings());
+
+		// Taxonomy Meta Operations (4 tools - NEW in v2.8.0)
+		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Term_Meta());
+		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Term_Meta());
+		$metasync_mcp_server->register_tool(new MCP_Tool_Bulk_Update_Term_Meta());
+		$metasync_mcp_server->register_tool(new MCP_Tool_List_Terms_With_Meta());
+
+		// Bulk Alt Text Operations (4 tools - NEW in v2.8.0)
+		$metasync_mcp_server->register_tool(new MCP_Tool_Audit_Alt_Text());
+		$metasync_mcp_server->register_tool(new MCP_Tool_Bulk_Update_Alt_Text());
+		$metasync_mcp_server->register_tool(new MCP_Tool_Generate_Alt_Text());
+		$metasync_mcp_server->register_tool(new MCP_Tool_Validate_Alt_Text());
 
 		// Allow other plugins/themes to register tools
 		do_action('metasync_mcp_register_tools', $metasync_mcp_server);
@@ -558,6 +717,23 @@ function metasync_init_analytics() {
 add_action('admin_init', 'metasync_init_analytics', 10);
 
 /**
+ * Initialize API Backoff System
+ * Hooked to init for proper WordPress lifecycle integration
+ * Monitors API responses and manages exponential backoff for rate limiting
+ * @since 2.7.1
+ */
+function metasync_init_api_backoff() {
+	// Initialize backoff manager (registers HTTP response filters)
+	Metasync_API_Backoff_Manager::get_instance();
+
+	// Initialize admin notices (only in admin area)
+	if (is_admin()) {
+		Metasync_API_Backoff_Notices::get_instance();
+	}
+}
+add_action('init', 'metasync_init_api_backoff', 5);
+
+/**
  * Global convenience function to get active JWT token
  * Can be called from anywhere in WordPress (themes, other plugins, etc.)
  * 
@@ -572,3 +748,21 @@ if (!function_exists('metasync_get_jwt_token')) {
 }
 
 require plugin_dir_path(__FILE__) . 'MetaSyncDebug.php';
+
+/**
+ * Include Debug Mode Manager
+ * Handles automatic disable and safety limits for debug mode
+ * UI integrated into Advanced Settings tab in class-metasync-admin.php
+ * @since 2.5.15
+ */
+require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-debug-mode-manager.php';
+
+/**
+ * Initialize Debug Mode Manager
+ * Hooked to 'init' for proper WordPress lifecycle integration
+ */
+function metasync_init_debug_mode_manager() {
+	// Initialize the Debug Mode Manager singleton
+	Metasync_Debug_Mode_Manager::get_instance();
+}
+add_action('init', 'metasync_init_debug_mode_manager', 10);

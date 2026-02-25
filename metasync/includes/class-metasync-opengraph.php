@@ -383,6 +383,11 @@ class Metasync_OpenGraph {
 
         global $post;
 
+        # Ensure post is a valid object
+        if (!$post instanceof WP_Post) {
+            return;
+        }
+
         # Check if Open Graph is enabled for this post
         $og_enabled = get_post_meta($post->ID, '_metasync_og_enabled', true);
         if (empty($og_enabled) || $og_enabled !== '1') {

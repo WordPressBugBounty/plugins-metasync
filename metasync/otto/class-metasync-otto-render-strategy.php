@@ -430,6 +430,30 @@ class Metasync_Otto_Render_Strategy {
             );
         }
         
+        # Fix for Elementor widgets - preserve whitespace between inline spans
+        # This prevents text/elements from appearing merged when HTML is minified
+        # Handles: social icons, animated headlines, and other Elementor widgets
+        
+        # Fix for Elementor social icons (elementor-grid-item)
+        if (strpos($html, 'elementor-social-icons-wrapper') !== false) {
+            # Add whitespace between closing and opening span tags within elementor-grid-item
+            $html = preg_replace(
+                '#(</span>)(<span\s+class=["\'][^"\']*elementor-grid-item[^"\']*["\'][^>]*>)#i',
+                '$1 $2',
+                $html
+            );
+        }
+        
+        # Fix for Elementor animated headline (elementor-headline-text-wrapper)
+        if (strpos($html, 'elementor-headline') !== false) {
+            # Add whitespace between closing and opening span tags with elementor-headline-text-wrapper
+            $html = preg_replace(
+                '#(</span>)(<span\s+class=["\'][^"\']*elementor-headline-text-wrapper[^"\']*["\'][^>]*>)#i',
+                '$1 $2',
+                $html
+            );
+        }
+        
         # Fix for divi-pixel Timeline compatibility
         # jQuery's .data() method auto-parses JSON, but Timeline script tries to JSON.parse it again
         # This causes "[object Object]" is not valid JSON errors

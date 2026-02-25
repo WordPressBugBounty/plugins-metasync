@@ -23,6 +23,7 @@ class Metasync_Access_Control {
         'hide_redirections' => 'Redirect Manager',
         'hide_robots' => 'Robots.txt',
         'hide_xml_sitemap' => 'XML Sitemap',
+        'hide_import_seo' => 'Import SEO Data',
         'hide_custom_pages' => 'Custom Pages',
         'hide_sync_log' => 'Sync Log',
         'hide_compatibility' => 'Compatibility',

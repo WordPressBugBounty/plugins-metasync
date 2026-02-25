@@ -228,6 +228,7 @@ class Metasync_API_Key_Monitor
         // Only trigger immediate heartbeat if Search Atlas API key is present
         // This follows the business rule that heartbeat API should only be called when Search Atlas API key is set
         if ($this->should_trigger_heartbeat($changes)) {
+            do_action('metasync_heartbeat_state_key_pending'); // PR3: burst mode
             do_action('metasync_trigger_immediate_heartbeat', $heartbeat_context);
         } else {
             $this->log_heartbeat_skip_reason($changes, $heartbeat_context);

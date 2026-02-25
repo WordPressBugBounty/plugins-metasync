@@ -134,6 +134,23 @@ class Google_Index_Direct
             if ($saved_config && $saved_config === $config) {
                 return true;
             } else {
+                // NEW: Structured error logging with category and code
+                global $wpdb;
+                if (class_exists('Metasync_Error_Logger') && !empty($wpdb->last_error)) {
+                    Metasync_Error_Logger::log(
+                        Metasync_Error_Logger::CATEGORY_DATABASE_ERROR,
+                        Metasync_Error_Logger::SEVERITY_ERROR,
+                        'Failed to save Google service account configuration to database',
+                        [
+                            'option_key' => self::SERVICE_ACCOUNT_OPTION_KEY,
+                            'wpdb_error' => $wpdb->last_error,
+                            'wpdb_last_query' => $wpdb->last_query,
+                            'operation' => 'save_service_account_config',
+                            'project_id' => $config['project_id'] ?? 'unknown'
+                        ]
+                    );
+                }
+                
                 error_log('MetaSync Google Index: Failed to save service account configuration - database error or data too large');
                 return false;
             }
@@ -332,6 +349,22 @@ class Google_Index_Direct
     {
         // Check for HTTP errors
         if (is_wp_error($response)) {
+            // NEW: Structured error logging with category and code
+            if (class_exists('Metasync_Error_Logger')) {
+                Metasync_Error_Logger::log(
+                    Metasync_Error_Logger::CATEGORY_NETWORK_ERROR,
+                    Metasync_Error_Logger::SEVERITY_ERROR,
+                    'Google Index API network request failed',
+                    [
+                        'action' => $action,
+                        'error_message' => $response->get_error_message(),
+                        'error_code' => $response->get_error_code(),
+                        'api_endpoint' => 'Google Indexing API',
+                        'operation' => 'handle_api_response'
+                    ]
+                );
+            }
+            
             return $this->error_response(
                 'HTTP request failed: ' . $response->get_error_message(),
                 'HTTP_ERROR'
@@ -410,6 +443,21 @@ class Google_Index_Direct
         ]);
         
         if (is_wp_error($response)) {
+             // NEW: Structured error logging with category and code
+            if (class_exists('Metasync_Error_Logger')) {
+                Metasync_Error_Logger::log(
+                    Metasync_Error_Logger::CATEGORY_NETWORK_ERROR,
+                    Metasync_Error_Logger::SEVERITY_ERROR,
+                    'Google OAuth token request network error',
+                    [
+                        'error_message' => $response->get_error_message(),
+                        'error_code' => $response->get_error_code(),
+                        'api_endpoint' => 'Google OAuth Token API',
+                        'operation' => 'get_access_token'
+                    ]
+                );
+            }
+            
             error_log('MetaSync Google Index: Failed to get access token - ' . $response->get_error_message());
             return false;
         }

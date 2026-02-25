@@ -304,7 +304,6 @@ class Metasync_Custom_Pages_Admin
                             $created_via_api = get_post_meta($page->ID, Metasync_Custom_Pages::META_CREATED_VIA_API, true);
                             $page_url = get_permalink($page->ID);
                             $edit_url = get_edit_post_link($page->ID);
-                            $delete_url = get_delete_post_link($page->ID);
                         ?>
                             <tr>
                                 <td>
@@ -339,8 +338,8 @@ class Metasync_Custom_Pages_Admin
                                         Edit
                                     </a>
                                     <?php if ($page->post_status === 'publish'): ?>
-                                        <a href="<?php echo esc_url($page_url); ?>" 
-                                           target="_blank" 
+                                        <a href="<?php echo esc_url($page_url); ?>"
+                                           target="_blank"
                                            class="button button-small button-primary">
                                             <span class="dashicons dashicons-external" style="font-size: 14px; margin-top: 3px;"></span>
                                             View

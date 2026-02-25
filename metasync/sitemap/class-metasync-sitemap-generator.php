@@ -58,6 +58,9 @@ class Metasync_Sitemap_Generator
         if (get_option('metasync_disable_wp_sitemap', false)) {
             add_filter('wp_sitemaps_enabled', '__return_false', 10);
         }
+
+        // Register hook to serve virtual sitemap files
+        add_action('template_redirect', array($this, 'serve_virtual_sitemap'), 1);
     }
 
     /**
@@ -114,6 +117,25 @@ class Metasync_Sitemap_Generator
 
             if (is_wp_error($index_result)) {
                 return $index_result;
+            }
+
+            // Check if all files were written successfully (not virtual)
+            $all_physical = true;
+            foreach ($sitemap_files as $sitemap) {
+                $path = ABSPATH . $sitemap['filename'];
+                if (!file_exists($path)) {
+                    $all_physical = false;
+                    break;
+                }
+            }
+            if (!file_exists($this->sitemap_index_path)) {
+                $all_physical = false;
+            }
+
+            // Clear virtual mode and content if all files were written physically
+            if ($all_physical) {
+                delete_option('metasync_sitemap_virtual');
+                delete_option('metasync_sitemap_virtual_mode');
             }
 
             // Store sitemap info for admin display
@@ -290,20 +312,26 @@ class Metasync_Sitemap_Generator
             $this->add_url_to_sitemap($xml, $urlset, $url_data['loc'], $url_data['lastmod'], $url_data['priority'], $url_data['changefreq']);
         }
 
+        // Get XML content as string
+        $xml_content = $xml->saveXML();
+
         // Preflight check: Verify write permissions before attempting save
         $dir = dirname($path);
         if (!is_writable($dir) && (!file_exists($path) || !is_writable($path))) {
             error_log('Metasync Sitemap: Cannot write sitemap file to ' . $path . ' - directory is not writable');
-            return false;
+            // Fallback to virtual storage
+            $this->store_virtual_sitemap_file(basename($path), $xml_content);
+            return true; // Return true since we stored it virtually
         }
 
         // Save the XML file
         $saved = $xml->save($path);
 
         if ($saved === false) {
-           # return new WP_Error('sitemap_save_failed', 'Failed to save sitemap file: ' . basename($path));
            error_log('Metasync Sitemap: Failed to save sitemap file: ' . basename($path));
-            return false;
+           // Fallback to virtual storage
+           $this->store_virtual_sitemap_file(basename($path), $xml_content);
+           return true; // Return true since we stored it virtually
         }
 
         return true;
@@ -341,20 +369,26 @@ class Metasync_Sitemap_Generator
             $sitemapindex->appendChild($sitemap_element);
         }
 
+        // Get XML content as string
+        $xml_content = $xml->saveXML();
+
          // Preflight check: Verify write permissions before attempting save
         $dir = dirname($this->sitemap_index_path);
         if (!is_writable($dir) && (!file_exists($this->sitemap_index_path) || !is_writable($this->sitemap_index_path))) {
             error_log('Metasync Sitemap: Cannot write sitemap index file to ' . $this->sitemap_index_path . ' - directory is not writable');
-            return false;
+            // Fallback to virtual storage
+            $this->store_virtual_sitemap_file('sitemap_index.xml', $xml_content);
+            return true; // Return true since we stored it virtually
         }
 
         // Save the index file
         $saved = $xml->save($this->sitemap_index_path);
 
         if ($saved === false) {
-            # return new WP_Error('sitemap_index_save_failed', 'Failed to save sitemap index file.');
             error_log('Metasync Sitemap: Failed to save sitemap index file');
-            return false;
+            // Fallback to virtual storage
+            $this->store_virtual_sitemap_file('sitemap_index.xml', $xml_content);
+            return true; // Return true since we stored it virtually
         }
 
         return true;
@@ -513,7 +547,14 @@ class Metasync_Sitemap_Generator
      */
     public function sitemap_exists()
     {
-        return file_exists($this->sitemap_index_path);
+        // Check physical file
+        if (file_exists($this->sitemap_index_path)) {
+            return true;
+        }
+        
+        // Check virtual content
+        $virtual_content = $this->get_virtual_sitemap_file('sitemap_index.xml');
+        return false !== $virtual_content;
     }
 
     /**
@@ -523,9 +564,17 @@ class Metasync_Sitemap_Generator
      */
     public function get_sitemap_content()
     {
+        // Check physical file first
         if ($this->sitemap_exists()) {
             return file_get_contents($this->sitemap_index_path);
         }
+        
+        // Check virtual content
+        $virtual_content = $this->get_virtual_sitemap_file('sitemap_index.xml');
+        if (false !== $virtual_content) {
+            return $virtual_content;
+        }
+        
         return false;
     }
 
@@ -621,7 +670,7 @@ class Metasync_Sitemap_Generator
     }
 
     /**
-     * Delete all sitemap files
+     * Delete all sitemap files (physical and virtual)
      *
      * @return bool
      */
@@ -629,18 +678,18 @@ class Metasync_Sitemap_Generator
     {
         $deleted = false;
 
-        // Delete sitemap index
+        // Delete physical sitemap index
         if (file_exists($this->sitemap_index_path)) {
-            unlink($this->sitemap_index_path);
+            @unlink($this->sitemap_index_path);
             $deleted = true;
         }
 
-        // Delete all sitemap files (sitemap.xml, sitemap2.xml, etc.)
+        // Delete all physical sitemap files (sitemap.xml, sitemap2.xml, etc.)
         $sitemap_files = get_option('metasync_sitemap_files', []);
         foreach ($sitemap_files as $sitemap) {
             $path = ABSPATH . $sitemap['filename'];
             if (file_exists($path)) {
-                unlink($path);
+                @unlink($path);
                 $deleted = true;
             }
         }
@@ -651,15 +700,25 @@ class Metasync_Sitemap_Generator
             foreach ($files as $file) {
                 // Only delete sitemap files that match our pattern
                 if (preg_match('/sitemap\d*\.xml$/', basename($file))) {
-                    unlink($file);
+                    @unlink($file);
                     $deleted = true;
                 }
             }
         }
 
+        // Clear virtual content if it exists
+        $virtual_mode = get_option('metasync_sitemap_virtual_mode', false);
+        $virtual_files = get_option('metasync_sitemap_virtual', array());
+        if ($virtual_mode || !empty($virtual_files)) {
+            delete_option('metasync_sitemap_virtual');
+            delete_option('metasync_sitemap_virtual_mode');
+            $deleted = true; // Mark as deleted even if no physical files existed
+        }
+
         // Clear stored options
         delete_option('metasync_sitemap_files');
         delete_option('metasync_sitemap_total_urls');
+        delete_option('metasync_sitemap_last_generated');
 
         return $deleted;
     }
@@ -831,6 +890,16 @@ class Metasync_Sitemap_Generator
             return;
         }
 
+        // Get post object if not provided (some hooks don't pass it)
+        if (empty($post)) {
+            $post = get_post($post_id);
+        }
+
+        // Validate post object exists
+        if (!$post || !is_object($post)) {
+            return;
+        }
+
         // Only update for published posts
         if ($post->post_status !== 'publish') {
             return;
@@ -899,5 +968,87 @@ class Metasync_Sitemap_Generator
 
         $robots_txt = Metasync_Robots_Txt::get_instance();
         return $robots_txt->has_sitemap_url($this->sitemap_index_url);
+    }
+
+    /**
+     * Store virtual sitemap file content
+     *
+     * @param string $filename The sitemap filename (e.g., 'sitemap.xml', 'sitemap_index.xml')
+     * @param string $content The XML content
+     * @return bool True on success
+     */
+    private function store_virtual_sitemap_file($filename, $content)
+    {
+        $virtual_sitemaps = get_option('metasync_sitemap_virtual', array());
+        $virtual_sitemaps[$filename] = $content;
+        update_option('metasync_sitemap_virtual', $virtual_sitemaps, false);
+        update_option('metasync_sitemap_virtual_mode', true, false);
+        return true;
+    }
+
+    /**
+     * Get virtual sitemap file content
+     *
+     * @param string $filename The sitemap filename
+     * @return string|false Content or false if not found
+     */
+    private function get_virtual_sitemap_file($filename)
+    {
+        $virtual_sitemaps = get_option('metasync_sitemap_virtual', array());
+        return isset($virtual_sitemaps[$filename]) ? $virtual_sitemaps[$filename] : false;
+    }
+
+    /**
+     * Check if virtual mode is active
+     *
+     * @return bool True if virtual mode is active
+     */
+    public function is_virtual_mode()
+    {
+        return get_option('metasync_sitemap_virtual_mode', false) === true;
+    }
+
+    /**
+     * Serve virtual sitemap files via template_redirect
+     */
+    public function serve_virtual_sitemap()
+    {
+        // Only process on frontend
+        if (is_admin()) {
+            return;
+        }
+
+        // Get requested URI
+        $request_uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
+        $request_uri = strtok($request_uri, '?'); // Remove query string
+
+        // Check if this is a sitemap request
+        $sitemap_pattern = '/\/(sitemap(_index)?\d*\.xml)$/';
+        if (!preg_match($sitemap_pattern, $request_uri, $matches)) {
+            return;
+        }
+
+        $filename = $matches[1];
+
+        // First check if physical file exists
+        $physical_path = ABSPATH . $filename;
+        if (file_exists($physical_path)) {
+            // Physical file exists, let WordPress handle it normally
+            return;
+        }
+
+        // Check if we have virtual content
+        $virtual_content = $this->get_virtual_sitemap_file($filename);
+        if (false === $virtual_content) {
+            // No virtual content either, let WordPress handle 404
+            return;
+        }
+
+        // Serve virtual sitemap content
+        header('Content-Type: application/xml; charset=utf-8');
+        header('X-Robots-Tag: noindex');
+        status_header(200);
+        echo $virtual_content;
+        exit;
     }
 }

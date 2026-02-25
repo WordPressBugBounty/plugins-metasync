@@ -133,9 +133,7 @@ class MCP_Tool_Set_Featured_Image extends MCP_Tool_Base {
             throw new Exception(sprintf("Post not found: %d", absint($post_id)));
         }
 
-        if (!current_user_can('edit_post', $post_id)) {
-            throw new Exception('You do not have permission to edit this post');
-        }
+        $this->check_post_permission($post_id);
 
         // Validate attachment exists and is an image
         $attachment = get_post($attachment_id);
@@ -217,9 +215,7 @@ class MCP_Tool_Upload_Featured_Image extends MCP_Tool_Base {
             throw new Exception(sprintf("Post not found: %d", absint($post_id)));
         }
 
-        if (!current_user_can('edit_post', $post_id)) {
-            throw new Exception('You do not have permission to edit this post');
-        }
+        $this->check_post_permission($post_id);
 
         // Validate image URL
         if (empty($image_url)) {
@@ -317,9 +313,7 @@ class MCP_Tool_Remove_Featured_Image extends MCP_Tool_Base {
             throw new Exception(sprintf("Post not found: %d", absint($post_id)));
         }
 
-        if (!current_user_can('edit_post', $post_id)) {
-            throw new Exception('You do not have permission to edit this post');
-        }
+        $this->check_post_permission($post_id);
 
         $thumbnail_id = get_post_thumbnail_id($post_id);
 

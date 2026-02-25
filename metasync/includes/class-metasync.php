@@ -152,6 +152,11 @@ class Metasync
 		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-post-meta-setting.php';
 
 		/**
+		 * The class responsible for the setup wizard functionality.
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-setup-wizard.php';
+
+		/**
 		 * The class responsible for displaying and managing error logs in admin settings.
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'site-error-logs/class-metasync-error-logs.php';
@@ -267,6 +272,16 @@ class Metasync
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'otto-frontend-toolbar/class-metasync-otto-frontend-toolbar.php';
 
+		/**
+		 * The class responsible for SEO Sidebar in Gutenberg Block Editor.
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-seo-sidebar.php';
+
+		/**
+		 * The class responsible for enhanced error logging with categories.
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-error-logger.php';
+
 		$this->loader = new Metasync_Loader();
 		$this->db_heartbeat_errors = new Metasync_HeartBeat_Error_Monitor_Database();
 		$this->db_redirection = new Metasync_Redirection_Database();
@@ -320,9 +335,19 @@ class Metasync
 
 		$plugin_admin = new Metasync_Admin($this->get_plugin_name(), $this->get_version(), $this->database, $this->db_redirection, $this->db_heartbeat_errors); // , $this->data_error_log_list
 
+		// Initialize HTML Visual Editor
+		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-html-visual-editor.php';
+		$html_visual_editor = new Metasync_HTML_Visual_Editor($this->get_plugin_name(), $this->get_version());
+		$html_visual_editor->init();
+
 		// Initialize OTTO Debug class for developers
 		if (class_exists('Metasync_Otto_Debug')) {
 			$otto_debug = new Metasync_Otto_Debug($this->get_plugin_name(), $this->get_version());
+		}
+
+		// Initialize SEO Sidebar for Gutenberg Block Editor
+		if (class_exists('Metasync_SEO_Sidebar')) {
+			new Metasync_SEO_Sidebar($this->get_version());
 		}
 
 		$this->loader->add_action('admin_enqueue_scripts', $plugin_admin, 'enqueue_styles');
@@ -404,6 +429,18 @@ class Metasync
 
 		$this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_styles');
 		$this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_scripts');
+		$this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_page_custom_css', 999);
+
+		// Elementor editor CSS injection
+		if (class_exists('\Elementor\Plugin')) {
+			$this->loader->add_action('elementor/preview/enqueue_styles', $plugin_public, 'enqueue_elementor_editor_css', 999);
+		}
+
+		// Divi builder CSS injection
+		if (function_exists('et_setup_theme')) {
+			$this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_divi_builder_css', 999);
+		}
+
 		$this->loader->add_action('wp_head', $plugin_public, 'hook_metasync_metatags', 1, 1);
 		$this->loader->add_action('template_redirect', $plugin_public, 'inject_archive_seo_controls');
 		
@@ -471,6 +508,10 @@ class Metasync
 		$this->loader->add_action('wp_enqueue_scripts', $otto_toolbar, 'enqueue_scripts');
 		$this->loader->add_action('admin_bar_menu', $otto_toolbar, 'add_admin_bar_menu', 100);
 		$this->loader->add_action('wp_footer', $otto_toolbar, 'render_debug_bar', 999);
+
+		// Initialize Sitemap Generator on frontend (for virtual sitemap serving)
+		require_once plugin_dir_path(dirname(__FILE__)) . 'sitemap/class-metasync-sitemap-generator.php';
+		$sitemap_generator = new Metasync_Sitemap_Generator();
 	}
 
 	/**
@@ -577,7 +618,33 @@ class Metasync
 
 	public static function set_option($data)
 	{
-		return update_option(Metasync::option_name, $data);
+		#return update_option(Metasync::option_name, $data);
+		$result = update_option(Metasync::option_name, $data);
+		
+		// NEW: Structured error logging for database errors (only log if it's a real DB error)
+		global $wpdb;
+		if ($result === false && class_exists('Metasync_Error_Logger') && !empty($wpdb->last_error)) {
+			// Check if it's actually a database error (not just same value)
+			$saved_data = get_option(Metasync::option_name);
+			if ($saved_data !== $data) {
+				// Value is different but save failed - this is a real database error
+				Metasync_Error_Logger::log(
+					Metasync_Error_Logger::CATEGORY_DATABASE_ERROR,
+					Metasync_Error_Logger::SEVERITY_ERROR,
+					'Failed to save plugin main options to database',
+					[
+						'option_name' => Metasync::option_name,
+						'wpdb_error' => $wpdb->last_error,
+						'wpdb_last_query' => $wpdb->last_query,
+						'operation' => 'set_option',
+						'has_api_key' => !empty($data['general']['searchatlas_api_key'] ?? null),
+						'has_auth_token' => !empty($data['general']['apikey'] ?? null)
+					]
+				);
+			}
+		}
+		
+		return $result;
 	}
 
 	/**
@@ -607,7 +674,7 @@ class Metasync
 
 	/**
 	 * Get effective dashboard domain for the plugin
-	 * Returns whitelabel domain if set (regardless of is_whitelabel flag), otherwise returns production default
+	 * Returns whitelabel domain if set (regardless of is_whitelabel flag), otherwise respects staging/production mode
 	 */
 	public static function get_dashboard_domain()
 	{
@@ -618,7 +685,12 @@ class Metasync
 			return $whitelabel['domain'];
 		}
 
-		// Priority 2: Use production default domain when whitelabel_domain is empty
+		// Priority 2: Use endpoint manager to respect staging/production mode
+		if (class_exists('Metasync_Endpoint_Manager')) {
+			return Metasync_Endpoint_Manager::get_endpoint('DASHBOARD_DOMAIN');
+		}
+
+		// Priority 3: Fallback to production default domain
 		return self::DASHBOARD_DOMAIN;
 	}
 

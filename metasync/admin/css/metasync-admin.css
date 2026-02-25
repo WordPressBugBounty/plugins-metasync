@@ -1642,3 +1642,326 @@
         background-color: var(--dashboard-card-hover, rgba(255, 255, 255, 0.05));
     }
 }
+
+/* HTML-Converted Pages Badge */
+.metasync-html-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #ffffff;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: help;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+}
+
+.metasync-html-badge:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+}
+
+.metasync-badge-icon {
+    font-size: 13px;
+    line-height: 1;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.metasync-badge-text {
+    line-height: 1;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+/* Responsive adjustments for badge */
+@media (max-width: 782px) {
+    .metasync-html-badge {
+        font-size: 10px;
+        padding: 3px 8px;
+        gap: 3px;
+    }
+
+    .metasync-badge-icon {
+        font-size: 12px;
+    }
+}
+
+/* Dark mode support for badge */
+@media (prefers-color-scheme: dark) {
+    .metasync-html-badge {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+    }
+
+    .metasync-html-badge:hover {
+        box-shadow: 0 4px 8px rgba(102, 126, 234, 0.4);
+    }
+}
+
+/* Page Editor Notice Banner */
+.metasync-editor-notice {
+    margin: 15px 0 20px;
+    border-left: 4px solid #667eea;
+    background: linear-gradient(90deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.02) 100%);
+}
+
+.metasync-editor-notice-content {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 8px 12px;
+}
+
+.metasync-editor-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #ffffff;
+    border-radius: 14px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    box-shadow: 0 2px 6px rgba(102, 126, 234, 0.25);
+}
+
+.metasync-editor-message {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #2c3e50;
+}
+
+.metasync-editor-message strong {
+    color: #667eea;
+}
+
+/* Quick Edit Badge Display */
+.metasync-quick-edit-source {
+    clear: both;
+    padding: 10px 12px;
+}
+
+.metasync-quick-edit-source .title {
+    display: inline-block;
+    min-width: 80px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.metasync-quick-edit-badge-container {
+    display: inline-block;
+    vertical-align: middle;
+    margin-left: 8px;
+}
+
+.metasync-quick-edit-badge-container em {
+    color: #787c82;
+    font-size: 12px;
+}
+
+/* Dashboard Widget */
+.metasync-dashboard-widget {
+    margin: -12px;
+}
+
+.metasync-widget-stats {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #ffffff;
+    padding: 20px;
+    text-align: center;
+}
+
+.metasync-stat-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.metasync-stat-number {
+    font-size: 48px;
+    font-weight: 700;
+    line-height: 1;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.metasync-stat-label {
+    font-size: 14px;
+    font-weight: 500;
+    opacity: 0.95;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.metasync-widget-list {
+    padding: 16px 20px;
+}
+
+.metasync-widget-list h4 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1d2327;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.metasync-widget-list ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.metasync-widget-page-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.metasync-widget-page-item:last-child {
+    border-bottom: none;
+}
+
+.metasync-page-icon {
+    font-size: 16px;
+    line-height: 1;
+    padding-top: 2px;
+    opacity: 0.7;
+}
+
+.metasync-page-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.metasync-page-title {
+    display: block;
+    font-weight: 600;
+    color: #2271b1;
+    text-decoration: none;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.metasync-page-title:hover {
+    color: #135e96;
+    text-decoration: underline;
+}
+
+.metasync-page-meta {
+    display: block;
+    font-size: 12px;
+    color: #787c82;
+}
+
+.metasync-page-meta a {
+    color: #787c82;
+    text-decoration: none;
+}
+
+.metasync-page-meta a:hover {
+    color: #2271b1;
+}
+
+.metasync-widget-footer {
+    padding: 12px 20px;
+    background: #f6f7f7;
+    border-top: 1px solid #e0e0e0;
+    text-align: center;
+}
+
+.metasync-widget-footer a {
+    color: #667eea;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.metasync-widget-footer a:hover {
+    color: #764ba2;
+    text-decoration: underline;
+}
+
+.metasync-dashboard-widget-empty {
+    padding: 20px;
+    text-align: center;
+}
+
+/* Responsive adjustments for editor notice */
+@media (max-width: 782px) {
+    .metasync-editor-notice-content {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .metasync-editor-badge {
+        font-size: 11px;
+        padding: 5px 12px;
+    }
+
+    .metasync-editor-message {
+        font-size: 12px;
+    }
+}
+
+/* Dark mode support for new elements */
+@media (prefers-color-scheme: dark) {
+    .metasync-editor-notice {
+        background: linear-gradient(90deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.05) 100%);
+    }
+
+    .metasync-editor-message {
+        color: #e4e4e7;
+    }
+
+    .metasync-quick-edit-source .title {
+        color: #f0f0f1;
+    }
+
+    .metasync-widget-list h4 {
+        color: #f0f0f1;
+    }
+
+    .metasync-widget-page-item {
+        border-bottom-color: #3c434a;
+    }
+
+    .metasync-page-title {
+        color: #72aee6;
+    }
+
+    .metasync-page-title:hover {
+        color: #9ecaed;
+    }
+
+    .metasync-page-meta,
+    .metasync-page-meta a {
+        color: #a7aaad;
+    }
+
+    .metasync-widget-footer {
+        background: #1d2327;
+        border-top-color: #3c434a;
+    }
+}

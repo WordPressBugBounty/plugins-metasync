@@ -115,17 +115,17 @@ Class Metasync_otto_html{
      * @param path : The path of the html file to save
      */
     function process_route_with_data($route, $change_data, $file_path){
-        
+
         if (empty($change_data) || !is_array($change_data)) {
             return false;
         }
-        
+
         # set the html file path
         $this->html_file = $file_path;
         
         # Analyze what Otto is providing and store for conditional SEO blocking
         $has_otto_title = false;
-        $has_otto_description = false;
+        $otto_description_tags = []; // Track specific description tags Otto provides
         
         if (!empty($change_data['header_replacements']) && is_array($change_data['header_replacements'])) {
             foreach ($change_data['header_replacements'] as $item) {
@@ -134,11 +134,19 @@ Class Metasync_otto_html{
                     if ($item['type'] == 'title' && !empty($item['recommended_value'])) {
                         $has_otto_title = true;
                     }
-                    # Check if Otto has description
+                    # Check if Otto has description - track specific tag types
                     if ($item['type'] == 'meta') {
-                        if ((!empty($item['name']) && $item['name'] == 'description' && !empty($item['recommended_value'])) ||
-                            (!empty($item['property']) && strpos($item['property'], 'description') !== false && !empty($item['recommended_value']))) {
-                            $has_otto_description = true;
+                        # Check for meta[name=description]
+                        if (!empty($item['name']) && $item['name'] == 'description' && !empty($item['recommended_value'])) {
+                            $otto_description_tags[] = 'meta[name=description]';
+                        }
+                        # Check for meta[property=og:description]
+                        if (!empty($item['property']) && $item['property'] == 'og:description' && !empty($item['recommended_value'])) {
+                            $otto_description_tags[] = 'meta[property=og:description]';
+                        }
+                        # Check for meta[name=twitter:description]
+                        if (!empty($item['name']) && $item['name'] == 'twitter:description' && !empty($item['recommended_value'])) {
+                            $otto_description_tags[] = 'meta[name=twitter:description]';
                         }
                     }
                 }
@@ -148,15 +156,18 @@ Class Metasync_otto_html{
         # Check header_html_insertion for description
         if (!empty($change_data['header_html_insertion'])) {
             if (preg_match('/<meta[^>]*name=["\']description["\'][^>]*>/i', $change_data['header_html_insertion'])) {
-                $has_otto_description = true;
+                $otto_description_tags[] = 'meta[name=description]';
             }
         }
+
+        # Remove duplicates
+        $otto_description_tags = array_unique($otto_description_tags);
         
         # Store blocking flags to pass to handle_route_html
         # This will be added to the internal fetch URL as parameters
         $change_data['_otto_blocking'] = array(
             'block_title' => $has_otto_title,
-            'block_description' => $has_otto_description
+            'block_description_tags' => $otto_description_tags // Pass array of specific tags to remove
         );
         
         # Process the route with the suggestions data
@@ -226,8 +237,10 @@ Class Metasync_otto_html{
         # Add blocking flags if available
         if (!empty($replacement_data['_otto_blocking'])) {
             $url_params['otto_block_title'] = $replacement_data['_otto_blocking']['block_title'] ? '1' : '0';
-            $url_params['otto_block_desc'] = $replacement_data['_otto_blocking']['block_description'] ? '1' : '0';
-        }
+            # For HTTP fetch path, check if any description tags need blocking
+            $block_description_tags = $replacement_data['_otto_blocking']['block_description_tags'] ?? [];
+            $url_params['otto_block_desc'] = !empty($block_description_tags) ? '1' : '0';        
+            }
         
         $request_body = add_query_arg($url_params, $route);
         
@@ -464,26 +477,22 @@ Class Metasync_otto_html{
 
         # check that we have an array of substitutions
         if(empty($replacement_data['body_substitutions']) || !is_array($replacement_data['body_substitutions'])){
-
-            #
             return;
         }
 
         # now work on different substitution keys
         foreach ($replacement_data['body_substitutions'] as $key => $value) {
+
             # check key categories
             if($key == 'images'){
-
                 # do image replacements
                 $this->handle_images($value);
             }
             elseif($key == 'headings'){
-                
                 # do heading repalcements
-                $this->do_heading_body_substitutions($value); 
+                $this->do_heading_body_substitutions($value);
             }
             elseif($key == 'links'){
-
                 # do link replacements
                 $this->do_link_body_substitutions($value);
             }
@@ -526,8 +535,21 @@ Class Metasync_otto_html{
 
             # Hash map lookup O(1) instead of loop O(n)
             if (isset($image_data[$image_src])) {
-                # set the alt text
-                $image->alt = $image_data[$image_src];
+                # Set alt text - Note: This may not persist in all cases
+                # Manual string replacement in process_html_directly() ensures it's applied
+                $new_alt = htmlspecialchars($image_data[$image_src], ENT_QUOTES, 'UTF-8');
+
+                # Get current img tag HTML and update alt attribute
+                $current_html = $image->outertext;
+
+                # Remove existing alt attribute (if any)
+                $updated_html = preg_replace('/\s+alt=(["\'])[^"\']*\1/', '', $current_html);
+
+                # Insert new alt attribute after the opening <img
+                $updated_html = preg_replace('/^<img\s/', '<img alt="' . $new_alt . '" ', $updated_html);
+
+                # Update the element
+                $image->outertext = $updated_html;
 
                 $multi_view_attr = $image->getAttribute('data-et-multi-view');
                 if (!empty($multi_view_attr)) {
@@ -594,7 +616,7 @@ Class Metasync_otto_html{
                 $text = $heading_old->text();
 
                 # check matching text
-                if(trim($heading['current_value']) == trim($text)){
+                if(trim($heading['current_value'] ?? '') == trim($text ?? '')){
 
                     # set the text
                     $heading_old->innertext = $heading['recommended_value'];
@@ -811,6 +833,19 @@ Class Metasync_otto_html{
             return;
         }
 
+        # Check for custom SEO values from MetaSync SEO Sidebar
+        # Custom values take absolute priority over OTTO suggestions
+        $custom_seo_title = '';
+        $custom_seo_description = '';
+
+        if (function_exists('is_singular') && is_singular()) {
+            $post_id = get_the_ID();
+            if ($post_id) {
+                $custom_seo_title = get_post_meta($post_id, '_metasync_seo_title', true);
+                $custom_seo_description = get_post_meta($post_id, '_metasync_seo_desc', true);
+            }
+        }
+
         # now lets do the replacement work
         foreach($replacement_data['header_replacements'] AS $key => $data){
 
@@ -819,8 +854,12 @@ Class Metasync_otto_html{
                 continue;
             }
 
-            # handle title
+            # handle title - skip if custom SEO title exists
             if($data['type'] == 'title'){
+                if (!empty($custom_seo_title)) {
+                    # Skip title replacement - custom SEO title takes priority
+                    continue;
+                }
 
                 # handle the title logic
                 $this->replace_title($data);
@@ -851,6 +890,25 @@ Class Metasync_otto_html{
 
     # function to handle meta elements other than title
     function handle_meta_element($data){
+
+        # Check if this is a description meta tag and if custom description exists
+        # Custom values take absolute priority over OTTO suggestions
+        $name = $data['name'] ?? false;
+        $property = $data['property'] ?? false;
+
+        # Check for custom SEO description
+        if (!empty($name) && $name === 'description') {
+            if (function_exists('is_singular') && is_singular()) {
+                $post_id = get_the_ID();
+                if ($post_id) {
+                    $custom_seo_description = get_post_meta($post_id, '_metasync_seo_desc', true);
+                    if (!empty($custom_seo_description)) {
+                        # Custom description exists, skip OTTO's suggestion
+                        return;
+                    }
+                }
+            }
+        }
 
         # extract property value
         $property = $data['property'] ?? false;
@@ -893,7 +951,12 @@ Class Metasync_otto_html{
         }
 
         # CRITICAL FIX: Clear cache and get fresh reference
+        # Preserve 'imgs' key for later use by handle_images()
+        $preserved_imgs = $this->cached_elements['imgs'] ?? null;
         $this->cached_elements = [];
+        if ($preserved_imgs !== null) {
+            $this->cached_elements['imgs'] = $preserved_imgs;
+        }
 
         # Get fresh meta tag reference using same selector
         $meta_tag_fresh = $this->dom->find($meta_selector, 0);
@@ -925,7 +988,12 @@ Class Metasync_otto_html{
         }
 
         # CRITICAL FIX: Clear element cache and get fresh reference
+        # Preserve 'imgs' key for later use by handle_images()
+        $preserved_imgs = $this->cached_elements['imgs'] ?? null;
         $this->cached_elements = [];
+        if ($preserved_imgs !== null) {
+            $this->cached_elements['imgs'] = $preserved_imgs;
+        }
 
         # Get fresh title element reference
         $title_fresh = $this->dom->find('title', 0);
@@ -1240,11 +1308,11 @@ Class Metasync_otto_html{
             # Apply blocking flags if available (for SEO plugin coordination)
             if (!empty($replacement_data['_otto_blocking'])) {
                 $block_title = $replacement_data['_otto_blocking']['block_title'] ?? false;
-                $block_description = $replacement_data['_otto_blocking']['block_description'] ?? false;
-
+                $block_description_tags = $replacement_data['_otto_blocking']['block_description_tags'] ?? [];
+                
                 # Remove SEO plugin meta tags if OTTO is providing them
-                if ($block_title || $block_description) {
-                    $this->remove_conflicting_seo_tags($block_title, $block_description);
+                if ($block_title || !empty($block_description_tags)) {
+                    $this->remove_conflicting_seo_tags($block_title, $block_description_tags);
                 }
             }
 
@@ -1312,9 +1380,16 @@ Class Metasync_otto_html{
                     }
 
                     if ($type === 'title') {
-                        # Replace title tag
+                        # Replace title tag if present; otherwise insert (e.g. when Yoast was blocked and no <title> was output)
                         $new_value = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-                        $result_html = preg_replace('/<title[^>]*>.*?<\/title>/is', '<title>' . $new_value . '</title>', $result_html, 1);
+                        $title_tag = '<title>' . $new_value . '</title>';
+                        $replaced = preg_replace('/<title[^>]*>.*?<\/title>/is', $title_tag, $result_html, 1);
+                        if ($replaced === $result_html && strpos($result_html, '<title') === false) {
+                            # No <title> in document (common when Yoast is blocked) — insert after <head>
+                            $result_html = preg_replace('/(<head[^>]*>)/i', '$1' . "\n" . $title_tag, $result_html, 1);
+                        } else {
+                            $result_html = $replaced;
+                        }
                     } elseif ($type === 'meta') {
                         $name = $item['name'] ?? '';
                         $property = $item['property'] ?? '';
@@ -1337,7 +1412,7 @@ Class Metasync_otto_html{
                             # The pattern uses [^>]* to match ANY characters until the closing >
                             $removed_count = preg_replace_callback(
                                 '/<meta\s+[^>]*name=["\']' . preg_quote($name, '/') . '["\'][^>]*>/i',
-                                function($match) use ($log_file) {
+                                function($match) {
                                     return ''; // Remove the tag
                                 },
                                 $result_html,
@@ -1390,6 +1465,27 @@ Class Metasync_otto_html{
                 $result_html = preg_replace('/(<\/head>)/i', $header_html . "\n" . '$1', $result_html, 1);
             }
 
+            # When Otto block has a title: ensure only ONE <title> (remove non-Otto, then keep first only)
+            if (!empty($replacement_data['header_html_insertion']) && stripos($replacement_data['header_html_insertion'], '<title') !== false) {
+                $result_html = preg_replace(
+                    '/<title(?![^>]*data-otto-pixel\s*=\s*["\']dynamic-seo["\'])[^>]*>.*?<\/title>\s*/is',
+                    '',
+                    $result_html
+                );
+                $first = true;
+                $result_html = preg_replace_callback(
+                    '/<title[^>]*>.*?<\/title>\s*/is',
+                    function ($m) use (&$first) {
+                        if ($first) {
+                            $first = false;
+                            return $m[0];
+                        }
+                        return '';
+                    },
+                    $result_html
+                );
+            }
+
             # Apply body top HTML insertion
             if (!empty($replacement_data['body_top_html_insertion'])) {
                 $body_top_html = $replacement_data['body_top_html_insertion'];
@@ -1409,6 +1505,57 @@ Class Metasync_otto_html{
                 $footer_html = $replacement_data['footer_html_insertion'];
                 # Insert before </html>
                 $result_html = preg_replace('/(<\/html>)/i', $footer_html . "\n" . '$1', $result_html, 1);
+            }
+
+            # CRITICAL FIX: Apply image alt text manually via string replacement
+            # DOM changes don't persist, must use string replacement
+            if (!empty($replacement_data['body_substitutions']['images']) && is_array($replacement_data['body_substitutions']['images'])) {
+                foreach ($replacement_data['body_substitutions']['images'] as $image_url => $alt_text) {
+                    if (empty($alt_text) || strpos($result_html, $image_url) === false) {
+                        continue;
+                    }
+
+                    $escaped_alt = htmlspecialchars($alt_text, ENT_QUOTES, 'UTF-8');
+                    $escaped_url = preg_quote($image_url, '/');
+                    $img_pattern = '/<img[^>]*src=["\']' . $escaped_url . '["\'][^>]*>/i';
+
+                    if (preg_match_all($img_pattern, $result_html, $img_matches)) {
+                        foreach ($img_matches[0] as $original_img) {
+                            # Remove ALL existing alt attributes
+                            $new_img = preg_replace('/\s+alt\s*=\s*(["\'])[^"\']*\1/i', '', $original_img);
+                            $new_img = preg_replace('/<img\s+alt\s*=\s*(["\'])[^"\']*\1\s*/i', '<img ', $new_img);
+
+                            # Add single alt attribute after <img
+                            $new_img = preg_replace('/^<img\s*/i', '<img alt="' . $escaped_alt . '" ', $new_img);
+
+                            # Update data-et-multi-view JSON if present (Divi theme)
+                            if (strpos($new_img, 'data-et-multi-view') !== false) {
+                                $new_img = preg_replace_callback(
+                                    '/data-et-multi-view="([^"]+)"/i',
+                                    function($mv_matches) use ($alt_text) {
+                                        $json_str = html_entity_decode($mv_matches[1], ENT_QUOTES, 'UTF-8');
+                                        $json_data = json_decode($json_str, true);
+
+                                        if ($json_data && isset($json_data['schema']['attrs'])) {
+                                            foreach ($json_data['schema']['attrs'] as &$attrs) {
+                                                if (array_key_exists('alt', $attrs)) {
+                                                    $attrs['alt'] = $alt_text;
+                                                }
+                                            }
+                                            unset($attrs);
+                                            $new_json = json_encode($json_data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                                            return 'data-et-multi-view="' . str_replace('"', '&quot;', $new_json) . '"';
+                                        }
+                                        return $mv_matches[0];
+                                    },
+                                    $new_img
+                                );
+                            }
+
+                            $result_html = str_replace($original_img, $new_img, $result_html);
+                        }
+                    }
+                }
             }
 
             # DEBUG: Check what we're returning
@@ -1432,7 +1579,7 @@ Class Metasync_otto_html{
             $removal_count = 0;
             $result_html = preg_replace_callback(
                 '/<meta\s+([^>]*name=["\']description["\'][^>]*)>/i',
-                function($match) use ($log_file, &$removal_count) {
+                function($match) use (&$removal_count) {
                     # Keep only if it has data-otto="true"
                     if (stripos($match[1], 'data-otto') !== false) {
                         return $match[0]; // Keep OTTO's meta tag
@@ -1474,10 +1621,10 @@ Class Metasync_otto_html{
      * Called when OTTO is providing its own title/description
      * 
      * @param bool $remove_title Remove title-related tags
-     * @param bool $remove_description Remove description-related tags
+     * @param array|bool $remove_description_tags Array of specific description tag selectors to remove, or false/empty array for none
      * @since 2.6.0
      */
-    private function remove_conflicting_seo_tags($remove_title = false, $remove_description = false) {
+    private function remove_conflicting_seo_tags($remove_title = false, $remove_description_tags = []) {
         if (!$this->dom) {
             return;
         }
@@ -1488,24 +1635,34 @@ Class Metasync_otto_html{
             return;
         }
 
-        if ($remove_description) {
-            # Remove meta description tags from SEO plugins
-            $desc_selectors = [
-                'meta[name=description]',
-                'meta[property=og:description]',
-                'meta[name=twitter:description]',
-            ];
+        # Check for custom SEO values from MetaSync SEO Sidebar
+        # Custom values take absolute priority over OTTO suggestions
+        $has_custom_title = false;
+        $has_custom_description = false;
 
-            foreach ($desc_selectors as $selector) {
+        if (function_exists('is_singular') && is_singular()) {
+            $post_id = get_the_ID();
+            if ($post_id) {
+                $custom_seo_title = get_post_meta($post_id, '_metasync_seo_title', true);
+                $custom_seo_description = get_post_meta($post_id, '_metasync_seo_desc', true);
+                $has_custom_title = !empty($custom_seo_title);
+                $has_custom_description = !empty($custom_seo_description);
+            }
+        }
+
+        # Handle description tags - only remove specific tags that Otto is providing
+        if (!empty($remove_description_tags) && is_array($remove_description_tags) && !$has_custom_description) {
+            # Remove only the specific description tags that Otto is providing
+            foreach ($remove_description_tags as $selector) {
                 $tags = $this->dom->find($selector);
                 foreach ($tags as $tag) {
-                    # Check if this is from an SEO plugin (has specific patterns)
-                    $tag->outertext = ''; # Remove the tag
+                    # Remove the tag
+                    $tag->outertext = '';
                 }
             }
         }
 
-        if ($remove_title) {
+        if ($remove_title && !$has_custom_title) {
             # Remove Open Graph and Twitter title tags (keep main <title>)
             $title_selectors = [
                 'meta[property=og:title]',

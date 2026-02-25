@@ -17,6 +17,8 @@ require_once plugin_dir_path( __FILE__ ) . '/metasync-otto-seo-functions.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-transient-cache.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-render-strategy.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-config.php';
+require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-bot-detector.php';
+require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-bot-statistics-database.php';
 
 # OPTIMIZED: get the metasync options (cached in static class)
 $metasync_options = Metasync_Otto_Config::get_options();
@@ -102,6 +104,9 @@ function metasync_otto_crawl_notify($request){
 
         # validate the route
         $route = rtrim($route, '/');
+
+        # Resolve redirect table: use final destination URL before excluded/404 checks and OTTO processing
+        $route = metasync_otto_resolve_redirect_to_final_url($route);
 
         # Skip excluded URLs - don't process OTTO data for them
         if (metasync_is_otto_url_excluded($route)) {
@@ -228,9 +233,14 @@ function metasync_start_otto(){
         # AJAX requests via X-Requested-With header
         (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') ||
         # Gravity Forms submission detection - skip OTTO to allow form processing
-        (isset($_POST['is_submit_' . (isset($_POST['gform_submit']) ? $_POST['gform_submit'] : '')]) && !empty($_POST['gform_submit'])) ||
+        (isset($_POST['gform_submit']) && (
+            is_array($_POST['gform_submit']) ||
+            (is_string($_POST['gform_submit']) && isset($_POST['is_submit_' . $_POST['gform_submit']]) && !empty($_POST['gform_submit']))
+        )) ||
         # Gravity Forms AJAX submission
-        (isset($_POST['gform_ajax']) && !empty($_POST['gform_submit'])) ||
+        (isset($_POST['gform_ajax']) && isset($_POST['gform_submit']) && (
+            is_array($_POST['gform_submit']) || !empty($_POST['gform_submit'])
+        )) ||
         # Gravity Forms file upload
         (isset($_POST['gform_uploaded_files'])) ||
         # Any Gravity Forms POST parameter
@@ -266,6 +276,21 @@ function metasync_start_otto(){
     # check if current URL is excluded from OTTO
     $current_url = home_url($_SERVER['REQUEST_URI']);
     if (metasync_is_otto_url_excluded($current_url)) {
+        return;
+    }
+
+    # BOT DETECTION: Check if OTTO should be skipped for bot traffic
+    $bot_detector = Metasync_Otto_Bot_Detector::get_instance();
+    if ($bot_detector->should_skip_otto()) {
+        // Detect and log the bot
+        $detection = $bot_detector->detect();
+        $bot_detector->log_detection($detection);
+
+        // Increment API calls saved counter
+        $bot_stats_db = Metasync_Otto_Bot_Statistics_Database::get_instance();
+        $bot_stats_db->increment_api_calls_saved();
+
+        // Skip OTTO processing for this bot
         return;
     }
 
@@ -583,9 +608,19 @@ function metasync_process_otto_seo_data($route) {
             return false;
         }
 
+        # Resolve redirect table: use final destination URL before 404 checks and OTTO processing
+        $route = metasync_otto_resolve_redirect_to_final_url($route);
+
         # Skip excluded URLs - don't process SEO data for them
         if (metasync_is_otto_url_excluded($route)) {
             //error_log('MetaSync OTTO: Skipping SEO processing for excluded URL: ' . $route);
+            return false;
+        }
+
+        # Pre-flight 404 check: exclude URLs that would return 404 before making API call
+        if (!metasync_otto_is_url_available($route)) {
+            error_log("MetaSync OTTO: Skipping SEO processing for URL that would return 404: {$route}");
+            metasync_otto_auto_exclude_404_url($route);
             return false;
         }
 
@@ -680,6 +715,13 @@ function metasync_process_otto_seo_data($route) {
                 $category = get_category_by_slug($category_slug);
 
                 if ($category) {
+                    # Check if category would return 404 before applying OTTO changes
+                    if (metasync_would_term_return_404($category->term_id, 'category', $route)) {
+                        error_log("MetaSync OTTO: Skipping SEO processing for category that would return 404: {$route} (Category ID: {$category->term_id})");
+                        metasync_otto_auto_exclude_404_url($route);
+                        return false;
+                    }
+                    
                     # Update comprehensive category SEO meta fields
                     $update_result = metasync_update_comprehensive_category_seo_fields($category->term_id, $seo_data);
 
@@ -773,6 +815,13 @@ function metasync_process_otto_seo_data($route) {
                 $term = get_term_by('slug', $category_slug, 'product_cat');
 
                 if ($term && !is_wp_error($term)) {
+                    # Check if product category would return 404 before applying OTTO changes
+                    if (metasync_would_term_return_404($term->term_id, 'product_cat', $route)) {
+                        error_log("MetaSync OTTO: Skipping SEO processing for product category that would return 404: {$route} (Term ID: {$term->term_id})");
+                        metasync_otto_auto_exclude_404_url($route);
+                        return false;
+                    }
+                    
                     # Update comprehensive taxonomy SEO meta fields
                     $update_result = metasync_update_comprehensive_taxonomy_seo_fields($term->term_id, 'product_cat', $seo_data);
                     
@@ -877,6 +926,13 @@ function metasync_process_otto_seo_data($route) {
                 }
                 
                 if ($home_page) {
+                    # Check if home page would return 404 before applying OTTO changes
+                    if (metasync_would_page_return_404($home_page->ID, $route)) {
+                        error_log("MetaSync OTTO: Skipping SEO processing for home page that would return 404: {$route} (Post ID: {$home_page->ID}, Status: {$home_page->post_status})");
+                        metasync_otto_auto_exclude_404_url($route);
+                        return false;
+                    }
+                    
                     # Update comprehensive home page SEO meta fields
                     $update_result = metasync_update_comprehensive_seo_fields($home_page->ID, $seo_data);
                     
@@ -965,7 +1021,12 @@ function metasync_process_otto_seo_data($route) {
                 }
             }
             
-            # Skip non-post/page/category/home page URLs
+            # URL didn't resolve to any supported entity (post, category, home page)
+            # Treat as 404 and auto-exclude (e.g. deleted post, non-existent page)
+            if (!metasync_otto_is_url_available($route)) {
+                error_log("MetaSync OTTO: Skipping SEO processing for URL that would return 404 (no matching entity): {$route}");
+                metasync_otto_auto_exclude_404_url($route);
+            }
             return false;
         }
         
@@ -977,6 +1038,13 @@ function metasync_process_otto_seo_data($route) {
 
         if (!$post || !in_array($post->post_type, $supported_post_types)) {
             # Skip unsupported post types
+            return false;
+        }
+
+        # Check if page would return 404 before applying OTTO changes
+        if (metasync_would_page_return_404($post_id, $route)) {
+            error_log("MetaSync OTTO: Skipping SEO processing for URL that would return 404: {$route} (Post ID: {$post_id}, Status: {$post->post_status})");
+            metasync_otto_auto_exclude_404_url($route);
             return false;
         }
 
@@ -1146,6 +1214,63 @@ function metasync_get_supported_taxonomies() {
 }
 
 /**
+ * Resolve a URL through the Redirect Manager table to its final destination (follows redirect chains).
+ * Used before 404 checks and OTTO processing so the final canonical URL is used, not intermediate redirects.
+ *
+ * @param string $url Full URL (e.g. https://example.com/old-page)
+ * @return string Final destination URL, or original $url if no redirect matches
+ */
+function metasync_otto_resolve_redirect_to_final_url($url)
+{
+    if (empty($url) || !is_string($url)) {
+        return $url;
+    }
+    try {
+        $db_path = plugin_dir_path(dirname(__FILE__)) . 'redirections/class-metasync-redirection-database.php';
+        $class_path = plugin_dir_path(dirname(__FILE__)) . 'redirections/class-metasync-redirection.php';
+        if (!file_exists($db_path) || !file_exists($class_path)) {
+            return $url;
+        }
+        require_once $db_path;
+        require_once $class_path;
+        $db = new Metasync_Redirection_Database();
+        $redirect = new Metasync_Redirection($db);
+        return $redirect->resolve_url_to_final_destination($url, 10);
+    } catch (Exception $e) {
+        error_log('MetaSync OTTO: Redirect resolution failed for ' . $url . ' - ' . $e->getMessage());
+        return $url;
+    }
+}
+
+/**
+ * Auto-exclude a URL from OTTO with description "Auto-excluded: 404"
+ * Called when a URL is detected as returning 404 so it won't be sent to OTTO again
+ *
+ * @param string $url Full URL to exclude (e.g. https://example.com/404-page)
+ * @return bool|string True on success, false on failure, 'duplicate'/'reactivated' if already exists
+ */
+function metasync_otto_auto_exclude_404_url($url)
+{
+    if (empty($url) || !is_string($url)) {
+        return false;
+    }
+    try {
+        require_once plugin_dir_path(__FILE__) . 'class-metasync-otto-excluded-urls-database.php';
+        $db = new Metasync_Otto_Excluded_URLs_Database();
+        return $db->add([
+            'url_pattern' => $url,
+            'pattern_type' => 'exact',
+            'description' => 'Auto-excluded: 404',
+            'status' => 'active',
+            'auto_excluded' => 1,
+        ]);
+    } catch (Exception $e) {
+        error_log('MetaSync OTTO: Failed to auto-exclude 404 URL: ' . $url . ' - ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
  * Check if a URL is excluded from OTTO
  * @param string $url URL to check
  * @return bool True if URL is excluded, false otherwise
@@ -1166,6 +1291,249 @@ function metasync_is_otto_url_excluded($url)
 }
 
 /**
+ * Check if a URL is now available (would NOT return 404)
+ * Uses same resolution logic as metasync_process_otto_seo_data
+ * Used when rechecking auto-excluded 404 URLs after 7 days
+ *
+ * @param string $url Full URL to check (e.g. https://example.com/page)
+ * @return bool True if URL is accessible, false if it would return 404
+ */
+function metasync_otto_is_url_available($url)
+{
+    if (empty($url) || !is_string($url)) {
+        return false;
+    }
+
+    $route = metasync_otto_resolve_redirect_to_final_url($url);
+    $post_id = url_to_postid($route);
+
+    # WooCommerce shop page
+    if ((!$post_id || $post_id <= 0) && function_exists('wc_get_page_id')) {
+        $shop_page_id = wc_get_page_id('shop');
+        if ($shop_page_id > 0) {
+            $shop_url = get_permalink($shop_page_id);
+            if (rtrim($route, '/') === rtrim($shop_url, '/')) {
+                $post_id = $shop_page_id;
+            }
+        }
+    }
+
+    # WooCommerce product by slug
+    if ((!$post_id || $post_id <= 0) && strpos($route, '/product/') !== false && function_exists('wc_get_products')) {
+        $product_slug = basename(parse_url($route, PHP_URL_PATH));
+        $products = wc_get_products(array('name' => $product_slug, 'limit' => 1, 'status' => 'publish'));
+        if (!empty($products)) {
+            $post_id = $products[0]->get_id();
+        } else {
+            $query = new WP_Query(array(
+                'post_type' => 'product',
+                'name' => $product_slug,
+                'posts_per_page' => 1,
+                'post_status' => 'publish',
+            ));
+            if ($query->have_posts()) {
+                $post_id = $query->posts[0]->ID;
+            }
+        }
+    }
+
+    if ($post_id && $post_id > 0) {
+        $post = get_post($post_id);
+        if ($post && in_array($post->post_type, metasync_get_supported_post_types())) {
+            return !metasync_would_page_return_404($post_id, $route);
+        }
+    }
+
+    # Category
+    if (strpos($route, '/category/') !== false) {
+        $category_slug = basename(parse_url($route, PHP_URL_PATH));
+        $category = get_category_by_slug($category_slug);
+        if ($category) {
+            return !metasync_would_term_return_404($category->term_id, 'category', $route);
+        }
+    }
+
+    # WooCommerce product category
+    if (strpos($route, '/product-category/') !== false) {
+        $category_slug = basename(parse_url($route, PHP_URL_PATH));
+        $term = get_term_by('slug', $category_slug, 'product_cat');
+        if ($term && !is_wp_error($term)) {
+            return !metasync_would_term_return_404($term->term_id, 'product_cat', $route);
+        }
+    }
+
+    # Home page
+    if (rtrim($route, '/') === rtrim(site_url(), '/')) {
+        $front_page_id = get_option('page_on_front');
+        $home_page = ($front_page_id && $front_page_id > 0)
+            ? get_post($front_page_id)
+            : (get_posts(['numberposts' => 1, 'post_status' => 'publish'])[0] ?? null);
+        if ($home_page) {
+            return !metasync_would_page_return_404($home_page->ID, $route);
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Recheck auto-excluded 404 URLs when recheck_after has passed; remove from exclusion if now available
+ * Uses recheck_after timestamp (default 7 days from exclusion) to decide when to recheck
+ * Mark as permanent after 30 days if still 404 (no further rechecks)
+ * Called by daily cron job
+ */
+function metasync_otto_recheck_404_exclusions()
+{
+    try {
+        require_once plugin_dir_path(__FILE__) . 'class-metasync-otto-excluded-urls-database.php';
+        $db = new Metasync_Otto_Excluded_URLs_Database();
+        $records = $db->get_auto_excluded_404_urls_due_for_recheck();
+
+        if (empty($records)) {
+            return;
+        }
+
+        $removed = 0;
+        $marked_permanent = 0;
+        $thirty_days_ago = strtotime('-30 days');
+        $next_recheck = date('Y-m-d H:i:s', current_time('timestamp') + 7 * DAY_IN_SECONDS);
+
+        foreach ($records as $record) {
+            $url = trim($record->url_pattern);
+            if (empty($url)) {
+                continue;
+            }
+            if (metasync_otto_is_url_available($url)) {
+                $db->delete([$record->id]);
+                $removed++;
+            } else {
+                # Still 404: if excluded 30+ days ago, mark as permanent (no more rechecks)
+                $created_ts = strtotime($record->created_at);
+                if ($created_ts <= $thirty_days_ago) {
+                    $db->update(['is_permanent' => 1], $record->id);
+                    $marked_permanent++;
+                } else {
+                    # Schedule next recheck in 7 days
+                    $db->update(['recheck_after' => $next_recheck], $record->id);
+                }
+            }
+        }
+
+        if ($removed > 0) {
+            error_log("MetaSync OTTO: Recheck 404 exclusions - removed {$removed} URL(s) that are now available");
+        }
+        if ($marked_permanent > 0) {
+            error_log("MetaSync OTTO: Recheck 404 exclusions - marked {$marked_permanent} URL(s) as permanent (still 404 after 30 days)");
+        }
+    } catch (Exception $e) {
+        error_log('MetaSync OTTO: Recheck 404 exclusions failed - ' . $e->getMessage());
+    }
+}
+
+add_action('metasync_otto_recheck_404_exclusions', 'metasync_otto_recheck_404_exclusions');
+
+/**
+ * Check if a post/page would return 404 without making HTTP request
+ * Uses WordPress database checks for fast validation
+ * 
+ * @param int $post_id WordPress post ID
+ * @param string $url The URL being checked (optional, for logging)
+ * @return bool True if page would return 404, false if accessible
+ */
+function metasync_would_page_return_404($post_id, $url = '') {
+    if (!$post_id || $post_id <= 0) {
+        return true; // No post ID = 404
+    }
+    
+    # Get the post object
+    $post = get_post($post_id);
+    if (!$post) {
+        return true; // Post doesn't exist = 404
+    }
+    
+    # 1. Check post status - must be 'publish' to be publicly accessible
+    if ($post->post_status !== 'publish') {
+        return true; // Draft, pending, private, etc. = 404
+    }
+    
+    # 2. Check if post is password protected (requires password to view)
+    if (!empty($post->post_password)) {
+        # Password protected posts are not publicly accessible without password
+        return true; // Password protected = effectively 404 for public
+    }
+    
+    # 3. Check if post is in trash
+    if ($post->post_status === 'trash') {
+        return true; // Trashed = 404
+    }
+    
+    # 4. Check if post type is publicly queryable
+    $post_type_object = get_post_type_object($post->post_type);
+    if ($post_type_object && !$post_type_object->publicly_queryable) {
+        # Some post types might not be publicly accessible
+        # But we allow if it's in our supported types
+        $supported_post_types = metasync_get_supported_post_types();
+        if (!in_array($post->post_type, $supported_post_types)) {
+            return true; // Not publicly queryable = 404
+        }
+    }
+    
+    # 5. WordPress 5.7+ has a built-in function for this
+    if (function_exists('is_post_publicly_viewable')) {
+        if (!is_post_publicly_viewable($post)) {
+            return true; // Not publicly viewable = 404
+        }
+    }
+    
+    # 6. Check if post is scheduled for future (not yet published)
+    if ($post->post_date > current_time('mysql')) {
+        return true; // Future post = 404 until publish date
+    }
+    
+    # All checks passed - page should be accessible
+    return false;
+}
+
+/**
+ * Check if a taxonomy term (category, tag, etc.) would return 404
+ * Uses WordPress database checks for fast validation
+ * 
+ * @param int $term_id Term ID
+ * @param string $taxonomy Taxonomy name (e.g., 'category', 'product_cat')
+ * @param string $url The URL being checked (optional, for logging)
+ * @return bool True if term would return 404, false if accessible
+ */
+function metasync_would_term_return_404($term_id, $taxonomy, $url = '') {
+    if (!$term_id || $term_id <= 0 || empty($taxonomy)) {
+        return true; // Invalid term = 404
+    }
+    
+    # Get the term object
+    $term = get_term($term_id, $taxonomy);
+    if (is_wp_error($term) || !$term) {
+        return true; // Term doesn't exist = 404
+    }
+    
+    # Check if taxonomy is publicly queryable
+    $taxonomy_object = get_taxonomy($taxonomy);
+    if (!$taxonomy_object || !$taxonomy_object->public) {
+        # Check if it's in our supported taxonomies
+        $supported_taxonomies = metasync_get_supported_taxonomies();
+        if (!in_array($taxonomy, $supported_taxonomies)) {
+            return true; // Not publicly queryable = 404
+        }
+    }
+    
+    # Terms are generally always accessible if they exist and taxonomy is public
+    # WordPress doesn't have a "draft" status for terms like posts do
+    # But we can check if the term has a count (has posts assigned)
+    # Empty terms might not be useful, but they're still accessible
+    
+    # All checks passed - term should be accessible
+    return false;
+}
+
+/**
  * Invalidate Brizy posts cache when posts are saved
  * OPTIMIZATION: Clears transient cache to ensure accurate detection
  */
@@ -1175,4 +1543,3 @@ add_action('save_post', function($post_id) {
         delete_transient('metasync_has_brizy_posts');
     }
 }, 10, 1);
-

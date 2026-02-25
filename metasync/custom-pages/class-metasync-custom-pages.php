@@ -247,6 +247,11 @@ class Metasync_Custom_Pages
      */
     public function save_custom_html_meta($post_id, $post)
     {
+        // Check if post object is valid and has post_type property
+        if (!is_object($post) || !isset($post->post_type)) {
+            return;
+        }
+        
         // Check if this is a page
         if ('page' !== $post->post_type) {
             return;

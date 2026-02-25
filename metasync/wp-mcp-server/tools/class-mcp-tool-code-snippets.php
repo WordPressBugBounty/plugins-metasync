@@ -33,7 +33,7 @@ class MCP_Tool_Get_Header_Snippet extends MCP_Tool_Base {
     public function get_input_schema() {
         return [
             'type' => 'object',
-            'properties' => [],
+            'properties' => (object)[],
         ];
     }
 
@@ -127,7 +127,7 @@ class MCP_Tool_Get_Footer_Snippet extends MCP_Tool_Base {
     public function get_input_schema() {
         return [
             'type' => 'object',
-            'properties' => [],
+            'properties' => (object)[],
         ];
     }
 
@@ -320,9 +320,7 @@ class MCP_Tool_Update_Post_Snippets extends MCP_Tool_Base {
             throw new Exception(sprintf("Post not found: %d", absint($post_id)));
         }
 
-        if (!current_user_can('edit_post', $post_id)) {
-            throw new Exception('You do not have permission to edit this post');
-        }
+        $this->check_post_permission($post_id);
 
         // Update snippets if provided
         if (isset($params['custom_post_header'])) {

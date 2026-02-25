@@ -91,10 +91,12 @@ class MCP_Tool_Bulk_Update_Meta extends MCP_Tool_Base {
                 }
 
                 // Check permissions
-                if (!current_user_can('edit_post', $post_id)) {
+                try {
+                    $this->check_post_permission($post_id);
+                } catch (Exception $e) {
                     $results['failed'][] = [
                         'post_id' => $post_id,
-                        'error' => 'Permission denied',
+                        'error' => $e->getMessage(),
                     ];
                     continue;
                 }
@@ -210,10 +212,12 @@ class MCP_Tool_Bulk_Set_Categories extends MCP_Tool_Base {
                 }
 
                 // Check permissions
-                if (!current_user_can('edit_post', $post_id)) {
+                try {
+                    $this->check_post_permission($post_id);
+                } catch (Exception $e) {
                     $results['failed'][] = [
                         'post_id' => $post_id,
-                        'error' => 'Permission denied',
+                        'error' => $e->getMessage(),
                     ];
                     continue;
                 }
@@ -317,10 +321,12 @@ class MCP_Tool_Bulk_Change_Status extends MCP_Tool_Base {
                 }
 
                 // Check permissions
-                if (!current_user_can('edit_post', $post_id)) {
+                try {
+                    $this->check_post_permission($post_id);
+                } catch (Exception $e) {
                     $results['failed'][] = [
                         'post_id' => $post_id,
-                        'error' => 'Permission denied',
+                        'error' => $e->getMessage(),
                     ];
                     continue;
                 }

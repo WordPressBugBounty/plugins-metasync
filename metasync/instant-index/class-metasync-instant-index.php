@@ -56,8 +56,13 @@ class Metasync_Instant_Index
 		if (in_array($post->post_type, $post_types) && $post->post_status == 'publish') {
 			$link = get_permalink($post);
 
-			$actions['index-update'] = '<a href="' . admin_url("admin.php?page=metasync-settings-google-console&postaction=update&posturl=" . rawurlencode($link)) . '" title="" rel="permalink">Update Google Index</a>';
-			$actions['index-status'] = '<a href="' . admin_url("admin.php?page=metasync-settings-google-console&postaction=status&posturl=" . rawurlencode($link)) . '" title="" rel="permalink">Status Google Index</a>';
+			// Get menu slug (support white label)
+			$general_options = Metasync::get_option('general') ?? [];
+			$menu_slug = !empty($general_options['white_label_plugin_menu_slug']) ? $general_options['white_label_plugin_menu_slug'] : 'searchatlas';
+			$page_slug = $menu_slug . '-google-console';
+
+			$actions['index-update'] = '<a href="' . admin_url("admin.php?page=" . $page_slug . "&postaction=update&posturl=" . rawurlencode($link)) . '" title="" rel="permalink">Update Google Index</a>';
+			$actions['index-status'] = '<a href="' . admin_url("admin.php?page=" . $page_slug . "&postaction=status&posturl=" . rawurlencode($link)) . '" title="" rel="permalink">Status Google Index</a>';
 		}
 		return $actions;
 	}

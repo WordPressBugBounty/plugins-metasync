@@ -16,11 +16,21 @@ class Metasync_Common
 	 */
 	public function sanitize_array($data)
 	{
-		foreach ((array) $data as $key => $value) {
+		// Ensure $data is always an array from the start
+		if (!is_array($data)) {
+			$data = (array) $data;
+		}
+		
+		foreach ($data as $key => $value) {
 			if (is_array($value) && !empty($value)) {
 				$data[$key] =  $this->sanitize_array($value);
 			} else {
 				if ($value) {
+					// Ensure $value is a string before processing
+					if (!is_string($value) && !is_numeric($value)) {
+						$value = (string) $value;
+					}
+					
 					if (filter_var($value, FILTER_VALIDATE_URL)) {
 						$data[$key] = sanitize_url($value);
 					} else {
@@ -88,11 +98,8 @@ class Metasync_Common
 
 	public function get_media_id_from_url($url) {
 		global $wpdb;
-   
-	   // Parse the file name from the URL without the extension
-	   $filename = pathinfo(basename(parse_url($url, PHP_URL_PATH)), PATHINFO_FILENAME);
-   
-	   // Search for any attachment matching the filename, regardless of extension
+
+	   // Search for any attachment matching the URL
 	   $query = $wpdb->prepare("
 		   SELECT ID 
 		   FROM $wpdb->posts 

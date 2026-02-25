@@ -86,22 +86,29 @@ class Metasync_Sync_History_Database
 	{
 		// Ensure table exists
 		$this->maybe_create_table();
-		
+
 		global $wpdb;
 		$tableName = $this->get_table_name();
-		
+
 		$where_conditions = [];
 		$where_values = [];
-		
+
 		// Apply filters
 		if (!empty($filters['source'])) {
 			$where_conditions[] = "source = %s";
 			$where_values[] = $filters['source'];
 		}
-		
+
+		// Handle status filter - match both 'publish' and 'published' for published status
 		if (!empty($filters['status'])) {
-			$where_conditions[] = "status = %s";
-			$where_values[] = $filters['status'];
+			if ($filters['status'] === 'published') {
+				$where_conditions[] = "(status = %s OR status = %s)";
+				$where_values[] = 'published';
+				$where_values[] = 'publish';
+			} else {
+				$where_conditions[] = "status = %s";
+				$where_values[] = $filters['status'];
+			}
 		}
 		
 		if (!empty($filters['date_from'])) {
@@ -140,7 +147,7 @@ class Metasync_Sync_History_Database
 	{
 		// Ensure table exists
 		$this->maybe_create_table();
-		
+
 		global $wpdb;
 
 		$args = wp_parse_args(
@@ -155,7 +162,7 @@ class Metasync_Sync_History_Database
 				'created_at'    => current_time('mysql'),
 			]
 		);
-		
+
 		// Maybe delete logs if record exceed defined limit.
 		$limit = 1000;
 		if ($limit && $this->get_count() >= $limit) {
@@ -173,22 +180,29 @@ class Metasync_Sync_History_Database
 	{
 		// Ensure table exists
 		$this->maybe_create_table();
-		
+
 		global $wpdb;
 		$tableName = $this->get_table_name();
-		
+
 		$where_conditions = [];
 		$where_values = [];
-		
+
 		// Apply filters
 		if (!empty($filters['source'])) {
 			$where_conditions[] = "source = %s";
 			$where_values[] = $filters['source'];
 		}
-		
+
+		// Handle status filter - match both 'publish' and 'published' for published status
 		if (!empty($filters['status'])) {
-			$where_conditions[] = "status = %s";
-			$where_values[] = $filters['status'];
+			if ($filters['status'] === 'published') {
+				$where_conditions[] = "(status = %s OR status = %s)";
+				$where_values[] = 'published';
+				$where_values[] = 'publish';
+			} else {
+				$where_conditions[] = "status = %s";
+				$where_values[] = $filters['status'];
+			}
 		}
 		
 		if (!empty($filters['date_from'])) {
@@ -272,11 +286,12 @@ class Metasync_Sync_History_Database
 	{
 		global $wpdb;
 		$tableName = $this->get_table_name();
-		
+
+		// Count both 'publish' and 'published' for published_count (handles legacy data)
 		$stats = $wpdb->get_row("
-			SELECT 
+			SELECT
 				COUNT(*) as total_records,
-				SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END) as published_count,
+				SUM(CASE WHEN status IN ('published', 'publish') THEN 1 ELSE 0 END) as published_count,
 				SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft_count,
 				SUM(CASE WHEN source = 'OTTO SEO' THEN 1 ELSE 0 END) as otto_count,
 				SUM(CASE WHEN source = 'Content Genius' THEN 1 ELSE 0 END) as content_genius_count

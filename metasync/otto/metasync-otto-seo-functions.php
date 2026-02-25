@@ -53,6 +53,7 @@ function metasync_fetch_otto_seo_data($route, $uuid) {
 
     # Check response code
     $response_code = wp_remote_retrieve_response_code($response);
+
     if ($response_code !== 200) {
         return false;
     }
@@ -328,22 +329,24 @@ function metasync_extract_twitter_description($seo_data) {
 
 /**
  * Extract image alt text data from OTTO response data
- * 
+ *
  * @param array $seo_data The SEO data from OTTO API
  * @return array Array of image URLs and their alt text
  */
 function metasync_extract_image_alt_text($seo_data) {
     $image_alt_data = array();
-    
+
     # Check body_substitutions for images
     if (!empty($seo_data['body_substitutions']['images']) && is_array($seo_data['body_substitutions']['images'])) {
         foreach ($seo_data['body_substitutions']['images'] as $image_url => $alt_text) {
             if (!empty($alt_text)) {
-                $image_alt_data[sanitize_url($image_url)] = sanitize_text_field($alt_text);
+                $sanitized_url = sanitize_url($image_url);
+                $sanitized_alt = sanitize_text_field($alt_text);
+                $image_alt_data[$sanitized_url] = $sanitized_alt;
             }
         }
     }
-    
+
     return $image_alt_data;
 }
 

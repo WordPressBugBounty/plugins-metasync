@@ -384,6 +384,30 @@ class Metasync_Telemetry_Manager {
 
         // EMERGENCY MEMORY CHECK - Skip if memory usage is high
         if (!$this->is_memory_usage_safe(0.5)) {
+             // NEW: Structured error logging with category and code
+            if (class_exists('Metasync_Error_Logger')) {
+                $memory_usage = memory_get_usage(true);
+                $memory_limit = $this->get_cached_memory_limit();
+                $memory_used_mb = round($memory_usage / 1024 / 1024, 2);
+                $memory_limit_mb = round($memory_limit / 1024 / 1024, 2);
+                $memory_percent = round(($memory_usage / $memory_limit) * 100, 1);
+                
+                Metasync_Error_Logger::log(
+                    Metasync_Error_Logger::CATEGORY_MEMORY_EXHAUSTED,
+                    Metasync_Error_Logger::SEVERITY_CRITICAL,
+                    'Memory limit exceeded - emergency telemetry shutdown',
+                    [
+                        'memory_used_mb' => $memory_used_mb,
+                        'memory_limit_mb' => $memory_limit_mb,
+                        'memory_percent' => $memory_percent,
+                        'threshold' => '50%',
+                        'operation' => 'send_error',
+                        'action' => 'telemetry_disabled',
+                        'error_type' => $error_type ?? 'unknown'
+                    ]
+                );
+            }
+            
             // error_log('MetaSync Telemetry: EMERGENCY - Disabling due to high memory usage');
             $this->telemetry_enabled = false; // Disable for this request
             return;

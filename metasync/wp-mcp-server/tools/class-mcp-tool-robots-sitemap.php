@@ -28,7 +28,7 @@ class MCP_Tool_Get_Robots_Txt extends MCP_Tool_Base {
     public function get_input_schema() {
         return [
             'type' => 'object',
-            'properties' => [],
+            'properties' => (object)[],
             'required' => []
         ];
     }
@@ -37,34 +37,27 @@ class MCP_Tool_Get_Robots_Txt extends MCP_Tool_Base {
         $this->validate_params($params);
         $this->require_capability('manage_options');
 
-        // Get robots.txt content
-        $robots_file = ABSPATH . 'robots.txt';
-        $exists = file_exists($robots_file);
+        // Load MetaSync Robots.txt class
+        if (!class_exists('Metasync_Robots_Txt')) {
+            require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'robots-txt/class-metasync-robots-txt.php';
+        }
 
-        if ($exists) {
-            $content = file_get_contents($robots_file);
-        } else {
-            // Get default WordPress robots.txt
-            $content = $this->get_default_robots_content();
+        $robots_txt = Metasync_Robots_Txt::get_instance();
+
+        // Read robots.txt using plugin's method
+        $content = $robots_txt->read_robots_file();
+
+        if (is_wp_error($content)) {
+            throw new Exception($content->get_error_message());
         }
 
         return $this->success([
             'content' => $content,
-            'file_exists' => $exists,
-            'file_path' => $robots_file,
-            'url' => site_url('robots.txt')
+            'file_exists' => $robots_txt->file_exists(),
+            'file_path' => ABSPATH . 'robots.txt',
+            'url' => site_url('robots.txt'),
+            'is_writable' => $robots_txt->is_writable()
         ]);
-    }
-
-    private function get_default_robots_content() {
-        $site_url = parse_url(site_url(), PHP_URL_PATH);
-        $site_url = $site_url ?: '/';
-
-        return "User-agent: *\n" .
-               "Disallow: {$site_url}wp-admin/\n" .
-               "Allow: {$site_url}wp-admin/admin-ajax.php\n" .
-               "\n" .
-               "Sitemap: " . site_url('sitemap.xml');
     }
 }
 
@@ -100,25 +93,26 @@ class MCP_Tool_Update_Robots_Txt extends MCP_Tool_Base {
 
         $content = $params['content']; // Don't sanitize - preserve exact formatting
 
-        // Write to robots.txt
-        $robots_file = ABSPATH . 'robots.txt';
+        // Load MetaSync Robots.txt class
+        if (!class_exists('Metasync_Robots_Txt')) {
+            require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'robots-txt/class-metasync-robots-txt.php';
+        }
 
-        // Use WP_Filesystem
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        WP_Filesystem();
-        global $wp_filesystem;
+        $robots_txt = Metasync_Robots_Txt::get_instance();
 
-        $result = $wp_filesystem->put_contents($robots_file, $content, FS_CHMOD_FILE);
+        // Write using plugin's method (automatically creates backup)
+        $result = $robots_txt->write_robots_file($content);
 
-        if ($result === false) {
-            throw new Exception('Failed to write robots.txt file. Check file permissions.');
+        if (is_wp_error($result)) {
+            throw new Exception($result->get_error_message());
         }
 
         return $this->success([
-            'file_path' => $robots_file,
+            'file_path' => ABSPATH . 'robots.txt',
             'bytes_written' => strlen($content),
-            'url' => site_url('robots.txt')
-        ], 'Robots.txt updated successfully');
+            'url' => site_url('robots.txt'),
+            'backup_created' => true
+        ], 'Robots.txt updated successfully (backup created)');
     }
 }
 
@@ -132,13 +126,13 @@ class MCP_Tool_Get_Sitemap_Status extends MCP_Tool_Base {
     }
 
     public function get_description() {
-        return 'Get WordPress sitemap status and configuration';
+        return 'Get MetaSync sitemap status and configuration';
     }
 
     public function get_input_schema() {
         return [
             'type' => 'object',
-            'properties' => [],
+            'properties' => (object)[],
             'required' => []
         ];
     }
@@ -147,16 +141,29 @@ class MCP_Tool_Get_Sitemap_Status extends MCP_Tool_Base {
         $this->validate_params($params);
         $this->require_capability('read');
 
-        // Check if WordPress XML sitemaps are enabled (WP 5.5+)
-        $wp_sitemaps_enabled = function_exists('wp_sitemaps_get_server');
+        // Get MetaSync sitemap info
+        $sitemap_files = get_option('metasync_sitemap_files', []);
+        $total_urls = get_option('metasync_sitemap_total_urls', 0);
+        $last_generated = get_option('metasync_sitemap_last_generated', false);
+        $auto_update = get_option('metasync_sitemap_auto_update', false);
 
         $sitemap_info = [
-            'wordpress_sitemaps_enabled' => $wp_sitemaps_enabled,
-            'sitemap_url' => site_url('sitemap.xml'),
-            'wp_sitemap_url' => site_url('wp-sitemap.xml')
+            'sitemap_index_url' => home_url('/sitemap_index.xml'),
+            'sitemap_files' => $sitemap_files,
+            'total_urls' => $total_urls,
+            'last_generated' => $last_generated,
+            'auto_update_enabled' => $auto_update,
+            'sitemap_exists' => file_exists(ABSPATH . 'sitemap_index.xml')
         ];
 
-        if ($wp_sitemaps_enabled) {
+        // Check if WordPress XML sitemaps are enabled (WP 5.5+)
+        $wp_sitemaps_enabled = function_exists('wp_sitemaps_get_server');
+        $wp_sitemap_disabled = get_option('metasync_disable_wp_sitemap', false);
+
+        $sitemap_info['wordpress_core_sitemap_disabled'] = $wp_sitemap_disabled;
+        $sitemap_info['wordpress_core_sitemap_enabled'] = $wp_sitemaps_enabled && !$wp_sitemap_disabled;
+
+        if ($wp_sitemaps_enabled && !$wp_sitemap_disabled) {
             // Get post types in sitemap
             $post_types = get_post_types(['public' => true], 'names');
             $sitemap_info['post_types'] = array_values($post_types);
@@ -189,13 +196,13 @@ class MCP_Tool_Regenerate_Sitemap extends MCP_Tool_Base {
     }
 
     public function get_description() {
-        return 'Trigger WordPress sitemap regeneration (WP 5.5+)';
+        return 'Regenerate MetaSync XML sitemap (generates sitemap_index.xml and individual sitemap files)';
     }
 
     public function get_input_schema() {
         return [
             'type' => 'object',
-            'properties' => [],
+            'properties' => (object)[],
             'required' => []
         ];
     }
@@ -204,22 +211,32 @@ class MCP_Tool_Regenerate_Sitemap extends MCP_Tool_Base {
         $this->validate_params($params);
         $this->require_capability('manage_options');
 
-        if (!function_exists('wp_sitemaps_get_server')) {
-            throw new Exception('WordPress sitemaps are not available on this installation');
+        // Load MetaSync sitemap generator
+        require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'sitemap/class-metasync-sitemap-generator.php';
+
+        if (!class_exists('Metasync_Sitemap_Generator')) {
+            throw new Exception('MetaSync sitemap generator is not available');
         }
 
-        // Clear sitemap cache
-        delete_transient('wp_sitemap_posts');
-        delete_transient('wp_sitemap_pages');
-        delete_transient('wp_sitemap_categories');
-        delete_transient('wp_sitemap_tags');
+        $sitemap_generator = new Metasync_Sitemap_Generator();
 
-        // Fire action to regenerate sitemaps
-        do_action('wp_sitemaps_init');
+        // Generate the sitemap
+        $result = $sitemap_generator->generate_sitemap();
+
+        if (is_wp_error($result)) {
+            throw new Exception($result->get_error_message());
+        }
+
+        // Get sitemap info
+        $sitemap_url = home_url('/sitemap_index.xml');
+        $last_generated = $sitemap_generator->get_last_generated_time();
 
         return $this->success([
             'regenerated' => true,
-            'sitemap_url' => site_url('wp-sitemap.xml')
+            'sitemap_url' => $sitemap_url,
+            'sitemap_index' => $sitemap_url,
+            'last_generated' => $last_generated,
+            'message' => 'MetaSync sitemap generated successfully'
         ], 'Sitemap regenerated successfully');
     }
 }
@@ -465,7 +482,7 @@ class MCP_Tool_Parse_Robots_Txt extends MCP_Tool_Base {
     public function get_input_schema() {
         return [
             'type' => 'object',
-            'properties' => [],
+            'properties' => (object)[],
             'required' => []
         ];
     }

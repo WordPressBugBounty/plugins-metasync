@@ -548,7 +548,24 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 		// Add regex pattern as tooltip if available
 		if ($pattern_type === 'regex' && !empty($regex_pattern)) {
 			// Validate regex pattern
-			$is_valid = @preg_match($regex_pattern, '');
+			// Check if pattern has proper delimiters (same character at start and end)
+			$test_pattern = $regex_pattern;
+			$first_char = substr($test_pattern, 0, 1);
+			$has_valid_delimiter = false;
+
+			// Check if it looks like a properly delimited regex
+			if (in_array($first_char, ['/', '#', '~', '%', '@', '!'], true)) {
+				// Find the last occurrence of the delimiter (accounting for flags after it)
+				if (preg_match('/^' . preg_quote($first_char, '/') . '.*' . preg_quote($first_char, '/') . '[imsxuADU]*$/', $test_pattern)) {
+					$has_valid_delimiter = true;
+				}
+			}
+
+			// Add delimiters if missing - use # to avoid conflicts with / in URL patterns
+			if (!$has_valid_delimiter) {
+				$test_pattern = '#' . str_replace('#', '\\#', $regex_pattern) . '#';
+			}
+			$is_valid = @preg_match($test_pattern, '');
 
 			if ($is_valid === false) {
 				// Invalid regex - show red warning icon
@@ -726,7 +743,12 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 				$full_url = '#'; // No direct link for regex patterns
 
 				// Validate regex pattern
-				$is_valid = @preg_match($regex_pattern, '');
+				// Add delimiters if missing
+				$test_pattern = $regex_pattern;
+				if (!preg_match('/^[\/#~%@]/', $test_pattern)) {
+					$test_pattern = '/' . $test_pattern . '/';
+				}
+				$is_valid = @preg_match($test_pattern, '');
 				$warning_icon = '';
 
 				if ($is_valid === false) {

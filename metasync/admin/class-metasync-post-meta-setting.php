@@ -81,7 +81,7 @@ class Metasync_Post_Meta_Settings
 				<input type="checkbox" name="common_robots_meta[noindex]" id="robots_common2" value="noindex" <?php isset($common_robots['noindex']) ? checked('noindex', $common_robots['noindex']) : '' ?>>
 				<label for="robots_common2">No Index </br>
 					<span class="description">
-						<span>Search engines not indexed and displayed this pages in search engine results</span>
+						<span>Prevents search engines from indexing and displaying these pages in search results.</span>
 					</span>
 				</label>
 			</li>
@@ -89,7 +89,7 @@ class Metasync_Post_Meta_Settings
 				<input type="checkbox" name="common_robots_meta[nofollow]" id="robots_common3" value="nofollow" <?php isset($common_robots['nofollow']) ? checked('nofollow', $common_robots['nofollow']) : '' ?>>
 				<label for="robots_common3">No Follow </br>
 					<span class="description">
-						<span>Search engines not follow the links on the pages</span>
+						<span>Prevents search engines from following the links on the pages.</span>
 					</span>
 				</label>
 			</li>
@@ -97,7 +97,7 @@ class Metasync_Post_Meta_Settings
 				<input type="checkbox" name="common_robots_meta[noarchive]" id="robots_common4" value="noarchive" <?php isset($common_robots['noarchive']) ? checked('noarchive', $common_robots['noarchive']) : '' ?>>
 				<label for="robots_common4">No Archive </br>
 					<span class="description">
-						<span>Search engines not showing Cached links for pages</span>
+						<span>Prevents search engines from showing cached links for pages.</span>
 					</span>
 				</label>
 			</li>
@@ -105,7 +105,7 @@ class Metasync_Post_Meta_Settings
 				<input type="checkbox" name="common_robots_meta[noimageindex]" id="robots_common5" value="noimageindex" <?php isset($common_robots['noimageindex']) ? checked('noimageindex', $common_robots['noimageindex']) : '' ?>>
 				<label for="robots_common5">No Image Index </br>
 					<span class="description">
-						<span>If you do not want to apear your pages as the referring page for images that appear in image search results</span>
+						<span>Prevents your pages from appearing as the referring page for images in image search results.</span>
 					</span>
 				</label>
 			</li>
@@ -113,7 +113,7 @@ class Metasync_Post_Meta_Settings
 				<input type="checkbox" name="common_robots_meta[nosnippet]" id="robots_common6" value="nosnippet" <?php isset($common_robots['nosnippet']) ? checked('nosnippet', $common_robots['nosnippet']) : '' ?>>
 				<label for="robots_common6">No Snippet </br>
 					<span class="description">
-						<span>Search engines not snippet to show in the search results</span>
+						<span>Prevents search engines from showing a snippet in the search results.</span>
 					</span>
 				</label>
 			</li>
@@ -194,10 +194,10 @@ class Metasync_Post_Meta_Settings
 			<li class="hide"> Redirection Type:
 				<select class="regular-text" name="post_redirect_meta[type]" id="post_redirection_type">
 					<option value="301" <?php selected(esc_attr($type), '301'); ?>>301 Permanent Move</option>
-					<option value="302" <?php selected(esc_attr($type), '302'); ?>>302 Temprary Move</option>
-					<option value="307" <?php selected(esc_attr($type), '307'); ?>>307 Temprary Redirect</option>
+					<option value="302" <?php selected(esc_attr($type), '302'); ?>>302 Temporary Move</option>
+					<option value="307" <?php selected(esc_attr($type), '307'); ?>>307 Temporary Redirect</option>
 					<option value="410" <?php selected(esc_attr($type), '410'); ?>>410 Content Deleted</option>
-					<option value="451" <?php selected(esc_attr($type), '451'); ?>>451 Content Unavailabel</option>
+					<option value="451" <?php selected(esc_attr($type), '451'); ?>>451 Content Unavailable</option>
 				</select>
 			</li>
 			<li class="hide" id="post_redirect_url"> Destination URL:

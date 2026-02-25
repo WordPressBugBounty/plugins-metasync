@@ -132,6 +132,9 @@ class Metasync_Redirection
             $match_found = false;
             $captured_path = ''; // Store captured path for wildcard replacement
 
+            // Ensure source_key is always a string (handles numeric array indexes)
+            $source_key = (string) $source_key;
+
             // Determine pattern type: use source value if it's a valid pattern, otherwise use global pattern_type
             $pattern_type = in_array($source_value, ['exact', 'contain', 'start', 'end', 'wildcard', 'regex'])
                 ? $source_value
@@ -149,6 +152,8 @@ class Metasync_Redirection
 
             # Ensure both have leading slashes for proper comparison
             # This handles cases where database stores URLs with or without leading slash
+            # Convert to string to handle cases where source_key might be an integer
+            $normalized_source = (string) $normalized_source;
             if (!empty($normalized_source) && $normalized_source[0] !== '/') {
                 $normalized_source = '/' . $normalized_source;
             }
@@ -278,6 +283,217 @@ class Metasync_Redirection
 
         // No match found
         return false;
+    }
+
+    /**
+     * Resolve a URL through the redirect table to its final destination (follows redirect chains).
+     * Used by OTTO and other backend processing so the final canonical URL is used before 404 checks.
+     *
+     * @param string $url Full URL (e.g. https://example.com/old-page)
+     * @param int $max_hops Maximum redirect hops to follow (default 10, prevents infinite loops)
+     * @return string Final destination URL, or original $url if no redirect matches
+     */
+    public function resolve_url_to_final_destination($url, $max_hops = 10)
+    {
+        if (empty($url) || !is_string($url)) {
+            return $url;
+        }
+        $parsed = parse_url($url);
+        $scheme = isset($parsed['scheme']) ? $parsed['scheme'] : 'https';
+        $host = isset($parsed['host']) ? $parsed['host'] : '';
+        $base = $scheme . '://' . $host;
+        $uri = isset($parsed['path']) ? $parsed['path'] : '/';
+        if (!empty($parsed['query'])) {
+            $uri .= '?' . $parsed['query'];
+        }
+        $seen = array();
+        for ($i = 0; $i < $max_hops; $i++) {
+            $uri_key = $uri;
+            if (isset($seen[$uri_key])) {
+                break; // cycle detected
+            }
+            $seen[$uri_key] = true;
+            $dest = $this->get_redirect_destination_for_uri($uri);
+            if ($dest === null) {
+                break;
+            }
+            if (strpos($dest, 'http') === 0) {
+                $url = $dest;
+                $parsed = parse_url($url);
+                $scheme = isset($parsed['scheme']) ? $parsed['scheme'] : 'https';
+                $host = isset($parsed['host']) ? $parsed['host'] : '';
+                $base = $scheme . '://' . $host;
+                $uri = isset($parsed['path']) ? $parsed['path'] : '/';
+                if (!empty($parsed['query'])) {
+                    $uri .= '?' . $parsed['query'];
+                }
+            } else {
+                $uri = (isset($dest[0]) && $dest[0] === '/') ? $dest : '/' . $dest;
+                $url = $base . $uri;
+            }
+        }
+        return $url;
+    }
+
+    /**
+     * Get redirect destination for a URI without redirecting (no wp_redirect, no counter update).
+     * Returns the destination URL/path if this URI matches a redirect source, else null.
+     * Used by resolve_url_to_final_destination. 410/451 are treated as "no destination".
+     *
+     * @param string $uri URI path (and optional query), e.g. /old-page or /old?x=1
+     * @return string|null Destination URL or path, or null if no match
+     */
+    private function get_redirect_destination_for_uri($uri)
+    {
+        $redirections = $this->db_redirection->getAllActiveRecords();
+        if (empty($redirections)) {
+            return null;
+        }
+        foreach ($redirections as $row) {
+            if (isset($row->http_code) && in_array((int) $row->http_code, array(410, 451), true)) {
+                continue; // Gone / Unavailable – no destination to follow
+            }
+            if (empty($row->url_redirect_to)) {
+                continue;
+            }
+            $dest = $this->get_destination_for_row_and_uri($row, $uri);
+            if ($dest !== null) {
+                return $dest;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Get destination for a single row and URI if it matches. Same matching logic as source_url_redirection.
+     *
+     * @param object $row Redirect row
+     * @param string $uri URI to match
+     * @return string|null Destination URL/path or null
+     */
+    private function get_destination_for_row_and_uri($row, $uri)
+    {
+        // Parse stored redirect sources (serialized: source path/URL => pattern type per source, or single list)
+        $sources_from = @unserialize($row->sources_from);
+        $source_urls = is_array($sources_from) ? $sources_from : array();
+        $global_pattern_type = isset($row->pattern_type) ? $row->pattern_type : null;
+        $regex_pattern = isset($row->regex_pattern) ? $row->regex_pattern : null;
+
+        foreach ($source_urls as $source_key => $source_value) {
+            $match_found = false;
+            $captured_path = ''; // Used for wildcard/regex replacement in destination (e.g. * or $1)
+
+            // Resolve pattern type: per-source value (exact, contain, start, end, wildcard, regex) or row-level default
+            $pattern_type = in_array($source_value, array('exact', 'contain', 'start', 'end', 'wildcard', 'regex'))
+                ? $source_value
+                : ($global_pattern_type ? $global_pattern_type : 'exact');
+
+            $normalized_uri = $uri;
+            $normalized_source = $source_key;
+
+            // If source is a full URL, use only the path for matching (consistent with front-end redirect behavior)
+            if (strpos($source_key, 'http') === 0) {
+                $parsed_src = parse_url($source_key);
+                $normalized_source = isset($parsed_src['path']) ? $parsed_src['path'] : '';
+            }
+
+            // Ensure leading slash for reliable path comparison
+            if (!empty($normalized_source) && $normalized_source[0] !== '/') {
+                $normalized_source = '/' . $normalized_source;
+            }
+            if (!empty($normalized_uri) && $normalized_uri[0] !== '/') {
+                $normalized_uri = '/' . $normalized_uri;
+            }
+
+            // --- Matching: regex, wildcard, or legacy pattern types ---
+
+            if ($pattern_type === 'regex' && $regex_pattern) {
+                // Regex: validate and normalize pattern, then match; capture group 1 for $1 in destination
+                if (!$this->validate_regex_pattern($regex_pattern)) {
+                    continue;
+                }
+                $normalized_pattern = $this->normalize_regex_pattern($regex_pattern);
+                $matches = array();
+                if (@preg_match($normalized_pattern, $normalized_uri, $matches) === 1) {
+                    $match_found = true;
+                    $captured_path = isset($matches[1]) ? $matches[1] : '';
+                }
+            } else {
+                // Non-regex: check for * in source (wildcard) or use exact/contain/start/end
+                $has_wildcard = strpos($normalized_source, '*') !== false;
+                if ($has_wildcard) {
+                    // Wildcard: e.g. /old/* matches /old/page and captures "page" for destination
+                    $match_result = $this->match_wildcard($normalized_source, $normalized_uri);
+                    if ($match_result !== false) {
+                        $match_found = true;
+                        $captured_path = $match_result;
+                    }
+                } else {
+                    // Legacy pattern: source_value can be the pattern type when key is the path
+                    switch ($source_value) {
+                        case 'exact':
+                            if ($normalized_source === $normalized_uri) {
+                                $match_found = true;
+                            }
+                            break;
+                        case 'contain':
+                            if ($this->contains($normalized_uri, $normalized_source)) {
+                                $match_found = true;
+                            }
+                            break;
+                        case 'start':
+                            if (str_starts_with($normalized_uri, $normalized_source)) {
+                                $match_found = true;
+                            }
+                            break;
+                        case 'end':
+                            if (str_ends_with($normalized_uri, $normalized_source)) {
+                                $match_found = true;
+                            }
+                            break;
+                        default:
+                            // Fallback to row-level pattern_type when source_value is not a known type
+                            switch ($pattern_type) {
+                                case 'exact':
+                                    if ($normalized_source === $normalized_uri) {
+                                        $match_found = true;
+                                    }
+                                    break;
+                                case 'contain':
+                                    if ($this->contains($normalized_uri, $normalized_source)) {
+                                        $match_found = true;
+                                    }
+                                    break;
+                                case 'start':
+                                    if (str_starts_with($normalized_uri, $normalized_source)) {
+                                        $match_found = true;
+                                    }
+                                    break;
+                                case 'end':
+                                    if (str_ends_with($normalized_uri, $normalized_source)) {
+                                        $match_found = true;
+                                    }
+                                    break;
+                                case 'wildcard':
+                                    $match_result = $this->match_wildcard($normalized_source, $normalized_uri);
+                                    if ($match_result !== false) {
+                                        $match_found = true;
+                                        $captured_path = $match_result;
+                                    }
+                                    break;
+                            }
+                            break;
+                    }
+                }
+            }
+
+            // First match wins: return destination with * / $1 replaced by captured_path
+            if ($match_found && !empty($row->url_redirect_to)) {
+                return $this->process_destination_url($row->url_redirect_to, $captured_path);
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -446,25 +662,25 @@ class Metasync_Redirection
 
     /**
     * Normalize regex pattern by adding delimiters if missing
-    * 
+    *
     * @param string $pattern The regex pattern
     * @return string Pattern with delimiters
     */
-    private function normalize_regex_pattern($pattern)
+    public static function normalize_regex_pattern($pattern)
     {
         if (empty($pattern)) {
             return $pattern;
         }
-        
+
         // Check if pattern starts with a common delimiter
         $common_delimiters = ['/', '#', '~', '%', '@'];
         $starts_with_delimiter = in_array($pattern[0], $common_delimiters);
-        
+
         if ($starts_with_delimiter) {
             // Pattern starts with delimiter, check if it has proper structure
             $first_char = $pattern[0];
             $last_delimiter_pos = strrpos($pattern, $first_char);
-            
+
             // If there's a closing delimiter at a different position, pattern likely has delimiters
             if ($last_delimiter_pos !== false && $last_delimiter_pos > 0) {
                 // Check if what comes after the last delimiter are valid modifiers
@@ -475,22 +691,20 @@ class Metasync_Redirection
                     return $pattern;
                 }
             }
-            // Pattern starts with delimiter but is malformed - treat as if no delimiters
-            // We'll wrap it with a different delimiter
         }
-        
+
         // Pattern doesn't have delimiters or is malformed, add them
         // Choose delimiter that's not in the pattern
         $delimiters = ['/', '#', '~', '%', '@'];
         $delimiter = '/';
-        
+
         foreach ($delimiters as $test_delimiter) {
             if (strpos($pattern, $test_delimiter) === false) {
                 $delimiter = $test_delimiter;
                 break;
             }
         }
-        
+
         return $delimiter . $pattern . $delimiter;
     }
 

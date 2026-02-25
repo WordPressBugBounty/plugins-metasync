@@ -663,6 +663,75 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     z-index: 999999999 !important;
 }
 
+/* Portal menu (appended to body for reliable positioning) */
+#metasync-nav-portal-menu {
+    min-width: 220px;
+    max-width: 300px;
+    max-height: 70vh;
+    overflow-y: auto;
+    background: var(--dashboard-card-bg);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 12px;
+    padding: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
+}
+
+#metasync-nav-portal-menu .metasync-nav-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--dashboard-text-secondary);
+    font-weight: 500;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+#metasync-nav-portal-menu .metasync-nav-dropdown-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--dashboard-text-primary);
+    transform: translateX(4px);
+}
+
+#metasync-nav-portal-menu .metasync-nav-dropdown-item.active {
+    background: var(--dashboard-gradient-primary);
+    color: #ffffff;
+    box-shadow: var(--dashboard-shadow);
+}
+
+#metasync-nav-portal-menu .metasync-nav-dropdown-item .tab-icon {
+    font-size: 16px;
+    opacity: 1;
+    transition: all 0.3s ease;
+}
+
+#metasync-nav-portal-menu .metasync-nav-dropdown-item.active .tab-icon,
+#metasync-nav-portal-menu .metasync-nav-dropdown-item:hover .tab-icon {
+    transform: scale(1.1);
+}
+
+#metasync-nav-portal-menu::-webkit-scrollbar {
+    width: 6px;
+}
+
+#metasync-nav-portal-menu::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 3px;
+}
+
+#metasync-nav-portal-menu::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+
+#metasync-nav-portal-menu::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
 /* Scrollbar styling for dropdown menu */
 .metasync-nav-dropdown-menu::-webkit-scrollbar {
     width: 6px;

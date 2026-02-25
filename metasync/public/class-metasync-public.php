@@ -895,12 +895,30 @@ class Metasync_Public
 		# Determine if fully configured (API key and UUID set - SSR always active)
 		$is_configured = $has_api_key && $has_uuid;
 		
-		# Prepare response
+		# Granular status for backend messaging (PR1: heartbeat reliability)
+		if ($has_api_key && $has_uuid) {
+			$status = 'configured';
+		} elseif ($has_api_key && !$has_uuid) {
+			$status = 'plugin_active_sso_partial';
+		} else {
+			$status = 'plugin_active_no_sso';
+		}
+		
+		# Plugin version and timestamps (ISO 8601 UTC where set)
+		$plugin_version = defined('METASYNC_VERSION') ? METASYNC_VERSION : 'unknown';
+		$last_heartbeat_at = $general_options['last_heartbeat_at'] ?? null;
+		$sso_completed_at = $general_options['sso_completed_at'] ?? null;
+		
+		# Prepare response (backward compatible + new fields)
 		$response_data = array(
+			'status' => $status,
 			'configured' => $is_configured,
 			'otto_active' => $is_otto_active,
 			'has_api_key' => $has_api_key,
-			'has_uuid' => $has_uuid
+			'has_uuid' => $has_uuid,
+			'plugin_version' => $plugin_version,
+			'last_heartbeat_at' => $last_heartbeat_at,
+			'sso_completed_at' => $sso_completed_at,
 		);
 		
 		return rest_ensure_response($response_data);
@@ -1456,188 +1474,25 @@ class Metasync_Public
 		# create_page
 		# update_page
 	*/
-	public function metasync_upload_post_content($item,$landing_page_option=false,$otto_enable=false) 
+	/**
+	 * Upload post content and convert to builder format
+	 *
+	 * This method now delegates to the new HTML to Builder Converter class
+	 * for improved maintainability and CSS preservation.
+	 *
+	 * @param array $item Item data with 'post_content' key
+	 * @param bool $landing_page_option Whether this is for a landing page
+	 * @param bool $otto_enable Whether this is for Otto AI
+	 * @return array Result with 'content' and optional builder meta data
+	 */
+	public function metasync_upload_post_content($item,$landing_page_option=false,$otto_enable=false)
 	{
-		$post_content = new DOMDocument();
-		$internalErrors = libxml_use_internal_errors(true);
+		// Load the new converter class
+		require_once plugin_dir_path(dirname(__FILE__)) . 'custom-pages/class-metasync-html-to-builder-converter.php';
+		$converter = new Metasync_HTML_To_Builder_Converter();
 
-		# Replace newlines with <br> before parsing
-		$item['post_content'] = str_replace(["\r\n", "\r", "\n"], "<br>", $item['post_content'] ?? '');
-
-		// Check if the php version is below 8.2.0
-		if (version_compare(PHP_VERSION, '8.2.0', '<')) {
-			// Use mb_convert_encoding for PHP < 8.2
-			$post_content->loadHTML(mb_convert_encoding($item['post_content'], 'HTML-ENTITIES', 'UTF-8'), LIBXML_HTML_NODEFDTD);
-		} else {
-			// Use htmlentities for PHP >= 8.2
-			$encoded_item = mb_encode_numericentity($item['post_content'], [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-			$post_content->loadHTML($encoded_item, LIBXML_HTML_NODEFDTD);
-		}
-		libxml_use_internal_errors($internalErrors);
-		$images = $post_content->getElementsByTagName('img');
-		
-		# Auto-detect the active page builder
-		$elementor_active = did_action( 'elementor/loaded' );
-		# For Divi theme check if the theme name is Divi or the template is Divi or the parent theme is Divi
-		$divi_active = (wp_get_theme()->name == 'Divi' || wp_get_theme()->get_template() == 'Divi');
-		
-		# Auto-select page builder based on what's active (priority: Elementor > Divi > Gutenberg)
-		if ($elementor_active) {
-			$enabled_plugin_editor = 'elementor';
-		} elseif ($divi_active) {
-			$enabled_plugin_editor = 'divi';
-		} else {
-			$enabled_plugin_editor = 'gutenberg';
-		}
-
-		$content = $post_content->saveHTML();
-		$content = trim(str_replace([
-			'<html>',
-			'</html>',
-			'<head>',
-			'</head>',
-			'<body>',
-			'</body>'
-		], '', $content ?? ''));
-		if($otto_enable){
-			return array('content'=>$content);
-		}
-
-		# fix to avoid downloading images twice for gutenberg
-		# if($enabled_plugin_editor!=='elementor' || $enabled_plugin_editor!=='elementor'){
-		if($enabled_plugin_editor!=='elementor' && $enabled_plugin_editor!=='gutenberg'){
-			foreach ($images as $image) {
-				$src_url = $image->getAttribute('src');
-				// if ($this->common->allowedDownloadSources($src_url) === true) {
-					$attachment_id = $this->common->upload_image_by_url($image->getAttribute('src'),$image->getAttribute('alt'));
-					$src_url = wp_get_attachment_url($attachment_id);
-				// }
-				$image->setAttribute('src', $src_url);
-			}
-		}
-
-		$content = $post_content->saveHTML();
-		$content = trim(str_replace([
-			'<html>',
-			'</html>',
-			'<head>',
-			'</head>',
-			'<body>',
-			'</body>'
-		], '', $content ?? ''));
-		if($landing_page_option){
-			return array('content'=>$content);
-		}
-
-		if($enabled_plugin_editor=='elementor'){
-			// Load HTML string into DOMDocument
-			$dom = new DOMDocument();
-			libxml_use_internal_errors(true); // Suppress errors
-			# @$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
-			# Fix deprecated issue in PHP 8.2
-			# Check if the php version is below 8.2.0
-			if (version_compare(PHP_VERSION, '8.2.0', '<')) {
-				# Use mb_convert_encoding for PHP < 8.2
-				@$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
-			} else {
-				# Use mb_encode_numericentity for PHP >= 8.2
-				$encoded_content = mb_encode_numericentity($content, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-				@$dom->loadHTML($encoded_content);
-			}
-
-			libxml_clear_errors(); // Clear any errors
-			// Find all <figure> elements and remove them
-			// $figureElements = $dom->getElementsByTagName('figure');
-			// foreach ($figureElements as $figureElement) {
-			// 	$figureElement->parentNode->removeChild($figureElement);
-			// }
-			$modifiedHtml = $dom->saveHTML();
-			//Check if the container is active or not on that basis use container or section structure
-			if ( \Elementor\Plugin::$instance->experiments->is_feature_active( 'container' ) ) {
-			$outputArrayData = [
-				[
-					'id' => uniqid(), 
-					'elType' => 'container',
-					'settings' => [
-						'flex_direction' => 'column',
-						'presetTitle' => 'Container',
-						'presetIcon' => 'eicon-container'
-					],
-					'elements' =>$this->elementorBlockData(html_entity_decode($modifiedHtml)),
-					'isInner' => false
-				]
-			];
-		}else{
-				$outputArrayData = [
-					[
-					  "id"=> uniqid(), 
-					  "elType"=> "section",
-					  "settings"=> [],
-					  "elements"=> [
-						[
-						  "id"=> uniqid(), 
-						  "elType"=> "column",
-						  "settings"=> [
-							"_column_size"=> 100,
-							"_inline_size"=> null
-						  ],
-						 'elements' =>$this->elementorBlockData(html_entity_decode($modifiedHtml)),
-						  "isInner"=> false
-						]
-					  ],
-					  "isInner"=> false
-					]
-				];
-			}
-
-		
-			$jsonOutput = wp_slash( wp_json_encode( $outputArrayData ) );
-
-			return array(
-				'content'=>$content,
-				'elementor_meta_data'=>array(
-					'_elementor_data'=>$jsonOutput,
-					'_elementor_edit_mode'=>'builder',
-					'_elementor_version'=>ELEMENTOR_VERSION
-				)
-			);			
-		}else if($enabled_plugin_editor=='gutenberg'){
-			$blockGutenberg = $this->gutenbergBlockData($content);
-			$serializedBlocks = serialize_blocks($blockGutenberg);
-			return array('content'=>$serializedBlocks);
-		}else if($enabled_plugin_editor=='divi'){
-			$dom = new DOMDocument();
-			libxml_use_internal_errors(true); // Suppress errors
-			# @$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
-			# Fix deprecated issue in PHP 8.2
-			# Check if the php version is below 8.2.0
-			if (version_compare(PHP_VERSION, '8.2.0', '<')) {
-				# Use mb_convert_encoding for PHP < 8.2
-				@$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
-			} else {
-				# Use mb_encode_numericentity for PHP >= 8.2
-				$encoded_content = mb_encode_numericentity($content, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-				@$dom->loadHTML($encoded_content);
-			}
-
-			libxml_clear_errors(); // Clear any errors
-			// Find all <figure> elements and remove them
-			// $figureElements = $dom->getElementsByTagName('figure');
-			// foreach ($figureElements as $figureElement) {
-			// 	$figureElement->parentNode->removeChild($figureElement);
-			// }
-			$modifiedHtml = $dom->saveHTML();
-			return array(
-				'content'=>$this->diviBlockData(html_entity_decode($modifiedHtml)),
-					'divi_meta_data'=>array(
-						'_et_pb_use_builder'=>'on',				
-						'_et_builder_version'=>ET_BUILDER_VERSION
-					)
-				);
-		}else{
-			return array('content'=>$content);
-		}
-
+		// Delegate to converter's legacy method for backward compatibility
+		return $converter->convert_legacy($item, $landing_page_option, $otto_enable);
 	}
 
 	public function metasync_handle_post_category($post_id, $post_categories, $append)
@@ -2048,11 +1903,12 @@ class Metasync_Public
 
 				# Use appropriate title based on post type
 				$content_type_label = ($new_post['post_type'] === 'page') ? 'Page' : 'Post';
+				$sync_status = ($new_post['post_status'] === 'publish') ? 'published' : $new_post['post_status'];
 
 				metasync_log_sync_history([
 					'title' => "{$content_type_label} {$action} ({$title_preview})",
 					'source' => 'Content Genius',
-					'status' => $new_post['post_status'],
+					'status' => $sync_status,
 					'content_type' => ucfirst($new_post['post_type']),
 					'url' => $permalink,
 					'meta_data' => json_encode([
@@ -2741,11 +2597,12 @@ class Metasync_Public
 
 				# Use appropriate title based on post type
 				$content_type_label = ($post_type === 'page') ? 'Page' : 'Post';
+				$sync_status = ($post_status === 'publish') ? 'published' : $post_status;
 
 				metasync_log_sync_history([
 					'title' => "{$content_type_label} Updated ({$title_preview})",
 					'source' => 'Content Genius',
-					'status' => $post_status,
+					'status' => $sync_status,
 					'content_type' => ucfirst($post_type),
 					'url' => $permalink ?? get_permalink($post_id),
 					'meta_data' => json_encode([
@@ -3629,6 +3486,9 @@ class Metasync_Public
                 $options['general']['otto_pixel_uuid'] = $new_otto_uuid;
                 // Note: OTTO SSR is always enabled by default, no need to set
 
+                // Granular otto_config_status: record when SSO completed (ISO 8601 UTC)
+                $options['general']['sso_completed_at'] = gmdate('Y-m-d\TH:i:s\Z');
+
                 // Update authentication timestamp for polling detection (legacy - keeping for compatibility)
                 $options['general']['send_auth_token_timestamp'] = current_time('mysql');
 
@@ -3696,8 +3556,8 @@ class Metasync_Public
                 error_log('MetaSync SA Connect: mark_searchatlas_nonce_used - Failed to save plugin options');
             } else {
                 error_log('MetaSync SA Connect: mark_searchatlas_nonce_used - Options saved successfully');
-                // Trigger immediate heartbeat check after successful Search Atlas connect authentication
                 if ($status_code === 200) {
+                    do_action('metasync_heartbeat_state_key_pending'); // PR3: burst mode
                     $this->trigger_immediate_heartbeat_after_sa_connect();
                 }
             }
@@ -3773,13 +3633,13 @@ class Metasync_Public
 			// In JSON Schema you can specify object properties in the properties attribute.
 			'properties' => array(
 				'id' => array(
-					'description' => esc_htmlesc_html__('Unique identifier for the object.', 'my-textdomain'),
+					'description' => esc_html__('Unique identifier for the object.', 'my-textdomain'),
 					'type' => 'integer',
 					'context' => array('view', 'edit', 'embed'),
 					'readonly' => true,
 				),
 				'content' => array(
-					'description' => esc_htmlesc_html__('The content for the object.', 'my-textdomain'),
+					'description' => esc_html__('The content for the object.', 'my-textdomain'),
 					'type' => 'string',
 				),
 			),
@@ -4854,6 +4714,106 @@ class Metasync_Public
 		}
 		
 		return $sitemap_entry;
+	}
+
+	/**
+	 * Enqueue custom CSS stored in post meta for converted pages.
+	 * Runs at priority 999 (after theme CSS) so custom styles win.
+	 */
+	public function enqueue_page_custom_css() {
+		if ( ! is_singular() ) {
+			return;
+		}
+
+		$post_id = get_the_ID();
+		if ( ! $post_id ) {
+			return;
+		}
+
+		$custom_css = get_post_meta( $post_id, '_metasync_custom_css', true );
+		if ( empty( $custom_css ) ) {
+			return;
+		}
+
+		$scoped_css = $this->scope_css_to_body_class( $custom_css, $post_id );
+
+		wp_register_style( 'metasync-page-css-' . $post_id, false );
+		wp_enqueue_style( 'metasync-page-css-' . $post_id );
+		wp_add_inline_style( 'metasync-page-css-' . $post_id, $scoped_css );
+	}
+
+	/**
+	 * Enqueue custom CSS into Elementor editor preview iframe.
+	 */
+	public function enqueue_elementor_editor_css() {
+		$post_id = get_the_ID();
+		if ( ! $post_id ) {
+			return;
+		}
+
+		$custom_css = get_post_meta( $post_id, '_metasync_custom_css', true );
+		if ( empty( $custom_css ) ) {
+			return;
+		}
+
+		$scoped_css = $this->scope_css_to_body_class( $custom_css, $post_id );
+
+		wp_register_style( 'metasync-elementor-css-' . $post_id, false );
+		wp_enqueue_style( 'metasync-elementor-css-' . $post_id );
+		wp_add_inline_style( 'metasync-elementor-css-' . $post_id, $scoped_css );
+	}
+
+	/**
+	 * Enqueue custom CSS when Divi Visual Builder is active.
+	 */
+	public function enqueue_divi_builder_css() {
+		if ( empty( $_GET['et_fb'] ) ) {
+			return;
+		}
+
+		$post_id = get_the_ID();
+		if ( ! $post_id ) {
+			return;
+		}
+
+		$custom_css = get_post_meta( $post_id, '_metasync_custom_css', true );
+		if ( empty( $custom_css ) ) {
+			return;
+		}
+
+		$scoped_css = $this->scope_css_to_body_class( $custom_css, $post_id );
+
+		wp_register_style( 'metasync-divi-css-' . $post_id, false );
+		wp_enqueue_style( 'metasync-divi-css-' . $post_id );
+		wp_add_inline_style( 'metasync-divi-css-' . $post_id, $scoped_css );
+	}
+
+	/**
+	 * Scope all CSS selectors to body.postid-{ID} for higher specificity.
+	 *
+	 * @param string $css     Raw CSS.
+	 * @param int    $post_id Post ID.
+	 * @return string Scoped CSS.
+	 */
+	private function scope_css_to_body_class( $css, $post_id ) {
+		$prefix  = 'body.postid-' . intval( $post_id );
+		$scoped  = '';
+		$pattern = '/([^{]+)\{([^}]*)\}/s';
+
+		preg_match_all( $pattern, $css, $matches, PREG_SET_ORDER );
+
+		foreach ( $matches as $match ) {
+			$selectors        = array_map( 'trim', explode( ',', $match[1] ) );
+			$scoped_selectors = array_map( function( $sel ) use ( $prefix ) {
+				if ( empty( $sel ) || strpos( $sel, '@' ) === 0 ) {
+					return $sel;
+				}
+				return $prefix . ' ' . $sel;
+			}, $selectors );
+			$scoped .= implode( ', ', $scoped_selectors ) . ' {' . $match[2] . "}\n";
+		}
+
+		return $scoped ?: $css;
 	}
 
 }

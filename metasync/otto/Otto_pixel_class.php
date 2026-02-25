@@ -309,7 +309,7 @@ Class Metasync_otto_pixel{
      */
     private function analyze_otto_blocking($suggestions) {
         $has_otto_title = false;
-        $has_otto_description = false;
+        $otto_description_tags = []; // Track specific description tags Otto provides
 
         if (!empty($suggestions['header_replacements']) && is_array($suggestions['header_replacements'])) {
             foreach ($suggestions['header_replacements'] as $item) {
@@ -318,11 +318,19 @@ Class Metasync_otto_pixel{
                     if ($item['type'] == 'title' && !empty($item['recommended_value'])) {
                         $has_otto_title = true;
                     }
-                    # Check if OTTO has description
+                    # Check if OTTO has description - track specific tag types
                     if ($item['type'] == 'meta') {
-                        if ((!empty($item['name']) && $item['name'] == 'description' && !empty($item['recommended_value'])) ||
-                            (!empty($item['property']) && strpos($item['property'], 'description') !== false && !empty($item['recommended_value']))) {
-                            $has_otto_description = true;
+                        # Check for meta[name=description]
+                        if (!empty($item['name']) && $item['name'] == 'description' && !empty($item['recommended_value'])) {
+                            $otto_description_tags[] = 'meta[name=description]';
+                        }
+                        # Check for meta[property=og:description]
+                        if (!empty($item['property']) && $item['property'] == 'og:description' && !empty($item['recommended_value'])) {
+                            $otto_description_tags[] = 'meta[property=og:description]';
+                        }
+                        # Check for meta[name=twitter:description]
+                        if (!empty($item['name']) && $item['name'] == 'twitter:description' && !empty($item['recommended_value'])) {
+                            $otto_description_tags[] = 'meta[name=twitter:description]';
                         }
                     }
                 }
@@ -332,13 +340,16 @@ Class Metasync_otto_pixel{
         # Check header_html_insertion for description
         if (!empty($suggestions['header_html_insertion'])) {
             if (preg_match('/<meta[^>]*name=["\']description["\'][^>]*>/i', $suggestions['header_html_insertion'])) {
-                $has_otto_description = true;
+                $otto_description_tags[] = 'meta[name=description]';
             }
         }
 
+        # Remove duplicates
+        $otto_description_tags = array_unique($otto_description_tags);
+
         return [
             'block_title' => $has_otto_title,
-            'block_description' => $has_otto_description,
+            'block_description_tags' => $otto_description_tags, // Pass array of specific tags
         ];
     }
 
@@ -372,11 +383,13 @@ Class Metasync_otto_pixel{
         }
 
         # Block SEO plugins if needed (for the buffered output)
-        if ($blocking_flags['block_title'] || $blocking_flags['block_description']) {
+        # For HTTP fetch path, check if any description tags need blocking
+        $has_description_tags = !empty($blocking_flags['block_description_tags']);
+        if ($blocking_flags['block_title'] || $has_description_tags) {            
             if (function_exists('metasync_otto_block_seo_plugins')) {
                 metasync_otto_block_seo_plugins(
                     $blocking_flags['block_title'],
-                    $blocking_flags['block_description']
+                    $has_description_tags
                 );
             }
         }
@@ -406,13 +419,36 @@ Class Metasync_otto_pixel{
             return false;
         }
 
-        $route_html_string = $route_html->__toString();
+        $route_html_string = is_string($route_html) ? $route_html : $route_html->__toString();
         
         if (strpos($route_html_string, 'pix-sliding-headline-2') !== false || strpos($route_html_string, 'pix-intro-sliding-text') !== false) {
             # Only apply fix within sliding text contexts to avoid breaking other layouts
             $route_html_string = preg_replace('#(</span></span>)(<span\s+class=["\'][^"\']*slide-in-container[^"\']*["\'][^>]*>)#i', '$1 $2', $route_html_string);
         }
 
+        # Fix for Elementor widgets - preserve whitespace between inline spans
+        # This prevents text/elements from appearing merged when HTML is minified
+        
+        # Fix for Elementor social icons (elementor-grid-item)
+        if (strpos($route_html_string, 'elementor-social-icons-wrapper') !== false) {
+            # Add whitespace between closing and opening span tags within elementor-grid-item
+            $route_html_string = preg_replace(
+                '#(</span>)(<span\s+class=["\'][^"\']*elementor-grid-item[^"\']*["\'][^>]*>)#i',
+                '$1 $2',
+                $route_html_string
+            );
+        }
+        
+        # Fix for Elementor animated headline (elementor-headline-text-wrapper)
+        if (strpos($route_html_string, 'elementor-headline') !== false) {
+            # Add whitespace between closing and opening span tags with elementor-headline-text-wrapper
+            $route_html_string = preg_replace(
+                '#(</span>)(<span\s+class=["\'][^"\']*elementor-headline-text-wrapper[^"\']*["\'][^>]*>)#i',
+                '$1 $2',
+                $route_html_string
+            );
+        }
+        
         # Check for Revolution Slider to determine if special handling is needed
         # Check for both Revolution Slider 6 (<rs-module-wrap>) and Revolution Slider 7 (<sr7-module>)
         $has_revslider = (strpos($route_html_string, '<rs-module-wrap') !== false || strpos($route_html_string, '<sr7-module') !== false);

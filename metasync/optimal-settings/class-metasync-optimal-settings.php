@@ -41,6 +41,26 @@ class Metasync_Optimal_Settings
 		$common_robots = $common_robots_post_meta ? $common_robots_post_meta : $common_robots_meta;
 		$advance_robots = $advance_robots_post_meta ? $advance_robots_post_meta : $advance_robots_meta;
 
+		// Ensure both variables are arrays to prevent foreach errors
+		// Handle cases where data might be stored as serialized strings
+		if (!is_array($common_robots)) {
+			if (is_string($common_robots) && !empty($common_robots)) {
+				$unserialized = maybe_unserialize($common_robots);
+				$common_robots = is_array($unserialized) ? $unserialized : [];
+			} else {
+				$common_robots = [];
+			}
+		}
+
+		if (!is_array($advance_robots)) {
+			if (is_string($advance_robots) && !empty($advance_robots)) {
+				$unserialized = maybe_unserialize($advance_robots);
+				$advance_robots = is_array($unserialized) ? $unserialized : [];
+			} else {
+				$advance_robots = [];
+			}
+		}
+
 		$robots          = ['index' => true];
 		$advanced_robots = [];
 

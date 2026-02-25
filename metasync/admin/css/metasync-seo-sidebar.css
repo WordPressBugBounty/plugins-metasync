@@ -1,0 +1,421 @@
+/**
+ * MetaSync SEO Sidebar Styles
+ *
+ * Styles for the Gutenberg block editor SEO sidebar panel.
+ *
+ * @package MetaSync
+ * @since 2.7.0
+ */
+
+/* Sidebar Content Container */
+.metasync-seo-sidebar-content {
+    padding: 0;
+}
+
+.metasync-seo-sidebar-content .components-panel__body {
+    border-bottom: none;
+}
+
+/* SEO Field Container */
+.metasync-seo-field {
+    margin-bottom: 20px;
+}
+
+.metasync-seo-field:last-child {
+    margin-bottom: 0;
+}
+
+/* Input Labels */
+.metasync-seo-field .components-base-control__label {
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: #1e1e1e;
+}
+
+/* Text Input Styling */
+.metasync-seo-field .components-text-control__input,
+.metasync-seo-field .components-textarea-control__input {
+    border-radius: 4px;
+    border-color: #8c8f94;
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.metasync-seo-field .components-text-control__input:focus,
+.metasync-seo-field .components-textarea-control__input:focus {
+    border-color: #007cba;
+    box-shadow: 0 0 0 1px #007cba;
+    outline: none;
+}
+
+/* Textarea specific */
+.metasync-seo-field .components-textarea-control__input {
+    min-height: 100px;
+    resize: vertical;
+}
+
+/* Help Text */
+.metasync-seo-field .components-base-control__help {
+    margin-top: 6px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: #757575;
+    line-height: 1.4;
+}
+
+/* Character Counter */
+.metasync-char-counter {
+    margin-top: 8px;
+}
+
+.metasync-char-counter-bar {
+    height: 4px;
+    background-color: #e0e0e0;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 6px;
+}
+
+.metasync-char-counter-progress {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.2s ease-out, background-color 0.2s ease-out;
+}
+
+.metasync-char-counter-text {
+    font-size: 12px;
+    font-weight: 500;
+    display: block;
+    text-align: right;
+}
+
+/* Panel Header Styling */
+.metasync-seo-sidebar-content .components-panel__body-title {
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.metasync-seo-sidebar-content .components-panel__body-title .components-button {
+    font-weight: 600;
+}
+
+/* Plugin Sidebar Icon */
+.components-menu-item__item .metasync-seo-icon,
+.components-button.edit-post-sidebar__panel-tab .metasync-seo-icon {
+    fill: currentColor;
+}
+
+/* URL Slug Field */
+.metasync-url-slug-field .components-text-control__input {
+    font-family: 'SF Mono', Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    font-size: 13px;
+}
+
+/* Permalink Preview */
+.metasync-permalink-preview {
+    margin-top: 10px;
+    padding: 10px 12px;
+    background-color: #f6f7f7;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1.5;
+    word-break: break-all;
+}
+
+.metasync-permalink-label {
+    color: #757575;
+    font-weight: 500;
+}
+
+.metasync-permalink-link {
+    color: #007cba;
+    text-decoration: none;
+    display: inline;
+}
+
+.metasync-permalink-link:hover {
+    text-decoration: underline;
+}
+
+.metasync-permalink-base {
+    color: #757575;
+}
+
+.metasync-permalink-slug {
+    color: #1e1e1e;
+    font-weight: 600;
+}
+
+/* OTTO Prefilled Indicator */
+.metasync-prefilled-otto .components-text-control__input,
+.metasync-prefilled-otto .components-textarea-control__input {
+    background-color: #f0f6fc;
+    border-color: #72aee6;
+}
+
+.metasync-prefilled-otto .components-text-control__input:focus,
+.metasync-prefilled-otto .components-textarea-control__input:focus {
+    background-color: #ffffff;
+}
+
+/* ========================================
+   SERP Preview Styles
+   ======================================== */
+
+.metasync-serp-preview {
+    margin: 0;
+}
+
+/* Header with toggle buttons */
+.metasync-serp-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.metasync-serp-label {
+    font-weight: 600;
+    font-size: 13px;
+    color: #1e1e1e;
+}
+
+.metasync-serp-toggle {
+    display: flex;
+    gap: 0;
+}
+
+.metasync-serp-toggle .components-button {
+    font-size: 11px !important;
+    padding: 4px 8px !important;
+    min-height: 28px !important;
+}
+
+.metasync-serp-toggle .components-button .dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    margin-right: 2px;
+}
+
+/* Google-style SERP Result Container */
+.metasync-serp-result {
+    background: #ffffff;
+    border: 1px solid #dadce0;
+    border-radius: 8px;
+    padding: 16px;
+    font-family: Arial, sans-serif;
+    transition: all 0.2s ease;
+}
+
+/* Mobile view styling */
+.metasync-serp-mobile {
+    max-width: 100%;
+    padding: 12px;
+}
+
+/* URL Row with Favicon */
+.metasync-serp-url-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 6px;
+}
+
+.metasync-serp-favicon {
+    flex-shrink: 0;
+}
+
+.metasync-serp-favicon-placeholder {
+    width: 20px;
+    height: 20px;
+    background: linear-gradient(135deg, #4285f4 25%, #34a853 50%, #fbbc05 75%, #ea4335 100%);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.metasync-serp-mobile .metasync-serp-favicon-placeholder {
+    width: 20px;
+    height: 20px;
+}
+
+.metasync-serp-url-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.metasync-serp-site-name {
+    font-size: 14px;
+    color: #202124;
+    font-weight: 400;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.metasync-serp-mobile .metasync-serp-site-name {
+    font-size: 12px;
+}
+
+.metasync-serp-breadcrumb {
+    font-size: 12px;
+    color: #5f6368;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.metasync-serp-mobile .metasync-serp-breadcrumb {
+    font-size: 11px;
+}
+
+/* Title */
+.metasync-serp-title {
+    font-size: 20px;
+    line-height: 1.3;
+    color: #1a0dab;
+    font-weight: 400;
+    margin-bottom: 4px;
+    cursor: pointer;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.metasync-serp-title:hover {
+    text-decoration: underline;
+}
+
+.metasync-serp-mobile .metasync-serp-title {
+    font-size: 16px;
+    line-height: 1.4;
+}
+
+/* Description */
+.metasync-serp-description {
+    font-size: 14px;
+    line-height: 1.58;
+    color: #4d5156;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.metasync-serp-mobile .metasync-serp-description {
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+/* Help text */
+.metasync-serp-help {
+    margin-top: 12px;
+    margin-bottom: 0;
+    font-size: 12px;
+    color: #757575;
+    line-height: 1.4;
+    font-style: italic;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 782px) {
+    .metasync-seo-field .components-textarea-control__input {
+        min-height: 80px;
+    }
+    
+    .metasync-char-counter-text {
+        font-size: 11px;
+    }
+    
+    .metasync-permalink-preview {
+        font-size: 11px;
+    }
+    
+    .metasync-serp-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    
+    .metasync-serp-result {
+        padding: 12px;
+    }
+    
+    .metasync-serp-title {
+        font-size: 16px;
+    }
+    
+    .metasync-serp-description {
+        font-size: 13px;
+    }
+}
+
+/* ============================================
+   OTTO Override Notice (Informational - Blue)
+   Shows when user has custom values that will override OTTO
+   ============================================ */
+
+.metasync-otto-override-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 16px;
+    margin: 0;
+    background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+    border-left: 4px solid #2196f3;
+    border-bottom: 1px solid #90caf9;
+}
+
+.metasync-otto-override-notice .metasync-otto-notice-icon {
+    flex-shrink: 0;
+    color: #1976d2;
+    margin-top: 2px;
+}
+
+.metasync-otto-override-notice .metasync-otto-notice-icon svg {
+    display: block;
+}
+
+.metasync-otto-override-notice .metasync-otto-notice-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.metasync-otto-override-notice .metasync-otto-notice-content strong {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #0d47a1;
+    margin-bottom: 4px;
+}
+
+.metasync-otto-override-notice .metasync-otto-notice-content p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #1565c0;
+}
+
+/* Dark mode support for override notice */
+@media (prefers-color-scheme: dark) {
+    .metasync-otto-override-notice {
+        background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+        border-left-color: #64b5f6;
+        border-bottom-color: #3949ab;
+    }
+
+    .metasync-otto-override-notice .metasync-otto-notice-icon {
+        color: #64b5f6;
+    }
+
+    .metasync-otto-override-notice .metasync-otto-notice-content strong {
+        color: #90caf9;
+    }
+
+    .metasync-otto-override-notice .metasync-otto-notice-content p {
+        color: #bbdefb;
+    }
+}
+

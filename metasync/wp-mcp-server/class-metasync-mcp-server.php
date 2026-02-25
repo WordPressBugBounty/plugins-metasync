@@ -40,6 +40,12 @@ class Metasync_MCP_Server {
     const REST_ROUTE = '/mcp';
 
     /**
+     * JWT token expiration time (in seconds)
+     * Default: 24 hours
+     */
+    const JWT_EXPIRATION = 86400;
+
+    /**
      * Constructor
      */
     public function __construct() {
@@ -90,6 +96,13 @@ class Metasync_MCP_Server {
             'callback' => [$this, 'handle_health_check'],
             'permission_callback' => '__return_true',
         ]);
+
+        // JWT authentication endpoint
+        register_rest_route(self::REST_NAMESPACE, '/mcp/auth', [
+            'methods' => 'POST',
+            'callback' => [$this, 'handle_jwt_auth'],
+            'permission_callback' => '__return_true',
+        ]);
     }
 
     /**
@@ -134,7 +147,34 @@ class Metasync_MCP_Server {
             return $auth_result;
         }
 
-        // Check user capability
+        // If authenticated via API key, skip capability check
+        // API key already proves admin-level access
+        $api_key = $request->get_header('X-API-Key');
+        if ($api_key && $this->verify_plugin_auth_token($api_key)) {
+            define('METASYNC_MCP_API_KEY_AUTH', true);
+            return true;
+        }
+
+        // If authenticated via JWT, check if it's API key-based or user-based
+        if (defined('METASYNC_MCP_JWT_AUTH') && METASYNC_MCP_JWT_AUTH) {
+            // If JWT was generated from API key (user_id = 0), skip capability check
+            // API key-based JWT tokens have full system-level access
+            if (defined('METASYNC_MCP_API_KEY_AUTH') && METASYNC_MCP_API_KEY_AUTH) {
+                return true;
+            }
+
+            // For user-based JWT tokens, check user capability
+            if (!current_user_can('manage_options')) {
+                return new WP_Error(
+                    'insufficient_permissions',
+                    'User does not have permission to use the MCP server',
+                    ['status' => 403]
+                );
+            }
+            return true;
+        }
+
+        // For nonce-based auth, check user capability
         if (!current_user_can('manage_options')) {
             return new WP_Error(
                 'insufficient_permissions',
@@ -149,7 +189,10 @@ class Metasync_MCP_Server {
     /**
      * Authenticate request
      *
-     * Supports both WordPress nonce (same-origin) and plugin auth token (external clients)
+     * Supports three authentication methods:
+     * 1. WordPress nonce (same-origin)
+     * 2. Plugin auth token (external clients)
+     * 3. JWT Bearer token (industry-standard)
      *
      * @param WP_REST_Request $request Request object
      * @return bool|WP_Error
@@ -167,9 +210,29 @@ class Metasync_MCP_Server {
             return true;
         }
 
+        // Method 3: JWT Bearer token (industry-standard authentication)
+        $auth_header = $request->get_header('Authorization');
+        if ($auth_header && preg_match('/Bearer\s+(.+)/i', $auth_header, $matches)) {
+            $jwt_token = trim($matches[1]);
+            $jwt_result = $this->verify_jwt_token($jwt_token);
+            if ($jwt_result !== false) {
+                // If user_id is 0, this is an API key-based JWT token (system-level access)
+                // Treat it like API key authentication (no user context needed)
+                if ($jwt_result['user_id'] === 0) {
+                    define('METASYNC_MCP_JWT_AUTH', true);
+                    define('METASYNC_MCP_API_KEY_AUTH', true);
+                } else {
+                    // Set the authenticated user from JWT
+                    wp_set_current_user($jwt_result['user_id']);
+                    define('METASYNC_MCP_JWT_AUTH', true);
+                }
+                return true;
+            }
+        }
+
         return new WP_Error(
             'authentication_failed',
-            'Authentication required. Provide either X-WP-Nonce or X-API-Key header with your plugin auth token.',
+            'Authentication required. Provide X-WP-Nonce, X-API-Key, or Authorization: Bearer <jwt_token> header.',
             ['status' => 401]
         );
     }
@@ -281,5 +344,212 @@ class Metasync_MCP_Server {
             'version' => METASYNC_VERSION,
             'has_auth_token' => !empty($this->get_api_key())
         ];
+    }
+
+    /**
+     * Handle JWT authentication request
+     * Generates a JWT token by exchanging plugin API key for time-limited JWT
+     *
+     * @param WP_REST_Request $request Request object
+     * @return WP_REST_Response|WP_Error
+     */
+    public function handle_jwt_auth($request) {
+        $params = $request->get_json_params();
+
+        // Get API key from request body or header
+        $api_key = '';
+        if (isset($params['api_key'])) {
+            $api_key = sanitize_text_field($params['api_key']);
+        } else {
+            $api_key = $request->get_header('X-API-Key');
+        }
+
+        if (empty($api_key)) {
+            return new WP_Error(
+                'missing_api_key',
+                'API key is required. Provide in request body as "api_key" or in X-API-Key header.',
+                ['status' => 400]
+            );
+        }
+
+        // Verify API key
+        if (!$this->verify_plugin_auth_token($api_key)) {
+            return new WP_Error(
+                'invalid_api_key',
+                'Invalid API key',
+                ['status' => 401]
+            );
+        }
+
+        // Generate JWT token
+        // Use 0 as user_id to indicate API key authentication (system-level access)
+        $token = $this->generate_jwt_token(0);
+
+        if ($token === false) {
+            return new WP_Error(
+                'token_generation_failed',
+                'Failed to generate JWT token',
+                ['status' => 500]
+            );
+        }
+
+        return new WP_REST_Response([
+            'success' => true,
+            'token' => $token,
+            'token_type' => 'Bearer',
+            'expires_in' => self::JWT_EXPIRATION,
+            'expires_at' => time() + self::JWT_EXPIRATION,
+            'scope' => 'mcp:full_access'
+        ], 200);
+    }
+
+    /**
+     * Generate JWT token
+     *
+     * @param int $user_id WordPress user ID (0 for API key based tokens)
+     * @return string|false JWT token or false on failure
+     */
+    private function generate_jwt_token($user_id) {
+        $issued_at = time();
+        $expiration = $issued_at + self::JWT_EXPIRATION;
+
+        // JWT header
+        $header = [
+            'alg' => 'HS256',
+            'typ' => 'JWT'
+        ];
+
+        // JWT payload
+        // user_id = 0 indicates API key authentication (system-level access)
+        $payload = [
+            'sub' => $user_id === 0 ? 'api_key' : 'user:' . $user_id,
+            'user_id' => $user_id,
+            'iat' => $issued_at,
+            'exp' => $expiration,
+            'iss' => get_site_url(),
+            'scope' => 'mcp:full_access'
+        ];
+
+        // Encode header and payload
+        $header_encoded = $this->base64_url_encode(json_encode($header));
+        $payload_encoded = $this->base64_url_encode(json_encode($payload));
+
+        // Create signature
+        $signature_input = $header_encoded . '.' . $payload_encoded;
+        $secret = $this->get_jwt_secret();
+        $signature = hash_hmac('sha256', $signature_input, $secret, true);
+        $signature_encoded = $this->base64_url_encode($signature);
+
+        // Create JWT token
+        $jwt = $header_encoded . '.' . $payload_encoded . '.' . $signature_encoded;
+
+        return $jwt;
+    }
+
+    /**
+     * Verify JWT token
+     *
+     * @param string $token JWT token
+     * @return array|false Decoded payload or false on failure
+     */
+    private function verify_jwt_token($token) {
+        // Split token into parts
+        $parts = explode('.', $token);
+
+        if (count($parts) !== 3) {
+            return false;
+        }
+
+        list($header_encoded, $payload_encoded, $signature_encoded) = $parts;
+
+        // Verify signature
+        $signature_input = $header_encoded . '.' . $payload_encoded;
+        $secret = $this->get_jwt_secret();
+        $signature = hash_hmac('sha256', $signature_input, $secret, true);
+        $signature_expected = $this->base64_url_encode($signature);
+
+        if (!hash_equals($signature_expected, $signature_encoded)) {
+            return false;
+        }
+
+        // Decode payload
+        $payload_json = $this->base64_url_decode($payload_encoded);
+        $payload = json_decode($payload_json, true);
+
+        if (!$payload) {
+            return false;
+        }
+
+        // Check expiration
+        if (isset($payload['exp']) && $payload['exp'] < time()) {
+            return false;
+        }
+
+        // Check issuer
+        if (isset($payload['iss']) && $payload['iss'] !== get_site_url()) {
+            return false;
+        }
+
+        // Check user_id exists
+        if (!isset($payload['user_id'])) {
+            return false;
+        }
+
+        // If user_id is 0, this is an API key-based token (system-level access)
+        // No need to validate user existence
+        if ($payload['user_id'] === 0) {
+            return $payload;
+        }
+
+        // For user-based tokens, verify user exists
+        $user = get_user_by('id', $payload['user_id']);
+        if (!$user) {
+            return false;
+        }
+
+        return $payload;
+    }
+
+    /**
+     * Get JWT secret key
+     *
+     * Uses WordPress NONCE_SALT as the secret key
+     *
+     * @return string
+     */
+    private function get_jwt_secret() {
+        // Use WordPress NONCE_SALT as the JWT secret
+        // This is secure and unique per WordPress installation
+        if (defined('NONCE_SALT')) {
+            return NONCE_SALT;
+        }
+
+        // Fallback to AUTH_KEY if NONCE_SALT is not defined
+        if (defined('AUTH_KEY')) {
+            return AUTH_KEY;
+        }
+
+        // Final fallback (should never happen in production)
+        return wp_salt('auth');
+    }
+
+    /**
+     * Base64 URL encode
+     *
+     * @param string $data Data to encode
+     * @return string
+     */
+    private function base64_url_encode($data) {
+        return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+    }
+
+    /**
+     * Base64 URL decode
+     *
+     * @param string $data Data to decode
+     * @return string
+     */
+    private function base64_url_decode($data) {
+        return base64_decode(strtr($data, '-_', '+/'));
     }
 }

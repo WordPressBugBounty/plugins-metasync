@@ -179,11 +179,17 @@ class MetaSync_DBMigration
 				pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex') NOT NULL DEFAULT 'exact',
 				description TEXT NULL,
 				status VARCHAR(25) NOT NULL DEFAULT 'active',
+				is_permanent TINYINT(1) NOT NULL DEFAULT 0,
+				auto_excluded TINYINT(1) NOT NULL DEFAULT 0,
+				recheck_after DATETIME NULL DEFAULT NULL,
 				created_at DATETIME NOT NULL DEFAULT '0000-00-00 00:00:00',
 				PRIMARY KEY id (id),
 				KEY status (status),
 				KEY pattern_type (pattern_type),
 				KEY created_at (created_at),
+				KEY is_permanent (is_permanent),
+				KEY auto_excluded (auto_excluded),
+				KEY recheck_after (recheck_after),
 				UNIQUE KEY url_pattern_type_unique (url_pattern(191), pattern_type)
 			) $collate;";
 
@@ -414,11 +420,17 @@ class MetaSync_DBMigration
 				pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex') NOT NULL DEFAULT 'exact',
 				description TEXT NULL,
 				status VARCHAR(25) NOT NULL DEFAULT 'active',
+				is_permanent TINYINT(1) NOT NULL DEFAULT 0,
+				auto_excluded TINYINT(1) NOT NULL DEFAULT 0,
+				recheck_after DATETIME NULL DEFAULT NULL,
 				created_at DATETIME NOT NULL DEFAULT '0000-00-00 00:00:00',
 				PRIMARY KEY id (id),
 				KEY status (status),
 				KEY pattern_type (pattern_type),
 				KEY created_at (created_at),
+				KEY is_permanent (is_permanent),
+				KEY auto_excluded (auto_excluded),
+				KEY recheck_after (recheck_after),
 				UNIQUE KEY url_pattern_type_unique (url_pattern(191), pattern_type)
 			) $collate;";
 
@@ -446,6 +458,25 @@ class MetaSync_DBMigration
 			if (!in_array('status', $columns)) {
 				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD COLUMN status VARCHAR(25) NOT NULL DEFAULT 'active' AFTER description");
 				$missing_columns = true;
+			}
+
+			if (!in_array('is_permanent', $columns)) {
+				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD COLUMN is_permanent TINYINT(1) NOT NULL DEFAULT 0 AFTER status");
+				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD KEY is_permanent (is_permanent)");
+			}
+
+			if (!in_array('auto_excluded', $columns)) {
+				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD COLUMN auto_excluded TINYINT(1) NOT NULL DEFAULT 0 AFTER is_permanent");
+				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD KEY auto_excluded (auto_excluded)");
+				// Backfill: mark existing 404 exclusions as auto_excluded
+				$wpdb->query("UPDATE {$tableNameOttoExcludedURLs} SET auto_excluded = 1 WHERE description = 'Auto-excluded: 404'");
+			}
+
+			if (!in_array('recheck_after', $columns)) {
+				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD COLUMN recheck_after DATETIME NULL DEFAULT NULL AFTER auto_excluded");
+				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD KEY recheck_after (recheck_after)");
+				// Backfill: set recheck_after = created_at + 7 days for auto-excluded URLs
+				$wpdb->query("UPDATE {$tableNameOttoExcludedURLs} SET recheck_after = DATE_ADD(created_at, INTERVAL 7 DAY) WHERE auto_excluded = 1 AND (recheck_after IS NULL OR recheck_after = '0000-00-00 00:00:00')");
 			}
 
 			// Check and add indexes if they don't exist

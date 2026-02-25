@@ -23,7 +23,7 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
     }
 
     public function get_description() {
-        return 'Update a WordPress post meta field (SEO data like title, description, keywords, robots settings)';
+        return 'Update a WordPress post meta field (SEO data like title, description, keywords, robots settings, Open Graph/social meta)';
     }
 
     public function get_input_schema() {
@@ -43,7 +43,13 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
                         '_metasync_metadesc',
                         '_metasync_focus_keyword',
                         '_metasync_robots_index',
-                        '_metasync_canonical_url'
+                        '_metasync_canonical_url',
+                        '_metasync_og_enabled',
+                        '_metasync_og_title',
+                        '_metasync_og_description',
+                        '_metasync_og_image',
+                        '_metasync_og_url',
+                        '_metasync_og_type'
                     ]
                 ],
                 'meta_value' => [
@@ -64,11 +70,19 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
         $meta_key = $this->sanitize_string($params['meta_key']);
         $meta_value = $this->sanitize_textarea($params['meta_value']);
 
+        // SECURITY: Additional sanitization for URL fields (prevent javascript: protocol)
+        if (in_array($meta_key, ['_metasync_og_image', '_metasync_og_url', '_metasync_canonical_url'])) {
+            $meta_value = esc_url_raw($meta_value);
+        }
+
         // Verify post exists
         $post = get_post($post_id);
         if (!$post) {
             throw new Exception(sprintf("Post not found: %d", absint($post_id)));
         }
+
+        // SECURITY: Check user has permission to edit this specific post
+        $this->check_post_permission($post_id);
 
         // Update meta
         $updated = update_post_meta($post_id, $meta_key, $meta_value);
@@ -151,12 +165,23 @@ class MCP_Tool_Get_Post_Meta extends MCP_Tool_Base {
                 'canonical_url' => get_post_meta($post_id, '_metasync_canonical_url', true)
             ];
 
+            // Get Open Graph meta
+            $opengraph_meta = [
+                'og_enabled' => get_post_meta($post_id, '_metasync_og_enabled', true),
+                'og_title' => get_post_meta($post_id, '_metasync_og_title', true),
+                'og_description' => get_post_meta($post_id, '_metasync_og_description', true),
+                'og_image' => get_post_meta($post_id, '_metasync_og_image', true),
+                'og_url' => get_post_meta($post_id, '_metasync_og_url', true),
+                'og_type' => get_post_meta($post_id, '_metasync_og_type', true)
+            ];
+
             return $this->success([
                 'post_id' => $post_id,
                 'post_title' => $post->post_title,
                 'post_type' => $post->post_type,
                 'post_status' => $post->post_status,
-                'seo_meta' => $seo_meta
+                'seo_meta' => $seo_meta,
+                'opengraph_meta' => $opengraph_meta
             ]);
         }
     }
@@ -172,7 +197,7 @@ class MCP_Tool_Get_SEO_Meta extends MCP_Tool_Base {
     }
 
     public function get_description() {
-        return 'Get all SEO-related metadata for a post including title, description, keywords, and indexing settings';
+        return 'Get all SEO-related metadata for a post including title, description, keywords, indexing settings, and Open Graph/social meta';
     }
 
     public function get_input_schema() {
@@ -217,11 +242,21 @@ class MCP_Tool_Get_SEO_Meta extends MCP_Tool_Base {
                 'robots_index' => get_post_meta($post_id, '_metasync_robots_index', true),
                 'canonical_url' => get_post_meta($post_id, '_metasync_canonical_url', true)
             ],
+            'opengraph_meta' => [
+                'enabled' => get_post_meta($post_id, '_metasync_og_enabled', true),
+                'title' => get_post_meta($post_id, '_metasync_og_title', true),
+                'description' => get_post_meta($post_id, '_metasync_og_description', true),
+                'image' => get_post_meta($post_id, '_metasync_og_image', true),
+                'url' => get_post_meta($post_id, '_metasync_og_url', true),
+                'type' => get_post_meta($post_id, '_metasync_og_type', true)
+            ],
             'analysis' => [
                 'meta_title_length' => mb_strlen(get_post_meta($post_id, '_metasync_metatitle', true)),
                 'meta_desc_length' => mb_strlen(get_post_meta($post_id, '_metasync_metadesc', true)),
                 'has_focus_keyword' => !empty(get_post_meta($post_id, '_metasync_focus_keyword', true)),
-                'is_indexable' => get_post_meta($post_id, '_metasync_robots_index', true) !== 'noindex'
+                'is_indexable' => get_post_meta($post_id, '_metasync_robots_index', true) !== 'noindex',
+                'og_enabled' => get_post_meta($post_id, '_metasync_og_enabled', true) === '1',
+                'has_og_image' => !empty(get_post_meta($post_id, '_metasync_og_image', true))
             ]
         ];
 

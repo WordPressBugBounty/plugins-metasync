@@ -191,8 +191,37 @@ abstract class MCP_Tool_Base {
      * @throws Exception If user lacks capability
      */
     protected function require_capability($capability = 'manage_options') {
+        // Skip capability check if authenticated via API key
+        if (defined('METASYNC_MCP_API_KEY_AUTH') && METASYNC_MCP_API_KEY_AUTH) {
+            return true;
+        }
+
+        // For WordPress user sessions, check actual capabilities
         if (!current_user_can($capability)) {
             throw new Exception('Insufficient permissions');
+        }
+        return true;
+    }
+
+    /**
+     * Check if user can edit a specific post
+     *
+     * Accounts for API key authentication where there is no WordPress user.
+     * Should be used instead of direct current_user_can('edit_post', $post_id) calls.
+     *
+     * @param int $post_id Post ID to check
+     * @return bool
+     * @throws Exception If user lacks permission
+     */
+    protected function check_post_permission($post_id) {
+        // Skip check if authenticated via API key (already verified at REST API level)
+        if (defined('METASYNC_MCP_API_KEY_AUTH') && METASYNC_MCP_API_KEY_AUTH) {
+            return true;
+        }
+
+        // For WordPress user sessions, check post-level permission
+        if (!current_user_can('edit_post', $post_id)) {
+            throw new Exception('You do not have permission to edit this post');
         }
         return true;
     }

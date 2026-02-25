@@ -38,7 +38,11 @@ if (!defined('ABSPATH')) {
                     <div class="stat-content">
                         <div class="stat-label">Status</div>
                         <div class="stat-value <?php echo $sitemap_exists ? 'status-active' : 'status-inactive'; ?>">
-                            <?php echo $sitemap_exists ? 'Generated' : 'Not Generated'; ?>
+                            <?php 
+                            echo $sitemap_exists ? 'Generated' : 'Not Generated';
+                            if ($sitemap_exists && $sitemap_generator->is_virtual_mode()): ?>
+                                <span style="color: #2271b1; font-size: 12px; margin-left: 5px;">(Virtual)</span>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>

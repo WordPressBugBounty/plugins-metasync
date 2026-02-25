@@ -504,9 +504,7 @@ class MCP_Tool_Set_Post_Categories extends MCP_Tool_Base {
             throw new Exception(sprintf("Post not found: %d", absint($post_id)));
         }
 
-        if (!current_user_can('edit_post', $post_id)) {
-            throw new Exception('You do not have permission to edit this post');
-        }
+        $this->check_post_permission($post_id);
 
         $category_ids = array_map('intval', $params['category_ids']);
 
@@ -540,6 +538,526 @@ class MCP_Tool_Set_Post_Categories extends MCP_Tool_Base {
             'post_title' => $post->post_title,
             'categories' => $categories_data,
             'message' => 'Categories updated successfully',
+        ]);
+    }
+}
+
+/**
+ * List Tags Tool
+ *
+ * Lists all tags
+ */
+class MCP_Tool_List_Tags extends MCP_Tool_Base {
+
+    public function get_name() {
+        return 'wordpress_list_tags';
+    }
+
+    public function get_description() {
+        return 'List all tags with their details';
+    }
+
+    public function get_input_schema() {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'hide_empty' => [
+                    'type' => 'boolean',
+                    'description' => 'Whether to hide tags with no posts (default: false)',
+                ],
+                'orderby' => [
+                    'type' => 'string',
+                    'enum' => ['name', 'slug', 'count', 'id'],
+                    'description' => 'Order by field (default: name)',
+                ],
+                'order' => [
+                    'type' => 'string',
+                    'enum' => ['ASC', 'DESC'],
+                    'description' => 'Sort order (default: ASC)',
+                ],
+                'number' => [
+                    'type' => 'integer',
+                    'description' => 'Maximum number of tags to return (default: all)',
+                ],
+            ],
+        ];
+    }
+
+    public function execute($params) {
+        $this->validate_params($params);
+        $this->require_capability('manage_categories'); // Same capability for tags
+
+        $args = [
+            'taxonomy' => 'post_tag',
+            'hide_empty' => isset($params['hide_empty']) ? (bool)$params['hide_empty'] : false,
+            'orderby' => isset($params['orderby']) ? sanitize_text_field($params['orderby']) : 'name',
+            'order' => isset($params['order']) ? sanitize_text_field($params['order']) : 'ASC',
+        ];
+
+        if (isset($params['number'])) {
+            $args['number'] = intval($params['number']);
+        }
+
+        $tags = get_terms($args);
+
+        if (is_wp_error($tags)) {
+            throw new Exception('Failed to retrieve tags: ' . $tags->get_error_message());
+        }
+
+        $tags_data = [];
+        foreach ($tags as $tag) {
+            $tags_data[] = [
+                'term_id' => $tag->term_id,
+                'name' => $tag->name,
+                'slug' => $tag->slug,
+                'description' => $tag->description,
+                'count' => $tag->count,
+            ];
+        }
+
+        return $this->success([
+            'count' => count($tags_data),
+            'tags' => $tags_data,
+        ]);
+    }
+}
+
+/**
+ * Get Tag Tool
+ *
+ * Gets a specific tag
+ */
+class MCP_Tool_Get_Tag extends MCP_Tool_Base {
+
+    public function get_name() {
+        return 'wordpress_get_tag';
+    }
+
+    public function get_description() {
+        return 'Get tag details by ID or slug';
+    }
+
+    public function get_input_schema() {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'tag_id' => [
+                    'type' => 'integer',
+                    'description' => 'Tag ID',
+                ],
+                'slug' => [
+                    'type' => 'string',
+                    'description' => 'Tag slug',
+                ],
+            ],
+        ];
+    }
+
+    public function execute($params) {
+        $this->validate_params($params);
+        $this->require_capability('manage_categories');
+
+        $tag_id = isset($params['tag_id']) ? intval($params['tag_id']) : null;
+        $slug = isset($params['slug']) ? sanitize_text_field($params['slug']) : null;
+
+        if (empty($tag_id) && empty($slug)) {
+            throw new Exception('Either tag_id or slug must be provided');
+        }
+
+        if (!empty($tag_id)) {
+            $tag = get_term($tag_id, 'post_tag');
+        } else {
+            $tag = get_term_by('slug', $slug, 'post_tag');
+        }
+
+        if (is_wp_error($tag)) {
+            throw new Exception('Failed to retrieve tag: ' . $tag->get_error_message());
+        }
+
+        if (!$tag) {
+            throw new Exception('Tag not found');
+        }
+
+        return $this->success([
+            'term_id' => $tag->term_id,
+            'name' => $tag->name,
+            'slug' => $tag->slug,
+            'description' => $tag->description,
+            'count' => $tag->count,
+        ]);
+    }
+}
+
+/**
+ * Create Tag Tool
+ *
+ * Creates a new tag
+ */
+class MCP_Tool_Create_Tag extends MCP_Tool_Base {
+
+    public function get_name() {
+        return 'wordpress_create_tag';
+    }
+
+    public function get_description() {
+        return 'Create a new tag';
+    }
+
+    public function get_input_schema() {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'name' => [
+                    'type' => 'string',
+                    'description' => 'Tag name',
+                ],
+                'slug' => [
+                    'type' => 'string',
+                    'description' => 'Tag slug (optional, auto-generated from name if not provided)',
+                ],
+                'description' => [
+                    'type' => 'string',
+                    'description' => 'Tag description (optional)',
+                ],
+            ],
+            'required' => ['name'],
+        ];
+    }
+
+    public function execute($params) {
+        $this->validate_params($params);
+        $this->require_capability('manage_categories');
+
+        $args = [
+            'description' => isset($params['description']) ? sanitize_textarea_field($params['description']) : '',
+        ];
+
+        if (!empty($params['slug'])) {
+            $args['slug'] = sanitize_title($params['slug']);
+        }
+
+        $result = wp_insert_term(
+            sanitize_text_field($params['name']),
+            'post_tag',
+            $args
+        );
+
+        if (is_wp_error($result)) {
+            throw new Exception('Failed to create tag: ' . $result->get_error_message());
+        }
+
+        $tag = get_term($result['term_id'], 'post_tag');
+
+        return $this->success([
+            'term_id' => $tag->term_id,
+            'name' => $tag->name,
+            'slug' => $tag->slug,
+            'description' => $tag->description,
+            'message' => 'Tag created successfully',
+        ]);
+    }
+}
+
+/**
+ * Update Tag Tool
+ *
+ * Updates an existing tag
+ */
+class MCP_Tool_Update_Tag extends MCP_Tool_Base {
+
+    public function get_name() {
+        return 'wordpress_update_tag';
+    }
+
+    public function get_description() {
+        return 'Update an existing tag';
+    }
+
+    public function get_input_schema() {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'tag_id' => [
+                    'type' => 'integer',
+                    'description' => 'Tag ID to update',
+                ],
+                'name' => [
+                    'type' => 'string',
+                    'description' => 'Tag name (optional)',
+                ],
+                'slug' => [
+                    'type' => 'string',
+                    'description' => 'Tag slug (optional)',
+                ],
+                'description' => [
+                    'type' => 'string',
+                    'description' => 'Tag description (optional)',
+                ],
+            ],
+            'required' => ['tag_id'],
+        ];
+    }
+
+    public function execute($params) {
+        $this->validate_params($params);
+        $this->require_capability('manage_categories');
+
+        $tag_id = intval($params['tag_id']);
+
+        // Verify tag exists
+        $tag = get_term($tag_id, 'post_tag');
+        if (is_wp_error($tag) || !$tag) {
+            throw new Exception(sprintf("Tag not found with ID: %d", absint($tag_id)));
+        }
+
+        $args = [];
+
+        if (isset($params['name'])) {
+            $args['name'] = sanitize_text_field($params['name']);
+        }
+
+        if (isset($params['slug'])) {
+            $args['slug'] = sanitize_title($params['slug']);
+        }
+
+        if (isset($params['description'])) {
+            $args['description'] = sanitize_textarea_field($params['description']);
+        }
+
+        if (empty($args)) {
+            throw new Exception('No fields to update provided');
+        }
+
+        $result = wp_update_term($tag_id, 'post_tag', $args);
+
+        if (is_wp_error($result)) {
+            throw new Exception('Failed to update tag: ' . $result->get_error_message());
+        }
+
+        $updated_tag = get_term($result['term_id'], 'post_tag');
+
+        return $this->success([
+            'term_id' => $updated_tag->term_id,
+            'name' => $updated_tag->name,
+            'slug' => $updated_tag->slug,
+            'description' => $updated_tag->description,
+            'message' => 'Tag updated successfully',
+        ]);
+    }
+}
+
+/**
+ * Delete Tag Tool
+ *
+ * Deletes a tag
+ */
+class MCP_Tool_Delete_Tag extends MCP_Tool_Base {
+
+    public function get_name() {
+        return 'wordpress_delete_tag';
+    }
+
+    public function get_description() {
+        return 'Delete a tag permanently';
+    }
+
+    public function get_input_schema() {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'tag_id' => [
+                    'type' => 'integer',
+                    'description' => 'Tag ID to delete',
+                ],
+            ],
+            'required' => ['tag_id'],
+        ];
+    }
+
+    public function execute($params) {
+        $this->validate_params($params);
+        $this->require_capability('manage_categories');
+
+        $tag_id = intval($params['tag_id']);
+
+        // Verify tag exists
+        $tag = get_term($tag_id, 'post_tag');
+        if (is_wp_error($tag) || !$tag) {
+            throw new Exception(sprintf("Tag not found with ID: %d", absint($tag_id)));
+        }
+
+        $name = $tag->name;
+
+        $result = wp_delete_term($tag_id, 'post_tag');
+
+        if (is_wp_error($result)) {
+            throw new Exception('Failed to delete tag: ' . $result->get_error_message());
+        }
+
+        if (!$result) {
+            throw new Exception('Failed to delete tag');
+        }
+
+        return $this->success([
+            'tag_id' => $tag_id,
+            'name' => $name,
+            'message' => 'Tag deleted successfully',
+        ]);
+    }
+}
+
+/**
+ * Get Post Tags Tool
+ *
+ * Gets tags assigned to a post
+ */
+class MCP_Tool_Get_Post_Tags extends MCP_Tool_Base {
+
+    public function get_name() {
+        return 'wordpress_get_post_tags';
+    }
+
+    public function get_description() {
+        return 'Get all tags assigned to a post';
+    }
+
+    public function get_input_schema() {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'post_id' => [
+                    'type' => 'integer',
+                    'description' => 'Post ID',
+                ],
+            ],
+            'required' => ['post_id'],
+        ];
+    }
+
+    public function execute($params) {
+        $this->validate_params($params);
+        $this->require_capability('edit_posts');
+
+        $post_id = intval($params['post_id']);
+
+        // Validate post exists
+        $post = get_post($post_id);
+        if (!$post) {
+            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
+        }
+
+        $tags = get_the_tags($post_id);
+
+        // get_the_tags() returns false if no tags
+        if ($tags === false) {
+            $tags = [];
+        }
+
+        $tags_data = [];
+        foreach ($tags as $tag) {
+            $tags_data[] = [
+                'term_id' => $tag->term_id,
+                'name' => $tag->name,
+                'slug' => $tag->slug,
+                'description' => $tag->description,
+            ];
+        }
+
+        return $this->success([
+            'post_id' => $post_id,
+            'post_title' => $post->post_title,
+            'count' => count($tags_data),
+            'tags' => $tags_data,
+        ]);
+    }
+}
+
+/**
+ * Set Post Tags Tool
+ *
+ * Sets tags for a post
+ */
+class MCP_Tool_Set_Post_Tags extends MCP_Tool_Base {
+
+    public function get_name() {
+        return 'wordpress_set_post_tags';
+    }
+
+    public function get_description() {
+        return 'Set tags for a post (replaces existing tags). Accepts tag IDs, names, or slugs.';
+    }
+
+    public function get_input_schema() {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'post_id' => [
+                    'type' => 'integer',
+                    'description' => 'Post ID',
+                ],
+                'tags' => [
+                    'type' => 'array',
+                    'description' => 'Array of tag IDs, names, or slugs. Tags that don\'t exist will be created automatically.',
+                    'items' => [
+                        'oneOf' => [
+                            ['type' => 'integer'],
+                            ['type' => 'string'],
+                        ],
+                    ],
+                ],
+                'append' => [
+                    'type' => 'boolean',
+                    'description' => 'If true, append tags to existing tags instead of replacing (default: false)',
+                ],
+            ],
+            'required' => ['post_id', 'tags'],
+        ];
+    }
+
+    public function execute($params) {
+        $this->validate_params($params);
+        $this->require_capability('edit_posts');
+
+        $post_id = intval($params['post_id']);
+
+        // Validate post exists and user can edit it
+        $post = get_post($post_id);
+        if (!$post) {
+            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
+        }
+
+        $this->check_post_permission($post_id);
+
+        $tags = $params['tags'];
+        $append = isset($params['append']) ? (bool)$params['append'] : false;
+
+        // WordPress wp_set_post_tags() handles tag creation automatically
+        $result = wp_set_post_tags($post_id, $tags, $append);
+
+        if (is_wp_error($result)) {
+            throw new Exception('Failed to set tags: ' . $result->get_error_message());
+        }
+
+        // Get updated tags
+        $post_tags = get_the_tags($post_id);
+        if ($post_tags === false) {
+            $post_tags = [];
+        }
+
+        $tags_data = [];
+        foreach ($post_tags as $tag) {
+            $tags_data[] = [
+                'term_id' => $tag->term_id,
+                'name' => $tag->name,
+                'slug' => $tag->slug,
+            ];
+        }
+
+        return $this->success([
+            'post_id' => $post_id,
+            'post_title' => $post->post_title,
+            'tags' => $tags_data,
+            'message' => sprintf('%s successfully', $append ? 'Tags appended' : 'Tags updated'),
         ]);
     }
 }

@@ -49,32 +49,30 @@ class Metasync_Sync_Requests
             return false;
         }
 
-        # last hb request 
+        # last hb request
         $last_hb_request_time = $metasync_options['general']['last_heart_beat'] ?? 0;
 
-        # introducing a last call time
-        # making sure requests are at least 5 min apart if hb
+        # PR3: Throttle depends on state — burst (KEY_PENDING within 30 min) allows 30s; else 5 min
         $is_heartbeat = isset($_POST['is_heart_beat']) && $_POST['is_heart_beat'] == true;
-        
+        $is_burst = !empty($_POST['is_burst']);
+        $heartbeat_state = $metasync_options['general']['heartbeat_state'] ?? '';
+        $state_changed_at = (int) ($metasync_options['general']['heartbeat_state_changed_at'] ?? 0);
+        $burst_window_end = $state_changed_at + (30 * 60); // 30 min cap
+        $in_burst_window = ($heartbeat_state === 'KEY_PENDING' && $burst_window_end > time());
+        $min_interval_sec = ($in_burst_window || $is_burst) ? 30 : (60 * 5);
 
-        if($is_heartbeat){
-            
-            # chec that we have a 5 min gap
-            if(($last_hb_request_time + (60*5)) > time()){
-                $remaining_time = ($last_hb_request_time + (60*5)) - time();
-                $remaining_minutes = ceil($remaining_time / 60);
-                
-                // Return a special error object for throttling
+        if ($is_heartbeat) {
+            if (($last_hb_request_time + $min_interval_sec) > time()) {
+                $remaining_time = ($last_hb_request_time + $min_interval_sec) - time();
+                $remaining_minutes = max(1, ceil($remaining_time / 60));
                 return (object) [
                     'error' => 'throttled',
-                    'message' => 'Please make another request after ' . $remaining_minutes . ' minutes',
+                    'message' => 'Please make another request after ' . $remaining_minutes . ' minute(s)',
                     'remaining_minutes' => $remaining_minutes,
                     'last_request_time' => $last_hb_request_time,
                     'throttled' => true
                 ];
             }
-
-            # set the last heart beat request time
             $metasync_options['general']['last_heart_beat'] = time();
         }
 
@@ -187,6 +185,7 @@ class Metasync_Sync_Requests
             'users' => $new_users,
             'version'=>constant('METASYNC_VERSION'),
             'permalink_structure'=>((($current_permalink_structure == '/%post_id%/' || $current_permalink_structure == '') && $current_rewrite_rules == '')?false:true),
+            'otto_pixel_uuid' => $general_options['otto_pixel_uuid'] ?? '',
         ];
 
         # append login auth token to payload
@@ -224,10 +223,33 @@ class Metasync_Sync_Requests
             return; //new WP_Error( $response_code, 'Unknown error occurred' );
         } else {
 
-            # update the metasync options
+            # PR2: Parse heartbeat response for UUID self-healing and clone detection
+            $response_body = json_decode(wp_remote_retrieve_body($response), true);
+            $current_uuid = $metasync_options['general']['otto_pixel_uuid'] ?? '';
+            if (is_array($response_body) && !empty($response_body['otto_pixel_uuid'])) {
+                $response_uuid = sanitize_text_field($response_body['otto_pixel_uuid']);
+                if (!empty($response_body['uuid_mismatch'])) {
+                    # Domain clone: backend says local UUID is wrong for this domain
+                    $metasync_options['general']['otto_pixel_uuid'] = $response_uuid;
+                    error_log('MetaSync: UUID corrected from ' . $current_uuid . ' to ' . $response_uuid . ' (domain clone detected)');
+                } elseif (empty($current_uuid)) {
+                    # Self-heal: SSO callback failed but API key was saved; recover UUID from heartbeat
+                    $metasync_options['general']['otto_pixel_uuid'] = $response_uuid;
+                    error_log('MetaSync: UUID set from heartbeat response (self-heal after SSO callback missed)');
+                }
+            }
+
+            # PR3: Server confirmation → transition to CONNECTED (backend sends registered: true; accept both for compatibility)
+            if (is_array($response_body) && (!empty($response_body['registered']) || !empty($response_body['heartbeat_confirmed']))) {
+                $metasync_options['general']['heartbeat_state'] = 'CONNECTED';
+                $metasync_options['general']['heartbeat_state_changed_at'] = time();
+            }
+
+            # Granular otto_config_status: record last successful heartbeat (ISO 8601 UTC)
+            $metasync_options['general']['last_heartbeat_at'] = gmdate('Y-m-d\TH:i:s\Z');
             Metasync::set_option($metasync_options);
 
-            return $response;//json_decode( wp_remote_retrieve_body( $response ), true );
+            return $response;
         }
     }
     public function post_categories() {

@@ -404,7 +404,7 @@ class HtmlDocument
 
 		$this->char = (++$this->pos < $this->size) ? $this->doc[$this->pos] : null; // next
 
-		if ($trim && strpos($this->token_blank, $this->char) !== false) { // "<   /html>"
+		if ($trim && $this->char !== null && strpos($this->token_blank, $this->char) !== false) { // "<   /html>"
 			$this->pos += strspn($this->doc, $this->token_blank, $this->pos);
 			$this->char = ($this->pos < $this->size) ? $this->doc[$this->pos] : null; // next
 		}
@@ -690,7 +690,7 @@ class HtmlDocument
 				}
 
 				// [1] Whitespace after attribute name
-				$space[1] = (strpos($this->token_blank, $this->char) === false) ? '' : $this->copy_skip($this->token_blank);
+				$space[1] = ($this->char === null || strpos($this->token_blank, $this->char) === false) ? '' : $this->copy_skip($this->token_blank);
 
 				$name = $this->restore_noise($name); // might be a noisy name
 
@@ -718,7 +718,7 @@ class HtmlDocument
 
 				// prepare for next attribute
 				$space = array(
-					((strpos($this->token_blank, $this->char) === false) ? '' : $this->copy_skip($this->token_blank)),
+					(($this->char === null || strpos($this->token_blank, $this->char) === false) ? '' : $this->copy_skip($this->token_blank)),
 					'',
 					''
 				);
@@ -807,7 +807,7 @@ class HtmlDocument
 		$is_duplicate = isset($node->attr[$name]);
 
 		if (!$is_duplicate) // Copy whitespace between "=" and value
-			$space[2] = (strpos($this->token_blank, $this->char) === false) ? '' : $this->copy_skip($this->token_blank);
+			$space[2] = ($this->char === null || strpos($this->token_blank, $this->char) === false) ? '' : $this->copy_skip($this->token_blank);
 
 		switch ($this->char) {
 			case '"':

@@ -57,6 +57,33 @@ class Metasync_Robots_Txt
         // Load database class
         require_once plugin_dir_path(__FILE__) . 'class-metasync-robots-txt-database.php';
         $this->database = Metasync_Robots_Txt_Database::get_instance();
+
+        // Register hook to serve virtual robots.txt
+        add_filter('robots_txt', array($this, 'serve_virtual_robots_txt'), 10, 2);
+    }
+
+    /**
+     * Serve virtual robots.txt content via WordPress filter
+     *
+     * @param string $output The robots.txt output
+     * @param bool $public Whether the site is public
+     * @return string The robots.txt content
+     */
+    public function serve_virtual_robots_txt($output, $public)
+    {
+        // Only serve virtual content if physical file doesn't exist
+        if (!file_exists($this->robots_file_path)) {
+            // Check if we have virtual content
+            if ($this->database->is_virtual_mode()) {
+                $virtual_content = $this->database->get_virtual_content();
+                if (false !== $virtual_content) {
+                    return $virtual_content;
+                }
+            }
+        }
+
+        // Return default output (WordPress will handle it)
+        return $output;
     }
 
     /**
@@ -66,8 +93,21 @@ class Metasync_Robots_Txt
      */
     public function read_robots_file()
     {
-        // Check if file exists
+        // Check virtual content first if virtual mode is active
+        if ($this->database->is_virtual_mode()) {
+            $virtual_content = $this->database->get_virtual_content();
+            if (false !== $virtual_content) {
+                return $virtual_content;
+            }
+        }
+
+        // Check if physical file exists
         if (!file_exists($this->robots_file_path)) {
+            // Check if we have virtual content as fallback
+            $virtual_content = $this->database->get_virtual_content();
+            if (false !== $virtual_content) {
+                return $virtual_content;
+            }
             // Return default robots.txt content
             return $this->get_default_robots_content();
         }
@@ -90,6 +130,11 @@ class Metasync_Robots_Txt
         $content = @file_get_contents($this->robots_file_path);
 
         if (false === $content) {
+            // Check virtual content as last resort
+            $virtual_content = $this->database->get_virtual_content();
+            if (false !== $virtual_content) {
+                return $virtual_content;
+            }
             return new WP_Error('read_error', esc_html__('Could not read robots.txt file.', 'metasync'));
         }
 
@@ -124,6 +169,8 @@ class Metasync_Robots_Txt
                 );
 
                 if ($result) {
+                    // Clear virtual mode if file was successfully written
+                    $this->database->clear_virtual_content();
                     return true;
                 }
             }
@@ -132,16 +179,25 @@ class Metasync_Robots_Txt
         // Fallback to native PHP file operations
         $result = @file_put_contents($this->robots_file_path, $content);
 
-        if (false === $result) {
-            return new WP_Error('write_error', esc_html__('Could not write to robots.txt file. Please check file permissions.', 'metasync'));
+        if (false !== $result) {
+            // Set secure permissions: 0644 (rw-r--r--)
+            // Owner can read/write, group and others can only read
+            // This is the WordPress standard for files
+            @chmod($this->robots_file_path, 0644);
+            // Clear virtual mode if file was successfully written
+            $this->database->clear_virtual_content();
+            return true;
         }
 
-        // Set secure permissions: 0644 (rw-r--r--)
-        // Owner can read/write, group and others can only read
-        // This is the WordPress standard for files
-        @chmod($this->robots_file_path, 0644);
+        // File write failed - fallback to virtual file storage
+        $virtual_stored = $this->database->store_virtual_content($content);
+        if ($virtual_stored) {
+            $this->database->set_virtual_mode(true);
+            // Return success but indicate it's virtual
+            return true;
+        }
 
-        return true;
+        return new WP_Error('write_error', esc_html__('Could not write to robots.txt file. Please check file permissions.', 'metasync'));
     }
 
     /**
@@ -268,13 +324,26 @@ class Metasync_Robots_Txt
     }
 
     /**
-     * Check if robots.txt file exists
+     * Check if robots.txt file exists (physical or virtual)
      *
-     * @return bool True if exists, false otherwise
+     * @return bool True if exists (physical or virtual), false otherwise
      */
     public function file_exists()
     {
-        return file_exists($this->robots_file_path);
+        // Check physical file first
+        if (file_exists($this->robots_file_path)) {
+            return true;
+        }
+        
+        // Check virtual content
+        if ($this->database->is_virtual_mode()) {
+            $virtual_content = $this->database->get_virtual_content();
+            if (false !== $virtual_content) {
+                return true;
+            }
+        }
+        
+        return false;
     }
 
     /**
@@ -311,7 +380,18 @@ class Metasync_Robots_Txt
         }
 
         // If file doesn't exist, check if parent directory is writable
+        // If not writable, virtual mode will be used
         return is_writable(ABSPATH);
+    }
+
+    /**
+     * Check if virtual mode is active
+     *
+     * @return bool True if virtual mode is active
+     */
+    public function is_virtual_mode()
+    {
+        return $this->database->is_virtual_mode();
     }
 
     /**

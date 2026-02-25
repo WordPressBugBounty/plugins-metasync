@@ -275,7 +275,7 @@ class MCP_Tool_Get_Post_Types extends MCP_Tool_Base {
     public function get_input_schema() {
         return [
             'type' => 'object',
-            'properties' => [],
+            'properties' => (object)[],
             'required' => []
         ];
     }

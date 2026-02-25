@@ -925,9 +925,19 @@
 			showSyncSuccess('🧹 Error Logs Cleared', 'All error log entries have been successfully cleared.');
 		}
 		
+		// Show success message for cleared error summary
+		if (urlParams.get('error_summary_cleared') === '1') {
+			showSyncSuccess('📊 Error Summary Cleared', 'Error summary has been cleared successfully.');
+		}
+		
 		// Show error message for failed clear operation
 		if (urlParams.get('clear_error') === '1') {
 			showSyncError('❌ Clear Failed', 'Unable to clear the error logs. Please check permissions or try again.');
+		}
+		
+		// Show error message for failed error summary clear
+		if (urlParams.get('error_summary_error') === '1') {
+			showSyncError('❌ Clear Failed', 'Unable to clear the error summary. Please try again.');
 		}
 		
 		// Check global variables are available
@@ -2171,24 +2181,24 @@
 			if (isAdvancedTab()) {
 				return;
 			}
-			
-			var $forms = $('#metaSyncGeneralSetting, form[method="post"][action*="options.php"]');
-			
+
+			var $forms = $('#metaSyncGeneralSetting, #metaSyncSeoControlsForm, form[method="post"][action*="options.php"]');
+
 			if ($forms.length === 0) {
 				return; // No forms to track
 			}
-			
+
 			// Store initial form data
 			$forms.each(function () {
 				var formId = $(this).attr('id') || 'form_' + Math.random().toString(36).substr(2, 9);
 				initialFormData[formId] = $(this).serialize();
 			});
-			
+
 			// Track changes on form inputs
 			$forms.on('input change', 'input, select, textarea', function () {
 				checkForChanges();
 			});
-			
+
 			// Special handling for media uploads and other dynamic changes
 			$forms.on('DOMSubtreeModified', function () {
 				setTimeout(checkForChanges, 100); // Small delay to allow DOM changes to complete
@@ -2334,9 +2344,9 @@
 			var originalAjaxHandler = $(this).data('events') && $(this).data('events').submit;
 		});
 		
-		// Listen for successful form submission to clear the unsaved changes flag
-		$(document).ajaxSuccess(function (event, xhr, settings) {
-			if (settings.data && settings.data.indexOf('action=meta_sync_save_settings') > -1) {
+	// Listen for successful form submission to clear the unsaved changes flag
+	$(document).ajaxSuccess(function (event, xhr, settings) {
+		if (settings.data && typeof settings.data === 'string' && settings.data.indexOf('action=meta_sync_save_settings') > -1) {
 				try {
 					var response = JSON.parse(xhr.responseText);
 					if (response.success) {
@@ -2535,13 +2545,17 @@
 										'<p><strong>✅ Success!</strong> ' + response.data.message + '</p>' +
 										'</div>'
 									);
-									
+
 									// Clear unsaved changes state
 									hasUnsavedChanges = false;
 									if (typeof updateUnsavedChangesIndicator === 'function') {
 										updateUnsavedChangesIndicator();
 									}
-									
+
+									// Update initial form data to current state after successful save
+									var formId = $form.attr('id') || 'metaSyncSeoControlsForm';
+									initialFormData[formId] = $form.serialize();
+
 									// Auto-hide success notice after 5 seconds
 									setTimeout(function () {
 										$('#seo-controls-messages .notice-success').fadeOut();
@@ -2570,10 +2584,19 @@
 								// Show error message above Indexation Control section
 								$('#seo-controls-messages').html(
 									'<div class="notice notice-error is-dismissible" style="margin-bottom: 20px;">' +
-									'<p><strong>❌ Error!</strong> Network error occurred while saving.</p>' +
+									'<p><strong>❌ Error!</strong> Network error occurred while saving. Please check your connection and try again.</p>' +
 									'</div>'
 								);
 								console.error('AJAX Error:', error);
+								console.error('XHR Status:', xhr.status);
+								console.error('XHR Response:', xhr.responseText);
+
+								// Don't clear unsaved changes on network error
+								// User may want to retry or fix the issue
+							},
+							complete: function() {
+								// Re-enable save button if it was disabled
+								$('.metasync-save-button').prop('disabled', false);
 							}
 						});
 					} else {
@@ -2980,6 +3003,34 @@
 		// Initialize tooltip system
 		initTooltipSystem();
 
+		// PR3: Burst ping — 30s polling when UNREGISTERED or KEY_PENDING (max 30 min)
+		(function () {
+			if (typeof metaSync === 'undefined' || !metaSync.heartbeat_state) return;
+			var state = metaSync.heartbeat_state;
+			if (state !== 'UNREGISTERED' && state !== 'KEY_PENDING') return;
+			var BURST_CAP_MS = 30 * 60 * 1000;
+			var startedAt = Date.now();
+			var intervalId = setInterval(function () {
+				if (Date.now() - startedAt > BURST_CAP_MS) {
+					clearInterval(intervalId);
+					return;
+				}
+				$.post(metaSync.ajax_url, {
+					action: 'metasync_burst_ping',
+					nonce: metaSync.burst_ping_nonce
+				})
+					.done(function (res) {
+						if (res.success && res.data) {
+							if (res.data.heartbeat_confirmed || res.data.state === 'CONNECTED') {
+								clearInterval(intervalId);
+								if (res.data.state === 'CONNECTED' && typeof updateHeaderStatus === 'function') {
+									updateHeaderStatus(true, 'Synced', 'Heartbeat confirmed');
+								}
+							}
+						}
+					});
+			}, 30000);
+		})();
 
 	});
 
