@@ -153,9 +153,9 @@ Class Metasync_otto_html{
             }
         }
         
-        # Check header_html_insertion for description
+        # Check header_html_insertion for description - must have non-empty content value
         if (!empty($change_data['header_html_insertion'])) {
-            if (preg_match('/<meta[^>]*name=["\']description["\'][^>]*>/i', $change_data['header_html_insertion'])) {
+            if (preg_match('/<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"\']+)["\'][^>]*>/i', $change_data['header_html_insertion'])) {
                 $otto_description_tags[] = 'meta[name=description]';
             }
         }
@@ -854,10 +854,15 @@ Class Metasync_otto_html{
                 continue;
             }
 
-            # handle title - skip if custom SEO title exists
+            # handle title - skip if custom SEO title exists or no value
             if($data['type'] == 'title'){
                 if (!empty($custom_seo_title)) {
                     # Skip title replacement - custom SEO title takes priority
+                    continue;
+                }
+
+                # Skip if OTTO has no title value
+                if (empty(trim($data['recommended_value'] ?? $data['value'] ?? ''))) {
                     continue;
                 }
 
@@ -890,6 +895,13 @@ Class Metasync_otto_html{
 
     # function to handle meta elements other than title
     function handle_meta_element($data){
+
+        # Skip if OTTO has no value to set - prevents overwriting existing tags (e.g. Yoast)
+        # with empty content when OTTO has no recommendation for this meta field
+        $recommended_value = $data['recommended_value'] ?? $data['value'] ?? '';
+        if (empty(trim($recommended_value))) {
+            return;
+        }
 
         # Check if this is a description meta tag and if custom description exists
         # Custom values take absolute priority over OTTO suggestions
@@ -1573,23 +1585,26 @@ Class Metasync_otto_html{
             }
 
             # AGGRESSIVE DUPLICATE REMOVAL: Remove any meta description without data-otto marker
-            # This catches meta descriptions added by theme/plugins/custom code AFTER OTTO processing
-            # Especially needed when no SEO plugin is active but theme adds meta tags
+            # Only runs when OTTO has actually inserted its own description (data-otto marker present)
+            # This prevents stripping Yoast/plugin descriptions when OTTO has no description to replace
 
             $removal_count = 0;
-            $result_html = preg_replace_callback(
-                '/<meta\s+([^>]*name=["\']description["\'][^>]*)>/i',
-                function($match) use (&$removal_count) {
-                    # Keep only if it has data-otto="true"
-                    if (stripos($match[1], 'data-otto') !== false) {
-                        return $match[0]; // Keep OTTO's meta tag
-                    }
-                    # Remove any other meta description
-                    $removal_count++;
-                    return '';
-                },
-                $result_html
-            );
+            $otto_has_description = (bool) preg_match('/<meta[^>]*name=["\']description["\'][^>]*data-otto[^>]*>/i', $result_html);
+            if ($otto_has_description) {
+                $result_html = preg_replace_callback(
+                    '/<meta\s+([^>]*name=["\']description["\'][^>]*)>/i',
+                    function($match) use (&$removal_count) {
+                        # Keep only if it has data-otto="true"
+                        if (stripos($match[1], 'data-otto') !== false) {
+                            return $match[0]; // Keep OTTO's meta tag
+                        }
+                        # Remove any other meta description
+                        $removal_count++;
+                        return '';
+                    },
+                    $result_html
+                );
+            }
 
 
             # MEMORY OPTIMIZED: Free all large objects and arrays before returning

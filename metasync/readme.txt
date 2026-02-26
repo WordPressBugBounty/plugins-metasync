@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.5.19
+Stable tag: 2.5.20
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,9 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.5.20 =
+* Fixed a case where a empty Otto meta description was overwriting the existing one.
+
 = 2.5.19 =
 New Features
 

@@ -338,8 +338,9 @@ Class Metasync_otto_pixel{
         }
 
         # Check header_html_insertion for description
+        # Must have a non-empty content value, otherwise Yoast would be blocked with nothing to replace it
         if (!empty($suggestions['header_html_insertion'])) {
-            if (preg_match('/<meta[^>]*name=["\']description["\'][^>]*>/i', $suggestions['header_html_insertion'])) {
+            if (preg_match('/<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"\']+)["\'][^>]*>/i', $suggestions['header_html_insertion'])) {
                 $otto_description_tags[] = 'meta[name=description]';
             }
         }
