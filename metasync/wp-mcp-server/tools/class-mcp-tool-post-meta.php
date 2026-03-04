@@ -76,10 +76,7 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
         }
 
         // Verify post exists
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         // SECURITY: Check user has permission to edit this specific post
         $this->check_post_permission($post_id);
@@ -139,10 +136,7 @@ class MCP_Tool_Get_Post_Meta extends MCP_Tool_Base {
         $post_id = $this->sanitize_integer($params['post_id']);
 
         // Verify post exists
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         // Get meta
         if (isset($params['meta_key'])) {
@@ -221,10 +215,7 @@ class MCP_Tool_Get_SEO_Meta extends MCP_Tool_Base {
         $post_id = $this->sanitize_integer($params['post_id']);
 
         // Verify post exists
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         // Get all SEO meta
         $seo_data = [

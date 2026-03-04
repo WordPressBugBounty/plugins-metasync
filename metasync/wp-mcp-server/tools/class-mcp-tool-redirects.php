@@ -155,11 +155,20 @@ class MCP_Tool_List_Redirects extends MCP_Tool_Base {
         $limit = isset($params['limit']) ? $this->sanitize_integer($params['limit']) : 50;
         $redirects = array_slice($redirects, 0, $limit);
 
-        // Format results
+        // Format results (sources_from is stored serialized in DB)
         $result = array_map(function($redirect) {
+            $sources_raw = $redirect->sources_from;
+            $source = null;
+            if ( ! empty( $sources_raw ) ) {
+                $sources = @unserialize( $sources_raw );
+                if ( is_array( $sources ) && ! empty( $sources ) ) {
+                    $keys = array_keys( $sources );
+                    $source = is_int( $keys[0] ) ? $sources[ $keys[0] ] : $keys[0];
+                }
+            }
             return [
                 'id' => $redirect->id,
-                'source' => is_array($redirect->sources_from) ? $redirect->sources_from : json_decode($redirect->sources_from, true),
+                'source' => $source,
                 'destination' => $redirect->url_redirect_to,
                 'type' => $redirect->http_code,
                 'hits' => $redirect->hits_count,
@@ -311,12 +320,20 @@ class MCP_Tool_Update_Redirect extends MCP_Tool_Base {
             throw new Exception('Failed to update redirect');
         }
 
-        // Get updated redirect
+        // Get updated redirect (sources_from is stored serialized in DB)
         $updated = $db->find($redirect_id);
+        $source = null;
+        if ( ! empty( $updated->sources_from ) ) {
+            $sources = @unserialize( $updated->sources_from );
+            if ( is_array( $sources ) && ! empty( $sources ) ) {
+                $keys = array_keys( $sources );
+                $source = is_int( $keys[0] ) ? $sources[ $keys[0] ] : $keys[0];
+            }
+        }
 
         return $this->success([
             'redirect_id' => $redirect_id,
-            'source' => json_decode($updated->sources_from, true),
+            'source' => $source,
             'destination' => $updated->url_redirect_to,
             'type' => $updated->http_code,
             'status' => $updated->status

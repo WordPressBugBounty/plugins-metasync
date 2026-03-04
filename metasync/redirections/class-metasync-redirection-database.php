@@ -148,13 +148,19 @@ class Metasync_Redirection_Database
 				'updated_at'		=> current_time('mysql'),
 			]
 		);
+
+		// Serialize sources_from if array (rest of codebase uses serialized format)
+		if ( is_array( $args['sources_from'] ) ) {
+			$sources = $args['sources_from'];
+			$args['sources_from'] = serialize( array_combine( array_values( $sources ), array_fill( 0, count( $sources ), 'exact' ) ) ?: [] );
+		}
 		
-		$result = $wpdb->insert($this->get_table_name(), $args);
+		$result = $wpdb->insert( $this->get_table_name(), $args );
 		
 		// Clear cache after adding
 		$this->clear_cache();
 		
-		return $result;
+		return $result !== false ? (int) $wpdb->insert_id : false;
 	}
 
 	/**

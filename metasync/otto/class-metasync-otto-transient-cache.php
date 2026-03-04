@@ -300,7 +300,6 @@ class Metasync_Otto_Transient_Cache {
         # Check response code
         $response_code = wp_remote_retrieve_response_code($response);
         if ($response_code !== 200) {
-            error_log('MetaSync OTTO: API returned non-200 for ' . $url . ' - Code: ' . $response_code);
             # For 429/503, the backoff manager will handle it automatically
             # Try to use stale cache for these errors
             if (in_array($response_code, [429, 503], true)) {

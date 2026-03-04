@@ -281,10 +281,7 @@ class MCP_Tool_Exclude_From_Sitemap extends MCP_Tool_Base {
         $exclude = isset($params['exclude']) ? (bool)$params['exclude'] : true;
 
         // Verify post exists
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         // Set robots meta (noindex excludes from sitemap)
         $robots_value = $exclude ? 'noindex' : '';

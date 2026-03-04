@@ -406,16 +406,20 @@ Class Metasync_otto_html{
 
         # Apply insertions
         if (!empty($replacement_data['header_html_insertion'])) {
-            $result_html = preg_replace('/(<\/head>)/i', $replacement_data['header_html_insertion'] . "\n" . '$1', $result_html, 1);
+            $safe_header = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['header_html_insertion']);
+            $result_html = preg_replace('/(<\/head>)/i', $safe_header . "\n" . '$1', $result_html, 1);
         }
         if (!empty($replacement_data['body_top_html_insertion'])) {
-            $result_html = preg_replace('/(<body[^>]*>)/i', '$1' . "\n" . $replacement_data['body_top_html_insertion'], $result_html, 1);
+            $safe_body_top = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['body_top_html_insertion']);
+            $result_html = preg_replace('/(<body[^>]*>)/i', '$1' . "\n" . $safe_body_top, $result_html, 1);
         }
         if (!empty($replacement_data['body_bottom_html_insertion'])) {
-            $result_html = preg_replace('/(<\/body>)/i', $replacement_data['body_bottom_html_insertion'] . "\n" . '$1', $result_html, 1);
+            $safe_body_bottom = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['body_bottom_html_insertion']);
+            $result_html = preg_replace('/(<\/body>)/i', $safe_body_bottom . "\n" . '$1', $result_html, 1);
         }
         if (!empty($replacement_data['footer_html_insertion'])) {
-            $result_html = preg_replace('/(<\/html>)/i', $replacement_data['footer_html_insertion'] . "\n" . '$1', $result_html, 1);
+            $safe_footer = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['footer_html_insertion']);
+            $result_html = preg_replace('/(<\/html>)/i', $safe_footer . "\n" . '$1', $result_html, 1);
         }
 
         return $result_html;
@@ -1472,7 +1476,7 @@ Class Metasync_otto_html{
 
             # Apply header HTML insertion (for schema, etc.)
             if (!empty($replacement_data['header_html_insertion'])) {
-                $header_html = $replacement_data['header_html_insertion'];
+                $header_html = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['header_html_insertion']);
                 # Insert before </head>
                 $result_html = preg_replace('/(<\/head>)/i', $header_html . "\n" . '$1', $result_html, 1);
             }
@@ -1500,21 +1504,21 @@ Class Metasync_otto_html{
 
             # Apply body top HTML insertion
             if (!empty($replacement_data['body_top_html_insertion'])) {
-                $body_top_html = $replacement_data['body_top_html_insertion'];
+                $body_top_html = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['body_top_html_insertion']);
                 # Insert after <body>
                 $result_html = preg_replace('/(<body[^>]*>)/i', '$1' . "\n" . $body_top_html, $result_html, 1);
             }
 
             # Apply body bottom HTML insertion
             if (!empty($replacement_data['body_bottom_html_insertion'])) {
-                $body_bottom_html = $replacement_data['body_bottom_html_insertion'];
+                $body_bottom_html = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['body_bottom_html_insertion']);
                 # Insert before </body>
                 $result_html = preg_replace('/(<\/body>)/i', $body_bottom_html . "\n" . '$1', $result_html, 1);
             }
 
             # Apply footer HTML insertion
             if (!empty($replacement_data['footer_html_insertion'])) {
-                $footer_html = $replacement_data['footer_html_insertion'];
+                $footer_html = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['footer_html_insertion']);
                 # Insert before </html>
                 $result_html = preg_replace('/(<\/html>)/i', $footer_html . "\n" . '$1', $result_html, 1);
             }

@@ -79,24 +79,27 @@ class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
             ]);
         }
 
-        // If section specified
+        // If section specified (options are nested e.g. $all_options['general']['apikey'])
         if (!empty($params['section']) && $params['section'] !== 'all') {
             $section = $this->sanitize_string($params['section']);
 
-            // Map section names to option keys
-            $section_keys = $this->get_section_keys($section);
-            $result = [];
-
-            foreach ($section_keys as $key) {
-                if (isset($all_options[$key])) {
-                    $result[$key] = $all_options[$key];
+            if (isset($all_options[$section]) && is_array($all_options[$section])) {
+                $result = $all_options[$section];
+            } else {
+                // Fallback: map section to flat keys for legacy structure
+                $section_keys = $this->get_section_keys($section);
+                $result = [];
+                foreach ($section_keys as $key) {
+                    if (isset($all_options[$key])) {
+                        $result[$key] = $all_options[$key];
+                    }
                 }
             }
 
             return $this->success([
                 'section' => $section,
                 'settings' => $result,
-                'count' => count($result)
+                'count' => is_array($result) ? count($result) : 0
             ]);
         }
 

@@ -49,10 +49,7 @@ class MCP_Tool_Get_Featured_Image extends MCP_Tool_Base {
         $post_id = intval($params['post_id']);
 
         // Validate post exists
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         $thumbnail_id = get_post_thumbnail_id($post_id);
 
@@ -128,10 +125,7 @@ class MCP_Tool_Set_Featured_Image extends MCP_Tool_Base {
         $attachment_id = intval($params['attachment_id']);
 
         // Validate post exists and user can edit it
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         $this->check_post_permission($post_id);
 
@@ -210,10 +204,7 @@ class MCP_Tool_Upload_Featured_Image extends MCP_Tool_Base {
         $image_url = esc_url_raw($params['image_url']);
 
         // Validate post exists and user can edit it
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         $this->check_post_permission($post_id);
 
@@ -308,10 +299,7 @@ class MCP_Tool_Remove_Featured_Image extends MCP_Tool_Base {
         $post_id = intval($params['post_id']);
 
         // Validate post exists and user can edit it
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         $this->check_post_permission($post_id);
 

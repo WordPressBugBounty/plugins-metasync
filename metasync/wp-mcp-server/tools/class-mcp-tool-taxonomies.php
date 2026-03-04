@@ -430,10 +430,7 @@ class MCP_Tool_Get_Post_Categories extends MCP_Tool_Base {
         $post_id = intval($params['post_id']);
 
         // Validate post exists
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         $categories = get_the_category($post_id);
 
@@ -499,10 +496,7 @@ class MCP_Tool_Set_Post_Categories extends MCP_Tool_Base {
         $post_id = intval($params['post_id']);
 
         // Validate post exists and user can edit it
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         $this->check_post_permission($post_id);
 
@@ -941,10 +935,7 @@ class MCP_Tool_Get_Post_Tags extends MCP_Tool_Base {
         $post_id = intval($params['post_id']);
 
         // Validate post exists
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         $tags = get_the_tags($post_id);
 
@@ -1021,10 +1012,7 @@ class MCP_Tool_Set_Post_Tags extends MCP_Tool_Base {
         $post_id = intval($params['post_id']);
 
         // Validate post exists and user can edit it
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         $this->check_post_permission($post_id);
 

@@ -46,10 +46,7 @@ class MCP_Tool_Analyze_SEO extends MCP_Tool_Base {
         $post_id = $this->sanitize_integer($params['post_id']);
 
         // Verify post exists
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         // Get SEO meta
         $meta_title = get_post_meta($post_id, '_metasync_metatitle', true);
@@ -241,10 +238,7 @@ class MCP_Tool_Check_Indexability extends MCP_Tool_Base {
         $post_id = $this->sanitize_integer($params['post_id']);
 
         // Verify post exists
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         $robots_index = get_post_meta($post_id, '_metasync_robots_index', true);
         $is_indexable = ($robots_index !== 'noindex');

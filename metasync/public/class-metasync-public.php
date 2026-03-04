@@ -2874,7 +2874,6 @@ class Metasync_Public
 	public function validate_searchatlas_callback_permission($request)
 	{
 		try {
-			error_log('MetaSync SA Connect: validate_searchatlas_callback_permission() called');
 			// Step 1: Validate nonce token format from header
 			$nonce_token = $request->get_header('x-api-key');
 			$format_validation = $this->validate_searchatlas_nonce_format($nonce_token);
@@ -2897,7 +2896,6 @@ class Metasync_Public
 			// Check token exists in transients (read-only - don't modify)
 			$transient_key = get_transient('metasync_sa_connect_active_' . $nonce_token);
 			if (empty($transient_key)) {
-				error_log('MetaSync SA Connect Permission: Token not found in transients');
 				return new WP_Error(
 					'invalid_nonce_token',
 					'Invalid or expired nonce token',
@@ -2908,7 +2906,6 @@ class Metasync_Public
 			// Check token metadata exists (read-only)
 			$token_metadata = get_transient($transient_key);
 			if (empty($token_metadata) || !is_array($token_metadata)) {
-				error_log('MetaSync SA Connect Permission: Token metadata not found');
 				return new WP_Error(
 					'invalid_nonce_token',
 					'Invalid nonce token',
@@ -2918,7 +2915,6 @@ class Metasync_Public
 
 			// Check not expired (read-only)
 			if (isset($token_metadata['expires']) && time() > $token_metadata['expires']) {
-				error_log('MetaSync SA Connect Permission: Token expired');
 				return new WP_Error(
 					'invalid_nonce_token',
 					'Nonce token expired',
@@ -2926,7 +2922,6 @@ class Metasync_Public
 				);
 			}
 
-			error_log('MetaSync SA Connect Permission: Token validation passed (read-only check)');
 			// Permission granted - but don't mark token as used yet!
 			// The main handler will do that after successful processing
 			return true;
@@ -2947,7 +2942,6 @@ class Metasync_Public
     private function validate_deterministic_searchatlas_token($token)
     {
         if (empty($token) || strlen($token) < 32) {
-            error_log('MetaSync SA Connect Callback: Token validation failed - invalid token format');
             return false;
         }
 
@@ -2956,7 +2950,6 @@ class Metasync_Public
         $transient_key = get_transient('metasync_sa_connect_active_' . $token);
         
         if (empty($transient_key)) {
-            error_log('MetaSync SA Connect Callback: Token not found in active tokens - rejected');
             return false;
         }
 
@@ -2964,19 +2957,13 @@ class Metasync_Public
         $token_metadata = get_transient($transient_key);
 
         if (empty($token_metadata) || !is_array($token_metadata)) {
-            error_log('MetaSync SA Connect Callback: Token metadata not found');
             delete_transient('metasync_sa_connect_active_' . $token);
             return false;
         }
 
-        error_log('MetaSync SA Connect Callback: Token metadata retrieved, callback_used = ' .
-            (isset($token_metadata['callback_used']) ? ($token_metadata['callback_used'] ? 'true' : 'false') : 'not set'));
-        error_log('MetaSync SA Connect Callback: Token metadata used = ' .
-            (isset($token_metadata['used']) ? ($token_metadata['used'] ? 'true' : 'false') : 'not set'));
 
         // Check expiration
         if (isset($token_metadata['expires']) && time() > $token_metadata['expires']) {
-            error_log('MetaSync SA Connect Callback: Token expired');
             delete_transient($transient_key);
             delete_transient('metasync_sa_connect_active_' . $token);
             return false;
@@ -2984,7 +2971,6 @@ class Metasync_Public
 
         // Check if already used for callback (single-use enforcement)
         if (isset($token_metadata['callback_used']) && $token_metadata['callback_used'] === true) {
-            error_log('MetaSync SA Connect Callback: Token already used for callback - rejected');
             return false;
         }
         
@@ -3149,7 +3135,6 @@ class Metasync_Public
 	public function handle_searchatlas_api_callback($request)
 	{
 		try {
-			error_log('MetaSync SA Connect: handle_searchatlas_api_callback() called');
 			// Step 1: Validate nonce token from header
 			$nonce_token = $request->get_header('x-api-key');
 			$nonce_validation = $this->validate_searchatlas_nonce_format($nonce_token);
@@ -3458,11 +3443,9 @@ class Metasync_Public
     {
         try {
             // DEBUG: Log that callback processing started
-            error_log('MetaSync SA Connect: mark_searchatlas_nonce_used() called with status_code=' . $status_code);
 
             // Validate token parameter
             if (empty($token)) {
-                error_log('MetaSync SA Connect: mark_searchatlas_nonce_used() failed - empty token');
                 return false;
             }
 
@@ -3481,7 +3464,6 @@ class Metasync_Public
             }
             // Only update the API key in settings if status_code is 200 (success)
             if ($status_code === 200) {
-                error_log('MetaSync SA Connect: Status code is 200, updating API key and setting success transient');
                 $options['general']['searchatlas_api_key'] = $new_api_key;
                 $options['general']['otto_pixel_uuid'] = $new_otto_uuid;
                 // Note: OTTO SSR is always enabled by default, no need to set
@@ -3496,13 +3478,11 @@ class Metasync_Public
                 // This ensures only the specific nonce that was authenticated reports success
                 $success_key = 'metasync_sa_connect_success_' . md5($token);
                 set_transient($success_key, true, 300); // 5 minutes expiry
-                error_log('MetaSync SA Connect: Success transient set - key: ' . $success_key);
 
                 // Clear JWT token cache when API key is updated to ensure fresh tokens
                 $this->clear_jwt_token_cache();
 
             } else {
-                error_log('MetaSync SA Connect: Status code is NOT 200 (got ' . $status_code . '), NOT setting success transient');
             }
             
             // Map whitelabel fields consistently (regardless of status_code)
@@ -3555,14 +3535,22 @@ class Metasync_Public
             if (!$save_result) {
                 error_log('MetaSync SA Connect: mark_searchatlas_nonce_used - Failed to save plugin options');
             } else {
-                error_log('MetaSync SA Connect: mark_searchatlas_nonce_used - Options saved successfully');
                 if ($status_code === 200) {
+                    // Option 1: Set heartbeat cache and last-known to CONNECTED so dashboard shows iframe immediately.
+                    // If the immediate heartbeat then fails (e.g. backoff), Option 2 prevents overwriting this to DISCONNECTED.
+                    $cache_data = array(
+                        'status' => true,
+                        'timestamp' => time(),
+                        'cached_until' => time() + 300,
+                        'updated_by' => 'callback_success_optimistic',
+                    );
+                    set_transient('metasync_heartbeat_status_cache', $cache_data, 300);
+                    update_option('metasync_last_known_connection_state', true);
                     do_action('metasync_heartbeat_state_key_pending'); // PR3: burst mode
                     $this->trigger_immediate_heartbeat_after_sa_connect();
                 }
             }
 
-            error_log('MetaSync SA Connect: mark_searchatlas_nonce_used() completed successfully, returning true');
             return true;
             
         } catch (Exception $e) {

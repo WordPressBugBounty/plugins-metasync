@@ -49,10 +49,7 @@ class MCP_Tool_Get_Schema_Markup extends MCP_Tool_Base {
         $post_id = intval($params['post_id']);
 
         // Validate post exists
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         // Get schema data
         $schema_data = get_post_meta($post_id, 'metasync_schema_markup', true);
@@ -138,10 +135,7 @@ class MCP_Tool_Update_Schema_Markup extends MCP_Tool_Base {
         $post_id = intval($params['post_id']);
 
         // Validate post exists and user can edit it
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         $this->check_post_permission($post_id);
 
@@ -224,10 +218,7 @@ class MCP_Tool_Add_Schema_Type extends MCP_Tool_Base {
         $fields = isset($params['fields']) ? $params['fields'] : [];
 
         // Validate post exists and user can edit it
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         $this->check_post_permission($post_id);
 
@@ -303,10 +294,7 @@ class MCP_Tool_Remove_Schema_Type extends MCP_Tool_Base {
         $schema_type = sanitize_text_field($params['schema_type']);
 
         // Validate post exists and user can edit it
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         $this->check_post_permission($post_id);
 
@@ -383,10 +371,7 @@ class MCP_Tool_Validate_Schema extends MCP_Tool_Base {
         $post_id = intval($params['post_id']);
 
         // Validate post exists
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         // Get schema data
         $schema_data = get_post_meta($post_id, 'metasync_schema_markup', true);

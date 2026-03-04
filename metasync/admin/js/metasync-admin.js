@@ -3003,33 +3003,95 @@
 		// Initialize tooltip system
 		initTooltipSystem();
 
-		// PR3: Burst ping — 30s polling when UNREGISTERED or KEY_PENDING (max 30 min)
+		// PR3: Burst ping — polling when UNREGISTERED or KEY_PENDING (max 30 min)
 		(function () {
 			if (typeof metaSync === 'undefined' || !metaSync.heartbeat_state) return;
 			var state = metaSync.heartbeat_state;
 			if (state !== 'UNREGISTERED' && state !== 'KEY_PENDING') return;
+
 			var BURST_CAP_MS = 30 * 60 * 1000;
 			var startedAt = Date.now();
-			var intervalId = setInterval(function () {
-				if (Date.now() - startedAt > BURST_CAP_MS) {
+
+			// Change 1: slow base polling from 30s → 5 minutes
+			var NORMAL_INTERVAL_MS = 5 * 60 * 1000;
+			// Change 2: backoff after repeated attempts → 10 minutes
+			var SLOW_INTERVAL_MS = 10 * 60 * 1000;
+			var MAX_CONSECUTIVE_NO_CONFIRM = 5;
+
+			var currentIntervalMs = NORMAL_INTERVAL_MS;
+			var consecutiveNoConfirm = 0;
+			var inSlowMode = false;
+			var lastState = state;
+			var intervalId = null;
+
+			function clearBurstInterval() {
+				if (intervalId) {
 					clearInterval(intervalId);
-					return;
+					intervalId = null;
 				}
-				$.post(metaSync.ajax_url, {
-					action: 'metasync_burst_ping',
-					nonce: metaSync.burst_ping_nonce
-				})
-					.done(function (res) {
-						if (res.success && res.data) {
-							if (res.data.heartbeat_confirmed || res.data.state === 'CONNECTED') {
-								clearInterval(intervalId);
-								if (res.data.state === 'CONNECTED' && typeof updateHeaderStatus === 'function') {
+			}
+
+			function startBurstInterval() {
+				clearBurstInterval();
+				intervalId = setInterval(function () {
+					// Respect original 30‑minute burst cap
+					if (Date.now() - startedAt > BURST_CAP_MS) {
+						clearBurstInterval();
+						return;
+					}
+
+					$.post(metaSync.ajax_url, {
+						action: 'metasync_burst_ping',
+						nonce: metaSync.burst_ping_nonce
+					})
+						.done(function (res) {
+							if (!res || !res.data) {
+								// Treat missing data as a non-confirmed attempt
+								consecutiveNoConfirm++;
+								return;
+							}
+
+							var data = res.data;
+							var newState = data.state || lastState;
+
+							// Reset counters when state changes (e.g. UNREGISTERED → KEY_PENDING)
+							if (newState !== lastState) {
+								consecutiveNoConfirm = 0;
+								lastState = newState;
+							}
+
+							// Successful confirmation: stop polling
+							if (data.heartbeat_confirmed || newState === 'CONNECTED') {
+								clearBurstInterval();
+								if (newState === 'CONNECTED' && typeof updateHeaderStatus === 'function') {
 									updateHeaderStatus(true, 'Synced', 'Heartbeat confirmed');
 								}
+								return;
 							}
-						}
-					});
-			}, 30000);
+
+							// No confirmation this round
+							consecutiveNoConfirm++;
+
+							// After N consecutive attempts with no confirmation, slow down to 10 minutes
+							if (!inSlowMode && consecutiveNoConfirm >= MAX_CONSECUTIVE_NO_CONFIRM) {
+								inSlowMode = true;
+								currentIntervalMs = SLOW_INTERVAL_MS;
+								startBurstInterval();
+							}
+						})
+						.fail(function () {
+							// Network / server error still counts as a non-confirmed attempt
+							consecutiveNoConfirm++;
+							if (!inSlowMode && consecutiveNoConfirm >= MAX_CONSECUTIVE_NO_CONFIRM) {
+								inSlowMode = true;
+								currentIntervalMs = SLOW_INTERVAL_MS;
+								startBurstInterval();
+							}
+						});
+				}, currentIntervalMs);
+			}
+
+			startBurstInterval();
 		})();
 
 	});

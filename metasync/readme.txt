@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.5.20
+Stable tag: 2.5.21
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,22 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.5.21 =
+###Features                        
+  - Add hosting cache integration (WP Engine + Kinsta) with per-provider toggles in Advanced → Cache
+  Management
+  - Add WP Engine native cache purge (Varnish + Memcached) via `WpeCommon`
+  - Add Kinsta native full-page cache purge via `KinstaCache::kinsta_cache_purge_full()`
+
+  ###Bug Fixes
+  - Fix: SEO placeholder tokens (%%title%%, %sitename%, #post_title#, etc.) now resolved to real values on
+  import from Yoast / Rank Math / AIOSEO
+  - Fix: Customer schema markup being injected into the global site header
+  - Fix: WP Rocket compatibility — OTTO no longer disables WP Rocket JS/CSS optimization features
+  - Fix: WP Rocket + Kinsta cache conflict causing meta title/description to revert
+  - Fix: CSS injection methods (`enqueue_page_custom_css`, Elementor, Divi) missing from `Metasync_Public`
+  - Fix: Plugin URI and Author URI fields silently discarding valid URLs
+
 = 2.5.20 =
 * Fixed a case where a empty Otto meta description was overwriting the existing one.
 

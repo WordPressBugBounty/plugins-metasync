@@ -491,6 +491,7 @@ class Metasync_Admin
         add_action('admin_post_metasync_clear_all_cache_plugins', array($this, 'handle_clear_all_cache_plugins'));
         add_action('admin_post_metasync_clear_otto_cache_all', array($this, 'handle_clear_otto_cache_all'));
         add_action('admin_post_metasync_clear_otto_cache_url', array($this, 'handle_clear_otto_cache_url'));
+        add_action('admin_post_metasync_purge_hosting_cache', array($this, 'handle_purge_hosting_cache'));
 
         // Add AJAX for saving general settings
         add_action( 'wp_ajax_meta_sync_save_settings', array($this,'meta_sync_save_settings') );
@@ -500,6 +501,9 @@ class Metasync_Admin
         
         // Add AJAX for saving execution settings
         add_action( 'wp_ajax_metasync_save_execution_settings', array($this, 'ajax_save_execution_settings') );
+
+        // Add AJAX for saving hosting cache settings
+        add_action( 'wp_ajax_metasync_save_hosting_cache_settings', array($this, 'ajax_save_hosting_cache_settings') );
         
         // Add AJAX handler for Plugin Auth Token refresh
         add_action('wp_ajax_refresh_plugin_auth_token', array($this, 'refresh_plugin_auth_token'));
@@ -1247,6 +1251,7 @@ class Metasync_Admin
             wp_localize_script($this->plugin_name . '-setup-wizard', 'metasyncWizardData', array(
                 'nonce' => wp_create_nonce('metasync_wizard'),
                 'ssoNonce' => wp_create_nonce('metasync_sso_nonce'),
+                'saConnectNonce' => wp_create_nonce('metasync_sa_connect_nonce'),
                 'importNonce' => wp_create_nonce('metasync_import_external_data'),
                 'dashboardUrl' => admin_url('admin.php?page=' . self::$page_slug . '-dashboard'),
                 'currentStep' => 1,
@@ -1682,9 +1687,7 @@ class Metasync_Admin
         // ✅ NEW: Check if THIS specific nonce was successfully processed
         // This prevents false positives from background sync/heartbeat activity
         $success_key = 'metasync_sa_connect_success_' . md5($nonce_token);
-        error_log('MetaSync SA Connect: check_searchatlas_connect_status() checking for key: ' . $success_key);
         $this_auth_completed = get_transient($success_key);
-        error_log('MetaSync SA Connect: Transient found: ' . ($this_auth_completed ? 'YES' : 'NO'));
         
         
         if ($this_auth_completed) {
@@ -2231,6 +2234,152 @@ class Metasync_Admin
                 echo '</p></div>';
             }
             ?>
+        </div>
+
+        <!-- Hosting Cache Integration -->
+        <?php
+        $hosting_settings  = $this->get_hosting_cache_settings();
+        $wpe_detected      = class_exists('WpeCommon');
+        $kinsta_detected   = class_exists('KinstaCache');
+        ?>
+        <div style="margin-bottom: 30px;">
+            <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">Hosting Cache Integration</h4>
+            <p style="margin-bottom: 15px; color: var(--dashboard-text-secondary);">
+                Use your hosting provider's native API to purge the <strong>entire site cache</strong> in one click.
+                These options are independent of cache plugins and target the server-level cache layer.
+            </p>
+
+            <!-- Detection status badges -->
+            <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px;">
+                <span style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 500;
+                      background: <?php echo $wpe_detected ? 'rgba(34,197,94,0.12)' : 'rgba(156,163,175,0.12)'; ?>;
+                      color: <?php echo $wpe_detected ? '#22c55e' : 'var(--dashboard-text-secondary)'; ?>;
+                      border: 1px solid <?php echo $wpe_detected ? 'rgba(34,197,94,0.3)' : 'rgba(156,163,175,0.3)'; ?>;">
+                    <?php echo $wpe_detected ? '✅' : '⬜'; ?> WP Engine <?php echo $wpe_detected ? '(detected)' : '(not detected)'; ?>
+                </span>
+                <span style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 500;
+                      background: <?php echo $kinsta_detected ? 'rgba(34,197,94,0.12)' : 'rgba(156,163,175,0.12)'; ?>;
+                      color: <?php echo $kinsta_detected ? '#22c55e' : 'var(--dashboard-text-secondary)'; ?>;
+                      border: 1px solid <?php echo $kinsta_detected ? 'rgba(34,197,94,0.3)' : 'rgba(156,163,175,0.3)'; ?>;">
+                    <?php echo $kinsta_detected ? '✅' : '⬜'; ?> Kinsta <?php echo $kinsta_detected ? '(detected)' : '(not detected)'; ?>
+                </span>
+            </div>
+
+            <!-- Settings toggles -->
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                <h5 style="margin: 0 0 14px 0; color: var(--dashboard-text-primary);">Enable Native Cache Purge</h5>
+
+                <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px; cursor: pointer;">
+                    <input type="checkbox"
+                           id="metasync-hc-wpengine"
+                           <?php checked(true, !empty($hosting_settings['wpengine_enabled'])); ?>
+                           <?php echo !$wpe_detected ? 'disabled' : ''; ?>
+                           style="width: 16px; height: 16px; cursor: <?php echo $wpe_detected ? 'pointer' : 'not-allowed'; ?>;" />
+                    <span style="color: var(--dashboard-text-primary); font-weight: 500;">WP Engine</span>
+                    <span style="color: var(--dashboard-text-secondary); font-size: 12px;">— purges Varnish + Memcached</span>
+                </label>
+
+                <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px; cursor: pointer;">
+                    <input type="checkbox"
+                           id="metasync-hc-kinsta"
+                           <?php checked(true, !empty($hosting_settings['kinsta_enabled'])); ?>
+                           <?php echo !$kinsta_detected ? 'disabled' : ''; ?>
+                           style="width: 16px; height: 16px; cursor: <?php echo $kinsta_detected ? 'pointer' : 'not-allowed'; ?>;" />
+                    <span style="color: var(--dashboard-text-primary); font-weight: 500;">Kinsta</span>
+                    <span style="color: var(--dashboard-text-secondary); font-size: 12px;">— purges full-page cache (kinsta_cache_purge_full)</span>
+                </label>
+
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <button type="button"
+                            id="metasync-hc-save-btn"
+                            class="metasync-btn-primary"
+                            style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 9px 18px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease;"
+                            onmouseover="this.style.transform='translateY(-1px)';"
+                            onmouseout="this.style.transform='translateY(0)';">
+                        💾 Save Settings
+                    </button>
+                    <span id="metasync-hc-save-msg" style="display: none; font-size: 13px;"></span>
+                </div>
+
+                <input type="hidden" id="metasync-hc-nonce" value="<?php echo wp_create_nonce('metasync_hosting_cache_nonce'); ?>" />
+            </div>
+
+            <!-- Purge button -->
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <input type="hidden" name="action" value="metasync_purge_hosting_cache" />
+                <?php wp_nonce_field('metasync_hosting_cache_purge_nonce', 'hosting_cache_purge_nonce'); ?>
+                <button type="submit"
+                        class="metasync-btn-primary"
+                        style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: inline-block; min-width: 240px; max-width: fit-content;"
+                        onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.15)';"
+                        onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)';">
+                    🚀 Purge Entire Hosting Cache
+                </button>
+                <p class="description" style="margin-top: 10px; color: var(--dashboard-text-secondary);">
+                    Triggers a full-site cache purge using the native WP Engine and/or Kinsta APIs (based on toggles above).
+                </p>
+            </form>
+
+            <?php
+            // Hosting cache result messages
+            if (isset($_GET['hosting_cache_cleared']) && $_GET['hosting_cache_cleared'] == '1') {
+                $hc_cleared      = isset($_GET['hc_cleared'])      ? sanitize_text_field(urldecode($_GET['hc_cleared']))      : '';
+                $hc_failed       = isset($_GET['hc_failed'])       ? sanitize_text_field(urldecode($_GET['hc_failed']))       : '';
+                $hc_not_detected = isset($_GET['hc_not_detected']) ? sanitize_text_field(urldecode($_GET['hc_not_detected'])) : '';
+
+                if ($hc_cleared) {
+                    echo '<div class="notice notice-success inline" style="margin-top: 15px;"><p>';
+                    echo '✅ <strong>Success!</strong> Purged hosting cache on: ' . esc_html($hc_cleared);
+                    echo '</p></div>';
+                }
+                if ($hc_failed) {
+                    echo '<div class="notice notice-error inline" style="margin-top: 10px;"><p>';
+                    echo '❌ <strong>Failed</strong> to purge: ' . esc_html($hc_failed);
+                    echo '</p></div>';
+                }
+                if ($hc_not_detected && !$hc_cleared && !$hc_failed) {
+                    echo '<div class="notice notice-info inline" style="margin-top: 10px;"><p>';
+                    echo 'ℹ️ No enabled hosting providers were detected on this server (' . esc_html($hc_not_detected) . ').';
+                    echo '</p></div>';
+                }
+            }
+            ?>
+
+            <script>
+            jQuery(document).ready(function($) {
+                $('#metasync-hc-save-btn').on('click', function() {
+                    var $btn = $(this);
+                    var $msg = $('#metasync-hc-save-msg');
+
+                    $btn.prop('disabled', true).text('Saving…');
+
+                    $.ajax({
+                        url: ajaxurl,
+                        type: 'POST',
+                        data: {
+                            action:            'metasync_save_hosting_cache_settings',
+                            hosting_cache_nonce: $('#metasync-hc-nonce').val(),
+                            wpengine_enabled:  $('#metasync-hc-wpengine').is(':checked') ? '1' : '0',
+                            kinsta_enabled:    $('#metasync-hc-kinsta').is(':checked')   ? '1' : '0',
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                $msg.text('✅ Saved').css('color', '#22c55e').show();
+                            } else {
+                                $msg.text('❌ ' + (response.data.message || 'Save failed')).css('color', '#ef4444').show();
+                            }
+                        },
+                        error: function() {
+                            $msg.text('❌ Request failed').css('color', '#ef4444').show();
+                        },
+                        complete: function() {
+                            $btn.prop('disabled', false).text('💾 Save Settings');
+                            setTimeout(function() { $msg.fadeOut(); }, 4000);
+                        }
+                    });
+                });
+            });
+            </script>
         </div>
 
         <!-- OTTO Transient Cache -->
@@ -2845,6 +2994,107 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             }
         } else {
             $redirect_url .= '&otto_cache_error=1&message=' . urlencode('Transient Cache class not found');
+        }
+
+        wp_safe_redirect($redirect_url);
+        exit;
+    }
+
+    /**
+     * Get hosting cache integration settings with defaults
+     *
+     * @return array Settings array with 'wpengine_enabled' and 'kinsta_enabled' keys
+     */
+    private function get_hosting_cache_settings() {
+        $defaults = array(
+            'wpengine_enabled' => true,
+            'kinsta_enabled'   => true,
+        );
+        $saved = get_option('metasync_hosting_cache_options', array());
+        return wp_parse_args($saved, $defaults);
+    }
+
+    /**
+     * AJAX handler for saving hosting cache settings
+     */
+    public function ajax_save_hosting_cache_settings() {
+        if (!isset($_POST['hosting_cache_nonce']) || !wp_verify_nonce($_POST['hosting_cache_nonce'], 'metasync_hosting_cache_nonce')) {
+            wp_send_json_error(array('message' => 'Security check failed'));
+            return;
+        }
+
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+            return;
+        }
+
+        $settings = array(
+            'wpengine_enabled' => !empty($_POST['wpengine_enabled']) && $_POST['wpengine_enabled'] === '1',
+            'kinsta_enabled'   => !empty($_POST['kinsta_enabled']) && $_POST['kinsta_enabled'] === '1',
+        );
+
+        update_option('metasync_hosting_cache_options', $settings);
+        wp_send_json_success(array('message' => 'Hosting cache settings saved'));
+    }
+
+    /**
+     * admin_post handler: purge WP Engine and Kinsta hosting-level caches
+     */
+    public function handle_purge_hosting_cache() {
+        if (!isset($_POST['hosting_cache_purge_nonce']) || !wp_verify_nonce($_POST['hosting_cache_purge_nonce'], 'metasync_hosting_cache_purge_nonce')) {
+            wp_die('Security check failed');
+        }
+
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_die('You do not have permission to perform this action');
+        }
+
+        $redirect_url = admin_url('admin.php?page=' . self::$page_slug . '&tab=advanced');
+        $settings     = $this->get_hosting_cache_settings();
+        $cleared      = array();
+        $failed       = array();
+        $not_detected = array();
+
+        // WP Engine native purge (Varnish + Memcached)
+        if (!empty($settings['wpengine_enabled'])) {
+            if (class_exists('WpeCommon')) {
+                try {
+                    WpeCommon::purge_varnish_cache();
+                    WpeCommon::purge_memcached();
+                    $cleared[] = 'WP Engine';
+                } catch (Exception $e) {
+                    error_log('MetaSync: WP Engine hosting cache purge failed - ' . $e->getMessage());
+                    $failed[] = 'WP Engine';
+                }
+            } else {
+                $not_detected[] = 'WP Engine';
+            }
+        }
+
+        // Kinsta native purge (full site)
+        if (!empty($settings['kinsta_enabled'])) {
+            if (class_exists('KinstaCache')) {
+                try {
+                    KinstaCache::get_instance()->kinsta_cache_purge_full();
+                    $cleared[] = 'Kinsta';
+                } catch (Exception $e) {
+                    error_log('MetaSync: Kinsta hosting cache purge failed - ' . $e->getMessage());
+                    $failed[] = 'Kinsta';
+                }
+            } else {
+                $not_detected[] = 'Kinsta';
+            }
+        }
+
+        $redirect_url .= '&hosting_cache_cleared=1';
+        if (!empty($cleared)) {
+            $redirect_url .= '&hc_cleared=' . urlencode(implode(',', $cleared));
+        }
+        if (!empty($failed)) {
+            $redirect_url .= '&hc_failed=' . urlencode(implode(',', $failed));
+        }
+        if (!empty($not_detected)) {
+            $redirect_url .= '&hc_not_detected=' . urlencode(implode(',', $not_detected));
         }
 
         wp_safe_redirect($redirect_url);
@@ -4610,6 +4860,21 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         // Plugin API key is available, proceed with heartbeat connectivity test
         $is_connected = $this->test_heartbeat_api_connection($general_settings);
         
+        // Option 2: When heartbeat failed due to api_backoff_active, do not overwrite cache or last_known.
+        // This preserves the optimistic CONNECTED state set after callback so the dashboard iframe stays visible.
+        if (!$is_connected && class_exists('Metasync_API_Backoff_Manager')) {
+            $heartbeat_url = $this->get_heartbeat_api_url_for_backoff_check($general_settings);
+            $backoff_manager = Metasync_API_Backoff_Manager::get_instance();
+            if ($heartbeat_url && $backoff_manager->is_endpoint_in_backoff($heartbeat_url)) {
+                $this->log_heartbeat('info', 'Heartbeat check skipped cache update - endpoint in backoff', array(
+                    'reason' => 'api_backoff_active',
+                    'next_cron_run' => wp_next_scheduled('metasync_heartbeat_cron_check') ?
+                        date('Y-m-d H:i:s T', wp_next_scheduled('metasync_heartbeat_cron_check')) : 'N/A',
+                ));
+                return false;
+            }
+        }
+        
         // Cache the result for 5 minutes (300 seconds)
         $cache_data = array(
             'status' => $is_connected,
@@ -4634,6 +4899,29 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     }
     
     /**
+     * Build the heartbeat API URL for backoff check (same host as SyncCustomerParams uses).
+     *
+     * @param array $general_settings Plugin general options.
+     * @return string|null Heartbeat URL or null if not determinable.
+     */
+    private function get_heartbeat_api_url_for_backoff_check($general_settings) {
+        $api_key = $general_settings['searchatlas_api_key'] ?? '';
+        if (empty($api_key)) {
+            return null;
+        }
+        if (strpos($api_key, 'pub-') === 0) {
+            $domain = class_exists('Metasync_Endpoint_Manager')
+                ? Metasync_Endpoint_Manager::get_endpoint('API_DOMAIN')
+                : Metasync::API_DOMAIN;
+            return $domain . '/api/publisher/one-click-publishing/wp-website-heartbeat/';
+        }
+        $domain = class_exists('Metasync_Endpoint_Manager')
+            ? Metasync_Endpoint_Manager::get_endpoint('CA_API_DOMAIN')
+            : Metasync::CA_API_DOMAIN;
+        return $domain . '/api/wp-website-heartbeat/';
+    }
+    
+    /**
      * Add custom cron schedule for 2-hour intervals and daily cleanup
      * This reduces database load by checking heartbeat less frequently
      */
@@ -4653,6 +4941,11 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $schedules['metasync_every_5_minutes'] = array(
             'interval' => 5 * MINUTE_IN_SECONDS,
             'display' => esc_html__('Every 5 Minutes (MetaSync)', 'metasync')
+        );
+        // New: 10-minute heartbeat cadence used for UNREGISTERED + KEY_PENDING short-interval behavior
+        $schedules['metasync_every_10_minutes'] = array(
+            'interval' => 10 * MINUTE_IN_SECONDS,
+            'display' => esc_html__('Every 10 Minutes (MetaSync)', 'metasync')
         );
         
         // Add daily cleanup schedule
@@ -4714,7 +5007,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         if ($burst_window_end < time()) {
             $this->unschedule_burst_heartbeat_cron();
             if (!wp_next_scheduled('metasync_heartbeat_cron_check')) {
-                wp_schedule_event(time(), 'metasync_every_5_minutes', 'metasync_heartbeat_cron_check');
+                wp_schedule_event(time(), 'metasync_every_10_minutes', 'metasync_heartbeat_cron_check');
             }
             $this->execute_heartbeat_cron_check();
             return;
@@ -4754,7 +5047,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     
     /**
      * Maybe schedule heartbeat cron job based on PR3 state.
-     * UNREGISTERED: announce cron every 5 min. KEY_PENDING: burst every 2 min. CONNECTED: 2-hour only.
+     * UNREGISTERED: announce cron every 10 min. KEY_PENDING: burst every 10 min. CONNECTED: 2-hour only.
      */
     public function maybe_schedule_heartbeat_cron()
     {
@@ -4764,7 +5057,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             $this->unschedule_heartbeat_cron();
             $this->unschedule_burst_heartbeat_cron();
             if (!wp_next_scheduled('metasync_announce_cron')) {
-                wp_schedule_event(time(), 'metasync_every_5_minutes', 'metasync_announce_cron');
+                wp_schedule_event(time(), 'metasync_every_10_minutes', 'metasync_announce_cron');
             }
             return;
         }
@@ -4773,8 +5066,9 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         
         if ($state === 'KEY_PENDING') {
             $this->unschedule_heartbeat_cron();
+            $this->unschedule_burst_heartbeat_cron();
             if (!wp_next_scheduled('metasync_burst_heartbeat')) {
-                wp_schedule_event(time(), 'metasync_every_2_minutes', 'metasync_burst_heartbeat');
+                wp_schedule_event(time(), 'metasync_every_10_minutes', 'metasync_burst_heartbeat');
             }
             return;
         }
@@ -16003,15 +16297,8 @@ define('WP_DEBUG_DISPLAY', false);</pre>
 
             // If it's an exact URL, try to clear OTTO cache for it
             if ($pattern_type === 'exact') {
-                try {
-                    if (class_exists('Metasync_Cache_Purge')) {
-                        $cache_purge = Metasync_Cache_Purge::get_instance();
-                        $cache_purge->clear_url_cache($url_pattern);
-                    }
-                    wp_cache_flush();
-                } catch (Exception $e) {
-                    error_log('MetaSync: Failed to clear cache for reactivated URL: ' . $e->getMessage());
-                }
+                Metasync_Cache_Purge::purge_single_url($url_pattern);
+                wp_cache_flush();
             }
 
             wp_send_json_success([
@@ -16026,18 +16313,8 @@ define('WP_DEBUG_DISPLAY', false);</pre>
 
             // If it's an exact URL, try to clear OTTO cache for it
             if ($pattern_type === 'exact') {
-                try {
-                    // Clear any cached OTTO content for this URL
-                    if (class_exists('Metasync_Cache_Purge')) {
-                        $cache_purge = Metasync_Cache_Purge::get_instance();
-                        $cache_purge->clear_url_cache($url_pattern);
-                    }
-
-                    // Clear WordPress object cache
-                    wp_cache_flush();
-                } catch (Exception $e) {
-                    error_log('MetaSync: Failed to clear cache for excluded URL: ' . $e->getMessage());
-                }
+                Metasync_Cache_Purge::purge_single_url($url_pattern);
+                wp_cache_flush();
             }
 
             wp_send_json_success([

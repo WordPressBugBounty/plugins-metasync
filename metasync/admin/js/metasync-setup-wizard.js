@@ -247,13 +247,13 @@
 			$button.prop('disabled', true).text('Opening SSO...');
 
 			$.post(ajaxurl, {
-				action: 'generate_sso_url',
-				nonce: metasyncWizardData.ssoNonce
+				action: 'generate_searchatlas_connect_url',
+				nonce: metasyncWizardData.saConnectNonce
 			}, function (response) {
 				if (response.success) {
 					// Open SSO popup and store reference
 					self.ssoPopup = window.open(
-						response.data.sso_url,
+						response.data.connect_url,
 						pluginName.replace(/\s+/g, '') + 'SSO',
 						'width=600,height=700'
 					);
@@ -294,8 +294,8 @@
 				$button.text('Waiting for authentication (' + timeLeft + 's)...');
 
 				$.post(ajaxurl, {
-					action: 'check_sso_status',
-					nonce: metasyncWizardData.ssoNonce,
+					action: 'check_searchatlas_connect_status',
+					nonce: metasyncWizardData.saConnectNonce,
 					nonce_token: nonceToken
 				}, function (response) {
 					if (response.success && response.data.updated) {

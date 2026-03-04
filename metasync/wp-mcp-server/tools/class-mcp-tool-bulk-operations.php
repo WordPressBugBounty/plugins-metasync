@@ -186,11 +186,12 @@ class MCP_Tool_Bulk_Set_Categories extends MCP_Tool_Base {
             throw new Exception('Maximum 100 posts can be updated at once');
         }
 
-        // Validate categories exist
+        // Validate categories exist (per-item failure: report in failed[] instead of throwing)
+        $invalid_category_ids = [];
         foreach ($category_ids as $category_id) {
             $category = get_term($category_id, 'category');
             if (is_wp_error($category) || !$category) {
-                throw new Exception(sprintf("Category not found with ID: %d", absint($category_id)));
+                $invalid_category_ids[] = $category_id;
             }
         }
 
@@ -199,8 +200,20 @@ class MCP_Tool_Bulk_Set_Categories extends MCP_Tool_Base {
             'failed' => [],
         ];
 
+        $category_error = !empty($invalid_category_ids)
+            ? 'Category not found with ID(s): ' . implode(', ', array_map('absint', $invalid_category_ids))
+            : '';
+
         foreach ($post_ids as $post_id) {
             try {
+                if ($category_error !== '') {
+                    $results['failed'][] = [
+                        'post_id' => $post_id,
+                        'error' => $category_error,
+                    ];
+                    continue;
+                }
+
                 // Verify post exists
                 $post = get_post($post_id);
                 if (!$post) {

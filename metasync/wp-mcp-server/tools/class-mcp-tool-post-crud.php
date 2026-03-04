@@ -173,10 +173,7 @@ class MCP_Tool_Delete_Post extends MCP_Tool_Base {
         $force_delete = isset($params['force_delete']) ? (bool)$params['force_delete'] : false;
 
         // Validate post exists
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         // Check permissions
         if (!current_user_can('delete_post', $post_id)) {
@@ -238,10 +235,7 @@ class MCP_Tool_Restore_Post extends MCP_Tool_Base {
         $post_id = intval($params['post_id']);
 
         // Validate post exists
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         // Check if post is in trash
         if ($post->post_status !== 'trash') {

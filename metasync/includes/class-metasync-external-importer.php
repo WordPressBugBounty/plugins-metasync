@@ -1272,6 +1272,171 @@ class Metasync_External_Importer
     }
 
     /**
+     * Resolve SEO placeholder tokens to their actual values.
+     *
+     * Tries each source plugin's own replacement engine first so the result
+     * matches exactly what Yoast / Rank Math / AIOSEO would render. Falls back
+     * to manual replacement of the most common tokens.
+     *
+     * @param string $text    Raw string that may contain placeholder tokens.
+     * @param int    $post_id Post whose context is used for replacement.
+     * @param string $plugin  'yoast', 'rankmath', or 'aioseo'.
+     * @return string         Resolved string.
+     */
+    private function resolve_seo_placeholders($text, $post_id, $plugin) {
+        if (empty($text) || !is_string($text)) {
+            return (string) $text;
+        }
+
+        $post = get_post($post_id);
+        if (!$post) {
+            return $text;
+        }
+
+        // Yoast SEO — %%var%% tokens
+        if ($plugin === 'yoast' && class_exists('WPSEO_Replace_Vars')) {
+            try {
+                $replacer = new WPSEO_Replace_Vars();
+                $resolved = $replacer->replace($text, $post);
+                if (is_string($resolved) && $resolved !== '') {
+                    return $resolved;
+                }
+            } catch (Exception $e) {
+                // fall through to manual replacement
+            }
+        }
+
+        // Rank Math — %var% tokens
+        if ($plugin === 'rankmath' && function_exists('rank_math_replace_vars')) {
+            try {
+                $resolved = rank_math_replace_vars($text, $post);
+                if (is_string($resolved) && $resolved !== '') {
+                    return $resolved;
+                }
+            } catch (Exception $e) {
+                // fall through to manual replacement
+            }
+        }
+
+        // All in One SEO — #var# tokens
+        if ($plugin === 'aioseo') {
+            try {
+                if (function_exists('aioseo') && isset(aioseo()->tags) && method_exists(aioseo()->tags, 'replaceTags')) {
+                    $resolved = aioseo()->tags->replaceTags($text, $post_id);
+                    if (is_string($resolved) && $resolved !== '') {
+                        return $resolved;
+                    }
+                }
+            } catch (Exception $e) {
+                // fall through to manual replacement
+            }
+        }
+
+        return $this->manually_replace_seo_placeholders($text, $post_id);
+    }
+
+    /**
+     * Manual fallback: replace the most common SEO placeholder tokens from
+     * Yoast (%%var%%), Rank Math (%var%), and AIOSEO (#var#) formats.
+     *
+     * @param string $text    Text that may contain placeholder tokens.
+     * @param int    $post_id Post ID used for context.
+     * @return string         Text with tokens replaced.
+     */
+    private function manually_replace_seo_placeholders($text, $post_id) {
+        $post = get_post($post_id);
+        if (!$post) {
+            return $text;
+        }
+
+        $site_name        = get_bloginfo('name');
+        $post_title       = get_the_title($post_id);
+        $post_excerpt     = has_excerpt($post_id) ? wp_strip_all_tags(get_the_excerpt($post)) : '';
+        $author           = get_the_author_meta('display_name', $post->post_author);
+        $date             = get_the_date('', $post_id);
+        $modified         = get_the_modified_date('', $post_id);
+
+        $categories       = get_the_category($post_id);
+        $primary_category = !empty($categories) ? $categories[0]->name : '';
+
+        $tags             = get_the_tags($post_id);
+        $first_tag        = !empty($tags) ? $tags[0]->name : '';
+
+        // Try to read the separator from whichever plugin is active
+        $sep = '-';
+        if (defined('WPSEO_VERSION') && class_exists('WPSEO_Options')) {
+            try {
+                $raw = WPSEO_Options::get('separator', '-');
+                // Yoast stores separator keys like 'sc-dash'; convert to glyph
+                $sep = html_entity_decode(
+                    WPSEO_Option_Titles::get_instance()->get_title_separator(),
+                    ENT_QUOTES,
+                    'UTF-8'
+                );
+            } catch (Exception $e) {
+                $sep = '-';
+            }
+        } elseif (defined('RANK_MATH_VERSION')) {
+            $rm_settings = get_option('rank_math_general_settings', []);
+            if (!empty($rm_settings['title_separator'])) {
+                $sep = html_entity_decode($rm_settings['title_separator'], ENT_QUOTES, 'UTF-8');
+            }
+        }
+
+        $map = [
+            // ── Yoast (%%var%%) ──────────────────────────────────────────────
+            '%%title%%'            => $post_title,
+            '%%sitename%%'         => $site_name,
+            '%%sep%%'              => $sep,
+            '%%excerpt%%'          => $post_excerpt,
+            '%%excerpt_only%%'     => $post_excerpt,
+            '%%author%%'           => $author,
+            '%%date%%'             => $date,
+            '%%modified%%'         => $modified,
+            '%%id%%'               => (string) $post_id,
+            '%%page%%'             => '',
+            '%%pagenumber%%'       => '',
+            '%%pagetotal%%'        => '',
+            '%%primary_category%%' => $primary_category,
+            '%%category%%'         => $primary_category,
+            '%%tag%%'              => $first_tag,
+            '%%focuskw%%'          => (string) get_post_meta($post_id, '_yoast_wpseo_focuskw', true),
+            // ── Rank Math (%var%) ────────────────────────────────────────────
+            '%title%'              => $post_title,
+            '%sitename%'           => $site_name,
+            '%sep%'                => $sep,
+            '%excerpt%'            => $post_excerpt,
+            '%author%'             => $author,
+            '%date%'               => $date,
+            '%modified%'           => $modified,
+            '%id%'                 => (string) $post_id,
+            '%page%'               => '',
+            '%category%'           => $primary_category,
+            '%tag%'                => $first_tag,
+            '%focus_keyword%'      => (string) get_post_meta($post_id, 'rank_math_focus_keyword', true),
+            // ── AIOSEO (#var#) ───────────────────────────────────────────────
+            '#site_title#'         => $site_name,
+            '#post_title#'         => $post_title,
+            '#post_excerpt#'       => $post_excerpt,
+            '#separator_sa#'       => $sep,
+            '#author_name#'        => $author,
+            '#current_date#'       => $date,
+            '#post_date#'          => $date,
+            '#category_title#'     => $primary_category,
+            '#tag_title#'          => $first_tag,
+            '#id#'                 => (string) $post_id,
+        ];
+
+        // Sort longest token first to avoid partial matches
+        // e.g. %%primary_category%% must replace before %%category%%
+        uksort($map, function ($a, $b) {
+            return strlen($b) - strlen($a);
+        });
+
+        return str_replace(array_keys($map), array_values($map), $text);
+    }
+
+    /**
      * Import SEO Metadata (Titles and Descriptions)
      * Supports batch processing via AJAX
      *
@@ -1379,6 +1544,7 @@ class Metasync_External_Importer
                     $existing_title = get_post_meta($post_id, '_metasync_seo_title', true);
 
                     if (empty($existing_title) || $overwrite) {
+                        $yoast_title = $this->resolve_seo_placeholders($yoast_title, $post_id, 'yoast');
                         update_post_meta($post_id, '_metasync_seo_title', sanitize_text_field($yoast_title));
                         $updated = true;
                     }
@@ -1392,6 +1558,7 @@ class Metasync_External_Importer
                     $existing_desc = get_post_meta($post_id, '_metasync_seo_desc', true);
 
                     if (empty($existing_desc) || $overwrite) {
+                        $yoast_desc = $this->resolve_seo_placeholders($yoast_desc, $post_id, 'yoast');
                         update_post_meta($post_id, '_metasync_seo_desc', sanitize_textarea_field($yoast_desc));
                         $updated = true;
                     }
@@ -1486,6 +1653,7 @@ class Metasync_External_Importer
                     $existing_title = get_post_meta($post_id, '_metasync_seo_title', true);
 
                     if (empty($existing_title) || $overwrite) {
+                        $rm_title = $this->resolve_seo_placeholders($rm_title, $post_id, 'rankmath');
                         update_post_meta($post_id, '_metasync_seo_title', sanitize_text_field($rm_title));
                         $updated = true;
                     }
@@ -1499,6 +1667,7 @@ class Metasync_External_Importer
                     $existing_desc = get_post_meta($post_id, '_metasync_seo_desc', true);
 
                     if (empty($existing_desc) || $overwrite) {
+                        $rm_desc = $this->resolve_seo_placeholders($rm_desc, $post_id, 'rankmath');
                         update_post_meta($post_id, '_metasync_seo_desc', sanitize_textarea_field($rm_desc));
                         $updated = true;
                     }
@@ -1598,7 +1767,8 @@ class Metasync_External_Importer
                 $existing_title = get_post_meta($post_id, '_metasync_seo_title', true);
 
                 if (empty($existing_title) || $overwrite) {
-                    update_post_meta($post_id, '_metasync_seo_title', sanitize_text_field($aioseo_data->title));
+                    $aioseo_title = $this->resolve_seo_placeholders($aioseo_data->title, $post_id, 'aioseo');
+                    update_post_meta($post_id, '_metasync_seo_title', sanitize_text_field($aioseo_title));
                     $updated = true;
                 }
             }
@@ -1608,7 +1778,8 @@ class Metasync_External_Importer
                 $existing_desc = get_post_meta($post_id, '_metasync_seo_desc', true);
 
                 if (empty($existing_desc) || $overwrite) {
-                    update_post_meta($post_id, '_metasync_seo_desc', sanitize_textarea_field($aioseo_data->description));
+                    $aioseo_desc = $this->resolve_seo_placeholders($aioseo_data->description, $post_id, 'aioseo');
+                    update_post_meta($post_id, '_metasync_seo_desc', sanitize_textarea_field($aioseo_desc));
                     $updated = true;
                 }
             }

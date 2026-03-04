@@ -182,6 +182,40 @@ class Metasync_Cache_Purge
             $results['not_active'][] = 'Swift Performance';
         }
 
+        // Clear Kinsta Cache (hosting-level) — respects the "Hosting Cache Integration" setting
+        $hosting_settings = get_option('metasync_hosting_cache_options', array('kinsta_enabled' => true, 'wpengine_enabled' => true));
+        if (!isset($hosting_settings['kinsta_enabled'])) {
+            $hosting_settings['kinsta_enabled'] = true;
+        }
+        if (!isset($hosting_settings['wpengine_enabled'])) {
+            $hosting_settings['wpengine_enabled'] = true;
+        }
+
+        if (!empty($hosting_settings['kinsta_enabled'])) {
+            if (class_exists('KinstaCache')) {
+                if ($this->clear_kinsta_cache()) {
+                    $results['cleared'][] = 'Kinsta Cache';
+                } else {
+                    $results['failed'][] = 'Kinsta Cache';
+                }
+            } else {
+                $results['not_active'][] = 'Kinsta Cache';
+            }
+        }
+
+        // Clear WP Engine Cache (hosting-level) — respects the "Hosting Cache Integration" setting
+        if (!empty($hosting_settings['wpengine_enabled'])) {
+            if (class_exists('WpeCommon')) {
+                if ($this->clear_wpengine_cache()) {
+                    $results['cleared'][] = 'WP Engine Cache';
+                } else {
+                    $results['failed'][] = 'WP Engine Cache';
+                }
+            } else {
+                $results['not_active'][] = 'WP Engine Cache';
+            }
+        }
+
         // Log results
         if (!empty($results['cleared'])) {
             error_log('MetaSync Cache Purge (' . $source . '): Cleared ' . implode(', ', $results['cleared']));
@@ -246,6 +280,26 @@ class Metasync_Cache_Purge
             }
         }
 
+        // Kinsta - Purge specific URL (hosting-level cache, no plugin check needed)
+        if ($url && class_exists('KinstaCache')) {
+            try {
+                KinstaCache::get_instance()->kinsta_cache_purge_single_url($url);
+                $success = true;
+            } catch (Exception $e) {
+                // Silently fail
+            }
+        }
+
+        // WP Engine - Purge specific URL (hosting-level cache, no plugin check needed)
+        if ($url && class_exists('WpeCommon')) {
+            try {
+                WpeCommon::purge_url($url);
+                $success = true;
+            } catch (Exception $e) {
+                // Silently fail
+            }
+        }
+
         return $success;
     }
 
@@ -258,7 +312,7 @@ class Metasync_Cache_Purge
             wp_cache_flush();
             return true;
         } catch (Exception $e) {
-            error_log('MetaSync: Failed to clear WordPress cache - ' . $e->getMessage());
+            $this->log_cache_error('WordPress', $e);
             return false;
         }
     }
@@ -285,7 +339,7 @@ class Metasync_Cache_Purge
             
             return true;
         } catch (Exception $e) {
-            error_log('MetaSync: Failed to clear WP Rocket cache - ' . $e->getMessage());
+            $this->log_cache_error('WP Rocket', $e);
             return false;
         }
     }
@@ -311,7 +365,7 @@ class Metasync_Cache_Purge
 
             return true;
         } catch (Exception $e) {
-            error_log('MetaSync: Failed to clear LiteSpeed cache - ' . $e->getMessage());
+            $this->log_cache_error('LiteSpeed', $e);
             return false;
         }
     }
@@ -353,7 +407,7 @@ class Metasync_Cache_Purge
 
             return true;
         } catch (Exception $e) {
-            error_log('MetaSync: Failed to clear W3 Total Cache - ' . $e->getMessage());
+            $this->log_cache_error('W3 Total Cache', $e);
             return false;
         }
     }
@@ -385,7 +439,7 @@ class Metasync_Cache_Purge
 
             return false;
         } catch (Exception $e) {
-            error_log('MetaSync: Failed to clear WP Super Cache - ' . $e->getMessage());
+            $this->log_cache_error('WP Super Cache', $e);
             return false;
         }
     }
@@ -409,7 +463,7 @@ class Metasync_Cache_Purge
 
             return true;
         } catch (Exception $e) {
-            error_log('MetaSync: Failed to clear WP Fastest Cache - ' . $e->getMessage());
+            $this->log_cache_error('WP Fastest Cache', $e);
             return false;
         }
     }
@@ -432,7 +486,7 @@ class Metasync_Cache_Purge
 
             return true;
         } catch (Exception $e) {
-            error_log('MetaSync: Failed to clear Cache Enabler - ' . $e->getMessage());
+            $this->log_cache_error('Cache Enabler', $e);
             return false;
         }
     }
@@ -456,7 +510,7 @@ class Metasync_Cache_Purge
 
             return true;
         } catch (Exception $e) {
-            error_log('MetaSync: Failed to clear Hummingbird cache - ' . $e->getMessage());
+            $this->log_cache_error('Hummingbird', $e);
             return false;
         }
     }
@@ -477,7 +531,7 @@ class Metasync_Cache_Purge
 
             return true;
         } catch (Exception $e) {
-            error_log('MetaSync: Failed to clear Autoptimize cache - ' . $e->getMessage());
+            $this->log_cache_error('Autoptimize', $e);
             return false;
         }
     }
@@ -498,7 +552,7 @@ class Metasync_Cache_Purge
 
             return true;
         } catch (Exception $e) {
-            error_log('MetaSync: Failed to clear SG Optimizer cache - ' . $e->getMessage());
+            $this->log_cache_error('SG Optimizer', $e);
             return false;
         }
     }
@@ -519,7 +573,7 @@ class Metasync_Cache_Purge
 
             return true;
         } catch (Exception $e) {
-            error_log('MetaSync: Failed to clear Comet Cache - ' . $e->getMessage());
+            $this->log_cache_error('Comet Cache', $e);
             return false;
         }
     }
@@ -540,14 +594,82 @@ class Metasync_Cache_Purge
 
             return true;
         } catch (Exception $e) {
-            error_log('MetaSync: Failed to clear Swift Performance cache - ' . $e->getMessage());
+            $this->log_cache_error('Swift Performance', $e);
             return false;
         }
     }
 
     /**
+     * Clear Kinsta hosting-level full-page cache (entire site)
+     */
+    private function clear_kinsta_cache()
+    {
+        try {
+            KinstaCache::get_instance()->kinsta_cache_purge_full();
+            return true;
+        } catch (Exception $e) {
+            $this->log_cache_error('Kinsta', $e);
+            return false;
+        }
+    }
+
+    /**
+     * Clear WP Engine hosting-level cache (Varnish + memcached)
+     */
+    private function clear_wpengine_cache()
+    {
+        try {
+            WpeCommon::purge_varnish_cache();
+            WpeCommon::purge_memcached();
+            return true;
+        } catch (Exception $e) {
+            $this->log_cache_error('WP Engine', $e);
+            return false;
+        }
+    }
+
+    /**
+     * Static wrapper: clear all caches with try-catch
+     *
+     * @param string $source Source identifier for logging
+     */
+    public static function purge_all($source = 'metasync')
+    {
+        try {
+            self::get_instance()->clear_all_caches($source);
+        } catch (Exception $e) {
+            error_log('MetaSync: Cache purge failed (' . $source . ') - ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Static wrapper: clear cache for a single URL with try-catch
+     *
+     * @param string $url URL to purge
+     */
+    public static function purge_single_url($url)
+    {
+        try {
+            self::get_instance()->clear_url_cache($url);
+        } catch (Exception $e) {
+            error_log('MetaSync: URL cache purge failed - ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Log a cache clear failure consistently
+     *
+     * @param string    $plugin_name Human-readable plugin name
+     * @param Exception $e           The caught exception
+     */
+    private function log_cache_error($plugin_name, $e)
+    {
+        error_log('MetaSync: Failed to clear ' . $plugin_name . ' cache - ' . $e->getMessage());
+    }
+
+    /**
      * Check if a plugin is active
-     * 
+     *
      * @param string $plugin_path Plugin path (folder/file.php)
      * @return bool
      */

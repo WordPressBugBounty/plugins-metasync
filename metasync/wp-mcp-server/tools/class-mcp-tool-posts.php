@@ -46,10 +46,7 @@ class MCP_Tool_Get_Post extends MCP_Tool_Base {
         $post_id = $this->sanitize_integer($params['post_id']);
 
         // Get post
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         // Build response
         $result = [
@@ -214,10 +211,7 @@ class MCP_Tool_Update_Post extends MCP_Tool_Base {
         $post_id = $this->sanitize_integer($params['post_id']);
 
         // Verify post exists
-        $post = get_post($post_id);
-        if (!$post) {
-            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
-        }
+        $post = $this->verify_post_exists($post_id);
 
         // Build update args
         $update_args = ['ID' => $post_id];

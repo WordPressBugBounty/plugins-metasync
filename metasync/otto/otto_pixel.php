@@ -138,21 +138,11 @@ function metasync_otto_crawl_notify($request){
         $otto_pixel->refresh_cache($route);
         
         # Clear cache plugins for this specific URL
-        try {
-            $cache_purge = Metasync_Cache_Purge::get_instance();
-            $cache_purge->clear_url_cache($route);
-        } catch (Exception $e) {
-            // Cache purge failed, continue
-        }
+        Metasync_Cache_Purge::purge_single_url($route);
     }
 
     # Clear all cache plugins after OTTO updates
-    try {
-        $cache_purge = Metasync_Cache_Purge::get_instance();
-        $results = $cache_purge->clear_all_caches('otto_update');
-    } catch (Exception $e) {
-        // Cache purge failed, continue
-    }
+    Metasync_Cache_Purge::purge_all('otto_update');
 
     # Track OTTO optimization event in Mixpanel
     try {
@@ -210,20 +200,24 @@ function metasync_start_otto(){
     # Cache files are valuable for performance - only clear on OTTO updates
     # Periodic cache clearing can be configured in plugin settings if needed
 
-    # exclude AJAX request and all woocommerce pages from OTTO
+    # exclude AJAX requests and WooCommerce transactional pages from OTTO SSR
+    # SSR is now ENABLED for: single products, product categories, product tags
+    # SSR is SKIPPED for: cart, checkout
+    # Note: title/description filters (pre_get_document_title, wp_head meta desc)
+    # run on ALL pages regardless — they are hooked unconditionally in seo-functions.php
     if (
         # disable ajax calls
         isset($_GET['ucfrontajaxaction']) ||
         # OTTO Preview mode - skip OTTO when previewing original content
         (isset($_GET['otto_preview']) && $_GET['otto_preview'] === '1') ||
-        # WooCommerce main pages
-        (function_exists('is_woocommerce') && is_woocommerce()) ||
+        # WooCommerce shop archive page only (products and categories now use SSR)
+        //(function_exists('is_shop') && is_shop()) ||
         # Cart page
         (function_exists('is_cart') && is_cart()) ||
         # Checkout page
         (function_exists('is_checkout') && is_checkout()) ||
         # My Account page
-        (function_exists('is_account_page') && is_account_page()) ||
+        //(function_exists('is_account_page') && is_account_page()) ||
         # Standard WordPress AJAX
         (function_exists('wp_doing_ajax') && wp_doing_ajax()) ||
         # check by constant

@@ -227,6 +227,21 @@ abstract class MCP_Tool_Base {
     }
 
     /**
+     * Verify a post exists by ID
+     *
+     * @param int $post_id Post ID to verify
+     * @return WP_Post The post object
+     * @throws Exception If post not found
+     */
+    protected function verify_post_exists($post_id) {
+        $post = get_post(absint($post_id));
+        if (!$post) {
+            throw new Exception(sprintf("Post not found: %d", absint($post_id)));
+        }
+        return $post;
+    }
+
+    /**
      * Format success result
      *
      * @param mixed  $data    Result data

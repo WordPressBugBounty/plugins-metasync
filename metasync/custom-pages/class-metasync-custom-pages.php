@@ -589,15 +589,8 @@ class Metasync_Custom_Pages
             wp_super_cache_post_delete($post_id);
         }
 
-        // Use MetaSync cache purge if available
-        if (class_exists('Metasync_Cache_Purge')) {
-            try {
-                $cache_purge = Metasync_Cache_Purge::get_instance();
-                $cache_purge->clear_all_caches('custom_page_update');
-            } catch (Exception $e) {
-                error_log('MetaSync Custom Pages: Cache purge failed - ' . $e->getMessage());
-            }
-        }
+        // Clear cache plugins
+        Metasync_Cache_Purge::purge_all('custom_page_update');
     }
 
     /**
