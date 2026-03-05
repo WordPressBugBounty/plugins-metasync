@@ -22,9 +22,10 @@ class Metasync_Otto_Render_Strategy {
     /**
      * Render method constants
      */
-    const METHOD_BUFFER = 'buffer';
-    const METHOD_HTTP = 'http';
-    const METHOD_NONE = 'none';
+    const METHOD_BUFFER    = 'buffer';
+    const METHOD_HTTP      = 'http';
+    const METHOD_NONE      = 'none';
+    const METHOD_WP_ROCKET = 'rocket_buffer';
 
     /**
      * Current render method being used
@@ -547,7 +548,13 @@ class Metasync_Otto_Render_Strategy {
 
         # OTTO Render Method header
         $method = self::get_current_method();
-        $method_label = $method === self::METHOD_BUFFER ? 'BUFFER' : 'HTTP';
+        if ($method === self::METHOD_BUFFER) {
+            $method_label = 'BUFFER';
+        } elseif ($method === self::METHOD_WP_ROCKET) {
+            $method_label = 'WP_ROCKET_BUFFER'; // WP Rocket caches OTTO-modified HTML
+        } else {
+            $method_label = 'HTTP';
+        }
         header('X-MetaSync-OTTO-Method: ' . $method_label);
 
         # OTTO Cache Status header
@@ -566,12 +573,13 @@ class Metasync_Otto_Render_Strategy {
             header('X-MetaSync-OTTO-WPRocket: Compatible');
         }
 
-        # Performance optimization: Cache headers
+        # Browser cache header only — let hosting (Kinsta, WP Engine, etc.) manage CDN TTL natively.
+        # Do NOT set s-maxage: it overrides hosting-level CDN purges (kinsta_cache_purge_full,
+        # WpeCommon::purge_varnish_cache) and prevents OTTO updates from appearing after a cache clear.
         # Only set if WP Rocket is NOT active (let WP Rocket control cache headers)
         if (!is_user_logged_in() && !$wp_rocket_active) {
             $cache_duration = 3600; // 1 hour for browsers
-            $cdn_cache_duration = 86400; // 24 hours for CDNs
-            header('Cache-Control: public, max-age=' . $cache_duration . ', s-maxage=' . $cdn_cache_duration);
+            header('Cache-Control: public, max-age=' . $cache_duration);
             header('Vary: Accept-Encoding');
         }
     }

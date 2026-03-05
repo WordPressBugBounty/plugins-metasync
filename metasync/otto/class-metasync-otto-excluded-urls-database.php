@@ -33,6 +33,14 @@ class Metasync_Otto_Excluded_URLs_Database
 			MetaSync_DBMigration::activation();
 			return;
 		}
+
+		// Check if auto_excluded column exists (added in v2.7.4 — missing on older installs)
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$col = $wpdb->get_var("SHOW COLUMNS FROM `{$table_name}` LIKE 'auto_excluded'");
+		if (empty($col)) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query("ALTER TABLE `{$table_name}` ADD COLUMN `auto_excluded` TINYINT(1) NOT NULL DEFAULT 0");
+		}
 	}
 
 	/**

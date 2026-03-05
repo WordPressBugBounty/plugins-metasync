@@ -66,11 +66,18 @@ class Metasync_Otto_Transient_Cache {
      * OTTO UUID
      */
     private $otto_uuid;
-    
+
     /**
      * OTTO API endpoint
      */
     private $api_endpoint;
+
+    /**
+     * API fetch timeout for the current operation.
+     * Page-load requests use the short API_TIMEOUT (2s).
+     * warm_cache() uses a longer timeout since it runs in a webhook handler.
+     */
+    private $fetch_timeout = self::API_TIMEOUT;
 
     /**
      * Constructor
@@ -174,10 +181,17 @@ class Metasync_Otto_Transient_Cache {
             # Also store as stale cache for fallback
             set_transient($keys['stale'], $suggestions, self::SUGGESTIONS_TTL * 2);
             self::$cache_status[$cache_status_key] = 'MISS'; // Cache miss, fetched from API
-        } else {
-            # No suggestions - cache negative result for shorter time
+        } elseif ($suggestions !== false) {
+            # API responded 200 OK but genuinely no OTTO suggestions for this URL.
+            # Cache the negative result for a short time to prevent hammering the API.
             set_transient($keys['transient'], false, self::NO_SUGGESTIONS_TTL);
             self::$cache_status[$cache_status_key] = 'NO_SUGGESTIONS';
+        } else {
+            # fetch_from_api() returned false — network error, timeout, or non-200 response.
+            # Do NOT cache the failure: a stale false would poison subsequent MISS requests
+            # (Kinsta sees MISS → PHP runs → transient HIT = false → OTTO skips → old title cached).
+            # Leave the transient empty so the very next page load retries the API call.
+            self::$cache_status[$cache_status_key] = 'API_ERROR';
         }
 
         # Step 7: Release lock
@@ -226,17 +240,30 @@ class Metasync_Otto_Transient_Cache {
     
     /**
      * Warm cache for a URL (pre-fetch and cache)
-     * Useful when notification is received
-     * 
+     * Called from the OTTO webhook handler — NOT from a page load.
+     * Uses a longer API timeout so transients are reliably populated before
+     * the Kinsta/WP Engine cache purge fires, preventing the "false transient
+     * poisoning" race condition (MISS → false transient HIT → OTTO skips →
+     * old Yoast title cached).
+     *
      * @param string $url The page URL
      * @return array|false Suggestions or false
      */
     public function warm_cache($url) {
         # Invalidate existing cache first
         $this->invalidate($url);
-        
-        # Fetch and cache
-        return $this->get_suggestions($url);
+
+        # Use a longer timeout for this pre-warm request (webhook context, not page load).
+        $saved_timeout = $this->fetch_timeout;
+        $this->fetch_timeout = 8; // 8 seconds — enough for cross-region API calls
+
+        # Fetch and cache (with the longer timeout)
+        $result = $this->get_suggestions($url);
+
+        # Restore original timeout
+        $this->fetch_timeout = $saved_timeout;
+
+        return $result;
     }
     
     /**
@@ -270,9 +297,10 @@ class Metasync_Otto_Transient_Cache {
             $this->api_endpoint
         );
 
-        # Make API request with short timeout
+        # Make API request — timeout comes from $this->fetch_timeout so warm_cache()
+        # can override it without affecting page-load requests.
         $response = wp_remote_get($api_url, [
-            'timeout' => self::API_TIMEOUT,
+            'timeout' => $this->fetch_timeout,
             'redirection' => 5,
             'user-agent' => 'MetaSync-OTTO-Transient-Cache/1.0',
             'sslverify' => true,
@@ -547,12 +575,13 @@ class Metasync_Otto_Transient_Cache {
         $normalized = rtrim(strtolower($url), '/');
         $site_id = is_multisite() ? get_current_blog_id() : 0;
         
-        # Generate keys matching the actual key generation methods
-        # Note: lock and stale keys use md5($url) directly (no normalization)
-        # while transient key uses normalized URL
-        $transient_key = self::TRANSIENT_PREFIX . $site_id . '_' . md5($normalized);
-        $lock_key = self::LOCK_PREFIX . md5($url); // No normalization for lock
-        $stale_key = self::STALE_PREFIX . md5($url); // No normalization for stale
+        # Use the same normalization as get_cache_keys() for all three keys.
+        # Previously lock/stale used raw $url (no normalization), which generated
+        # different hashes than the actual keys — they were never actually deleted.
+        $hash = md5($normalized);
+        $transient_key = self::TRANSIENT_PREFIX . $site_id . '_' . $hash;
+        $lock_key      = self::LOCK_PREFIX . $hash;
+        $stale_key     = self::STALE_PREFIX . $hash;
         
         $keys_to_clear = [$transient_key, $lock_key, $stale_key];
         

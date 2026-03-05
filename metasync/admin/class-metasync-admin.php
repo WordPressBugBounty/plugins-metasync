@@ -4989,38 +4989,58 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $options['general']['heartbeat_state'] = 'KEY_PENDING';
         $options['general']['heartbeat_state_changed_at'] = time();
         Metasync::set_option($options);
+        delete_option('metasync_burst_attempt_count');
+        delete_option('metasync_burst_gave_up');
         $this->maybe_schedule_heartbeat_cron();
     }
     
     /**
      * PR3: Burst cron — run heartbeat when state is KEY_PENDING.
-     * After the 30-min burst window expires, downgrade to every-5-minutes schedule.
+     * After 5 attempts with no confirmation, stop burst and fall back to 2-hour cron.
      */
     public function execute_burst_heartbeat()
     {
         if ($this->get_heartbeat_state() !== 'KEY_PENDING') {
             return;
         }
-        $general = Metasync::get_option('general') ?? [];
-        $state_changed_at = (int) ($general['heartbeat_state_changed_at'] ?? 0);
-        $burst_window_end = $state_changed_at + (30 * 60);
-        if ($burst_window_end < time()) {
-            $this->unschedule_burst_heartbeat_cron();
-            if (!wp_next_scheduled('metasync_heartbeat_cron_check')) {
-                wp_schedule_event(time(), 'metasync_every_10_minutes', 'metasync_heartbeat_cron_check');
-            }
-            $this->execute_heartbeat_cron_check();
+        $count = (int) get_option('metasync_burst_attempt_count', 0);
+        $count++;
+        update_option('metasync_burst_attempt_count', $count);
+
+        $this->execute_heartbeat_cron_check();
+
+        if ($this->get_heartbeat_state() === 'CONNECTED') {
+            delete_option('metasync_burst_attempt_count');
             return;
         }
-        $this->execute_heartbeat_cron_check();
+        if ($count >= 5) {
+            $this->unschedule_burst_heartbeat_cron();
+            update_option('metasync_burst_gave_up', true);
+            if (!wp_next_scheduled('metasync_heartbeat_cron_check')) {
+                wp_schedule_event(time(), 'metasync_every_2_hours', 'metasync_heartbeat_cron_check');
+            }
+        }
     }
     
     /**
-     * PR3: Announce cron — send pre-SSO announce when state is UNREGISTERED (fallback every 5 min).
+     * PR3: Announce cron — send pre-SSO announce when state is UNREGISTERED.
+     * After 5 attempts with no confirmation, stop announce and fall back to 2-hour cron.
      */
     public function execute_announce_cron()
     {
         if ($this->get_heartbeat_state() !== 'UNREGISTERED') {
+            return;
+        }
+        $count = (int) get_option('metasync_burst_attempt_count', 0);
+        $count++;
+        update_option('metasync_burst_attempt_count', $count);
+
+        if ($count >= 5) {
+            $this->unschedule_announce_cron();
+            update_option('metasync_burst_gave_up', true);
+            if (!wp_next_scheduled('metasync_heartbeat_cron_check')) {
+                wp_schedule_event(time(), 'metasync_every_2_hours', 'metasync_heartbeat_cron_check');
+            }
             return;
         }
         if (!class_exists('Metasync_Activator')) {
@@ -5057,6 +5077,8 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             $this->unschedule_heartbeat_cron();
             $this->unschedule_burst_heartbeat_cron();
             if (!wp_next_scheduled('metasync_announce_cron')) {
+                delete_option('metasync_burst_attempt_count');
+                delete_option('metasync_burst_gave_up');
                 wp_schedule_event(time(), 'metasync_every_10_minutes', 'metasync_announce_cron');
             }
             return;
@@ -5065,9 +5087,17 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $this->unschedule_announce_cron();
         
         if ($state === 'KEY_PENDING') {
+            if (get_option('metasync_burst_gave_up')) {
+                $this->unschedule_burst_heartbeat_cron();
+                if (!wp_next_scheduled('metasync_heartbeat_cron_check')) {
+                    wp_schedule_event(time(), 'metasync_every_2_hours', 'metasync_heartbeat_cron_check');
+                }
+                return;
+            }
             $this->unschedule_heartbeat_cron();
             $this->unschedule_burst_heartbeat_cron();
             if (!wp_next_scheduled('metasync_burst_heartbeat')) {
+                delete_option('metasync_burst_attempt_count');
                 wp_schedule_event(time(), 'metasync_every_10_minutes', 'metasync_burst_heartbeat');
             }
             return;
@@ -5075,6 +5105,8 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         
         if ($state === 'CONNECTED') {
             $this->unschedule_burst_heartbeat_cron();
+            delete_option('metasync_burst_attempt_count');
+            delete_option('metasync_burst_gave_up');
             $this->schedule_heartbeat_cron();
         }
     }

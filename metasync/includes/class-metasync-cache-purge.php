@@ -243,9 +243,14 @@ class Metasync_Cache_Purge
             $post_id = url_to_postid($url);
         }
 
-        // WP Rocket - Clear specific URL
-        if ($this->is_plugin_active('wp-rocket/wp-rocket.php') && function_exists('rocket_clean_post')) {
-            if ($post_id) {
+        // WP Rocket - Clear specific URL.
+        // Prefer rocket_clean_url() (URL-based, WP Rocket 3+) so custom post types
+        // and URLs that url_to_postid() can't resolve are still purged correctly.
+        if ($this->is_plugin_active('wp-rocket/wp-rocket.php')) {
+            if ($url && function_exists('rocket_clean_url')) {
+                rocket_clean_url($url);
+                $success = true;
+            } elseif ($post_id && function_exists('rocket_clean_post')) {
                 rocket_clean_post($post_id);
                 $success = true;
             }
@@ -654,6 +659,64 @@ class Metasync_Cache_Purge
         } catch (Exception $e) {
             error_log('MetaSync: URL cache purge failed - ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Warm cache for multiple URLs after a purge.
+     *
+     * Sends anonymous fire-and-forget requests so that our code — with fresh OTTO
+     * data already in transients and post meta — is the first to populate each URL
+     * in the hosting cache. Without this, the first external visitor (or the host's
+     * own cache warmer) could re-cache a stale version before OTTO SSR has run.
+     *
+     * Capped at $max URLs per call to prevent excessive server load on large batches.
+     *
+     * @param array $urls List of URLs to warm
+     * @param int   $max  Maximum URLs to warm per invocation (default 10)
+     */
+    public static function warm_urls(array $urls, $max = 10)
+    {
+        $count = 0;
+        foreach ($urls as $url) {
+            if (++$count > $max) {
+                break;
+            }
+            self::warm_url($url);
+        }
+    }
+
+    /**
+     * Send a single anonymous, non-blocking HTTP GET to a URL to prime the cache.
+     *
+     * The request carries no auth cookies, so the hosting layer (Kinsta, WP Engine, etc.)
+     * treats it as an anonymous visitor and caches the PHP-rendered response.
+     * OTTO SSR runs during this request and modifies the HTML before it is stored.
+     *
+     * Uses blocking=false so the pixel webhook returns immediately; the host
+     * continues processing the request asynchronously.
+     *
+     * @param string $url URL to warm
+     */
+    public static function warm_url($url)
+    {
+        if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) {
+            return;
+        }
+
+        wp_remote_get($url, array(
+            'blocking'    => false,     // Fire-and-forget: don't wait for response
+            'timeout'     => 3,         // 3s to establish connection + send headers reliably
+                                        // 0.01s was too short: TCP handshake could fail on loaded servers,
+                                        // causing warm requests to silently drop before the request was sent.
+                                        // blocking=false means we still don't wait for the response body.
+            'redirection' => 0,         // No redirect following needed
+            'headers'     => array(
+                'X-MetaSync-Cache-Warm' => '1',
+                'User-Agent'            => 'MetaSync-Cache-Warmer/1.0',
+            ),
+            'cookies'     => array(),   // No cookies = anonymous visitor = host will cache result
+            'sslverify'   => false,     // Avoid SSL issues on staging/local environments
+        ));
     }
 
     /**

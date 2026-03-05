@@ -97,6 +97,9 @@ function metasync_otto_crawl_notify($request){
     # save the otto data first
     $otto_pixel->save_crawl_data($data);
 
+    # Collect URLs that need cache warming after purge
+    $urls_to_warm = array();
+
     # now we have the data sets
     foreach($data['urls'] AS $key => $url){
         # prepare the route
@@ -108,41 +111,45 @@ function metasync_otto_crawl_notify($request){
         # Resolve redirect table: use final destination URL before excluded/404 checks and OTTO processing
         $route = metasync_otto_resolve_redirect_to_final_url($route);
 
-        # Skip excluded URLs - don't process OTTO data for them
+        # OTTO has confirmed this URL is crawlable. Remove any auto-exclusion that was
+        # previously set (e.g. because url_to_postid() returned 0 for a custom post type
+        # and metasync_otto_is_url_available() incorrectly treated it as a 404).
+        # Manual exclusions (auto_excluded = 0) are left untouched.
+        metasync_otto_remove_auto_exclusion($route);
+
+        # Skip manually excluded URLs - don't process OTTO data for them
         if (metasync_is_otto_url_excluded($route)) {
-            // error_log('MetaSync OTTO: Skipping excluded URL: ' . $route);
             continue;
         }
 
-        # OPTION 1 IMPLEMENTATION: Invalidate and warm transient cache when notification received
-        # This ensures fresh suggestions are cached immediately when OTTO sends updates
-        # OPTIMIZED: Use cached options
+        # Step 1: Warm OTTO transient cache (fetch fresh suggestions from OTTO API into WP transient)
         $otto_uuid = Metasync_Otto_Config::get_otto_uuid();
         if (!empty($otto_uuid)) {
             $transient_cache = new Metasync_Otto_Transient_Cache($otto_uuid);
-            # Invalidate old cache and fetch fresh suggestions
             $transient_cache->warm_cache($route);
         }
 
-        # ENHANCED: Try to schedule async SEO data processing, fallback to immediate processing
-        # Use immediate scheduling with 1-second delay to allow current request to complete
-        $scheduled = wp_schedule_single_event(time() + 1, 'metasync_process_seo_job', array($route));
-        
-        # If scheduling fails (due to database permissions), process immediately
-        if ($scheduled === false) {
-            # Process SEO data immediately as fallback
-            metasync_process_otto_seo_data($route);
-        }
+        # Step 2: Write SEO post meta synchronously BEFORE the cache purge.
+        # This ensures the DB is fully up-to-date when Kinsta (or any host) re-populates
+        # the cache on the very next request — eliminating the race condition where the
+        # 1-second scheduled job hadn't run yet and stale meta got cached.
+        metasync_process_otto_seo_data($route);
 
-        # do the delete
+        # Step 3: Clear the per-URL cache entry
         $otto_pixel->refresh_cache($route);
-        
-        # Clear cache plugins for this specific URL
         Metasync_Cache_Purge::purge_single_url($route);
+
+        $urls_to_warm[] = $route;
     }
 
-    # Clear all cache plugins after OTTO updates
-    Metasync_Cache_Purge::purge_all('otto_update');
+    # Step 4: Re-populate the cache for each affected URL.
+    # purge_single_url() above cleared WP Rocket + Kinsta per-URL.
+    # warm_urls() hits each URL now so our code — with fresh transients and post meta —
+    # is first to populate the host cache. Kinsta stores the OTTO-modified version
+    # before any real visitor or external bot arrives.
+    # A full-site purge (purge_all) is intentionally absent: it was nuking the entire
+    # Kinsta cache for 1–3 URL updates, leaving all other pages cold.
+    Metasync_Cache_Purge::warm_urls($urls_to_warm);
 
     # Track OTTO optimization event in Mixpanel
     try {
@@ -267,9 +274,12 @@ function metasync_start_otto(){
         }
     }
 
-    # check if current URL is excluded from OTTO
-    $current_url = home_url($_SERVER['REQUEST_URI']);
-    if (metasync_is_otto_url_excluded($current_url)) {
+    # check if current URL is manually excluded from OTTO
+    # NOTE: auto-exclusions (false-positive 404 detections) are intentionally NOT checked
+    # here — they must not block OTTO rendering. Use metasync_is_otto_url_excluded() only
+    # in the webhook handler where we gate SEO meta writes.
+    $current_url = home_url(strtok($_SERVER['REQUEST_URI'], '?') ?: $_SERVER['REQUEST_URI']);
+    if (metasync_is_otto_url_manually_excluded($current_url)) {
         return;
     }
 
@@ -1179,6 +1189,13 @@ function metasync_get_supported_post_types() {
         $post_types[] = 'product';
     }
 
+    # Include all public custom post types (e.g. 'location', 'service', 'team', etc.)
+    # so OTTO can write post meta for them during metasync_process_otto_seo_data().
+    $custom_post_types = get_post_types(['public' => true, '_builtin' => false], 'names');
+    if (!empty($custom_post_types)) {
+        $post_types = array_merge($post_types, array_values($custom_post_types));
+    }
+
     # Allow developers to filter supported post types
     $post_types = apply_filters('metasync_otto_supported_post_types', $post_types);
 
@@ -1265,6 +1282,108 @@ function metasync_otto_auto_exclude_404_url($url)
 }
 
 /**
+ * Remove a URL from the OTTO auto-exclusion list.
+ * Called when OTTO sends a webhook for a URL, confirming it is valid and crawlable.
+ * Only removes records where auto_excluded = 1 (never removes manual exclusions).
+ *
+ * @param string $url Full URL to un-exclude (e.g. https://example.com/location/page)
+ * @return bool True on success
+ */
+function metasync_otto_remove_auto_exclusion($url)
+{
+    if (empty($url) || !is_string($url)) {
+        return false;
+    }
+    try {
+        require_once plugin_dir_path(__FILE__) . 'class-metasync-otto-excluded-urls-database.php';
+        $db  = new Metasync_Otto_Excluded_URLs_Database();
+        global $wpdb;
+        $table = $wpdb->prefix . Metasync_Otto_Excluded_URLs_Database::$table_name;
+        # Normalize the same way is_url_excluded() does
+        $url_normalized = rtrim(trim($url), '/');
+        $records = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT id FROM `{$table}` WHERE url_pattern = %s AND auto_excluded = 1 AND status = 'active'",
+                $url_normalized
+            )
+        );
+        if (!empty($records)) {
+            $ids = array_map(function ($r) { return (int) $r->id; }, $records);
+            $db->delete($ids);
+        }
+        return true;
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+/**
+ * Check if a URL is MANUALLY excluded from OTTO (auto_excluded = 0).
+ * Used at render time (metasync_start_otto) — auto-exclusions must NOT block
+ * rendering because they are often false positives (e.g. custom post types that
+ * url_to_postid() can't resolve). Auto-exclusions are only used to gate the
+ * SEO meta-writing webhook path.
+ *
+ * @param string $url URL to check
+ * @return bool True if URL has a manual exclusion
+ */
+function metasync_is_otto_url_manually_excluded($url)
+{
+    if (empty($url) || !is_string($url)) {
+        return false;
+    }
+    try {
+        require_once plugin_dir_path(__FILE__) . 'class-metasync-otto-excluded-urls-database.php';
+        global $wpdb;
+        $table = $wpdb->prefix . Metasync_Otto_Excluded_URLs_Database::$table_name;
+        $url_normalized = rtrim(trim($url), '/');
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- no user input, table name from $wpdb->prefix
+        $records = $wpdb->get_results(
+            "SELECT url_pattern, pattern_type FROM `{$table}` WHERE status = 'active' AND (auto_excluded = 0 OR auto_excluded IS NULL) ORDER BY created_at DESC"
+        );
+
+        // Graceful recovery: auto_excluded column missing on pre-v2.7.4 installs.
+        // Run ALTER TABLE to add it and treat URL as not excluded so OTTO continues rendering.
+        if ($wpdb->last_error && strpos($wpdb->last_error, 'auto_excluded') !== false) {
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+            $wpdb->query("ALTER TABLE `{$table}` ADD COLUMN `auto_excluded` TINYINT(1) NOT NULL DEFAULT 0");
+            return false;
+        }
+
+        if (empty($records)) {
+            return false;
+        }
+
+        foreach ($records as $excluded) {
+            $pattern      = rtrim(trim($excluded->url_pattern), '/');
+            $pattern_type = $excluded->pattern_type;
+
+            switch ($pattern_type) {
+                case 'exact':
+                    if ($url_normalized === $pattern) {
+                        return true;
+                    }
+                    break;
+                case 'contain':
+                    if (strpos($url_normalized, $pattern) !== false) {
+                        return true;
+                    }
+                    break;
+                case 'start':
+                    if (strpos($url_normalized, $pattern) === 0) {
+                        return true;
+                    }
+                    break;
+            }
+        }
+        return false;
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+/**
  * Check if a URL is excluded from OTTO
  * @param string $url URL to check
  * @return bool True if URL is excluded, false otherwise
@@ -1333,7 +1452,10 @@ function metasync_otto_is_url_available($url)
 
     if ($post_id && $post_id > 0) {
         $post = get_post($post_id);
-        if ($post && in_array($post->post_type, metasync_get_supported_post_types())) {
+        # Accept any post type — custom post types (e.g. 'location', 'service') are valid URLs.
+        # The old in_array check against metasync_get_supported_post_types() caused CPT URLs
+        # to be wrongly auto-excluded as "404" pages.
+        if ($post) {
             return !metasync_would_page_return_404($post_id, $route);
         }
     }
@@ -1367,7 +1489,10 @@ function metasync_otto_is_url_available($url)
         }
     }
 
-    return false;
+    # Could not verify availability from local data (custom archive, paginated page, etc.).
+    # Assume the URL IS available — OTTO only crawls reachable URLs, so if we can't
+    # prove it's a 404, we should not auto-exclude it.
+    return true;
 }
 
 /**

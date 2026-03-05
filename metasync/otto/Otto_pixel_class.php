@@ -142,16 +142,22 @@ Class Metasync_otto_pixel{
             # not in HTTP context (CLI, cron, etc.), return false
             return false;
         }
-        
+
         # get req scheme
         $scheme = ( is_ssl() ? 'https' : 'http' );
-       
+
         # get req host
         $host = $_SERVER['HTTP_HOST'];
-        
-        # get the uri
-        $request_uri = $_SERVER['REQUEST_URI'];
-    
+
+        # get the uri — strip query string before building the route.
+        # OTTO suggestions are canonical-URL-based; query parameters (Kinsta cache-bypass
+        # tokens, UTM params, tracking params, etc.) never produce different OTTO content.
+        # Stripping them ensures that:
+        #  - The transient populated via a Kinsta BYPASS request (always has ?params) is
+        #    shared with the clean-URL MISS request (no params).
+        #  - The OTTO API is called with the canonical URL, not a noisy variant.
+        $request_uri = strtok($_SERVER['REQUEST_URI'], '?') ?: $_SERVER['REQUEST_URI'];
+
         # return the formatted url
         return $scheme . '://' . $host . $request_uri;
     }
@@ -261,9 +267,11 @@ Class Metasync_otto_pixel{
         # Get cache status for headers
         $cache_status = Metasync_Otto_Transient_Cache::get_cache_status($cache_track_key);
 
-        # HYBRID APPROACH: Choose best render method based on environment
-        # Priority: Output Buffer (fast) > HTTP Request (fallback)
-        # Wrapped in try-catch to ensure fallback works if anything fails
+        # RENDER PRIORITY:
+        # 1. WP Rocket rocket_buffer filter — WP Rocket caches OTTO-modified HTML,
+        #    so Kinsta also caches the correct version. No exit(), no cache bypass.
+        # 2. Output Buffer (fast) — for environments without WP Rocket.
+        # 3. HTTP Request (last resort) — exits early, bypasses all caching.
         try {
             # Safety check: ensure render strategy class exists
             if (!class_exists('Metasync_Otto_Render_Strategy')) {
@@ -272,18 +280,32 @@ Class Metasync_otto_pixel{
                 return;
             }
 
+            # WP ROCKET PATH: highest priority when WP Rocket is active.
+            # rocket_buffer fires inside WP Rocket's own cache pipeline, so the
+            # cache file WP Rocket writes (and that Kinsta stores) is already
+            # OTTO-modified. Eliminates the race where WP Rocket saved pre-OTTO HTML.
+            if (class_exists('WP_Rocket')) {
+                $wp_rocket_compat_mode = Metasync_Otto_Config::get_wp_rocket_compat_mode();
+                if ($wp_rocket_compat_mode !== 'http') {
+                    # disable_otto exits in metasync_start_otto() before we get here, so
+                    # only 'http' compat mode needs to skip the rocket_buffer path.
+                    $this->render_via_rocket_buffer($suggestions, $blocking_flags, $cache_status);
+                    return;
+                }
+            }
+
             $render_method = Metasync_Otto_Render_Strategy::determine_method();
 
             if ($render_method === Metasync_Otto_Render_Strategy::METHOD_BUFFER) {
                 # FAST PATH: Use output buffer approach
                 $result = $this->render_via_buffer($route, $suggestions, $blocking_flags, $cache_status);
-                
+
                 if ($result === true) {
                     # Buffer is now active, WordPress will continue rendering
                     # OTTO modifications will be applied when buffer flushes
                     return;
                 }
-                
+
                 # Buffer approach failed, fall back to HTTP method
                 $render_method = Metasync_Otto_Render_Strategy::METHOD_HTTP;
             }
@@ -299,6 +321,81 @@ Class Metasync_otto_pixel{
             # PHP 7+ Error (like TypeError) - fall back to HTTP method
             $this->render_via_http($route, $suggestions, $cache_track_key, $cache_status);
         }
+    }
+
+    /**
+     * Render page using WP Rocket's rocket_buffer filter (PREFERRED for WP Rocket sites)
+     *
+     * When WP Rocket is active, hooking into rocket_buffer ensures WP Rocket
+     * caches the OTTO-modified HTML. This means:
+     *  - WP Rocket's cache file  = OTTO-modified HTML ✓
+     *  - Kinsta FastCGI cache    = WP Rocket output  = OTTO-modified HTML ✓
+     *  - No exit()               = proper cache lifecycle ✓
+     *
+     * The filter fires on every uncached PHP request. Once WP Rocket has cached
+     * the result, subsequent requests are served directly from cache with zero PHP.
+     *
+     * @param array  $suggestions    OTTO suggestions data
+     * @param array  $blocking_flags SEO plugin blocking flags
+     * @param string $cache_status   Cache status for X-MetaSync-* headers
+     */
+    private function render_via_rocket_buffer($suggestions, $blocking_flags, $cache_status) {
+        $o_html = $this->o_html;
+
+        # Hook into WP Rocket's HTML buffer at priority 1 so other rocket_buffer
+        # filters (minifiers, CDN rewriters, etc.) run on already-OTTO-modified HTML.
+        add_filter('rocket_buffer', function($html) use ($o_html, $suggestions, $blocking_flags) {
+            if (empty($html) || strlen($html) < 100) {
+                return $html;
+            }
+
+            # Only process full HTML documents — skip partials, JSON, error responses
+            if (stripos($html, '<html') === false && stripos($html, '<!DOCTYPE') === false) {
+                return $html;
+            }
+
+            # Pass blocking context to the HTML processor (suppresses Yoast/Rank Math tags
+            # that OTTO is replacing, preventing duplicates in the final HTML)
+            $data = $suggestions;
+            if (!empty($blocking_flags)) {
+                $data['_otto_blocking'] = $blocking_flags;
+            }
+
+            try {
+                $modified = $o_html->process_html_directly($html, $data);
+                # Sanity check: modified HTML must be at least 50% the size of original
+                if ($modified && strlen($modified) > strlen($html) * 0.5) {
+                    return $modified;
+                }
+            } catch (Exception $e) {
+                // Fall through — return original HTML on any failure
+            } catch (Error $e) {
+                // Fall through — return original HTML on any failure
+            }
+
+            return $html;
+        }, 1);
+
+        # Block SEO plugins before wp_head fires so duplicate tags aren't output
+        $has_description_tags = !empty($blocking_flags['block_description_tags']);
+        if ($blocking_flags['block_title'] || $has_description_tags) {
+            if (function_exists('metasync_otto_block_seo_plugins')) {
+                metasync_otto_block_seo_plugins(
+                    $blocking_flags['block_title'],
+                    $has_description_tags
+                );
+            }
+        }
+
+        # Send X-MetaSync-* diagnostic headers before WordPress outputs anything
+        if (!headers_sent()) {
+            Metasync_Otto_Render_Strategy::set_current_method(Metasync_Otto_Render_Strategy::METHOD_WP_ROCKET);
+            Metasync_Otto_Render_Strategy::send_headers($cache_status);
+        }
+
+        # Return — WordPress continues its normal render lifecycle.
+        # WP Rocket's buffer captures the full HTML, fires rocket_buffer,
+        # our callback modifies it, and WP Rocket caches the OTTO version.
     }
 
     /**
