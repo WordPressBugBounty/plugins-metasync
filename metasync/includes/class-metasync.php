@@ -141,15 +141,51 @@ class Metasync
 		// require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-i18n.php'; // Language support removed
 
 		/**
+		 * The class responsible for heartbeat / connection-monitoring logic
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-heartbeat-manager.php';
+
+		/**
 		 * The class responsible for monitoring API key changes and triggering heartbeat updates
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-api-key-monitor.php';
 
 		/**
+		 * The class responsible for OTTO cache management logic
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-otto-cache-manager.php';
+
+		/**
+		 * The class responsible for debug / error-logging logic
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-debug-manager.php';
+
+		/**
+		 * SearchAtlas Connect / SSO Authentication Manager
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-connect-manager.php';
+
+		/**
+		 * Compatibility Checker (extracted from admin)
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-compatibility-checker.php';
+
+		/**
+		 * Settings field callbacks and accordion/section helpers (extracted from admin).
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-settings-fields.php';
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-settings-registration.php';
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-admin-navigation.php';
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-admin-ajax.php';
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-admin-assets.php';
+
+		/**
 		 * The class responsible for defining all actions that occur in the admin area.
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-admin.php';
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-admin-pages.php';
 		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-post-meta-setting.php';
+		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-edge-cache-settings.php';
 
 		/**
 		 * The class responsible for the setup wizard functionality.
@@ -166,6 +202,8 @@ class Metasync
 		 * side of the site.
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'public/class-metasync-public.php';
+		require_once plugin_dir_path(dirname(__FILE__)) . 'public/class-metasync-rest-api.php';
+		require_once plugin_dir_path(dirname(__FILE__)) . 'public/class-metasync-seo-output.php';
 
 		/**
 		 * The class responsible for defining template crawling and check feture image and post_title
@@ -246,6 +284,7 @@ class Metasync
 		require_once plugin_dir_path(dirname(__FILE__)) . 'redirections/class-metasync-redirection-database.php';
 		require_once plugin_dir_path(dirname(__FILE__)) . 'redirections/class-metasync-redirection.php';
 		require_once plugin_dir_path(dirname(__FILE__)) . 'redirections/class-metasync-auto-redirect.php';
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-redirections-admin.php';
 
 		/**
 		 * The class responsible for custom HTML pages functionality.
@@ -281,6 +320,16 @@ class Metasync
 		 * The class responsible for enhanced error logging with categories.
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-error-logger.php';
+
+		/**
+		 * The class responsible for displaying the review/rate plugin notice.
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-review-notice.php';
+
+		/**
+		 * The class responsible for Site Health integration
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-site-health.php';
 
 		$this->loader = new Metasync_Loader();
 		$this->db_heartbeat_errors = new Metasync_HeartBeat_Error_Monitor_Database();
@@ -398,6 +447,12 @@ class Metasync
 			$dev_panel = new Metasync_Dev_Panel($this->get_plugin_name(), $this->get_version());
 		}
 
+		// Initialize Site Health integration
+		if (class_exists('Metasync_Site_Health')) {
+			$site_health = new Metasync_Site_Health();
+			$site_health->register_tests();
+		}
+
 		// Initialize endpoint URL filtering for staging mode
 		$this->init_endpoint_filtering();
 
@@ -425,8 +480,11 @@ class Metasync
 		$this->loader->add_action('the_content', $optimal_settings, 'add_attributes_external_links');
 
 		$plugin_public = new Metasync_Public($this->get_plugin_name(), $this->get_version());
+		$rest_api = $plugin_public->get_rest_api();
+		$seo_output = $plugin_public->get_seo_output();
 		$get_plugin_basename = sprintf('%1$s/%1$s.php', $this->plugin_name);
 
+		// Asset enqueue hooks (Metasync_Public)
 		$this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_styles');
 		$this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_scripts');
 		$this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_page_custom_css', 999);
@@ -441,33 +499,37 @@ class Metasync
 			$this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_divi_builder_css', 999);
 		}
 
-		$this->loader->add_action('wp_head', $plugin_public, 'hook_metasync_metatags', 1, 1);
-		$this->loader->add_action('template_redirect', $plugin_public, 'inject_archive_seo_controls');
-		
+		// SEO Output hooks (Metasync_Seo_Output)
+		$this->loader->add_action('wp_head', $seo_output, 'hook_metasync_metatags', 1, 1);
+		$this->loader->add_action('template_redirect', $seo_output, 'inject_archive_seo_controls');
+
+		// Edge Cache: detect Cloudways Varnish and persist for settings UI
+		$this->loader->add_action('init', 'Metasync_Edge_Cache_Purge', 'detect_cloudways');
+
 		// Sitemap exclusions for disabled archive types
-		$this->loader->add_filter('wp_sitemaps_taxonomies', $plugin_public, 'filter_sitemap_taxonomies');
-		$this->loader->add_filter('wp_sitemaps_users_entry', $plugin_public, 'filter_sitemap_users', 10, 2);
-		$this->loader->add_filter('wp_sitemaps_add_provider', $plugin_public, 'filter_sitemap_providers', 10, 2);
-		$this->loader->add_filter('wp_sitemaps_index_entry', $plugin_public, 'filter_sitemap_index_entries', 10, 4);
-		
+		$this->loader->add_filter('wp_sitemaps_taxonomies', $seo_output, 'filter_sitemap_taxonomies');
+		$this->loader->add_filter('wp_sitemaps_users_entry', $seo_output, 'filter_sitemap_users', 10, 2);
+		$this->loader->add_filter('wp_sitemaps_add_provider', $seo_output, 'filter_sitemap_providers', 10, 2);
+		$this->loader->add_filter('wp_sitemaps_index_entry', $seo_output, 'filter_sitemap_index_entries', 10, 4);
+
 		// AMP cleanup functionality - remove metasync_optimized attribute from head on AMP pages
-		$this->loader->add_action('template_redirect', $plugin_public, 'cleanup_amp_head_attribute', 1);
-		$this->loader->add_action('wp_footer', $plugin_public, 'end_amp_head_cleanup', 999);
-		
+		$this->loader->add_action('template_redirect', $seo_output, 'cleanup_amp_head_attribute', 1);
+		$this->loader->add_action('wp_footer', $seo_output, 'end_amp_head_cleanup', 999);
+
 		// Redirection functionality
 		$redirection = new Metasync_Redirection($this->db_redirection);
 		$this->loader->add_action('template_redirect', $redirection, 'handle_template_redirect', 5);
-		
+
 		# Prevent WordPress from redirecting to draft posts via redirect_canonical
 		$this->loader->add_filter('redirect_canonical', $redirection, 'prevent_draft_post_redirects', 10, 2);
-		
+
 		# Prevent WordPress old slug redirects to unpublished posts only
 		$this->loader->add_filter('old_slug_redirect_post_id', $redirection, 'prevent_old_slug_redirect_to_drafts', 10, 1);
-		
+
 		// Auto-redirect on slug change - creates 301 redirect when post/page slug is changed
 		$auto_redirect = new Metasync_Auto_Redirect($this->db_redirection);
 		$auto_redirect->init();
-		
+
 		# Custom HTML Pages functionality
 		# No additional loader hooks needed - class registers its own hooks
 		$custom_pages = new Metasync_Custom_Pages();
@@ -475,11 +537,15 @@ class Metasync
 		// 404 Error monitoring
 		$this->loader->add_action('template_redirect', $this, 'handle_404_monitoring', 10);
 		$this->loader->add_action('plugin_action_links_' . $get_plugin_basename, $plugin_public, 'metasync_plugin_links');
-		$this->loader->add_action('rest_api_init', $plugin_public, 'metasync_register_rest_routes');
+
+		// REST API hooks (Metasync_Rest_Api)
+		$this->loader->add_action('rest_api_init', $rest_api, 'metasync_register_rest_routes');
 		$this->loader->add_action('init', $plugin_public, 'metasync_plugin_init', 5);
-		$this->loader->add_action('wp_ajax_metasync', $plugin_public, 'sync_items');
-		$this->loader->add_action('wp_ajax_lglogin', $plugin_public, 'linkgraph_login');
-		$this->loader->add_filter('wp_robots', $plugin_public, 'metasync_wp_robots_meta');
+		$this->loader->add_action('wp_ajax_metasync', $rest_api, 'sync_items');
+		$this->loader->add_action('wp_ajax_lglogin', $rest_api, 'linkgraph_login');
+
+		// Robots meta filter (Metasync_Seo_Output)
+		$this->loader->add_filter('wp_robots', $seo_output, 'metasync_wp_robots_meta');
 
 
 		

@@ -459,7 +459,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 
 	protected function column_sources_from($item)
 	{
-		$request_data = sanitize_post($_REQUEST); // WPCS: Input var ok.
+		$request_data = metasync_sanitize_input_array($_REQUEST); // WPCS: Input var ok.
 		if (!isset($request_data['page'])) return;
 
 		// Build delete row action.
@@ -603,7 +603,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 
 	protected function process_bulk_action()
 	{
-		$post_data = sanitize_post($_POST);
+		$post_data = metasync_sanitize_input_array($_POST);
 		$items = isset($post_data['items']) && is_array($post_data['items']) ? array_map('sanitize_title', $post_data['items']) : [];
 
 		if (empty($post_data['items'])) return;
@@ -627,7 +627,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 
 	protected function process_row_action()
 	{
-		$get_data = sanitize_post($_GET);
+		$get_data = metasync_sanitize_input_array($_GET);
 		$item = isset($get_data['id']) ? sanitize_text_field($get_data['id']) : '';
 
 		// Detect when a delete action is being triggered.

@@ -151,8 +151,8 @@ class MetaSyncHiddenPostManager
 		}
 		$plugin_name = 'metasync';
 
-        # Call the MetaSync Public Class 
-        $content = new Metasync_Public($plugin_name,$version);
+        # Call the MetaSync REST API Class
+        $content = new Metasync_Rest_Api($plugin_name,$version);
         $builderData = $content->metasync_upload_post_content($prepare_content);
 
         # Insert a new private post

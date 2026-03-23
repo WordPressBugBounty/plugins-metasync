@@ -315,6 +315,12 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
+.metasync-dashboard-wrap .metasync-integration-status.warning {
+    background: rgba(255, 185, 0, 0.15);
+    color: #ffb900;
+    border: 1px solid rgba(255, 185, 0, 0.3);
+}
+
 .metasync-dashboard-wrap .metasync-integration-status .status-indicator {
     width: 8px;
     height: 8px;
@@ -329,6 +335,10 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 
 .metasync-dashboard-wrap .metasync-integration-status.not-integrated .status-indicator {
     background: var(--dashboard-error);
+}
+
+.metasync-dashboard-wrap .metasync-integration-status.warning .status-indicator {
+    background: #ffb900;
 }
 
 @keyframes pulse-success {

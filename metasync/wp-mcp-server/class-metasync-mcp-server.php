@@ -151,7 +151,9 @@ class Metasync_MCP_Server {
         // API key already proves admin-level access
         $api_key = $request->get_header('X-API-Key');
         if ($api_key && $this->verify_plugin_auth_token($api_key)) {
-            define('METASYNC_MCP_API_KEY_AUTH', true);
+            if (!defined('METASYNC_MCP_API_KEY_AUTH')) {
+                define('METASYNC_MCP_API_KEY_AUTH', true);
+            }
             return true;
         }
 
@@ -219,12 +221,18 @@ class Metasync_MCP_Server {
                 // If user_id is 0, this is an API key-based JWT token (system-level access)
                 // Treat it like API key authentication (no user context needed)
                 if ($jwt_result['user_id'] === 0) {
-                    define('METASYNC_MCP_JWT_AUTH', true);
-                    define('METASYNC_MCP_API_KEY_AUTH', true);
+                    if (!defined('METASYNC_MCP_JWT_AUTH')) {
+                        define('METASYNC_MCP_JWT_AUTH', true);
+                    }
+                    if (!defined('METASYNC_MCP_API_KEY_AUTH')) {
+                        define('METASYNC_MCP_API_KEY_AUTH', true);
+                    }
                 } else {
                     // Set the authenticated user from JWT
                     wp_set_current_user($jwt_result['user_id']);
-                    define('METASYNC_MCP_JWT_AUTH', true);
+                    if (!defined('METASYNC_MCP_JWT_AUTH')) {
+                        define('METASYNC_MCP_JWT_AUTH', true);
+                    }
                 }
                 return true;
             }
@@ -354,6 +362,14 @@ class Metasync_MCP_Server {
      * @return WP_REST_Response|WP_Error
      */
     public function handle_jwt_auth($request) {
+        $ip = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '0.0.0.0';
+
+        // Enforce brute-force rate limit before any further processing
+        $rate_limit_result = $this->check_rate_limit($ip);
+        if (is_wp_error($rate_limit_result)) {
+            return $rate_limit_result;
+        }
+
         $params = $request->get_json_params();
 
         // Get API key from request body or header
@@ -365,6 +381,7 @@ class Metasync_MCP_Server {
         }
 
         if (empty($api_key)) {
+            $this->record_failed_auth_attempt($ip);
             return new WP_Error(
                 'missing_api_key',
                 'API key is required. Provide in request body as "api_key" or in X-API-Key header.',
@@ -374,12 +391,16 @@ class Metasync_MCP_Server {
 
         // Verify API key
         if (!$this->verify_plugin_auth_token($api_key)) {
+            $this->record_failed_auth_attempt($ip);
             return new WP_Error(
                 'invalid_api_key',
                 'Invalid API key',
                 ['status' => 401]
             );
         }
+
+        // Successful authentication — clear any accumulated failure counters
+        $this->clear_auth_attempts($ip);
 
         // Generate JWT token
         // Use 0 as user_id to indicate API key authentication (system-level access)
@@ -513,24 +534,68 @@ class Metasync_MCP_Server {
     /**
      * Get JWT secret key
      *
-     * Uses WordPress NONCE_SALT as the secret key
+     * Uses a dedicated random secret stored in the WordPress options table.
+     * A new secret is generated on first use and persisted so that existing
+     * tokens remain valid across requests.
      *
      * @return string
      */
     private function get_jwt_secret() {
-        // Use WordPress NONCE_SALT as the JWT secret
-        // This is secure and unique per WordPress installation
-        if (defined('NONCE_SALT')) {
-            return NONCE_SALT;
+        $secret = get_option('metasync_jwt_secret');
+        if (empty($secret)) {
+            $secret = wp_generate_password(64, true, true);
+            update_option('metasync_jwt_secret', $secret, false);
         }
+        return $secret;
+    }
 
-        // Fallback to AUTH_KEY if NONCE_SALT is not defined
-        if (defined('AUTH_KEY')) {
-            return AUTH_KEY;
+    /**
+     * Check whether the given IP has exceeded the authentication rate limit.
+     *
+     * Allows up to 10 failed attempts within any 15-minute window. Returns a
+     * WP_Error with HTTP 429 if the limit is exceeded, or true otherwise.
+     *
+     * @param string $ip Client IP address
+     * @return true|WP_Error
+     */
+    private function check_rate_limit($ip) {
+        $key = 'metasync_auth_attempts_' . md5($ip);
+        $attempts = (int) get_transient($key);
+        if ($attempts >= 10) {
+            return new WP_Error(
+                'too_many_requests',
+                'Too many failed authentication attempts. Try again later.',
+                ['status' => 429]
+            );
         }
+        return true;
+    }
 
-        // Final fallback (should never happen in production)
-        return wp_salt('auth');
+    /**
+     * Increment the failed-authentication counter for the given IP.
+     *
+     * The counter expires automatically after 15 minutes.
+     *
+     * @param string $ip Client IP address
+     * @return void
+     */
+    private function record_failed_auth_attempt($ip) {
+        $key = 'metasync_auth_attempts_' . md5($ip);
+        $attempts = (int) get_transient($key);
+        set_transient($key, $attempts + 1, 15 * MINUTE_IN_SECONDS);
+    }
+
+    /**
+     * Clear the failed-authentication counter for the given IP.
+     *
+     * Called on successful authentication to reset brute-force tracking.
+     *
+     * @param string $ip Client IP address
+     * @return void
+     */
+    private function clear_auth_attempts($ip) {
+        $key = 'metasync_auth_attempts_' . md5($ip);
+        delete_transient($key);
     }
 
     /**

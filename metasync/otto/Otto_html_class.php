@@ -49,7 +49,7 @@ Class Metasync_otto_html{
         }
 
         # laod the simple html dom parser with UTF-8 charset to handle special characters
-        $this->dom = new HtmlDocument(null, true, true, 'UTF-8');
+        $this->dom = new HtmlDocument(null, true, true, 'UTF-8', false);
     }
 
     /**
@@ -310,7 +310,7 @@ Class Metasync_otto_html{
 
         # now that the html is not empty
         # load it into the simple html dom
-        $this->dom->load($html_body);
+        $this->dom->load($html_body, true, false);
 
         # Force UTF-8 charset to preserve emojis and special characters
         # This overrides any charset detection from HTML meta tags
@@ -404,10 +404,13 @@ Class Metasync_otto_html{
             }
         }
 
-        # Apply insertions
+        # Apply insertions — only if DOM insertion didn't already apply it
         if (!empty($replacement_data['header_html_insertion'])) {
-            $safe_header = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['header_html_insertion']);
-            $result_html = preg_replace('/(<\/head>)/i', $safe_header . "\n" . '$1', $result_html, 1);
+            $header_html_check = trim($replacement_data['header_html_insertion']);
+            if (strpos($result_html, $header_html_check) === false) {
+                $safe_header = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['header_html_insertion']);
+                $result_html = preg_replace('/(<\/head>)/i', $safe_header . "\n" . '$1', $result_html, 1);
+            }
         }
         if (!empty($replacement_data['body_top_html_insertion'])) {
             $safe_body_top = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['body_top_html_insertion']);
@@ -1270,7 +1273,7 @@ Class Metasync_otto_html{
 
             # Reload DOM from the HTML string to refresh internal state
             # This replaces the file save/reload cycle that SimpleHtmlDOM expects
-            $this->dom->load($current_html);
+            $this->dom->load($current_html, true, false);
 
             # Force UTF-8 charset after reload to preserve emojis
             $this->dom->_charset = 'UTF-8';
@@ -1307,7 +1310,7 @@ Class Metasync_otto_html{
             $html = preg_replace('/<\?xml[^?]*\?>\s*/i', '', $html);
 
             # Load HTML into DOM
-            $this->dom->load($html);
+            $this->dom->load($html, true, false);
 
             # Force UTF-8 charset to preserve emojis and special characters
             $this->dom->_charset = 'UTF-8';
@@ -1474,11 +1477,14 @@ Class Metasync_otto_html{
                 }
             }
 
-            # Apply header HTML insertion (for schema, etc.)
+            # Apply header HTML insertion (for schema, etc.) — only if DOM insertion didn't already apply it
             if (!empty($replacement_data['header_html_insertion'])) {
-                $header_html = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['header_html_insertion']);
-                # Insert before </head>
-                $result_html = preg_replace('/(<\/head>)/i', $header_html . "\n" . '$1', $result_html, 1);
+                $header_html_check = trim($replacement_data['header_html_insertion']);
+                if (strpos($result_html, $header_html_check) === false) {
+                    $header_html = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['header_html_insertion']);
+                    # Insert before </head>
+                    $result_html = preg_replace('/(<\/head>)/i', $header_html . "\n" . '$1', $result_html, 1);
+                }
             }
 
             # When Otto block has a title: ensure only ONE <title> (remove non-Otto, then keep first only)

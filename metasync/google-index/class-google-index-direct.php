@@ -48,7 +48,15 @@ class Google_Index_Direct
     private function get_service_account_config()
     {
         $config = get_option(self::SERVICE_ACCOUNT_OPTION_KEY);
-        
+
+        // Fallback: check legacy instant-index option if new option is empty
+        if (empty($config)) {
+            $legacy = get_option('metasync_options_instant_indexing');
+            if (!empty($legacy['json_key'])) {
+                $config = json_decode($legacy['json_key'], true);
+            }
+        }
+
         if (empty($config)) {
             error_log('MetaSync Google Index: Service account configuration not found in options table. Option key: ' . self::SERVICE_ACCOUNT_OPTION_KEY);
             return false;

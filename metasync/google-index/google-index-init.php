@@ -25,11 +25,11 @@ define('GOOGLE_INDEX_DIRECT_URL', plugin_dir_url(__FILE__));
  * 
  * Call this function to load and initialize the Google Index functionality
  */
-function google_index_direct_init() 
+function google_index_direct_init()
 {
     // Load the main class
     require_once GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-direct.php';
-    
+
     // Load admin interface if in admin area
     if (is_admin()) {
         require_once GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-admin.php';

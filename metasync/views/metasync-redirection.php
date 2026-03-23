@@ -1031,7 +1031,7 @@ if (!defined('ABSPATH')) {
 	<form id="redirection-form" method="post" action="">
 		<?php wp_nonce_field('metasync_redirection_form', 'metasync_redirection_nonce'); ?>
 		<?php include "metasync-add-redirection.php";
-		$request_data = sanitize_post($_REQUEST); ?>
+		$request_data = metasync_sanitize_input_array($_REQUEST); ?>
 		<!-- For plugins, we also need to ensure that the form posts back to our current page -->
 		<input type="hidden" name="page" value="<?php echo esc_attr($request_data['page']) ?>" />
 		
@@ -1084,50 +1084,3 @@ if (!defined('ABSPATH')) {
 	
 </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Auto-submit filters when changed
-    const filterSelects = document.querySelectorAll('#status-filter, #pattern-filter, #http-code-filter');
-	const form = document.getElementById('redirection-form');
-    filterSelects.forEach(function(select) {
-        select.addEventListener('change', function() {
-            // document.getElementById('redirection-form').submit();
-			const formAction = form.getAttribute('action') || window.location.href;
-            const url = new URL(formAction, window.location.origin);
-            url.searchParams.delete('paged_redir');
-            form.setAttribute('action', url.pathname + url.search);
-            
-            // Also add hidden field to ensure pagination resets
-            let pagedInput = form.querySelector('input[name="paged_redir"]');
-            if (!pagedInput) {
-                pagedInput = document.createElement('input');
-                pagedInput.type = 'hidden';
-                pagedInput.name = 'paged_redir';
-                form.appendChild(pagedInput);
-            }
-            pagedInput.value = '1';
-            
-            form.submit();
-        });
-    });
-
-    // Add tab parameter to all pagination links in redirections tab
-    function addTabToPaginationLinks() {
-        // Find all pagination links within redirections-content
-        const redirectionsContent = document.getElementById('redirections-content');
-        if (redirectionsContent) {
-            const paginationLinks = redirectionsContent.querySelectorAll('.tablenav-pages a');
-            paginationLinks.forEach(function(link) {
-                const url = new URL(link.href);
-                url.searchParams.set('tab', 'redirections');
-                link.href = url.toString();
-            });
-        }
-    }
-
-    // Run immediately and after a short delay
-    addTabToPaginationLinks();
-    setTimeout(addTabToPaginationLinks, 100);
-    setTimeout(addTabToPaginationLinks, 500);
-});
-</script>

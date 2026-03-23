@@ -151,6 +151,10 @@ function metasync_otto_crawl_notify($request){
     # Kinsta cache for 1–3 URL updates, leaving all other pages cold.
     Metasync_Cache_Purge::warm_urls($urls_to_warm);
 
+    # Step 5: Purge edge CDN caches (Cloudflare, Fastly, Akamai, Sucuri, Sevalla, etc.)
+    # Tag-based providers purge only the affected posts; full-flush providers fire once per batch.
+    Metasync_Edge_Cache_Purge::purge($urls_to_warm);
+
     # Track OTTO optimization event in Mixpanel
     try {
         $mixpanel = Metasync_Mixpanel::get_instance();
@@ -278,7 +282,8 @@ function metasync_start_otto(){
     # NOTE: auto-exclusions (false-positive 404 detections) are intentionally NOT checked
     # here — they must not block OTTO rendering. Use metasync_is_otto_url_excluded() only
     # in the webhook handler where we gate SEO meta writes.
-    $current_url = home_url(strtok($_SERVER['REQUEST_URI'], '?') ?: $_SERVER['REQUEST_URI']);
+    $request_uri = sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? ''));
+    $current_url = home_url(strtok($request_uri, '?') ?: $request_uri);
     if (metasync_is_otto_url_manually_excluded($current_url)) {
         return;
     }
@@ -333,9 +338,10 @@ function metasync_start_otto(){
         }
         
         # Remove ALL Otto parameters from REQUEST_URI to prevent them from appearing in pagination, etc.
+        $request_uri_raw = sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? ''));
         $_SERVER['REQUEST_URI'] = remove_query_arg(
-            ['is_otto_page_fetch', 'otto_block_title', 'otto_block_desc'], 
-            $_SERVER['REQUEST_URI']
+            ['is_otto_page_fetch', 'otto_block_title', 'otto_block_desc'],
+            $request_uri_raw
         );
         
         # Also remove from $_GET to prevent WordPress from using them
@@ -529,11 +535,25 @@ function metasync_otto_block_seo_plugins($block_title = false, $block_descriptio
 # check that otto is not added via js to the site
 function metasync_check_otto_js(){
 
+    # Cache result to avoid a blocking HTTP self-request (~2.4s)
+    # on every single admin page load.
+    $cache_key = 'metasync_otto_js_detected';
+    $cached = get_transient($cache_key);
+
+    if ($cached !== false) {
+        return $cached === 'yes';
+    }
+
     # get the site url
     $site_url = site_url() . '?is_otto_page_fetch=1';
 
-    # get the html
-    $page_data = wp_remote_get($site_url);
+    # get the html — short timeout so admin doesn't hang
+    $page_data = wp_remote_get($site_url, array('timeout' => 5, 'sslverify' => false));
+
+    if (is_wp_error($page_data)) {
+        set_transient($cache_key, 'no', HOUR_IN_SECONDS);
+        return false;
+    }
 
     # now get the html body
     $body = wp_remote_retrieve_body($page_data);
@@ -541,17 +561,16 @@ function metasync_check_otto_js(){
     # now load the body into html
     $dom = new HtmlDocument($body);
 
-    # now check the dom for a meta tag with 
+    # now check the dom for a meta tag with
     $script = $dom->find('script#sa-dynamic-optimization', 0);
 
     # check script
     if($script AND !empty($script->getAttribute('data-uuid'))){
-
-        # return 
+        set_transient($cache_key, 'yes', 12 * HOUR_IN_SECONDS);
         return true;
     }
 
-    # 
+    set_transient($cache_key, 'no', 12 * HOUR_IN_SECONDS);
     return false;
 };
 
@@ -642,6 +661,7 @@ function metasync_process_otto_seo_data($route) {
         $seo_data = metasync_fetch_otto_seo_data($route, $otto_uuid);
 
         if (!$seo_data) {
+            metasync_record_failed_action( 'metasync_process_seo_job' );
             return false;
         }
 
@@ -1135,10 +1155,11 @@ function metasync_process_otto_seo_data($route) {
 
             return true;
         }
-        
+
         return false;
 
     } catch (Exception $e) {
+        metasync_record_failed_action( 'metasync_process_seo_job' );
         return false;
     }
 }

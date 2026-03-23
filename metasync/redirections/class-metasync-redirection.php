@@ -43,7 +43,7 @@ class Metasync_Redirection
     public function create_admin_redirection_interface()
     {
         # Check if we should show import interface
-        $request_data = sanitize_post($_REQUEST);
+        $request_data = metasync_sanitize_input_array($_REQUEST);
         if (isset($request_data['action']) && $request_data['action'] === 'import') {
             $this->show_import_interface();
             return;
@@ -114,7 +114,7 @@ class Metasync_Redirection
 
     public function get_current_page_url()
     {
-        $server_data =  sanitize_post($_SERVER);
+        $server_data =  metasync_sanitize_input_array($_SERVER);
         $link = '://' . $server_data['HTTP_HOST'] . $server_data['REQUEST_URI'];
         $link = (is_ssl() ? 'https' : 'http') . $link;
         return sanitize_url($link);

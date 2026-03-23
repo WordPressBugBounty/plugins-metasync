@@ -49,7 +49,9 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
                         '_metasync_og_description',
                         '_metasync_og_image',
                         '_metasync_og_url',
-                        '_metasync_og_type'
+                        '_metasync_og_type',
+                        '_metasync_twitter_title',
+                        '_metasync_twitter_description'
                     ]
                 ],
                 'meta_value' => [
@@ -82,18 +84,32 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
         $this->check_post_permission($post_id);
 
         // Update meta
+        $current_value = get_post_meta($post_id, $meta_key, true);
+        if ($current_value === $meta_value) {
+            // Value already matches — return success without update
+            return $this->success([
+                'post_id'    => $post_id,
+                'meta_key'   => $meta_key,
+                'meta_value' => $current_value,
+                'updated'    => false,
+                'post_title' => $post->post_title,
+                'post_type'  => $post->post_type
+            ], 'Meta value already matches, no update needed');
+        }
         $updated = update_post_meta($post_id, $meta_key, $meta_value);
 
         if ($updated === false) {
-            throw new Exception("Failed to update post meta");
+            throw new Exception("Failed to update meta key '{$meta_key}'");
         }
 
+        $stored_value = get_post_meta($post_id, $meta_key, true);
         return $this->success([
-            'post_id' => $post_id,
-            'meta_key' => $meta_key,
-            'meta_value' => $meta_value,
+            'post_id'    => $post_id,
+            'meta_key'   => $meta_key,
+            'meta_value' => $stored_value,
+            'updated'    => true,
             'post_title' => $post->post_title,
-            'post_type' => $post->post_type
+            'post_type'  => $post->post_type
         ], "Meta field '{$meta_key}' updated successfully");
     }
 }
@@ -137,6 +153,9 @@ class MCP_Tool_Get_Post_Meta extends MCP_Tool_Base {
 
         // Verify post exists
         $post = $this->verify_post_exists($post_id);
+
+        // SECURITY: Check user has permission to read this specific post
+        $this->check_post_permission($post_id);
 
         // Get meta
         if (isset($params['meta_key'])) {

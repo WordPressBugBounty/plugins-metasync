@@ -48,6 +48,9 @@ class MCP_Tool_Get_Post extends MCP_Tool_Base {
         // Get post
         $post = $this->verify_post_exists($post_id);
 
+        // SECURITY: Check user has permission to read this specific post
+        $this->check_post_permission($post_id);
+
         // Build response
         $result = [
             'id' => $post->ID,
@@ -118,12 +121,20 @@ class MCP_Tool_List_Posts extends MCP_Tool_Base {
         $this->validate_params($params);
         $this->require_capability('read');
 
+        $post_status = isset($params['post_status']) ? $params['post_status'] : 'publish';
+
+        // SECURITY: Sensitive statuses require edit_posts capability
+        $sensitive_statuses = ['private', 'draft', 'pending', 'any'];
+        if (in_array($post_status, $sensitive_statuses, true)) {
+            $this->require_capability('edit_posts');
+        }
+
         // Build query args
         $args = [
             'post_type' => isset($params['post_type']) ? $params['post_type'] : 'any',
-            'post_status' => isset($params['post_status']) ? $params['post_status'] : 'publish',
+            'post_status' => $post_status,
             'posts_per_page' => isset($params['limit']) ? $this->sanitize_integer($params['limit']) : 10,
-            'offset' => isset($params['offset']) ? $this->sanitize_integer($params['offset']) : 0,
+            'offset'         => isset($params['offset']) ? $this->sanitize_integer($params['offset']) : 0,
             'orderby' => 'date',
             'order' => 'DESC'
         ];
@@ -213,6 +224,9 @@ class MCP_Tool_Update_Post extends MCP_Tool_Base {
         // Verify post exists
         $post = $this->verify_post_exists($post_id);
 
+        // SECURITY: Check user has permission to edit this specific post
+        $this->check_post_permission($post_id);
+
         // Build update args
         $update_args = ['ID' => $post_id];
 
@@ -294,5 +308,137 @@ class MCP_Tool_Get_Post_Types extends MCP_Tool_Base {
         }
 
         return $this->success(['post_types' => $result]);
+    }
+}
+
+/**
+ * Get Post By URL Tool
+ */
+class MCP_Tool_Get_Post_By_URL extends MCP_Tool_Base {
+
+    public function get_name() {
+        return 'wordpress_get_post_by_url';
+    }
+
+    public function get_description() {
+        return 'Resolve a WordPress URL to its post ID and basic metadata. Accepts full URLs, relative paths, or slugs.';
+    }
+
+    public function get_input_schema() {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'url' => [
+                    'type' => 'string',
+                    'description' => 'Full URL (https://example.com/my-post/), relative path (/my-post/), or slug (my-post)'
+                ],
+                'post_type' => [
+                    'type' => 'string',
+                    'description' => 'Narrow search to a specific post type (post, page, any). Defaults to any.',
+                    'default' => 'any'
+                ]
+            ],
+            'required' => ['url']
+        ];
+    }
+
+    public function execute( $params ) {
+        $this->validate_params( $params );
+        $this->require_capability( 'read' );
+
+        $raw        = trim( $this->sanitize_string( $params['url'] ) );
+        $post_type  = isset( $params['post_type'] ) ? $this->sanitize_string( $params['post_type'] ) : 'any';
+
+        if ( empty( $raw ) ) {
+            throw new InvalidArgumentException( 'URL cannot be empty' );
+        }
+
+        // ── Strategy 1: url_to_postid() — handles full URLs and relative paths ──
+        $post_id = $this->resolve_by_url( $raw );
+
+        // ── Strategy 2: slug lookup — if input looks like a bare slug ──
+        if ( ! $post_id ) {
+            $post_id = $this->resolve_by_slug( $raw, $post_type );
+        }
+
+        // ── Strategy 3: strip query string / fragment and retry ──
+        if ( ! $post_id ) {
+            $clean = strtok( $raw, '?' );
+            $clean = strtok( $clean, '#' );
+            if ( $clean !== $raw ) {
+                $post_id = $this->resolve_by_url( $clean );
+            }
+        }
+
+        if ( ! $post_id ) {
+            return $this->error( 'Post not found for the given URL. Tried url_to_postid() and slug lookup.' );
+        }
+
+        $post = get_post( $post_id );
+        if ( ! $post ) {
+            return $this->error( 'Post ID resolved but post no longer exists.' );
+        }
+
+        return $this->success( [
+            'post_id'    => $post->ID,
+            'title'      => $post->post_title,
+            'post_type'  => $post->post_type,
+            'post_status'=> $post->post_status,
+            'slug'       => $post->post_name,
+            'url'        => get_permalink( $post->ID ),
+            'edit_url'   => get_edit_post_link( $post->ID, 'raw' ),
+        ], 'Post resolved successfully' );
+    }
+
+    /**
+     * Resolve via WordPress core url_to_postid().
+     * Handles full URLs and relative paths by ensuring a full URL is passed.
+     *
+     * @param string $url
+     * @return int|false
+     */
+    private function resolve_by_url( $url ) {
+        // Make relative paths absolute so url_to_postid() can parse them
+        if ( strpos( $url, 'http' ) !== 0 ) {
+            $url = home_url( ltrim( $url, '/' ) );
+        }
+
+        $id = url_to_postid( $url );
+        return $id ? (int) $id : false;
+    }
+
+    /**
+     * Resolve by treating the input as a slug.
+     * Extracts the last non-empty path segment from URLs, or uses the raw value directly.
+     *
+     * @param string $raw
+     * @param string $post_type
+     * @return int|false
+     */
+    private function resolve_by_slug( $raw, $post_type ) {
+        // Extract last path segment (handles /blog/my-post/ → my-post)
+        $path     = parse_url( $raw, PHP_URL_PATH );
+        $segments = array_filter( explode( '/', $path ?? $raw ) );
+        $slug     = sanitize_title( end( $segments ) );
+
+        if ( empty( $slug ) ) {
+            return false;
+        }
+
+        $args = [
+            'name'           => $slug,
+            'post_type'      => $post_type === 'any' ? [ 'post', 'page' ] : $post_type,
+            'post_status'    => 'any',
+            'posts_per_page' => 1,
+            'no_found_rows'  => true,
+        ];
+
+        $query = new WP_Query( $args );
+
+        if ( $query->have_posts() ) {
+            return (int) $query->posts[0]->ID;
+        }
+
+        return false;
     }
 }

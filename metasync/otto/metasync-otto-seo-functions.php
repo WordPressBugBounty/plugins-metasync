@@ -22,6 +22,8 @@ if (!defined('ABSPATH')) {
  * @return array|false SEO data array or false on failure
  */
 function metasync_fetch_otto_seo_data($route, $uuid) {
+    $route = esc_url_raw($route);
+
     # Get OTTO API endpoint (use endpoint manager if available)
     $api_endpoint = 'https://sa.searchatlas.com/api/v2/otto-url-details'; # default
     if (class_exists('Metasync_Endpoint_Manager')) {
@@ -54,6 +56,10 @@ function metasync_fetch_otto_seo_data($route, $uuid) {
     # Check response code
     $response_code = wp_remote_retrieve_response_code($response);
 
+    if ($response_code === 429) {
+        metasync_record_otto_rate_limit_hit();
+    }
+
     if ($response_code !== 200) {
         return false;
     }
@@ -70,6 +76,42 @@ function metasync_fetch_otto_seo_data($route, $uuid) {
     }
 
     return $data;
+}
+
+/**
+ * Record a SearchAtlas OTTO_URL_DETAILS API rate limit hit (HTTP 429)
+ *
+ * Appends the current Unix timestamp to a rolling log stored in a WordPress option.
+ * Entries older than 48 hours are pruned on every write to prevent unbounded growth.
+ * The log is read by the Site Health rate limit check to surface frequent throttling
+ * to site administrators.
+ *
+ * @since    1.0.0
+ */
+function metasync_record_otto_rate_limit_hit() {
+    $log    = get_option('metasync_otto_rate_limit_log', []);
+    $cutoff = time() - (48 * HOUR_IN_SECONDS);
+    $log    = array_values(array_filter($log, function($t) use ($cutoff) { return $t > $cutoff; }));
+    $log[]  = time();
+    update_option('metasync_otto_rate_limit_log', $log, false);
+}
+
+/**
+ * Record a failed MetaSync cron action
+ *
+ * Appends the current Unix timestamp to a rolling log stored in a WordPress option.
+ * Entries older than 48 hours are pruned on every write to prevent unbounded growth.
+ * The log is read by the Site Health failed actions check.
+ *
+ * @since    1.0.0
+ * @param    string    $hook    The cron hook name that failed (optional, for context)
+ */
+function metasync_record_failed_action( $hook = '' ) {
+    $log    = get_option( 'metasync_failed_actions_log', [] );
+    $cutoff = time() - ( 48 * HOUR_IN_SECONDS );
+    $log    = array_values( array_filter( $log, function( $t ) use ( $cutoff ) { return $t > $cutoff; } ) );
+    $log[]  = time();
+    update_option( 'metasync_failed_actions_log', $log, false );
 }
 
 /**
@@ -180,18 +222,6 @@ function metasync_extract_meta_description($seo_data) {
         $html_content = $seo_data['header_html_insertion'];
 
         # Look for meta description tag with data-otto-pixel attribute
-        if (preg_match('/<meta\s+name=["\']description["\']\s+[^>]*content=["\']([^"\']+)["\'][^>]*>/i', $html_content, $matches)) {
-            $description = sanitize_textarea_field($matches[1]);
-            # Clean SEO plugin variables
-            $description = metasync_clean_seo_variables($description);
-
-            # Only return if we have actual content after cleaning
-            if (!empty($description)) {
-                return $description;
-            }
-        }
-
-        # Fallback: look for any meta description tag
         if (preg_match('/<meta\s+name=["\']description["\']\s+[^>]*content=["\']([^"\']+)["\'][^>]*>/i', $html_content, $matches)) {
             $description = sanitize_textarea_field($matches[1]);
             # Clean SEO plugin variables
@@ -340,7 +370,7 @@ function metasync_extract_image_alt_text($seo_data) {
     if (!empty($seo_data['body_substitutions']['images']) && is_array($seo_data['body_substitutions']['images'])) {
         foreach ($seo_data['body_substitutions']['images'] as $image_url => $alt_text) {
             if (!empty($alt_text)) {
-                $sanitized_url = sanitize_url($image_url);
+                $sanitized_url = esc_url_raw($image_url);
                 $sanitized_alt = sanitize_text_field($alt_text);
                 $image_alt_data[$sanitized_url] = $sanitized_alt;
             }
@@ -480,6 +510,14 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
+        # PERSISTENCE: meta_keywords → _metasync_focus_keyword
+        if (class_exists('Metasync_Otto_Persistence_Settings') &&
+            Metasync_Otto_Persistence_Settings::should_persist('meta_keywords') &&
+            $meta_keywords !== null) {
+            update_post_meta($post_id, '_metasync_focus_keyword', sanitize_text_field($meta_keywords));
+            $fields_updated['meta_keywords_persisted'] = true;
+        }
+
         # Update Open Graph fields (including empty values for rollback)
         # if ($og_title !== null) {
          #   $current_og_title = get_post_meta($post_id, '_metasync_otto_og_title', true);
@@ -501,6 +539,14 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
+        # PERSISTENCE: og_title → _metasync_og_title
+        if (class_exists('Metasync_Otto_Persistence_Settings') &&
+            Metasync_Otto_Persistence_Settings::should_persist('og_title') &&
+            $og_title !== null) {
+            update_post_meta($post_id, '_metasync_og_title', sanitize_text_field($og_title));
+            $fields_updated['og_title_persisted'] = true;
+        }
+
        # if ($og_description !== null) {
            # $current_og_desc = get_post_meta($post_id, '_metasync_otto_og_description', true);
       $current_og_desc = $all_meta['_metasync_otto_og_description'][0] ?? '';
@@ -518,6 +564,14 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
                 $fields_updated['og_description'] = '';
                 $any_updated = true;
             }
+        }
+
+        # PERSISTENCE: og_description → _metasync_og_description
+        if (class_exists('Metasync_Otto_Persistence_Settings') &&
+            Metasync_Otto_Persistence_Settings::should_persist('og_description') &&
+            $og_description !== null) {
+            update_post_meta($post_id, '_metasync_og_description', sanitize_textarea_field($og_description));
+            $fields_updated['og_description_persisted'] = true;
         }
 
         # Update Twitter fields (including empty values for rollback)
@@ -541,6 +595,14 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
+        # PERSISTENCE: twitter_title → _metasync_twitter_title
+        if (class_exists('Metasync_Otto_Persistence_Settings') &&
+            Metasync_Otto_Persistence_Settings::should_persist('twitter_title') &&
+            $twitter_title !== null) {
+            update_post_meta($post_id, '_metasync_twitter_title', sanitize_text_field($twitter_title));
+            $fields_updated['twitter_title_persisted'] = true;
+        }
+
        # if ($twitter_description !== null) {
           #  $current_twitter_desc = get_post_meta($post_id, '_metasync_otto_twitter_description', true);
          $current_twitter_desc = $all_meta['_metasync_otto_twitter_description'][0] ?? '';
@@ -558,6 +620,14 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
                 $fields_updated['twitter_description'] = '';
                 $any_updated = true;
             }
+        }
+
+        # PERSISTENCE: twitter_description → _metasync_twitter_description
+        if (class_exists('Metasync_Otto_Persistence_Settings') &&
+            Metasync_Otto_Persistence_Settings::should_persist('twitter_description') &&
+            $twitter_description !== null) {
+            update_post_meta($post_id, '_metasync_twitter_description', sanitize_textarea_field($twitter_description));
+            $fields_updated['twitter_description_persisted'] = true;
         }
 
         # Update image alt text data
@@ -607,9 +677,6 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
                     # Check if post uses a page builder - skip content modification to avoid breaking them
                     $uses_page_builder = false;
                     $page_builder_name = '';
-
-                    # OPTIMIZED: Load ALL post meta in single query instead of 7 separate queries
-                    $all_meta = get_post_custom($post_id);
 
                     # Elementor detection (array key lookups instead of DB queries)
                     if ((isset($all_meta['_elementor_edit_mode'][0]) && $all_meta['_elementor_edit_mode'][0] === 'builder') ||
@@ -769,6 +836,34 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
                 update_post_meta($post_id, '_metasync_otto_structured_data', '');
                 $fields_updated['structured_data'] = '';
                 $any_updated = true;
+            }
+        }
+
+        # PERSISTENCE: structured_data → metasync_schema_markup
+        if (class_exists('Metasync_Otto_Persistence_Settings') &&
+            Metasync_Otto_Persistence_Settings::should_persist('structured_data') &&
+            !empty($structured_data)) {
+            $existing_schema = get_post_meta($post_id, 'metasync_schema_markup', true);
+            if (!is_array($existing_schema)) {
+                $existing_schema = [];
+            }
+            $existing_schema['otto_jsonld'] = [
+                'type'   => 'json_ld',
+                'data'   => $structured_data,
+                'source' => 'otto',
+            ];
+            update_post_meta($post_id, 'metasync_schema_markup', $existing_schema);
+            $fields_updated['structured_data_persisted'] = true;
+        }
+
+        # PERSISTENCE: canonical_url → _metasync_canonical_url
+        if (class_exists('Metasync_Otto_Persistence_Settings') &&
+            Metasync_Otto_Persistence_Settings::should_persist('canonical_url') &&
+            !empty($seo_data['canonical_url'])) {
+            $canonical = esc_url_raw($seo_data['canonical_url']);
+            if (!empty($canonical)) {
+                update_post_meta($post_id, '_metasync_canonical_url', $canonical);
+                $fields_updated['canonical_url_persisted'] = $canonical;
             }
         }
 
@@ -1007,6 +1102,7 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
         # Only store to OTTO meta fields if persistence is enabled via API
         if ($should_update_title && $persist_title) {
             update_post_meta($post_id, '_metasync_otto_title', $meta_title);
+            update_post_meta($post_id, '_metasync_metatitle', $meta_title);
             $title_updated = true;
         } elseif ($should_update_title) {
             # Track that update would have happened (for return value)
@@ -1015,6 +1111,7 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
         
         if ($should_update_description && $persist_description) {
             update_post_meta($post_id, '_metasync_otto_description', $meta_description);
+            update_post_meta($post_id, '_metasync_metadesc', $meta_description);
             $description_updated = true;
         } elseif ($should_update_description) {
             # Track that update would have happened (for return value)

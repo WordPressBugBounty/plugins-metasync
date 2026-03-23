@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.5.22 
+ * Version:           2.5.23 
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
  * License:           GPL v3
@@ -33,7 +33,7 @@ if (!defined('WPINC')) {
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.5.22';
+$metasync_version = '2.5.23';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -80,20 +80,20 @@ define('METASYNC_SHOW_ADMIN_BAR_STATUS', true);
  * @param array $data Data to sanitize
  * @return array Sanitized data
  */
-if (!function_exists('sanitize_post')) {
-	function sanitize_post($data) {
+if (!function_exists('metasync_sanitize_input_array')) {
+	function metasync_sanitize_input_array($data) {
 		if (!is_array($data)) {
 			return sanitize_text_field($data);
 		}
-		
+
 		$sanitized = [];
 		foreach ($data as $key => $value) {
 			if (is_array($value)) {
-				$sanitized[$key] = sanitize_post($value);
+				$sanitized[$key] = metasync_sanitize_input_array($value);
 			} else {
 				// Check if it's a URL
 				if (filter_var($value, FILTER_VALIDATE_URL)) {
-					$sanitized[$key] = sanitize_url($value);
+					$sanitized[$key] = esc_url_raw($value);
 				} else {
 					$sanitized[$key] = sanitize_text_field($value);
 				}
@@ -148,6 +148,11 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-auth-manager
  * Include the Cache Purge Handler
  */
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-cache-purge.php';
+
+/**
+ * Include the Edge Cache / CDN Purge Handler
+ */
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-edge-cache-purge.php';
 
 /**
  * Include the API Backoff Manager
@@ -303,6 +308,10 @@ register_deactivation_hook(__FILE__, 'deactivate_metasync');
  */
 function check_metasync_updates()
 {
+    static $checked = false;
+    if ($checked) return;
+    $checked = true;
+
     $current_version = get_option('metasync_version', '0.0.0');
     $plugin_version = METASYNC_VERSION;
     
@@ -472,10 +481,13 @@ require plugin_dir_path(__FILE__) . 'wp-mcp-server/class-metasync-mcp-server.php
 // Include Mixpanel Analytics Integration
 require plugin_dir_path(__FILE__) . 'includes/class-metasync-mixpanel.php';
 
+// Include Media Optimization Module
+require_once plugin_dir_path(__FILE__) . 'media-optimization/media-optimization-loader.php';
+
 try {
 	require plugin_dir_path(__FILE__) . 'includes/class-metasync.php';
 } catch (Exception $e) {
-	
+
     # Log into the default PHP error log and trigger error
     error_log($e->getMessage());
 }
@@ -497,187 +509,206 @@ run_metasync();
 function metasync_init_mcp_server() {
 	// Initialize MCP server
 	global $metasync_mcp_server;
-	$metasync_mcp_server = new Metasync_MCP_Server();
-
-	// Load tool classes
-	$tool_path = plugin_dir_path(__FILE__) . 'wp-mcp-server/tools/';
-	require_once $tool_path . 'class-mcp-tool-post-meta.php';
-	require_once $tool_path . 'class-mcp-tool-posts.php';
-	require_once $tool_path . 'class-mcp-tool-seo-analysis.php';
-	require_once $tool_path . 'class-mcp-tool-search.php';
-	require_once $tool_path . 'class-mcp-tool-redirects.php';
-	require_once $tool_path . 'class-mcp-tool-404-monitor.php';
-	require_once $tool_path . 'class-mcp-tool-robots-sitemap.php';
-	require_once $tool_path . 'class-mcp-tool-plugin-settings.php';
-	require_once $tool_path . 'class-mcp-tool-schema-markup.php';
-	require_once $tool_path . 'class-mcp-tool-instant-index.php';
-	require_once $tool_path . 'class-mcp-tool-custom-pages.php';
-	require_once $tool_path . 'class-mcp-tool-html-converter.php';
-	require_once $tool_path . 'class-mcp-tool-code-snippets.php';
-	require_once $tool_path . 'class-mcp-tool-taxonomies.php';
-	require_once $tool_path . 'class-mcp-tool-taxonomy-meta.php';
-	require_once $tool_path . 'class-mcp-tool-media.php';
-	require_once $tool_path . 'class-mcp-tool-bulk-alt-text.php';
-	require_once $tool_path . 'class-mcp-tool-post-crud.php';
-	require_once $tool_path . 'class-mcp-tool-bulk-operations.php';
-	require_once $tool_path . 'class-mcp-tool-wordpress-settings.php';
-
 	try {
-		// Register MCP Tools (Total: 92 existing + 8 new = 100 tools total!)
-		// NEW in v2.8.0: +4 Taxonomy Meta tools, +4 Bulk Alt Text tools
+		$metasync_mcp_server = new Metasync_MCP_Server();
 
-		// Post Meta Operations (3 tools)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Post_Meta());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Post_Meta());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_SEO_Meta());
-
-		// Post Operations (4 tools)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Post());
-		$metasync_mcp_server->register_tool(new MCP_Tool_List_Posts());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Post());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Post_Types());
-
-		// SEO Analysis (2 tools)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Analyze_SEO());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Check_Indexability());
-
-		// Search Operations (3 tools)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Search_Posts());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Search_By_Keyword());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Find_Missing_Meta());
-
-		// Redirect Management (4 tools)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Create_Redirect());
-		$metasync_mcp_server->register_tool(new MCP_Tool_List_Redirects());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Delete_Redirect());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Redirect());
-
-		// 404 Error Monitoring (5 tools)
-		$metasync_mcp_server->register_tool(new MCP_Tool_List_404_Errors());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_404_Stats());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Delete_404_Error());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Clear_404_Errors());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Create_Redirect_From_404());
-
-		// Robots.txt & Sitemap Management (9 tools - 5 existing + 4 new)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Robots_Txt());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Robots_Txt());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Sitemap_Status());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Regenerate_Sitemap());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Exclude_From_Sitemap());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Add_Robots_Rule());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Remove_Robots_Rule());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Parse_Robots_Txt());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Validate_Robots_Txt());
-
-		// Plugin Settings Management (4 tools)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Plugin_Settings());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Plugin_Settings());
-		$metasync_mcp_server->register_tool(new MCP_Tool_List_Plugin_Settings_Schema());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_MCP_Settings());
-
-		// Schema Markup Management (5 tools)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Schema_Markup());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Schema_Markup());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Add_Schema_Type());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Remove_Schema_Type());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Validate_Schema());
-
-		// Google Instant Index (6 tools)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Instant_Index_Update());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Instant_Index_Delete());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Instant_Index_Status());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Instant_Index_Bulk_Update());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Instant_Index_Settings());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Instant_Index_Settings());
-
-		// Custom HTML Pages (5 tools)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Create_Custom_Page());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Custom_Page());
-		$metasync_mcp_server->register_tool(new MCP_Tool_List_Custom_Pages());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Custom_Page());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Delete_Custom_Page());
-
-		// HTML to Builder Converter (3 tools)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Convert_HTML_To_Builder());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Create_Builder_Page_From_HTML());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Convert_Custom_Page_To_Builder());
-
-		// Code Snippets (6 tools)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Header_Snippet());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Header_Snippet());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Footer_Snippet());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Footer_Snippet());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Post_Snippets());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Post_Snippets());
-
-		// Categories & Taxonomies (15 tools)
-		$metasync_mcp_server->register_tool(new MCP_Tool_List_Categories());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Category());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Create_Category());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Category());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Delete_Category());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Post_Categories());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Set_Post_Categories());
-
-		// Tags (8 tools)
-		$metasync_mcp_server->register_tool(new MCP_Tool_List_Tags());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Tag());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Create_Tag());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Tag());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Delete_Tag());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Post_Tags());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Set_Post_Tags());
-
-		// Featured Images & Media (6 tools)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Featured_Image());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Set_Featured_Image());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Upload_Featured_Image());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Remove_Featured_Image());
-		$metasync_mcp_server->register_tool(new MCP_Tool_List_Media());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Media_Details());
-
-		// Post CRUD Operations (1 tool - delete/restore disabled for safety)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Create_Post());
-		// $metasync_mcp_server->register_tool(new MCP_Tool_Delete_Post()); // DISABLED - safety
-		// $metasync_mcp_server->register_tool(new MCP_Tool_Restore_Post()); // DISABLED - safety
-
-		// Bulk Operations (3 tools - bulk delete disabled for safety)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Bulk_Update_Meta());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Bulk_Set_Categories());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Bulk_Change_Status());
-		// $metasync_mcp_server->register_tool(new MCP_Tool_Bulk_Delete_Posts()); // DISABLED - safety
-
-		// WordPress Core SEO Settings (10 tools)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Site_Info());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Site_Info());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Permalink_Structure());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Permalink_Structure());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Reading_Settings());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Reading_Settings());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Search_Visibility());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Search_Visibility());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Date_Format());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Discussion_Settings());
-
-		// Taxonomy Meta Operations (4 tools - NEW in v2.8.0)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Get_Term_Meta());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Update_Term_Meta());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Bulk_Update_Term_Meta());
-		$metasync_mcp_server->register_tool(new MCP_Tool_List_Terms_With_Meta());
-
-		// Bulk Alt Text Operations (4 tools - NEW in v2.8.0)
-		$metasync_mcp_server->register_tool(new MCP_Tool_Audit_Alt_Text());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Bulk_Update_Alt_Text());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Generate_Alt_Text());
-		$metasync_mcp_server->register_tool(new MCP_Tool_Validate_Alt_Text());
-
-		// Allow other plugins/themes to register tools
-		do_action('metasync_mcp_register_tools', $metasync_mcp_server);
-
+		// Load tool classes
+		$tool_path = plugin_dir_path(__FILE__) . 'wp-mcp-server/tools/';
+		require_once $tool_path . 'class-mcp-tool-post-meta.php';
+		require_once $tool_path . 'class-mcp-tool-posts.php';
+		require_once $tool_path . 'class-mcp-tool-seo-analysis.php';
+		require_once $tool_path . 'class-mcp-tool-search.php';
+		require_once $tool_path . 'class-mcp-tool-redirects.php';
+		require_once $tool_path . 'class-mcp-tool-404-monitor.php';
+		require_once $tool_path . 'class-mcp-tool-robots-sitemap.php';
+		require_once $tool_path . 'class-mcp-tool-plugin-settings.php';
+		require_once $tool_path . 'class-mcp-tool-schema-markup.php';
+		require_once $tool_path . 'class-mcp-tool-instant-index.php';
+		require_once $tool_path . 'class-mcp-tool-custom-pages.php';
+		require_once $tool_path . 'class-mcp-tool-html-converter.php';
+		require_once $tool_path . 'class-mcp-tool-code-snippets.php';
+		require_once $tool_path . 'class-mcp-tool-taxonomies.php';
+		require_once $tool_path . 'class-mcp-tool-taxonomy-meta.php';
+		require_once $tool_path . 'class-mcp-tool-media.php';
+		require_once $tool_path . 'class-mcp-tool-bulk-alt-text.php';
+		require_once $tool_path . 'class-mcp-tool-post-crud.php';
+		require_once $tool_path . 'class-mcp-tool-bulk-operations.php';
+		require_once $tool_path . 'class-mcp-tool-wordpress-settings.php';
+		require_once $tool_path . 'class-mcp-tool-otto-persistence.php';
 	} catch (Exception $e) {
 		error_log('MCP Server Initialization Error: ' . $e->getMessage());
+		return;
 	}
+
+	// Helper: register a single tool, logging failures without aborting subsequent registrations
+	$safe_register = function($tool) use ($metasync_mcp_server) {
+		try {
+			$metasync_mcp_server->register_tool($tool);
+		} catch (Exception $e) {
+			error_log('MetaSync MCP: Failed to register tool ' . get_class($tool) . ': ' . $e->getMessage());
+		}
+	};
+
+	// Register MCP Tools (Total: 92 existing + 8 new = 100 tools total!)
+	// NEW in v2.8.0: +4 Taxonomy Meta tools, +4 Bulk Alt Text tools
+
+	// Post Meta Operations (3 tools)
+	$safe_register(new MCP_Tool_Update_Post_Meta());
+	$safe_register(new MCP_Tool_Get_Post_Meta());
+	$safe_register(new MCP_Tool_Get_SEO_Meta());
+
+	// Post Operations (4 tools)
+	$safe_register(new MCP_Tool_Get_Post());
+	$safe_register(new MCP_Tool_Get_Post_By_URL());
+	$safe_register(new MCP_Tool_List_Posts());
+	$safe_register(new MCP_Tool_Update_Post());
+	$safe_register(new MCP_Tool_Get_Post_Types());
+
+	// SEO Analysis (2 tools)
+	$safe_register(new MCP_Tool_Analyze_SEO());
+	$safe_register(new MCP_Tool_Check_Indexability());
+
+	// Search Operations (3 tools)
+	$safe_register(new MCP_Tool_Search_Posts());
+	$safe_register(new MCP_Tool_Search_By_Keyword());
+	$safe_register(new MCP_Tool_Find_Missing_Meta());
+
+	// Redirect Management (4 tools)
+	$safe_register(new MCP_Tool_Create_Redirect());
+	$safe_register(new MCP_Tool_List_Redirects());
+	$safe_register(new MCP_Tool_Delete_Redirect());
+	$safe_register(new MCP_Tool_Update_Redirect());
+
+	// 404 Error Monitoring (5 tools)
+	$safe_register(new MCP_Tool_List_404_Errors());
+	$safe_register(new MCP_Tool_Get_404_Stats());
+	$safe_register(new MCP_Tool_Delete_404_Error());
+	$safe_register(new MCP_Tool_Clear_404_Errors());
+	$safe_register(new MCP_Tool_Create_Redirect_From_404());
+
+	// Robots.txt & Sitemap Management (9 tools - 5 existing + 4 new)
+	$safe_register(new MCP_Tool_Get_Robots_Txt());
+	$safe_register(new MCP_Tool_Update_Robots_Txt());
+	$safe_register(new MCP_Tool_Get_Sitemap_Status());
+	$safe_register(new MCP_Tool_Regenerate_Sitemap());
+	$safe_register(new MCP_Tool_Exclude_From_Sitemap());
+	$safe_register(new MCP_Tool_Add_Robots_Rule());
+	$safe_register(new MCP_Tool_Remove_Robots_Rule());
+	$safe_register(new MCP_Tool_Parse_Robots_Txt());
+	$safe_register(new MCP_Tool_Validate_Robots_Txt());
+
+	// Plugin Settings Management (4 tools)
+	$safe_register(new MCP_Tool_Get_Plugin_Settings());
+	$safe_register(new MCP_Tool_Update_Plugin_Settings());
+	$safe_register(new MCP_Tool_List_Plugin_Settings_Schema());
+	$safe_register(new MCP_Tool_Get_MCP_Settings());
+
+	// Schema Markup Management (5 tools)
+	$safe_register(new MCP_Tool_Get_Schema_Markup());
+	$safe_register(new MCP_Tool_Update_Schema_Markup());
+	$safe_register(new MCP_Tool_Add_Schema_Type());
+	$safe_register(new MCP_Tool_Remove_Schema_Type());
+	$safe_register(new MCP_Tool_Validate_Schema());
+
+	// Google Instant Index (6 tools)
+	$safe_register(new MCP_Tool_Instant_Index_Update());
+	$safe_register(new MCP_Tool_Instant_Index_Delete());
+	$safe_register(new MCP_Tool_Instant_Index_Status());
+	$safe_register(new MCP_Tool_Instant_Index_Bulk_Update());
+	$safe_register(new MCP_Tool_Get_Instant_Index_Settings());
+	$safe_register(new MCP_Tool_Update_Instant_Index_Settings());
+
+	// Custom HTML Pages (5 tools)
+	$safe_register(new MCP_Tool_Create_Custom_Page());
+	$safe_register(new MCP_Tool_Get_Custom_Page());
+	$safe_register(new MCP_Tool_List_Custom_Pages());
+	$safe_register(new MCP_Tool_Update_Custom_Page());
+	$safe_register(new MCP_Tool_Delete_Custom_Page());
+
+	// HTML to Builder Converter (3 tools)
+	$safe_register(new MCP_Tool_Convert_HTML_To_Builder());
+	$safe_register(new MCP_Tool_Create_Builder_Page_From_HTML());
+	$safe_register(new MCP_Tool_Convert_Custom_Page_To_Builder());
+
+	// Code Snippets (6 tools)
+	$safe_register(new MCP_Tool_Get_Header_Snippet());
+	$safe_register(new MCP_Tool_Update_Header_Snippet());
+	$safe_register(new MCP_Tool_Get_Footer_Snippet());
+	$safe_register(new MCP_Tool_Update_Footer_Snippet());
+	$safe_register(new MCP_Tool_Get_Post_Snippets());
+	$safe_register(new MCP_Tool_Update_Post_Snippets());
+
+	// Categories & Taxonomies (15 tools)
+	$safe_register(new MCP_Tool_List_Categories());
+	$safe_register(new MCP_Tool_Get_Category());
+	$safe_register(new MCP_Tool_Create_Category());
+	$safe_register(new MCP_Tool_Update_Category());
+	$safe_register(new MCP_Tool_Delete_Category());
+	$safe_register(new MCP_Tool_Get_Post_Categories());
+	$safe_register(new MCP_Tool_Set_Post_Categories());
+
+	// Tags (8 tools)
+	$safe_register(new MCP_Tool_List_Tags());
+	$safe_register(new MCP_Tool_Get_Tag());
+	$safe_register(new MCP_Tool_Create_Tag());
+	$safe_register(new MCP_Tool_Update_Tag());
+	$safe_register(new MCP_Tool_Delete_Tag());
+	$safe_register(new MCP_Tool_Get_Post_Tags());
+	$safe_register(new MCP_Tool_Set_Post_Tags());
+
+	// Featured Images & Media (6 tools)
+	$safe_register(new MCP_Tool_Get_Featured_Image());
+	$safe_register(new MCP_Tool_Set_Featured_Image());
+	$safe_register(new MCP_Tool_Upload_Featured_Image());
+	$safe_register(new MCP_Tool_Remove_Featured_Image());
+	$safe_register(new MCP_Tool_List_Media());
+	$safe_register(new MCP_Tool_Get_Media_Details());
+
+	// Post CRUD Operations (1 tool - delete/restore disabled for safety)
+	$safe_register(new MCP_Tool_Create_Post());
+	// $safe_register(new MCP_Tool_Delete_Post()); // DISABLED - safety
+	// $safe_register(new MCP_Tool_Restore_Post()); // DISABLED - safety
+
+	// Bulk Operations (3 tools - bulk delete disabled for safety)
+	$safe_register(new MCP_Tool_Bulk_Update_Meta());
+	$safe_register(new MCP_Tool_Bulk_Set_Categories());
+	$safe_register(new MCP_Tool_Bulk_Change_Status());
+	// $safe_register(new MCP_Tool_Bulk_Delete_Posts()); // DISABLED - safety
+
+	// WordPress Core SEO Settings (10 tools)
+	$safe_register(new MCP_Tool_Get_Site_Info());
+	$safe_register(new MCP_Tool_Update_Site_Info());
+	$safe_register(new MCP_Tool_Get_Permalink_Structure());
+	$safe_register(new MCP_Tool_Update_Permalink_Structure());
+	$safe_register(new MCP_Tool_Get_Reading_Settings());
+	$safe_register(new MCP_Tool_Update_Reading_Settings());
+	$safe_register(new MCP_Tool_Get_Search_Visibility());
+	$safe_register(new MCP_Tool_Update_Search_Visibility());
+	$safe_register(new MCP_Tool_Get_Date_Format());
+	$safe_register(new MCP_Tool_Get_Discussion_Settings());
+
+	// Taxonomy Meta Operations (4 tools - NEW in v2.8.0)
+	$safe_register(new MCP_Tool_Get_Term_Meta());
+	$safe_register(new MCP_Tool_Update_Term_Meta());
+	$safe_register(new MCP_Tool_Bulk_Update_Term_Meta());
+	$safe_register(new MCP_Tool_List_Terms_With_Meta());
+
+	// Bulk Alt Text Operations (4 tools - NEW in v2.8.0)
+	$safe_register(new MCP_Tool_Audit_Alt_Text());
+	$safe_register(new MCP_Tool_Bulk_Update_Alt_Text());
+	$safe_register(new MCP_Tool_Generate_Alt_Text());
+	$safe_register(new MCP_Tool_Validate_Alt_Text());
+
+	// OTTO Persistence Settings (2 tools)
+	if (class_exists('MCP_Tool_Get_Otto_Persistence_Settings')) {
+		$safe_register(new MCP_Tool_Get_Otto_Persistence_Settings());
+	}
+	if (class_exists('MCP_Tool_Update_Otto_Persistence_Settings')) {
+		$safe_register(new MCP_Tool_Update_Otto_Persistence_Settings());
+	}
+
+	// Allow other plugins/themes to register tools
+	do_action('metasync_mcp_register_tools', $metasync_mcp_server);
 }
 add_action('init', 'metasync_init_mcp_server', 5);
 
@@ -722,6 +753,18 @@ function metasync_init_api_backoff() {
 	}
 }
 add_action('init', 'metasync_init_api_backoff', 5);
+
+/**
+ * Initialize Review Notice
+ * Shows a dismissible notice asking users to rate the plugin after a usage period
+ * @since 2.8.0
+ */
+function metasync_init_review_notice() {
+	if (is_admin()) {
+		Metasync_Review_Notice::get_instance();
+	}
+}
+add_action('init', 'metasync_init_review_notice');
 
 /**
  * Global convenience function to get active JWT token

@@ -71,6 +71,7 @@ class Metasync_HTML_To_Builder_Converter
 			'preserve_css' => true,
 			'upload_images' => true,
 			'extract_header_footer' => true,
+			'post_type' => 'post',
 		);
 		$options = array_merge($defaults, $options);
 
@@ -1072,10 +1073,10 @@ class Metasync_HTML_To_Builder_Converter
 				'_elementor_edit_mode' => 'builder',
 				'_elementor_version' => defined('ELEMENTOR_VERSION') ? ELEMENTOR_VERSION : '3.0.0',
 				'_elementor_page_settings' => array(
-					'template' => 'elementor_canvas', // Full-width, no header/footer
+					'template' => $options['post_type'] === 'page' ? 'elementor_canvas' : 'default',
 					'custom_css' => ''
 				),
-				'_wp_page_template' => 'elementor_canvas' // WordPress page template
+				'_wp_page_template' => $options['post_type'] === 'page' ? 'elementor_canvas' : 'default'
 			),
 			'css_content' => $css_content
 		);
@@ -1153,9 +1154,6 @@ class Metasync_HTML_To_Builder_Converter
 				$result['settings']['title_color'] = $this->metasync_option_data['enabled_elementor_plugin_css_color'];
 			}
 
-			$result['settings']['typography_typography'] = 'custom';
-			$result['settings']['typography_font_family'] = 'Roboto';
-			$result['settings']['typography_font_weight'] = '600';
 			$result['widgetType'] = 'heading';
 		}
 		// Handle iframes
@@ -1710,11 +1708,14 @@ class Metasync_HTML_To_Builder_Converter
 		$builder = $this->detect_active_builder();
 
 		// Convert HTML
+		$post_type = isset($item['post_type']) ? sanitize_text_field($item['post_type']) : 'post';
+
 		$result = $this->convert($item['post_content'], array(
 			'builder' => $builder,
 			'preserve_css' => true,
 			'upload_images' => true,
 			'extract_header_footer' => false, // Legacy doesn't extract header/footer
+			'post_type' => $post_type,
 		));
 
 		// Handle errors

@@ -158,20 +158,29 @@ class Metasync_Otto_Persistence_Settings {
      * @return bool|WP_Error
      */
     public function authorize_request($request) {
-        # Get apikey from query string (same pattern as existing middleware)
-        $get_data = array_map('sanitize_text_field', $_GET);
-        
-        if (!isset($get_data['apikey']) || empty($get_data['apikey'])) {
+        # Accept X-API-Key header (same as MCP server) or ?apikey= query param for backward compat
+        $api_key = '';
+
+        $header_key = $request->get_header('x-api-key');
+        if (!empty($header_key)) {
+            $api_key = sanitize_text_field($header_key);
+        }
+
+        if (empty($api_key)) {
+            $get_data = array_map('sanitize_text_field', $_GET);
+            if (!empty($get_data['apikey'])) {
+                $api_key = $get_data['apikey'];
+            }
+        }
+
+        if (empty($api_key)) {
             return new WP_Error(
                 'rest_forbidden',
-                'API key is required. Pass apikey as query parameter.',
+                'API key is required. Pass X-API-Key header or ?apikey= query parameter.',
                 ['status' => 401]
             );
         }
-        
-        $api_key = $get_data['apikey'];
 
-        # Get stored API key - use direct option access to avoid class loading issues
         $options = get_option('metasync_options', []);
         $stored_api_key = isset($options['general']['apikey']) ? $options['general']['apikey'] : null;
 
@@ -183,7 +192,7 @@ class Metasync_Otto_Persistence_Settings {
             );
         }
 
-        if ($api_key !== $stored_api_key) {
+        if (!hash_equals($stored_api_key, $api_key)) {
             return new WP_Error(
                 'rest_forbidden',
                 'Invalid API key.',
@@ -271,11 +280,18 @@ class Metasync_Otto_Persistence_Settings {
         # Save updated settings
         $saved = update_option(self::OPTION_NAME, $current_settings);
 
+        # update_option returns false when value is unchanged (not an error) or on DB failure.
+        # Verify by reading back:
+        $verified = get_option(self::OPTION_NAME, []);
+        $success = empty(array_diff_key($current_settings, $verified));
+
         return rest_ensure_response([
-            'success' => true,
+            'success' => $success,
             'data' => $current_settings,
             'updated_keys' => $updated_keys,
-            'message' => sprintf('Updated %d persistence setting(s)', count($updated_keys)),
+            'message' => $success
+                ? sprintf('Updated %d persistence setting(s)', count($updated_keys))
+                : 'Settings may not have been saved. Please try again.',
         ]);
     }
 

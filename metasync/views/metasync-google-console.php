@@ -8,11 +8,14 @@ if (!defined('ABSPATH')) {
 /**
  * Instant Indexing API of Google Console page contents.
  *
+ * Expects the following variable to be set before include:
+ *   $is_configured - bool, whether Google service account is configured
+ *
  * @package Google Instant Indexing
  */
 ?>
 
-	<?php if (!$this->get_setting('json_key')) { ?>
+	<?php if (!$is_configured) { ?>
 		<div class="dashboard-card">
 			<h2>⚠️ Configuration Required</h2>
 			<p class="description" style="color: var(--dashboard-text-secondary); font-size: 16px; line-height: 1.6;">
@@ -30,7 +33,7 @@ if (!defined('ABSPATH')) {
 	} ?>
 
 	<?php
-	$get_data =  sanitize_post($_GET);
+	$get_data =  metasync_sanitize_input_array($_GET);
 	$urls   = home_url('/');
 	if (isset($get_data['posturl'])) {
 		$urls = esc_url_raw(wp_unslash($get_data['posturl']));
@@ -46,7 +49,7 @@ if (!defined('ABSPATH')) {
 		<div class="dashboard-card">
 			<h2>🔗 URL Configuration</h2>
 			<p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Enter the URLs you want to index with Google.</p>
-			
+
 			<table class="form-table">
 				<tr valign="top">
 					<th scope="row">
@@ -64,7 +67,7 @@ if (!defined('ABSPATH')) {
 		<div class="dashboard-card">
 			<h2>⚡ Indexing Actions</h2>
 			<p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Choose the action you want to perform on the URLs.</p>
-			
+
 			<table class="form-table">
 				<tr valign="top">
 					<th scope="row">

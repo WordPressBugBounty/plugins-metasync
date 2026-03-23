@@ -46,7 +46,7 @@ class Metasync_Error_Monitor
 
     public function get_current_page_url($ignore_qs = false)
     {
-        $server_data =  sanitize_post($_SERVER);
+        $server_data =  metasync_sanitize_input_array($_SERVER);
         $link = '://' . $server_data['HTTP_HOST'] . $server_data['REQUEST_URI'];
         $link = (is_ssl() ? 'https' : 'http') . $link;
         if ($ignore_qs) {

@@ -408,7 +408,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 
 	protected function column_uri($item)
 	{
-		$request_data = sanitize_post($_REQUEST); // WPCS: Input var ok.
+		$request_data = metasync_sanitize_input_array($_REQUEST); // WPCS: Input var ok.
 		if (!isset($request_data['page'])) return;
 
 		// Extract the path from the full URI
@@ -523,7 +523,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 
 	protected function process_bulk_action()
 	{
-		$post_data = sanitize_post($_POST);
+		$post_data = metasync_sanitize_input_array($_POST);
 		$items = isset($post_data['item']) && is_array($post_data['item']) ? array_map('sanitize_title', $post_data['item']) : [];
 
 		if (empty($post_data['item'])) return;
@@ -539,7 +539,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 
 	protected function process_row_action()
 	{
-		$get_data = sanitize_post($_GET);
+		$get_data = metasync_sanitize_input_array($_GET);
 		$item = isset($get_data['id']) ? sanitize_text_field($get_data['id']) : '';
 
 		// Detect when row action is being triggered.

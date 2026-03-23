@@ -40,7 +40,7 @@ class Metasync_Otto_Transient_Cache {
     /**
      * Default TTL for suggestions (30 minutes)
      */
-    private const SUGGESTIONS_TTL = 30 * MINUTE_IN_SECONDS;
+    public const SUGGESTIONS_TTL = 30 * MINUTE_IN_SECONDS;
     
     /**
      * TTL for "no suggestions" cache (5 minutes)
@@ -55,7 +55,7 @@ class Metasync_Otto_Transient_Cache {
     /**
      * Max API calls per minute
      */
-    private const MAX_API_CALLS_PER_MINUTE = 10;
+    public const MAX_API_CALLS_PER_MINUTE = 10;
     
     /**
      * API timeout (2 seconds)

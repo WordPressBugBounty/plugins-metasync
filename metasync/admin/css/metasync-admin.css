@@ -863,6 +863,12 @@
     border: 1px solid #f5c6cb;
 }
 
+.metasync-integration-status.warning {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeeba;
+}
+
 .metasync-integration-status .status-indicator {
     width: 8px;
     height: 8px;
@@ -876,6 +882,10 @@
 
 .metasync-integration-status.not-integrated .status-indicator {
     background: #dc3545;
+}
+
+.metasync-integration-status.warning .status-indicator {
+    background: #ffb900;
 }
 
 /* Header Layout */

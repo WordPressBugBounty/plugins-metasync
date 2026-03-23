@@ -295,6 +295,14 @@ class Metasync_Otto_Persistence_Handler {
             ];
         }
 
+        if (!current_user_can('edit_post', $post_id)) {
+            return [
+                'success' => false,
+                'updated_count' => 0,
+                'message' => 'Insufficient permissions to edit this post',
+            ];
+        }
+
         $content = $post->post_content;
         $original_content = $content;
         $updated_count = 0;
@@ -400,6 +408,14 @@ class Metasync_Otto_Persistence_Handler {
             ];
         }
 
+        if (!current_user_can('edit_post', $post_id)) {
+            return [
+                'success' => false,
+                'updated_count' => 0,
+                'message' => 'Insufficient permissions to edit this post',
+            ];
+        }
+
         $content = $post->post_content;
         $original_content = $content;
         $updated_count = 0;
@@ -421,8 +437,10 @@ class Metasync_Otto_Persistence_Handler {
             # Build regex to match the heading tag with the current value
             # Matches: <h1>current value</h1>, <h1 class="...">current value</h1>, etc.
             $pattern = '/(<' . preg_quote($tag, '/') . '[^>]*>)\s*' . preg_quote($current_value, '/') . '\s*(<\/' . preg_quote($tag, '/') . '>)/i';
-            
-            $replacement = '$1' . $recommended_value . '$2';
+
+            # Escape backslashes and dollar signs to prevent back-reference injection
+            $safe_replacement = str_replace(['\\', '$'], ['\\\\', '\\$'], $recommended_value);
+            $replacement = '$1' . $safe_replacement . '$2';
             
             $new_content = preg_replace($pattern, $replacement, $content, -1, $count);
             

@@ -96,7 +96,7 @@ class Metasync_Error_Logs
 					</span>
 				</span>
 				<div style="display: flex; gap: 8px;">
-					<button type="button" class="button button-small" id="copy-log-btn" onclick="metasyncCopyErrorLog()" style="display: flex; align-items: center; gap: 4px;">
+					<button type="button" class="button button-small" id="copy-log-btn" style="display: flex; align-items: center; gap: 4px;">
 						<span class="dashicons dashicons-clipboard" style="font-size: 16px; width: 16px; height: 16px;"></span>
 						Copy to Clipboard
 					</button>
@@ -116,41 +116,7 @@ class Metasync_Error_Logs
 			</div>
 		</div>
 
-		<script>
-		function metasyncCopyErrorLog() {
-			const content = document.getElementById('error-log-content').textContent;
-			const button = document.getElementById('copy-log-btn');
-			const originalText = button.innerHTML;
-
-			navigator.clipboard.writeText(content).then(() => {
-				button.innerHTML = '<span class="dashicons dashicons-yes" style="font-size: 16px; width: 16px; height: 16px;"></span> Copied!';
-				button.style.background = '#00a32a';
-				button.style.color = '#ffffff';
-				button.style.borderColor = '#00a32a';
-
-				setTimeout(() => {
-					button.innerHTML = originalText;
-					button.style.background = '';
-					button.style.color = '';
-					button.style.borderColor = '';
-				}, 2000);
-			}).catch(err => {
-				console.error('Failed to copy log:', err);
-				button.innerHTML = '<span class="dashicons dashicons-no" style="font-size: 16px; width: 16px; height: 16px;"></span> Failed';
-				button.style.background = '#dc3232';
-				button.style.color = '#ffffff';
-				button.style.borderColor = '#dc3232';
-
-				setTimeout(() => {
-					button.innerHTML = originalText;
-					button.style.background = '';
-					button.style.color = '';
-					button.style.borderColor = '';
-				}, 2000);
-			});
-		}
-		</script>
-<?php
+	<?php
 	}
 
 	/**

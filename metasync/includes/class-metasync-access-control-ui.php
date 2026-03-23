@@ -43,7 +43,8 @@ class Metasync_Access_Control_UI {
                                    value="1"
                                    id="<?php echo esc_attr($row_id); ?>"
                                    <?php checked($config['enabled'], true); ?>
-                                   onchange="toggleAccessControlOptions('<?php echo esc_attr($feature_key); ?>', this.checked)">
+                                   class="metasync-access-toggle-input"
+                                   data-feature-key="<?php echo esc_attr($feature_key); ?>">
                             <span class="metasync-slider"></span>
                         </label>
                         <span class="toggle-label">
@@ -65,7 +66,8 @@ class Metasync_Access_Control_UI {
                                            name="metasync_options[whitelabel][access_control][<?php echo esc_attr($feature_key); ?>][type]"
                                            value="none"
                                            <?php checked($config['type'], 'none'); ?>
-                                           onchange="showAccessTypeOptions('<?php echo esc_attr($feature_key); ?>', 'none')">
+                                           class="metasync-access-type-input"
+                                           data-feature-key="<?php echo esc_attr($feature_key); ?>">
                                     <span>Hide from Everyone</span>
                                 </label>
 
@@ -74,7 +76,8 @@ class Metasync_Access_Control_UI {
                                            name="metasync_options[whitelabel][access_control][<?php echo esc_attr($feature_key); ?>][type]"
                                            value="role"
                                            <?php checked($config['type'], 'role'); ?>
-                                           onchange="showAccessTypeOptions('<?php echo esc_attr($feature_key); ?>', 'role')">
+                                           class="metasync-access-type-input"
+                                           data-feature-key="<?php echo esc_attr($feature_key); ?>">
                                     <span>Specific User Roles</span>
                                 </label>
 
@@ -83,7 +86,8 @@ class Metasync_Access_Control_UI {
                                            name="metasync_options[whitelabel][access_control][<?php echo esc_attr($feature_key); ?>][type]"
                                            value="user"
                                            <?php checked($config['type'], 'user'); ?>
-                                           onchange="showAccessTypeOptions('<?php echo esc_attr($feature_key); ?>', 'user')">
+                                           class="metasync-access-type-input"
+                                           data-feature-key="<?php echo esc_attr($feature_key); ?>">
                                     <span>Specific Users</span>
                                 </label>
                             </div>
@@ -409,75 +413,14 @@ class Metasync_Access_Control_UI {
     }
 
     /**
-     * Render inline JavaScript for access control interactions
+     * Render inline JavaScript for access control interactions.
+     *
+     * NOTE: Scripts have been extracted to includes/js/metasync-access-control.js
+     * and are enqueued via wp_enqueue_script() in class-metasync-admin.php (Phase 5, #887).
      *
      * @return void
      */
     private static function render_inline_scripts() {
-        ?>
-        <script>
-            function toggleAccessControlOptions(featureKey, enabled) {
-                const optionsDiv = document.getElementById('access-options-' + featureKey);
-                const toggleLabel = event.target.closest('.access-control-toggle').querySelector('.toggle-label');
-
-                if (enabled) {
-                    optionsDiv.style.display = 'block';
-                    toggleLabel.textContent = 'Restricted';
-                } else {
-                    optionsDiv.style.display = 'none';
-                    toggleLabel.textContent = 'Available to All';
-                }
-            }
-
-            function showAccessTypeOptions(featureKey, type) {
-                const roleSelection = document.getElementById('role-selection-' + featureKey);
-                const userSelection = document.getElementById('user-selection-' + featureKey);
-
-                roleSelection.style.display = type === 'role' ? 'block' : 'none';
-                userSelection.style.display = type === 'user' ? 'block' : 'none';
-            }
-
-            // Initialize on page load
-            document.addEventListener('DOMContentLoaded', function() {
-                // Add form validation
-                const form = document.querySelector('form[action="options.php"]');
-                if (form) {
-                    form.addEventListener('submit', function(e) {
-                        // Validate that at least one role or user is selected when type is role/user
-                        const accessControls = document.querySelectorAll('.metasync-access-control-row');
-                        let hasError = false;
-
-                        accessControls.forEach(function(row) {
-                            const featureKey = row.querySelector('[name*="[enabled]"]').name.match(/\[(.*?)\]/)[1];
-                            const enabled = row.querySelector('[name*="[enabled]"]').checked;
-
-                            if (enabled) {
-                                const type = row.querySelector('[name*="[type]"]:checked').value;
-
-                                if (type === 'role') {
-                                    const rolesChecked = row.querySelectorAll('[name*="[allowed_roles]"]:checked');
-                                    if (rolesChecked.length === 0) {
-                                        alert('Please select at least one role for: ' + row.querySelector('th label').textContent);
-                                        hasError = true;
-                                    }
-                                } else if (type === 'user') {
-                                    const usersSelected = row.querySelector('[name*="[allowed_users]"]').selectedOptions;
-                                    if (usersSelected.length === 0) {
-                                        alert('Please select at least one user for: ' + row.querySelector('th label').textContent);
-                                        hasError = true;
-                                    }
-                                }
-                            }
-                        });
-
-                        if (hasError) {
-                            e.preventDefault();
-                            return false;
-                        }
-                    });
-                }
-            });
-        </script>
-        <?php
+        // Intentionally empty — JS now loaded via wp_enqueue_script().
     }
 }

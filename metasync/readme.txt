@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.5.22
+Stable tag: 2.5.23
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,32 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.5.23 =
+**Bug Fixes:**
+* Fix: MetaSync WP plugin breaks Elementor front-end spacing — SimpleHtmlDOM `stripRN` was stripping whitespace between inline elements; now set to `false`
+* Fix: Elementor headings override Global Fonts after Content Genius sync — removed forced Roboto font so headings inherit site's Global Font settings
+* Fix: Elementor Canvas template incorrectly applied when syncing articles as posts
+* Fix: Admin bar status icon now reflects missing UUID as a distinct warning state (orange) rather than generic disconnected state
+
+**Improvements:**
+* Performance: Added transient cache to OTTO JS check to reduce overhead on every request
+* Improvement: Cache Purge — Added per-URL purge support
+* Improvement: Cache Purge — Query string normalization strips UTM/gclid/fbclid params before purge so all URL variants resolve to the same canonical URL
+* Improvement: Cache Purge — Edge CDN purge integrations targeted via configuration
+* Improvement: Remove non-publishable roles (Subscriber, Contributor) from Content Genius User Roles to Sync setting
+* Improvement: Validation message added when publishing AI Landing Pages with plain permalink structure
+
+**Features:**
+* Feature: WordPress Site Health Integration — MetaSync now registers checks in the WP Site Health panel
+* Feature: Media Optimization
+* Feature: Rate the Plugin notice — shows a dismissible prompt after 7 days of usage; hidden when whitelabel is enabled 
+
+**Refactoring:**
+* Removed `instant-index/` vendor tree (~714 files); replaced Google SDK with native PHP implementation 
+* Decomposed `Metasync_Admin` god object (17,849 lines) into 10 focused classes; admin reduced to ~3,986 lines
+* Decomposed `Metasync_Public` into focused classes; REST API routes extracted to `Metasync_Rest_Api` 
+* Extracted 23 inline JavaScript blocks into proper `.js` files loaded via `wp_enqueue_script`
+
 = 2.5.22 =
 * Improvement: Heartbeat connection/pool logic to reduce the number of external requests
 * Improvement: Adapt scenarios of Idle WpRocket + Active Kinsta Cache that was preventing the cache to be purged.

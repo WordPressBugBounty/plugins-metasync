@@ -58,10 +58,13 @@
 	function updateHeaderStatus(isIntegrated, statusText, titleText) {
 		var $statusIndicator = $('.metasync-integration-status');
 		if ($statusIndicator.length > 0) {
-			if (isIntegrated) {
-				$statusIndicator.removeClass('not-integrated').addClass('integrated');
+			$statusIndicator.removeClass('integrated not-integrated warning');
+			if (statusText === 'Warning') {
+				$statusIndicator.addClass('warning');
+			} else if (isIntegrated) {
+				$statusIndicator.addClass('integrated');
 			} else {
-				$statusIndicator.removeClass('integrated').addClass('not-integrated');
+				$statusIndicator.addClass('not-integrated');
 			}
 			$statusIndicator.find('.status-text').text(statusText);
 			$statusIndicator.attr('title', titleText);
@@ -1047,6 +1050,8 @@
 			// Update header status indicator (only on General Settings page)
 			if (isFullyConnected) {
 				updateHeaderStatus(true, 'Synced', getPluginName() + ' API key and ' + getOttoName() + ' UUID are configured');
+			} else if (hasApiKey && !hasOttoUuid) {
+				updateHeaderStatus(false, 'Warning', 'Connected but ' + getOttoName() + ' UUID is missing — deploys will not work. Please reconnect.');
 			} else {
 				updateHeaderStatus(false, 'Not Synced', 'Missing ' + getPluginName() + ' API key or ' + getOttoName() + ' UUID');
 			}
@@ -1378,9 +1383,13 @@
 		}
 		
 		// Note: OTTO SSR is always enabled by default, no checkbox needed
-		
-		// Update header status indicator to "Synced"
-		updateHeaderStatus(true, 'Synced', 'Authentication completed - heartbeat sync will be validated on next page load');
+
+		// Update header status indicator based on UUID presence
+		if (ottoPixelUuid) {
+			updateHeaderStatus(true, 'Synced', 'Authentication completed - heartbeat sync will be validated on next page load');
+		} else {
+			updateHeaderStatus(false, 'Warning', 'Connected but ' + getOttoName() + ' UUID is missing — deploys will not work. Please reconnect.');
+		}
 		
 		// Update metaSync object for JavaScript state tracking
 		if (typeof metaSync !== 'undefined') {
@@ -1982,8 +1991,13 @@
 					 $('#sendAuthTokenTimestamp').html(dateString);
 					$('#sendAuthTokenTimestamp').css({ color: 'green' });
 					
-					// Update header status to "Synced" immediately after successful sync
-					updateHeaderStatus(true, 'Synced', 'Synced - Data synchronization completed successfully');
+					// Update header status — check if UUID is present before declaring fully synced
+					var hasOttoUuid = metaSync.otto_pixel_uuid && metaSync.otto_pixel_uuid.trim() !== '';
+					if (hasOttoUuid) {
+						updateHeaderStatus(true, 'Synced', 'Synced - Data synchronization completed successfully');
+					} else {
+						updateHeaderStatus(false, 'Warning', 'Connected but ' + getOttoName() + ' UUID is missing — deploys will not work. Please reconnect.');
+					}
 					
 					if (showAlerts) {
 						showSyncSuccess('✅ Sync Complete', 'Your categories and user data have been successfully synchronized with ' + getPluginName() + '.');
@@ -3042,7 +3056,12 @@
 						if (data.heartbeat_confirmed || newState === 'CONNECTED') {
 							stop();
 							if (newState === 'CONNECTED' && typeof updateHeaderStatus === 'function') {
-								updateHeaderStatus(true, 'Synced', 'Heartbeat confirmed');
+								var hasOttoUuid = typeof metaSync !== 'undefined' && metaSync.otto_pixel_uuid && metaSync.otto_pixel_uuid.trim() !== '';
+								if (hasOttoUuid) {
+									updateHeaderStatus(true, 'Synced', 'Heartbeat confirmed');
+								} else {
+									updateHeaderStatus(false, 'Warning', 'Connected but OTTO UUID is missing — deploys will not work. Please reconnect.');
+								}
 							}
 							return;
 						}

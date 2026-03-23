@@ -227,7 +227,7 @@ class Metasync_Post_Meta_Settings
 		if (!current_user_can('edit_post', $post_id))
 			return;
 
-		$post_data =  sanitize_post($_POST);
+		$post_data =  metasync_sanitize_input_array($_POST);
 		// Check for new field name first, then old for backward compatibility
 		$field_name = isset($post_data['common_robots_meta']) ? 'common_robots_meta' : 'common_robots_mata';
 
@@ -252,7 +252,7 @@ class Metasync_Post_Meta_Settings
 		if (!current_user_can('edit_post', $post_id))
 			return;
 
-		$post_data =  sanitize_post($_POST);
+		$post_data =  metasync_sanitize_input_array($_POST);
 		// Check for new field name first, then old for backward compatibility
 		$field_name = isset($post_data['advanced_robots_meta']) ? 'advanced_robots_meta' : 'advanced_robots_mata';
 
@@ -274,7 +274,7 @@ class Metasync_Post_Meta_Settings
 		if (!current_user_can('edit_post', $post_id))
 			return;
 
-		$post_data =  sanitize_post($_POST);
+		$post_data =  metasync_sanitize_input_array($_POST);
 		// Check for new field name first, then old for backward compatibility
 		$field_name = isset($post_data['post_redirect_meta']) ? 'post_redirect_meta' : 'post_redirect_mata';
 
@@ -296,7 +296,7 @@ class Metasync_Post_Meta_Settings
 		if (!current_user_can('edit_post', $post_id))
 			return;
 
-		$post_data =  sanitize_post($_POST);
+		$post_data =  metasync_sanitize_input_array($_POST);
 		// Check for new field name first, then old for backward compatibility
 		$field_name = isset($post_data['post_canonical_url_meta']) ? 'post_canonical_url_meta' : 'post_canonical_url_mata';
 

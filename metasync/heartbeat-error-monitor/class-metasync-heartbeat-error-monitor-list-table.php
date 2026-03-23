@@ -90,7 +90,7 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 
 	protected function column_uri($item)
 	{
-		$request_data = sanitize_post($_REQUEST); // WPCS: Input var ok.
+		$request_data = metasync_sanitize_input_array($_REQUEST); // WPCS: Input var ok.
 		if (!isset($request_data['page'])) return;
 
 		// $uri = str_replace(home_url('/'), '', $item['uri']);
@@ -141,7 +141,7 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 
 	protected function process_bulk_action()
 	{
-		$post_data = sanitize_post($_POST);
+		$post_data = metasync_sanitize_input_array($_POST);
 		$items = isset($post_data['item']) && is_array($post_data['item']) ? array_map('sanitize_title', $post_data['item']) : [];
 
 		if (empty($post_data['item'])) return;
@@ -157,7 +157,7 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 
 	protected function process_row_action()
 	{
-		$get_data = sanitize_post($_GET);
+		$get_data = metasync_sanitize_input_array($_GET);
 		$item = isset($get_data['id']) ? sanitize_text_field($get_data['id']) : '';
 
 		// Detect when row action is being triggered.
@@ -198,11 +198,11 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 
 	protected function usort_reorder($a, $b)
 	{
-		$request_data = sanitize_post($_REQUEST);
+		$request_data = metasync_sanitize_input_array($_REQUEST);
 		// If no sort, default to title.
 		$orderby = !empty($request_data['orderby']) ? sanitize_sql_orderby($request_data['orderby']) : 'id';
 		// If no order, default to asc.
-		$order = !empty($request_data['order']) ? sanitize_post($request_data['order']) : 'asc';
+		$order = !empty($request_data['order']) ? metasync_sanitize_input_array($request_data['order']) : 'asc';
 
 		// Determine sort order.
 		if ($orderby !== 'id') {

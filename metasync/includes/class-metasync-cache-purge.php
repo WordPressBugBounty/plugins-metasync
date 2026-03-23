@@ -240,6 +240,9 @@ class Metasync_Cache_Purge
             $url = get_permalink($post_id);
         } else {
             $url = $url_or_post_id;
+            // Strip tracking query parameters before resolving post ID so
+            // url_to_postid() receives a clean canonical URL
+            $url = self::normalize_url($url);
             $post_id = url_to_postid($url);
         }
 
@@ -247,43 +250,175 @@ class Metasync_Cache_Purge
         // Prefer rocket_clean_url() (URL-based, WP Rocket 3+) so custom post types
         // and URLs that url_to_postid() can't resolve are still purged correctly.
         if ($this->is_plugin_active('wp-rocket/wp-rocket.php')) {
-            if ($url && function_exists('rocket_clean_url')) {
-                rocket_clean_url($url);
-                $success = true;
-            } elseif ($post_id && function_exists('rocket_clean_post')) {
-                rocket_clean_post($post_id);
-                $success = true;
+            try {
+                if ($url && function_exists('rocket_clean_url')) {
+                    rocket_clean_url($url);
+                    $success = true;
+                } elseif ($post_id && function_exists('rocket_clean_post')) {
+                    rocket_clean_post($post_id);
+                    $success = true;
+                }
+            } catch (Exception $e) {
+                error_log('MetaSync: WP Rocket per-URL purge failed - ' . $e->getMessage());
             }
         }
 
         // LiteSpeed Cache - Purge specific URL
-        if ($this->is_plugin_active('litespeed-cache/litespeed-cache.php') && class_exists('LiteSpeed\Purge')) {
-            if ($post_id) {
-                do_action('litespeed_purge_post', $post_id);
-                $success = true;
+        if ($this->is_plugin_active('litespeed-cache/litespeed-cache.php')) {
+            try {
+                if ($post_id && class_exists('LiteSpeed\\Purge')) {
+                    do_action('litespeed_purge_post', $post_id);
+                    $success = true;
+                }
+            } catch (Exception $e) {
+                error_log('MetaSync: LiteSpeed per-URL purge failed - ' . $e->getMessage());
             }
         }
 
         // W3 Total Cache - Flush specific post
-        if ($this->is_plugin_active('w3-total-cache/w3-total-cache.php') && function_exists('w3tc_flush_post')) {
-            if ($post_id) {
-                w3tc_flush_post($post_id);
-                $success = true;
+        if ($this->is_plugin_active('w3-total-cache/w3-total-cache.php')) {
+            try {
+                if ($post_id && function_exists('w3tc_flush_post')) {
+                    w3tc_flush_post($post_id);
+                    $success = true;
+                }
+            } catch (Exception $e) {
+                error_log('MetaSync: W3 Total Cache per-URL purge failed - ' . $e->getMessage());
             }
         }
 
-        # NitroPack - Purge specific URL cache (both local and remote cache)
-        if ($this->is_plugin_active('nitropack/main.php') && function_exists('nitropack_sdk_purge')) {
+        // NitroPack - Purge specific URL cache (both local and remote cache)
+        if ($this->is_plugin_active('nitropack/main.php')) {
             try {
-                if ($url) {
+                if ($url && function_exists('nitropack_sdk_purge')) {
                     if (nitropack_sdk_purge($url, NULL, 'MetaSync OTTO cache clear', \NitroPack\SDK\PurgeType::COMPLETE)) {
                         $success = true;
                     }
                 }
             } catch (Exception $e) {
-                # Silently fail - NitroPack may not be available
+                error_log('MetaSync: NitroPack per-URL purge failed - ' . $e->getMessage());
             }
         }
+
+        // WP Super Cache - Purge specific URL
+        if ($this->is_plugin_active('wp-super-cache/wp-cache.php')) {
+            try {
+                if ($url && function_exists('wpsc_delete_url_cache')) {
+                    wpsc_delete_url_cache($url);
+                    $success = true;
+                } elseif ($url && function_exists('prune_super_cache')) {
+                    // Fallback: derive cache file path from the URL
+                    $url_path = wp_parse_url($url, PHP_URL_PATH);
+                    if ($url_path) {
+                        $cache_path = trailingslashit(WP_CONTENT_DIR . '/cache/supercache/' . wp_parse_url($url, PHP_URL_HOST) . $url_path);
+                        prune_super_cache($cache_path, true);
+                        $success = true;
+                    }
+                }
+            } catch (Exception $e) {
+                error_log('MetaSync: WP Super Cache per-URL purge failed - ' . $e->getMessage());
+            }
+        }
+
+        // WP Fastest Cache - Purge specific post cache
+        // singleDeleteCache($comment_id, $post_id) requires a post ID, not URL
+        if ($this->is_plugin_active('wp-fastest-cache/wpFastestCache.php')) {
+            try {
+                $wpfc_purged = false;
+                if ($post_id && class_exists('WpFastestCache')) {
+                    $wpfc = new \WpFastestCache();
+                    if (method_exists($wpfc, 'singleDeleteCache')) {
+                        $wpfc->singleDeleteCache(false, $post_id);
+                        $wpfc_purged = true;
+                        $success = true;
+                    }
+                }
+                if (!$wpfc_purged && $url) {
+                    do_action('wpfc_clear_post_cache_by_url', $url);
+                    $success = true;
+                }
+            } catch (Exception $e) {
+                error_log('MetaSync: WP Fastest Cache per-URL purge failed - ' . $e->getMessage());
+            }
+        }
+
+        // Cache Enabler - Purge specific URL
+        if ($this->is_plugin_active('cache-enabler/cache-enabler.php')) {
+            try {
+                if ($url) {
+                    do_action('cache_enabler_clear_page_cache_by_url', $url);
+                    $success = true;
+                }
+            } catch (Exception $e) {
+                error_log('MetaSync: Cache Enabler per-URL purge failed - ' . $e->getMessage());
+            }
+        }
+
+        // Hummingbird - Purge specific URL/post
+        if ($this->is_plugin_active('hummingbird-performance/wp-hummingbird.php')) {
+            try {
+                $hb_purged = false;
+                if ($post_id) {
+                    do_action('wphb_clear_page_cache', $post_id);
+                    $hb_purged = true;
+                    $success = true;
+                }
+                if (!$hb_purged && class_exists('Hummingbird\\WP_Hummingbird')) {
+                    $modules = \Hummingbird\WP_Hummingbird::get_instance()->core->modules;
+                    if (isset($modules['page_cache']) && method_exists($modules['page_cache'], 'clear_cache')) {
+                        $modules['page_cache']->clear_cache();
+                        $success = true;
+                    }
+                }
+            } catch (Exception $e) {
+                error_log('MetaSync: Hummingbird per-URL purge failed - ' . $e->getMessage());
+            }
+        }
+
+        // SG Optimizer - Purge specific URL
+        if ($this->is_plugin_active('sg-cachepress/sg-cachepress.php')) {
+            try {
+                if ($url && function_exists('sg_cachepress_purge_cache')) {
+                    sg_cachepress_purge_cache($url);
+                    $success = true;
+                } else {
+                    do_action('sg_cachepress_purge_cache');
+                    $success = true;
+                }
+            } catch (Exception $e) {
+                error_log('MetaSync: SG Optimizer per-URL purge failed - ' . $e->getMessage());
+            }
+        }
+
+        // Comet Cache - Purge specific URL/post cache
+        if ($this->is_plugin_active('comet-cache/comet-cache.php') && class_exists('comet_cache')) {
+            try {
+                if ($url && method_exists('comet_cache', 'clearUrl')) {
+                    comet_cache::clearUrl($url);
+                    $success = true;
+                } elseif ($post_id && method_exists('comet_cache', 'clearPost')) {
+                    comet_cache::clearPost($post_id);
+                    $success = true;
+                }
+            } catch (Exception $e) {
+                error_log('MetaSync: Comet Cache per-URL purge failed - ' . $e->getMessage());
+            }
+        }
+
+        // Swift Performance - Purge specific post cache
+        if ($this->is_plugin_active('swift-performance-lite/performance.php') ||
+            $this->is_plugin_active('swift-performance/performance.php')) {
+            try {
+                if ($post_id && class_exists('Swift_Performance_Cache')) {
+                    Swift_Performance_Cache::clear_post_cache($post_id);
+                    $success = true;
+                }
+            } catch (Exception $e) {
+                error_log('MetaSync: Swift Performance per-URL purge failed - ' . $e->getMessage());
+            }
+        }
+
+        // Autoptimize - Skipped for per-URL purge (only caches JS/CSS assets, not page HTML)
 
         // Kinsta - Purge specific URL (hosting-level cache, no plugin check needed)
         if ($url && class_exists('KinstaCache')) {
@@ -291,7 +426,7 @@ class Metasync_Cache_Purge
                 KinstaCache::get_instance()->kinsta_cache_purge_single_url($url);
                 $success = true;
             } catch (Exception $e) {
-                // Silently fail
+                error_log('MetaSync: Kinsta per-URL purge failed - ' . $e->getMessage());
             }
         }
 
@@ -301,7 +436,7 @@ class Metasync_Cache_Purge
                 WpeCommon::purge_url($url);
                 $success = true;
             } catch (Exception $e) {
-                // Silently fail
+                error_log('MetaSync: WP Engine per-URL purge failed - ' . $e->getMessage());
             }
         }
 
@@ -703,6 +838,9 @@ class Metasync_Cache_Purge
             return;
         }
 
+        // Strip tracking query parameters so cache warming targets the canonical URL
+        $url = self::normalize_url($url);
+
         wp_remote_get($url, array(
             'blocking'    => false,     // Fire-and-forget: don't wait for response
             'timeout'     => 3,         // 3s to establish connection + send headers reliably
@@ -717,6 +855,51 @@ class Metasync_Cache_Purge
             'cookies'     => array(),   // No cookies = anonymous visitor = host will cache result
             'sslverify'   => false,     // Avoid SSL issues on staging/local environments
         ));
+    }
+
+    /**
+     * Strip known tracking/analytics query parameters from a URL.
+     *
+     * CDNs treat `/page/` and `/page/?utm_source=email` as separate cache entries.
+     * Normalizing before purge/warm ensures we always target the canonical URL.
+     * Non-tracking parameters (e.g. `?tab=pricing`) are preserved.
+     *
+     * @param string $url The URL to normalize
+     * @return string The URL with tracking parameters removed
+     */
+    private static function normalize_url($url)
+    {
+        if (empty($url) || strpos($url, '?') === false) {
+            return $url;
+        }
+
+        $tracking_params = array(
+            // Google Analytics / Ads
+            'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+            'gclid', 'gbraid', 'wbraid', 'dclid',
+            // Google Analytics client IDs
+            '_ga', '_gl',
+            // Meta (Facebook / Instagram)
+            'fbclid', 'igshid',
+            // Microsoft Ads
+            'msclkid',
+            // TikTok
+            'ttclid',
+            // Twitter / X
+            'twclid',
+            // LinkedIn
+            'li_fat_id',
+            // HubSpot
+            'mc_eid', '_hsenc', '_hsmi',
+            // Yandex
+            'yclid',
+            // Zanox / Awin
+            'zanpid',
+            // Adobe Analytics
+            's_kwcid',
+        );
+
+        return remove_query_arg($tracking_params, $url);
     }
 
     /**
