@@ -76,7 +76,7 @@ class Metasync_HTML_Visual_Editor
         $has_raw_html = get_post_meta($post->ID, '_metasync_raw_html_enabled', true);
 
         if ($has_raw_html) {
-            $edit_url = admin_url('admin.php?page=metasync-html-editor&post_id=' . $post->ID);
+            $edit_url = admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-html-editor&post_id=' . $post->ID);
             $label = Metasync::get_whitelabel_company_name() ?: 'SearchAtlas';
 
             $actions['edit_html'] = sprintf(
@@ -103,7 +103,7 @@ class Metasync_HTML_Visual_Editor
             $page_title,
             $page_title,
             'edit_pages',
-            'metasync-html-editor',
+            Metasync_Admin::$page_slug . '-html-editor',
             array($this, 'render_editor_page')
         );
     }

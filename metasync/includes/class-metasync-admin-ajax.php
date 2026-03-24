@@ -1057,6 +1057,26 @@ class Metasync_Admin_Ajax
                 }
             }
             
+            # Bundle the menu icon file so it survives import on a different site.
+            # If the icon is a local URL (media library), replace it with a special
+            # marker and include the actual file in the ZIP under the plugin folder.
+            $bundled_icon_filename = null;
+            $icon_url = $whitelabel_related_general['white_label_plugin_menu_icon'] ?? '';
+            if (!empty($icon_url) && filter_var($icon_url, FILTER_VALIDATE_URL)) {
+                $site_url = trailingslashit(site_url());
+                if (strpos($icon_url, $site_url) === 0) {
+                    // Resolve URL to an absolute filesystem path
+                    $relative_path = str_replace($site_url, ABSPATH, $icon_url);
+                    $icon_abs_path = realpath($relative_path);
+                    if ($icon_abs_path && file_exists($icon_abs_path)) {
+                        $ext = strtolower(pathinfo($icon_abs_path, PATHINFO_EXTENSION));
+                        $bundled_icon_filename = 'whitelabel-icon.' . $ext;
+                        // Replace the URL with a marker so the importer knows to restore it
+                        $whitelabel_related_general['white_label_plugin_menu_icon'] = '__bundled_icon__' . $ext;
+                    }
+                }
+            }
+
             # Prepare export data
             $export_data = array(
                 'version' => '1.0',
@@ -1064,7 +1084,7 @@ class Metasync_Admin_Ajax
                 'whitelabel_settings' => $whitelabel_settings,
                 'general_settings' => $whitelabel_related_general
             );
-            
+
             # Convert to JSON
             $json_data = wp_json_encode($export_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
             
@@ -1104,7 +1124,13 @@ class Metasync_Admin_Ajax
             
             # Add whitelabel settings JSON file to zip (inside plugin folder)
             $zip->addFromString($plugin_folder_name . '/' . $json_filename, $json_data);
-            
+
+            # Bundle icon file if one was detected
+            if ($bundled_icon_filename !== null && isset($icon_abs_path) && file_exists($icon_abs_path)) {
+                $zip->addFile($icon_abs_path, $plugin_folder_name . '/' . $bundled_icon_filename);
+            }
+
+
             # Files and directories to exclude from the zip
             $exclude_patterns = array(
                 '.git',
@@ -1236,7 +1262,7 @@ class Metasync_Admin_Ajax
             echo sprintf(__('No pages created with %s yet.', 'metasync'), '<strong>' . esc_html($label) . '</strong>');
             echo '</p>';
             echo '<p style="text-align: center;">';
-            echo '<a href="' . admin_url('admin.php?page=searchatlas') . '" class="button button-primary">';
+            echo '<a href="' . admin_url('admin.php?page=' . Metasync_Admin::$page_slug) . '" class="button button-primary">';
             echo __('Get Started', 'metasync');
             echo '</a>';
             echo '</p>';
@@ -1296,6 +1322,6 @@ class Metasync_Admin_Ajax
             return $whitelabel_company . ' AI';
         }
 
-        return 'SearchAtlas AI';
+        return Metasync::get_effective_plugin_name() . ' AI';
     }
 }

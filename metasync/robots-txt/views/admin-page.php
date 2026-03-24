@@ -50,7 +50,7 @@ $robots_url = trailingslashit($site_url) . 'robots.txt';
                                 <?php esc_html_e('Not Generated', 'metasync'); ?>
                             <?php endif; ?>
                         </span>
-                        <a href="<?php echo esc_url(admin_url('admin.php?page=metasync-import-external&tab=robots')); ?>" class="button button-secondary" style="margin-right: 10px;">
+                        <a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-import-external&tab=robots')); ?>" class="button button-secondary" style="margin-right: 10px;">
                             <span>📥</span> <?php esc_html_e('Import from SEO Plugins', 'metasync'); ?>
                         </a>
                         <a href="<?php echo esc_url($robots_url); ?>" target="_blank" class="button button-secondary">

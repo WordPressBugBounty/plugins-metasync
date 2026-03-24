@@ -407,7 +407,7 @@ $stats = $importer->get_import_stats();
 </style>
 
 <div class="wrap metasync-import-container">
-    <a href="<?php echo esc_url(admin_url('admin.php?page=searchatlas-redirections')); ?>" class="metasync-back-btn">
+    <a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections')); ?>" class="metasync-back-btn">
         <span>←</span> Back to Redirections
     </a>
 

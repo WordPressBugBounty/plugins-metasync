@@ -1643,7 +1643,7 @@ class Metasync_Admin_Pages
                 <div class="dashboard-card">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                         <h2 style="margin: 0;">🚫 Indexation Control</h2>
-                        <a href="<?php echo esc_url(admin_url('admin.php?page=metasync-import-external&tab=indexation')); ?>" class="button button-secondary">
+                        <a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-import-external&tab=indexation')); ?>" class="button button-secondary">
                             <span>📥</span> Import from SEO Plugins
                         </a>
                     </div>

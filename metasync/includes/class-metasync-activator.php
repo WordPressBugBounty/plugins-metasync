@@ -240,6 +240,33 @@ class Metasync_Activator
 			}
 		}
 
+		// Restore bundled icon: if the icon value is a __bundled_icon__{ext} marker,
+		// copy the bundled file from the plugin directory to uploads and update the URL.
+		$icon_value = $options['general']['white_label_plugin_menu_icon'] ?? '';
+		if (!empty($icon_value) && strpos($icon_value, '__bundled_icon__') === 0) {
+			$ext             = substr($icon_value, strlen('__bundled_icon__'));
+			$ext             = preg_replace('/[^a-z0-9]/', '', strtolower($ext)); // sanitize
+			$bundled_file    = plugin_dir_path(dirname(__FILE__)) . 'whitelabel-icon.' . $ext;
+
+			if (file_exists($bundled_file) && in_array($ext, ['png', 'svg'], true)) {
+				$upload_dir  = wp_upload_dir();
+				$dest_dir    = $upload_dir['basedir'] . '/metasync';
+				if (!file_exists($dest_dir)) {
+					wp_mkdir_p($dest_dir);
+				}
+				$dest_file = $dest_dir . '/whitelabel-icon.' . $ext;
+				if (copy($bundled_file, $dest_file)) {
+					$options['general']['white_label_plugin_menu_icon'] = $upload_dir['baseurl'] . '/metasync/whitelabel-icon.' . $ext;
+				} else {
+					// Could not copy — clear the broken marker so default icon shows
+					$options['general']['white_label_plugin_menu_icon'] = '';
+				}
+			} else {
+				// Bundled file missing or unsupported extension — clear the marker
+				$options['general']['white_label_plugin_menu_icon'] = '';
+			}
+		}
+
 		// Save updated options
 		update_option('metasync_options', $options);
 

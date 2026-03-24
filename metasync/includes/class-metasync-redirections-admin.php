@@ -186,7 +186,7 @@ class Metasync_Redirections_Admin
         if (!empty($validation_errors)) {
             $error_message = implode(' ', $validation_errors);
             set_transient('metasync_redirection_error', $error_message, 45);
-            $this->safe_redirect(admin_url('admin.php?page=searchatlas-redirections'));
+            $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
         }
 
         $sources_from = [];
@@ -209,7 +209,7 @@ class Metasync_Redirections_Admin
         if ($pattern_type === 'regex') {
             if (empty($regex_pattern)) {
                 set_transient('metasync_redirection_error', 'Please enter a regex pattern when using "Regex Pattern" as the pattern type.', 45);
-                $this->safe_redirect(admin_url('admin.php?page=searchatlas-redirections'));
+                $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
                 return;
             }
 
@@ -235,7 +235,7 @@ class Metasync_Redirections_Admin
                 $error_message = error_get_last();
                 $error_text = isset($error_message['message']) ? $error_message['message'] : 'Unknown regex error';
                 set_transient('metasync_redirection_error', 'Invalid Regex Pattern: ' . $error_text . ' Please fix the regex pattern and try again.', 45);
-                $this->safe_redirect(admin_url('admin.php?page=searchatlas-redirections'));
+                $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
                 return;
             }
         }
@@ -267,12 +267,12 @@ class Metasync_Redirections_Admin
             
         } catch (Exception $e) {
             set_transient('metasync_redirection_error', 'Error saving redirection: ' . $e->getMessage(), 45);
-            $this->safe_redirect(admin_url('admin.php?page=searchatlas-redirections'));
+            $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
         }
 
         set_transient('metasync_redirection_success', $message, 45);
 
-        $this->safe_redirect(admin_url('admin.php?page=searchatlas-redirections'));
+        $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
     }
 
     private function is_valid_url($url)
@@ -449,7 +449,7 @@ class Metasync_Redirections_Admin
 
     private function render_tab_navigation($current_tab)
     {
-        $base_url = admin_url('admin.php?page=searchatlas-redirections');
+        $base_url = admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections');
         
         ?>
         <div class="metasync-tabs">

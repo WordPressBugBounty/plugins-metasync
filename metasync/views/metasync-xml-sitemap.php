@@ -204,7 +204,7 @@ if (!defined('ABSPATH')) {
 
             <!-- Import from SEO Plugins Button (Always visible) -->
             <div >
-                <a href="<?php echo esc_url(admin_url('admin.php?page=metasync-import-external&tab=sitemap')); ?>" class="button button-secondary button-hero metasync-sitemap-button-large">
+                <a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-import-external&tab=sitemap')); ?>" class="button button-secondary button-hero metasync-sitemap-button-large">
                     <span>📥</span> Import from SEO Plugins
                 </a>
                 <p class="metasync-button-description">

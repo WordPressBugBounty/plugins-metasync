@@ -691,7 +691,7 @@ p.description {
         <tr valign="top">
             <td colspan="2">
                 <input type="submit" name="submit" class="button button-primary" value="Save">
-                <input type="button" id="cancel-redirection" class="button button-secondary" value="Cancel" data-cancel-url="<?php echo esc_url(admin_url('admin.php?page=searchatlas-redirections')); ?>">
+                <input type="button" id="cancel-redirection" class="button button-secondary" value="Cancel" data-cancel-url="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections')); ?>">
             </td>
         </tr>
     </table>

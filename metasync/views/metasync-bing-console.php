@@ -15,7 +15,7 @@
 			echo wp_kses_post(
 				sprintf(
 					'Please goto the %s page to configure the Bing Instant Indexing (IndexNow API).',
-					'<a href="' . esc_url(admin_url('admin.php?page=metasync-settings-seo-controls')) . '" style="color: var(--dashboard-accent);">Indexation Control</a>'
+					'<a href="' . esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-seo-controls')) . '" style="color: var(--dashboard-accent);">Indexation Control</a>'
 				)
 			);
 			?>

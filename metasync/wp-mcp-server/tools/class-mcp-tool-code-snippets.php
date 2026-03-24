@@ -294,11 +294,11 @@ class MCP_Tool_Update_Post_Snippets extends MCP_Tool_Base {
                 ],
                 'searchatlas_embed_top' => [
                     'type' => 'string',
-                    'description' => 'SearchAtlas embed top snippet (optional)',
+                    'description' => 'Plugin embed top snippet (optional)',
                 ],
                 'searchatlas_embed_bottom' => [
                     'type' => 'string',
-                    'description' => 'SearchAtlas embed bottom snippet (optional)',
+                    'description' => 'Plugin embed bottom snippet (optional)',
                 ],
             ],
             'required' => ['post_id'],

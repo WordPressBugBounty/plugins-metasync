@@ -891,7 +891,7 @@ class Metasync_Settings_Registration
             function() {
                 printf(
                     '<a href="%s" class="button button-secondary"><span>📥</span> Import from SEO Plugins</a>',
-                    esc_url(admin_url('admin.php?page=metasync-import-external'))
+                    esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-import-external'))
                 );
                 printf('<p class="description">Import settings and data from other SEO plugins (Yoast, Rank Math, AIOSEO, etc).</p>');
             },

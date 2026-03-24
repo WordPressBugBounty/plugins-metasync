@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.5.23
+Stable tag: 2.5.24
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,14 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.5.24 =
+**Bug Fixes:**
+* Fix: Whitelabel slug not respected in admin links — \"Add Redirect\", \"404 Monitor\" tab, and \"Import from SEO Plugins\" buttons were using hardcoded `searchatlas-*` slugs instead of the configured WL slug
+* Fix: Hardcoded SearchAtlas/Search Atlas brand strings replaced with whitelabel-aware output across admin views, dev panel, site health checks, and MCP tool descriptions
+* Fix: \"SearchAtlas AI Pages\" dashboard widget title ignoring whitelabel plugin name setting
+* Fix: Whitelabel icon lost after exporting and importing the plugin on a different site — icon is now bundled inside the export ZIP and restored to the new site's uploads directory on import
+* Fix: Whitelabel icon not shown on WordPress Dashboard → Updates page — icon injected into the `update_plugins` site transient so the correct branded icon appears regardless of the update API response
+
 = 2.5.23 =
 **Bug Fixes:**
 * Fix: MetaSync WP plugin breaks Elementor front-end spacing — SimpleHtmlDOM `stripRN` was stripping whitespace between inline elements; now set to `false`

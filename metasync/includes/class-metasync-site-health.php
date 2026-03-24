@@ -214,7 +214,7 @@ class Metasync_Site_Health
 
 			// OTTO API Rate Limit Health Check
 			$tests['direct']['metasync_otto_rate_limit'] = [
-				'label' => __('SearchAtlas OTTO API Rate Limit'),
+				'label' => sprintf(__('%s OTTO API Rate Limit'), Metasync::get_effective_plugin_name()),
 				'test' => [$this, 'otto_rate_limit_check']
 			];
 
@@ -792,18 +792,20 @@ class Metasync_Site_Health
 		if ($hits >= self::RATE_LIMIT_CRITICAL_THRESHOLD) {
 			$status = 'critical';
 			$label  = sprintf(
-				__('SearchAtlas OTTO API is being rate limited frequently (%d times in 24h)'),
+				__('%s OTTO API is being rate limited frequently (%d times in 24h)'),
+				Metasync::get_effective_plugin_name(),
 				$hits
 			);
 		} elseif ($hits >= self::RATE_LIMIT_WARNING_THRESHOLD) {
 			$status = 'recommended';
 			$label  = sprintf(
-				__('SearchAtlas OTTO API rate limit hit %d times in the last 24 hours'),
+				__('%s OTTO API rate limit hit %d times in the last 24 hours'),
+				Metasync::get_effective_plugin_name(),
 				$hits
 			);
 		} else {
 			$status = 'good';
-			$label  = __('SearchAtlas OTTO API rate limits are within normal range');
+			$label  = sprintf(__('%s OTTO API rate limits are within normal range'), Metasync::get_effective_plugin_name());
 		}
 
 		// Build description

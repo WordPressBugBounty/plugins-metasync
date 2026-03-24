@@ -208,6 +208,7 @@ class Metasync_Admin
         add_action('admin_init', array($this, 'settings_page_init'));
         add_filter('all_plugins',  array($this,'metasync_plugin_white_label'));
         add_filter( 'plugin_row_meta',array($this,'metasync_view_detials_url'),10,3);
+        add_filter('site_transient_update_plugins', array($this, 'inject_whitelabel_icon_into_update_transient'));
 
         // Display transient error/success messages for redirections
         add_action('admin_notices', array($this, 'display_redirection_messages'));
@@ -640,6 +641,51 @@ class Metasync_Admin
         }
 
         return $all_plugins;
+    }
+
+    /**
+     * Inject the whitelabel icon into the update_plugins transient so that
+     * /wp-admin/update-core.php (Dashboard → Updates) shows the WL icon
+     * instead of the SearchAtlas icon returned by the update API.
+     *
+     * @param  object $transient  The site transient object.
+     * @return object
+     */
+    public function inject_whitelabel_icon_into_update_transient($transient) {
+        if (empty($transient) || !is_object($transient)) {
+            return $transient;
+        }
+
+        $general = Metasync::get_option('general');
+        if (!is_array($general)) {
+            return $transient;
+        }
+
+        $icon_url = $general['white_label_plugin_menu_icon'] ?? '';
+        if (empty($icon_url)) {
+            return $transient;
+        }
+
+        $this_plugin = plugin_basename(dirname(__DIR__) . '/metasync.php');
+
+        // Inject into pending updates list
+        if (!empty($transient->response) && isset($transient->response[$this_plugin])) {
+            $transient->response[$this_plugin]->icons = [
+                '1x'  => $icon_url,
+                '2x'  => $icon_url,
+            ];
+        }
+
+        // Also inject into the "no update needed" list so the icon appears
+        // on the updates screen even when the plugin is up-to-date
+        if (!empty($transient->no_update) && isset($transient->no_update[$this_plugin])) {
+            $transient->no_update[$this_plugin]->icons = [
+                '1x'  => $icon_url,
+                '2x'  => $icon_url,
+            ];
+        }
+
+        return $transient;
     }
 
     /**
@@ -1191,7 +1237,7 @@ class Metasync_Admin
             'Import External Data',
             'Import External Data',
             'read',
-            'metasync-import-external',
+            self::$page_slug . '-import-external',
             array($this, 'render_import_external_data_page')
         );
     }
@@ -3670,7 +3716,7 @@ class Metasync_Admin
         if (!empty($whitelabel_company)) {
             return $whitelabel_company . ' AI';
         }
-        return 'SearchAtlas AI';
+        return Metasync::get_effective_plugin_name() . ' AI';
     }
 
     /**

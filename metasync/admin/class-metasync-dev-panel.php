@@ -83,7 +83,7 @@ class Metasync_Dev_Panel {
 			'Developer Tools',
 			'Developer Tools',
 			'manage_options',
-			'searchatlas-dev-tools',
+			Metasync_Admin::$page_slug . '-dev-tools',
 			array( $this, 'render_dev_panel_page' )
 		);
 	}
@@ -104,16 +104,16 @@ class Metasync_Dev_Panel {
 
 		// Don't show on dev panel page itself
 		$current_page = isset( $_GET['page'] ) ? sanitize_text_field( $_GET['page'] ) : '';
-		if ( $current_page === 'searchatlas-dev-tools' ) {
+		if ( $current_page === Metasync_Admin::$page_slug . '-dev-tools' ) {
 			return;
 		}
 
-		$dev_panel_url = admin_url( 'admin.php?page=searchatlas-dev-tools' );
+		$dev_panel_url = admin_url( 'admin.php?page=' . Metasync_Admin::$page_slug . '-dev-tools' );
 		?>
 		<div class="notice notice-warning" style="border-left: 4px solid #ff9800; background: #fff3cd; padding: 12px 15px;">
 			<p style="font-size: 14px; margin: 0;">
 				<strong>⚠️ STAGING MODE ACTIVE</strong><br>
-				All SearchAtlas API endpoints are currently pointing to STAGING servers. This is intended for development and testing only.
+				All <?php echo esc_html( Metasync::get_effective_plugin_name() ); ?> API endpoints are currently pointing to STAGING servers. This is intended for development and testing only.
 				<br>
 				<a href="<?php echo esc_url( $dev_panel_url ); ?>" class="button button-secondary" style="margin-top: 8px;">
 					🔧 Open Developer Tools
@@ -130,7 +130,7 @@ class Metasync_Dev_Panel {
 	 */
 	public function enqueue_scripts( $hook ) {
 		// Only load on dev panel page
-		if ( isset( $_GET['page'] ) && $_GET['page'] === 'searchatlas-dev-tools' ) {
+		if ( isset( $_GET['page'] ) && $_GET['page'] === Metasync_Admin::$page_slug . '-dev-tools' ) {
 			wp_enqueue_style( 'metasync-admin' );
 		}
 	}
@@ -458,7 +458,7 @@ class Metasync_Dev_Panel {
 					<div style="margin-bottom: 20px;">
 						<label style="display: block; margin-bottom: 10px; padding: 15px; border: 2px solid <?php echo $current_mode === 'production' ? '#2271b1' : '#ddd'; ?>; border-radius: 6px; cursor: pointer; background: <?php echo $current_mode === 'production' ? '#f0f6fc' : '#fff'; ?>; color: #1d2327;">
 							<input type="radio" name="endpoint_mode" value="production" <?php checked( $current_mode, 'production' ); ?> style="margin-right: 10px;">
-							<strong style="color: #1d2327;">Production</strong> - Live SearchAtlas servers (api.searchatlas.com)
+							<strong style="color: #1d2327;">Production</strong> - Live <?php echo esc_html( Metasync::get_effective_plugin_name() ); ?> servers (api.searchatlas.com)
 						</label>
 
 						<label style="display: block; margin-bottom: 10px; padding: 15px; border: 2px solid <?php echo $current_mode === 'staging' ? '#d63638' : '#ddd'; ?>; border-radius: 6px; cursor: pointer; background: <?php echo $current_mode === 'staging' ? '#fcf0f1' : '#fff'; ?>; color: #1d2327;">

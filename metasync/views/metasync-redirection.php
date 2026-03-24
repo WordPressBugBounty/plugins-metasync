@@ -1021,10 +1021,10 @@ if (!defined('ABSPATH')) {
 </style>
 
 <div class="wrap">
-	<a href="<?php echo esc_url(admin_url('admin.php?page=searchatlas-redirections&action=add')); ?>" class="page-title-action">Add New Redirect</a>
-	
+	<a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections&action=add')); ?>" class="page-title-action">Add New Redirect</a>
+
 	<!-- Import from SEO Plugins Button -->
-	<a href="<?php echo esc_url(admin_url('admin.php?page=metasync-import-external&tab=redirections')); ?>" class="page-title-action" style="background: #10b981 !important; border-color: #10b981 !important;">
+	<a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-import-external&tab=redirections')); ?>" class="page-title-action" style="background: #10b981 !important; border-color: #10b981 !important;">
 		<span>📥</span> Import from SEO Plugins
 	</a>
 	<!-- Forms are NOT created automatically, so you need to wrap the table in one to use features like bulk actions -->

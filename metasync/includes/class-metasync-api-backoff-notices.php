@@ -250,7 +250,7 @@ class Metasync_API_Backoff_Notices {
                 '<span style="color: #f0c36d;">⏸️ API Backoff (%d)</span>',
                 $count
             ),
-            'href'  => admin_url('admin.php?page=metasync-settings'),
+            'href'  => admin_url('admin.php?page=' . Metasync_Admin::$page_slug),
             'meta'  => [
                 'title' => sprintf(
                     '%d API endpoint%s in backoff mode',
