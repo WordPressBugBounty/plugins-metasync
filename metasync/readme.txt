@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.5.24
+Stable tag: 2.5.25
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,17 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.5.25 =
+**Bug Fixes:**
+* Fix: OTTO persistence not syncing titles, descriptions, OG/Twitter fields were only written when persistence was enabled, but OTTO's own render filters read those same staging keys; added coverage for regular posts/pages; OG/Twitter persistence now also writes to RankMath and Yoast equivalents so SEO plugins pick up OTTO data; OG renderer falls back to OTTO staging keys when persistence keys are empty
+* Fix: DB column missing on older installs now self-heals all three required columns
+* Fix: Cap WP announce ping to max 5 per plugin activation lifecycle — removed unbounded cron retry; counter resets on fresh activation and clears on deactivation
+* Fix: Dollar signs stripped from image alt text during deployment
+* Fix: Heading deployment broken on some outdated Divi versions
+* Fix: One case of duplicate meta name="description tags when MetaSync and AIOSEO coexist
+* Fix: XML sitemap auto-update not triggering when posts published via Gutenberg
+* Fix: Divi header/footer hidden on blog posts synced via Content Genius
+
 = 2.5.24 =
 **Bug Fixes:**
 * Fix: Whitelabel slug not respected in admin links — \"Add Redirect\", \"404 Monitor\" tab, and \"Import from SEO Plugins\" buttons were using hardcoded `searchatlas-*` slugs instead of the configured WL slug

@@ -1312,8 +1312,8 @@ class Metasync_HTML_To_Builder_Converter
 				'_et_builder_version' => defined('ET_BUILDER_VERSION') ? ET_BUILDER_VERSION : '4.0.0',
 				'_et_pb_page_layout' => 'et_no_sidebar', // Full width, no sidebar
 				'_et_pb_side_nav' => 'off', // Disable side navigation
-				'_et_pb_post_hide_nav' => 'on', // Hide post navigation
-				'_wp_page_template' => 'page-template-blank.php' // Blank template (no header/footer)
+				'_et_pb_post_hide_nav' => 'default', // Use default nav behavior
+				'_wp_page_template' => 'default' // Use default template
 			),
 			'css_content' => $css_content
 		);

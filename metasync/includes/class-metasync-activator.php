@@ -45,7 +45,14 @@ class Metasync_Activator
 		self::check_whitelabel_settings_update();
 
 		// Pre-SSO announce: tell backend plugin is installed (PR4 - heartbeat reliability)
+		update_option('metasync_announce_attempt_count', 0);
 		self::send_announce_ping();
+		update_option('metasync_announce_attempt_count', 1);
+
+		// Schedule cron for announce pings 2-5 (every 10 minutes)
+		if (!wp_next_scheduled('metasync_announce_cron')) {
+			wp_schedule_event(time() + 10 * MINUTE_IN_SECONDS, 'metasync_every_10_minutes', 'metasync_announce_cron');
+		}
 
 		// Set first activation flag for setup wizard
 		if (!get_option('metasync_first_activation_time')) {

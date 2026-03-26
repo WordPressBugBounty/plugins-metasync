@@ -376,9 +376,6 @@ class Metasync_Admin
         // Schedule transient cleanup cron on plugin load
         add_action('init', array($this, 'maybe_schedule_transient_cleanup_cron'));
         
-        // Pre-SSO announce: rate-limited ping when no API key yet (PR4 - heartbeat reliability)
-        add_action('init', array($this, 'maybe_send_pre_sso_announce'));
-        
         # Schedule hidden post manager cron on plugin load (runs every 7 days)
         add_action('init', array($this, 'maybe_schedule_hidden_post_check'));
 
@@ -1700,10 +1697,6 @@ class Metasync_Admin
         Metasync_Heartbeat_Manager::instance()->maybe_schedule_heartbeat_cron();
     }
 
-    public function maybe_send_pre_sso_announce()
-    {
-        Metasync_Heartbeat_Manager::instance()->maybe_send_pre_sso_announce();
-    }
 
     public function trigger_immediate_heartbeat_check($context = 'Manual trigger')
     {

@@ -379,7 +379,7 @@ Class Metasync_otto_html{
                     $new_value = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 
                     if (!empty($name)) {
-                        $pattern = '/<meta\s+(?:name=["\']' . preg_quote($name, '/') . '["\']\s+content=["\'][^"\']*["\']|content=["\'][^"\']*["\']\s+name=["\']' . preg_quote($name, '/') . '["\'])\s*\/?>/i';
+                        $pattern = '/<meta\s+(?:name\s*=\s*["\']' . preg_quote($name, '/') . '["\']\s+content\s*=\s*["\'][^"\']*["\']|content\s*=\s*["\'][^"\']*["\']\s+name\s*=\s*["\']' . preg_quote($name, '/') . '["\'])\s*\/?>/i';
                         $replacement = '<meta name="' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '" content="' . $new_value . '">';
                         $count = 0;
                         $result_html = preg_replace($pattern, $replacement, $result_html, -1, $count);
@@ -388,7 +388,7 @@ Class Metasync_otto_html{
                             $result_html = preg_replace('/(<head[^>]*>)/i', '$1' . "\n" . $replacement, $result_html, 1);
                         }
                     } elseif (!empty($property)) {
-                        $pattern = '/<meta\s+property=["\']' . preg_quote($property, '/') . '["\']\s+content=["\'][^"\']*["\']\s*\/?>/i';
+                        $pattern = '/<meta\s+property\s*=\s*["\']' . preg_quote($property, '/') . '["\']\s+content\s*=\s*["\'][^"\']*["\']\s*\/?>/i';
                         $replacement = '<meta property="' . htmlspecialchars($property, ENT_QUOTES, 'UTF-8') . '" content="' . $new_value . '">';
                         $count = 0;
                         $result_html = preg_replace($pattern, $replacement, $result_html, -1, $count);
@@ -399,8 +399,42 @@ Class Metasync_otto_html{
                     }
                 } elseif ($type === 'h1' || $type === 'heading') {
                     $new_value = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-                    $result_html = preg_replace('/<h1[^>]*>.*?<\/h1>/is', '<h1>' . $new_value . '</h1>', $result_html, 1);
+                    $result_html = preg_replace_callback(
+                        '/<h1([^>]*)>.*?<\/h1>/is',
+                        function ($m) use ($new_value) {
+                            return '<h1' . $m[1] . '>' . $new_value . '</h1>';
+                        },
+                        $result_html,
+                        1
+                    );
                 }
+            }
+        }
+
+        # String-based heading fallback for body_substitutions
+        # DOM changes via SimpleHtmlDom don't persist on Divi/page-builder sites
+        if (!empty($replacement_data['body_substitutions']['headings']) && is_array($replacement_data['body_substitutions']['headings'])) {
+            foreach ($replacement_data['body_substitutions']['headings'] as $heading) {
+                if (empty($heading['type']) || empty($heading['current_value']) || empty($heading['recommended_value'])) {
+                    continue;
+                }
+
+                $heading_type = preg_quote($heading['type'], '/');
+                $current_value = trim(preg_replace('/\s+/', ' ', html_entity_decode($heading['current_value'], ENT_QUOTES, 'UTF-8')));
+                $recommended_value = htmlspecialchars($heading['recommended_value'], ENT_QUOTES, 'UTF-8');
+
+                $result_html = preg_replace_callback(
+                    '/(<' . $heading_type . '(?:\s[^>]*)?>)(.*?)(<\/' . $heading_type . '>)/is',
+                    function ($m) use ($current_value, $recommended_value) {
+                        $inner_text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($m[2]), ENT_QUOTES, 'UTF-8')));
+                        if ($inner_text === $current_value) {
+                            return $m[1] . $recommended_value . $m[3];
+                        }
+                        return $m[0];
+                    },
+                    $result_html,
+                    -1
+                );
             }
         }
 
@@ -423,6 +457,11 @@ Class Metasync_otto_html{
         if (!empty($replacement_data['footer_html_insertion'])) {
             $safe_footer = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['footer_html_insertion']);
             $result_html = preg_replace('/(<\/html>)/i', $safe_footer . "\n" . '$1', $result_html, 1);
+        }
+
+        # Ensure metasync_optimized attribute on <head> (post-serialization so dom->clear() can't wipe it)
+        if (!$this->is_amp_page() && strpos($result_html, 'metasync_optimized') === false) {
+            $result_html = preg_replace('/<head(\s|>)/i', '<head metasync_optimized$1', $result_html, 1);
         }
 
         return $result_html;
@@ -553,7 +592,7 @@ Class Metasync_otto_html{
                 $updated_html = preg_replace('/\s+alt=(["\'])[^"\']*\1/', '', $current_html);
 
                 # Insert new alt attribute after the opening <img
-                $updated_html = preg_replace('/^<img\s/', '<img alt="' . $new_alt . '" ', $updated_html);
+                $updated_html = preg_replace('/^<img\s/', '<img alt="' . str_replace('$', '\\$', $new_alt) . '" ', $updated_html);
 
                 # Update the element
                 $image->outertext = $updated_html;
@@ -1076,8 +1115,8 @@ Class Metasync_otto_html{
         # Find the <head> tag
         $head = $this->dom->find('head', 0);
 
-        # Construct the <title> tag HTML
-        $meta_tag = '<meta '.$attribute.' = "'.$data[$attribute].'" content = "'.$data['recommended_value'].'">';
+        # Construct the meta tag HTML (no spaces around = for standard HTML and regex compatibility)
+        $meta_tag = '<meta '.$attribute.'="'.htmlspecialchars($data[$attribute], ENT_QUOTES, 'UTF-8').'" content="'.htmlspecialchars($data['recommended_value'], ENT_QUOTES, 'UTF-8').'">';
 
         if (empty($head)) {
             return false;
@@ -1417,7 +1456,8 @@ Class Metasync_otto_html{
                         if (!empty($name)) {
                             # MEMORY OPTIMIZED: Count meta tags without storing all matches
                             # preg_match_all requires $matches, so we pass it but unset immediately
-                            $before_count = preg_match_all('/<meta[^>]+name=["\']' . preg_quote($name, '/') . '["\'][^>]*>/i', $result_html, $before_matches);
+                            # Use \s*=\s* to match attributes with or without spaces around =
+                            $before_count = preg_match_all('/<meta[^>]+name\s*=\s*["\']' . preg_quote($name, '/') . '["\'][^>]*>/i', $result_html, $before_matches);
 
                             # Free memory immediately after use
                             unset($before_matches);
@@ -1430,7 +1470,7 @@ Class Metasync_otto_html{
                             # - Whitespace variations
                             # The pattern uses [^>]* to match ANY characters until the closing >
                             $removed_count = preg_replace_callback(
-                                '/<meta\s+[^>]*name=["\']' . preg_quote($name, '/') . '["\'][^>]*>/i',
+                                '/<meta\s+[^>]*name\s*=\s*["\']' . preg_quote($name, '/') . '["\'][^>]*>/i',
                                 function($match) {
                                     return ''; // Remove the tag
                                 },
@@ -1446,7 +1486,7 @@ Class Metasync_otto_html{
 
 
                             # MEMORY OPTIMIZED: Verify removal - count again but free memory immediately
-                            $after_count = preg_match_all('/<meta[^>]+name=["\']' . preg_quote($name, '/') . '["\'][^>]*>/i', $result_html, $after_matches);
+                            $after_count = preg_match_all('/<meta[^>]+name\s*=\s*["\']' . preg_quote($name, '/') . '["\'][^>]*>/i', $result_html, $after_matches);
                             unset($after_matches);
 
                             # Now insert ONE new meta tag at the TOP of <head>
@@ -1454,7 +1494,7 @@ Class Metasync_otto_html{
                             $result_html = preg_replace('/(<head[^>]*>)/i', '$1' . "\n" . $replacement, $result_html, 1);
                         } elseif (!empty($property)) {
                             # Replace meta property tag
-                            $pattern = '/<meta\s+property=["\']' . preg_quote($property, '/') . '["\']\s+content=["\'][^"\']*["\']\s*\/?>/i';
+                            $pattern = '/<meta\s+property\s*=\s*["\']' . preg_quote($property, '/') . '["\']\s+content\s*=\s*["\'][^"\']*["\']\s*\/?>/i';
                             $replacement = '<meta property="' . htmlspecialchars($property, ENT_QUOTES, 'UTF-8') . '" content="' . $new_value . '">';
 
                             if (preg_match($pattern, $result_html)) {
@@ -1465,14 +1505,16 @@ Class Metasync_otto_html{
                             }
                         }
                     } elseif ($type === 'h1' || $type === 'heading') {
-                        # Replace first H1 tag
+                        # Replace first H1 tag, preserving attributes
                         $new_value = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-                        $pattern = '/<h1[^>]*>.*?<\/h1>/is';
-
-                        if (preg_match($pattern, $result_html)) {
-                            $result_html = preg_replace($pattern, '<h1>' . $new_value . '</h1>', $result_html, 1);
-                        } else {
-                        }
+                        $result_html = preg_replace_callback(
+                            '/<h1([^>]*)>.*?<\/h1>/is',
+                            function ($m) use ($new_value) {
+                                return '<h1' . $m[1] . '>' . $new_value . '</h1>';
+                            },
+                            $result_html,
+                            1
+                        );
                     }
                 }
             }
@@ -1548,7 +1590,7 @@ Class Metasync_otto_html{
                             $new_img = preg_replace('/<img\s+alt\s*=\s*(["\'])[^"\']*\1\s*/i', '<img ', $new_img);
 
                             # Add single alt attribute after <img
-                            $new_img = preg_replace('/^<img\s*/i', '<img alt="' . $escaped_alt . '" ', $new_img);
+                            $new_img = preg_replace('/^<img\s*/i', '<img alt="' . str_replace('$', '\\$', $escaped_alt) . '" ', $new_img);
 
                             # Update data-et-multi-view JSON if present (Divi theme)
                             if (strpos($new_img, 'data-et-multi-view') !== false) {
@@ -1580,6 +1622,33 @@ Class Metasync_otto_html{
                 }
             }
 
+            # String-based heading fallback for body_substitutions
+            # DOM changes via SimpleHtmlDom don't persist on Divi/page-builder sites
+            if (!empty($replacement_data['body_substitutions']['headings']) && is_array($replacement_data['body_substitutions']['headings'])) {
+                foreach ($replacement_data['body_substitutions']['headings'] as $heading) {
+                    if (empty($heading['type']) || empty($heading['current_value']) || empty($heading['recommended_value'])) {
+                        continue;
+                    }
+
+                    $heading_type = preg_quote($heading['type'], '/');
+                    $current_value = trim(preg_replace('/\s+/', ' ', html_entity_decode($heading['current_value'], ENT_QUOTES, 'UTF-8')));
+                    $recommended_value = htmlspecialchars($heading['recommended_value'], ENT_QUOTES, 'UTF-8');
+
+                    $result_html = preg_replace_callback(
+                        '/(<' . $heading_type . '(?:\s[^>]*)?>)(.*?)(<\/' . $heading_type . '>)/is',
+                        function ($m) use ($current_value, $recommended_value) {
+                            $inner_text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($m[2]), ENT_QUOTES, 'UTF-8')));
+                            if ($inner_text === $current_value) {
+                                return $m[1] . $recommended_value . $m[3];
+                            }
+                            return $m[0];
+                        },
+                        $result_html,
+                        -1
+                    );
+                }
+            }
+
             # DEBUG: Check what we're returning
             if (preg_match('/<title[^>]*>(.*?)<\/title>/is', $result_html, $matches)) {
             }
@@ -1599,10 +1668,10 @@ Class Metasync_otto_html{
             # This prevents stripping Yoast/plugin descriptions when OTTO has no description to replace
 
             $removal_count = 0;
-            $otto_has_description = (bool) preg_match('/<meta[^>]*name=["\']description["\'][^>]*data-otto[^>]*>/i', $result_html);
+            $otto_has_description = (bool) preg_match('/<meta[^>]*name\s*=\s*["\']description["\'][^>]*data-otto[^>]*>/i', $result_html);
             if ($otto_has_description) {
                 $result_html = preg_replace_callback(
-                    '/<meta\s+([^>]*name=["\']description["\'][^>]*)>/i',
+                    '/<meta\s+([^>]*name\s*=\s*["\']description["\'][^>]*)>/i',
                     function($match) use (&$removal_count) {
                         # Keep only if it has data-otto="true"
                         if (stripos($match[1], 'data-otto') !== false) {
@@ -1629,6 +1698,11 @@ Class Metasync_otto_html{
 
             # Clear element cache array
             $this->cached_elements = [];
+
+            # Ensure metasync_optimized attribute on <head> (post-serialization so dom->clear() can't wipe it)
+            if (!$this->is_amp_page() && strpos($result_html, 'metasync_optimized') === false) {
+                $result_html = preg_replace('/<head(\s|>)/i', '<head metasync_optimized$1', $result_html, 1);
+            }
 
             return $result_html;
 

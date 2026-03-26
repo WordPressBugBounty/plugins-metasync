@@ -399,18 +399,26 @@ class Metasync_OpenGraph {
             return;
         }
 
-        # Get Open Graph data
-        $og_title = get_post_meta($post->ID, '_metasync_og_title', true) ?: $post->post_title;
-        $og_description = get_post_meta($post->ID, '_metasync_og_description', true) ?: $this->get_post_excerpt($post);
+        # Get Open Graph data — check persisted key first, fall back to OTTO staging key, then post default
+        $og_title = get_post_meta($post->ID, '_metasync_og_title', true)
+            ?: get_post_meta($post->ID, '_metasync_otto_og_title', true)
+            ?: $post->post_title;
+        $og_description = get_post_meta($post->ID, '_metasync_og_description', true)
+            ?: get_post_meta($post->ID, '_metasync_otto_og_description', true)
+            ?: $this->get_post_excerpt($post);
         $og_image = get_post_meta($post->ID, '_metasync_og_image', true) ?: $this->get_featured_image_url($post->ID);
         $og_url = get_post_meta($post->ID, '_metasync_og_url', true) ?: $this->get_canonical_url($post);
         $og_type = get_post_meta($post->ID, '_metasync_og_type', true) ?: 'article';
 
-        # Get Twitter Card data
+        # Get Twitter Card data — check persisted key first, fall back to OTTO staging key
         $twitter_card = get_post_meta($post->ID, '_metasync_twitter_card', true) ?: 'summary_large_image';
         $twitter_site = get_post_meta($post->ID, '_metasync_twitter_site', true);
-        $twitter_title = get_post_meta($post->ID, '_metasync_twitter_title', true) ?: $og_title;
-        $twitter_description = get_post_meta($post->ID, '_metasync_twitter_description', true) ?: $og_description;
+        $twitter_title = get_post_meta($post->ID, '_metasync_twitter_title', true)
+            ?: get_post_meta($post->ID, '_metasync_otto_twitter_title', true)
+            ?: $og_title;
+        $twitter_description = get_post_meta($post->ID, '_metasync_twitter_description', true)
+            ?: get_post_meta($post->ID, '_metasync_otto_twitter_description', true)
+            ?: $og_description;
         $twitter_image = get_post_meta($post->ID, '_metasync_twitter_image', true) ?: $og_image;
         $twitter_image_alt = get_post_meta($post->ID, '_metasync_twitter_image_alt', true);
         
@@ -771,11 +779,17 @@ class Metasync_OpenGraph {
      * Add debug menu for testing
      */
     private function has_seo_plugin_conflicts() {
+        // Ensure is_plugin_active() is available on the frontend
+        if (!function_exists('is_plugin_active')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+
         # List of SEO plugins that might output Open Graph tags
         $seo_plugins = [
             'wordpress-seo/wp-seo.php', # Yoast SEO
             'seo-by-rank-math/rank-math.php', # RankMath
-            'all-in-one-seo-pack/all_in_one_seo_pack.php', # AIOSEO
+            'all-in-one-seo-pack/all_in_one_seo_pack.php', # AIOSEO Free
+            'all-in-one-seo-pack-pro/all_in_one_seo_pack.php', # AIOSEO Pro
             'seopress/seopress.php', # SEOPress
             'the-seo-framework/autodescription.php', # The SEO Framework
         ];

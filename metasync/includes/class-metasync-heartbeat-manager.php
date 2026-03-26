@@ -868,7 +868,6 @@ class Metasync_Heartbeat_Manager
         $options['general']['heartbeat_state_changed_at'] = time();
         Metasync::set_option($options);
         delete_option('metasync_burst_attempt_count');
-        delete_option('metasync_burst_gave_up');
         $this->maybe_schedule_heartbeat_cron();
     }
 
@@ -901,30 +900,34 @@ class Metasync_Heartbeat_Manager
     }
 
     /**
-     * PR3: Announce cron — send pre-SSO announce when state is UNREGISTERED.
-     * After 5 attempts with no confirmation, stop announce and fall back to 2-hour cron.
+     * Announce cron — send pre-SSO announce when state is UNREGISTERED.
+     * Hard cap of 5 total pings per activation lifecycle (ping 1 on activation, pings 2-5 here).
      */
     public function execute_announce_cron()
     {
-        if ($this->get_heartbeat_state() !== 'UNREGISTERED') {
+        $general = Metasync::get_option('general') ?? [];
+        if (!empty($general['searchatlas_api_key'] ?? '')) {
+            $this->unschedule_announce_cron();
             return;
         }
-        $count = (int) get_option('metasync_burst_attempt_count', 0);
-        $count++;
-        update_option('metasync_burst_attempt_count', $count);
 
+        $count = (int) get_option('metasync_announce_attempt_count', 0);
         if ($count >= 5) {
             $this->unschedule_announce_cron();
-            update_option('metasync_burst_gave_up', true);
-            if (!wp_next_scheduled('metasync_heartbeat_cron_check')) {
-                wp_schedule_event(time(), 'metasync_every_2_hours', 'metasync_heartbeat_cron_check');
-            }
             return;
         }
+
+        $count++;
+        update_option('metasync_announce_attempt_count', $count);
+
         if (!class_exists('Metasync_Activator')) {
             require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-activator.php';
         }
         Metasync_Activator::send_announce_ping();
+
+        if ($count >= 5) {
+            $this->unschedule_announce_cron();
+        }
     }
 
     public function unschedule_burst_heartbeat_cron()
@@ -946,17 +949,24 @@ class Metasync_Heartbeat_Manager
     /**
      * Maybe schedule heartbeat cron job based on PR3 state.
      * UNREGISTERED: announce cron every 10 min. KEY_PENDING: burst every 10 min. CONNECTED: 2-hour only.
+     *
+     * Throttled to run at most once per 5 minutes to prevent concurrent page loads
+     * from racing on the wp_cron option and producing `could_not_set` errors.
      */
     public function maybe_schedule_heartbeat_cron()
     {
+        // Skip if already evaluated recently — avoids cron-option race conditions on busy sites
+        if (get_transient('metasync_cron_schedule_checked')) {
+            return;
+        }
+        set_transient('metasync_cron_schedule_checked', 1, 5 * MINUTE_IN_SECONDS);
+
         $state = $this->get_heartbeat_state();
 
         if ($state === 'UNREGISTERED') {
             $this->unschedule_heartbeat_cron();
             $this->unschedule_burst_heartbeat_cron();
-            if (!wp_next_scheduled('metasync_announce_cron')) {
-                delete_option('metasync_burst_attempt_count');
-                delete_option('metasync_burst_gave_up');
+            if (!wp_next_scheduled('metasync_announce_cron') && (int) get_option('metasync_announce_attempt_count', 0) < 5) {
                 wp_schedule_event(time(), 'metasync_every_10_minutes', 'metasync_announce_cron');
             }
             return;
@@ -989,25 +999,6 @@ class Metasync_Heartbeat_Manager
         }
     }
 
-    /**
-     * Pre-SSO announce: send rate-limited ping when no API key yet (PR4).
-     */
-    public function maybe_send_pre_sso_announce()
-    {
-        $general = Metasync::get_option('general') ?? [];
-        if (!empty($general['searchatlas_api_key'] ?? '')) {
-            return;
-        }
-        $transient_key = 'metasync_announce_last_sent';
-        if (get_transient($transient_key)) {
-            return;
-        }
-        if (!class_exists('Metasync_Activator')) {
-            require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-activator.php';
-        }
-        Metasync_Activator::send_announce_ping();
-        set_transient($transient_key, time(), HOUR_IN_SECONDS);
-    }
 
     // ------------------------------------------------------------------
     //  Immediate heartbeat trigger
@@ -1096,14 +1087,6 @@ class Metasync_Heartbeat_Manager
             return;
         }
         $state = $this->get_heartbeat_state();
-        if ($state === 'UNREGISTERED') {
-            if (!class_exists('Metasync_Activator')) {
-                require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-activator.php';
-            }
-            Metasync_Activator::send_announce_ping();
-            wp_send_json_success(array('state' => 'UNREGISTERED', 'heartbeat_confirmed' => false));
-            return;
-        }
         if ($state === 'KEY_PENDING') {
             $_POST['is_heart_beat'] = true;
             $_POST['is_burst'] = true;

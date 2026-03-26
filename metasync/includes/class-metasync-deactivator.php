@@ -35,6 +35,14 @@ class Metasync_Deactivator
 		// add_filter('wp_sitemaps_enabled', '__return_true');
 		//delete_option( "metasync_options" );
 		//delete_option( "metasync_options_instant_indexing" );
+
+		// Clean up announce ping counter and cron
+		delete_option('metasync_announce_attempt_count');
+		$timestamp = wp_next_scheduled('metasync_announce_cron');
+		if ($timestamp) {
+			wp_unschedule_event($timestamp, 'metasync_announce_cron');
+		}
+
 		flush_rewrite_rules();
 	}
 }

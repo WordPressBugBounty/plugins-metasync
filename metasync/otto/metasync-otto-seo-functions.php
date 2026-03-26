@@ -510,12 +510,18 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
-        # PERSISTENCE: meta_keywords → _metasync_focus_keyword
+        # PERSISTENCE: meta_keywords → _metasync_focus_keyword + SEO plugin keyword fields
         if (class_exists('Metasync_Otto_Persistence_Settings') &&
             Metasync_Otto_Persistence_Settings::should_persist('meta_keywords') &&
             $meta_keywords !== null) {
             update_post_meta($post_id, '_metasync_focus_keyword', sanitize_text_field($meta_keywords));
             $fields_updated['meta_keywords_persisted'] = true;
+            if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
+                update_post_meta($post_id, 'rank_math_focus_keyword', sanitize_text_field($meta_keywords));
+            }
+            if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
+                update_post_meta($post_id, '_yoast_wpseo_focuskw', sanitize_text_field($meta_keywords));
+            }
         }
 
         # Update Open Graph fields (including empty values for rollback)
@@ -539,12 +545,19 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
-        # PERSISTENCE: og_title → _metasync_og_title
+        # PERSISTENCE: og_title → _metasync_og_title + RankMath/Yoast OG fields
         if (class_exists('Metasync_Otto_Persistence_Settings') &&
             Metasync_Otto_Persistence_Settings::should_persist('og_title') &&
             $og_title !== null) {
             update_post_meta($post_id, '_metasync_og_title', sanitize_text_field($og_title));
             $fields_updated['og_title_persisted'] = true;
+            # Also write to SEO plugin OG fields so their output picks up OTTO data
+            if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
+                update_post_meta($post_id, 'rank_math_facebook_title', sanitize_text_field($og_title));
+            }
+            if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
+                update_post_meta($post_id, '_yoast_wpseo_opengraph-title', sanitize_text_field($og_title));
+            }
         }
 
        # if ($og_description !== null) {
@@ -566,12 +579,18 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
-        # PERSISTENCE: og_description → _metasync_og_description
+        # PERSISTENCE: og_description → _metasync_og_description + RankMath/Yoast OG fields
         if (class_exists('Metasync_Otto_Persistence_Settings') &&
             Metasync_Otto_Persistence_Settings::should_persist('og_description') &&
             $og_description !== null) {
             update_post_meta($post_id, '_metasync_og_description', sanitize_textarea_field($og_description));
             $fields_updated['og_description_persisted'] = true;
+            if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
+                update_post_meta($post_id, 'rank_math_facebook_description', sanitize_textarea_field($og_description));
+            }
+            if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
+                update_post_meta($post_id, '_yoast_wpseo_opengraph-description', sanitize_textarea_field($og_description));
+            }
         }
 
         # Update Twitter fields (including empty values for rollback)
@@ -595,12 +614,18 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
-        # PERSISTENCE: twitter_title → _metasync_twitter_title
+        # PERSISTENCE: twitter_title → _metasync_twitter_title + RankMath/Yoast Twitter fields
         if (class_exists('Metasync_Otto_Persistence_Settings') &&
             Metasync_Otto_Persistence_Settings::should_persist('twitter_title') &&
             $twitter_title !== null) {
             update_post_meta($post_id, '_metasync_twitter_title', sanitize_text_field($twitter_title));
             $fields_updated['twitter_title_persisted'] = true;
+            if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
+                update_post_meta($post_id, 'rank_math_twitter_title', sanitize_text_field($twitter_title));
+            }
+            if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
+                update_post_meta($post_id, '_yoast_wpseo_twitter-title', sanitize_text_field($twitter_title));
+            }
         }
 
        # if ($twitter_description !== null) {
@@ -622,12 +647,18 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
-        # PERSISTENCE: twitter_description → _metasync_twitter_description
+        # PERSISTENCE: twitter_description → _metasync_twitter_description + RankMath/Yoast Twitter fields
         if (class_exists('Metasync_Otto_Persistence_Settings') &&
             Metasync_Otto_Persistence_Settings::should_persist('twitter_description') &&
             $twitter_description !== null) {
             update_post_meta($post_id, '_metasync_twitter_description', sanitize_textarea_field($twitter_description));
             $fields_updated['twitter_description_persisted'] = true;
+            if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
+                update_post_meta($post_id, 'rank_math_twitter_description', sanitize_textarea_field($twitter_description));
+            }
+            if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
+                update_post_meta($post_id, '_yoast_wpseo_twitter-description', sanitize_textarea_field($twitter_description));
+            }
         }
 
         # Update image alt text data
@@ -856,7 +887,7 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             $fields_updated['structured_data_persisted'] = true;
         }
 
-        # PERSISTENCE: canonical_url → _metasync_canonical_url
+        # PERSISTENCE: canonical_url → _metasync_canonical_url + SEO plugin canonical fields
         if (class_exists('Metasync_Otto_Persistence_Settings') &&
             Metasync_Otto_Persistence_Settings::should_persist('canonical_url') &&
             !empty($seo_data['canonical_url'])) {
@@ -864,6 +895,12 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             if (!empty($canonical)) {
                 update_post_meta($post_id, '_metasync_canonical_url', $canonical);
                 $fields_updated['canonical_url_persisted'] = $canonical;
+                if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
+                    update_post_meta($post_id, 'rank_math_canonical_url', $canonical);
+                }
+                if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
+                    update_post_meta($post_id, '_yoast_wpseo_canonical', $canonical);
+                }
             }
         }
 
@@ -1099,23 +1136,25 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
             $persist_description = Metasync_Otto_Persistence_Settings::should_persist('meta_description');
         }
 
-        # Only store to OTTO meta fields if persistence is enabled via API
-        if ($should_update_title && $persist_title) {
+        # Always write staging keys — these are read by OTTO's own render filters
+        # regardless of whether persistence to native WP/3rd-party fields is enabled.
+        if ($should_update_title) {
             update_post_meta($post_id, '_metasync_otto_title', $meta_title);
-            update_post_meta($post_id, '_metasync_metatitle', $meta_title);
-            $title_updated = true;
-        } elseif ($should_update_title) {
-            # Track that update would have happened (for return value)
             $title_updated = true;
         }
-        
-        if ($should_update_description && $persist_description) {
+
+        if ($should_update_description) {
             update_post_meta($post_id, '_metasync_otto_description', $meta_description);
+            $description_updated = true;
+        }
+
+        # Write to plugin's own meta fields only when persistence is enabled
+        if ($should_update_title && $persist_title) {
+            update_post_meta($post_id, '_metasync_metatitle', $meta_title);
+        }
+
+        if ($should_update_description && $persist_description) {
             update_post_meta($post_id, '_metasync_metadesc', $meta_description);
-            $description_updated = true;
-        } elseif ($should_update_description) {
-            # Track that update would have happened (for return value)
-            $description_updated = true;
         }
 
         # Sync to SEO plugins only if persistence is enabled via API
@@ -1839,6 +1878,17 @@ function metasync_wp_title_override($title, $sep = '') {
         }
     }
 
+    # Regular singular posts / pages (non-WooCommerce)
+    if (is_singular()) {
+        $post_id = get_the_ID();
+        if ($post_id) {
+            $otto_title = get_post_meta($post_id, '_metasync_otto_title', true);
+            if (!empty($otto_title)) {
+                return $otto_title;
+            }
+        }
+    }
+
     return $title;
 }
 add_filter('wp_title', 'metasync_wp_title_override', 99, 2);
@@ -1902,6 +1952,19 @@ function metasync_document_title_parts($title_parts) {
         }
     }
 
+    # Regular singular posts / pages (non-WooCommerce)
+    if (is_singular()) {
+        $post_id = get_the_ID();
+        if ($post_id) {
+            $otto_title = get_post_meta($post_id, '_metasync_otto_title', true);
+            if (!empty($otto_title)) {
+                $title_parts['title'] = $otto_title;
+                unset($title_parts['tagline']);
+                unset($title_parts['site']);
+            }
+        }
+    }
+
     return $title_parts;
 }
 add_filter('document_title_parts', 'metasync_document_title_parts', 99);
@@ -1949,6 +2012,17 @@ function metasync_pre_get_document_title($title) {
         $term = get_queried_object();
         if ($term && isset($term->term_id)) {
             $otto_title = get_term_meta($term->term_id, '_metasync_otto_title', true);
+            if (!empty($otto_title)) {
+                return $otto_title;
+            }
+        }
+    }
+
+    # Regular singular posts / pages (non-WooCommerce)
+    if (is_singular()) {
+        $post_id = get_the_ID();
+        if ($post_id) {
+            $otto_title = get_post_meta($post_id, '_metasync_otto_title', true);
             if (!empty($otto_title)) {
                 return $otto_title;
             }
@@ -2040,6 +2114,13 @@ function metasync_output_otto_meta_description() {
             if (empty($description)) {
                 $description = get_term_meta($term->term_id, 'meta_description', true);
             }
+        }
+    }
+    # Regular singular posts / pages (non-WooCommerce)
+    elseif (is_singular()) {
+        $post_id = get_the_ID();
+        if ($post_id) {
+            $description = get_post_meta($post_id, '_metasync_otto_description', true);
         }
     }
 

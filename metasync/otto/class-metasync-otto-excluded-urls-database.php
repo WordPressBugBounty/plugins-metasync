@@ -34,12 +34,35 @@ class Metasync_Otto_Excluded_URLs_Database
 			return;
 		}
 
-		// Check if auto_excluded column exists (added in v2.7.4 — missing on older installs)
+		// Fetch all column names once to avoid multiple SHOW COLUMNS calls
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$col = $wpdb->get_var("SHOW COLUMNS FROM `{$table_name}` LIKE 'auto_excluded'");
-		if (empty($col)) {
+		$existing_columns = $wpdb->get_col("SHOW COLUMNS FROM `{$table_name}`");
+
+		// is_permanent — added in v2.7.x; missing on sites that skipped the version migration
+		if (!in_array('is_permanent', $existing_columns, true)) {
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$wpdb->query("ALTER TABLE `{$table_name}` ADD COLUMN `auto_excluded` TINYINT(1) NOT NULL DEFAULT 0");
+			$wpdb->query("ALTER TABLE `{$table_name}` ADD COLUMN `is_permanent` TINYINT(1) NOT NULL DEFAULT 0 AFTER `status`");
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query("ALTER TABLE `{$table_name}` ADD KEY `is_permanent` (`is_permanent`)");
+		}
+
+		// auto_excluded — added in v2.7.4; missing on older installs
+		if (!in_array('auto_excluded', $existing_columns, true)) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query("ALTER TABLE `{$table_name}` ADD COLUMN `auto_excluded` TINYINT(1) NOT NULL DEFAULT 0 AFTER `is_permanent`");
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query("ALTER TABLE `{$table_name}` ADD KEY `auto_excluded` (`auto_excluded`)");
+		}
+
+		// recheck_after — added alongside auto_excluded; missing on the same older installs
+		if (!in_array('recheck_after', $existing_columns, true)) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query("ALTER TABLE `{$table_name}` ADD COLUMN `recheck_after` DATETIME NULL DEFAULT NULL AFTER `auto_excluded`");
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query("ALTER TABLE `{$table_name}` ADD KEY `recheck_after` (`recheck_after`)");
+			// Backfill: set recheck_after = created_at + 7 days for auto-excluded URLs
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query("UPDATE `{$table_name}` SET recheck_after = DATE_ADD(created_at, INTERVAL 7 DAY) WHERE auto_excluded = 1 AND (recheck_after IS NULL OR recheck_after = '0000-00-00 00:00:00')");
 		}
 	}
 

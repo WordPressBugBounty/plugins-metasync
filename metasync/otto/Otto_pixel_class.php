@@ -377,12 +377,14 @@ Class Metasync_otto_pixel{
         }, 1);
 
         # Block SEO plugins before wp_head fires so duplicate tags aren't output
-        $has_description_tags = !empty($blocking_flags['block_description_tags']);
+        $description_tags = $blocking_flags['block_description_tags'] ?? [];
+        $has_description_tags = !empty($description_tags);
         if ($blocking_flags['block_title'] || $has_description_tags) {
             if (function_exists('metasync_otto_block_seo_plugins')) {
                 metasync_otto_block_seo_plugins(
                     $blocking_flags['block_title'],
-                    $has_description_tags
+                    $has_description_tags,
+                    $description_tags
                 );
             }
         }
@@ -481,13 +483,14 @@ Class Metasync_otto_pixel{
         }
 
         # Block SEO plugins if needed (for the buffered output)
-        # For HTTP fetch path, check if any description tags need blocking
-        $has_description_tags = !empty($blocking_flags['block_description_tags']);
-        if ($blocking_flags['block_title'] || $has_description_tags) {            
+        $description_tags = $blocking_flags['block_description_tags'] ?? [];
+        $has_description_tags = !empty($description_tags);
+        if ($blocking_flags['block_title'] || $has_description_tags) {
             if (function_exists('metasync_otto_block_seo_plugins')) {
                 metasync_otto_block_seo_plugins(
                     $blocking_flags['block_title'],
-                    $has_description_tags
+                    $has_description_tags,
+                    $description_tags
                 );
             }
         }

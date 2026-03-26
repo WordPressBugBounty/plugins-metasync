@@ -130,10 +130,21 @@ class Metasync_Seo_Output
 	public function hook_metasync_metatags()
 	{
 		$get_page_meta = get_post_meta(get_the_ID());
+
+		// When a third-party SEO plugin is active, only output our description
+		// if MetaSync has an intentional value (OTTO or sidebar). Otherwise let
+		// the other plugin handle it to avoid duplicates.
+		$conflict_handler = Metasync_SEO_Conflict_Handler::get_instance();
+		$include_description = $conflict_handler->should_output_legacy_description();
+
 		$list_page_meta = array(
-			'description' => $get_page_meta['meta_description'][0] ?? '',
 			'robots' => $get_page_meta['meta_robots'][0] ?? 'index',
 		);
+
+		if ($include_description) {
+			$list_page_meta['description'] = $get_page_meta['meta_description'][0] ?? '';
+		}
+
 		// Note: enable_metadesc is always enabled by default - no check needed
 
 		$getSearchEngineOptions = Metasync::get_option('searchengines');
@@ -276,11 +287,15 @@ class Metasync_Seo_Output
 		}
 
 
+		// When a third-party SEO plugin handles OG/Twitter, omit our description
+		// from those tags to avoid duplicates.
+		$og_description = ($include_description) ? ($post_text ?? '') : '';
+
 		$ogMetaKeys = [
 			'og:locale' => get_locale(),
 			'og:type' => 'article',
 			'og:title' => $post->post_title . ' - ' . get_bloginfo('name'),
-			'og:description' => $post_text ?? '',
+			'og:description' => $og_description,
 			'og:url' => $this->get_canonical_url($post),
 			'og:site_name' => get_bloginfo('name'),
 			'og:updated_time' => $post->post_modified,
@@ -304,7 +319,7 @@ class Metasync_Seo_Output
 			'twitter:title' => $post->post_title . ' - ' . get_bloginfo('name'),
 			'twitter:site' => $twitter_username ? '@' . $twitter_username : '',
 			'twitter:creator' => $twitter_username ? '@' . $twitter_username : '',
-			'twitter:description' => $post_text ?? '',
+			'twitter:description' => $og_description,
 			'twitter:image' => $image ? $image[0] : '',
 		];
 

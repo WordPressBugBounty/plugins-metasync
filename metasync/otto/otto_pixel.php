@@ -461,12 +461,17 @@ function metasync_otto_handle_cache_compatibility() {
 /**
  * Block SEO plugins conditionally based on what Otto is providing
  * Only blocks title if Otto has title, only blocks description if Otto has description
- * This prevents duplicate SEO tags while allowing fallback to SEO plugins when Otto has no data
+ * This prevents duplicate SEO tags while allowing fallback to SEO plugins when Otto has no data.
+ * Supports Yoast SEO, Rank Math, and AIOSEO (free + pro).
  *
- * @param bool $block_title Whether to block title tags
- * @param bool $block_description Whether to block description tags
+ * @param bool  $block_title       Whether to block title tags.
+ * @param bool  $block_description Whether to block description tags.
+ * @param array $description_tags  Optional. Granular list of OTTO-provided description tags
+ *                                 (e.g. ['meta[name=description]', 'meta[property=og:description]']).
+ *                                 When provided, only matching AIOSEO tags are suppressed.
+ *                                 When empty, all AIOSEO description tags are suppressed (legacy behavior).
  */
-function metasync_otto_block_seo_plugins($block_title = false, $block_description = false) {
+function metasync_otto_block_seo_plugins($block_title = false, $block_description = false, $description_tags = []) {
     # Disable Yoast SEO
     if (is_plugin_active('wordpress-seo/wp-seo.php')) {
         
@@ -529,6 +534,47 @@ function metasync_otto_block_seo_plugins($block_title = false, $block_descriptio
         if ($block_description) {
             add_filter('rank_math/frontend/description', '__return_false', 999);
             add_filter('rank_math/frontend/show_keywords', '__return_false', 999);
+        }
+    }
+
+    # Disable AIOSEO (free and pro)
+    if (is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') ||
+        is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
+
+        if ($block_title) {
+            add_filter('aioseo_title', '__return_empty_string', 999);
+            add_filter('aioseo_facebook_tags', function($meta) {
+                if (is_array($meta)) { unset($meta['og:title']); }
+                return $meta;
+            }, 999);
+            add_filter('aioseo_twitter_tags', function($meta) {
+                if (is_array($meta)) { unset($meta['twitter:title']); }
+                return $meta;
+            }, 999);
+        }
+
+        if ($block_description) {
+            # Use granular tag list when available to only block what OTTO provides
+            $tags = !empty($description_tags) ? $description_tags : [];
+            $block_standard  = empty($tags) || in_array('meta[name=description]', $tags);
+            $block_og_desc   = empty($tags) || in_array('meta[property=og:description]', $tags);
+            $block_tw_desc   = empty($tags) || in_array('meta[name=twitter:description]', $tags);
+
+            if ($block_standard) {
+                add_filter('aioseo_description', '__return_empty_string', 999);
+            }
+            if ($block_og_desc) {
+                add_filter('aioseo_facebook_tags', function($meta) {
+                    if (is_array($meta)) { unset($meta['og:description']); }
+                    return $meta;
+                }, 999);
+            }
+            if ($block_tw_desc) {
+                add_filter('aioseo_twitter_tags', function($meta) {
+                    if (is_array($meta)) { unset($meta['twitter:description']); }
+                    return $meta;
+                }, 999);
+            }
         }
     }
 }

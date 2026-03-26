@@ -226,7 +226,10 @@ class Metasync
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-opengraph.php';
 
-
+		/**
+		 * Centralized handler for SEO plugin conflicts (duplicate meta descriptions).
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-seo-conflict-handler.php';
 
 		/**
 		 * The class responsible for defining all actions that occur in the public-facing
@@ -431,8 +434,11 @@ class Metasync
 		$this->loader->add_action('admin_init', $post_meta_setting, 'show_top_admin_bar', 9);
 		$this->loader->add_action('wp', $post_meta_setting, 'show_top_admin_bar', 9);
 
-		// Initialize XML Sitemap auto-update hooks if enabled (admin only)
-		if (is_admin() && get_option('metasync_sitemap_auto_update', false)) {
+		// Initialize XML Sitemap auto-update hooks if enabled
+		// Note: Must not be gated by is_admin() because Gutenberg saves posts
+		// via the REST API where is_admin() returns false, and REST_REQUEST
+		// is not yet defined at plugin load time
+		if (get_option('metasync_sitemap_auto_update', false)) {
 			require_once plugin_dir_path(dirname(__FILE__)) . 'sitemap/class-metasync-sitemap-generator.php';
 			$sitemap_generator = new Metasync_Sitemap_Generator();
 			$sitemap_generator->setup_auto_update_hooks();
@@ -498,6 +504,10 @@ class Metasync
 		if (function_exists('et_setup_theme')) {
 			$this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_divi_builder_css', 999);
 		}
+
+		// Initialize centralized SEO conflict handler (singleton — suppresses
+		// third-party SEO plugin descriptions when MetaSync provides its own).
+		Metasync_SEO_Conflict_Handler::get_instance();
 
 		// SEO Output hooks (Metasync_Seo_Output)
 		$this->loader->add_action('wp_head', $seo_output, 'hook_metasync_metatags', 1, 1);
