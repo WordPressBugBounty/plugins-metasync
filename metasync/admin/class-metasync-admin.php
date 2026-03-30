@@ -265,10 +265,8 @@ class Metasync_Admin
 
         // Add AJAX for saving hosting cache settings
         add_action( 'wp_ajax_metasync_save_hosting_cache_settings', array($this, 'ajax_save_hosting_cache_settings') );
+        add_action( 'wp_ajax_metasync_save_object_cache_settings',  array($this, 'ajax_save_object_cache_settings') );
 
-        // Add AJAX for saving edge cache / CDN settings
-        add_action( 'wp_ajax_metasync_save_edge_cache_settings', array('Metasync_Edge_Cache_Settings', 'ajax_save') );
-        
         // Add AJAX handler for Plugin Auth Token refresh
         add_action('wp_ajax_refresh_plugin_auth_token', array($this, 'refresh_plugin_auth_token'));
         
@@ -326,6 +324,10 @@ class Metasync_Admin
         # Add AJAX handler for resetting bot statistics
         add_action('wp_ajax_metasync_reset_bot_stats', array($this, 'ajax_reset_bot_stats'));
 
+        # Add AJAX handlers for DB cleanup
+        add_action('wp_ajax_metasync_run_db_cleanup', array($this, 'ajax_run_db_cleanup'));
+        add_action('wp_ajax_metasync_save_db_cleanup_settings', array($this, 'ajax_save_db_cleanup_settings'));
+
         # Add admin-post handler for exporting whitelabel settings (file download)
         add_action('admin_post_metasync_export_whitelabel_settings', array($this, 'handle_export_whitelabel_settings'));
 
@@ -369,12 +371,18 @@ class Metasync_Admin
         
         // Add transient cleanup cron functionality
         add_action('metasync_cleanup_transients', array($this, 'execute_transient_cleanup'));
-        
+
+        // Add DB cleanup cron functionality
+        add_action('metasync_db_cleanup', array($this, 'execute_db_cleanup'));
+
         // Schedule heartbeat cron on plugin load (if not already scheduled)
         add_action('init', array($this, 'maybe_schedule_heartbeat_cron'));
-        
+
         // Schedule transient cleanup cron on plugin load
         add_action('init', array($this, 'maybe_schedule_transient_cleanup_cron'));
+
+        // Schedule DB cleanup cron on plugin load (only when enabled)
+        add_action('init', array($this, 'maybe_schedule_db_cleanup_cron'));
         
         # Schedule hidden post manager cron on plugin load (runs every 7 days)
         add_action('init', array($this, 'maybe_schedule_hidden_post_check'));
@@ -1361,7 +1369,400 @@ class Metasync_Admin
      */
     public function render_otto_cache_management()
     {
-        Metasync_Otto_Cache_Manager::instance()->render_otto_cache_management();
+        // Check if OTTO transient cache class exists
+        if (!class_exists('Metasync_Otto_Transient_Cache')) {
+            echo '<div class="notice notice-error inline"><p>';
+            echo '❌ <strong>Error:</strong> Transient Cache class not found.';
+            echo '</p></div>';
+            return;
+        }
+        
+        // Get cache count
+        $cache_count = Metasync_Otto_Transient_Cache::get_cache_count();
+        
+        ?>
+        <!-- Cache Plugin Management -->
+        <div style="margin-bottom: 30px;">
+            <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">Clear All Cache Plugins</h4>
+            <p style="margin-bottom: 15px; color: var(--dashboard-text-secondary);">Clear all cache plugins to ensure changes are visible immediately.</p>
+
+            <?php
+            // Display active cache plugins
+            if (class_exists('Metasync_Cache_Purge')) {
+                try {
+                    $cache_purge = Metasync_Cache_Purge::get_instance();
+                    $active_cache_plugins = $cache_purge->get_active_cache_plugins();
+
+                    if (!empty($active_cache_plugins)) {
+                        echo '<p style="color: var(--dashboard-text-primary);"><strong>Active Cache Plugins Detected:</strong></p>';
+                        echo '<ul style="margin-bottom: 15px; color: var(--dashboard-text-primary);">';
+                        foreach ($active_cache_plugins as $plugin_name) {
+                            echo '<li>✅ ' . esc_html($plugin_name) . '</li>';
+                        }
+                        echo '</ul>';
+                    } else {
+                        echo '<p style="color: var(--dashboard-text-secondary);">ℹ️ No cache plugins detected.</p>';
+                    }
+                } catch (Exception $e) {
+                    echo '<p style="color: var(--dashboard-error);">⚠️ Error: ' . esc_html($e->getMessage()) . '</p>';
+                }
+            } else {
+                echo '<p style="color: var(--dashboard-error);">⚠️ Cache Purge class not loaded.</p>';
+            }
+            ?>
+
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-top: 15px;">
+                <input type="hidden" name="action" value="metasync_clear_all_cache_plugins" />
+                <?php wp_nonce_field('metasync_clear_cache_nonce', 'clear_cache_nonce'); ?>
+                <button type="submit" class="metasync-btn-primary" style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); display: inline-block; width: auto; min-width: 240px; max-width: fit-content;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0, 0, 0, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0, 0, 0, 0.1)';">
+                    🔄 Clear All Cache Plugins
+                </button>
+                <p class="description" style="margin-top: 10px; color: var(--dashboard-text-secondary);">This will clear cache from WP Rocket, LiteSpeed, W3 Total Cache, and all other detected cache plugins.</p>
+            </form>
+
+            <?php
+            // Display success/error messages
+            if (isset($_GET['cache_cleared']) && $_GET['cache_cleared'] == '1') {
+                $cleared = isset($_GET['cleared']) ? intval($_GET['cleared']) : 0;
+                $failed = isset($_GET['failed']) ? intval($_GET['failed']) : 0;
+                $plugins = isset($_GET['plugins']) ? sanitize_text_field($_GET['plugins']) : '';
+
+                if ($cleared > 0) {
+                    echo '<div class="notice notice-success inline" style="margin-top: 15px;"><p>';
+                    echo '✅ <strong>Success!</strong> Cleared cache for ' . $cleared . ' plugin(s)';
+                    if ($plugins) {
+                        echo ': ' . esc_html($plugins);
+                    }
+                    echo '</p></div>';
+                } else {
+                    echo '<div class="notice notice-info inline" style="margin-top: 15px;"><p>';
+                    echo 'ℹ️ No cache plugins found to clear. WordPress object cache was cleared.';
+                    echo '</p></div>';
+                }
+
+                if ($failed > 0) {
+                    echo '<div class="notice notice-warning inline" style="margin-top: 15px;"><p>';
+                    echo '⚠️ Failed to clear ' . $failed . ' plugin(s).';
+                    echo '</p></div>';
+                }
+            }
+
+            if (isset($_GET['cache_error']) && $_GET['cache_error'] == '1') {
+                $message = isset($_GET['message']) ? urldecode(sanitize_text_field($_GET['message'])) : '';
+                if (empty($message)) {
+                    $message = 'An unknown error occurred while clearing cache. Please check error logs for details.';
+                }
+                echo '<div class="notice notice-error inline" style="margin-top: 15px;"><p>';
+                echo '❌ <strong>Error clearing cache:</strong> ' . esc_html($message);
+                echo '</p></div>';
+            }
+            ?>
+        </div>
+
+        <!-- Hosting Cache Integration -->
+        <?php
+        $hosting_settings  = $this->get_hosting_cache_settings();
+        $wpe_detected      = class_exists('WpeCommon');
+        $kinsta_detected   = class_exists('KinstaCache');
+        ?>
+        <div style="margin-bottom: 30px;">
+            <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">Hosting Cache Integration</h4>
+            <p style="margin-bottom: 15px; color: var(--dashboard-text-secondary);">
+                Use your hosting provider's native API to purge the <strong>entire site cache</strong> in one click.
+                These options are independent of cache plugins and target the server-level cache layer.
+            </p>
+
+            <!-- Detection status badges -->
+            <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px;">
+                <span style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 500;
+                      background: <?php echo $wpe_detected ? 'rgba(34,197,94,0.12)' : 'rgba(156,163,175,0.12)'; ?>;
+                      color: <?php echo $wpe_detected ? '#22c55e' : 'var(--dashboard-text-secondary)'; ?>;
+                      border: 1px solid <?php echo $wpe_detected ? 'rgba(34,197,94,0.3)' : 'rgba(156,163,175,0.3)'; ?>;">
+                    <?php echo $wpe_detected ? '✅' : '⬜'; ?> WP Engine <?php echo $wpe_detected ? '(detected)' : '(not detected)'; ?>
+                </span>
+                <span style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 500;
+                      background: <?php echo $kinsta_detected ? 'rgba(34,197,94,0.12)' : 'rgba(156,163,175,0.12)'; ?>;
+                      color: <?php echo $kinsta_detected ? '#22c55e' : 'var(--dashboard-text-secondary)'; ?>;
+                      border: 1px solid <?php echo $kinsta_detected ? 'rgba(34,197,94,0.3)' : 'rgba(156,163,175,0.3)'; ?>;">
+                    <?php echo $kinsta_detected ? '✅' : '⬜'; ?> Kinsta <?php echo $kinsta_detected ? '(detected)' : '(not detected)'; ?>
+                </span>
+            </div>
+
+            <!-- Settings toggles -->
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                <h5 style="margin: 0 0 14px 0; color: var(--dashboard-text-primary);">Enable Native Cache Purge</h5>
+
+                <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px; cursor: pointer;">
+                    <input type="checkbox"
+                           id="metasync-hc-wpengine"
+                           <?php checked(true, !empty($hosting_settings['wpengine_enabled'])); ?>
+                           <?php echo !$wpe_detected ? 'disabled' : ''; ?>
+                           style="width: 16px; height: 16px; cursor: <?php echo $wpe_detected ? 'pointer' : 'not-allowed'; ?>;" />
+                    <span style="color: var(--dashboard-text-primary); font-weight: 500;">WP Engine</span>
+                    <span style="color: var(--dashboard-text-secondary); font-size: 12px;">— purges Varnish + Memcached</span>
+                </label>
+
+                <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px; cursor: pointer;">
+                    <input type="checkbox"
+                           id="metasync-hc-kinsta"
+                           <?php checked(true, !empty($hosting_settings['kinsta_enabled'])); ?>
+                           <?php echo !$kinsta_detected ? 'disabled' : ''; ?>
+                           style="width: 16px; height: 16px; cursor: <?php echo $kinsta_detected ? 'pointer' : 'not-allowed'; ?>;" />
+                    <span style="color: var(--dashboard-text-primary); font-weight: 500;">Kinsta</span>
+                    <span style="color: var(--dashboard-text-secondary); font-size: 12px;">— purges full-page cache (kinsta_cache_purge_full)</span>
+                </label>
+
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <button type="button"
+                            id="metasync-hc-save-btn"
+                            class="metasync-btn-primary"
+                            style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 9px 18px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease;"
+                            onmouseover="this.style.transform='translateY(-1px)';"
+                            onmouseout="this.style.transform='translateY(0)';">
+                        💾 Save Settings
+                    </button>
+                    <span id="metasync-hc-save-msg" style="display: none; font-size: 13px;"></span>
+                </div>
+
+                <input type="hidden" id="metasync-hc-nonce" value="<?php echo wp_create_nonce('metasync_hosting_cache_nonce'); ?>" />
+            </div>
+
+            <!-- Purge button -->
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <input type="hidden" name="action" value="metasync_purge_hosting_cache" />
+                <?php wp_nonce_field('metasync_hosting_cache_purge_nonce', 'hosting_cache_purge_nonce'); ?>
+                <button type="submit"
+                        class="metasync-btn-primary"
+                        style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: inline-block; min-width: 240px; max-width: fit-content;"
+                        onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.15)';"
+                        onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)';">
+                    🚀 Purge Entire Hosting Cache
+                </button>
+                <p class="description" style="margin-top: 10px; color: var(--dashboard-text-secondary);">
+                    Triggers a full-site cache purge using the native WP Engine and/or Kinsta APIs (based on toggles above).
+                </p>
+            </form>
+
+            <?php
+            // Hosting cache result messages
+            if (isset($_GET['hosting_cache_cleared']) && $_GET['hosting_cache_cleared'] == '1') {
+                $hc_cleared      = isset($_GET['hc_cleared'])      ? sanitize_text_field(urldecode($_GET['hc_cleared']))      : '';
+                $hc_failed       = isset($_GET['hc_failed'])       ? sanitize_text_field(urldecode($_GET['hc_failed']))       : '';
+                $hc_not_detected = isset($_GET['hc_not_detected']) ? sanitize_text_field(urldecode($_GET['hc_not_detected'])) : '';
+
+                if ($hc_cleared) {
+                    echo '<div class="notice notice-success inline" style="margin-top: 15px;"><p>';
+                    echo '✅ <strong>Success!</strong> Purged hosting cache on: ' . esc_html($hc_cleared);
+                    echo '</p></div>';
+                }
+                if ($hc_failed) {
+                    echo '<div class="notice notice-error inline" style="margin-top: 10px;"><p>';
+                    echo '❌ <strong>Failed</strong> to purge: ' . esc_html($hc_failed);
+                    echo '</p></div>';
+                }
+                if ($hc_not_detected && !$hc_cleared && !$hc_failed) {
+                    echo '<div class="notice notice-info inline" style="margin-top: 10px;"><p>';
+                    echo 'ℹ️ No enabled hosting providers were detected on this server (' . esc_html($hc_not_detected) . ').';
+                    echo '</p></div>';
+                }
+            }
+            ?>
+
+            <script>
+            jQuery(document).ready(function($) {
+                $('#metasync-hc-save-btn').on('click', function() {
+                    var $btn = $(this);
+                    var $msg = $('#metasync-hc-save-msg');
+
+                    $btn.prop('disabled', true).text('Saving…');
+
+                    $.ajax({
+                        url: ajaxurl,
+                        type: 'POST',
+                        data: {
+                            action:            'metasync_save_hosting_cache_settings',
+                            hosting_cache_nonce: $('#metasync-hc-nonce').val(),
+                            wpengine_enabled:  $('#metasync-hc-wpengine').is(':checked') ? '1' : '0',
+                            kinsta_enabled:    $('#metasync-hc-kinsta').is(':checked')   ? '1' : '0',
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                $msg.text('✅ Saved').css('color', '#22c55e').show();
+                            } else {
+                                $msg.text('❌ ' + (response.data.message || 'Save failed')).css('color', '#ef4444').show();
+                            }
+                        },
+                        error: function() {
+                            $msg.text('❌ Request failed').css('color', '#ef4444').show();
+                        },
+                        complete: function() {
+                            $btn.prop('disabled', false).text('💾 Save Settings');
+                            setTimeout(function() { $msg.fadeOut(); }, 4000);
+                        }
+                    });
+                });
+            });
+            </script>
+        </div>
+
+        <!-- Object Cache Behaviour -->
+        <?php $targeted_cache_enabled = get_option('metasync_targeted_object_cache', '1'); ?>
+        <div style="margin-bottom: 30px;">
+            <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">Object Cache Behaviour</h4>
+            <p style="margin-bottom: 15px; color: var(--dashboard-text-secondary);">
+                Controls how the WordPress object cache (Redis/Memcached) is cleared when OTTO updates pages.
+            </p>
+
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer;">
+                    <input type="checkbox"
+                           id="metasync-targeted-object-cache"
+                           <?php checked('1', $targeted_cache_enabled); ?>
+                           style="width: 16px; height: 16px; cursor: pointer; margin-top: 2px; flex-shrink: 0;" />
+                    <span>
+                        <span style="color: var(--dashboard-text-primary); font-weight: 500; display: block; margin-bottom: 4px;">Targeted Object Cache Purge</span>
+                        <span style="color: var(--dashboard-text-secondary); font-size: 12px;">
+                            When enabled, only the updated posts are evicted from the object cache (recommended for large sites).
+                            When disabled, a full <code>wp_cache_flush()</code> is used instead.
+                        </span>
+                    </span>
+                </label>
+
+                <div style="display: flex; align-items: center; gap: 12px; margin-top: 16px;">
+                    <button type="button"
+                            id="metasync-toc-save-btn"
+                            class="metasync-btn-primary"
+                            style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 9px 18px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease;"
+                            onmouseover="this.style.transform='translateY(-1px)';"
+                            onmouseout="this.style.transform='translateY(0)';">
+                        💾 Save Settings
+                    </button>
+                    <span id="metasync-toc-save-msg" style="display: none; font-size: 13px;"></span>
+                </div>
+
+                <input type="hidden" id="metasync-toc-nonce" value="<?php echo esc_attr(wp_create_nonce('metasync_object_cache_nonce')); ?>" />
+            </div>
+
+            <script>
+            jQuery(document).ready(function($) {
+                $('#metasync-toc-save-btn').on('click', function() {
+                    var $btn = $(this);
+                    var $msg = $('#metasync-toc-save-msg');
+
+                    $btn.prop('disabled', true).text('Saving…');
+
+                    $.ajax({
+                        url: ajaxurl,
+                        type: 'POST',
+                        data: {
+                            action:                'metasync_save_object_cache_settings',
+                            object_cache_nonce:    $('#metasync-toc-nonce').val(),
+                            targeted_object_cache: $('#metasync-targeted-object-cache').is(':checked') ? '1' : '0',
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                $msg.text('✅ Saved').css('color', '#22c55e').show();
+                            } else {
+                                $msg.text('❌ ' + (response.data.message || 'Save failed')).css('color', '#ef4444').show();
+                            }
+                        },
+                        error: function() {
+                            $msg.text('❌ Request failed').css('color', '#ef4444').show();
+                        },
+                        complete: function() {
+                            $btn.prop('disabled', false).text('💾 Save Settings');
+                            setTimeout(function() { $msg.fadeOut(); }, 4000);
+                        }
+                    });
+                });
+            });
+            </script>
+        </div>
+
+        <!-- OTTO Transient Cache -->
+        <div style="margin-bottom: 30px;">
+            <h4 style="margin-top: 0; color: var(--dashboard-text-primary);"><?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> Transient Cache</h4>
+            <p style="margin-bottom: 15px; color: var(--dashboard-text-secondary);">
+                Manage <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> suggestions cache. Clearing cache will force fresh API calls on next page load.
+            </p>
+
+            <div style="background: rgba(255, 255, 255, 0.05); padding: 12px; border-radius: 4px; margin-bottom: 20px; border: 1px solid var(--dashboard-border);">
+                <strong style="color: var(--dashboard-text-primary);">Current Cache Status:</strong>
+                <span style="color: var(--dashboard-accent);"><?php echo esc_html($cache_count); ?> cached entries</span>
+            </div>
+            
+            <?php
+            // Display success/error messages
+            if (isset($_GET['otto_cache_cleared']) && $_GET['otto_cache_cleared'] == '1') {
+                $cleared_count = isset($_GET['count']) ? intval($_GET['count']) : 0;
+                $url = isset($_GET['url']) ? urldecode(sanitize_text_field($_GET['url'])) : '';
+                
+                echo '<div class="notice notice-success inline" style="margin-top: 15px;"><p>';
+                if (!empty($url)) {
+                    echo '✅ <strong>Success!</strong> Cleared cache for URL: <code>' . esc_html($url) . '</code> (' . $cleared_count . ' entries)';
+                } else {
+                    echo '✅ <strong>Success!</strong> Cleared entire transient cache (' . $cleared_count . ' entries)';
+                }
+                echo '</p></div>';
+            }
+            
+            if (isset($_GET['otto_cache_error']) && $_GET['otto_cache_error'] == '1') {
+                $message = isset($_GET['message']) ? urldecode(sanitize_text_field($_GET['message'])) : 'An unknown error occurred.';
+                echo '<div class="notice notice-error inline" style="margin-top: 15px;"><p>';
+                echo '❌ <strong>Error:</strong> ' . esc_html($message);
+                echo '</p></div>';
+            }
+            ?>
+            
+            <!-- Clear Entire Cache -->
+            <div style="margin-bottom: 30px; padding: 20px; border: 1px solid var(--dashboard-border); border-radius: 4px; background: rgba(255, 255, 255, 0.02);">
+                <h5 style="margin-top: 0; color: var(--dashboard-text-primary);">Clear Entire Transient Cache</h5>
+                <p style="color: var(--dashboard-text-secondary); margin-bottom: 15px;">
+                    This will clear all <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> transient cache entries (suggestions, locks, stale cache, rate limits).
+                </p>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>"
+                      onsubmit="return confirm('Are you sure you want to clear the entire transient cache? This will force fresh API calls for all URLs.');">
+                    <input type="hidden" name="action" value="metasync_clear_otto_cache_all" />
+                    <?php wp_nonce_field('metasync_clear_otto_cache_nonce', 'clear_otto_cache_nonce'); ?>
+                    <button type="submit" class="metasync-btn-primary" style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); display: inline-block; width: auto; min-width: 240px; max-width: fit-content;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0, 0, 0, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0, 0, 0, 0.1)';">
+                        🗑️ Clear Entire Cache
+                    </button>
+                </form>
+            </div>
+            
+            <!-- Clear Cache by URL -->
+            <div style="padding: 20px; border: 1px solid var(--dashboard-border); border-radius: 4px; background: rgba(255, 255, 255, 0.02);">
+                <h5 style="margin-top: 0; color: var(--dashboard-text-primary);">Clear Cache by URL</h5>
+                <p style="color: var(--dashboard-text-secondary); margin-bottom: 15px;">
+                    Enter a specific URL to clear its cached <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> suggestions. Use the full URL including protocol (e.g., https://example.com/page/).
+                </p>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <input type="hidden" name="action" value="metasync_clear_otto_cache_url" />
+                    <?php wp_nonce_field('metasync_clear_otto_cache_nonce', 'clear_otto_cache_nonce'); ?>
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row">
+                                <label for="otto_cache_url" style="color: var(--dashboard-text-primary);">URL to Clear</label>
+                            </th>
+                            <td>
+                                <input type="url"
+                                       id="otto_cache_url"
+                                       name="otto_cache_url"
+                                       value="<?php echo isset($_GET['url']) ? esc_attr(urldecode(sanitize_text_field($_GET['url']))) : ''; ?>"
+                                       class="regular-text"
+                                       placeholder="https://example.com/page/"
+                                       required />
+                                <p class="description" style="color: var(--dashboard-text-secondary);">Enter the full URL of the page whose cache you want to clear.</p>
+                            </td>
+                        </tr>
+                    </table>
+                    <button type="submit" class="metasync-btn-primary" style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); display: inline-block; width: auto; max-width: fit-content;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0, 0, 0, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0, 0, 0, 0.1)';">
+                        🗑️ Clear Cache for URL
+                    </button>
+                </form>
+            </div>
+        </div>
+        <?php
     }
 
     /**
@@ -1437,6 +1838,25 @@ class Metasync_Admin
 
         update_option('metasync_hosting_cache_options', $settings);
         wp_send_json_success(array('message' => 'Hosting cache settings saved'));
+    }
+
+    /**
+     * AJAX handler: save object cache behaviour settings
+     */
+    public function ajax_save_object_cache_settings() {
+        if (!isset($_POST['object_cache_nonce']) || !wp_verify_nonce($_POST['object_cache_nonce'], 'metasync_object_cache_nonce')) {
+            wp_send_json_error(array('message' => 'Security check failed'));
+            return;
+        }
+
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+            return;
+        }
+
+        $targeted = (!empty($_POST['targeted_object_cache']) && $_POST['targeted_object_cache'] === '1') ? '1' : '0';
+        update_option('metasync_targeted_object_cache', $targeted);
+        wp_send_json_success(array('message' => 'Object cache settings saved'));
     }
 
     /**
@@ -3506,6 +3926,509 @@ class Metasync_Admin
     public function execute_transient_cleanup()
     {
         Metasync_Admin_Ajax::instance()->execute_transient_cleanup();
+    }
+
+    // -------------------------------------------------------------------------
+    // DB CLEANUP — cron scheduling, execution, render, AJAX
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns saved DB cleanup settings with defaults merged in.
+     */
+    private function get_db_cleanup_settings() {
+        $defaults = array(
+            'enabled'                  => false,
+            'clean_post_revisions'     => true,
+            'clean_trashed_posts'      => true,
+            'clean_trashed_comments'   => true,
+            'clean_spam_comments'      => true,
+            'clean_expired_transients' => true,
+            'clean_orphaned_postmeta'  => true,
+            'last_run_at'              => 0,
+            'last_run_stats'           => array(),
+        );
+        $saved = get_option('metasync_db_cleanup_settings', array());
+        return array_merge($defaults, $saved);
+    }
+
+    /**
+     * Schedules the weekly DB cleanup cron if the feature is enabled and not yet scheduled.
+     */
+    public function maybe_schedule_db_cleanup_cron() {
+        $settings = $this->get_db_cleanup_settings();
+        if (!empty($settings['enabled'])) {
+            if (!wp_next_scheduled('metasync_db_cleanup')) {
+                wp_schedule_event(time(), 'metasync_weekly', 'metasync_db_cleanup');
+            }
+        } else {
+            $this->unschedule_db_cleanup_cron();
+        }
+    }
+
+    /**
+     * Removes the DB cleanup cron event.
+     */
+    public function unschedule_db_cleanup_cron() {
+        $timestamp = wp_next_scheduled('metasync_db_cleanup');
+        if ($timestamp) {
+            wp_unschedule_event($timestamp, 'metasync_db_cleanup');
+        }
+    }
+
+    /**
+     * Cron callback: runs each enabled cleanup task and records stats.
+     * Never calls wp_cache_flush() — only targeted DB deletes.
+     */
+    public function execute_db_cleanup() {
+        global $wpdb;
+
+        $settings = $this->get_db_cleanup_settings();
+        $stats    = array();
+        $start    = microtime(true);
+
+        try {
+            // 1. Post revisions
+            if (!empty($settings['clean_post_revisions'])) {
+                $stats['post_revisions'] = (int) $wpdb->query(
+                    "DELETE FROM {$wpdb->posts} WHERE post_type = 'revision'"
+                );
+                // Remove postmeta left behind by deleted revisions
+                $wpdb->query(
+                    "DELETE pm FROM {$wpdb->postmeta} pm
+                     LEFT JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+                     WHERE p.ID IS NULL"
+                );
+            }
+
+            // 2. Trashed posts + their postmeta
+            if (!empty($settings['clean_trashed_posts'])) {
+                // Collect IDs first to cleanly remove postmeta
+                $trashed_ids = $wpdb->get_col(
+                    "SELECT ID FROM {$wpdb->posts} WHERE post_status = 'trash'"
+                );
+                if (!empty($trashed_ids)) {
+                    $placeholders = implode(',', array_fill(0, count($trashed_ids), '%d'));
+                    $wpdb->query(
+                        $wpdb->prepare(
+                            "DELETE FROM {$wpdb->postmeta} WHERE post_id IN ($placeholders)",
+                            $trashed_ids
+                        )
+                    );
+                    $stats['trashed_posts'] = (int) $wpdb->query(
+                        "DELETE FROM {$wpdb->posts} WHERE post_status = 'trash'"
+                    );
+                } else {
+                    $stats['trashed_posts'] = 0;
+                }
+            }
+
+            // 3. Trashed comments
+            if (!empty($settings['clean_trashed_comments'])) {
+                $stats['trashed_comments'] = (int) $wpdb->query(
+                    "DELETE FROM {$wpdb->comments} WHERE comment_approved = 'trash'"
+                );
+            }
+
+            // 4. Spam comments
+            if (!empty($settings['clean_spam_comments'])) {
+                $stats['spam_comments'] = (int) $wpdb->query(
+                    "DELETE FROM {$wpdb->comments} WHERE comment_approved = 'spam'"
+                );
+            }
+
+            // 5. Expired transients — direct SQL, no cache flush
+            if (!empty($settings['clean_expired_transients'])) {
+                // Delete timeout rows that have already expired
+                $wpdb->query(
+                    "DELETE FROM {$wpdb->options}
+                     WHERE option_name LIKE '\_transient\_timeout\_%'
+                     AND option_value + 0 < UNIX_TIMESTAMP()"
+                );
+                // Delete value rows whose timeout row no longer exists
+                $stats['expired_transients'] = (int) $wpdb->query(
+                    "DELETE o FROM {$wpdb->options} o
+                     LEFT JOIN {$wpdb->options} t
+                       ON t.option_name = CONCAT('_transient_timeout_', SUBSTRING(o.option_name, 12))
+                     WHERE o.option_name LIKE '\_transient\_%'
+                       AND o.option_name NOT LIKE '\_transient\_timeout\_%'
+                       AND t.option_id IS NULL"
+                );
+            }
+
+            // 6. Orphaned postmeta (post_id references a post that no longer exists)
+            if (!empty($settings['clean_orphaned_postmeta'])) {
+                $stats['orphaned_postmeta'] = (int) $wpdb->query(
+                    "DELETE pm FROM {$wpdb->postmeta} pm
+                     LEFT JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+                     WHERE p.ID IS NULL"
+                );
+            }
+
+            $stats['execution_ms'] = round((microtime(true) - $start) * 1000, 2);
+
+            // Persist last-run timestamp and stats
+            $settings['last_run_at']    = time();
+            $settings['last_run_stats'] = $stats;
+            update_option('metasync_db_cleanup_settings', $settings);
+
+            error_log('MetaSync: DB cleanup completed — ' . json_encode($stats));
+
+        } catch (Exception $e) {
+            error_log('MetaSync: DB cleanup failed — ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Renders the Database Cleanup accordion section in Advanced Settings.
+     */
+    public function render_db_cleanup_section() {
+        $settings  = $this->get_db_cleanup_settings();
+        $last_run  = !empty($settings['last_run_at']) ? $settings['last_run_at'] : 0;
+        $stats     = !empty($settings['last_run_stats']) ? $settings['last_run_stats'] : array();
+        $next_run  = wp_next_scheduled('metasync_db_cleanup');
+
+        $task_labels = array(
+            'clean_post_revisions'     => 'Post revisions',
+            'clean_trashed_posts'      => 'Trashed posts',
+            'clean_trashed_comments'   => 'Trashed comments',
+            'clean_spam_comments'      => 'Spam comments',
+            'clean_expired_transients' => 'Expired transients',
+            'clean_orphaned_postmeta'  => 'Orphaned post meta',
+        );
+        ?>
+        <div style="background: var(--dashboard-card-bg); padding: 20px; border-radius: 8px;">
+            <p style="color: var(--dashboard-text-secondary); margin: 0 0 20px 0;">
+                Remove orphaned database rows that accumulate over time and slow down queries. Runs weekly via WP-Cron when enabled.
+            </p>
+
+            <form id="metasync-db-cleanup-settings-form" method="post">
+                <?php wp_nonce_field('metasync_db_cleanup_settings_nonce', 'db_cleanup_settings_nonce'); ?>
+
+                <!-- Enable weekly cleanup -->
+                <div style="background: var(--dashboard-card-bg-alt, rgba(255,255,255,0.05)); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                        <input type="checkbox"
+                               id="db_cleanup_enabled"
+                               name="enabled"
+                               value="1"
+                               <?php checked(!empty($settings['enabled'])); ?>
+                               style="width: 16px; height: 16px; cursor: pointer;" />
+                        <span style="color: var(--dashboard-text-primary); font-weight: 600; font-size: 14px;">
+                            Enable Weekly AI Cleanup
+                        </span>
+                    </label>
+                    <p style="color: var(--dashboard-text-secondary); font-size: 12px; margin: 8px 0 0 26px;">
+                        Schedules an automatic cleanup every 7 days via WP-Cron.
+                        <?php if ($next_run): ?>
+                            Next run: <strong style="color: var(--dashboard-text-primary);"><?php echo esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $next_run)); ?></strong>
+                        <?php endif; ?>
+                    </p>
+                </div>
+
+                <!-- Cleanup tasks -->
+                <div style="background: var(--dashboard-card-bg-alt, rgba(255,255,255,0.05)); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                    <h3 style="color: var(--dashboard-text-primary); margin: 0 0 16px 0; font-size: 16px; font-weight: 600;">Cleanup Tasks</h3>
+                    <?php foreach ($task_labels as $key => $label): ?>
+                    <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px; cursor: pointer;">
+                        <input type="checkbox"
+                               name="<?php echo esc_attr($key); ?>"
+                               value="1"
+                               <?php checked(!empty($settings[$key])); ?>
+                               style="width: 16px; height: 16px; cursor: pointer;" />
+                        <span style="color: var(--dashboard-text-primary); font-size: 14px;"><?php echo esc_html($label); ?></span>
+                    </label>
+                    <?php endforeach; ?>
+                </div>
+
+                <!-- Last run info -->
+                <div id="metasync-db-cleanup-last-run"
+                     style="background: var(--dashboard-card-bg-alt, rgba(255,255,255,0.05)); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; margin-bottom: 20px; <?php echo $last_run ? '' : 'display:none;'; ?>">
+                    <h3 style="color: var(--dashboard-text-primary); margin: 0 0 12px 0; font-size: 16px; font-weight: 600;">Last Cleanup</h3>
+                    <p id="metasync-db-cleanup-last-run-time" style="color: var(--dashboard-text-secondary); font-size: 13px; margin: 0 0 10px 0;">
+                        <?php echo $last_run ? esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $last_run)) : ''; ?>
+                    </p>
+                    <div id="metasync-db-cleanup-stats" style="display: flex; flex-wrap: wrap; gap: 10px;">
+                        <?php foreach ($stats as $stat_key => $count): ?>
+                            <?php if ($stat_key === 'execution_ms') continue; ?>
+                            <span style="background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); color: #22c55e; padding: 4px 10px; border-radius: 4px; font-size: 12px;">
+                                <?php echo esc_html(str_replace('_', ' ', $stat_key)); ?>: <?php echo intval($count); ?>
+                            </span>
+                        <?php endforeach; ?>
+                        <?php if (!empty($stats['execution_ms'])): ?>
+                            <span style="color: var(--dashboard-text-secondary); font-size: 12px; align-self: center;">
+                                in <?php echo esc_html($stats['execution_ms']); ?>ms
+                            </span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <!-- Buttons -->
+                <div style="display: flex; gap: 12px; align-items: center; margin-top: 4px;">
+                    <button type="submit"
+                            id="metasync-db-cleanup-save-btn"
+                            class="button button-primary"
+                            style="padding: 10px 20px; font-size: 14px; font-weight: 500;">
+                        <span class="save-text">Save Settings</span>
+                        <span class="save-spinner" style="display:none; margin-left: 8px;">⏳</span>
+                    </button>
+                    <button type="button"
+                            id="metasync-db-cleanup-run-btn"
+                            class="button"
+                            style="padding: 10px 20px; font-size: 14px; font-weight: 500;">
+                        <span class="run-text">Run Cleanup Now</span>
+                        <span class="run-spinner" style="display:none; margin-left: 8px;">⏳</span>
+                    </button>
+                </div>
+
+                <!-- Messages -->
+                <div id="metasync-db-cleanup-message" style="display:none; margin-top: 16px; padding: 12px; border-radius: 6px;"></div>
+            </form>
+        </div>
+
+        <script>
+        jQuery(document).ready(function($) {
+            var $form    = $('#metasync-db-cleanup-settings-form');
+            var $saveBtn = $('#metasync-db-cleanup-save-btn');
+            var $runBtn  = $('#metasync-db-cleanup-run-btn');
+            var $message = $('#metasync-db-cleanup-message');
+
+            function showMessage(text, type) {
+                $message.css({
+                    'background' : type === 'success' ? 'rgba(34,197,94,0.1)'  : 'rgba(239,68,68,0.1)',
+                    'border'     : '1px solid ' + (type === 'success' ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'),
+                    'color'      : type === 'success' ? '#22c55e' : '#ef4444',
+                    'padding'    : '12px 16px',
+                    'border-radius' : '6px',
+                    'font-size'  : '14px',
+                    'line-height': '1.5',
+                    'display'    : 'block'
+                }).html('<strong style="margin-right:8px;">' + (type === 'success' ? '✓' : '✗') + '</strong>' + text).show();
+
+                if (type === 'success') {
+                    setTimeout(function() { $message.fadeOut(300); }, 5000);
+                }
+            }
+
+            // Save settings
+            $form.on('submit', function(e) {
+                e.preventDefault();
+                $saveBtn.prop('disabled', true);
+                $saveBtn.find('.save-text').text('Saving...');
+                $saveBtn.find('.save-spinner').show();
+                $message.hide();
+
+                $.ajax({
+                    url  : ajaxurl,
+                    type : 'POST',
+                    data : $form.serialize() + '&action=metasync_save_db_cleanup_settings',
+                    success: function(response) {
+                        $saveBtn.prop('disabled', false);
+                        $saveBtn.find('.save-text').text('Save Settings');
+                        $saveBtn.find('.save-spinner').hide();
+                        if (response.success) {
+                            showMessage(response.data.message, 'success');
+                            // Update next-run label if returned
+                            if (response.data.next_run_label) {
+                                $('#db_cleanup_enabled').closest('label')
+                                    .next('p').find('strong').text(response.data.next_run_label);
+                            }
+                        } else {
+                            showMessage(response.data.message || 'Error saving settings.', 'error');
+                        }
+                    },
+                    error: function() {
+                        $saveBtn.prop('disabled', false);
+                        $saveBtn.find('.save-text').text('Save Settings');
+                        $saveBtn.find('.save-spinner').hide();
+                        showMessage('An error occurred. Please try again.', 'error');
+                    }
+                });
+            });
+
+            // Run cleanup now — sends current form state so unsaved changes are respected
+            $runBtn.on('click', function() {
+                $runBtn.prop('disabled', true);
+                $runBtn.find('.run-text').text('Running...');
+                $runBtn.find('.run-spinner').show();
+                $message.hide();
+
+                $.ajax({
+                    url  : ajaxurl,
+                    type : 'POST',
+                    data : $form.serialize() + '&action=metasync_run_db_cleanup',
+                    success: function(response) {
+                        $runBtn.prop('disabled', false);
+                        $runBtn.find('.run-text').text('Run Cleanup Now');
+                        $runBtn.find('.run-spinner').hide();
+
+                        if (response.success) {
+                            showMessage(response.data.message, 'success');
+
+                            // Update last-run panel
+                            if (response.data.timestamp_label) {
+                                $('#metasync-db-cleanup-last-run').show();
+                                $('#metasync-db-cleanup-last-run-time').text(response.data.timestamp_label);
+                            }
+                            if (response.data.stats_html) {
+                                $('#metasync-db-cleanup-stats').html(response.data.stats_html);
+                            }
+                        } else {
+                            showMessage(response.data.message || 'Cleanup failed.', 'error');
+                        }
+                    },
+                    error: function() {
+                        $runBtn.prop('disabled', false);
+                        $runBtn.find('.run-text').text('Run Cleanup Now');
+                        $runBtn.find('.run-spinner').hide();
+                        showMessage('An error occurred. Please try again.', 'error');
+                    }
+                });
+            });
+        });
+        </script>
+        <?php
+    }
+
+    /**
+     * AJAX: Save DB cleanup settings and reschedule cron accordingly.
+     */
+    public function ajax_save_db_cleanup_settings() {
+        if (!isset($_POST['db_cleanup_settings_nonce']) ||
+            !wp_verify_nonce($_POST['db_cleanup_settings_nonce'], 'metasync_db_cleanup_settings_nonce')) {
+            wp_send_json_error(array('message' => 'Invalid security token. Please refresh the page and try again.'));
+            return;
+        }
+
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(array('message' => 'Insufficient permissions.'));
+            return;
+        }
+
+        $existing = $this->get_db_cleanup_settings();
+
+        $task_keys = array(
+            'clean_post_revisions',
+            'clean_trashed_posts',
+            'clean_trashed_comments',
+            'clean_spam_comments',
+            'clean_expired_transients',
+            'clean_orphaned_postmeta',
+        );
+
+        $new_settings = array(
+            'enabled'        => !empty($_POST['enabled']),
+            'last_run_at'    => $existing['last_run_at'],
+            'last_run_stats' => $existing['last_run_stats'],
+        );
+
+        foreach ($task_keys as $key) {
+            $new_settings[$key] = !empty($_POST[$key]);
+        }
+
+        update_option('metasync_db_cleanup_settings', $new_settings);
+
+        // Reschedule based on new enabled state
+        if (!empty($new_settings['enabled'])) {
+            if (!wp_next_scheduled('metasync_db_cleanup')) {
+                wp_schedule_event(time(), 'metasync_weekly', 'metasync_db_cleanup');
+            }
+            $next_run       = wp_next_scheduled('metasync_db_cleanup');
+            $next_run_label = $next_run
+                ? date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $next_run)
+                : '';
+            wp_send_json_success(array(
+                'message'        => 'Settings saved. Weekly cleanup is enabled.',
+                'next_run_label' => $next_run_label,
+            ));
+        } else {
+            $this->unschedule_db_cleanup_cron();
+            wp_send_json_success(array(
+                'message' => 'Settings saved. Weekly cleanup is disabled.',
+            ));
+        }
+    }
+
+    /**
+     * AJAX: Manually trigger the DB cleanup and return stats for the UI.
+     * Persists current form state first so unsaved checkbox changes are respected.
+     */
+    public function ajax_run_db_cleanup() {
+        if (!isset($_POST['db_cleanup_settings_nonce']) ||
+            !wp_verify_nonce($_POST['db_cleanup_settings_nonce'], 'metasync_db_cleanup_settings_nonce')) {
+            wp_send_json_error(array('message' => 'Invalid security token.'));
+            return;
+        }
+
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(array('message' => 'Insufficient permissions.'));
+            return;
+        }
+
+        // Save current form state before running so the cleanup uses what the user sees
+        $existing  = $this->get_db_cleanup_settings();
+        $task_keys = array(
+            'clean_post_revisions',
+            'clean_trashed_posts',
+            'clean_trashed_comments',
+            'clean_spam_comments',
+            'clean_expired_transients',
+            'clean_orphaned_postmeta',
+        );
+        $to_save = array(
+            'enabled'        => !empty($_POST['enabled']),
+            'last_run_at'    => $existing['last_run_at'],
+            'last_run_stats' => $existing['last_run_stats'],
+        );
+        foreach ($task_keys as $key) {
+            $to_save[$key] = !empty($_POST[$key]);
+        }
+        update_option('metasync_db_cleanup_settings', $to_save);
+
+        // Reschedule cron to match the (possibly updated) enabled state
+        if (!empty($to_save['enabled'])) {
+            if (!wp_next_scheduled('metasync_db_cleanup')) {
+                wp_schedule_event(time(), 'metasync_weekly', 'metasync_db_cleanup');
+            }
+        } else {
+            $this->unschedule_db_cleanup_cron();
+        }
+
+        $this->execute_db_cleanup();
+
+        $settings        = $this->get_db_cleanup_settings();
+        $stats           = $settings['last_run_stats'];
+        $timestamp_label = date_i18n(
+            get_option('date_format') . ' ' . get_option('time_format'),
+            $settings['last_run_at']
+        );
+
+        // Build stats badges HTML
+        $stat_labels = array(
+            'post_revisions'     => 'Post revisions',
+            'trashed_posts'      => 'Trashed posts',
+            'trashed_comments'   => 'Trashed comments',
+            'spam_comments'      => 'Spam comments',
+            'expired_transients' => 'Expired transients',
+            'orphaned_postmeta'  => 'Orphaned post meta',
+        );
+
+        $stats_html = '';
+        foreach ($stat_labels as $key => $label) {
+            if (isset($stats[$key])) {
+                $stats_html .= '<span style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);color:#22c55e;padding:4px 10px;border-radius:4px;font-size:12px;">'
+                    . esc_html($label) . ': ' . intval($stats[$key]) . '</span> ';
+            }
+        }
+        if (!empty($stats['execution_ms'])) {
+            $stats_html .= '<span style="color:var(--dashboard-text-secondary);font-size:12px;align-self:center;">in '
+                . esc_html($stats['execution_ms']) . 'ms</span>';
+        }
+
+        wp_send_json_success(array(
+            'message'         => 'Cleanup completed successfully.',
+            'timestamp_label' => $timestamp_label,
+            'stats_html'      => $stats_html,
+        ));
     }
 
     /**

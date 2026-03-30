@@ -73,6 +73,19 @@ class Metasync_SEO_Conflict_Handler {
         if ($this->is_aioseo_active()) {
             $this->register_aioseo_filters();
         }
+
+        // Ensure is_plugin_active() is available
+        if (!function_exists('is_plugin_active')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+
+        if (is_plugin_active('wordpress-seo/wp-seo.php')) {
+            $this->register_yoast_filters();
+        }
+
+        if (is_plugin_active('seo-by-rank-math/rank-math.php') || is_plugin_active('seo-by-rankmath/rank-math.php')) {
+            $this->register_rankmath_filters();
+        }
     }
 
     // ------------------------------------------------------------------
@@ -191,6 +204,9 @@ class Metasync_SEO_Conflict_Handler {
         // Suppress AIOSEO OG/Twitter tags that OTTO already provides
         add_filter('aioseo_facebook_tags', [$this, 'filter_aioseo_facebook_tags'], 999);
         add_filter('aioseo_twitter_tags', [$this, 'filter_aioseo_twitter_tags'], 999);
+
+        // Suppress AIOSEO robots when MetaSync has an intentional robots value
+        add_filter('aioseo_robots_meta', [$this, 'filter_aioseo_robots'], 999);
     }
 
     /**
@@ -207,7 +223,8 @@ class Metasync_SEO_Conflict_Handler {
             $this->aioseo_has_description_cache = !empty($description);
         }
 
-        if ($this->metasync_has_description()) {
+        // Suppress when: OTTO active + has description, OR MetaSync sidebar has description
+        if ($this->otto_has_tag('description') || $this->metasync_has_description()) {
             return '';
         }
         return $description;
@@ -215,18 +232,13 @@ class Metasync_SEO_Conflict_Handler {
 
     /**
      * Filter AIOSEO title output.
-     * Returns original unless MetaSync/OTTO has a title.
+     * Returns empty string when MetaSync/OTTO has a title.
      *
      * @param  string $title AIOSEO's computed title.
      * @return string
      */
     public function filter_aioseo_title($title) {
-        $post_id = $this->get_current_object_id();
-        if (!$post_id) {
-            return $title;
-        }
-
-        if ($this->metasync_has_title($post_id)) {
+        if ($this->should_suppress_third_party_title()) {
             return '';
         }
 
@@ -235,7 +247,10 @@ class Metasync_SEO_Conflict_Handler {
 
     /**
      * Filter AIOSEO Facebook/OG tags.
-     * Removes og:description and og:title when MetaSync/OTTO provides them.
+     *
+     * Per-tag suppression: only remove a tag when OTTO is active AND has
+     * a persisted value for that specific tag, OR when MetaSync sidebar
+     * provides the equivalent value.
      *
      * @param  array $meta AIOSEO's OG meta array.
      * @return array
@@ -245,14 +260,21 @@ class Metasync_SEO_Conflict_Handler {
             return $meta;
         }
 
+        // og:title — suppress when OTTO has og:title OR MetaSync has title
         $post_id = $this->get_current_object_id();
+        if ($this->otto_has_tag('og:title') || ($post_id && $this->metasync_has_title($post_id))) {
+            unset($meta['og:title']);
+        }
 
-        if ($this->metasync_has_description()) {
+        // og:description — suppress when OTTO has og:description OR MetaSync has description
+        if ($this->otto_has_tag('og:description') || $this->metasync_has_description()) {
             unset($meta['og:description']);
         }
 
-        if ($post_id && $this->metasync_has_title($post_id)) {
-            unset($meta['og:title']);
+        // og:url, og:type, og:locale, og:site_name — suppress when OTTO has og:title
+        // (OTTO injects these structural OG tags alongside og:title in its block)
+        if ($this->otto_has_tag('og:title')) {
+            unset($meta['og:url'], $meta['og:type'], $meta['og:locale'], $meta['og:site_name']);
         }
 
         return $meta;
@@ -260,7 +282,10 @@ class Metasync_SEO_Conflict_Handler {
 
     /**
      * Filter AIOSEO Twitter tags.
-     * Removes twitter:description and twitter:title when MetaSync/OTTO provides them.
+     *
+     * Per-tag suppression: only remove a tag when OTTO is active AND has
+     * a persisted value for that specific tag, OR when MetaSync sidebar
+     * provides the equivalent value.
      *
      * @param  array $meta AIOSEO's Twitter meta array.
      * @return array
@@ -272,15 +297,71 @@ class Metasync_SEO_Conflict_Handler {
 
         $post_id = $this->get_current_object_id();
 
-        if ($this->metasync_has_description()) {
-            unset($meta['twitter:description']);
-        }
-
-        if ($post_id && $this->metasync_has_title($post_id)) {
+        if ($this->otto_has_tag('twitter:title') || ($post_id && $this->metasync_has_title($post_id))) {
             unset($meta['twitter:title']);
         }
 
+        if ($this->otto_has_tag('twitter:description') || $this->metasync_has_description()) {
+            unset($meta['twitter:description']);
+        }
+
+        // twitter:card — suppress when OTTO has any twitter tag
+        if ($this->otto_has_tag('twitter:title') || $this->otto_has_tag('twitter:description')) {
+            unset($meta['twitter:card']);
+        }
+
         return $meta;
+    }
+
+    /**
+     * Filter AIOSEO robots meta output.
+     *
+     * When MetaSync has an intentional robots value (admin checkbox or REST API),
+     * suppress AIOSEO's robots tag to avoid duplicates. MetaSync's own output in
+     * hook_metasync_metatags() will output the MetaSync value instead.
+     *
+     * AIOSEO passes an array like ['noindex' => 'noindex', 'nofollow' => 'nofollow'].
+     * Returning an empty array suppresses AIOSEO's robots tag entirely.
+     *
+     * @param  array $robots AIOSEO's computed robots attributes array.
+     * @return array
+     */
+    public function filter_aioseo_robots($robots) {
+        $post_id = $this->get_current_object_id();
+        if (!$post_id) {
+            return $robots;
+        }
+
+        if ($this->metasync_has_robots($post_id)) {
+            // MetaSync has robots — suppress AIOSEO's tag.
+            return [];
+        }
+
+        return $robots;
+    }
+
+    /**
+     * Check whether MetaSync holds an intentional robots directive for a post.
+     *
+     * Checks both storage formats:
+     *   - meta_robots              (string from REST API)
+     *   - metasync_common_robots   (array from admin checkbox)
+     *
+     * @param  int $post_id Post ID.
+     * @return bool
+     */
+    public function metasync_has_robots($post_id) {
+        $meta_robots = get_post_meta($post_id, 'meta_robots', true);
+        if (!empty($meta_robots)) {
+            return true;
+        }
+
+        $common_robots = get_post_meta($post_id, 'metasync_common_robots', true);
+        if (is_array($common_robots) && !empty(array_filter($common_robots))) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -297,6 +378,246 @@ class Metasync_SEO_Conflict_Handler {
 
         $otto_title = get_post_meta($post_id, '_metasync_otto_title', true);
         return !empty($otto_title);
+    }
+
+    /**
+     * Determine whether a third-party SEO plugin's title should be suppressed.
+     *
+     * Suppress when either condition is met:
+     *   1. OTTO is active AND has a persisted title for this page
+     *   2. MetaSync sidebar has an explicit title for this page
+     *
+     * @return bool True if the third-party title should be suppressed.
+     */
+    private function should_suppress_third_party_title() {
+        // Condition 1: OTTO active + has title for this page
+        if ($this->otto_has_tag('title')) {
+            return true;
+        }
+
+        // Condition 2: MetaSync sidebar has explicit title
+        $post_id = $this->get_current_object_id();
+        if ($post_id) {
+            return $this->metasync_has_title($post_id);
+        }
+
+        return false;
+    }
+
+    /**
+     * Check whether the OTTO pixel is active.
+     *
+     * @return bool
+     */
+    private function is_otto_active() {
+        if (class_exists('Metasync_Otto_Config')) {
+            return Metasync_Otto_Config::is_otto_enabled();
+        }
+
+        return false;
+    }
+
+    /**
+     * Check whether OTTO has a persisted value for a specific meta tag.
+     *
+     * Two conditions must be true to suppress a third-party tag:
+     *   1. OTTO is active (globally enabled)
+     *   2. OTTO has a value for this specific tag on the current page
+     *
+     * For OG/Twitter tags where OTTO's pixel injects dynamically (the
+     * specific _metasync_otto_og_* key may be empty), the buffer-level
+     * dedup in Otto_html_class::deduplicate_og_twitter_tags() handles
+     * removal after all sources have output. This method only does the
+     * direct per-tag check.
+     *
+     * @param  string $tag Tag identifier (e.g. 'title', 'og:title', 'twitter:description').
+     * @return bool True when OTTO is active AND has a persisted value for this tag.
+     */
+    private function otto_has_tag($tag) {
+        if (!$this->is_otto_active()) {
+            return false;
+        }
+
+        $post_id = $this->get_current_object_id();
+        if (!$post_id) {
+            return false;
+        }
+
+        $meta_key_map = [
+            'title'                => '_metasync_otto_title',
+            'description'          => '_metasync_otto_description',
+            'og:title'             => '_metasync_otto_og_title',
+            'og:description'       => '_metasync_otto_og_description',
+            'twitter:title'        => '_metasync_otto_twitter_title',
+            'twitter:description'  => '_metasync_otto_twitter_description',
+        ];
+
+        if (!isset($meta_key_map[$tag])) {
+            return false;
+        }
+
+        return !empty(get_post_meta($post_id, $meta_key_map[$tag], true));
+    }
+
+    // ------------------------------------------------------------------
+    // Yoast SEO integration
+    // ------------------------------------------------------------------
+
+    /**
+     * Register Yoast SEO-specific filters to suppress its title,
+     * description, and OG/Twitter output when MetaSync/OTTO provides them.
+     */
+    private function register_yoast_filters() {
+        add_filter('wpseo_title', [$this, 'filter_yoast_title'], 999);
+        add_filter('wpseo_metadesc', [$this, 'filter_yoast_description'], 999);
+
+        // OG tags — per-tag suppression
+        add_filter('wpseo_opengraph_title', [$this, 'filter_yoast_og_title'], 999);
+        add_filter('wpseo_opengraph_desc', [$this, 'filter_yoast_og_description'], 999);
+        add_filter('wpseo_opengraph_url', [$this, 'filter_yoast_og_structural'], 999);
+        add_filter('wpseo_opengraph_type', [$this, 'filter_yoast_og_structural'], 999);
+        add_filter('wpseo_opengraph_site_name', [$this, 'filter_yoast_og_structural'], 999);
+        add_filter('wpseo_og_locale', [$this, 'filter_yoast_og_structural'], 999);
+        add_filter('wpseo_opengraph_image', [$this, 'filter_yoast_og_structural'], 999);
+
+        // Twitter tags — per-tag suppression
+        add_filter('wpseo_twitter_title', [$this, 'filter_yoast_twitter_title'], 999);
+        add_filter('wpseo_twitter_description', [$this, 'filter_yoast_twitter_description'], 999);
+        add_filter('wpseo_twitter_image', [$this, 'filter_yoast_twitter_structural'], 999);
+        add_filter('wpseo_twitter_card_type', [$this, 'filter_yoast_twitter_structural'], 999);
+    }
+
+    /**
+     * Filter Yoast SEO title output.
+     * Suppress when: OTTO active + has title, OR MetaSync sidebar has title.
+     */
+    public function filter_yoast_title($title) {
+        if ($this->should_suppress_third_party_title()) {
+            return '';
+        }
+        return $title;
+    }
+
+    /**
+     * Filter Yoast SEO description output.
+     * Suppress when: OTTO active + has description, OR MetaSync sidebar has description.
+     */
+    public function filter_yoast_description($description) {
+        if ($this->otto_has_tag('description') || $this->metasync_has_description()) {
+            return '';
+        }
+        return $description;
+    }
+
+    /**
+     * Filter Yoast og:title output.
+     * Suppress when: OTTO active + has og:title, OR MetaSync has title.
+     */
+    public function filter_yoast_og_title($value) {
+        $post_id = $this->get_current_object_id();
+        if ($this->otto_has_tag('og:title') || ($post_id && $this->metasync_has_title($post_id))) {
+            return '';
+        }
+        return $value;
+    }
+
+    /**
+     * Filter Yoast og:description output.
+     * Suppress when: OTTO active + has og:description, OR MetaSync has description.
+     */
+    public function filter_yoast_og_description($value) {
+        if ($this->otto_has_tag('og:description') || $this->metasync_has_description()) {
+            return '';
+        }
+        return $value;
+    }
+
+    /**
+     * Filter Yoast OG structural tags (og:url, og:type, og:locale, og:site_name, og:image).
+     * Suppress when: OTTO active + has og:title (OTTO provides these alongside og:title).
+     */
+    public function filter_yoast_og_structural($value) {
+        if ($this->otto_has_tag('og:title')) {
+            return '';
+        }
+        return $value;
+    }
+
+    /**
+     * Filter Yoast twitter:title output.
+     * Suppress when: OTTO active + has twitter:title, OR MetaSync has title.
+     */
+    public function filter_yoast_twitter_title($value) {
+        $post_id = $this->get_current_object_id();
+        if ($this->otto_has_tag('twitter:title') || ($post_id && $this->metasync_has_title($post_id))) {
+            return '';
+        }
+        return $value;
+    }
+
+    /**
+     * Filter Yoast twitter:description output.
+     * Suppress when: OTTO active + has twitter:description, OR MetaSync has description.
+     */
+    public function filter_yoast_twitter_description($value) {
+        if ($this->otto_has_tag('twitter:description') || $this->metasync_has_description()) {
+            return '';
+        }
+        return $value;
+    }
+
+    /**
+     * Filter Yoast Twitter structural tags (twitter:image, twitter:card).
+     * Suppress when: OTTO active + has any twitter tag.
+     */
+    public function filter_yoast_twitter_structural($value) {
+        if ($this->otto_has_tag('twitter:title') || $this->otto_has_tag('twitter:description')) {
+            return '';
+        }
+        return $value;
+    }
+
+    // ------------------------------------------------------------------
+    // RankMath integration
+    // ------------------------------------------------------------------
+
+    /**
+     * Register RankMath-specific filters to suppress its title and
+     * description output when MetaSync/OTTO already provides them.
+     */
+    private function register_rankmath_filters() {
+        add_filter('rank_math/frontend/title', [$this, 'filter_rankmath_title'], 999);
+        add_filter('rank_math/frontend/description', [$this, 'filter_rankmath_description'], 999);
+    }
+
+    /**
+     * Filter RankMath title output.
+     * Returns empty string when MetaSync/OTTO has a title.
+     *
+     * @param  string $title RankMath's computed title.
+     * @return string
+     */
+    public function filter_rankmath_title($title) {
+        if ($this->should_suppress_third_party_title()) {
+            return '';
+        }
+
+        return $title;
+    }
+
+    /**
+     * Filter RankMath description output.
+     * Returns empty string when MetaSync/OTTO has a description.
+     *
+     * @param  string $description RankMath's computed description.
+     * @return string
+     */
+    public function filter_rankmath_description($description) {
+        if ($this->otto_has_tag('description') || $this->metasync_has_description()) {
+            return '';
+        }
+
+        return $description;
     }
 
     // ------------------------------------------------------------------
@@ -316,6 +637,11 @@ class Metasync_SEO_Conflict_Handler {
      * @return bool True if the legacy output should include a description tag.
      */
     public function should_output_legacy_description() {
+        // OTTO active + has description → suppress legacy auto-generated description.
+        if ($this->otto_has_tag('description')) {
+            return false;
+        }
+
         if (!$this->has_active_seo_plugin()) {
             return true;
         }
@@ -384,6 +710,9 @@ class Metasync_SEO_Conflict_Handler {
      * public page type (singular, front page, static blog page, CPT
      * archives, WooCommerce shop, etc.) is covered without enumerating
      * each one individually.
+     *
+     * For blog-style homepages (show_on_front=posts) there is no backing
+     * page, so this returns 0.
      *
      * @return int 0 when unknown.
      */

@@ -459,6 +459,10 @@ Class Metasync_otto_html{
             $result_html = preg_replace('/(<\/html>)/i', $safe_footer . "\n" . '$1', $result_html, 1);
         }
 
+        # DEDUPLICATION: Remove duplicate <title>, OG, and Twitter tags
+        $result_html = $this->deduplicate_title_tags($result_html);
+        $result_html = $this->deduplicate_og_twitter_tags($result_html);
+
         # Ensure metasync_optimized attribute on <head> (post-serialization so dom->clear() can't wipe it)
         if (!$this->is_amp_page() && strpos($result_html, 'metasync_optimized') === false) {
             $result_html = preg_replace('/<head(\s|>)/i', '<head metasync_optimized$1', $result_html, 1);
@@ -922,6 +926,25 @@ Class Metasync_otto_html{
             # handle canonical links
             if($data['type'] == 'link' && $data['rel'] === 'canonical'){
 
+                # Protect manually-set canonical from OTTO override
+                if (function_exists('is_singular') && is_singular()) {
+                    $post_id = get_the_ID();
+                    if ($post_id) {
+                        $custom_canonical = get_post_meta($post_id, '_metasync_canonical_url', true);
+                        if (empty($custom_canonical)) {
+                            $custom_canonical = get_post_meta($post_id, 'meta_canonical', true);
+                            // Handle legacy array values
+                            if (is_array($custom_canonical)) {
+                                $custom_canonical = reset($custom_canonical) ?: '';
+                            }
+                        }
+                        if (!empty($custom_canonical)) {
+                            # Manual canonical takes priority — skip OTTO override
+                            continue;
+                        }
+                    }
+                }
+
                 # find the cannonical dom element
                 $link = $this->dom->find('link[rel="canonical"]', 0);
 
@@ -953,6 +976,26 @@ Class Metasync_otto_html{
         # Custom values take absolute priority over OTTO suggestions
         $name = $data['name'] ?? false;
         $property = $data['property'] ?? false;
+
+        # Protect manually-set robots meta from OTTO override
+        # If the user set noindex via Common Robots Meta or meta_robots, honour it
+        if (!empty($name) && $name === 'robots') {
+            if (function_exists('is_singular') && is_singular()) {
+                $post_id = get_the_ID();
+                if ($post_id) {
+                    $manual_robots = get_post_meta($post_id, 'meta_robots', true);
+                    if (!empty($manual_robots) && stripos($manual_robots, 'noindex') !== false) {
+                        # Manual noindex takes priority — skip OTTO override
+                        return;
+                    }
+                    $common_robots = get_post_meta($post_id, 'metasync_common_robots', true);
+                    if (is_array($common_robots) && !empty($common_robots['noindex'])) {
+                        # Common Robots Meta has noindex checked — skip OTTO override
+                        return;
+                    }
+                }
+            }
+        }
 
         # Check for custom SEO description
         if (!empty($name) && $name === 'description') {
@@ -1150,6 +1193,126 @@ Class Metasync_otto_html{
 
         # save and reload DOM
         $this->save_reload();
+    }
+
+    /**
+     * Remove duplicate <title> tags from HTML, keeping the first (OTTO's) value.
+     *
+     * OTTO's title replacement is always applied first (limit=1 or DOM manipulation),
+     * so the first <title> tag holds the authoritative value. If SEO plugin conflicts
+     * produce additional <title> tags, this strips all and re-inserts one.
+     *
+     * @param  string $html Full HTML document.
+     * @return string HTML with at most one <title> tag.
+     */
+    private function deduplicate_title_tags($html) {
+        $title_count = preg_match_all('/<title[^>]*>.*?<\/title>/is', $html, $title_matches);
+        if ($title_count <= 1) {
+            return $html;
+        }
+
+        # Capture the first title's inner text (OTTO's replacement)
+        preg_match('/<title[^>]*>(.*?)<\/title>/is', $html, $first_title);
+        $authoritative_title = isset($first_title[1]) ? $first_title[1] : '';
+
+        # Strip all <title> tags
+        $html = preg_replace('/<title[^>]*>.*?<\/title>/is', '', $html);
+
+        # Re-insert a single <title> after <head> using preg_replace_callback to prevent
+        # backreference injection when title contains $ followed by digits (e.g. "$50 off")
+        $title_tag = '<title>' . $authoritative_title . '</title>';
+        $html = preg_replace_callback('/(<head[^>]*>)/i', function ($m) use ($title_tag) {
+            return $m[1] . $title_tag;
+        }, $html, 1);
+
+        return $html;
+    }
+
+    /**
+     * Remove duplicate OG and Twitter meta tags from HTML after OTTO processing.
+     *
+     * OTTO injects its tags with `data-otto-pixel` or `data-otto` attributes.
+     * Legacy MetaSync output and third-party SEO plugins may also emit the same
+     * OG/Twitter properties. This method runs at the buffer level — after all
+     * sources have written their tags — and keeps only the OTTO version when
+     * duplicates exist.
+     *
+     * Strategy per property (e.g. og:description):
+     *   - If OTTO tag exists (has data-otto marker) → remove all non-OTTO duplicates
+     *   - If no OTTO tag exists → keep the first occurrence, remove the rest
+     *
+     * @param  string $html Full HTML document.
+     * @return string HTML with at most one tag per OG/Twitter property.
+     */
+    private function deduplicate_og_twitter_tags($html) {
+        # OG properties to deduplicate
+        $og_properties = [
+            'og:title', 'og:description', 'og:url', 'og:type',
+            'og:locale', 'og:site_name', 'og:image',
+        ];
+
+        foreach ($og_properties as $prop) {
+            $html = $this->deduplicate_meta_by_attr($html, 'property', $prop);
+        }
+
+        # Twitter names to deduplicate
+        $twitter_names = [
+            'twitter:title', 'twitter:description', 'twitter:card',
+            'twitter:image', 'twitter:site',
+        ];
+
+        foreach ($twitter_names as $name) {
+            $html = $this->deduplicate_meta_by_attr($html, 'name', $name);
+        }
+
+        return $html;
+    }
+
+    /**
+     * Deduplicate meta tags by a specific attribute (property= or name=).
+     *
+     * When duplicates exist and one carries a data-otto marker, keep only
+     * the OTTO version. Otherwise keep the first occurrence.
+     *
+     * @param  string $html      Full HTML.
+     * @param  string $attr_name Attribute name: 'property' or 'name'.
+     * @param  string $attr_val  Attribute value: e.g. 'og:title' or 'twitter:description'.
+     * @return string
+     */
+    private function deduplicate_meta_by_attr($html, $attr_name, $attr_val) {
+        $escaped = preg_quote($attr_val, '/');
+        # Match all <meta> tags with this attribute value (both attr orderings)
+        $pattern = '/<meta\s[^>]*' . preg_quote($attr_name, '/') . '\s*=\s*["\']' . $escaped . '["\'][^>]*\/?>/i';
+
+        if (preg_match_all($pattern, $html, $matches) <= 1) {
+            return $html; # 0 or 1 — nothing to deduplicate
+        }
+
+        $all_tags = $matches[0];
+
+        # Find the OTTO tag (has data-otto-pixel or data-otto attribute)
+        $otto_tag = null;
+        foreach ($all_tags as $tag) {
+            if (stripos($tag, 'data-otto') !== false) {
+                $otto_tag = $tag;
+                break;
+            }
+        }
+
+        # Determine the keeper: OTTO tag if present, otherwise the first tag
+        $keeper = $otto_tag ?: $all_tags[0];
+
+        # Remove all occurrences, then re-insert the keeper at the first position
+        $first_replaced = false;
+        $html = preg_replace_callback($pattern, function ($m) use ($keeper, &$first_replaced) {
+            if (!$first_replaced) {
+                $first_replaced = true;
+                return $keeper;
+            }
+            return ''; # Remove subsequent duplicates
+        }, $html);
+
+        return $html;
     }
 
     # function to detect if current page is an AMP page
@@ -1685,6 +1848,9 @@ Class Metasync_otto_html{
                 );
             }
 
+            # DEDUPLICATION: Remove duplicate <title>, OG, and Twitter tags
+            $result_html = $this->deduplicate_title_tags($result_html);
+            $result_html = $this->deduplicate_og_twitter_tags($result_html);
 
             # MEMORY OPTIMIZED: Free all large objects and arrays before returning
             # This ensures memory is released immediately, especially important for high-traffic sites

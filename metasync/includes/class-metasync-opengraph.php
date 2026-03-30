@@ -394,6 +394,18 @@ class Metasync_OpenGraph {
             return;
         }
 
+        # When OTTO is active AND has OG data for this post, skip legacy OG output.
+        # For cases where OTTO's pixel injects OG tags dynamically (without
+        # persisting to _metasync_otto_og_* meta), the buffer-level dedup in
+        # Otto_html_class::deduplicate_og_twitter_tags() handles cleanup.
+        if (class_exists('Metasync_Otto_Config') && Metasync_Otto_Config::is_otto_enabled()) {
+            $otto_og_title = get_post_meta($post->ID, '_metasync_otto_og_title', true);
+            $otto_og_desc  = get_post_meta($post->ID, '_metasync_otto_og_description', true);
+            if (!empty($otto_og_title) || !empty($otto_og_desc)) {
+                return;
+            }
+        }
+
         # Check for conflicts with other SEO plugins (allow override via filter)
         if (apply_filters('metasync_opengraph_check_conflicts', true) && $this->has_seo_plugin_conflicts()) {
             return;

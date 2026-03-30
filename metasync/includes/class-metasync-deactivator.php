@@ -44,5 +44,11 @@ class Metasync_Deactivator
 		}
 
 		flush_rewrite_rules();
+
+		// Unschedule DB cleanup cron so no orphaned events remain after deactivation
+		$timestamp = wp_next_scheduled('metasync_db_cleanup');
+		if ($timestamp) {
+			wp_unschedule_event($timestamp, 'metasync_db_cleanup');
+		}
 	}
 }

@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.5.25
+Stable tag: 2.5.26
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,17 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.5.26 =
+* Improvement: AIOSEO compatibility 
+* Fix: preg_replace backreference injection in title deduplication (titles with \$N sequences)
+* Fix: Title tag deduplication and SEO plugin conflict handlers
+* Fix: API rate limiting causes stale cache and robots/canonical settings ignored
+* Fix: Dollar signs being stripped from image alt text 
+* Fix: Heading deployment on Divi/page-builder sites
+* Fix: PHP 7.4 compatibility — polyfills for str_contains/str_starts_with/str_ends_with and match expression rewrites
+* Feature: NitroPack full flush + targeted object cache
+* Feature: WP Database & Object Caching cleanup
+
 = 2.5.25 =
 **Bug Fixes:**
 * Fix: OTTO persistence not syncing titles, descriptions, OG/Twitter fields were only written when persistence was enabled, but OTTO's own render filters read those same staging keys; added coverage for regular posts/pages; OG/Twitter persistence now also writes to RankMath and Yoast equivalents so SEO plugins pick up OTTO data; OG renderer falls back to OTTO staging keys when persistence keys are empty

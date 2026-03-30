@@ -212,6 +212,14 @@ class Metasync_Post_Meta_Settings
 		global $post;
 
 		$post_canonical = get_post_meta($post->ID, 'meta_canonical', true) ?? '';
+		// Fix legacy array values stored by sanitize_array()
+		if (is_array($post_canonical)) {
+			$post_canonical = reset($post_canonical) ?: '';
+			// Repair the stored value so it won't recur
+			if (!empty($post_canonical)) {
+				update_post_meta($post->ID, 'meta_canonical', (string) $post_canonical);
+			}
+		}
 		wp_nonce_field('metasync_post_canonical_nonce', 'metasync_post_canonical_nonce');
 	?>
 		<ul>
@@ -305,7 +313,12 @@ class Metasync_Post_Meta_Settings
 
 		$old_post_canonical_meta = get_post_meta($post_id, 'meta_canonical', true);
 
-		$post_canonical_meta = $this->common->sanitize_array($post_data[$field_name]);
+		// Canonical is a URL string — sanitize as URL, not array
+		$raw_value = $post_data[$field_name];
+		if (is_array($raw_value)) {
+			$raw_value = reset($raw_value); // extract first element if array
+		}
+		$post_canonical_meta = esc_url_raw(trim((string) $raw_value));
 
 		if (!empty($post_canonical_meta))
 			update_post_meta($post_id, 'meta_canonical', $post_canonical_meta);

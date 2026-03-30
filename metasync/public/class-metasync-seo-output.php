@@ -47,6 +47,11 @@ class Metasync_Seo_Output
 
 	public function print_metatag($name, $value, $valueAttrib = "content", $nameAttrib = "name", $tagName = "meta")
 	{
+		// Safety: extract string from array values (fixes legacy meta_canonical stored as array)
+		if (is_array($value)) {
+			$value = reset($value) ?: '';
+		}
+
 		if (empty($value))
 			return false;
 
@@ -137,9 +142,26 @@ class Metasync_Seo_Output
 		$conflict_handler = Metasync_SEO_Conflict_Handler::get_instance();
 		$include_description = $conflict_handler->should_output_legacy_description();
 
-		$list_page_meta = array(
-			'robots' => $get_page_meta['meta_robots'][0] ?? 'index',
-		);
+		$list_page_meta = array();
+
+		// Robots: resolve from both meta_robots (REST API) and metasync_common_robots (checkbox).
+		// When a third-party SEO plugin is active:
+		//   - MetaSync has robots value  → output ours, AIOSEO suppressed via filter
+		//   - MetaSync has NO value      → skip, let the other plugin handle it
+		// When no third-party plugin → always output if we have a value.
+		$robots_value = $this->resolve_robots_value($get_page_meta);
+		if (!empty($robots_value)) {
+			if (!$conflict_handler->has_active_seo_plugin()) {
+				$list_page_meta['robots'] = $robots_value;
+			} else {
+				// Third-party active but MetaSync has intentional robots — output ours
+				// (the conflict handler filter suppresses the other plugin's robots tag)
+				$post_id = get_the_ID();
+				if ($post_id && $conflict_handler->metasync_has_robots($post_id)) {
+					$list_page_meta['robots'] = $robots_value;
+				}
+			}
+		}
 
 		if ($include_description) {
 			$list_page_meta['description'] = $get_page_meta['meta_description'][0] ?? '';
@@ -341,20 +363,33 @@ class Metasync_Seo_Output
 
 		if ($post) {
 
+			// When OTTO is active AND has OG/Twitter data for this post, skip
+			// legacy output. For dynamic pixel injection (where specific OTTO OG
+			// meta is empty), the buffer-level dedup in
+			// Otto_html_class::deduplicate_og_twitter_tags() handles cleanup.
+			$otto_has_og = false;
+			$otto_has_twitter = false;
+			if (class_exists('Metasync_Otto_Config') && Metasync_Otto_Config::is_otto_enabled()) {
+				$otto_has_og = !empty(get_post_meta($post->ID, '_metasync_otto_og_title', true))
+					|| !empty(get_post_meta($post->ID, '_metasync_otto_og_description', true));
+				$otto_has_twitter = !empty(get_post_meta($post->ID, '_metasync_otto_twitter_title', true))
+					|| !empty(get_post_meta($post->ID, '_metasync_otto_twitter_description', true));
+			}
+
 			$common_meta_settings = Metasync::get_option('common_meta_settings') ?? [];
 
-			if (isset($common_meta_settings['facebook_meta_tags'])) {
+			if (!$otto_has_og && isset($common_meta_settings['facebook_meta_tags'])) {
 				foreach ($facebookMetaKeys as $metaKey => $metaValue) {
 					$this->print_metatag($metaKey, $metaValue, 'content', 'property');
 				}
 			}
 
-			if (isset($common_meta_settings['open_graph_meta_tags'])) {
+			if (!$otto_has_og && isset($common_meta_settings['open_graph_meta_tags'])) {
 				foreach ($ogMetaKeys as $metaKey => $metaValue) {
 					$this->print_metatag($metaKey, $metaValue, 'content', 'property');
 				}
 			}
-			if (isset($common_meta_settings['twitter_meta_tags'])) {
+			if (!$otto_has_twitter && isset($common_meta_settings['twitter_meta_tags'])) {
 				foreach ($twitterMetaKeys as $metaKey => $metaValue) {
 					$this->print_metatag($metaKey, $metaValue, 'content', 'name');
 				}
@@ -460,6 +495,43 @@ class Metasync_Seo_Output
 			}
 		}
 		return $title;
+	}
+
+	/**
+	 * Resolve the robots meta value from both storage formats.
+	 *
+	 * MetaSync stores robots in two independent meta keys:
+	 *   - meta_robots        (string, e.g. "noindex, nofollow") — set via REST API
+	 *   - metasync_common_robots (array, e.g. ['noindex'=>'noindex']) — set via admin checkbox
+	 *
+	 * Priority: meta_robots string wins if non-empty, then common_robots checkbox.
+	 *
+	 * @param  array $all_meta Result of get_post_meta($id) (all meta as arrays).
+	 * @return string Robots directive string (e.g. "noindex, nofollow") or empty.
+	 */
+	private function resolve_robots_value($all_meta) {
+		// 1. Check meta_robots (REST API / direct string)
+		$meta_robots = $all_meta['meta_robots'][0] ?? '';
+		if (!empty($meta_robots)) {
+			return $meta_robots;
+		}
+
+		// 2. Check metasync_common_robots (admin checkbox array)
+		$raw = $all_meta['metasync_common_robots'][0] ?? '';
+		if (!empty($raw)) {
+			$common = maybe_unserialize($raw);
+			if (is_array($common) && !empty($common)) {
+				// Build directive string from checked keys (e.g. noindex, nofollow)
+				$directives = array_values(array_filter($common, function ($v) {
+					return !empty($v);
+				}));
+				if (!empty($directives)) {
+					return implode(', ', $directives);
+				}
+			}
+		}
+
+		return '';
 	}
 
 	/**

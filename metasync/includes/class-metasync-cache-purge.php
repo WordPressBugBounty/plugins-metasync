@@ -43,11 +43,15 @@ class Metasync_Cache_Purge
 
     /**
      * Clear ALL cache from ALL detected cache plugins
-     * 
-     * @param string $source Optional source identifier for logging
+     *
+     * @param string $source   Optional source identifier for logging
+     * @param array  $args     Optional arguments:
+     *                           'post_ids' (int[]) — when provided, only those posts are
+     *                           removed from the object cache (targeted mode).
+     *                           When absent, falls back to wp_cache_flush().
      * @return array Results of cache clearing attempts
      */
-    public function clear_all_caches($source = 'metasync')
+    public function clear_all_caches($source = 'metasync', $args = array())
     {
         $results = array(
             'cleared' => array(),
@@ -55,8 +59,12 @@ class Metasync_Cache_Purge
             'not_active' => array()
         );
 
+        $post_ids = !empty($args['post_ids']) && is_array($args['post_ids'])
+            ? array_map('intval', $args['post_ids'])
+            : array();
+
         // Clear WordPress built-in cache
-        if ($this->clear_wordpress_cache()) {
+        if ($this->clear_wordpress_cache($post_ids)) {
             $results['cleared'][] = 'WordPress Object Cache';
         }
 
@@ -180,6 +188,17 @@ class Metasync_Cache_Purge
             }
         } else {
             $results['not_active'][] = 'Swift Performance';
+        }
+
+        // Clear NitroPack Cache
+        if ($this->is_plugin_active('nitropack/main.php')) {
+            if ($this->clear_nitropack_cache()) {
+                $results['cleared'][] = 'NitroPack';
+            } else {
+                $results['failed'][] = 'NitroPack';
+            }
+        } else {
+            $results['not_active'][] = 'NitroPack';
         }
 
         // Clear Kinsta Cache (hosting-level) — respects the "Hosting Cache Integration" setting
@@ -444,12 +463,33 @@ class Metasync_Cache_Purge
     }
 
     /**
-     * Clear WordPress built-in object cache
+     * Clear WordPress built-in object cache.
+     *
+     * When $post_ids is provided and the metasync_targeted_object_cache option is
+     * enabled (default: true), only those posts are evicted from the object cache.
+     * This prevents destroying cached data for the entire site when only a handful
+     * of OTTO pages were updated.
+     *
+     * Falls back to wp_cache_flush() when no post IDs are given, targeted mode is
+     * disabled, or anything goes wrong.
+     *
+     * @param int[] $post_ids Optional list of post IDs to evict (targeted mode).
      */
-    private function clear_wordpress_cache()
+    private function clear_wordpress_cache($post_ids = array())
     {
         try {
-            wp_cache_flush();
+            $targeted_enabled = get_option('metasync_targeted_object_cache', '1') === '1';
+
+            if (!empty($post_ids) && $targeted_enabled) {
+                foreach ($post_ids as $post_id) {
+                    wp_cache_delete($post_id, 'posts');
+                    wp_cache_delete($post_id, 'post_meta');
+                    clean_post_cache($post_id);
+                }
+            } else {
+                wp_cache_flush();
+            }
+
             return true;
         } catch (Exception $e) {
             $this->log_cache_error('WordPress', $e);
@@ -764,6 +804,37 @@ class Metasync_Cache_Purge
             return true;
         } catch (Exception $e) {
             $this->log_cache_error('WP Engine', $e);
+            return false;
+        }
+    }
+
+    /**
+     * Clear NitroPack full-site cache.
+     *
+     * nitropack_purge(NULL, NULL, $reason) is the documented way to purge the
+     * entire NitroPack cache (all three parameters NULL = full site purge).
+     * Falls back to nitropack_sdk_purge() with no URL/tag if the higher-level
+     * wrapper is unavailable (older plugin versions).
+     *
+     * @see https://wordpress.org/support/topic/custom-caching-code-compatibility-with-nitropack/
+     */
+    private function clear_nitropack_cache()
+    {
+        try {
+            if (function_exists('nitropack_purge')) {
+                nitropack_purge(null, null, 'MetaSync full cache clear');
+                return true;
+            }
+
+            // Fallback: lower-level SDK function (same behaviour when url+tag are NULL)
+            if (function_exists('nitropack_sdk_purge')) {
+                nitropack_sdk_purge(null, null, 'MetaSync full cache clear');
+                return true;
+            }
+
+            return false;
+        } catch (Exception $e) {
+            $this->log_cache_error('NitroPack', $e);
             return false;
         }
     }

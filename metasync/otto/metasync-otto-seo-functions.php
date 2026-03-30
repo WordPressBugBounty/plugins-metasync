@@ -279,6 +279,19 @@ function metasync_extract_og_title($seo_data) {
         }
     }
 
+    # Fallback: Check header_html_insertion for og:title meta tag
+    if (!empty($seo_data['header_html_insertion'])) {
+        $html_content = $seo_data['header_html_insertion'];
+
+        # Match <meta property="og:title" content="..."> (property and content in any order)
+        if (preg_match('/<meta\s+[^>]*property=["\']og:title["\'][^>]*content=["\']([^"\']+)["\'][^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+[^>]*content=["\']([^"\']+)["\'][^>]*property=["\']og:title["\'][^>]*>/i', $html_content, $matches)) {
+            $og_title = sanitize_text_field(trim($matches[1]));
+            $og_title = metasync_clean_seo_variables($og_title);
+            return !empty($og_title) ? $og_title : null;
+        }
+    }
+
     return null;
 }
 
@@ -301,6 +314,19 @@ function metasync_extract_og_description($seo_data) {
                 # Only return if we have actual content after cleaning
                 return !empty($og_description) ? $og_description : null;
             }
+        }
+    }
+
+    # Fallback: Check header_html_insertion for og:description meta tag
+    if (!empty($seo_data['header_html_insertion'])) {
+        $html_content = $seo_data['header_html_insertion'];
+
+        # Match <meta property="og:description" content="..."> (property and content in any order)
+        if (preg_match('/<meta\s+[^>]*property=["\']og:description["\'][^>]*content=["\']([^"\']+)["\'][^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+[^>]*content=["\']([^"\']+)["\'][^>]*property=["\']og:description["\'][^>]*>/i', $html_content, $matches)) {
+            $og_description = sanitize_textarea_field(trim($matches[1]));
+            $og_description = metasync_clean_seo_variables($og_description);
+            return !empty($og_description) ? $og_description : null;
         }
     }
 
@@ -329,6 +355,19 @@ function metasync_extract_twitter_title($seo_data) {
         }
     }
 
+    # Fallback: Check header_html_insertion for twitter:title meta tag
+    if (!empty($seo_data['header_html_insertion'])) {
+        $html_content = $seo_data['header_html_insertion'];
+
+        # Match <meta name="twitter:title" content="..."> (name and content in any order)
+        if (preg_match('/<meta\s+[^>]*name=["\']twitter:title["\'][^>]*content=["\']([^"\']+)["\'][^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+[^>]*content=["\']([^"\']+)["\'][^>]*name=["\']twitter:title["\'][^>]*>/i', $html_content, $matches)) {
+            $twitter_title = sanitize_text_field(trim($matches[1]));
+            $twitter_title = metasync_clean_seo_variables($twitter_title);
+            return !empty($twitter_title) ? $twitter_title : null;
+        }
+    }
+
     return null;
 }
 
@@ -351,6 +390,19 @@ function metasync_extract_twitter_description($seo_data) {
                 # Only return if we have actual content after cleaning
                 return !empty($twitter_description) ? $twitter_description : null;
             }
+        }
+    }
+
+    # Fallback: Check header_html_insertion for twitter:description meta tag
+    if (!empty($seo_data['header_html_insertion'])) {
+        $html_content = $seo_data['header_html_insertion'];
+
+        # Match <meta name="twitter:description" content="..."> (name and content in any order)
+        if (preg_match('/<meta\s+[^>]*name=["\']twitter:description["\'][^>]*content=["\']([^"\']+)["\'][^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+[^>]*content=["\']([^"\']+)["\'][^>]*name=["\']twitter:description["\'][^>]*>/i', $html_content, $matches)) {
+            $twitter_description = sanitize_textarea_field(trim($matches[1]));
+            $twitter_description = metasync_clean_seo_variables($twitter_description);
+            return !empty($twitter_description) ? $twitter_description : null;
         }
     }
 
@@ -510,6 +562,9 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
+        # Collect AIOSEO field updates to write in a single DB call at the end
+        $aioseo_field_updates = [];
+
         # PERSISTENCE: meta_keywords → _metasync_focus_keyword + SEO plugin keyword fields
         if (class_exists('Metasync_Otto_Persistence_Settings') &&
             Metasync_Otto_Persistence_Settings::should_persist('meta_keywords') &&
@@ -521,6 +576,19 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
             if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
                 update_post_meta($post_id, '_yoast_wpseo_focuskw', sanitize_text_field($meta_keywords));
+            }
+            if (metasync_is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') ||
+                metasync_is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
+                # AIOSEO v4 stores focus keyphrase as JSON in the 'keyphrases' column,
+                # not as a plain 'keywords' column. Encode it in the expected format.
+                $aioseo_field_updates['keyphrases'] = wp_json_encode([
+                    'focus' => [
+                        'keyphrase' => sanitize_text_field($meta_keywords),
+                        'score'     => 0,
+                        'analysis'  => new stdClass(),
+                    ],
+                    'additional' => [],
+                ]);
             }
         }
 
@@ -545,7 +613,7 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
-        # PERSISTENCE: og_title → _metasync_og_title + RankMath/Yoast OG fields
+        # PERSISTENCE: og_title → _metasync_og_title + RankMath/Yoast/AIOSEO OG fields
         if (class_exists('Metasync_Otto_Persistence_Settings') &&
             Metasync_Otto_Persistence_Settings::should_persist('og_title') &&
             $og_title !== null) {
@@ -557,6 +625,10 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
             if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
                 update_post_meta($post_id, '_yoast_wpseo_opengraph-title', sanitize_text_field($og_title));
+            }
+            if (metasync_is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') ||
+                metasync_is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
+                $aioseo_field_updates['og_title'] = sanitize_text_field($og_title);
             }
         }
 
@@ -579,7 +651,7 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
-        # PERSISTENCE: og_description → _metasync_og_description + RankMath/Yoast OG fields
+        # PERSISTENCE: og_description → _metasync_og_description + RankMath/Yoast/AIOSEO OG fields
         if (class_exists('Metasync_Otto_Persistence_Settings') &&
             Metasync_Otto_Persistence_Settings::should_persist('og_description') &&
             $og_description !== null) {
@@ -590,6 +662,10 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
             if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
                 update_post_meta($post_id, '_yoast_wpseo_opengraph-description', sanitize_textarea_field($og_description));
+            }
+            if (metasync_is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') ||
+                metasync_is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
+                $aioseo_field_updates['og_description'] = sanitize_textarea_field($og_description);
             }
         }
 
@@ -614,7 +690,7 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
-        # PERSISTENCE: twitter_title → _metasync_twitter_title + RankMath/Yoast Twitter fields
+        # PERSISTENCE: twitter_title → _metasync_twitter_title + RankMath/Yoast/AIOSEO Twitter fields
         if (class_exists('Metasync_Otto_Persistence_Settings') &&
             Metasync_Otto_Persistence_Settings::should_persist('twitter_title') &&
             $twitter_title !== null) {
@@ -625,6 +701,10 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
             if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
                 update_post_meta($post_id, '_yoast_wpseo_twitter-title', sanitize_text_field($twitter_title));
+            }
+            if (metasync_is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') ||
+                metasync_is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
+                $aioseo_field_updates['twitter_title'] = sanitize_text_field($twitter_title);
             }
         }
 
@@ -647,7 +727,7 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
-        # PERSISTENCE: twitter_description → _metasync_twitter_description + RankMath/Yoast Twitter fields
+        # PERSISTENCE: twitter_description → _metasync_twitter_description + RankMath/Yoast/AIOSEO Twitter fields
         if (class_exists('Metasync_Otto_Persistence_Settings') &&
             Metasync_Otto_Persistence_Settings::should_persist('twitter_description') &&
             $twitter_description !== null) {
@@ -658,6 +738,10 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
             if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
                 update_post_meta($post_id, '_yoast_wpseo_twitter-description', sanitize_textarea_field($twitter_description));
+            }
+            if (metasync_is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') ||
+                metasync_is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
+                $aioseo_field_updates['twitter_description'] = sanitize_textarea_field($twitter_description);
             }
         }
 
@@ -901,6 +985,28 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
                 if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
                     update_post_meta($post_id, '_yoast_wpseo_canonical', $canonical);
                 }
+                if (metasync_is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') ||
+                    metasync_is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
+                    $aioseo_field_updates['canonical_url'] = $canonical;
+                }
+            }
+        }
+
+        # Write all collected AIOSEO field updates in a single DB call
+        if (!empty($aioseo_field_updates)) {
+            global $wpdb;
+            $aioseo_table = $wpdb->prefix . 'aioseo_posts';
+            $aioseo_field_updates['updated'] = current_time('mysql');
+            $row_exists = $wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM {$aioseo_table} WHERE post_id = %d", $post_id
+            ));
+
+            if ($row_exists) {
+                $wpdb->update($aioseo_table, $aioseo_field_updates, ['post_id' => $post_id]);
+            } else {
+                $aioseo_field_updates['post_id'] = $post_id;
+                $aioseo_field_updates['created'] = current_time('mysql');
+                $wpdb->insert($aioseo_table, $aioseo_field_updates);
             }
         }
 
@@ -1182,14 +1288,33 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
                 }
             }
 
-            # Update All in One SEO plugin meta fields
+            # Update All in One SEO plugin fields (writes to aioseo_posts table, not postmeta)
             if (metasync_is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') ||
                 metasync_is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
+                global $wpdb;
+                $aioseo_table = $wpdb->prefix . 'aioseo_posts';
+                $aioseo_updates = [];
+
                 if ($should_update_title && $persist_title) {
-                    update_post_meta($post_id, '_aioseo_title', $effective_title);
+                    $aioseo_updates['title'] = $effective_title;
                 }
                 if ($should_update_description && $persist_description) {
-                    update_post_meta($post_id, '_aioseo_description', $effective_description);
+                    $aioseo_updates['description'] = $effective_description;
+                }
+
+                if (!empty($aioseo_updates)) {
+                    $aioseo_updates['updated'] = current_time('mysql');
+                    $row_exists = $wpdb->get_var($wpdb->prepare(
+                        "SELECT id FROM {$aioseo_table} WHERE post_id = %d", $post_id
+                    ));
+
+                    if ($row_exists) {
+                        $wpdb->update($aioseo_table, $aioseo_updates, ['post_id' => $post_id]);
+                    } else {
+                        $aioseo_updates['post_id'] = $post_id;
+                        $aioseo_updates['created'] = current_time('mysql');
+                        $wpdb->insert($aioseo_table, $aioseo_updates);
+                    }
                 }
             }
 
@@ -1898,6 +2023,19 @@ add_filter('wp_title', 'metasync_wp_title_override', 99, 2);
  * This is the modern way WordPress handles <title> tags
  */
 function metasync_document_title_parts($title_parts) {
+    # Homepage (static front page backed by a real page)
+    if (is_front_page() && !is_home()) {
+        $front_id = (int) get_option('page_on_front');
+        if ($front_id) {
+            $otto_title = get_post_meta($front_id, '_metasync_otto_title', true);
+            if (!empty($otto_title)) {
+                $title_parts['title'] = $otto_title;
+                unset($title_parts['tagline']);
+                unset($title_parts['site']);
+            }
+        }
+    }
+
     # Shop page
     if (function_exists('is_shop') && is_shop()) {
         $shop_page_id = function_exists('wc_get_page_id') ? wc_get_page_id('shop') : 0;
@@ -1974,6 +2112,17 @@ add_filter('document_title_parts', 'metasync_document_title_parts', 99);
  * Final override before title is rendered
  */
 function metasync_pre_get_document_title($title) {
+    # Homepage (static front page backed by a real page)
+    if (is_front_page() && !is_home()) {
+        $front_id = (int) get_option('page_on_front');
+        if ($front_id) {
+            $otto_title = get_post_meta($front_id, '_metasync_otto_title', true);
+            if (!empty($otto_title)) {
+                return $otto_title;
+            }
+        }
+    }
+
     # Shop page
     if (function_exists('is_shop') && is_shop()) {
         $shop_page_id = function_exists('wc_get_page_id') ? wc_get_page_id('shop') : 0;

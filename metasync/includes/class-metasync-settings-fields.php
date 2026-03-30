@@ -187,6 +187,15 @@ class Metasync_Settings_Fields {
             'render_callback' => array($this->admin_instance, 'render_otto_cache_management')
         );
         
+        $config['db_cleanup'] = array(
+            'title' => 'Database Cleanup',
+            'description' => 'Remove orphaned data and schedule automated weekly cleanup',
+            'icon' => '🗃️',
+            'priority' => 25,
+            'default_open' => false,
+            'render_callback' => array($this->admin_instance, 'render_db_cleanup_section')
+        );
+
         $config['reset_settings'] = array(
             'title' => 'Reset Plugin Settings',
             'description' => 'Reset all plugin settings to default values',

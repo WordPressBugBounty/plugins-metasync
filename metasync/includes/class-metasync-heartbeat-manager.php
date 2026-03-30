@@ -959,6 +959,15 @@ class Metasync_Heartbeat_Manager
         if (get_transient('metasync_cron_schedule_checked')) {
             return;
         }
+        // Atomic lock: only one process should schedule cron events at a time.
+        // wp_schedule_event() modifies the shared cron option; concurrent calls
+        // race on the same row and produce `could_not_set` DB errors.
+        $lock_key = 'metasync_cron_schedule_lock';
+        if (!get_transient($lock_key)) {
+            set_transient($lock_key, 1, 30); // 30-second lock
+        } else {
+            return; // Another process is already scheduling
+        }
         set_transient('metasync_cron_schedule_checked', 1, 5 * MINUTE_IN_SECONDS);
 
         $state = $this->get_heartbeat_state();

@@ -1090,8 +1090,110 @@ function metasync_process_otto_seo_data($route) {
                     return false;
                 }
             }
-            
-            # URL didn't resolve to any supported entity (post, category, home page)
+
+            # Check if this is the blog/posts page (page_for_posts)
+            $posts_page_id = intval(get_option('page_for_posts'));
+            if ($posts_page_id > 0) {
+                $posts_page = get_post($posts_page_id);
+                $posts_page_url = rtrim(get_permalink($posts_page_id), '/');
+
+                if ($posts_page && $route_clean === $posts_page_url) {
+                    # Check if blog page would return 404
+                    if (metasync_would_page_return_404($posts_page->ID, $route)) {
+                        error_log("MetaSync OTTO: Skipping SEO processing for blog page that would return 404: {$route} (Post ID: {$posts_page->ID}, Status: {$posts_page->post_status})");
+                        metasync_otto_auto_exclude_404_url($route);
+                        return false;
+                    }
+
+                    # Update comprehensive blog page SEO meta fields
+                    $update_result = metasync_update_comprehensive_seo_fields($posts_page->ID, $seo_data);
+
+                    if ($update_result['updated']) {
+                        # Clear relevant caches
+                        metasync_clear_post_seo_caches($posts_page->ID);
+
+                        # Prepare trimmed values to 30 characters
+                        $trim = function($value) {
+                            if ($value === null) { return ''; }
+                            $value = (string) $value;
+                            $value = trim($value);
+                            if (mb_strlen($value) > 30) {
+                                return mb_substr($value, 0, 30);
+                            }
+                            return $value;
+                        };
+
+                        # Log individual field updates for blog page
+                        foreach ($update_result['fields_updated'] as $field_type => $field_value) {
+                            $short = '';
+                            $title = '';
+
+                            switch ($field_type) {
+                                case 'meta_title':
+                                    $short = $trim($field_value);
+                                    $title = "Blog Page Meta Title Update ({$short}...)";
+                                    break;
+                                case 'meta_description':
+                                    $short = $trim($field_value);
+                                    $title = "Blog Page Meta Description Update ({$short}...)";
+                                    break;
+                                case 'meta_keywords':
+                                    $short = $trim($field_value);
+                                    $title = "Blog Page Meta Keywords Update ({$short}...)";
+                                    break;
+                                case 'og_title':
+                                    $short = $trim($field_value);
+                                    $title = "Blog Page Open Graph Title Update ({$short}...)";
+                                    break;
+                                case 'og_description':
+                                    $short = $trim($field_value);
+                                    $title = "Blog Page Open Graph Description Update ({$short}...)";
+                                    break;
+                                case 'twitter_title':
+                                    $short = $trim($field_value);
+                                    $title = "Blog Page Twitter Title Update ({$short}...)";
+                                    break;
+                                case 'twitter_description':
+                                    $short = $trim($field_value);
+                                    $title = "Blog Page Twitter Description Update ({$short}...)";
+                                    break;
+                                case 'image_alt_data':
+                                    $image_count = count($field_value);
+                                    $title = "Blog Page Image Alt Text Update ({$image_count} images)";
+                                    break;
+                                case 'headings_data':
+                                    $heading_count = count($field_value);
+                                    $title = "Blog Page Headings Update ({$heading_count} headings)";
+                                    break;
+                                case 'structured_data':
+                                    $title = 'Blog Page Structured Data Update';
+                                    break;
+                            }
+
+                            if (!empty($title)) {
+                                metasync_log_sync_history([
+                                    'title' => $title,
+                                    'source' => 'OTTO SEO',
+                                    'status' => 'published',
+                                    'content_type' => 'Blog Page SEO',
+                                    'url' => $route,
+                                    'meta_data' => json_encode([
+                                        'field' => $field_type,
+                                        'field_value' => $field_value,
+                                        'post_id' => $posts_page->ID
+                                    ])
+                                ]);
+                            }
+                        }
+
+                        return true;
+                    }
+
+                    return false;
+                }
+            }
+
+            # URL didn't resolve to any supported entity (post, category, home page, blog page)
             # Treat as 404 and auto-exclude (e.g. deleted post, non-existent page)
             if (!metasync_otto_is_url_available($route)) {
                 error_log("MetaSync OTTO: Skipping SEO processing for URL that would return 404 (no matching entity): {$route}");
