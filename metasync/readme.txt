@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.5.26
+Stable tag: 2.5.27
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,34 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.5.27 =
+- Fix: Image alt-text unreliable on Oxygen theme HTTP render path; added string-based fallback
+- Fix: Content Genius page sync renders full-width on Oxygen Builder
+- Fix: Apostrophe truncation in SEO extract functions causing content to be cut short
+- Fix: Crawl monitoring module shows no data despite successful crawl executions
+- Fix: Oxygen Builder synced post content not visible on front-end
+- Fix: CPU performance tab missing from Advanced Settings after refactor
+- Fix: JSON-LD schema deduplication: duplicate blocks on the same page
+- Fix: Schema/JSON-LD suppression for OTTO when third-party SEO plugins (Yoast, Rank Math, AIOSEO) are active
+- Fix: Remove dead `wp_ajax_metasync` hook pointing to non-existent `sync_items` method
+- Fix: Add missing `display_cpu_deferral_notice` method to `Metasync_Admin`
+- Fix: Oxygen Builder page template override guard in `create_page()` and `update_page()` (REST API)
+- Fix: Stale-options overwrite in `test_heartbeat_api_connection()`; replace burst-mode heavy heartbeat with lightweight connection-ping endpoint
+- Fix: Image alt-text string-based fallback in OTTO HTTP render path; Divi `data-et-multi-view` JSON attribute handling
+- Feature: Internal link suggestions in post editor sidebar
+- Feature: Replace burst-mode heavy heartbeat (`SyncCustomerParams`) with lightweight `connection-ping` endpoint — reduces payload and server load during key-pending state
+- Feature: MCP sync log: log changes, rollback, 90-day auto-clear, and manual clear button
+- Feature: Code minification and delivery (JS minifier)
+- Feature: CPU load awareness: adaptive deferral based on server load
+- Improvement: MCP `wordpress_get_post_by_url` extended to return full SEO metadata (title, description, schema, OG fields, focus keyword)
+- Improvement: MCP System diagnostics and read-only database access tools (`wordpress_get_system_info`, `wordpress_get_active_plugins`, `wordpress_get_cron_jobs`, `wordpress_db_query`)
+- Improvement: MCP `wordpress_get_seo_inventory` tool: bulk SEO health data across all posts in one call
+- Improvement: Log - fatal-only filtering — `capture_php_error()` now passes only `E_USER_ERROR` and `E_RECOVERABLE_ERROR`; warnings, notices, and deprecations are dropped
+- Improvement: Log - level gate in `send_to_sentry()` and `TelemetryManager::send_message()` — info/warning/debug events never reach the proxy
+- Improvement: Log - debug window reduced from 60 min to 15 min (900s transient TTL) for faster re-reporting of recurring fatal errors
+- Improvement: Logging cleanup - removed 15+ dead `log_heartbeat('info', ...)` calls (method already early-returns on `'info'`)
+- Improvement: Logging cleanup - removed operational noise from `Metasync_Rate_Limiter`, `Metasync_Cache_Purge`, and `Metasync_API_Backoff_Manager`
+
 = 2.5.26 =
 * Improvement: AIOSEO compatibility 
 * Fix: preg_replace backreference injection in title deduplication (titles with \$N sequences)

@@ -144,6 +144,15 @@ class Metasync_HTML_To_Builder_Converter
 	 */
 	public function detect_active_builder()
 	{
+		// Check for Oxygen Builder first — Oxygen takes over template rendering entirely,
+		// so content should be stored as Gutenberg blocks (which Oxygen renders via the_content).
+		// Converting to Elementor/Divi format when Oxygen is the active builder causes
+		// font and width mismatches because Elementor's container/typography system conflicts
+		// with Oxygen's template rendering.
+		if (defined('CT_VERSION') || class_exists('OxygenElement')) {
+			return 'gutenberg';
+		}
+
 		// Check for Elementor
 		if (did_action('elementor/loaded') || class_exists('\Elementor\Plugin')) {
 			return 'elementor';

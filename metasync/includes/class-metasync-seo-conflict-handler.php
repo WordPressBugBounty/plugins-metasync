@@ -207,6 +207,9 @@ class Metasync_SEO_Conflict_Handler {
 
         // Suppress AIOSEO robots when MetaSync has an intentional robots value
         add_filter('aioseo_robots_meta', [$this, 'filter_aioseo_robots'], 999);
+
+        // Suppress AIOSEO schema/JSON-LD when OTTO has structured data
+        add_filter('aioseo_schema_output', [$this, 'filter_aioseo_schema'], 999);
     }
 
     /**
@@ -338,6 +341,20 @@ class Metasync_SEO_Conflict_Handler {
         }
 
         return $robots;
+    }
+
+    /**
+     * Filter AIOSEO schema/JSON-LD output.
+     * Suppress when OTTO has structured data for the current page.
+     *
+     * @param  array $output AIOSEO's schema @graph array.
+     * @return array
+     */
+    public function filter_aioseo_schema($output) {
+        if ($this->otto_has_schema_for_current_page()) {
+            return [];
+        }
+        return $output;
     }
 
     /**
@@ -485,6 +502,9 @@ class Metasync_SEO_Conflict_Handler {
         add_filter('wpseo_twitter_description', [$this, 'filter_yoast_twitter_description'], 999);
         add_filter('wpseo_twitter_image', [$this, 'filter_yoast_twitter_structural'], 999);
         add_filter('wpseo_twitter_card_type', [$this, 'filter_yoast_twitter_structural'], 999);
+
+        // Suppress Yoast schema/JSON-LD when OTTO has structured data
+        add_filter('wpseo_json_ld_output', [$this, 'filter_yoast_schema'], 999);
     }
 
     /**
@@ -577,6 +597,20 @@ class Metasync_SEO_Conflict_Handler {
         return $value;
     }
 
+    /**
+     * Filter Yoast SEO schema/JSON-LD output.
+     * Suppress when OTTO has structured data for the current page.
+     *
+     * @param  array|false $data Yoast's JSON-LD data.
+     * @return array|false
+     */
+    public function filter_yoast_schema($data) {
+        if ($this->otto_has_schema_for_current_page()) {
+            return false;
+        }
+        return $data;
+    }
+
     // ------------------------------------------------------------------
     // RankMath integration
     // ------------------------------------------------------------------
@@ -588,6 +622,9 @@ class Metasync_SEO_Conflict_Handler {
     private function register_rankmath_filters() {
         add_filter('rank_math/frontend/title', [$this, 'filter_rankmath_title'], 999);
         add_filter('rank_math/frontend/description', [$this, 'filter_rankmath_description'], 999);
+
+        // Suppress RankMath schema/JSON-LD when OTTO has structured data
+        add_filter('rank_math/json_ld', [$this, 'filter_rankmath_schema'], 999);
     }
 
     /**
@@ -618,6 +655,21 @@ class Metasync_SEO_Conflict_Handler {
         }
 
         return $description;
+    }
+
+    /**
+     * Filter RankMath schema/JSON-LD output.
+     * Suppress when OTTO has structured data for the current page.
+     *
+     * @param  array $data RankMath's JSON-LD data array.
+     * @return array
+     */
+    public function filter_rankmath_schema($data) {
+        if ($this->otto_has_schema_for_current_page()) {
+            return [];
+        }
+
+        return $data;
     }
 
     // ------------------------------------------------------------------
@@ -702,6 +754,24 @@ class Metasync_SEO_Conflict_Handler {
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
+
+    /**
+     * Check whether OTTO has structured data (schema/JSON-LD) for the current page.
+     *
+     * @return bool
+     */
+    private function otto_has_schema_for_current_page() {
+        if (!$this->is_otto_active()) {
+            return false;
+        }
+
+        $post_id = $this->get_current_object_id();
+        if (!$post_id) {
+            return false;
+        }
+
+        return !empty(get_post_meta($post_id, '_metasync_otto_structured_data', true));
+    }
 
     /**
      * Get the current queried object ID.

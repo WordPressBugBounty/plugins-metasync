@@ -184,6 +184,18 @@ class Metasync_Seo_Output
 		if (empty($post))
 			return;
 
+		# Keywords: render persisted OTTO focus keyword as <meta name="keywords">
+		$focus_keyword = get_post_meta($post->ID, '_metasync_focus_keyword', true);
+		if (!empty($focus_keyword)) {
+			$list_page_meta['keywords'] = sanitize_text_field($focus_keyword);
+		}
+
+		# Canonical: output <link rel="canonical"> only when no third-party SEO plugin
+		# handles it, to avoid duplicate canonical tags in the page source.
+		if (!$conflict_handler->has_active_seo_plugin()) {
+			$list_page_meta['canonical'] = $this->get_canonical_url($post);
+		}
+
 		# $post_text = wp_trim_words(get_the_content(), 30, '');
 
 		# Check if the post has content, then apply WordPress content filters
@@ -538,6 +550,12 @@ class Metasync_Seo_Output
 	 * Get the canonical URL for a post
 	 */
 	private function get_canonical_url($post) {
+		# Check for persisted OTTO canonical URL first
+		$metasync_canonical = get_post_meta($post->ID, '_metasync_canonical_url', true);
+		if (!empty($metasync_canonical)) {
+			return esc_url($metasync_canonical);
+		}
+
 		# Try to get the permalink using WordPress function
 		$permalink = get_permalink($post->ID);
 

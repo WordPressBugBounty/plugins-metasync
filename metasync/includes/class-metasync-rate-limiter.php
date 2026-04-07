@@ -97,14 +97,6 @@ class Metasync_Rate_Limiter
             $remaining_seconds = $data[$full_key]['expires_at'] - $now;
             $remaining_minutes = ceil($remaining_seconds / 60);
 
-            error_log(sprintf(
-                'MetaSync Rate Limiter: Rate limit exceeded for key %s (attempts: %d/%d, resets in %d seconds)',
-                substr($full_key, 0, 20) . '...',
-                $data[$full_key]['attempts'],
-                $max_attempts,
-                $remaining_seconds
-            ));
-
             return new WP_Error(
                 'rate_limit_exceeded',
                 sprintf(
@@ -140,8 +132,6 @@ class Metasync_Rate_Limiter
         $ip_address = $this->get_client_ip();
 
         if (empty($ip_address)) {
-            # Cannot determine IP, allow but log warning
-            error_log('MetaSync Rate Limiter: Unable to determine client IP for rate limiting');
             return true;
         }
 
@@ -263,7 +253,6 @@ class Metasync_Rate_Limiter
 
         if ($removed_count > 0) {
             $this->save_rate_limit_data($data);
-            error_log(sprintf('MetaSync Rate Limiter: Cleaned up %d expired rate limit entries', $removed_count));
         }
 
         return $removed_count;

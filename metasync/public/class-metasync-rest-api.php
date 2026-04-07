@@ -1513,11 +1513,12 @@ class Metasync_Rest_Api
 				$key = array_rand($users);
 				$post_author = $users[$key];
 			}
-			/* 
-			check if the create_item is called by set_landing_page function or not 
+			/*
+			check if the create_item is called by set_landing_page function or not
 			by doing this we will prevent html from going into builder page option
 			*/
-			if(!isset($item['is_landing_page']) && empty($item['otto_ai_page']) && empty($item['style_data']) ){
+			$isOttoAiPage = !empty($item['otto_ai_page']) && filter_var($item['otto_ai_page'], FILTER_VALIDATE_BOOLEAN);
+			if(!isset($item['is_landing_page']) && !$isOttoAiPage && empty($item['style_data']) ){
 
 				# Get Current Post type
 				$current_post_type = isset($item['post_type']) ? sanitize_text_field($item['post_type']) : 'post';
@@ -1528,7 +1529,7 @@ class Metasync_Rest_Api
 				$metasync_general = Metasync::get_option('general');
 				$theme_name = $metasync_general['current_theme_name'] ?? '';
 				$theme_template = $metasync_general['current_theme_template'] ?? '';
-				
+
 				$is_flatsome_theme = false;
 				if (!empty($theme_name) && stripos($theme_name, 'Flatsome') !== false) {
 					$is_flatsome_theme = true;
@@ -1543,7 +1544,7 @@ class Metasync_Rest_Api
 
 					# Check if the post title is there in the template or not
 					if(!$title_and_feature_image['image_in_content'] && !empty($item['hero_image_url'])){
-						
+
 						# Prepend the feature image
 						$item['post_content'] = '<img src="'.$item['hero_image_url'].'" />'.$item['post_content'] ;
 					}
@@ -1554,18 +1555,18 @@ class Metasync_Rest_Api
 						# Prepend the post title
 						$item['post_content'] = '<h1>'.$item['post_title'].'</h1>'.$item['post_content'] ;
 					}
-					
-				}	
+
+				}
 				#  This will be used by create_page function
-				$content = $this->metasync_upload_post_content($item,false,false); 
-            }elseif(isset($item['is_landing_page']) && $item['is_landing_page'] == true){
+				$content = $this->metasync_upload_post_content($item,false,false);
+			}elseif(isset($item['is_landing_page']) && $item['is_landing_page'] == true){
 				$content = $this->metasync_upload_post_content($item,true); // This will be used by set_landing_page function
 			}
 			/*
 			Check if the otto_ai_page is payload is set in the api or not.
 			If it is please set the third parameter to true.
 			*/
-			if(isset($item['otto_ai_page']) && $item['otto_ai_page']==true && !empty($item['style_data'])){
+			if($isOttoAiPage && !empty($item['style_data'])){
 				$content = $this->metasync_upload_post_content($item,true,true);
 			}
 
@@ -2231,9 +2232,10 @@ class Metasync_Rest_Api
 				$update_params['meta_canonical'] = sanitize_text_field($post['meta_canonical']);
 			}
 
-			if (isset($post['post_content']) && !empty($post['post_content']) && empty($post['otto_ai_page'])) {
+			$isOttoAiPage = !empty($post['otto_ai_page']) && filter_var($post['otto_ai_page'], FILTER_VALIDATE_BOOLEAN);
+			if (isset($post['post_content']) && !empty($post['post_content']) && !$isOttoAiPage) {
 
-				# Above we are updating the post_type so we have to get latest value that has been change on the server 
+				# Above we are updating the post_type so we have to get latest value that has been change on the server
 				$post_fresh_data = get_post($post['post_id']);
 
 				/**
@@ -2243,7 +2245,7 @@ class Metasync_Rest_Api
 				$metasync_general = Metasync::get_option('general');
 				$theme_name = $metasync_general['current_theme_name'] ?? '';
 				$theme_template = $metasync_general['current_theme_template'] ?? '';
-				
+
 				$is_flatsome_theme = false;
 				if (!empty($theme_name) && stripos($theme_name, 'Flatsome') !== false) {
 					$is_flatsome_theme = true;
@@ -2258,7 +2260,7 @@ class Metasync_Rest_Api
 
 					# Check if the post title is there in the template or not
 					if(!$title_and_feature_image['image_in_content'] && !empty($post['hero_image_url'])){
-						
+
 						# Prepend the feature image
 						$post['post_content'] = '<img src="'.$post['hero_image_url'].'" />'.$post['post_content'] ;
 					}
@@ -2271,14 +2273,14 @@ class Metasync_Rest_Api
 					}
 				}
 				// This will be used by update_page function
-				$content = $this->metasync_upload_post_content($post,false,false); 
+				$content = $this->metasync_upload_post_content($post,false,false);
 				$update_params['post_content'] = $content['content'];
 			}
-			/* 
-			check if the create_item is called by set_landing_page function or not 
+			/*
+			check if the create_item is called by set_landing_page function or not
 			by doing this we will prevent html from going into builder page option
 			*/
-			if(isset($post['otto_ai_page']) && $post['otto_ai_page']==true){
+			if($isOttoAiPage){
 				$content = $this->metasync_upload_post_content($post,true,true);
 				$update_params['post_content'] = $content['content'];
 				// delete the elementor related meta data so that it won't get proccess by elementor
@@ -2385,15 +2387,24 @@ class Metasync_Rest_Api
 			}
 
 			$resp_update = $this->update_object($post_id, $update_params);
-			if(isset($content['elementor_meta_data'])){				
+			if(isset($content['elementor_meta_data'])){
 				foreach ($content['elementor_meta_data'] as $key => $value) {
 					update_post_meta($post_id, $key, $value);
 				}
 				if ( did_action( 'elementor/loaded' ) ) {
 					// Clear Elementor cache for the specified post ID
 					\Elementor\Plugin::instance()->files_manager->clear_cache();
-
-				}				
+				}
+			} elseif (!$isOttoAiPage && get_post_meta($post_id, '_elementor_data', true)) {
+				// Content was NOT converted to Elementor format (e.g. Oxygen is the active
+				// builder), but stale Elementor meta exists from a previous sync. Clear it
+				// so Elementor doesn't override the page builder's rendering.
+				delete_post_meta($post_id, '_elementor_data');
+				delete_post_meta($post_id, '_elementor_edit_mode');
+				delete_post_meta($post_id, '_elementor_version');
+				delete_post_meta($post_id, '_elementor_css');
+				delete_post_meta($post_id, '_elementor_page_assets');
+				delete_post_meta($post_id, '_elementor_page_settings');
 			}
 
 			$redirection = array();
@@ -2553,12 +2564,13 @@ class Metasync_Rest_Api
 
 		$payloadIndex = 0;
 		$pageTemplate = 'default';
+		$isOttoAiPage = !empty($payload['otto_ai_page']) && filter_var($payload['otto_ai_page'], FILTER_VALIDATE_BOOLEAN);
 		foreach ($post_ids as $post_id) {
 			/*
-			check if the payload for style_data and otto_ai_page is set or not 
+			check if the payload for style_data and otto_ai_page is set or not
 			Also Check if the otto_ai_page is true or not if set true set Metasync Template for the page
 			*/
-			if(isset($payload['style_data'])  && isset($payload['otto_ai_page']) && $payload['otto_ai_page']==true){
+			if(isset($payload['style_data']) && $isOttoAiPage){
 			// Change the page template from default to  Metasync Template
 			$pageTemplate = Metasync_Template::TEMPLATE_NAME;
 			// store the style_date in a variable to ease the process
@@ -2568,7 +2580,7 @@ class Metasync_Rest_Api
 				// add the post meta by calling the style_meta_data function
 				$this->style_meta_data($styleData,$post_id);
 			}
-			// delete the elementor data so that it won't create problem in rendering 
+			// delete the elementor data so that it won't create problem in rendering
 			delete_post_meta( $post_id, '_elementor_data' );
 			delete_post_meta( $post_id, '_elementor_version' );
 			delete_post_meta( $post_id, '_elementor_css' );
@@ -2582,11 +2594,22 @@ class Metasync_Rest_Api
 				require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-template.php';
 				$pageTemplate = Metasync_Template::TEMPLATE_NAME;
 			}
-			if(isset($payload['otto_ai_page']) && $payload['otto_ai_page']){
+			if($isOttoAiPage){
 				// Change the page template from default to  Metasync Template
 				$pageTemplate = Metasync_Template::TEMPLATE_NAME;
 			}
-			update_post_meta($post_id, '_wp_page_template', $pageTemplate);
+			if ($pageTemplate !== 'default') {
+				update_post_meta($post_id, '_wp_page_template', $pageTemplate);
+			} else {
+				// Clear stale templates that conflict with the active page builder.
+				// e.g. metasync-blank from a previous OTTO sync, or elementor_canvas
+				// written by the HTML-to-builder converter on an Oxygen site.
+				$current = get_post_meta($post_id, '_wp_page_template', true);
+				$stale_templates = array(Metasync_Template::TEMPLATE_NAME, 'elementor_canvas', 'elementor_header_footer');
+				if (in_array($current, $stale_templates, true)) {
+					delete_post_meta($post_id, '_wp_page_template');
+				}
+			}
 		}
 
 		return rest_ensure_response($createPages);
@@ -2623,25 +2646,24 @@ class Metasync_Rest_Api
 
 		$payloadIndex = 0;
 		$pageTemplate = 'default';
+		$isOttoAiPage = !empty($payload['otto_ai_page']) && filter_var($payload['otto_ai_page'], FILTER_VALIDATE_BOOLEAN);
 		foreach ($post_ids as $post_id) {
 			/*
-			check if the payload for style_data and otto_ai_page is set or not 
-			Also Check if the otto_ai_page is true or not if set true 
+			check if the payload for style_data and otto_ai_page is set or not
+			Also Check if the otto_ai_page is true or not if set true
 			Update the  Metasync Template for the page with css and js
 			*/
-			if(isset($payload['style_data']) && $payload['otto_ai_page']==true){
-				// Change the page template from default to  Metasync Template				
+			if(isset($payload['style_data']) && $isOttoAiPage){
+				// Change the page template from default to  Metasync Template
 				$pageTemplate = Metasync_Template::TEMPLATE_NAME;
 				// store the style_date in a variable to ease the process
 				$styleData = $payload['style_data'];
 				// check if $styleData is an array
 				if(is_array($styleData)){
 					// update the post meta by calling the style_meta_data function
-					$this->style_meta_data($styleData,$post_id,true); 
+					$this->style_meta_data($styleData,$post_id,true);
 				}
-				
-					
-				}
+			}
 			if (
 				isset($payload[$payloadIndex]['is_blank']) &&
 				!empty($payload[$payloadIndex]['is_blank']) &&
@@ -2650,11 +2672,20 @@ class Metasync_Rest_Api
 				require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-template.php';
 				$pageTemplate = Metasync_Template::TEMPLATE_NAME;
 			}
-			if(isset($payload['otto_ai_page']) && $payload['otto_ai_page']){
+			if($isOttoAiPage){
 				// Change the page template from default to  Metasync Template
 				$pageTemplate = Metasync_Template::TEMPLATE_NAME;
 			}
-			update_post_meta($post_id, '_wp_page_template', $pageTemplate);
+			if ($pageTemplate !== 'default') {
+				update_post_meta($post_id, '_wp_page_template', $pageTemplate);
+			} else {
+				// Clear stale templates that conflict with the active page builder.
+				$current = get_post_meta($post_id, '_wp_page_template', true);
+				$stale_templates = array(Metasync_Template::TEMPLATE_NAME, 'elementor_canvas', 'elementor_header_footer');
+				if (in_array($current, $stale_templates, true)) {
+					delete_post_meta($post_id, '_wp_page_template');
+				}
+			}
 		}
 		return rest_ensure_response($updatePages->data);
 	}

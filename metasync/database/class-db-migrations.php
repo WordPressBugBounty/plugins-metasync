@@ -195,6 +195,10 @@ class MetaSync_DBMigration
 
 			dbDelta($table_sql);
 		}
+
+		// Create Zapier Subscriptions Table
+		require_once dirname(__FILE__, 2) . '/zapier/class-metasync-zapier-database.php';
+		Metasync_Zapier_Database::create_table();
 	}
 
 	/**

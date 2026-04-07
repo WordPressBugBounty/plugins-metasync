@@ -12,10 +12,11 @@
 
     const { registerPlugin } = wp.plugins;
     const { PluginSidebar, PluginSidebarMoreMenuItem } = wp.editPost;
-    const { PanelBody, TextControl, TextareaControl, Button, ButtonGroup } = wp.components;
-    const { useSelect, useDispatch } = wp.data;
-    const { useState, useEffect, createElement: el } = wp.element;
+    const { PanelBody, TextControl, TextareaControl, Button, ButtonGroup, Spinner, Notice } = wp.components;
+    const { useSelect, useDispatch, select: wpSelect, dispatch: wpDispatch } = wp.data;
+    const { useState, useEffect, useCallback, createElement: el } = wp.element;
     const { __ } = wp.i18n;
+    const apiFetch = wp.apiFetch;
 
     // Get configuration from PHP
     const config = window.metasyncSeoSidebar || {
@@ -482,6 +483,316 @@
     };
 
     /**
+     * Internal Link Suggestions Panel Component
+     * Fetches and displays internal link suggestions from the REST API.
+     * Uses Gutenberg block APIs to insert links safely within individual blocks.
+     */
+    const LinkSuggestionsPanel = () => {
+        const [suggestions, setSuggestions] = useState([]);
+        const [isLoading, setIsLoading] = useState(false);
+        const [error, setError] = useState(null);
+        const [insertStatus, setInsertStatus] = useState(null);
+
+        const postId = useSelect((select) => {
+            return select('core/editor').getCurrentPostId();
+        }, []);
+
+        const blocks = useSelect((select) => {
+            return select('core/block-editor').getBlocks();
+        }, []);
+
+        const lsConfig = config.linkSuggestions || {};
+        const lsI18n = lsConfig.i18n || {};
+
+        const escapeRegex = (str) => {
+            return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        };
+
+        const fetchSuggestions = () => {
+            if (!postId || !lsConfig.restUrl) return;
+            setIsLoading(true);
+            setError(null);
+            setInsertStatus(null);
+
+            apiFetch({
+                url: lsConfig.restUrl + '?post_id=' + postId + '&limit=10',
+            }).then((response) => {
+                setSuggestions(response.suggestions || []);
+                setIsLoading(false);
+            }).catch((err) => {
+                setError(err.message || 'Failed to fetch suggestions');
+                setIsLoading(false);
+            });
+        };
+
+        useEffect(() => {
+            fetchSuggestions();
+        }, [postId]);
+
+        /**
+         * Get the plain text content of a block (strips HTML tags)
+         */
+        const getBlockText = (html) => {
+            if (!html) return '';
+            var doc = new DOMParser().parseFromString(html, 'text/html');
+            return doc.body.textContent || '';
+        };
+
+        /**
+         * Get the text content attribute from a block (handles different block types)
+         */
+        const getBlockContentHtml = (block) => {
+            if (!block || !block.attributes) return '';
+            // core/paragraph, core/heading, core/preformatted, core/verse use 'content'
+            // core/list (older) uses 'values'
+            // core/list-item uses 'content'
+            return block.attributes.content || block.attributes.values || '';
+        };
+
+        /**
+         * Flatten all blocks including nested innerBlocks into a single list
+         */
+        const flattenBlocks = (blockList) => {
+            var result = [];
+            if (!blockList) return result;
+            for (var i = 0; i < blockList.length; i++) {
+                result.push(blockList[i]);
+                if (blockList[i].innerBlocks && blockList[i].innerBlocks.length > 0) {
+                    result = result.concat(flattenBlocks(blockList[i].innerBlocks));
+                }
+            }
+            return result;
+        };
+
+        /**
+         * Check if a position in HTML is inside an HTML tag (i.e., between < and >)
+         * This prevents matching text inside attributes like alt="...", title="...", etc.
+         */
+        const isInsideHtmlTag = (html, index) => {
+            // Look backwards from the match position for < or >
+            for (var i = index - 1; i >= 0; i--) {
+                if (html[i] === '>') return false; // Closed tag before us — we're outside
+                if (html[i] === '<') return true;  // Open tag before us — we're inside a tag
+            }
+            return false;
+        };
+
+        /**
+         * Check if a position in HTML is inside an <a>...</a> element
+         */
+        const isInsideAnchorTag = (html, index) => {
+            var before = html.substring(0, index);
+            var openA = (before.match(/<a\s/gi) || []).length;
+            var closeA = (before.match(/<\/a>/gi) || []).length;
+            return openA > closeA;
+        };
+
+        /**
+         * Check if phrase exists in any block and is not already linked
+         */
+        const isPhraseUnlinked = useCallback((phrase) => {
+            if (!phrase || !blocks || blocks.length === 0) return false;
+
+            var escaped = escapeRegex(phrase);
+            var regex = new RegExp(escaped, 'gi');
+            var allBlocks = flattenBlocks(blocks);
+
+            for (var i = 0; i < allBlocks.length; i++) {
+                var block = allBlocks[i];
+                var html = getBlockContentHtml(block);
+                if (!html) continue;
+
+                var text = getBlockText(html);
+                if (!(new RegExp(escaped, 'i')).test(text)) continue;
+
+                // Search in raw HTML for an occurrence that is:
+                // 1. NOT inside an HTML tag attribute
+                // 2. NOT inside an <a> tag
+                var match;
+                regex.lastIndex = 0;
+                while ((match = regex.exec(html)) !== null) {
+                    if (!isInsideHtmlTag(html, match.index) && !isInsideAnchorTag(html, match.index)) {
+                        return true;
+                    }
+                }
+                regex.lastIndex = 0;
+            }
+            return false;
+        }, [blocks]);
+
+        /**
+         * Insert a link using Gutenberg's block API
+         * Finds the specific block containing the phrase and updates only that block
+         */
+        const insertLink = (suggestion) => {
+            var phrase = suggestion.matched_phrase;
+            var url = suggestion.url;
+            if (!phrase || !url) return;
+
+            var escaped = escapeRegex(phrase);
+            var searchRegex = new RegExp(escaped, 'gi');
+
+            // Sanitize URL for safe HTML insertion
+            var safeUrl = url.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+            // Find the block that contains this phrase (unlinked), including nested blocks
+            var currentBlocks = flattenBlocks(wpSelect('core/block-editor').getBlocks());
+
+            for (var i = 0; i < currentBlocks.length; i++) {
+                var block = currentBlocks[i];
+                var html = getBlockContentHtml(block);
+                if (!html) continue;
+
+                // Check if phrase exists in this block's text
+                var text = getBlockText(html);
+                if (!searchRegex.test(text)) {
+                    searchRegex.lastIndex = 0;
+                    continue;
+                }
+                searchRegex.lastIndex = 0;
+
+                // Find the first unlinked occurrence in the HTML
+                var match;
+                var newHtml = html;
+                var replaced = false;
+
+                while ((match = searchRegex.exec(html)) !== null) {
+                    // Skip matches inside HTML tag attributes (alt, title, src, etc.)
+                    if (isInsideHtmlTag(html, match.index)) continue;
+                    // Skip matches inside existing <a> tags
+                    if (isInsideAnchorTag(html, match.index)) continue;
+
+                    // This occurrence is safe to wrap
+                    var originalPhrase = html.substring(match.index, match.index + match[0].length);
+                    newHtml = html.substring(0, match.index) +
+                        '<a href="' + safeUrl + '" target="_blank" rel="noopener noreferrer">' + originalPhrase + '</a>' +
+                        html.substring(match.index + match[0].length);
+                    replaced = true;
+                    break;
+                }
+                searchRegex.lastIndex = 0;
+
+                if (replaced) {
+                    // Update ONLY this specific block, not the entire post content
+                    // Use the correct attribute key (content vs values for list blocks)
+                    var attrKey = (block.attributes && block.attributes.values !== undefined && !block.attributes.content) ? 'values' : 'content';
+                    var updateAttrs = {};
+                    updateAttrs[attrKey] = newHtml;
+                    wpDispatch('core/block-editor').updateBlockAttributes(block.clientId, updateAttrs);
+
+                    // Remove the inserted suggestion from the list
+                    setSuggestions(function(prev) {
+                        return prev.filter(function(s) {
+                            return s.post_id !== suggestion.post_id;
+                        });
+                    });
+
+                    setInsertStatus('Linked: "' + phrase + '"');
+                    setTimeout(function() { setInsertStatus(null); }, 3000);
+                    return;
+                }
+            }
+
+            // If we got here, couldn't find a suitable block
+            setInsertStatus('Could not find the phrase in any content block.');
+            setTimeout(function() { setInsertStatus(null); }, 3000);
+        };
+
+        const truncateUrl = (url, maxLen) => {
+            if (!url) return '';
+            if (url.length <= maxLen) return url;
+            return url.substring(0, maxLen) + '\u2026';
+        };
+
+        // Build panel children
+        var children = [];
+
+        // Header with Refresh button
+        children.push(
+            el('div', { className: 'metasync-link-suggestions-header', key: 'header' },
+                el('span', null, ''),
+                el(Button, {
+                    isSmall: true,
+                    isSecondary: true,
+                    onClick: fetchSuggestions,
+                    disabled: isLoading,
+                }, lsI18n.refreshButton || 'Refresh')
+            )
+        );
+
+        // Cross-plugin notices
+        if (lsConfig.yoastPremiumActive) {
+            children.push(
+                el('div', { className: 'metasync-link-suggestions-notice', key: 'yoast-notice' },
+                    lsI18n.yoastNotice || ''
+                )
+            );
+        }
+        if (lsConfig.rankMathActive) {
+            children.push(
+                el('div', { className: 'metasync-link-suggestions-notice', key: 'rankmath-notice' },
+                    lsI18n.rankMathNotice || ''
+                )
+            );
+        }
+
+        // Insert status feedback
+        if (insertStatus) {
+            children.push(
+                el('div', {
+                    className: 'metasync-link-suggestions-notice',
+                    key: 'insert-status',
+                    style: { color: '#00a32a', fontWeight: 600 },
+                }, insertStatus)
+            );
+        }
+
+        if (isLoading) {
+            children.push(el(Spinner, { key: 'spinner' }));
+        } else if (error) {
+            children.push(
+                el('div', { className: 'metasync-link-suggestions-empty', key: 'error' }, error)
+            );
+        } else if (suggestions.length === 0) {
+            children.push(
+                el('div', { className: 'metasync-link-suggestions-empty', key: 'empty' },
+                    lsI18n.noSuggestions || 'No suggestions found.'
+                )
+            );
+        } else {
+            var items = suggestions.map(function(suggestion) {
+                var canInsert = isPhraseUnlinked(suggestion.matched_phrase);
+                return el('li', {
+                    className: 'metasync-link-suggestion-item',
+                    key: suggestion.post_id,
+                },
+                    el('span', { className: 'metasync-suggestion-title' }, suggestion.title),
+                    el('span', { className: 'metasync-suggestion-url' }, truncateUrl(suggestion.url, 40)),
+                    el('span', { className: 'metasync-suggestion-phrase' },
+                        (lsI18n.matchedPhrase || 'Matched phrase:') + ' ',
+                        el('strong', null, suggestion.matched_phrase)
+                    ),
+                    suggestion.relevance_score ? el('span', {
+                        className: 'metasync-suggestion-score',
+                        style: { fontSize: '11px', color: '#646970', display: 'block', marginBottom: '4px' },
+                    }, 'Relevance: ' + Math.round(suggestion.relevance_score * 100) + '%') : null,
+                    el(Button, {
+                        isSmall: true,
+                        isPrimary: true,
+                        onClick: function() { insertLink(suggestion); },
+                        disabled: !canInsert,
+                    }, lsI18n.insertButton || 'Insert')
+                );
+            });
+            children.push(
+                el('ul', { className: 'metasync-link-suggestions-list', key: 'list' }, items)
+            );
+        }
+
+        return el('div', null, children);
+    };
+
+    /**
      * MetaSync SEO Sidebar Icon
      * Uses external SVG from admin/images/icon-256x256.svg
      */
@@ -534,6 +845,12 @@
                     initialOpen: true,
                 },
                     el(SerpPreview, null)
+                ),
+                el(PanelBody, {
+                    title: (config.linkSuggestions && config.linkSuggestions.i18n && config.linkSuggestions.i18n.panelTitle) || 'Internal Link Suggestions',
+                    initialOpen: false,
+                },
+                    el(LinkSuggestionsPanel, null)
                 )
             )
         );

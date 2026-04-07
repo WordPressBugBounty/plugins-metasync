@@ -498,7 +498,7 @@ class Metasync_API_Backoff_Manager {
      * @param string $message    Log message.
      */
     private function log_backoff_event($event_type, $message) {
-        error_log(sprintf('[MetaSync %s] %s', $event_type, $message));
+        // Backoff events are operational noise; suppress from error log.
     }
 
     /**

@@ -371,6 +371,11 @@ class Metasync_Telemetry_Manager {
     public function send_message($message, $level = 'info', $context = array(), $use_queue = true) {
         if (!$this->telemetry_enabled) return;
 
+        // Only send fatal/error-level messages — drop info, warning, debug
+        if (!in_array($level, ['error', 'fatal', 'critical'], true)) {
+            return;
+        }
+
         // Generate error fingerprint for deduplication (only for error level messages)
         $error_fingerprint = null;
         if (in_array($level, ['error', 'fatal', 'critical'])) {

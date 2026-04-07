@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.5.26 
+ * Version:           2.5.27 
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
  * License:           GPL v3
@@ -33,7 +33,7 @@ if (!defined('WPINC')) {
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.5.26';
+$metasync_version = '2.5.27';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -298,6 +298,12 @@ function deactivate_metasync()
 	Metasync_Deactivator::deactivate();
     // class name is changed at class-db-migrations.php
 	MetaSync_DBMigration::deactivation();
+
+	// Unschedule the sync log cleanup cron to avoid orphaned events.
+	$timestamp = wp_next_scheduled('metasync_sync_log_daily_cleanup');
+	if ($timestamp) {
+		wp_unschedule_event($timestamp, 'metasync_sync_log_daily_cleanup');
+	}
 }
 
 register_activation_hook(__FILE__, 'activate_metasync');
@@ -478,11 +484,20 @@ require plugin_dir_path(__FILE__) . 'otto/class-metasync-otto-mcp-integration.ph
 // Include WordPress MCP Server for Model Context Protocol support
 require plugin_dir_path(__FILE__) . 'wp-mcp-server/class-metasync-mcp-server.php';
 
+// Include MCP Sync Logger (logs MCP write operations to Sync History)
+require plugin_dir_path(__FILE__) . 'wp-mcp-server/class-metasync-mcp-sync-logger.php';
+
 // Include Mixpanel Analytics Integration
 require plugin_dir_path(__FILE__) . 'includes/class-metasync-mixpanel.php';
 
 // Include Media Optimization Module
 require_once plugin_dir_path(__FILE__) . 'media-optimization/media-optimization-loader.php';
+
+// Include Code Minification & Delivery Module
+require_once plugin_dir_path(__FILE__) . 'code-minification/code-minification-loader.php';
+
+// Include Zapier Connector
+require_once plugin_dir_path(__FILE__) . 'zapier/zapier-loader.php';
 
 try {
 	require plugin_dir_path(__FILE__) . 'includes/class-metasync.php';
@@ -509,8 +524,17 @@ run_metasync();
 function metasync_init_mcp_server() {
 	// Initialize MCP server
 	global $metasync_mcp_server;
+
 	try {
 		$metasync_mcp_server = new Metasync_MCP_Server();
+
+		// Attach MCP sync logger so all write tool calls are recorded in Sync History.
+		new Metasync_MCP_Sync_Logger();
+
+		// SEO Inventory: shared builder + standalone REST endpoint (WP-135)
+		require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-seo-inventory-builder.php';
+		require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-rest-seo-inventory.php';
+		new Metasync_REST_SEO_Inventory();
 
 		// Load tool classes
 		$tool_path = plugin_dir_path(__FILE__) . 'wp-mcp-server/tools/';
@@ -535,6 +559,9 @@ function metasync_init_mcp_server() {
 		require_once $tool_path . 'class-mcp-tool-bulk-operations.php';
 		require_once $tool_path . 'class-mcp-tool-wordpress-settings.php';
 		require_once $tool_path . 'class-mcp-tool-otto-persistence.php';
+		require_once $tool_path . 'class-mcp-tool-system-info.php';
+		require_once $tool_path . 'class-mcp-tool-db-query.php';
+		require_once $tool_path . 'class-mcp-tool-seo-inventory.php';
 	} catch (Exception $e) {
 		error_log('MCP Server Initialization Error: ' . $e->getMessage());
 		return;
@@ -707,12 +734,43 @@ function metasync_init_mcp_server() {
 		$safe_register(new MCP_Tool_Update_Otto_Persistence_Settings());
 	}
 
+	// System Diagnostics & Plugin Info (4 tools)
+	$safe_register(new MCP_Tool_System_Diagnostics());
+	$safe_register(new MCP_Tool_List_All_Plugins());
+	$safe_register(new MCP_Tool_Get_Cron_Jobs());
+	$safe_register(new MCP_Tool_Get_WP_Option());
+
+	// SEO Inventory (1 tool — WP-135)
+	$safe_register(new MCP_Tool_List_Posts_SEO_Inventory());
+
+	// Read-Only Database Access (3 tools)
+	$safe_register(new MCP_Tool_DB_Tables());
+	$safe_register(new MCP_Tool_DB_Describe());
+	$safe_register(new MCP_Tool_DB_Select());
+
 	// Allow other plugins/themes to register tools
 	do_action('metasync_mcp_register_tools', $metasync_mcp_server);
 }
 add_action('init', 'metasync_init_mcp_server', 5);
 
+/**
+ * Schedule a daily cron event to auto-purge Sync History records older than 90 days.
+ */
+function metasync_schedule_sync_log_cleanup() {
+	if (!wp_next_scheduled('metasync_sync_log_daily_cleanup')) {
+		wp_schedule_event(time(), 'daily', 'metasync_sync_log_daily_cleanup');
+	}
+}
+add_action('wp', 'metasync_schedule_sync_log_cleanup');
 
+/**
+ * Cron callback: delete Sync History records older than 90 days.
+ */
+function metasync_sync_log_cleanup_handler() {
+	$sync_db = new Metasync_Sync_History_Database();
+	$sync_db->delete_older_than_days(90);
+}
+add_action('metasync_sync_log_daily_cleanup', 'metasync_sync_log_cleanup_handler');
 
 /**
  * Output DYO initialization flag to the frontend
@@ -799,3 +857,14 @@ function metasync_init_debug_mode_manager() {
 	Metasync_Debug_Mode_Manager::get_instance();
 }
 add_action('init', 'metasync_init_debug_mode_manager', 10);
+
+/**
+ * Oxygen Builder Compatibility
+ * Auto re-signs [oxygen] dynamic-data shortcodes when their HMAC signatures
+ * are invalid (e.g. after design-set import or site migration).
+ * Runs once on admin_init; skips entirely when Oxygen is inactive.
+ */
+if (is_admin()) {
+	require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-oxygen-compat.php';
+	add_action('admin_init', ['Metasync_Oxygen_Compat', 'maybe_resign_shortcodes'], 20);
+}

@@ -438,11 +438,20 @@ Class Metasync_otto_html{
             }
         }
 
+        # CRITICAL FIX: Apply image alt text manually via string replacement
+        # DOM changes via SimpleHtmlDom don't persist on Oxygen/page-builder sites using HTTP render path
+        $result_html = $this->apply_image_alt_text_via_string($result_html, $replacement_data);
+
         # Apply insertions — only if DOM insertion didn't already apply it
         if (!empty($replacement_data['header_html_insertion'])) {
             $header_html_check = trim($replacement_data['header_html_insertion']);
             if (strpos($result_html, $header_html_check) === false) {
-                $safe_header = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['header_html_insertion']);
+                $header_html_insertion = preg_replace(
+                    '/<script(\s[^>]*)type\s*=\s*(["\'])application\/ld\+json\2/i',
+                    '<script$1type=$2application/ld+json$2 data-otto="true"',
+                    $replacement_data['header_html_insertion']
+                );
+                $safe_header = str_replace(array('\\', '$'), array('\\\\', '\\$'), $header_html_insertion);
                 $result_html = preg_replace('/(<\/head>)/i', $safe_header . "\n" . '$1', $result_html, 1);
             }
         }
@@ -459,9 +468,10 @@ Class Metasync_otto_html{
             $result_html = preg_replace('/(<\/html>)/i', $safe_footer . "\n" . '$1', $result_html, 1);
         }
 
-        # DEDUPLICATION: Remove duplicate <title>, OG, and Twitter tags
+        # DEDUPLICATION: Remove duplicate <title>, OG, Twitter tags, and JSON-LD schema
         $result_html = $this->deduplicate_title_tags($result_html);
         $result_html = $this->deduplicate_og_twitter_tags($result_html);
+        $result_html = $this->deduplicate_schema_tags($result_html);
 
         # Ensure metasync_optimized attribute on <head> (post-serialization so dom->clear() can't wipe it)
         if (!$this->is_amp_page() && strpos($result_html, 'metasync_optimized') === false) {
@@ -648,6 +658,73 @@ Class Metasync_otto_html{
                 # error_log('MetaSync OTTO DEBUG: Failed to update Divi multi-view - ' . $e->getMessage());
             }
         }
+    }
+
+    /**
+     * Apply image alt text via string replacement on raw HTML.
+     * Used as a fallback when DOM changes don't persist (Oxygen, Divi, page-builder sites).
+     *
+     * @param string $html The HTML to process
+     * @param array  $replacement_data The replacement data containing body_substitutions.images
+     * @return string Modified HTML with alt text applied
+     */
+    private function apply_image_alt_text_via_string($html, $replacement_data) {
+        if (empty($replacement_data['body_substitutions']['images']) || !is_array($replacement_data['body_substitutions']['images'])) {
+            return $html;
+        }
+
+        foreach ($replacement_data['body_substitutions']['images'] as $image_url => $alt_text) {
+            if (empty($alt_text) || strpos($html, $image_url) === false) {
+                continue;
+            }
+
+            $escaped_alt = htmlspecialchars($alt_text, ENT_QUOTES, 'UTF-8');
+            $escaped_url = preg_quote($image_url, '/');
+            $img_pattern = '/<img[^>]*src=["\']' . $escaped_url . '["\'][^>]*>/i';
+
+            if (preg_match_all($img_pattern, $html, $img_matches)) {
+                foreach ($img_matches[0] as $original_img) {
+                    if (strpos($original_img, $escaped_alt) !== false) {
+                        continue;
+                    }
+
+                    # Remove ALL existing alt attributes
+                    $new_img = preg_replace('/\s+alt\s*=\s*(["\'])[^"\']*\1/i', '', $original_img);
+                    $new_img = preg_replace('/<img\s+alt\s*=\s*(["\'])[^"\']*\1\s*/i', '<img ', $new_img);
+
+                    # Add single alt attribute after <img
+                    $new_img = preg_replace('/^<img\s*/i', '<img alt="' . str_replace('$', '\\$', $escaped_alt) . '" ', $new_img);
+
+                    # Update data-et-multi-view JSON if present (Divi theme)
+                    if (strpos($new_img, 'data-et-multi-view') !== false) {
+                        $new_img = preg_replace_callback(
+                            '/data-et-multi-view="([^"]+)"/i',
+                            function($mv_matches) use ($alt_text) {
+                                $json_str = html_entity_decode($mv_matches[1], ENT_QUOTES, 'UTF-8');
+                                $json_data = json_decode($json_str, true);
+
+                                if ($json_data && isset($json_data['schema']['attrs'])) {
+                                    foreach ($json_data['schema']['attrs'] as &$attrs) {
+                                        if (array_key_exists('alt', $attrs)) {
+                                            $attrs['alt'] = $alt_text;
+                                        }
+                                    }
+                                    unset($attrs);
+                                    $new_json = json_encode($json_data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                                    return 'data-et-multi-view="' . str_replace('"', '&quot;', $new_json) . '"';
+                                }
+                                return $mv_matches[0];
+                            },
+                            $new_img
+                        );
+                    }
+
+                    $html = str_replace($original_img, $new_img, $html);
+                }
+            }
+        }
+
+        return $html;
     }
 
     # heading substitutions
@@ -1315,6 +1392,91 @@ Class Metasync_otto_html{
         return $html;
     }
 
+    /**
+     * Deduplicate JSON-LD schema blocks.
+     *
+     * When OTTO and a third-party SEO plugin both inject <script type="application/ld+json">
+     * blocks, keep OTTO's version for any @type that appears in both.
+     * Third-party blocks whose @type is not covered by OTTO are preserved.
+     *
+     * @param  string $html Full HTML.
+     * @return string
+     */
+    private function deduplicate_schema_tags($html) {
+        // Find all JSON-LD script blocks
+        $pattern = '/<script(\s[^>]*)type\s*=\s*(["\'])application\/ld\+json\2[^>]*>\s*([\s\S]*?)<\/script>/i';
+        if (preg_match_all($pattern, $html, $matches, PREG_SET_ORDER) <= 1) {
+            return $html;
+        }
+
+        $otto_by_type   = []; // @type => decoded JSON object
+        $third_by_type  = []; // @type => decoded JSON object
+        $otto_graph     = []; // entries from OTTO @graph blocks
+        $third_graph    = []; // entries from third-party @graph blocks
+
+        foreach ($matches as $m) {
+            $attrs    = $m[1];
+            $json_str = $m[3];
+            $decoded  = json_decode($json_str, true);
+            if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
+                continue; // skip unparseable blocks — leave them in place
+            }
+            $is_otto = stripos($attrs, 'data-otto') !== false;
+
+            if (isset($decoded['@graph']) && is_array($decoded['@graph'])) {
+                foreach ($decoded['@graph'] as $entry) {
+                    if (!isset($entry['@type'])) continue;
+                    $type = $entry['@type'];
+                    if ($is_otto) {
+                        $otto_graph[$type] = $entry;
+                    } else {
+                        $third_graph[$type] = $entry;
+                    }
+                }
+            } elseif (isset($decoded['@type'])) {
+                $type = $decoded['@type'];
+                if ($is_otto) {
+                    $otto_by_type[$type] = $decoded;
+                } else {
+                    $third_by_type[$type] = $decoded;
+                }
+            }
+        }
+
+        // If OTTO provided no schema at all, nothing to deduplicate
+        if (empty($otto_by_type) && empty($otto_graph)) {
+            return $html;
+        }
+
+        // Remove all JSON-LD blocks from HTML
+        $html = preg_replace($pattern, '', $html);
+
+        // Re-insert flat (non-@graph) blocks: OTTO wins for matching @type
+        $kept = array_merge($otto_by_type, array_diff_key($third_by_type, $otto_by_type));
+        $rebuilt = '';
+        foreach ($kept as $decoded) {
+            $rebuilt .= '<script type="application/ld+json" data-otto="true">' .
+                        wp_json_encode($decoded) . "</script>\n";
+        }
+
+        // Re-insert merged @graph block (if any entries exist)
+        $merged_graph = array_merge($third_graph, $otto_graph); // OTTO wins on duplicate @type
+        if (!empty($merged_graph)) {
+            $graph_obj = ['@context' => 'https://schema.org', '@graph' => array_values($merged_graph)];
+            $rebuilt .= '<script type="application/ld+json" data-otto="true">' .
+                        wp_json_encode($graph_obj) . "</script>\n";
+        }
+
+        // Re-inject before </head>
+        if (!empty($rebuilt)) {
+            $html = preg_replace_callback('/(<\/head>)/i', function ($m) use ($rebuilt) {
+                return $rebuilt . $m[1];
+            }, $html, 1);
+        }
+
+        return $html;
+    }
+
     # function to detect if current page is an AMP page
     function is_amp_page(){
         
@@ -1686,7 +1848,12 @@ Class Metasync_otto_html{
             if (!empty($replacement_data['header_html_insertion'])) {
                 $header_html_check = trim($replacement_data['header_html_insertion']);
                 if (strpos($result_html, $header_html_check) === false) {
-                    $header_html = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['header_html_insertion']);
+                    $header_html_insertion = preg_replace(
+                        '/<script(\s[^>]*)type\s*=\s*(["\'])application\/ld\+json\2/i',
+                        '<script$1type=$2application/ld+json$2 data-otto="true"',
+                        $replacement_data['header_html_insertion']
+                    );
+                    $header_html = str_replace(array('\\', '$'), array('\\\\', '\\$'), $header_html_insertion);
                     # Insert before </head>
                     $result_html = preg_replace('/(<\/head>)/i', $header_html . "\n" . '$1', $result_html, 1);
                 }
@@ -1736,54 +1903,7 @@ Class Metasync_otto_html{
 
             # CRITICAL FIX: Apply image alt text manually via string replacement
             # DOM changes don't persist, must use string replacement
-            if (!empty($replacement_data['body_substitutions']['images']) && is_array($replacement_data['body_substitutions']['images'])) {
-                foreach ($replacement_data['body_substitutions']['images'] as $image_url => $alt_text) {
-                    if (empty($alt_text) || strpos($result_html, $image_url) === false) {
-                        continue;
-                    }
-
-                    $escaped_alt = htmlspecialchars($alt_text, ENT_QUOTES, 'UTF-8');
-                    $escaped_url = preg_quote($image_url, '/');
-                    $img_pattern = '/<img[^>]*src=["\']' . $escaped_url . '["\'][^>]*>/i';
-
-                    if (preg_match_all($img_pattern, $result_html, $img_matches)) {
-                        foreach ($img_matches[0] as $original_img) {
-                            # Remove ALL existing alt attributes
-                            $new_img = preg_replace('/\s+alt\s*=\s*(["\'])[^"\']*\1/i', '', $original_img);
-                            $new_img = preg_replace('/<img\s+alt\s*=\s*(["\'])[^"\']*\1\s*/i', '<img ', $new_img);
-
-                            # Add single alt attribute after <img
-                            $new_img = preg_replace('/^<img\s*/i', '<img alt="' . str_replace('$', '\\$', $escaped_alt) . '" ', $new_img);
-
-                            # Update data-et-multi-view JSON if present (Divi theme)
-                            if (strpos($new_img, 'data-et-multi-view') !== false) {
-                                $new_img = preg_replace_callback(
-                                    '/data-et-multi-view="([^"]+)"/i',
-                                    function($mv_matches) use ($alt_text) {
-                                        $json_str = html_entity_decode($mv_matches[1], ENT_QUOTES, 'UTF-8');
-                                        $json_data = json_decode($json_str, true);
-
-                                        if ($json_data && isset($json_data['schema']['attrs'])) {
-                                            foreach ($json_data['schema']['attrs'] as &$attrs) {
-                                                if (array_key_exists('alt', $attrs)) {
-                                                    $attrs['alt'] = $alt_text;
-                                                }
-                                            }
-                                            unset($attrs);
-                                            $new_json = json_encode($json_data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-                                            return 'data-et-multi-view="' . str_replace('"', '&quot;', $new_json) . '"';
-                                        }
-                                        return $mv_matches[0];
-                                    },
-                                    $new_img
-                                );
-                            }
-
-                            $result_html = str_replace($original_img, $new_img, $result_html);
-                        }
-                    }
-                }
-            }
+            $result_html = $this->apply_image_alt_text_via_string($result_html, $replacement_data);
 
             # String-based heading fallback for body_substitutions
             # DOM changes via SimpleHtmlDom don't persist on Divi/page-builder sites
@@ -1848,9 +1968,10 @@ Class Metasync_otto_html{
                 );
             }
 
-            # DEDUPLICATION: Remove duplicate <title>, OG, and Twitter tags
+            # DEDUPLICATION: Remove duplicate <title>, OG, Twitter tags, and JSON-LD schema
             $result_html = $this->deduplicate_title_tags($result_html);
             $result_html = $this->deduplicate_og_twitter_tags($result_html);
+            $result_html = $this->deduplicate_schema_tags($result_html);
 
             # MEMORY OPTIMIZED: Free all large objects and arrays before returning
             # This ensures memory is released immediately, especially important for high-traffic sites

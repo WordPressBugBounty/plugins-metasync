@@ -222,7 +222,8 @@ function metasync_extract_meta_description($seo_data) {
         $html_content = $seo_data['header_html_insertion'];
 
         # Look for meta description tag with data-otto-pixel attribute
-        if (preg_match('/<meta\s+name=["\']description["\']\s+[^>]*content=["\']([^"\']+)["\'][^>]*>/i', $html_content, $matches)) {
+        if (preg_match('/<meta\s+name=["\']description["\']\s+[^>]*content="([^"]+)"[^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+name=["\']description["\']\s+[^>]*content=\'([^\']+)\'[^>]*>/i', $html_content, $matches)) {
             $description = sanitize_textarea_field($matches[1]);
             # Clean SEO plugin variables
             $description = metasync_clean_seo_variables($description);
@@ -249,7 +250,8 @@ function metasync_extract_meta_keywords($seo_data) {
         $html_content = $seo_data['header_html_insertion'];
         
         # Look for meta keywords tag with data-otto-pixel attribute
-        if (preg_match('/<meta\s+name=["\']keywords["\']\s+[^>]*content=["\']([^"\']+)["\'][^>]*>/i', $html_content, $matches)) {
+        if (preg_match('/<meta\s+name=["\']keywords["\']\s+[^>]*content="([^"]+)"[^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+name=["\']keywords["\']\s+[^>]*content=\'([^\']+)\'[^>]*>/i', $html_content, $matches)) {
             return sanitize_text_field($matches[1]);
         }
     }
@@ -284,8 +286,10 @@ function metasync_extract_og_title($seo_data) {
         $html_content = $seo_data['header_html_insertion'];
 
         # Match <meta property="og:title" content="..."> (property and content in any order)
-        if (preg_match('/<meta\s+[^>]*property=["\']og:title["\'][^>]*content=["\']([^"\']+)["\'][^>]*>/i', $html_content, $matches)
-            || preg_match('/<meta\s+[^>]*content=["\']([^"\']+)["\'][^>]*property=["\']og:title["\'][^>]*>/i', $html_content, $matches)) {
+        if (preg_match('/<meta\s+[^>]*property=["\']og:title["\'][^>]*content="([^"]+)"[^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+[^>]*property=["\']og:title["\'][^>]*content=\'([^\']+)\'[^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+[^>]*content="([^"]+)"[^>]*property=["\']og:title["\'][^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+[^>]*content=\'([^\']+)\'[^>]*property=["\']og:title["\'][^>]*>/i', $html_content, $matches)) {
             $og_title = sanitize_text_field(trim($matches[1]));
             $og_title = metasync_clean_seo_variables($og_title);
             return !empty($og_title) ? $og_title : null;
@@ -322,8 +326,10 @@ function metasync_extract_og_description($seo_data) {
         $html_content = $seo_data['header_html_insertion'];
 
         # Match <meta property="og:description" content="..."> (property and content in any order)
-        if (preg_match('/<meta\s+[^>]*property=["\']og:description["\'][^>]*content=["\']([^"\']+)["\'][^>]*>/i', $html_content, $matches)
-            || preg_match('/<meta\s+[^>]*content=["\']([^"\']+)["\'][^>]*property=["\']og:description["\'][^>]*>/i', $html_content, $matches)) {
+        if (preg_match('/<meta\s+[^>]*property=["\']og:description["\'][^>]*content="([^"]+)"[^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+[^>]*property=["\']og:description["\'][^>]*content=\'([^\']+)\'[^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+[^>]*content="([^"]+)"[^>]*property=["\']og:description["\'][^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+[^>]*content=\'([^\']+)\'[^>]*property=["\']og:description["\'][^>]*>/i', $html_content, $matches)) {
             $og_description = sanitize_textarea_field(trim($matches[1]));
             $og_description = metasync_clean_seo_variables($og_description);
             return !empty($og_description) ? $og_description : null;
@@ -360,8 +366,10 @@ function metasync_extract_twitter_title($seo_data) {
         $html_content = $seo_data['header_html_insertion'];
 
         # Match <meta name="twitter:title" content="..."> (name and content in any order)
-        if (preg_match('/<meta\s+[^>]*name=["\']twitter:title["\'][^>]*content=["\']([^"\']+)["\'][^>]*>/i', $html_content, $matches)
-            || preg_match('/<meta\s+[^>]*content=["\']([^"\']+)["\'][^>]*name=["\']twitter:title["\'][^>]*>/i', $html_content, $matches)) {
+        if (preg_match('/<meta\s+[^>]*name=["\']twitter:title["\'][^>]*content="([^"]+)"[^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+[^>]*name=["\']twitter:title["\'][^>]*content=\'([^\']+)\'[^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+[^>]*content="([^"]+)"[^>]*name=["\']twitter:title["\'][^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+[^>]*content=\'([^\']+)\'[^>]*name=["\']twitter:title["\'][^>]*>/i', $html_content, $matches)) {
             $twitter_title = sanitize_text_field(trim($matches[1]));
             $twitter_title = metasync_clean_seo_variables($twitter_title);
             return !empty($twitter_title) ? $twitter_title : null;
@@ -398,8 +406,10 @@ function metasync_extract_twitter_description($seo_data) {
         $html_content = $seo_data['header_html_insertion'];
 
         # Match <meta name="twitter:description" content="..."> (name and content in any order)
-        if (preg_match('/<meta\s+[^>]*name=["\']twitter:description["\'][^>]*content=["\']([^"\']+)["\'][^>]*>/i', $html_content, $matches)
-            || preg_match('/<meta\s+[^>]*content=["\']([^"\']+)["\'][^>]*name=["\']twitter:description["\'][^>]*>/i', $html_content, $matches)) {
+        if (preg_match('/<meta\s+[^>]*name=["\']twitter:description["\'][^>]*content="([^"]+)"[^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+[^>]*name=["\']twitter:description["\'][^>]*content=\'([^\']+)\'[^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+[^>]*content="([^"]+)"[^>]*name=["\']twitter:description["\'][^>]*>/i', $html_content, $matches)
+            || preg_match('/<meta\s+[^>]*content=\'([^\']+)\'[^>]*name=["\']twitter:description["\'][^>]*>/i', $html_content, $matches)) {
             $twitter_description = sanitize_textarea_field(trim($matches[1]));
             $twitter_description = metasync_clean_seo_variables($twitter_description);
             return !empty($twitter_description) ? $twitter_description : null;
@@ -467,16 +477,55 @@ function metasync_extract_structured_data($seo_data) {
     # Check header_html_insertion for structured data
     if (!empty($seo_data['header_html_insertion'])) {
         $html_content = $seo_data['header_html_insertion'];
-        
-        # Look for JSON-LD structured data
-        if (preg_match('/<script[^>]*type=["\']application\/ld\+json["\'][^>]*>(.*?)<\/script>/is', $html_content, $matches)) {
-            $json_content = trim($matches[1]);
-            if (!empty($json_content)) {
-                return $json_content;
+
+        # Look for ALL JSON-LD structured data blocks
+        if (preg_match_all('/<script[^>]*type=["\']application\/ld\+json["\'][^>]*>(.*?)<\/script>/is', $html_content, $matches)) {
+            $json_blocks = array_filter(array_map('trim', $matches[1]));
+            if (empty($json_blocks)) {
+                return null;
+            }
+
+            # Single block — return as-is (backward compatible)
+            if (count($json_blocks) === 1) {
+                return reset($json_blocks);
+            }
+
+            # Multiple blocks — merge into a single @graph structure
+            $all_entities = [];
+            foreach ($json_blocks as $json_string) {
+                $decoded = json_decode($json_string, true);
+                if (!is_array($decoded)) {
+                    continue;
+                }
+                # Unwrap existing @graph arrays
+                if (isset($decoded['@graph']) && is_array($decoded['@graph'])) {
+                    foreach ($decoded['@graph'] as $entity) {
+                        unset($entity['@context']);
+                        $all_entities[] = $entity;
+                    }
+                } elseif (isset($decoded['@type'])) {
+                    unset($decoded['@context']);
+                    $all_entities[] = $decoded;
+                } elseif (isset($decoded[0])) {
+                    # Plain JSON array of entities (e.g., ImageObject array)
+                    foreach ($decoded as $entity) {
+                        if (is_array($entity)) {
+                            unset($entity['@context']);
+                            $all_entities[] = $entity;
+                        }
+                    }
+                }
+            }
+
+            if (!empty($all_entities)) {
+                return wp_json_encode([
+                    '@context' => 'https://schema.org',
+                    '@graph'   => $all_entities,
+                ]);
             }
         }
     }
-    
+
     return null;
 }
 
@@ -941,7 +990,9 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
         if ($structured_data !== null) {
             # OTTO provided structured data - update if different
             if ($structured_data !== $current_structured) {
-                update_post_meta($post_id, '_metasync_otto_structured_data', $structured_data);
+                # wp_slash counteracts wp_unslash inside update_metadata, preserving
+                # backslash-escaped quotes (e.g. \") in the JSON string.
+                update_post_meta($post_id, '_metasync_otto_structured_data', wp_slash($structured_data));
                 $fields_updated['structured_data'] = $structured_data;
                 $any_updated = true;
             }
@@ -955,19 +1006,24 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
         }
 
         # PERSISTENCE: structured_data → metasync_schema_markup
+        # Always write otto_jsonld during an active sync regardless of the persistence flag.
+        # The persistence flag controls whether this data survives OTTO being disabled/paused
+        # — see OTTO deactivation path.
         if (class_exists('Metasync_Otto_Persistence_Settings') &&
-            Metasync_Otto_Persistence_Settings::should_persist('structured_data') &&
             !empty($structured_data)) {
             $existing_schema = get_post_meta($post_id, 'metasync_schema_markup', true);
             if (!is_array($existing_schema)) {
                 $existing_schema = [];
             }
             $existing_schema['otto_jsonld'] = [
-                'type'   => 'json_ld',
-                'data'   => $structured_data,
-                'source' => 'otto',
+                'type'           => 'json_ld',
+                'data'           => $structured_data,
+                'source'         => 'otto',
+                'last_synced_at' => current_time('mysql'),
             ];
-            update_post_meta($post_id, 'metasync_schema_markup', $existing_schema);
+            # wp_slash counteracts wp_unslash inside update_metadata, preserving
+            # backslash-escaped quotes in JSON strings within the array.
+            update_post_meta($post_id, 'metasync_schema_markup', wp_slash($existing_schema));
             $fields_updated['structured_data_persisted'] = true;
         }
 

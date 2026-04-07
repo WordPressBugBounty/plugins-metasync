@@ -331,6 +331,7 @@ class Metasync_SEO_Sidebar {
                 'wp-data',
                 'wp-compose',
                 'wp-i18n',
+                'wp-api-fetch',
             ),
             $this->version,
             true
@@ -376,6 +377,23 @@ class Metasync_SEO_Sidebar {
             $has_seo_description = metadata_exists('post', $post_id, self::META_DESCRIPTION);
         }
 
+        // Link Suggestions configuration
+        $link_suggestions_config = array(
+            'restUrl'             => rest_url('metasync/v1/link-suggestions'),
+            'yoastPremiumActive'  => class_exists('WPSEO_Premium'),
+            'rankMathActive'      => defined('RANK_MATH_VERSION'),
+            'i18n'                => array(
+                'panelTitle'      => __('Internal Link Suggestions', 'metasync'),
+                'insertButton'    => __('Insert', 'metasync'),
+                'refreshButton'   => __('Refresh', 'metasync'),
+                'noSuggestions'   => __('No suggestions found.', 'metasync'),
+                'loading'         => __('Analyzing content…', 'metasync'),
+                'matchedPhrase'   => __('Matched phrase:', 'metasync'),
+                'yoastNotice'     => __('Yoast Premium detected. Their internal linking tool may overlap with this feature.', 'metasync'),
+                'rankMathNotice'  => __('Rank Math detected. Their internal linking tool may overlap with this feature.', 'metasync'),
+            ),
+        );
+
         // Localize script with meta keys and settings
         wp_localize_script('metasync-seo-sidebar', 'metasyncSeoSidebar', array(
             'iconUrl' => $icon_url,
@@ -409,6 +427,7 @@ class Metasync_SEO_Sidebar {
                     'absolute' => 200,
                 ),
             ),
+            'linkSuggestions' => $link_suggestions_config,
             'i18n' => array(
                 /* translators: %s: Plugin name (whitelabel-aware) */
                 'panelTitle' => sprintf(__('%s SEO', 'metasync'), $plugin_name),

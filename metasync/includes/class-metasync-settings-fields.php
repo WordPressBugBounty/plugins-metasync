@@ -196,6 +196,15 @@ class Metasync_Settings_Fields {
             'render_callback' => array($this->admin_instance, 'render_db_cleanup_section')
         );
 
+        $config['performance'] = array(
+            'title' => 'Performance & CPU Load',
+            'description' => 'Configure CPU load thresholds to prevent processing during peak server load',
+            'icon' => '🖥️',
+            'priority' => 27,
+            'default_open' => false,
+            'render_callback' => array($this->admin_instance, 'render_cpu_monitor_section')
+        );
+
         $config['reset_settings'] = array(
             'title' => 'Reset Plugin Settings',
             'description' => 'Reset all plugin settings to default values',

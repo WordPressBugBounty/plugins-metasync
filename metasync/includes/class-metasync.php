@@ -180,6 +180,11 @@ class Metasync
 		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-admin-assets.php';
 
 		/**
+		 * The class responsible for CPU load monitoring and deferral logic
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-cpu-monitor.php';
+
+		/**
 		 * The class responsible for defining all actions that occur in the admin area.
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-admin.php';
@@ -320,6 +325,11 @@ class Metasync
 		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-seo-sidebar.php';
 
 		/**
+		 * The class responsible for Internal Link Suggestions in Gutenberg Block Editor.
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-link-suggestions.php';
+
+		/**
 		 * The class responsible for enhanced error logging with categories.
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-error-logger.php';
@@ -400,6 +410,11 @@ class Metasync
 		// Initialize SEO Sidebar for Gutenberg Block Editor
 		if (class_exists('Metasync_SEO_Sidebar')) {
 			new Metasync_SEO_Sidebar($this->get_version());
+		}
+
+		// Initialize Internal Link Suggestions for Gutenberg Block Editor
+		if (class_exists('Metasync_Link_Suggestions')) {
+			new Metasync_Link_Suggestions();
 		}
 
 		$this->loader->add_action('admin_enqueue_scripts', $plugin_admin, 'enqueue_styles');
@@ -551,7 +566,6 @@ class Metasync
 		// REST API hooks (Metasync_Rest_Api)
 		$this->loader->add_action('rest_api_init', $rest_api, 'metasync_register_rest_routes');
 		$this->loader->add_action('init', $plugin_public, 'metasync_plugin_init', 5);
-		$this->loader->add_action('wp_ajax_metasync', $rest_api, 'sync_items');
 		$this->loader->add_action('wp_ajax_lglogin', $rest_api, 'linkgraph_login');
 
 		// Robots meta filter (Metasync_Seo_Output)

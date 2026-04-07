@@ -230,6 +230,36 @@ class Metasync_Sync_History_Database
 	}
 
 	/**
+	 * Get a single record by ID.
+	 * @param int $id
+	 * @return object|null
+	 */
+	public function get_by_id($id)
+	{
+		global $wpdb;
+		$tableName = $this->get_table_name();
+		return $wpdb->get_row($wpdb->prepare(
+			"SELECT * FROM `$tableName` WHERE id = %d LIMIT 1",
+			intval($id)
+		));
+	}
+
+	/**
+	 * Delete records older than a given number of days.
+	 * @param int $days
+	 * @return int Number of rows deleted
+	 */
+	public function delete_older_than_days($days = 90)
+	{
+		global $wpdb;
+		$tableName = $this->get_table_name();
+		return (int) $wpdb->query($wpdb->prepare(
+			"DELETE FROM `$tableName` WHERE created_at < DATE_SUB(NOW(), INTERVAL %d DAY)",
+			intval($days)
+		));
+	}
+
+	/**
 	 * Delete specific records.
 	 * @param array $items
 	 * @return int

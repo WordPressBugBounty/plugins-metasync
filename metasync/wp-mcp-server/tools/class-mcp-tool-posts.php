@@ -336,6 +336,11 @@ class MCP_Tool_Get_Post_By_URL extends MCP_Tool_Base {
                     'type' => 'string',
                     'description' => 'Narrow search to a specific post type (post, page, any). Defaults to any.',
                     'default' => 'any'
+                ],
+                'include_seo' => [
+                    'type' => 'boolean',
+                    'description' => 'Whether to include full SEO metadata in the response. Defaults to true.',
+                    'default' => true
                 ]
             ],
             'required' => ['url']
@@ -379,15 +384,39 @@ class MCP_Tool_Get_Post_By_URL extends MCP_Tool_Base {
             return $this->error( 'Post ID resolved but post no longer exists.' );
         }
 
-        return $this->success( [
-            'post_id'    => $post->ID,
-            'title'      => $post->post_title,
-            'post_type'  => $post->post_type,
-            'post_status'=> $post->post_status,
-            'slug'       => $post->post_name,
-            'url'        => get_permalink( $post->ID ),
-            'edit_url'   => get_edit_post_link( $post->ID, 'raw' ),
-        ], 'Post resolved successfully' );
+        $result = [
+            'post_id'     => $post->ID,
+            'title'       => $post->post_title,
+            'post_type'   => $post->post_type,
+            'post_status' => $post->post_status,
+            'slug'        => $post->post_name,
+            'url'         => get_permalink( $post->ID ),
+            'edit_url'    => get_edit_post_link( $post->ID, 'raw' ),
+        ];
+
+        $include_seo = isset( $params['include_seo'] ) ? (bool) $params['include_seo'] : true;
+        if ( $include_seo ) {
+            $schema_data   = get_post_meta( $post->ID, 'metasync_schema_markup', true );
+            $result['seo'] = [
+                'meta_title'          => get_post_meta( $post->ID, '_metasync_metatitle', true ),
+                'meta_description'    => get_post_meta( $post->ID, '_metasync_metadesc', true ),
+                'focus_keyword'       => get_post_meta( $post->ID, '_metasync_focus_keyword', true ),
+                'robots'              => get_post_meta( $post->ID, '_metasync_robots_index', true ),
+                'canonical_url'       => get_post_meta( $post->ID, '_metasync_canonical_url', true ),
+                'og_enabled'          => get_post_meta( $post->ID, '_metasync_og_enabled', true ),
+                'og_title'            => get_post_meta( $post->ID, '_metasync_og_title', true ),
+                'og_description'      => get_post_meta( $post->ID, '_metasync_og_description', true ),
+                'og_image'            => get_post_meta( $post->ID, '_metasync_og_image', true ),
+                'og_type'             => get_post_meta( $post->ID, '_metasync_og_type', true ),
+                'twitter_title'       => get_post_meta( $post->ID, '_metasync_twitter_title', true ),
+                'twitter_description' => get_post_meta( $post->ID, '_metasync_twitter_description', true ),
+                'schema_types'        => ! empty( $schema_data ) ? array_keys( $schema_data ) : [],
+                'word_count'          => str_word_count( wp_strip_all_tags( $post->post_content ) ),
+                'last_modified'       => $post->post_modified,
+            ];
+        }
+
+        return $this->success( $result, 'Post resolved successfully' );
     }
 
     /**

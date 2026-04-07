@@ -334,9 +334,10 @@ class Metasync_Sync_Requests
             return;
         }
 
-        $result = wp_remote_retrieve_body($response);
+        $body = wp_remote_retrieve_body($response);
+        $result = json_decode($body, true);
 
-        if ($result && !empty($result['company_name'])) {
+        if (is_array($result) && !empty($result['company_name'])) {
             update_option(Metasync::option_name . '_whitelabel_user', $result['company_name']);
         }
     }

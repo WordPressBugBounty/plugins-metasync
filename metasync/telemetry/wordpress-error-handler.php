@@ -53,9 +53,9 @@ class MetaSync_WordPress_Error_Handler {
 
     /**
      * How long to remember sent errors (in seconds)
-     * Default: 1 hour - errors will be sent again after this time
+     * 15 minutes — same error won't be re-sent within this window
      */
-    private $error_memory_duration = 3600;
+    private $error_memory_duration = 900;
     
     /**
      * Constructor
@@ -113,7 +113,7 @@ class MetaSync_WordPress_Error_Handler {
     // public function capture_wp_die($message) - REMOVED TO PREVENT SYSTEM-WIDE ERROR CAPTURE
     
     /**
-     * Capture PHP errors - Only plugin-specific errors
+     * Capture PHP errors - Only fatal-level plugin-specific errors
      */
     public function capture_php_error($severity, $message, $file, $line) {
         // First, call the previous error handler if it exists
@@ -121,7 +121,13 @@ class MetaSync_WordPress_Error_Handler {
         if ($this->previous_error_handler && is_callable($this->previous_error_handler)) {
             $handled = call_user_func($this->previous_error_handler, $severity, $message, $file, $line);
         }
-        
+
+        // Only capture fatal-level errors — skip warnings, notices, deprecated, strict
+        $fatal_severities = [E_USER_ERROR, E_RECOVERABLE_ERROR];
+        if (!in_array($severity, $fatal_severities, true)) {
+            return $handled;
+        }
+
         // Only capture errors from our plugin or directly related to our plugin
         if ($this->should_capture_error($file)) {
             $this->send_to_sentry('php_error', $message, array(
@@ -340,7 +346,12 @@ class MetaSync_WordPress_Error_Handler {
         
         // Determine severity level
         $level = $this->get_sentry_level($error_type);
-        
+
+        // Only send fatal/error-level events — drop info, warning, debug
+        if (!in_array($level, ['error', 'fatal'], true)) {
+            return;
+        }
+
         // Send directly to Sentry (wordpress-error-handler is the primary/only error capture point)
         $sentry_success = false;
 

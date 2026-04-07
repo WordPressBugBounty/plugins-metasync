@@ -464,6 +464,15 @@ class Metasync_Admin_Navigation
             ];
         }
 
+        // Code Minification (always available)
+        $menu_items['code_minification'] = [
+            'title' => 'Code Minification',
+            'slug_suffix' => '-code-minification',
+            'callback' => 'create_admin_code_minification_page',
+            'internal_nav' => 'Code Minification',
+            'group' => 'plugin'
+        ];
+
         // Bot Statistics (always available)
         $menu_items['bot_statistics'] = [
             'title' => 'Bot Statistics',
@@ -636,6 +645,9 @@ class Metasync_Admin_Navigation
             add_submenu_page($menu_slug, 'Robots.txt', 'Robots.txt', $menu_capability, $menu_slug . '-robots-txt', array($admin, 'create_admin_robots_txt_page'));
         }
 
+        // Code Minification
+        add_submenu_page($menu_slug, 'Code Minification', 'Code Minification', $menu_capability, $menu_slug . '-code-minification', array($admin, 'create_admin_code_minification_page'));
+
         // Bot Statistics (hidden from sidebar - accessible via Plugin dropdown in grouped nav)
         add_submenu_page(null, 'Bot Statistics', 'Bot Statistics', $menu_capability, $menu_slug . '-bot-statistics', array($admin, 'create_admin_bot_statistics_page'));
 
@@ -701,6 +713,7 @@ class Metasync_Admin_Navigation
             'xml_sitemap' => '🗺️',
             'import_seo' => '📥',
             'custom_pages' => '📝',
+            'code_minification' => '⚡',
             'bot_statistics' => '🤖',
             'report_issue' => '📝',
             'error_log' => '⚠️'

@@ -465,6 +465,64 @@ class Metasync_Otto_Bot_Detector {
     }
 
     /**
+     * Push bot crawl log to SearchAtlas backend API (non-blocking fire-and-forget).
+     *
+     * Real search engine bots do not execute JavaScript, so the JS tracker
+     * (otto-tracker.js) never captures them. This method sends crawl monitoring
+     * data server-side via a non-blocking wp_remote_post so that the SA Crawl
+     * Monitoring dashboard is populated regardless of whether the bot runs JS.
+     *
+     * @param array  $detection Detection result from detect()
+     * @param string $url       The full URL being crawled
+     * @return void
+     */
+    public function push_crawl_log_to_sa( $detection, $url ) {
+        if ( ! $detection['is_bot'] ) {
+            return;
+        }
+
+        // Require a configured OTTO UUID
+        if ( ! class_exists( 'Metasync_Otto_Config' ) ) {
+            return;
+        }
+        $otto_uuid = Metasync_Otto_Config::get_otto_uuid();
+        if ( empty( $otto_uuid ) ) {
+            return;
+        }
+
+        // Resolve endpoint — respects production/staging mode toggle
+        if ( class_exists( 'Metasync_Endpoint_Manager' ) ) {
+            $endpoint = Metasync_Endpoint_Manager::get_endpoint( 'OTTO_CRAWL_LOGS' );
+        } else {
+            $endpoint = 'https://sa.searchatlas.com/api/v2/otto-page-crawl-logs';
+        }
+        if ( empty( $endpoint ) ) {
+            return;
+        }
+
+        $payload = array(
+            'otto_uuid'  => $otto_uuid,
+            'url'        => $url,
+            'user_agent' => $detection['user_agent'],
+            'context'    => null,
+        );
+
+        // Non-blocking: timeout=0.01 + blocking=false so we never wait for a response.
+        // This prevents any latency impact on the bot's page request.
+        wp_remote_post(
+            trailingslashit( $endpoint ),
+            array(
+                'method'      => 'POST',
+                'timeout'     => 0.01,
+                'blocking'    => false,
+                'headers'     => array( 'Content-Type' => 'application/json' ),
+                'body'        => wp_json_encode( $payload ),
+                'data_format' => 'body',
+            )
+        );
+    }
+
+    /**
      * Clear detection cache
      *
      * @return void

@@ -180,6 +180,7 @@ class MCP_Tool_Registry {
 
         // Execute tool (tools validate their own params internally)
         $start_time = microtime(true);
+        do_action('metasync_mcp_tool_before_execute', $name, $params);
         $result = $tool->execute($params);
         $execution_time = microtime(true) - $start_time;
 

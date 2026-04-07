@@ -235,9 +235,14 @@ class Metasync_Cache_Purge
             }
         }
 
-        // Log results
-        if (!empty($results['cleared'])) {
-            error_log('MetaSync Cache Purge (' . $source . '): Cleared ' . implode(', ', $results['cleared']));
+        // Clear MetaSync Minification Cache
+        if (class_exists('Metasync_Minification_Cache')) {
+            try {
+                Metasync_Minification_Cache::purge_all();
+                $results['cleared'][] = 'MetaSync Minification Cache';
+            } catch (Exception $e) {
+                $results['failed'][] = 'MetaSync Minification Cache';
+            }
         }
 
         return $results;

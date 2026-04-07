@@ -1079,48 +1079,70 @@ class Metasync_Schema_Markup
      */
     public function output_schema_markup()
     {
-        // Schema is always enabled by default - no check needed
-
         // Only output on single posts/pages
         if (!is_singular()) {
             return;
         }
 
         global $post;
-        // Check if $post object exists and has an ID
         if (!$post || !isset($post->ID)) {
             return;
         }
+
         $schema_data = get_post_meta($post->ID, 'metasync_schema_markup', true);
 
-        if (empty($schema_data) || !$schema_data['enabled'] || empty($schema_data['types'])) {
+        $has_user_types  = !empty($schema_data['enabled']) && !empty($schema_data['types']);
+        $has_otto_schema = !empty($schema_data['otto_jsonld']['data']);
+
+        if (!$has_user_types && !$has_otto_schema) {
             return;
         }
 
-        // Check for validation errors - do not output JSON-LD if there are errors
-        $validation_errors = get_post_meta($post->ID, '_metasync_schema_validation_errors', true);
-        if (!empty($validation_errors) && is_array($validation_errors)) {
-            // Don't output schema markup if there are validation errors
-            return;
-        }
-
-        // Generate JSON-LD for all schema types
         $all_json_ld = [];
-        foreach ($schema_data['types'] as $schema_type_data) {
-            $json_ld = $this->generate_json_ld($post, $schema_type_data);
-            if ($json_ld) {
-                $all_json_ld[] = $json_ld;
+
+        // Generate JSON-LD for user-entered schema types.
+        // Validation errors apply only to user types, not to OTTO-synced data.
+        if ($has_user_types) {
+            $validation_errors = get_post_meta($post->ID, '_metasync_schema_validation_errors', true);
+            if (empty($validation_errors) || !is_array($validation_errors)) {
+                foreach ($schema_data['types'] as $schema_type_data) {
+                    $json_ld = $this->generate_json_ld($post, $schema_type_data);
+                    if ($json_ld) {
+                        $all_json_ld[] = $json_ld;
+                    }
+                }
+            }
+        }
+
+        // Merge OTTO-persisted JSON-LD (pre-validated by the OTTO API).
+        if ($has_otto_schema) {
+            $otto_data = $schema_data['otto_jsonld']['data'];
+
+            if (is_string($otto_data)) {
+                $otto_data = json_decode($otto_data, true);
+            }
+
+            if (is_array($otto_data)) {
+                if (isset($otto_data['@graph']) && is_array($otto_data['@graph'])) {
+                    // Unwrap @graph — @context lives at the top level of our output
+                    foreach ($otto_data['@graph'] as $entity) {
+                        unset($entity['@context']);
+                        $all_json_ld[] = $entity;
+                    }
+                } elseif (isset($otto_data['@type'])) {
+                    unset($otto_data['@context']);
+                    $all_json_ld[] = $otto_data;
+                }
             }
         }
 
         // Output all schemas in a single script tag with @graph pattern
         if (!empty($all_json_ld)) {
-            // Build the final JSON-LD structure with @context and @graph
             $final_json_ld = [
                 '@context' => 'https://schema.org',
-                '@graph' => $all_json_ld
+                '@graph'   => $all_json_ld,
             ];
-            
+
             echo '<script type="application/ld+json" class="metasync-schema">' . "\n";
             echo wp_json_encode($final_json_ld, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
             echo "\n" . '</script>' . "\n";

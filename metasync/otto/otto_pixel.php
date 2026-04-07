@@ -288,14 +288,19 @@ function metasync_start_otto(){
         return;
     }
 
-    # BOT DETECTION: Check if OTTO should be skipped for bot traffic
+    # BOT DETECTION: Always detect bots so crawl data reaches the SA backend.
+    # Real bots don't execute JS, so otto-tracker.js never fires for them.
+    # push_crawl_log_to_sa() fires a non-blocking wp_remote_post here instead.
     $bot_detector = Metasync_Otto_Bot_Detector::get_instance();
-    if ($bot_detector->should_skip_otto()) {
-        // Detect and log the bot
-        $detection = $bot_detector->detect();
-        $bot_detector->log_detection($detection);
+    $detection    = $bot_detector->detect();
+    if ( $detection['is_bot'] ) {
+        $bot_detector->push_crawl_log_to_sa( $detection, $current_url );
+    }
 
-        // Increment API calls saved counter
+    # Optionally skip OTTO processing for bot traffic (when the setting is enabled)
+    if ($bot_detector->should_skip_otto()) {
+        // Log the bot locally and count the saved API call
+        $bot_detector->log_detection($detection);
         $bot_stats_db = Metasync_Otto_Bot_Statistics_Database::get_instance();
         $bot_stats_db->increment_api_calls_saved();
 
@@ -674,6 +679,12 @@ function metasync_process_otto_seo_data($route) {
     try {
         # Validate input
         if (empty($route) || !is_string($route)) {
+            return false;
+        }
+
+        # CPU load check — defer if server is under load
+        if (!Metasync_CPU_Monitor::is_load_safe()) {
+            wp_schedule_single_event(time() + 60, 'metasync_process_seo_job', array($route));
             return false;
         }
 

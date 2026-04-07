@@ -1,10 +1,15 @@
 <?php
 /**
  * OTTO Persistence Settings
- * 
+ *
  * Manages configuration for which OTTO data types should be persisted
  * to native WordPress fields (surviving plugin uninstallation).
- * 
+ *
+ * Each persistence flag controls whether stored data is RETAINED when OTTO
+ * is disabled or paused — it does NOT gate whether data is written during
+ * active syncs. During an active sync, all data types are always written to
+ * their respective native fields regardless of these flags.
+ *
  * @package MetaSync
  * @since 2.6.0
  */
@@ -41,7 +46,7 @@ class Metasync_Otto_Persistence_Settings {
         'image_alt_text' => false,
         'link_corrections' => false,
         'heading_changes' => false,
-        'structured_data' => false,
+        'structured_data' => false, // Controls whether otto_jsonld in metasync_schema_markup survives OTTO being disabled/paused. During active syncs, otto_jsonld is always written regardless of this flag.
     ];
 
     /**

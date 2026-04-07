@@ -59,30 +59,14 @@ class Metasync_Heartbeat_Manager
         $cached_result = get_transient($cache_key);
 
         if ($cached_result !== false) {
-            $this->log_heartbeat('info', 'Cache hit - using cached heartbeat status', array(
-                'status' => $cached_result['status'] ? 'CONNECTED' : 'DISCONNECTED',
-                'cached_at' => date('Y-m-d H:i:s T', $cached_result['timestamp']),
-                'expires_at' => date('Y-m-d H:i:s T', $cached_result['cached_until']),
-                'cache_age_seconds' => time() - $cached_result['timestamp']
-            ));
             return $cached_result['status'];
         }
 
         $last_known_state = $this->get_last_known_connection_state();
 
         if ($last_known_state !== null) {
-            $this->log_heartbeat('info', 'Cache miss - using last known heartbeat status', array(
-                'status' => $last_known_state ? 'CONNECTED' : 'DISCONNECTED',
-                'note' => 'Graceful fallback until next cron job updates cache',
-                'fallback_reason' => 'cache_expired_or_missing'
-            ));
             return $last_known_state;
         }
-
-        $this->log_heartbeat('info', 'No cached or last known heartbeat status found - returning default DISCONNECTED', array(
-            'note' => 'Cron job will establish initial connection state',
-            'status' => 'DISCONNECTED'
-        ));
 
         return false;
     }
@@ -621,13 +605,6 @@ class Metasync_Heartbeat_Manager
         $start_time = microtime(true);
         $api_key_type = strpos($searchatlas_api_key, 'pub-') === 0 ? 'publisher' : 'regular';
 
-        $this->log_heartbeat('info', 'Initiating heartbeat API test using SyncCustomerParams', array(
-            'api_key_type' => $api_key_type,
-            'api_key_prefix' => substr($searchatlas_api_key, 0, 8) . '...',
-            'url' => get_home_url(),
-            'method' => 'reuse_existing_sync_class'
-        ));
-
         $sync_request = new Metasync_Sync_Requests();
         $response = $sync_request->SyncCustomerParams($apikey);
 
@@ -656,17 +633,10 @@ class Metasync_Heartbeat_Manager
             return false;
         }
 
-        $this->log_heartbeat('info', 'Heartbeat API test successful via SyncCustomerParams', array(
-            'status_code' => $status_code,
-            'request_duration_ms' => $request_duration,
-            'response_size_bytes' => strlen($body),
-            'method' => 'sync_customer_params'
-        ));
-
-        $general_settings['send_auth_token_timestamp'] = current_time('mysql');
-        $general_settings['last_heartbeat_at'] = gmdate('Y-m-d\TH:i:s\Z');
         $options = Metasync::get_option();
-        $options['general'] = $general_settings;
+        if (!isset($options['general'])) { $options['general'] = []; }
+        $options['general']['send_auth_token_timestamp'] = current_time('mysql');
+        $options['general']['last_heartbeat_at'] = gmdate('Y-m-d\TH:i:s\Z');
         Metasync::set_option($options);
 
         return true;
@@ -683,12 +653,7 @@ class Metasync_Heartbeat_Manager
         if (!wp_next_scheduled('metasync_heartbeat_cron_check')) {
             $scheduled = wp_schedule_event(time(), 'metasync_every_2_hours', 'metasync_heartbeat_cron_check');
 
-            if ($scheduled) {
-                $this->log_heartbeat('info', 'Heartbeat cron job scheduled successfully', array(
-                    'interval' => '2 hours',
-                    'next_run' => date('Y-m-d H:i:s T', wp_next_scheduled('metasync_heartbeat_cron_check'))
-                ));
-            } else {
+            if (!$scheduled) {
                 $this->log_heartbeat('error', 'Failed to schedule heartbeat cron job');
             }
         }
@@ -717,14 +682,86 @@ class Metasync_Heartbeat_Manager
         return $domain . '/api/wp-website-heartbeat/';
     }
 
+    /**
+     * Lightweight connection-ping — checks whether the site is registered on the backend
+     * without sending any heavy payload or triggering Celery tasks.
+     *
+     * @return array{connected: bool, otto_pixel_uuid: string|null}
+     */
+    private function connection_ping(): array
+    {
+        $default = ['connected' => false, 'otto_pixel_uuid' => null];
+
+        $general = Metasync::get_option('general') ?? [];
+        $searchatlas_api_key = $general['searchatlas_api_key'] ?? '';
+
+        if (empty($searchatlas_api_key)) {
+            $this->log_heartbeat('error', 'Connection ping skipped - no API key configured');
+            return $default;
+        }
+
+        $hostname = wp_parse_url(get_home_url(), PHP_URL_HOST);
+
+        if (strpos($searchatlas_api_key, 'pub-') === 0) {
+            $domain = class_exists('Metasync_Endpoint_Manager')
+                ? Metasync_Endpoint_Manager::get_endpoint('API_DOMAIN')
+                : Metasync::API_DOMAIN;
+            $url = $domain . '/api/publisher/one-click-publishing/wp-website-heartbeat/connection-ping/?hostname=' . rawurlencode($hostname);
+        } else {
+            $domain = class_exists('Metasync_Endpoint_Manager')
+                ? Metasync_Endpoint_Manager::get_endpoint('CA_API_DOMAIN')
+                : Metasync::CA_API_DOMAIN;
+            $url = $domain . '/api/wp-website-heartbeat/connection-ping/?hostname=' . rawurlencode($hostname);
+        }
+
+        $response = wp_remote_get($url, [
+            'headers' => ['x-api-key' => $searchatlas_api_key],
+            'timeout' => 10,
+        ]);
+
+        if (is_wp_error($response)) {
+            $this->log_heartbeat('error', 'Connection ping failed (WP_Error)', [
+                'error_code' => $response->get_error_code(),
+                'error_message' => $response->get_error_message(),
+            ]);
+            return $default;
+        }
+
+        $status_code = wp_remote_retrieve_response_code($response);
+        if ($status_code !== 200) {
+            $this->log_heartbeat('error', 'Connection ping returned non-200 status', [
+                'status_code' => $status_code,
+                'response_body' => $this->smart_truncate(wp_remote_retrieve_body($response), 300),
+            ]);
+            return $default;
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        if (!is_array($data)) {
+            $this->log_heartbeat('error', 'Connection ping returned invalid JSON', [
+                'response_body' => $this->smart_truncate($body, 300),
+            ]);
+            return $default;
+        }
+
+        $connected = (bool) ($data['connected'] ?? false);
+        $otto_pixel_uuid = $data['otto_pixel_uuid'] ?? null;
+
+        $this->log_heartbeat('info', 'Connection ping completed', [
+            'connected' => $connected,
+            'uuid_prefix' => $otto_pixel_uuid ? substr($otto_pixel_uuid, 0, 8) . '...' : 'none',
+        ]);
+
+        return ['connected' => $connected, 'otto_pixel_uuid' => $otto_pixel_uuid];
+    }
+
     public function unschedule_heartbeat_cron()
     {
         $timestamp = wp_next_scheduled('metasync_heartbeat_cron_check');
         if ($timestamp) {
             wp_unschedule_event($timestamp, 'metasync_heartbeat_cron_check');
-            $this->log_heartbeat('info', 'Heartbeat cron job unscheduled', array(
-                'was_scheduled_for' => date('Y-m-d H:i:s T', $timestamp)
-            ));
         }
     }
 
@@ -734,18 +771,11 @@ class Metasync_Heartbeat_Manager
      */
     public function execute_heartbeat_cron_check()
     {
-        $this->log_heartbeat('info', 'Background heartbeat cron check starting');
-
         $general_settings = Metasync::get_option('general') ?? [];
 
         $searchatlas_api_key = $general_settings['searchatlas_api_key'] ?? '';
 
         if (empty($searchatlas_api_key)) {
-            $this->log_heartbeat('info', 'Skipping heartbeat API call - ' . Metasync::get_effective_plugin_name() . ' API key not configured', array(
-                'has_searchatlas_api_key' => false,
-                'reason' => 'User has not provided ' . Metasync::get_effective_plugin_name() . ' API key yet'
-            ));
-
             $cache_data = array(
                 'status' => false,
                 'timestamp' => time(),
@@ -756,14 +786,6 @@ class Metasync_Heartbeat_Manager
             set_transient('metasync_heartbeat_status_cache', $cache_data, 300);
 
             $this->set_last_known_connection_state(false);
-
-            $this->log_heartbeat('info', 'Background heartbeat check completed without API call', array(
-                'status' => 'DISCONNECTED',
-                'reason' => 'API key not configured',
-                'cached_until' => date('Y-m-d H:i:s T', $cache_data['cached_until']),
-                'next_cron_run' => wp_next_scheduled('metasync_heartbeat_cron_check') ?
-                                  date('Y-m-d H:i:s T', wp_next_scheduled('metasync_heartbeat_cron_check')) : 'N/A'
-            ));
 
             return false;
         }
@@ -776,11 +798,6 @@ class Metasync_Heartbeat_Manager
             $heartbeat_url = $this->get_heartbeat_api_url_for_backoff_check($general_settings);
             $backoff_manager = Metasync_API_Backoff_Manager::get_instance();
             if ($heartbeat_url && $backoff_manager->is_endpoint_in_backoff($heartbeat_url)) {
-                $this->log_heartbeat('info', 'Heartbeat check skipped cache update - endpoint in backoff', array(
-                    'reason' => 'api_backoff_active',
-                    'next_cron_run' => wp_next_scheduled('metasync_heartbeat_cron_check') ?
-                        date('Y-m-d H:i:s T', wp_next_scheduled('metasync_heartbeat_cron_check')) : 'N/A',
-                ));
                 return false;
             }
         }
@@ -795,13 +812,6 @@ class Metasync_Heartbeat_Manager
         set_transient('metasync_heartbeat_status_cache', $cache_data, 300);
 
         $this->set_last_known_connection_state($is_connected);
-
-        $this->log_heartbeat('info', 'Background heartbeat check completed', array(
-            'status' => $is_connected ? 'CONNECTED' : 'DISCONNECTED',
-            'cached_until' => date('Y-m-d H:i:s T', $cache_data['cached_until']),
-            'next_cron_run' => wp_next_scheduled('metasync_heartbeat_cron_check') ?
-                              date('Y-m-d H:i:s T', wp_next_scheduled('metasync_heartbeat_cron_check')) : 'N/A'
-        ));
 
         return $is_connected;
     }
@@ -884,12 +894,42 @@ class Metasync_Heartbeat_Manager
         $count++;
         update_option('metasync_burst_attempt_count', $count);
 
-        $this->execute_heartbeat_cron_check();
+        $ping = $this->connection_ping();
 
-        if ($this->get_heartbeat_state() === 'CONNECTED') {
+        if ($ping['connected'] === true) {
+            $options = Metasync::get_option();
+            $general = $options['general'] ?? [];
+            $general['heartbeat_state'] = 'CONNECTED';
+            $general['heartbeat_state_changed_at'] = time();
+
+            if (!empty($ping['otto_pixel_uuid']) && (empty($general['otto_pixel_uuid']) || $general['otto_pixel_uuid'] !== $ping['otto_pixel_uuid'])) {
+                $general['otto_pixel_uuid'] = sanitize_text_field($ping['otto_pixel_uuid']);
+            }
+
+            $options['general'] = $general;
+            Metasync::set_option($options);
+
+            $cache_data = [
+                'status' => true,
+                'timestamp' => time(),
+                'cached_until' => time() + 300,
+                'updated_by' => 'burst_ping_connected',
+            ];
+            set_transient('metasync_heartbeat_status_cache', $cache_data, 300);
+
+            $this->log_heartbeat('info', 'Burst ping: site is CONNECTED', [
+                'attempt' => $count,
+                'otto_pixel_uuid' => !empty($ping['otto_pixel_uuid']) ? substr($ping['otto_pixel_uuid'], 0, 8) . '...' : 'none',
+            ]);
+
             delete_option('metasync_burst_attempt_count');
+            $this->unschedule_burst_heartbeat_cron();
+            $this->maybe_schedule_heartbeat_cron();
             return;
         }
+
+        $this->log_heartbeat('info', 'Burst ping: not connected yet', ['attempt' => $count]);
+
         if ($count >= 5) {
             $this->unschedule_burst_heartbeat_cron();
             update_option('metasync_burst_gave_up', true);
@@ -1019,31 +1059,15 @@ class Metasync_Heartbeat_Manager
         $current_time = time();
 
         if (($current_time - $last_immediate_check) < 10) {
-            $this->log_heartbeat('info', 'Skipping immediate heartbeat check - too recent', array(
-                'context' => $context,
-                'seconds_since_last' => $current_time - $last_immediate_check,
-                'protection' => 'race_condition_prevention'
-            ));
             return true;
         }
 
         $last_immediate_check = $current_time;
 
-        $this->log_heartbeat('info', 'Immediate heartbeat check triggered', array(
-            'context' => $context,
-            'triggered_by' => 'authentication_change'
-        ));
-
         $general_settings = Metasync::get_option('general') ?? [];
         $searchatlas_api_key = $general_settings['searchatlas_api_key'] ?? '';
 
         if (empty($searchatlas_api_key)) {
-            $this->log_heartbeat('info', 'Skipping immediate heartbeat check - ' . Metasync::get_effective_plugin_name() . ' API key not configured', array(
-                'context' => $context,
-                'has_searchatlas_api_key' => false,
-                'reason' => 'User has not provided API key yet'
-            ));
-
             delete_transient('metasync_heartbeat_status_cache');
 
             $cache_data = array(
@@ -1057,25 +1081,12 @@ class Metasync_Heartbeat_Manager
 
             $this->set_last_known_connection_state(false);
 
-            $this->log_heartbeat('info', 'Immediate heartbeat check completed without API call', array(
-                'context' => $context,
-                'result' => 'DISCONNECTED',
-                'reason' => 'API key not configured',
-                'cache_updated' => true
-            ));
-
             return false;
         }
 
         delete_transient('metasync_heartbeat_status_cache');
 
         $result = $this->execute_heartbeat_cron_check();
-
-        $this->log_heartbeat('info', 'Immediate heartbeat check completed', array(
-            'context' => $context,
-            'result' => $result ? 'CONNECTED' : 'DISCONNECTED',
-            'cache_updated' => true
-        ));
 
         return $result;
     }
@@ -1127,13 +1138,6 @@ class Metasync_Heartbeat_Manager
         );
 
         set_transient('metasync_heartbeat_status_cache', $cache_data, 300);
-
-        $this->log_heartbeat('info', 'Heartbeat cache updated after sync operation', array(
-            'context' => $context,
-            'status' => $is_connected ? 'CONNECTED' : 'DISCONNECTED',
-            'updated_by' => 'sync_operation',
-            'cached_until' => date('Y-m-d H:i:s T', $cache_data['cached_until'])
-        ));
 
         return $is_connected;
     }

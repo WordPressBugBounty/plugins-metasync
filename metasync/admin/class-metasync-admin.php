@@ -213,6 +213,9 @@ class Metasync_Admin
         // Display transient error/success messages for redirections
         add_action('admin_notices', array($this, 'display_redirection_messages'));
 
+        // Display CPU deferral notices when batch processing is deferred
+        add_action('admin_notices', array($this, 'display_cpu_deferral_notice'));
+
         // Add custom column for HTML-converted pages
         add_filter('manage_posts_columns', array($this, 'add_html_converted_column'));
         add_filter('manage_pages_columns', array($this, 'add_html_converted_column'));
@@ -259,7 +262,10 @@ class Metasync_Admin
         
         // Add AJAX for saving Indexation Control settings
         add_action( 'wp_ajax_meta_sync_save_seo_controls', array($this,'meta_sync_save_seo_controls') );
-        
+
+        // Add AJAX handler for saving Performance (CPU Load) settings
+        add_action('wp_ajax_metasync_save_performance_settings', array($this, 'ajax_save_performance_settings'));
+
         // Add AJAX for saving execution settings
         add_action( 'wp_ajax_metasync_save_execution_settings', array($this, 'ajax_save_execution_settings') );
 
@@ -267,6 +273,8 @@ class Metasync_Admin
         add_action( 'wp_ajax_metasync_save_hosting_cache_settings', array($this, 'ajax_save_hosting_cache_settings') );
         add_action( 'wp_ajax_metasync_save_object_cache_settings',  array($this, 'ajax_save_object_cache_settings') );
 
+        // Add AJAX for saving edge cache / CDN settings
+        add_action( 'wp_ajax_metasync_save_edge_cache_settings', array('Metasync_Edge_Cache_Settings', 'ajax_save') );
         // Add AJAX handler for Plugin Auth Token refresh
         add_action('wp_ajax_refresh_plugin_auth_token', array($this, 'refresh_plugin_auth_token'));
         
@@ -311,6 +319,10 @@ class Metasync_Admin
 
         # Add AJAX handler for theme switcher
         add_action('wp_ajax_metasync_save_theme', array($this, 'ajax_save_theme'));
+
+        # Add AJAX handlers for Sync Log management
+        add_action('wp_ajax_metasync_clear_sync_log',      array($this, 'ajax_clear_sync_log'));
+        add_action('wp_ajax_metasync_rollback_mcp_change', array($this, 'ajax_rollback_mcp_change'));
 
         # Add AJAX handler for external data import
         add_action('wp_ajax_metasync_import_external_data', array($this, 'ajax_import_external_data'));
@@ -2373,6 +2385,54 @@ class Metasync_Admin
     <?php
     }
 
+    /**
+     * Code Minification page callback
+     */
+    public function create_admin_code_minification_page()
+    {
+        ?>
+        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
+
+        <?php $this->render_plugin_header('Code Minification'); ?>
+
+        <?php $this->render_navigation_menu('code_minification'); ?>
+
+        <?php
+        // Load settings and compatibility classes
+        require_once plugin_dir_path(dirname(__FILE__)) . 'code-minification/class-minification-settings.php';
+        require_once plugin_dir_path(dirname(__FILE__)) . 'code-minification/class-minification-cache.php';
+        require_once plugin_dir_path(dirname(__FILE__)) . 'code-minification/class-compatibility-guard.php';
+
+        $save_success = false;
+
+        // Handle form submissions
+        if (isset($_POST['metasync_code_minification_nonce'])) {
+            check_admin_referer('metasync_save_code_minification', 'metasync_code_minification_nonce');
+
+            // Handle reset to defaults
+            if (!empty($_POST['metasync_code_min_reset'])) {
+                $defaults = Metasync_Minification_Settings::get_defaults();
+                Metasync_Minification_Settings::save_settings($defaults);
+                $save_success = true;
+            } elseif (isset($_POST['metasync_code_min'])) {
+                $input = (array) wp_unslash($_POST['metasync_code_min']);
+                Metasync_Minification_Settings::save_settings($input);
+                $save_success = true;
+            }
+        }
+
+        // Tab handling
+        $current_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'settings';
+        $settings    = Metasync_Minification_Settings::get_settings();
+        $conflicts   = Metasync_Compatibility_Guard::get_active_conflicts();
+
+        // Render the admin page view
+        require_once plugin_dir_path(dirname(__FILE__)) . 'code-minification/views/admin-page.php';
+        ?>
+        </div>
+    <?php
+    }
+
     // ── Media Optimization AJAX Handlers ──
 
     /**
@@ -2818,6 +2878,28 @@ class Metasync_Admin
     }
 
     /**
+     * Display admin notice when batch processing was deferred due to high CPU load.
+     * Reads transient set by Metasync_CPU_Monitor::record_deferral() and clears it.
+     */
+    public function display_cpu_deferral_notice()
+    {
+        $data = get_transient( Metasync_CPU_Monitor::DEFER_NOTICE_TRANSIENT );
+        if ( ! $data || ! is_array( $data ) ) {
+            return;
+        }
+        delete_transient( Metasync_CPU_Monitor::DEFER_NOTICE_TRANSIENT );
+        echo '<div class="notice notice-warning is-dismissible"><p>';
+        printf(
+            /* translators: 1: current load, 2: threshold, 3: core count */
+            esc_html__( 'MetaSync: Batch processing was deferred — server CPU load (%1$s) exceeded the threshold (%2$s on %3$s cores). Processing will resume automatically.', 'metasync' ),
+            esc_html( $data['load'] ),
+            esc_html( $data['threshold'] ),
+            esc_html( $data['cores'] )
+        );
+        echo '</p></div>';
+    }
+
+    /**
      * AJAX handler for updating database structure
      */
     public function ajax_update_db_structure()
@@ -2986,7 +3068,275 @@ class Metasync_Admin
      */
     public function create_admin_sync_log_page()
     {
-        Metasync_Admin_Pages::get_instance($this)->create_admin_sync_log_page();
+        // Classes are now autoloaded
+
+        $sync_db = new Metasync_Sync_History_Database();
+
+        // Handle AJAX requests for sync log data
+        if (wp_doing_ajax()) {
+            $this->handle_sync_log_ajax();
+            return;
+        }
+
+        // Get pagination parameters
+        $page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
+        $per_page = 10;
+        $offset = ($page - 1) * $per_page;
+
+        // Get filters
+        $filters = [
+            // UI exposes date_range and status only. We compute date_from/date_to based on date_range
+            'date_range' => isset($_GET['date_range']) ? sanitize_text_field($_GET['date_range']) : '',
+            'status' => isset($_GET['status']) ? sanitize_text_field($_GET['status']) : '',
+        ];
+
+        // Map date_range to concrete date_from/date_to for DB queries
+        $date_range = $filters['date_range'];
+        $wp_now_ts = current_time('timestamp');
+        $date_from = '';
+        $date_to = '';
+
+        if (!empty($date_range)) {
+            // End boundary is now by default
+            $date_to = date('Y-m-d H:i:s', $wp_now_ts);
+
+            if ($date_range === 'today') {
+                $start_ts = strtotime('today', $wp_now_ts);
+                $date_from = date('Y-m-d H:i:s', $start_ts);
+            } elseif ($date_range === 'yesterday') {
+                $start_ts = strtotime('yesterday', $wp_now_ts);
+                $end_ts = strtotime('today', $wp_now_ts) - 1; // end of yesterday
+                $date_from = date('Y-m-d H:i:s', $start_ts);
+                $date_to = date('Y-m-d H:i:s', $end_ts);
+            } elseif ($date_range === 'this_week') {
+                $start_of_week = (int) get_option('start_of_week', 1); // 0=Sun, 1=Mon
+                $day_of_week = (int) date('w', $wp_now_ts); // 0=Sun..6=Sat
+                // Convert start_of_week to PHP's 0..6 where 0=Sunday
+                $delta_days = ($day_of_week - $start_of_week + 7) % 7;
+                $start_ts = strtotime('-' . $delta_days . ' days', strtotime('today', $wp_now_ts));
+                $date_from = date('Y-m-d H:i:s', $start_ts);
+            } elseif ($date_range === 'this_month') {
+                $start_ts = strtotime(date('Y-m-01 00:00:00', $wp_now_ts));
+                $date_from = date('Y-m-d H:i:s', $start_ts);
+            } elseif ($date_range === 'all') {
+                // no bounds
+            }
+        }
+
+        if (!empty($date_from)) {
+            $filters['date_from'] = $date_from;
+        }
+        if (!empty($date_to)) {
+            $filters['date_to'] = $date_to;
+        }
+
+        // Remove empty filters
+        $filters = array_filter($filters);
+
+        // Get sync history records
+        $sync_records = $sync_db->getAllRecords($per_page, $offset, $filters);
+        $total_records = $sync_db->get_count($filters);
+        $total_pages = ceil($total_records / $per_page);
+
+        // Get statistics
+        $stats = $sync_db->get_statistics();
+
+        ?>
+        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
+
+        <?php $this->render_plugin_header('Sync History'); ?>
+
+        <?php $this->render_navigation_menu('sync_log'); ?>
+
+            <div class="dashboard-card">
+                <div class="sync-log-header">
+                    <div class="sync-log-title-section">
+                        <h2>📋 Sync History</h2>
+                        <p style="color: var(--dashboard-text-secondary); margin-bottom: 0;">
+                            Recent content synchronizations from external tools.
+                            <span style="margin-left:8px; font-size:12px; opacity:.75;">Records are automatically removed after 90 days.</span>
+                        </p>
+                    </div>
+
+                    <!-- Filters + Clear Log button - Right aligned -->
+                    <div class="sync-log-filters" style="display:flex;align-items:center;gap:10px;">
+                        <button type="button" id="metasync-clear-sync-log-btn"
+                                style="background:#dc3545;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px;"
+                                data-nonce="<?php echo esc_attr(wp_create_nonce('metasync_clear_sync_log')); ?>">
+                            🗑 Clear Log
+                        </button>
+                        <form method="get" class="sync-filters-form" onchange="this.submit()">
+                            <input type="hidden" name="page" value="<?php echo esc_attr($_GET['page']); ?>">
+
+                            <select name="date_range" class="sync-filter-select">
+                                <option value="all" <?php selected($filters['date_range'] ?? 'all', 'all'); ?>> All Time</option>
+                                <option value="today" <?php selected($filters['date_range'] ?? '', 'today'); ?>>Today</option>
+                                <option value="yesterday" <?php selected($filters['date_range'] ?? '', 'yesterday'); ?>>Yesterday</option>
+                                <option value="this_week" <?php selected($filters['date_range'] ?? '', 'this_week'); ?>>This week</option>
+                                <option value="this_month" <?php selected($filters['date_range'] ?? '', 'this_month'); ?>>This month</option>
+                            </select>
+
+                            <select name="status" class="sync-filter-select">
+                                <option value="" <?php selected($filters['status'] ?? '', ''); ?>>Status Filter</option>
+                                <option value="published" <?php selected($filters['status'] ?? '', 'published'); ?>>Published</option>
+                                <option value="draft" <?php selected($filters['status'] ?? '', 'draft'); ?>>Draft</option>
+                            </select>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Sync History List -->
+                <div class="sync-log-list">
+                    <?php if (empty($sync_records)): ?>
+                        <div class="sync-log-empty">
+                            <div class="sync-log-empty-icon">📄</div>
+                            <h3>No sync records found</h3>
+                            <p>Sync records will appear here when content/pages receive new updates.</p>
+                        </div>
+                    <?php else: ?>
+                        <?php foreach ($sync_records as $record): ?>
+                            <div class="sync-log-item">
+                                <div class="sync-log-icon">
+                                    <div class="sync-icon-circle">
+                                        <span class="sync-icon"><?php echo ($record->source === 'MCP Client') ? '🤖' : '📄'; ?></span>
+                                    </div>
+                                </div>
+
+                                <div class="sync-log-content">
+                                    <div class="sync-log-title"><?php echo esc_html($record->title); ?>
+                                    <?php if (!empty($record->url)): ?>
+                                        <a href="<?php echo esc_url($record->url); ?>" target="_blank" rel="noopener" title="Open URL" style="margin-left:8px; text-decoration:none;">🔗</a>
+                                    <?php endif; ?>
+                                    </div>
+                                    <div class="sync-log-meta">
+                                        <?php echo $this->time_elapsed_string($record->created_at); ?>
+                                        <?php if (!empty($record->source)): ?>
+                                            &nbsp;·&nbsp;<span style="opacity:.7;"><?php echo esc_html($record->source); ?></span>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+
+                                <div class="sync-log-status" style="display:flex;align-items:center;gap:8px;">
+                                    <?php if ($record->status === 'published' || $record->status === 'publish'): ?>
+                                        <span class="sync-status-badge sync-status-published">
+                                            <span class="sync-status-icon">✓</span>
+                                            Published
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="sync-status-badge sync-status-draft">
+                                            <span class="sync-status-icon">i</span>
+                                            Draft
+                                        </span>
+                                    <?php endif; ?>
+                                    <?php if ($record->source === 'MCP Client'): ?>
+                                        <button type="button"
+                                                class="metasync-rollback-btn"
+                                                data-id="<?php echo esc_attr($record->id); ?>"
+                                                data-nonce="<?php echo esc_attr(wp_create_nonce('metasync_rollback_mcp_change')); ?>"
+                                                style="background:none;border:1px solid #aaa;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:12px;color:inherit;"
+                                                title="Rollback this MCP change">
+                                            ↩ Rollback
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Pagination -->
+                <?php if ($total_pages > 1): ?>
+                    <div class="sync-log-pagination">
+                        <div class="sync-log-pagination-info">
+                            Total records: <?php echo $total_records; ?> | Showing <?php echo $offset + 1; ?>-<?php echo min($offset + $per_page, $total_records); ?>
+                        </div>
+
+                        <div class="sync-log-pagination-controls">
+                            <?php if ($page > 1): ?>
+                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo $page - 1; ?><?php echo $this->build_filter_query_string($filters); ?>" class="sync-pagination-btn">‹</a>
+                            <?php endif; ?>
+
+                            <?php for ($i = max(1, $page - 2); $i <= min($total_pages, $page + 2); $i++): ?>
+                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo $i; ?><?php echo $this->build_filter_query_string($filters); ?>"
+                                   class="sync-pagination-btn <?php echo $i === $page ? 'active' : ''; ?>"><?php echo $i; ?></a>
+                            <?php endfor; ?>
+
+                            <?php if ($page < $total_pages): ?>
+                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo $page + 1; ?><?php echo $this->build_filter_query_string($filters); ?>" class="sync-pagination-btn">›</a>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <script>
+        (function () {
+            // ── Clear Log ──────────────────────────────────────────────
+            var clearBtn = document.getElementById('metasync-clear-sync-log-btn');
+            if (clearBtn) {
+                clearBtn.addEventListener('click', function () {
+                    if (!confirm('Are you sure you want to permanently delete all sync log records? This cannot be undone.')) {
+                        return;
+                    }
+                    clearBtn.disabled = true;
+                    clearBtn.textContent = 'Clearing…';
+                    var data = new FormData();
+                    data.append('action', 'metasync_clear_sync_log');
+                    data.append('nonce', clearBtn.dataset.nonce);
+                    fetch(ajaxurl, { method: 'POST', body: data })
+                        .then(function (r) { return r.json(); })
+                        .then(function (resp) {
+                            if (resp.success) {
+                                window.location.reload();
+                            } else {
+                                alert(resp.data && resp.data.message ? resp.data.message : 'Failed to clear log.');
+                                clearBtn.disabled = false;
+                                clearBtn.textContent = '🗑 Clear Log';
+                            }
+                        })
+                        .catch(function () {
+                            alert('Request failed. Please try again.');
+                            clearBtn.disabled = false;
+                            clearBtn.textContent = '🗑 Clear Log';
+                        });
+                });
+            }
+
+            // ── Rollback ───────────────────────────────────────────────
+            document.querySelectorAll('.metasync-rollback-btn').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    if (!confirm('Rollback this MCP change to its previous state?')) {
+                        return;
+                    }
+                    btn.disabled = true;
+                    btn.textContent = '…';
+                    var data = new FormData();
+                    data.append('action', 'metasync_rollback_mcp_change');
+                    data.append('nonce', btn.dataset.nonce);
+                    data.append('sync_history_id', btn.dataset.id);
+                    fetch(ajaxurl, { method: 'POST', body: data })
+                        .then(function (r) { return r.json(); })
+                        .then(function (resp) {
+                            if (resp.success) {
+                                btn.textContent = '✓ Done';
+                                btn.style.color = 'green';
+                            } else {
+                                alert(resp.data && resp.data.message ? resp.data.message : 'Rollback failed.');
+                                btn.disabled = false;
+                                btn.textContent = '↩ Rollback';
+                            }
+                        })
+                        .catch(function () {
+                            alert('Request failed. Please try again.');
+                            btn.disabled = false;
+                            btn.textContent = '↩ Rollback';
+                        });
+                });
+            });
+        })();
+        </script>
+        <?php
     }
     /**
      * Build filter query string for pagination
@@ -3009,6 +3359,48 @@ class Metasync_Admin
     {
         // This can be used for future AJAX functionality like real-time updates
         wp_die();
+    }
+
+    /**
+     * AJAX: Clear all Sync Log records (admin-only, nonce protected).
+     */
+    public function ajax_clear_sync_log()
+    {
+        check_ajax_referer('metasync_clear_sync_log', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Insufficient permissions.'], 403);
+        }
+
+        $sync_db = new Metasync_Sync_History_Database();
+        $sync_db->clear_logs();
+
+        wp_send_json_success(['message' => 'Sync log cleared successfully.']);
+    }
+
+    /**
+     * AJAX: Rollback a single MCP Client sync history entry.
+     */
+    public function ajax_rollback_mcp_change()
+    {
+        check_ajax_referer('metasync_rollback_mcp_change', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Insufficient permissions.'], 403);
+        }
+
+        $id = isset($_POST['sync_history_id']) ? intval($_POST['sync_history_id']) : 0;
+        if (!$id) {
+            wp_send_json_error(['message' => 'Invalid sync history ID.']);
+        }
+
+        $result = Metasync_MCP_Sync_Logger::rollback($id);
+
+        if ($result['success']) {
+            wp_send_json_success(['message' => $result['message']]);
+        } else {
+            wp_send_json_error(['message' => $result['message']]);
+        }
     }
 
     /**
@@ -3180,6 +3572,203 @@ class Metasync_Admin
     /**
      * Render reset settings section for Advanced tab accordion
      */
+    /**
+     * Render CPU Monitor section for Performance accordion
+     */
+    public function render_cpu_monitor_section() {
+        $cpu_monitor = new Metasync_CPU_Monitor();
+        $stats = Metasync_CPU_Monitor::get_stats();
+        $per_core_threshold = Metasync_CPU_Monitor::get_per_core_threshold();
+        $cores = Metasync_CPU_Monitor::get_cpu_core_count();
+        $effective_threshold = Metasync_CPU_Monitor::get_effective_threshold();
+        ?>
+        <div style="background: var(--dashboard-card-bg); padding: 20px; border-radius: 8px;">
+            <!-- CPU Cores Detected -->
+            <div style="margin-bottom: 24px;">
+                <label style="display: block; margin-bottom: 8px; font-weight: 500; color: var(--dashboard-text);">
+                    CPU Cores Detected
+                </label>
+                <div style="padding: 10px 12px; background: var(--dashboard-input-bg); border: 1px solid var(--dashboard-border); border-radius: 6px; color: var(--dashboard-text-secondary);">
+                    <strong><?php echo intval($cores); ?></strong> core<?php echo $cores !== 1 ? 's' : ''; ?>
+                </div>
+                <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
+                    Automatically detected on this system.
+                </p>
+            </div>
+
+            <!-- Per-Core Load Threshold -->
+            <div style="margin-bottom: 24px;">
+                <label for="cpu_load_per_core_threshold" style="display: block; margin-bottom: 8px; font-weight: 500; color: var(--dashboard-text);">
+                    Per-Core Load Threshold
+                </label>
+                <input type="number"
+                       id="cpu_load_per_core_threshold"
+                       name="metasync_options[performance][cpu_load_per_core_threshold]"
+                       value="<?php echo esc_attr($per_core_threshold); ?>"
+                       step="0.1"
+                       min="0.5"
+                       max="10.0"
+                       style="width: 100%; padding: 10px 12px; background: var(--dashboard-input-bg); border: 1px solid var(--dashboard-border); border-radius: 6px; color: var(--dashboard-text); font-size: 14px; box-sizing: border-box;"
+                       onchange="updateEffectiveThreshold()">
+                <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
+                    Set the load average per CPU core (0.5–10.0). Default: 2.0
+                </p>
+            </div>
+
+            <!-- Effective Threshold (Read-Only) -->
+            <div style="margin-bottom: 24px;">
+                <label style="display: block; margin-bottom: 8px; font-weight: 500; color: var(--dashboard-text);">
+                    Effective Threshold
+                </label>
+                <div style="padding: 10px 12px; background: var(--dashboard-input-bg); border: 1px solid var(--dashboard-border); border-radius: 6px; color: var(--dashboard-text-secondary);">
+                    <strong id="effective_threshold_value"><?php echo round($effective_threshold, 2); ?></strong>
+                </div>
+                <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
+                    Calculated as: cores × per-core threshold
+                </p>
+            </div>
+
+            <!-- Statistics -->
+            <div style="background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+                <h4 style="margin: 0 0 12px 0; color: var(--dashboard-text); display: flex; align-items: center; gap: 8px;">
+                    <span>📊</span>
+                    <span>CPU Load Statistics</span>
+                </h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                    <div>
+                        <div style="font-size: 12px; color: var(--dashboard-text-secondary); margin-bottom: 4px;">Total Deferrals</div>
+                        <div style="font-size: 18px; font-weight: 600; color: var(--dashboard-text);"><?php echo intval($stats['deferrals']); ?></div>
+                    </div>
+                    <div>
+                        <div style="font-size: 12px; color: var(--dashboard-text-secondary); margin-bottom: 4px;">Max Load Observed</div>
+                        <div style="font-size: 18px; font-weight: 600; color: var(--dashboard-text);"><?php echo round($stats['max_load'], 2); ?></div>
+                    </div>
+                    <div>
+                        <div style="font-size: 12px; color: var(--dashboard-text-secondary); margin-bottom: 4px;">Average Load</div>
+                        <div style="font-size: 18px; font-weight: 600; color: var(--dashboard-text);"><?php echo round($stats['avg_load'], 2); ?></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Save Button -->
+            <button type="button" class="metasync-btn-primary" onclick="submitPerformanceSettings(event)" style="background: var(--dashboard-primary, #3b82f6); color: #ffffff; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);" onmouseover="this.style.background='var(--dashboard-primary-hover, #2563eb)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(59, 130, 246, 0.3)';" onmouseout="this.style.background='var(--dashboard-primary, #3b82f6)'; this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(59, 130, 246, 0.2)';">
+                💾 Save Performance Settings
+            </button>
+        </div>
+        <script>
+        function updateEffectiveThreshold() {
+            const coresCount = <?php echo intval($cores); ?>;
+            const perCoreInput = document.getElementById('cpu_load_per_core_threshold');
+            const effectiveValue = coresCount * parseFloat(perCoreInput.value);
+            document.getElementById('effective_threshold_value').textContent = effectiveValue.toFixed(2);
+        }
+
+        function submitPerformanceSettings(event) {
+            // Prevent any form submission (defensive)
+            if (event) {
+                event.preventDefault();
+            }
+
+            // Get the threshold value
+            const thresholdInput = document.getElementById('cpu_load_per_core_threshold');
+            if (!thresholdInput) {
+                console.error('CPU threshold input not found');
+                return;
+            }
+
+            const threshold = parseFloat(thresholdInput.value);
+            if (isNaN(threshold) || threshold < 0.5 || threshold > 10.0) {
+                alert('Please enter a valid threshold between 0.5 and 10.0');
+                return;
+            }
+
+            // Get AJAX URL
+            const ajaxUrl = (typeof window.ajaxurl !== 'undefined' && window.ajaxurl)
+                ? window.ajaxurl
+                : '<?php echo esc_js(admin_url('admin-ajax.php')); ?>';
+
+            // Get nonce from form
+            const nonceInput = document.querySelector('input[name="meta_sync_nonce"]');
+            const nonce = nonceInput ? nonceInput.value : '';
+
+            // Prepare AJAX request data
+            const formData = new FormData();
+            formData.append('action', 'metasync_save_performance_settings');
+            formData.append('meta_sync_nonce', nonce);
+            formData.append('metasync_options[performance][cpu_load_per_core_threshold]', threshold);
+
+            // Show saving state
+            const button = event.target;
+            const originalText = button.innerHTML;
+            button.innerHTML = '⏳ Saving...';
+            button.disabled = true;
+
+            // Make AJAX request
+            fetch(ajaxUrl, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                button.innerHTML = originalText;
+                button.disabled = false;
+
+                if (data.success) {
+                    // Update the effective threshold display
+                    if (data.data && data.data.effective_threshold) {
+                        document.getElementById('effective_threshold_value').textContent =
+                            data.data.effective_threshold.toFixed(2);
+                    }
+
+                    // Show success notice
+                    showPerformanceNotice(data.data.message || 'Settings saved successfully!', 'success');
+                } else {
+                    // Show error notice
+                    showPerformanceNotice(data.data?.message || 'Failed to save settings', 'error');
+                }
+            })
+            .catch(error => {
+                console.error('AJAX Error:', error);
+                button.innerHTML = originalText;
+                button.disabled = false;
+                showPerformanceNotice('An error occurred while saving settings', 'error');
+            });
+        }
+
+        function showPerformanceNotice(message, type) {
+            // Create notice element
+            const notice = document.createElement('div');
+            notice.className = `notice notice-${type} is-dismissible`;
+            notice.style.cssText = 'margin: 20px auto; max-width: 800px;';
+            notice.innerHTML = `
+                <p><strong>${type === 'success' ? '✅' : '❌'} ${message}</strong></p>
+                <button type="button" class="notice-dismiss" onclick="this.parentElement.remove()" style="cursor: pointer;"></button>
+            `;
+
+            // Find the page header to insert before
+            const pageHeader = document.querySelector('h1, h2');
+            if (pageHeader) {
+                pageHeader.parentElement.insertBefore(notice, pageHeader.nextSibling);
+            } else {
+                document.body.insertBefore(notice, document.body.firstChild);
+            }
+
+            // Auto-remove error notices after 5 seconds
+            if (type === 'error') {
+                setTimeout(() => {
+                    if (notice.parentElement) {
+                        notice.remove();
+                    }
+                }, 5000);
+            }
+        }
+        </script>
+        <?php
+    }
+
     private function render_reset_settings_section() {
         Metasync_Settings_Fields::instance()->render_reset_settings_section();
     }
@@ -3842,6 +4431,69 @@ class Metasync_Admin
     */
     public function meta_sync_save_seo_controls() {
         Metasync_Settings_Registration::instance()->meta_sync_save_seo_controls();
+    }
+
+    /**
+     * AJAX handler for saving Performance (CPU Load) settings
+     *
+     * Saves the CPU load threshold and returns statistics
+     */
+    public function ajax_save_performance_settings() {
+        # Check nonce for security and return early if invalid
+        if (!isset($_POST['meta_sync_nonce']) || !wp_verify_nonce($_POST['meta_sync_nonce'], 'meta_sync_general_setting_nonce')) {
+            wp_send_json_error(array('message' => 'Invalid nonce'));
+            return;
+        }
+
+        # Check user capabilities
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+            return;
+        }
+
+        # Get current options
+        $current_options = Metasync::get_option();
+        if (!is_array($current_options)) {
+            $current_options = array();
+        }
+
+        # Initialize performance section if it doesn't exist
+        if (!isset($current_options['performance']) || !is_array($current_options['performance'])) {
+            $current_options['performance'] = array();
+        }
+
+        # Validate and sanitize CPU load threshold
+        if (isset($_POST['metasync_options']['performance']['cpu_load_per_core_threshold'])) {
+            $threshold = floatval($_POST['metasync_options']['performance']['cpu_load_per_core_threshold']);
+            # Clamp value between 0.5 and 10.0
+            $threshold = max(0.5, min(10.0, $threshold));
+            $current_options['performance']['cpu_load_per_core_threshold'] = $threshold;
+        } else {
+            # Ensure default value exists
+            if (!isset($current_options['performance']['cpu_load_per_core_threshold'])) {
+                $current_options['performance']['cpu_load_per_core_threshold'] = Metasync_CPU_Monitor::DEFAULT_PER_CORE;
+            }
+        }
+
+        # Save the updated options
+        $result = Metasync::set_option($current_options);
+
+        if ($result) {
+            # Get current statistics to return
+            $stats = Metasync_CPU_Monitor::get_stats();
+            $cores = Metasync_CPU_Monitor::get_cpu_core_count();
+            $effective_threshold = Metasync_CPU_Monitor::get_effective_threshold();
+
+            wp_send_json_success(array(
+                'message' => 'Performance settings saved successfully!',
+                'cpu_load_per_core_threshold' => $current_options['performance']['cpu_load_per_core_threshold'],
+                'effective_threshold' => $effective_threshold,
+                'cores' => $cores,
+                'stats' => $stats
+            ));
+        } else {
+            wp_send_json_error(array('message' => 'Failed to save Performance settings'));
+        }
     }
 
     /**
