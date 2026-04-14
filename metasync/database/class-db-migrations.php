@@ -196,6 +196,14 @@ class MetaSync_DBMigration
 			dbDelta($table_sql);
 		}
 
+		// Create Robots.txt Backups Table
+		require_once dirname(__FILE__, 2) . '/robots-txt/class-metasync-robots-txt-database.php';
+		$robots_db = Metasync_Robots_Txt_Database::get_instance();
+		$table_name_robots = esc_sql($wpdb->prefix . 'metasync_robots_txt_backups');
+		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name_robots)) != $table_name_robots) {
+			$robots_db->create_table();
+		}
+
 		// Create Zapier Subscriptions Table
 		require_once dirname(__FILE__, 2) . '/zapier/class-metasync-zapier-database.php';
 		Metasync_Zapier_Database::create_table();

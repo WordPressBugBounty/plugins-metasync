@@ -174,24 +174,24 @@ class Metasync_Setup_Wizard
 			<div class="wizard-step-content">
 				<div class="wizard-benefits">
 					<div class="wizard-benefit-card">
-						<span class="benefit-icon">🚀</span>
+						<span class="benefit-icon"><span class="dashicons dashicons-performance" style="font-size:24px;width:24px;height:24px;"></span></span>
 						<h3>Automated SEO</h3>
 						<p>Automatically optimize your content for search engines</p>
 					</div>
 					<div class="wizard-benefit-card">
-						<span class="benefit-icon">📊</span>
+						<span class="benefit-icon"><span class="dashicons dashicons-chart-bar" style="font-size:24px;width:24px;height:24px;"></span></span>
 						<h3>Performance Tracking</h3>
 						<p>Monitor your site's search performance in real-time</p>
 					</div>
 					<div class="wizard-benefit-card">
-						<span class="benefit-icon">🔗</span>
+						<span class="benefit-icon"><span class="dashicons dashicons-admin-links" style="font-size:24px;width:24px;height:24px;"></span></span>
 						<h3>Seamless Integration</h3>
 						<p>Connect with <?php echo esc_html($plugin_name); ?> for advanced features</p>
 					</div>
 				</div>
 
 				<div class="wizard-time-estimate">
-					<span>⏱️ Estimated time: 3-5 minutes</span>
+					<span>Estimated time: 3-5 minutes</span>
 				</div>
 			</div>
 		</div>
@@ -211,7 +211,7 @@ class Metasync_Setup_Wizard
 		?>
 		<div class="wizard-step wizard-step-connection" data-step="2">
 			<div class="wizard-step-header">
-				<h2>🔗 Connect to <?php echo esc_html($plugin_name); ?></h2>
+				<h2>Connect to <?php echo esc_html($plugin_name); ?></h2>
 				<p>Link your WordPress site to your <?php echo esc_html($plugin_name); ?> account for advanced features.</p>
 			</div>
 
@@ -252,7 +252,7 @@ class Metasync_Setup_Wizard
 		?>
 		<div class="wizard-step wizard-step-import" data-step="3">
 			<div class="wizard-step-header">
-				<h2>📥 Import from Other SEO Plugins</h2>
+				<h2>Import from Other SEO Plugins</h2>
 				<p>We detected other SEO plugins. Import your existing settings to save time.</p>
 			</div>
 
@@ -334,14 +334,14 @@ class Metasync_Setup_Wizard
 		?>
 		<div class="wizard-step wizard-step-seo" data-step="4">
 			<div class="wizard-step-header">
-				<h2>🚀 Basic SEO Settings</h2>
+				<h2>Basic SEO Settings</h2>
 				<p>Choose which archive types should be indexed by search engines.</p>
 			</div>
 
 			<div class="wizard-step-content">
 				<div class="wizard-seo-grid">
 					<div class="wizard-seo-card">
-						<h3>📅 Archive Types</h3>
+						<h3>Archive Types</h3>
 						<p>Control which WordPress archives are visible to search engines.</p>
 
 						<div class="wizard-toggle-group">
@@ -372,7 +372,7 @@ class Metasync_Setup_Wizard
 					</div>
 
 					<div class="wizard-recommendation-box">
-						<h4>💡 Recommended Settings</h4>
+						<h4>Recommended Settings</h4>
 						<p>For most sites, we recommend:</p>
 						<ul>
 							<li>✓ Index Category and Tag archives (helps with SEO)</li>
@@ -399,7 +399,7 @@ class Metasync_Setup_Wizard
 		?>
 		<div class="wizard-step wizard-step-schema" data-step="5">
 			<div class="wizard-step-header">
-				<h2>📋 Schema Markup Preferences</h2>
+				<h2>Schema Markup Preferences</h2>
 				<p>Configure structured data to help search engines understand your content.</p>
 			</div>
 
@@ -423,7 +423,7 @@ class Metasync_Setup_Wizard
 							<input type="radio" name="default_schema_type" value="article"
 								   <?php checked(($general_settings['default_schema_type'] ?? 'article') === 'article'); ?>>
 							<div class="schema-type-content">
-								<span class="schema-type-icon">📰</span>
+								<span class="schema-type-icon"><span class="dashicons dashicons-media-text" style="font-size:24px;width:24px;height:24px;"></span></span>
 								<h4>Article</h4>
 								<p>Best for blog posts and news articles</p>
 							</div>
@@ -433,7 +433,7 @@ class Metasync_Setup_Wizard
 							<input type="radio" name="default_schema_type" value="webpage"
 								   <?php checked(($general_settings['default_schema_type'] ?? '') === 'webpage'); ?>>
 							<div class="schema-type-content">
-								<span class="schema-type-icon">📄</span>
+								<span class="schema-type-icon"><span class="dashicons dashicons-media-default" style="font-size:24px;width:24px;height:24px;"></span></span>
 								<h4>WebPage</h4>
 								<p>Best for general website pages</p>
 							</div>
@@ -443,7 +443,7 @@ class Metasync_Setup_Wizard
 							<input type="radio" name="default_schema_type" value="product"
 								   <?php checked(($general_settings['default_schema_type'] ?? '') === 'product'); ?>>
 							<div class="schema-type-content">
-								<span class="schema-type-icon">🛍️</span>
+								<span class="schema-type-icon"><span class="dashicons dashicons-cart" style="font-size:24px;width:24px;height:24px;"></span></span>
 								<h4>Product</h4>
 								<p>Best for e-commerce sites</p>
 							</div>

@@ -526,23 +526,7 @@ if (!array_key_exists($active_tab, $sections)) {
     }
 </style>
 
-<div class="wrap metasync-dashboard-wrap">
-    
-    <?php $this->render_plugin_header('Import External Data'); ?>
-    
-    <?php
-    // Map active tab to top-level menu item for highlighting
-    $menu_map = [
-        'seo_metadata' => 'general',
-        'redirections' => 'redirections',
-        'sitemap'      => 'xml_sitemap',
-        'robots'       => 'robots_txt',
-        'indexation'   => 'seo_controls',
-        'schema'       => 'general'
-    ];
-    $active_menu = isset($menu_map[$active_tab]) ? $menu_map[$active_tab] : 'general';
-    $this->render_navigation_menu($active_menu);
-    ?>
+<?php $this->render_layout_open('Import External Data', 'import_seo', 'Import SEO data, redirections, sitemaps, and more from other plugins.'); ?>
 
     <div class="metasync-import-wrapper">
         
@@ -624,7 +608,7 @@ if (!array_key_exists($active_tab, $sections)) {
             </div>
         </div>
     </div>
-</div>
+<?php $this->render_layout_close(); ?>
 
 <!-- SEO Metadata Import Options Modal -->
 <div class="metasync-modal-overlay" id="metasync-seo-options-modal">

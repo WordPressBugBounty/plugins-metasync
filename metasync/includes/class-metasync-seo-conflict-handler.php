@@ -347,7 +347,7 @@ class Metasync_SEO_Conflict_Handler {
      * Filter AIOSEO schema/JSON-LD output.
      * Suppress when OTTO has structured data for the current page.
      *
-     * @param  array $output AIOSEO's schema @graph array.
+     * @param  array $output AIOSEO's @graph array.
      * @return array
      */
     public function filter_aioseo_schema($output) {
@@ -509,12 +509,36 @@ class Metasync_SEO_Conflict_Handler {
 
     /**
      * Filter Yoast SEO title output.
-     * Suppress when: OTTO active + has title, OR MetaSync sidebar has title.
+     *
+     * When the MetaSync sidebar has an explicit SEO title, return that title so
+     * Yoast's Title_Presenter renders it inside the <title> tag it controls.
+     * Returning '' would cause Title_Presenter to emit NO <title> tag at all,
+     * because Yoast has already removed WordPress's native _wp_render_title_tag
+     * action and is the sole renderer of the title element.
+     *
+     * When only OTTO has a title (no sidebar override), we let Yoast output its
+     * own title normally — OTTO's buffer post-processing replaces it in the final
+     * HTML. Returning '' here would again leave the page with no <title> tag.
      */
     public function filter_yoast_title($title) {
-        if ($this->should_suppress_third_party_title()) {
-            return '';
+        $post_id = $this->get_current_object_id();
+
+        // Case 1: MetaSync sidebar has an explicit title — return it so Yoast
+        // renders it inside <title>. The sidebar's pre_get_document_title filter
+        // (priority 100) already handles this for block themes; this wpseo_title
+        // filter covers classic-theme paths where Yoast builds the title differently.
+        if ($post_id) {
+            $sidebar_title = get_post_meta($post_id, '_metasync_seo_title', true);
+            if (!empty($sidebar_title)) {
+                return $sidebar_title;
+            }
         }
+
+        // Case 2: OTTO has a persisted title — do NOT suppress Yoast here.
+        // OTTO's output-buffer post-processing (Otto_html_class) replaces the
+        // <title> tag in the final HTML after WordPress renders. Returning '' would
+        // remove the <title> tag entirely before OTTO can inject its replacement.
+
         return $title;
     }
 

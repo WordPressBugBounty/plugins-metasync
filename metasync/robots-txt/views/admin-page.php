@@ -51,7 +51,7 @@ $robots_url = trailingslashit($site_url) . 'robots.txt';
                             <?php endif; ?>
                         </span>
                         <a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-import-external&tab=robots')); ?>" class="button button-secondary" style="margin-right: 10px;">
-                            <span>📥</span> <?php esc_html_e('Import from SEO Plugins', 'metasync'); ?>
+                            <span class="dashicons dashicons-download" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> <?php esc_html_e('Import from SEO Plugins', 'metasync'); ?>
                         </a>
                         <a href="<?php echo esc_url($robots_url); ?>" target="_blank" class="button button-secondary">
                             <?php esc_html_e('View robots.txt', 'metasync'); ?>

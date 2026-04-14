@@ -37,34 +37,31 @@ $bot_filtering_enabled = isset($general_options['otto_disable_for_bots']) ? (boo
 
 // Breakdown label config (reused in table)
 $breakdown_labels = array(
-    'search_engine' => array('label' => 'Search Engines', 'icon' => '🔎', 'color' => '#4285f4'),
-    'seo_tool'      => array('label' => 'SEO Tools',      'icon' => '📈', 'color' => '#34a853'),
-    'social_media'  => array('label' => 'Social Media',   'icon' => '📱', 'color' => '#ea4335'),
-    'archiver'      => array('label' => 'Archivers',      'icon' => '📦', 'color' => '#fbbc05'),
-    'generic'       => array('label' => 'Generic Bots',   'icon' => '🤖', 'color' => '#9c27b0'),
-    'other'         => array('label' => 'Other',          'icon' => '❓', 'color' => '#607d8b'),
-    'unknown'       => array('label' => 'Unknown',        'icon' => '❔', 'color' => '#9e9e9e'),
-    'ip_based'      => array('label' => 'IP-based',       'icon' => '🌐', 'color' => '#795548')
+    'search_engine' => array('label' => 'Search Engines', 'icon' => 'search',        'color' => '#667eea'),
+    'seo_tool'      => array('label' => 'SEO Tools',      'icon' => 'chart-line',    'color' => '#667eea'),
+    'social_media'  => array('label' => 'Social Media',   'icon' => 'share',         'color' => '#667eea'),
+    'archiver'      => array('label' => 'Archivers',      'icon' => 'archive',       'color' => '#667eea'),
+    'generic'       => array('label' => 'Generic Bots',   'icon' => 'visibility',    'color' => '#667eea'),
+    'other'         => array('label' => 'Other',          'icon' => 'marker',        'color' => '#667eea'),
+    'unknown'       => array('label' => 'Unknown',        'icon' => 'editor-help',   'color' => '#667eea'),
+    'ip_based'      => array('label' => 'IP-based',       'icon' => 'networking',    'color' => '#667eea')
 );
 
 ?>
 
-<div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-
-    <?php $this->render_plugin_header('Bot Statistics'); ?>
-    <?php $this->render_navigation_menu('bot_statistics'); ?>
+<?php $this->render_layout_open('Bot Statistics', 'bot_statistics', 'Monitor and analyze bot traffic detected on your site.'); ?>
 
     <!-- Bot Detection Status Card -->
     <div class="dashboard-card">
-        <h2>🤖 Bot Detection Status</h2>
+        <h2>Bot Detection Status</h2>
         <div style="margin-bottom: 20px;">
             <?php if ($bot_filtering_enabled): ?>
-                <div style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 12px; border-radius: 4px;">
-                    <strong>✅ Bot Filtering Active:</strong> <?php echo esc_html($whitelabel_otto_name); ?> is currently disabled for detected bot traffic.
+                <div style="background: rgba(16,185,129,0.1); border: 1px solid var(--dashboard-success); color: var(--dashboard-success); padding: 12px; border-radius: 6px;">
+                    <strong>Bot Filtering Active:</strong> <?php echo esc_html($whitelabel_otto_name); ?> is currently disabled for detected bot traffic.
                 </div>
             <?php else: ?>
-                <div style="background: #fff3cd; border: 1px solid #ffc107; color: #856404; padding: 12px; border-radius: 4px;">
-                    <strong>⚠️ Bot Filtering Inactive:</strong> Bot detection is tracking bots, but <?php echo esc_html($whitelabel_otto_name); ?> is still processing bot traffic.
+                <div style="background: rgba(245,158,11,0.1); border: 1px solid var(--dashboard-warning); color: var(--dashboard-warning); padding: 12px; border-radius: 6px;">
+                    <strong>Bot Filtering Inactive:</strong> Bot detection is tracking bots, but <?php echo esc_html($whitelabel_otto_name); ?> is still processing bot traffic.
                     <a href="?page=<?php echo esc_attr(Metasync_Admin::$page_slug); ?>&tab=general" style="margin-left: 10px;">Enable in Settings →</a>
                 </div>
             <?php endif; ?>
@@ -75,13 +72,13 @@ $breakdown_labels = array(
     <div class="dashboard-card">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
             <div>
-                <h2 style="margin: 0;">📊 Bot Detection Overview</h2>
+                <h2 style="margin: 0;">Bot Detection Overview</h2>
                 <p style="color: var(--dashboard-text-secondary); margin: 5px 0 0 0;">
                     Overall statistics for bot detection and API optimization.
                 </p>
             </div>
             <button type="button" id="reset-bot-stats" class="button" style="color: #ffffff;">
-                🗑️ Reset All Statistics
+                <span class="dashicons dashicons-trash" style="font-size:15px;width:15px;height:15px;margin-top:3px;"></span> Reset All Statistics
             </button>
         </div>
 
@@ -108,7 +105,7 @@ $breakdown_labels = array(
 
     <!-- Bot Type Breakdown -->
     <div class="dashboard-card">
-        <h2>🔍 Breakdown by Bot Type</h2>
+        <h2>Breakdown by Bot Type</h2>
         <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">
             Distribution of detected bots by category.
         </p>
@@ -118,8 +115,8 @@ $breakdown_labels = array(
                 if ($type === 'ip_based') continue; // ip_based rolls into "other" in stats
                 $count = $stats['breakdown'][$type] ?? 0;
             ?>
-                <div style="border: 2px solid <?php echo esc_attr($info['color']); ?>; padding: 15px; border-radius: 6px; text-align: center;">
-                    <div style="font-size: 24px; margin-bottom: 5px;"><?php echo $info['icon']; ?></div>
+                <div style="border: 1px solid var(--dashboard-border); padding: 15px; border-radius: 8px; text-align: center;">
+                    <div style="width:36px;height:36px;border-radius:8px;background:var(--dashboard-gradient-primary);display:flex;align-items:center;justify-content:center;margin:0 auto 8px;"><span class="dashicons dashicons-<?php echo esc_attr($info['icon']); ?>" style="font-size:18px;width:18px;height:18px;color:#fff;"></span></div>
                     <div style="font-size: 20px; font-weight: 700; color: var(--dashboard-text-primary);"><?php echo number_format($count); ?></div>
                     <div style="font-size: 12px; color: var(--dashboard-text-secondary); margin-top: 5px;"><?php echo esc_html($info['label']); ?></div>
                 </div>
@@ -129,14 +126,14 @@ $breakdown_labels = array(
 
     <!-- Unique Bot Entries -->
     <div class="dashboard-card">
-        <h2>📋 Unique Bot Entries (Last 100)</h2>
+        <h2>Unique Bot Entries (Last 100)</h2>
         <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">
             Each row is a unique bot+IP combination. The <strong>Hits</strong> column shows how many times that bot visited your site.
         </p>
 
         <?php if (empty($recent_requests)): ?>
             <div style="background: var(--dashboard-card-bg); border: 1px solid var(--dashboard-border, #e2e8f0); padding: 30px; border-radius: 8px; text-align: center; color: var(--dashboard-text-secondary);">
-                <div style="font-size: 48px; margin-bottom: 10px;">🤖</div>
+                <div style="width:56px;height:56px;border-radius:12px;background:var(--dashboard-gradient-primary);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;"><span class="dashicons dashicons-visibility" style="font-size:28px;width:28px;height:28px;color:#fff;"></span></div>
                 <p style="margin: 0;">No bot requests detected yet. Bot detection will automatically log requests when bots visit your site.</p>
             </div>
         <?php else: ?>
@@ -177,8 +174,9 @@ $breakdown_labels = array(
                                     <?php echo esc_html($request['bot_name']); ?>
                                 </td>
                                 <td style="padding: 12px;">
-                                    <span style="display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; background: <?php echo esc_attr($bot_type_info['color']); ?>20; color: <?php echo esc_attr($bot_type_info['color']); ?>; font-weight: 600;">
-                                        <?php echo $bot_type_info['icon']; ?> <?php echo esc_html(ucfirst(str_replace('_', ' ', $request['bot_type']))); ?>
+                                    <span style="display: inline-flex; align-items:center; gap:4px; padding: 4px 8px; border-radius: 4px; font-size: 12px; background: rgba(102,126,234,0.15); color: var(--dashboard-text-secondary); font-weight: 600;">
+                                        <span class="dashicons dashicons-<?php echo esc_attr($bot_type_info['icon']); ?>" style="font-size:13px;width:13px;height:13px;"></span>
+                                        <?php echo esc_html(ucfirst(str_replace('_', ' ', $request['bot_type']))); ?>
                                     </span>
                                 </td>
                                 <td style="padding: 12px; color: var(--dashboard-text-secondary); font-family: monospace; font-size: 11px; max-width: 250px;">
@@ -233,7 +231,7 @@ $breakdown_labels = array(
             </div>
         <?php endif; ?>
     </div>
-</div>
+<?php $this->render_layout_close(); ?>
 
 
 <style>

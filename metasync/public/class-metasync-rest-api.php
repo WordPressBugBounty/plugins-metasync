@@ -1818,12 +1818,26 @@ class Metasync_Rest_Api
 
 	public function set_landing_page($request)
 	{
-		$payload = $request->get_json_params()[0];
+		$params = $request->get_json_params();
+
+		if (!isset($params[0]) || empty($params[0])) {
+			return new WP_Error(
+				'validation_error',
+				'Invalid request data. Empty Payload Provided',
+				array('status' => 400)
+			);
+		}
+
+		$payload = $params[0];
 		$payload['permalink'] = "metasync-landing-page"; // hardcoding to avoid duplicates
 		$payload['post_type'] = "page";
 		$payload['post_status'] = "publish";
 		$payload['is_landing_page'] = true;
 		$createPages = $this->create_item($payload); // creating landing page
+
+		if (is_wp_error($createPages)) {
+			return $createPages;
+		}
 
 		$post_id = $createPages[0]['post_id'];
 		update_option('page_on_front', $post_id);
@@ -2553,6 +2567,10 @@ class Metasync_Rest_Api
 		$payload['post_type'] = "page";
 		$createPages = $this->create_item($payload); // creating page
 
+		if (is_wp_error($createPages)) {
+			return $createPages;
+		}
+
 		$post_ids = array();
 
 		if (is_array($createPages) !== true) {
@@ -2617,9 +2635,19 @@ class Metasync_Rest_Api
 
 	public function update_page($request)
 	{
-		$payload = $request->get_json_params()[0];
+		$payload = $request->get_json_params();
+
+		if (!isset($payload[0]) || empty($payload[0])) {
+			return new WP_Error(
+				'validation_error',
+				'Invalid request data. Empty Payload Provided',
+				array('status' => 400)
+			);
+		}
+
+		$payload = $payload[0];
 		$payload['post_type'] = "page";
-		
+
 		$post_data = get_post($payload['post_id']);
 		if(!isset($post_data->post_type)){				
 			return new WP_Error(
@@ -2639,6 +2667,11 @@ class Metasync_Rest_Api
 		}
 
 		$updatePages = $this->update_items($payload); // updating page
+
+		if (is_wp_error($updatePages)) {
+			return $updatePages;
+		}
+
 		$post_ids = array();
 		foreach ($updatePages->data as $item) {
 			array_push($post_ids, $item['post_id']);

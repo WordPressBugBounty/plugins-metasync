@@ -31,10 +31,10 @@ if (!defined('WPINC')) {
     }
 
     .metasync-robots-txt-container {
-        display: grid;
-        grid-template-columns: 1fr 380px;
+        display: flex;
+        flex-direction: column;
         gap: 24px;
-        margin-top: 20px;
+        margin-top: 0;
         width: 100%;
     }
 

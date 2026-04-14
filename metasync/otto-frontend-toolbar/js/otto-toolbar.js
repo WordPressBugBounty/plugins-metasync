@@ -21,7 +21,13 @@
 		 */
 		init: function() {
 			console.log('OTTO Toolbar initialized');
-			
+
+			// Bind close button
+			$(document).on('click', '#otto-close-btn', function(e) {
+				e.preventDefault();
+				window.metasyncOttoToolbar.closeToolbar();
+			});
+
 			// Bind preview button
 			$(document).on('click', '#otto-preview-btn', function(e) {
 				e.preventDefault();
@@ -199,6 +205,14 @@
 	 */
 	closeDebugTray: function() {
 		$('#metasync-otto-debug-tray').removeClass('active');
+	},
+
+	/**
+	 * Dismiss the toolbar for the current session.
+	 * The bar will reappear on the next page load.
+	 */
+	closeToolbar: function() {
+		$('#metasync-otto-debug-bar').fadeOut(200);
 	},
 
 	/**

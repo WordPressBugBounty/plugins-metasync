@@ -144,28 +144,66 @@ class Metasync_HTML_To_Builder_Converter
 	 */
 	public function detect_active_builder()
 	{
-		// Check for Oxygen Builder first — Oxygen takes over template rendering entirely,
-		// so content should be stored as Gutenberg blocks (which Oxygen renders via the_content).
-		// Converting to Elementor/Divi format when Oxygen is the active builder causes
-		// font and width mismatches because Elementor's container/typography system conflicts
-		// with Oxygen's template rendering.
+		// Return the user's configured page builder, defaulting to 'gutenberg'
+		// when nothing has been explicitly set.
+		$configured = Metasync::get_option('general')['default_page_builder'] ?? 'gutenberg';
+		return $configured;
+	}
+
+	/**
+	 * Auto-detect the active page builder without consulting settings.
+	 *
+	 * @return string Builder key: 'elementor', 'divi', 'oxygen', 'gutenberg'
+	 */
+	public static function auto_detect_builder()
+	{
 		if (defined('CT_VERSION') || class_exists('OxygenElement')) {
-			return 'gutenberg';
+			return 'oxygen';
 		}
 
-		// Check for Elementor
 		if (did_action('elementor/loaded') || class_exists('\Elementor\Plugin')) {
 			return 'elementor';
 		}
 
-		// Check for Divi
 		$theme = wp_get_theme();
 		if ($theme->name == 'Divi' || $theme->get_template() == 'Divi' || function_exists('et_setup_theme')) {
 			return 'divi';
 		}
 
-		// Default to Gutenberg
 		return 'gutenberg';
+	}
+
+	/**
+	 * Get list of all detectable page builders with metadata.
+	 *
+	 * @return array Associative array of builder_key => [label, description, detected]
+	 */
+	public static function get_available_builders()
+	{
+		$detected = self::auto_detect_builder();
+
+		return array(
+			'gutenberg' => array(
+				'label'       => 'Gutenberg (WordPress Block Editor)',
+				'description' => 'Content is stored as WordPress blocks and rendered via the theme\'s native styling. Best compatibility with all themes and page builders.',
+				'detected'    => ($detected === 'gutenberg'),
+			),
+			'elementor' => array(
+				'label'       => 'Elementor',
+				'description' => 'Content is converted to Elementor widgets. Headings and text inherit your Elementor Global Styles (Site Settings > Global Fonts). Best for sites built entirely with Elementor.',
+				'detected'    => (did_action('elementor/loaded') || class_exists('\Elementor\Plugin')),
+			),
+			'divi' => array(
+				'label'       => 'Divi Builder',
+				'description' => 'Content is converted to Divi modules. Styling follows your Divi Theme Options. Best for sites using the Divi theme.',
+				'detected'    => (function_exists('et_setup_theme')),
+			),
+			'oxygen' => array(
+				'label'       => 'Oxygen Builder',
+				'description' => 'Content is stored as Gutenberg blocks, which Oxygen renders natively via the_content(). Oxygen controls page templates independently.',
+				'detected'    => (defined('CT_VERSION') || class_exists('OxygenElement')),
+			),
+		);
 	}
 
 	/**
@@ -1713,8 +1751,13 @@ class Metasync_HTML_To_Builder_Converter
 		// Replace newlines with <br>
 		$item['post_content'] = str_replace(["\r\n", "\r", "\n"], "<br>", $item['post_content'] ?? '');
 
-		// Detect builder
+		// Detect builder from user setting or auto-detect
 		$builder = $this->detect_active_builder();
+
+		// Oxygen stores content as Gutenberg blocks (Oxygen renders via the_content)
+		if ($builder === 'oxygen') {
+			$builder = 'gutenberg';
+		}
 
 		// Convert HTML
 		$post_type = isset($item['post_type']) ? sanitize_text_field($item['post_type']) : 'post';

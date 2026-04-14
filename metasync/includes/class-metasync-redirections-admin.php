@@ -55,20 +55,10 @@ class Metasync_Redirections_Admin
         $current_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'redirections';
 
         $this->add_tabbed_interface_assets();
-        ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('Redirections'); ?>
-        
-        <?php $this->admin->render_navigation_menu('redirections'); ?>
-        
-        <?php
+        $this->admin->render_layout_open('Redirections', 'redirections', 'Manage URL redirects and monitor 404 errors on your site.');
         $this->render_tab_navigation($current_tab);
-
         $this->render_tab_content($current_tab);
-        ?>
-        </div>
-        <?php
+        $this->admin->render_layout_close();
     }
 
     public function display_redirection_messages()

@@ -13,6 +13,8 @@ if (!defined('ABSPATH')) {
     exit; // Exit if accessed directly
 }
 
+$plugin_name = Metasync::get_effective_plugin_name();
+
 # Get general options (same way as used throughout the plugin)
 $general_options = Metasync::get_option('general');
 if (!is_array($general_options)) {
@@ -39,42 +41,38 @@ $system_info = array(
 );
 ?>
 
-<div class="wrap metasync-dashboard-wrap">
-
-    <?php $this->render_plugin_header('Report Issue'); ?>
-
-    <?php $this->render_navigation_menu('report_issue'); ?>
+<?php $this->render_layout_open('Report Issue', 'report_issue', 'Submit a support ticket or report a bug to our team.'); ?>
 
     <div class="metasync-report-issue-container">
 
         <!-- System Information Card -->
         <div class="dashboard-card metasync-system-info-card">
-            <h2>📋 System Information</h2>
+            <h2>System Information</h2>
             <p>This information will be automatically included with your report.</p>
 
             <div class="metasync-system-info-grid">
                 <div class="metasync-info-item">
-                    <span class="metasync-info-label">🌐 Website URL:</span>
+                    <span class="metasync-info-label">Website URL:</span>
                     <span class="metasync-info-value"><?php echo esc_html($system_info['website_url']); ?></span>
                 </div>
                 <div class="metasync-info-item">
-                    <span class="metasync-info-label">🔌 Plugin Version:</span>
+                    <span class="metasync-info-label">Plugin Version:</span>
                     <span class="metasync-info-value"><?php echo esc_html($system_info['plugin_version']); ?></span>
                 </div>
                 <div class="metasync-info-item">
-                    <span class="metasync-info-label">📦 WordPress Version:</span>
+                    <span class="metasync-info-label">WordPress Version:</span>
                     <span class="metasync-info-value"><?php echo esc_html($system_info['wordpress_version']); ?></span>
                 </div>
                 <div class="metasync-info-item">
-                    <span class="metasync-info-label">⚙️ PHP Version:</span>
+                    <span class="metasync-info-label">PHP Version:</span>
                     <span class="metasync-info-value"><?php echo esc_html($system_info['php_version']); ?></span>
                 </div>
                 <div class="metasync-info-item">
-                    <span class="metasync-info-label">🎨 Active Theme:</span>
+                    <span class="metasync-info-label">Active Theme:</span>
                     <span class="metasync-info-value"><?php echo esc_html($system_info['active_theme']); ?></span>
                 </div>
                 <div class="metasync-info-item">
-                    <span class="metasync-info-label">🆔 Project UUID:</span>
+                    <span class="metasync-info-label">Project UUID:</span>
                     <span class="metasync-info-value metasync-uuid-value">
                         <?php if (!empty($project_uuid)): ?>
                             <?php echo esc_html($project_uuid); ?>
@@ -88,7 +86,7 @@ $system_info = array(
 
         <!-- Report Form Card -->
         <div class="dashboard-card metasync-report-form-card">
-            <h2>✍️ Report an Issue</h2>
+            <h2>Report an Issue</h2>
             <p>Describe the issue you're experiencing and we'll receive it in our monitoring system.</p>
             
             <?php if (!empty($project_uuid)): ?>
@@ -126,10 +124,10 @@ $system_info = array(
                         <strong>Severity Level</strong>
                     </label>
                     <select id="metasync_issue_severity" name="issue_severity" class="metasync-form-select">
-                        <option value="info">ℹ️ Info - General question or feedback</option>
-                        <option value="warning" selected>⚠️ Warning - Non-critical issue</option>
-                        <option value="error">❌ Error - Affecting functionality</option>
-                        <option value="fatal">🔥 Critical - Site breaking issue</option>
+                        <option value="info">Info - General question or feedback</option>
+                        <option value="warning" selected>Warning - Non-critical issue</option>
+                        <option value="error">Error - Affecting functionality</option>
+                        <option value="fatal">Critical - Site breaking issue</option>
                     </select>
                 </div>
 
@@ -159,18 +157,18 @@ $system_info = array(
                 <div class="metasync-form-group metasync-support-access-section" style="padding-top: 30px; border-top: 1px solid rgba(255, 255, 255, 0.1);">
                     <div class="metasync-support-access-header">
                         <label class="metasync-form-label">
-                            <strong>🔐 Grant Temporary Support Access</strong>
+                            <strong>Grant Temporary Support Access</strong>
                             <span class="metasync-optional-badge" style="background: rgba(255, 255, 255, 0.1); padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 8px; color: #888;">Optional</span>
                         </label>
                         <p class="metasync-form-help-text" style="color: #888; font-size: 13px; margin-top: 8px; line-height: 1.5;">
-                            Allow Search Atlas support staff to temporarily access your WordPress admin to investigate and resolve this issue.
+                            Allow <?php echo esc_html($plugin_name); ?> support staff to temporarily access your WordPress admin to investigate and resolve this issue.
                         </p>
                     </div>
 
                     <div class="metasync-checkbox-wrapper" style="margin: 20px 0;">
                         <label class="metasync-checkbox-label">
                             <input type="checkbox" id="metasync_grant_support_access" name="grant_support_access" />
-                            <span>I consent to grant temporary admin access to Search Atlas support</span>
+                            <span>I consent to grant temporary admin access to <?php echo esc_html($plugin_name); ?> support</span>
                         </label>
                     </div>
 
@@ -191,7 +189,7 @@ $system_info = array(
 
                         <div class="metasync-security-notice" style="margin-top: 20px; padding: 15px; background: rgba(30, 144, 255, 0.1); border-left: 4px solid #1e90ff; border-radius: 4px;">
                             <div style="display: flex; gap: 10px;">
-                                <span class="metasync-security-icon" style="font-size: 24px;">🔒</span>
+                                <span class="metasync-security-icon"><span class="dashicons dashicons-lock" style="font-size:20px;width:20px;height:20px;color:#1e90ff;"></span></span>
                                 <div class="metasync-security-text" style="flex: 1;">
                                     <strong style="color: #1e90ff; display: block; margin-bottom: 8px;">Security Information:</strong>
                                     <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #aaa; line-height: 1.6;">
@@ -209,7 +207,7 @@ $system_info = array(
 
                 <div class="metasync-form-actions">
                     <button type="submit" class="button button-primary button-large" id="metasync-submit-report-btn">
-                        <span class="metasync-btn-text">📤 Submit Report</span>
+                        <span class="metasync-btn-text"><span class="dashicons dashicons-upload" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Submit Report</span>
                         <span class="metasync-btn-loading">
                             <span class="spinner is-active metasync-spinner"></span>
                             Sending...
@@ -223,7 +221,7 @@ $system_info = array(
 
         <!-- Help Card -->
         <div class="dashboard-card metasync-help-card">
-            <h3>💡 Tips for Reporting Issues</h3>
+            <h3>Tips for Reporting Issues</h3>
             <ul class="metasync-help-list">
                 <li>✅ Be as specific as possible about the issue</li>
                 <li>✅ Include steps to reproduce the problem</li>
@@ -235,7 +233,7 @@ $system_info = array(
 
     </div>
 
-</div>
+<?php $this->render_layout_close(); ?>
 
 <style>
 /* MetaSync Report Issue Styles - Matches plugin theme */

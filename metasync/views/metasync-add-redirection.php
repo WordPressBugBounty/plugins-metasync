@@ -264,11 +264,11 @@ p.description {
         </button>
 
         <div id="redirection-tips-content" style="display: none; background: var(--dashboard-card-bg); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; margin-top: 10px;">
-            <h3 style="margin-top: 0; color: var(--dashboard-text-primary);">📚 Redirection Pattern Guide</h3>
+            <h3 style="margin-top: 0; color: var(--dashboard-text-primary);">Redirection Pattern Guide</h3>
 
             <!-- Pattern Type Examples -->
             <div class="tips-section">
-                <h4 style="color: var(--dashboard-accent); margin-bottom: 10px;">🎯 Pattern Types Explained</h4>
+                <h4 style="color: var(--dashboard-accent); margin-bottom: 10px;">Pattern Types Explained</h4>
 
                 <!-- Exact Match -->
                 <details class="tip-item" style="margin-bottom: 15px; padding: 10px; background: rgba(59, 130, 246, 0.1); border-left: 3px solid var(--dashboard-accent); border-radius: 4px;">
@@ -366,7 +366,7 @@ p.description {
                         ✅ <code>/post/hello-world</code> → <code>/blog/post/hello-world</code></p>
 
                         <div style="background: rgba(34, 197, 94, 0.2); padding: 10px; border-radius: 4px; margin: 10px 0; border: 1px solid #22c55e;">
-                            <strong>💡 How it works:</strong><br>
+                            <strong>How it works:</strong><br>
                             The <code>*</code> wildcard captures everything after the matched part and replaces the <code>*</code> in the destination URL.<br>
                             <strong>Much simpler than regex for common use cases!</strong>
                         </div>
@@ -404,7 +404,7 @@ p.description {
                         ✅ <code>/product-456</code> → <code>/products/view?id=456</code></p>
 
                         <div style="background: rgba(239, 68, 68, 0.2); padding: 10px; border-radius: 4px; margin: 10px 0; border: 1px solid var(--dashboard-error);">
-                            <strong>⚠️ Regex Syntax:</strong><br>
+                            <strong>Regex Syntax:</strong><br>
                             <code>/^  $/</code> = Pattern delimiters (required)<br>
                             <code>^</code> = Start of URL path<br>
                             <code>$</code> = End of URL path<br>
@@ -419,7 +419,7 @@ p.description {
 
             <!-- HTTP Status Codes -->
             <div class="tips-section" style="margin-top: 20px;">
-                <h4 style="color: var(--dashboard-accent); margin-bottom: 10px;">🔢 HTTP Status Codes Guide</h4>
+                <h4 style="color: var(--dashboard-accent); margin-bottom: 10px;">HTTP Status Codes Guide</h4>
 
                 <details class="tip-item" style="margin-bottom: 10px; padding: 10px; background: rgba(255, 255, 255, 0.05); border-radius: 4px;">
                     <summary style="cursor: pointer; font-weight: 600; color: var(--dashboard-text-primary);">
@@ -465,10 +465,10 @@ p.description {
 
             <!-- Common Use Cases -->
             <div class="tips-section" style="margin-top: 20px;">
-                <h4 style="color: var(--dashboard-accent); margin-bottom: 10px;">💡 Common Use Cases</h4>
+                <h4 style="color: var(--dashboard-accent); margin-bottom: 10px;">Common Use Cases</h4>
 
                 <div style="background: rgba(34, 197, 94, 0.1); padding: 15px; border-radius: 4px; margin-bottom: 10px; border-left: 3px solid #22c55e;">
-                    <strong>⭐ Blog to Articles Migration (WITH Path Preservation):</strong>
+                    <strong>Blog to Articles Migration (WITH Path Preservation):</strong>
                     <p style="margin: 5px 0; color: var(--dashboard-text-secondary);">
                         <strong>Use Wildcard:</strong> <code>/blog/*</code> → <code>/articles/*</code><br>
                         This preserves the entire path structure automatically!
@@ -493,7 +493,7 @@ p.description {
 
             <!-- Best Practices -->
             <div class="tips-section" style="margin-top: 20px; padding: 15px; background: rgba(59, 130, 246, 0.1); border-radius: 4px;">
-                <h4 style="color: var(--dashboard-accent); margin-top: 0;">⚡ Best Practices</h4>
+                <h4 style="color: var(--dashboard-accent); margin-top: 0;">Best Practices</h4>
                 <ul style="color: var(--dashboard-text-secondary); margin: 0; padding-left: 20px;">
                     <li>Test with 302 first, then change to 301 when confirmed working</li>
                     <li>Use Exact Match when possible (faster performance)</li>
@@ -545,7 +545,7 @@ p.description {
 
                             if ($record) {
                                 $id = isset($record->id) ? esc_attr($record->id) : '';
-                                $source_form = isset($record->sources_from) && $record->sources_from ? unserialize($record->sources_from) : [];
+                                $source_form = isset($record->sources_from) && $record->sources_from ? unserialize($record->sources_from, ['allowed_classes' => false]) : []; // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
                                 $url_redirect_to = isset($record->url_redirect_to) ? esc_attr($record->url_redirect_to) : '';
                                 $http_code = isset($record->http_code) ? esc_attr($record->http_code) : '';
                                 $status = isset($record->status) ? esc_attr($record->status) : '';

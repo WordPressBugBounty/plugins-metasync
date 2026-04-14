@@ -169,10 +169,12 @@ class Metasync_Otto_Transient_Cache {
         # Step 5: Fetch from API (with timeout and error handling)
         $suggestions = $this->fetch_from_api($url);
 
-        # This ensures NitroPack will regenerate cache with fresh suggestions (e.g., after 30min transient expiry)
-        if ($suggestions !== false) {
-            $this->purge_nitropack_cache($url);
-        }
+        # NitroPack purge removed from page-load path to prevent feedback loop:
+        # get_suggestions() runs on every visitor request when the transient expires,
+        # and purging NitroPack here causes it to flush its cache (and potentially the
+        # object cache holding our transients), triggering another API fetch → purge cycle.
+        # The webhook handler (otto_pixel.php → purge_single_url) already covers the
+        # legitimate case where suggestions change after an OTTO crawl.
 
         # Step 6: Store result in transient
         if ($suggestions && $this->has_payload($suggestions)) {

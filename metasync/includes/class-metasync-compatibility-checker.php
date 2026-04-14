@@ -33,17 +33,10 @@ class Metasync_Compatibility_Checker
      */
     public function create_admin_compatibility_page($admin)
     {
+        $admin->render_layout_open('Compatibility', 'compatibility', 'Check compatibility status with popular plugins, page builders, and caching solutions.');
         ?>
-       <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $admin->render_plugin_header('Compatibility'); ?>
-        
-        <?php $admin->render_navigation_menu('compatibility'); ?>
             
             <div class="dashboard-card">
-                <h2>🔧 Plugin Compatibility</h2>
-                <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Check compatibility status with popular WordPress page builders, SEO plugins, and caching solutions.</p>
-                
                 <?php $this->render_compatibility_sections(); ?>
             </div>
             
@@ -53,27 +46,29 @@ class Metasync_Compatibility_Checker
                     <summary style="cursor:pointer; list-style:none;">
                         <div style="display:flex; justify-content: space-between; align-items:center;">
                             <div style="flex:1;">
-                                <h2 style="margin: 0;">🌐 Host Blocking Test</h2>
+                                <h2 style="margin: 0;">Host Blocking Test</h2>
                                 <p style="color: var(--dashboard-text-secondary); margin: 6px 0 0 0;">Verify if this site can reach <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> services.</p>
                             </div>
                         </div>
                     </summary>
-                    <div style="margin-top:16px; background: #f8f9fa; border: 1px solid #dee2e6; padding: 20px; border-radius: 8px;">
-                        <h3 style="margin-top: 0; color: #495057;">Test Configuration</h3>
-                        <p style="margin-bottom: 16px; color: #6c757d;">Test connectivity by running both GET and POST requests. Results appear below.</p>
+                    <div style="margin-top:16px; background: var(--dashboard-bg); border: 1px solid var(--dashboard-border); padding: 20px; border-radius: 8px;">
+                        <h3 style="margin-top: 0; color: var(--dashboard-text-primary);">Test Configuration</h3>
+                        <p style="margin-bottom: 16px; color: var(--dashboard-text-secondary);">Test connectivity by running both GET and POST requests. Results appear below.</p>
                         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                             <button type="button" id="test-both-requests" class="button button-primary">
-                                🔄 Test Both Requests
+                                <span class="dashicons dashicons-controls-repeat" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Test Both Requests
                             </button>
                         </div>
                     </div>
                     <div id="host-test-results" style="display: none; margin-top:16px;">
-                        <h3 style="color: #495057; margin-bottom: 10px;">Test Results</h3>
+                        <h3 style="color: var(--dashboard-text-primary); margin-bottom: 10px;">Test Results</h3>
                         <div id="test-results-content"></div>
                     </div>
                 </details>
             </div>
             
+            <?php $this->render_troubleshooting_section(); ?>
+
             <!-- Host Blocking Test JavaScript -->
             <script>
             (function() {
@@ -280,8 +275,8 @@ class Metasync_Compatibility_Checker
             <!-- Host Blocking Test CSS -->
             <style>
             .test-result-item {
-                background: #fff;
-                border: 1px solid #ddd;
+                background: var(--dashboard-card-bg);
+                border: 1px solid var(--dashboard-border);
                 border-radius: 8px;
                 margin-bottom: 20px;
                 overflow: hidden;
@@ -297,7 +292,7 @@ class Metasync_Compatibility_Checker
             }
             
             .test-result-header {
-                background: #f8f9fa;
+                background: var(--dashboard-bg);
                 padding: 15px 20px;
                 border-bottom: 1px solid #dee2e6;
                 display: flex;
@@ -307,7 +302,7 @@ class Metasync_Compatibility_Checker
             
             .test-result-header h4 {
                 margin: 0;
-                color: #495057;
+                color: var(--dashboard-text-primary);
                 font-size: 16px;
             }
             
@@ -320,13 +315,13 @@ class Metasync_Compatibility_Checker
             }
             
             .test-status.allowed {
-                background: #d4edda;
-                color: #155724;
+                background: rgba(74,222,128,0.15);
+                color: #4ade80;
             }
             
             .test-status.blocked {
-                background: #f8d7da;
-                color: #721c24;
+                background: rgba(248,113,113,0.15);
+                color: #f87171;
             }
             
             .test-result-details {
@@ -335,11 +330,11 @@ class Metasync_Compatibility_Checker
             
             .test-result-details p {
                 margin: 8px 0;
-                color: #495057;
+                color: var(--dashboard-text-primary);
             }
             
             .test-result-details code {
-                background: #f8f9fa;
+                background: var(--dashboard-bg);
                 padding: 2px 6px;
                 border-radius: 3px;
                 font-family: 'Courier New', monospace;
@@ -357,8 +352,8 @@ class Metasync_Compatibility_Checker
             }
             
             .response-body, .response-headers, .sent-data, .parsed-response {
-                background: #f8f9fa;
-                border: 1px solid #dee2e6;
+                background: var(--dashboard-bg);
+                border: 1px solid var(--dashboard-border);
                 border-radius: 4px;
                 padding: 12px;
                 margin: 8px 0;
@@ -372,11 +367,11 @@ class Metasync_Compatibility_Checker
             }
             
             .response-body {
-                color: #495057;
+                color: var(--dashboard-text-primary);
             }
             
             .response-headers {
-                color: #6c757d;
+                color: var(--dashboard-text-secondary);
             }
             
             .sent-data {
@@ -384,9 +379,9 @@ class Metasync_Compatibility_Checker
             }
             
             .parsed-response {
-                color: #28a745;
-                background: #f8fff9;
-                border-color: #c3e6cb;
+                color: #4ade80;
+                background: var(--dashboard-card-bg);
+                border-color: var(--dashboard-border);
             }
             
             #host-test-results {
@@ -394,7 +389,7 @@ class Metasync_Compatibility_Checker
             }
             
             #host-test-results h3 {
-                color: #495057;
+                color: var(--dashboard-text-primary);
                 margin-bottom: 15px;
                 padding-bottom: 10px;
                 border-bottom: 2px solid #dee2e6;
@@ -419,17 +414,17 @@ class Metasync_Compatibility_Checker
                     </summary>
 
                     <!-- Add New Excluded URL Form -->
-                    <div style="margin-top:16px; background: #f8f9fa; border: 1px solid #dee2e6; padding: 20px; border-radius: 8px;">
-                        <h3 style="margin-top: 0; color: #495057;">Add New Excluded URL</h3>
+                    <div style="margin-top:16px; background: var(--dashboard-bg); border: 1px solid var(--dashboard-border); padding: 20px; border-radius: 8px;">
+                        <h3 style="margin-top: 0; color: var(--dashboard-text-primary);">Add New Excluded URL</h3>
                         <div id="otto-excluded-url-form">
                             <div style="margin-bottom: 15px;">
-                                <label for="otto-url-pattern" style="display: block; margin-bottom: 5px; font-weight: 600; color: #495057;">URL Pattern *</label>
+                                <label for="otto-url-pattern" style="display: block; margin-bottom: 5px; font-weight: 600; color: var(--dashboard-text-primary);">URL Pattern *</label>
                                 <input type="text" id="otto-url-pattern" class="regular-text" placeholder="e.g., https://example.com/excluded-page" style="width: 100%; max-width: 500px;" />
                                 <p class="description">Enter the URL or pattern you want to exclude from <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?>.</p>
                             </div>
 
                             <div style="margin-bottom: 15px;">
-                                <label for="otto-pattern-type" style="display: block; margin-bottom: 5px; font-weight: 600; color: #495057;">Match Type *</label>
+                                <label for="otto-pattern-type" style="display: block; margin-bottom: 5px; font-weight: 600; color: var(--dashboard-text-primary);">Match Type *</label>
                                 <select id="otto-pattern-type" class="regular-text" style="width: 100%; max-width: 300px;">
                                     <option value="exact">Exact Match</option>
                                     <option value="contain">Contains</option>
@@ -441,7 +436,7 @@ class Metasync_Compatibility_Checker
                             </div>
 
                             <div style="margin-bottom: 15px;">
-                                <label for="otto-description" style="display: block; margin-bottom: 5px; font-weight: 600; color: #495057;">Description (Optional)</label>
+                                <label for="otto-description" style="display: block; margin-bottom: 5px; font-weight: 600; color: var(--dashboard-text-primary);">Description (Optional)</label>
                                 <textarea id="otto-description" rows="3" class="large-text" placeholder="Optional description for this exclusion rule" style="width: 100%; max-width: 500px;"></textarea>
                             </div>
 
@@ -456,9 +451,9 @@ class Metasync_Compatibility_Checker
 
                     <!-- Excluded URLs List -->
                     <div id="otto-excluded-urls-list" style="margin-top:20px;">
-                        <h3 style="color: #495057; margin-bottom: 15px;">Excluded URLs</h3>
+                        <h3 style="color: var(--dashboard-text-primary); margin-bottom: 15px;">Excluded URLs</h3>
                         <div id="otto-excluded-urls-table-container" style="overflow-x: auto;">
-                            <div style="text-align: center; padding: 40px; color: #6c757d;">
+                            <div style="text-align: center; padding: 40px; color: var(--dashboard-text-secondary);">
                                 <p>Loading excluded URLs...</p>
                             </div>
                         </div>
@@ -543,7 +538,7 @@ class Metasync_Compatibility_Checker
                         page = page || currentPage;
                         var $container = $('#otto-excluded-urls-table-container');
 
-                        $container.html('<div style="text-align: center; padding: 40px; color: #6c757d;"><p>Loading...</p></div>');
+                        $container.html('<div style="text-align: center; padding: 40px; color: var(--dashboard-text-secondary);"><p>Loading...</p></div>');
 
                         $.ajax({
                             url: ajaxUrl,
@@ -572,7 +567,7 @@ class Metasync_Compatibility_Checker
                         var $container = $('#otto-excluded-urls-table-container');
 
                         if (!records || records.length === 0) {
-                            $container.html('<div style="text-align: center; padding: 40px; color: #6c757d;"><p>No excluded URLs found. Add one above to get started.</p></div>');
+                            $container.html('<div style="text-align: center; padding: 40px; color: var(--dashboard-text-secondary);"><p>No excluded URLs found. Add one above to get started.</p></div>');
                             return;
                         }
 
@@ -592,8 +587,8 @@ class Metasync_Compatibility_Checker
                             html += '<td>' + (record.description ? escapeHtml(record.description) : '<span style="color: #999;">—</span>') + '</td>';
                             html += '<td>' + formatRecheckAfter(record) + '</td>';
                             html += '<td><span class="otto-actions">';
-                            html += '<button type="button" class="button button-small otto-recheck-url" data-id="' + record.id + '" style="margin-right: 5px;">🔄 Recheck</button>';
-                            html += '<button type="button" class="button button-small otto-delete-url" data-id="' + record.id + '" style="color: #dc3545;">🗑️ Delete</button>';
+                            html += '<button type="button" class="button button-small otto-recheck-url" data-id="' + record.id + '" style="margin-right: 5px;">Recheck</button>';
+                            html += '<button type="button" class="button button-small otto-delete-url" data-id="' + record.id + '" style="color: #dc3545;">Delete</button>';
                             html += '</span></td>';
                             html += '</tr>';
                         });
@@ -819,7 +814,7 @@ class Metasync_Compatibility_Checker
             }
 
             .otto-pattern-end {
-                background: #fff3e0;
+                background: var(--dashboard-card-bg)3e0;
                 color: #f57c00;
             }
 
@@ -829,20 +824,20 @@ class Metasync_Compatibility_Checker
             }
 
             .otto-status-success {
-                background: #d4edda;
-                color: #155724;
+                background: rgba(74,222,128,0.15);
+                color: #4ade80;
                 border: 1px solid #c3e6cb;
             }
 
             .otto-status-error {
-                background: #f8d7da;
-                color: #721c24;
+                background: rgba(248,113,113,0.15);
+                color: #f87171;
                 border: 1px solid #f5c6cb;
             }
 
             #otto-excluded-urls-table-container .wp-list-table {
                 border: 1px solid #c3c4c7;
-                background: #fff;
+                background: var(--dashboard-card-bg);
             }
 
             #otto-excluded-urls-table-container .wp-list-table th {
@@ -853,13 +848,13 @@ class Metasync_Compatibility_Checker
             }
 
             #otto-excluded-urls-table-container .wp-list-table td {
-                background: #fff !important;
+                background: var(--dashboard-card-bg) !important;
                 color: #2c3338 !important;
                 border-bottom: 1px solid #c3c4c7;
             }
 
             #otto-excluded-urls-table-container .wp-list-table tbody tr {
-                background: #fff;
+                background: var(--dashboard-card-bg);
             }
 
             #otto-excluded-urls-table-container .wp-list-table tbody tr:hover {
@@ -912,7 +907,7 @@ class Metasync_Compatibility_Checker
 
             .pagination-links .button {
                 color: #2271b1 !important;
-                background: #fff !important;
+                background: var(--dashboard-card-bg) !important;
                 border-color: #2271b1 !important;
             }
 
@@ -927,142 +922,185 @@ class Metasync_Compatibility_Checker
             </style>
         </div>
         <?php
+        $admin->render_layout_close();
     }
 
     public function render_compatibility_sections()
     {
         ?>
-        <div class="metasync-compatibility-sections">
-            <?php $this->render_page_builders_section(); ?>
-            <?php $this->render_seo_plugins_section(); ?>
-            <?php $this->render_cache_plugins_section(); ?>
+        <div class="metasync-settings-accordion">
+            <?php $this->render_compatibility_section(
+                $this->get_page_builders_compatibility(),
+                'admin-page',
+                'Page Builders',
+                'Elementor, Divi, Gutenberg, Oxygen, Bricks'
+            ); ?>
+            <?php $this->render_compatibility_section(
+                $this->get_themes_compatibility(),
+                'art',
+                'Themes',
+                'Astra, GeneratePress, OceanWP and more'
+            ); ?>
+            <?php $this->render_compatibility_section(
+                $this->get_seo_plugins_compatibility(),
+                'search',
+                'SEO Plugins',
+                'Yoast, Rank Math, AIOSEO and others'
+            ); ?>
+            <?php $this->render_compatibility_section(
+                $this->get_cache_plugins_compatibility(),
+                'performance',
+                'Cache &amp; Performance',
+                'WP Rocket, LiteSpeed, W3 Total Cache and more'
+            ); ?>
+            <?php $this->render_compatibility_section(
+                $this->get_cdn_compatibility(),
+                'networking',
+                'CDN &amp; Hosting',
+                'Cloudflare, Fastly, Bunny CDN, Kinsta, Flywheel'
+            ); ?>
         </div>
         <?php
     }
 
-    public function render_page_builders_section()
+    /**
+     * Generic section renderer — expandable accordion row.
+     */
+    private function render_compatibility_section( array $items, string $dashicon, string $title, string $description = '' ): void
     {
-        $page_builders = $this->get_page_builders_compatibility();
+        $section_key  = sanitize_title( $title );
+        $section_id   = 'msrp-section-' . $section_key;
+        $active_count = count( array_filter( $items, fn( $i ) => $i['is_installed'] && $i['is_active'] ) );
+        $total        = count( $items );
+        $subtitle     = $active_count > 0
+            ? $active_count . ' of ' . $total . ' active'
+            : ( $description ?: $total . ' checked' );
         ?>
-        <div class="metasync-compatibility-section">
-            <h3>🏗️ Page Builders</h3>
-            <?php foreach ($page_builders as $builder): ?>
-                <div class="metasync-plugin-item">
-                    <div class="metasync-plugin-info">
-                        <?php if ($builder['logo']): ?>
-                            <img src="<?php echo esc_url($builder['logo']); ?>" alt="<?php echo esc_attr($builder['name']); ?>" class="metasync-plugin-logo" />
-                        <?php endif; ?>
-                        <div class="metasync-plugin-details">
-                            <div class="metasync-plugin-name"><?php echo esc_html($builder['name']); ?></div>
-                            <div class="metasync-plugin-status-labels">
-                                <?php if ($builder['is_installed']): ?>
-                                    <span class="metasync-status-label metasync-label-installed">Installed</span>
-                                    <?php if ($builder['is_active']): ?>
-                                        <span class="metasync-status-label metasync-label-active">Active</span>
-                                    <?php else: ?>
-                                        <span class="metasync-status-label metasync-label-not-active">Not Active</span>
-                                    <?php endif; ?>
-                                <?php else: ?>
-                                    <span class="metasync-status-label metasync-label-not-installed">Not Installed</span>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="metasync-plugin-status">
-                        <span class="metasync-status-badge metasync-status-<?php echo esc_attr($builder['status']); ?>">
-                            <?php echo esc_html($builder['status_text']); ?>
-                        </span>
-                        <?php if ($builder['version']): ?>
-                            <span class="metasync-plugin-version">v<?php echo esc_html($builder['version']); ?></span>
-                        <?php endif; ?>
+        <div class="metasync-accordion-section" data-section="<?php echo esc_attr( $section_key ); ?>">
+            <div class="metasync-accordion-header" role="button" tabindex="0" aria-expanded="false" aria-controls="<?php echo esc_attr( $section_id ); ?>">
+                <div class="metasync-accordion-title">
+                    <span class="metasync-accordion-icon">
+                        <span class="dashicons dashicons-<?php echo esc_attr( $dashicon ); ?>"></span>
+                    </span>
+                    <div class="metasync-accordion-text">
+                        <h3><?php echo wp_kses_post( $title ); ?></h3>
+                        <p class="metasync-accordion-description"><?php echo esc_html( $subtitle ); ?></p>
                     </div>
                 </div>
-            <?php endforeach; ?>
+                <button type="button" class="metasync-accordion-toggle" aria-label="Toggle section">
+                    <span class="toggle-icon">▼</span>
+                </button>
+            </div>
+            <div class="metasync-accordion-content msrp-compat-accordion" id="<?php echo esc_attr( $section_id ); ?>" data-state="closed">
+                <div class="msrp-compat-list">
+                    <?php foreach ( $items as $item ):
+                        $is_active    = $item['is_installed'] && $item['is_active'];
+                        $is_installed = $item['is_installed'] && ! $item['is_active'];
+                        $indicator    = $is_active ? 'active' : ( $is_installed ? 'installed' : 'none' );
+                    ?>
+                    <div class="msrp-compat-row msrp-indicator-<?php echo esc_attr( $indicator ); ?>">
+                        <div class="msrp-compat-row-left">
+                            <span class="msrp-compat-name"><?php echo esc_html( $item['name'] ); ?></span>
+                            <?php if ( ! empty( $item['note'] ) ): ?>
+                                <span class="msrp-compat-note"><?php echo esc_html( $item['note'] ); ?></span>
+                            <?php endif; ?>
+                        </div>
+                        <div class="msrp-compat-row-right">
+                            <?php if ( $is_active ): ?>
+                                <span class="msrp-pill msrp-pill-active">Active</span>
+                            <?php elseif ( $is_installed ): ?>
+                                <span class="msrp-pill msrp-pill-installed">Installed</span>
+                            <?php else: ?>
+                                <span class="msrp-pill msrp-pill-none">Not installed</span>
+                            <?php endif; ?>
+                            <span class="msrp-pill msrp-pill-supported"><?php echo esc_html( $item['status_text'] ); ?></span>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
         </div>
         <?php
     }
 
-    public function render_seo_plugins_section()
+    /**
+     * Troubleshooting section — rendered separately below the host test card.
+     */
+    public function render_troubleshooting_section(): void
     {
-        $seo_plugins = $this->get_seo_plugins_compatibility();
+        $plugin_name = Metasync::get_effective_plugin_name();
+        $otto_name   = Metasync::get_whitelabel_otto_name();
+        $issues = [
+            [
+                'title' => 'Title tag disappears when Yoast SEO is active',
+                'cause' => 'Yoast SEO takes ownership of the <title> tag. ' . $plugin_name . ' filters may conflict if both try to modify the document title at the same priority.',
+                'fix'   => 'Go to ' . $plugin_name . ' → Settings → Compatibility and make sure "Yoast SEO title handoff" is enabled. This lets Yoast own the title while ' . $plugin_name . ' passes its optimised title through Yoast.',
+            ],
+            [
+                'title' => $otto_name . ' changes not appearing after cache flush',
+                'cause' => 'Some cache plugins (WP Rocket, Kinsta) serve stale HTML even after a purge if cache warm-up races with the write.',
+                'fix'   => 'Increase the cache warm-up timeout in ' . $plugin_name . ' → Settings → Advanced, or disable "Immediate Warm-up" and let the cache rebuild organically.',
+            ],
+            [
+                'title' => 'SEO meta not showing for Oxygen Builder pages',
+                'cause' => 'Oxygen replaces the standard WordPress template, bypassing some meta output hooks.',
+                'fix'   => $plugin_name . ' automatically handles Oxygen compatibility — no setting required. If meta is still missing, ensure ' . $plugin_name . ' is up to date and try clearing any server-side or CDN cache.',
+            ],
+            [
+                'title' => 'Schema markup injected on every page instead of the target page only',
+                'cause' => 'A known bug in versions prior to 2.5.20 where schema was registered globally.',
+                'fix'   => 'Update to the latest version. Go to Settings → Schema Markup and re-save your configuration.',
+            ],
+            [
+                'title' => 'Sitemap returns 404',
+                'cause' => 'Permalink flush needed after activation or after a WordPress update.',
+                'fix'   => 'Go to Settings → Permalinks in WordPress admin and click "Save Changes" (no actual change needed — this flushes rewrite rules).',
+            ],
+            [
+                'title' => 'Cloudflare / CDN caching stale SEO meta',
+                'cause' => 'CDN caches the full HTML response including meta tags. After updating SEO meta, the CDN may serve old content.',
+                'fix'   => 'Purge the CDN cache for the affected URL via your CDN dashboard, or enable automatic purge integration in ' . $plugin_name . ' → Settings → Cache.',
+            ],
+        ];
         ?>
-        <div class="metasync-compatibility-section">
-            <h3>🔍 SEO Plugins</h3>
-            <?php foreach ($seo_plugins as $plugin): ?>
-                <div class="metasync-plugin-item">
-                    <div class="metasync-plugin-info">
-                        <?php if ($plugin['logo']): ?>
-                            <img src="<?php echo esc_url($plugin['logo']); ?>" alt="<?php echo esc_attr($plugin['name']); ?>" class="metasync-plugin-logo" />
-                        <?php endif; ?>
-                        <div class="metasync-plugin-details">
-                            <div class="metasync-plugin-name"><?php echo esc_html($plugin['name']); ?></div>
-                            <div class="metasync-plugin-status-labels">
-                                <?php if ($plugin['is_installed']): ?>
-                                    <span class="metasync-status-label metasync-label-installed">Installed</span>
-                                    <?php if ($plugin['is_active']): ?>
-                                        <span class="metasync-status-label metasync-label-active">Active</span>
-                                    <?php else: ?>
-                                        <span class="metasync-status-label metasync-label-not-active">Not Active</span>
-                                    <?php endif; ?>
-                                <?php else: ?>
-                                    <span class="metasync-status-label metasync-label-not-installed">Not Installed</span>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="metasync-plugin-status">
-                        <span class="metasync-status-badge metasync-status-<?php echo esc_attr($plugin['status']); ?>">
-                            <?php echo esc_html($plugin['status_text']); ?>
-                        </span>
-                        <?php if ($plugin['version']): ?>
-                            <span class="metasync-plugin-version">v<?php echo esc_html($plugin['version']); ?></span>
-                        <?php endif; ?>
-                    </div>
+        <div id="ms-comp-troubleshooting" class="dashboard-card" style="margin-top: 20px;">
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+                <span class="dashicons dashicons-sos" style="font-size:24px;width:24px;height:24px;color:var(--dashboard-accent);"></span>
+                <div>
+                    <h2 style="margin:0;">Troubleshooting</h2>
+                    <p style="color:var(--dashboard-text-secondary); margin:4px 0 0 0;">Common issues and how to fix them.</p>
                 </div>
-            <?php endforeach; ?>
-        </div>
-        <?php
-    }
-
-    public function render_cache_plugins_section()
-    {
-        $cache_plugins = $this->get_cache_plugins_compatibility();
-        ?>
-        <div class="metasync-compatibility-section">
-            <h3>⚡ Cache Plugins</h3>
-            <?php foreach ($cache_plugins as $plugin): ?>
-                <div class="metasync-plugin-item">
-                    <div class="metasync-plugin-info">
-                        <?php if ($plugin['logo']): ?>
-                            <img src="<?php echo esc_url($plugin['logo']); ?>" alt="<?php echo esc_attr($plugin['name']); ?>" class="metasync-plugin-logo" />
-                        <?php endif; ?>
-                        <div class="metasync-plugin-details">
-                            <div class="metasync-plugin-name"><?php echo esc_html($plugin['name']); ?></div>
-                            <div class="metasync-plugin-status-labels">
-                                <?php if ($plugin['is_installed']): ?>
-                                    <span class="metasync-status-label metasync-label-installed">Installed</span>
-                                    <?php if ($plugin['is_active']): ?>
-                                        <span class="metasync-status-label metasync-label-active">Active</span>
-                                    <?php else: ?>
-                                        <span class="metasync-status-label metasync-label-not-active">Not Active</span>
-                                    <?php endif; ?>
-                                <?php else: ?>
-                                    <span class="metasync-status-label metasync-label-not-installed">Not Installed</span>
-                                <?php endif; ?>
-                            </div>
+            </div>
+            <div style="margin-top:16px; display:flex; flex-direction:column; gap:8px;">
+                <?php foreach ( $issues as $i => $issue ): ?>
+                    <details style="border:1px solid var(--dashboard-border); border-radius:8px; overflow:hidden;">
+                        <summary style="cursor:pointer; padding:14px 16px; list-style:none; display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--dashboard-bg); font-weight:600; font-size:14px; color:var(--dashboard-text-primary);">
+                            <span style="display:flex; align-items:center; gap:10px;">
+                                <span class="dashicons dashicons-warning" style="font-size:16px;width:16px;height:16px;color:#f59e0b;flex-shrink:0;"></span>
+                                <?php echo esc_html( $issue['title'] ); ?>
+                            </span>
+                            <span class="dashicons dashicons-arrow-down-alt2" style="font-size:14px;width:14px;height:14px;color:var(--dashboard-text-secondary);flex-shrink:0;transition:transform .2s;"></span>
+                        </summary>
+                        <div style="padding:16px; background:var(--dashboard-card-bg); border-top:1px solid var(--dashboard-border);">
+                            <p style="margin:0 0 10px 0; color:var(--dashboard-text-secondary); font-size:13px;">
+                                <strong style="color:var(--dashboard-text-primary);">Cause:</strong> <?php echo esc_html( $issue['cause'] ); ?>
+                            </p>
+                            <p style="margin:0; color:var(--dashboard-text-secondary); font-size:13px;">
+                                <strong style="color:var(--dashboard-text-primary);">Fix:</strong> <?php echo esc_html( $issue['fix'] ); ?>
+                            </p>
                         </div>
-                    </div>
-                    <div class="metasync-plugin-status">
-                        <span class="metasync-status-badge metasync-status-<?php echo esc_attr($plugin['status']); ?>">
-                            <?php echo esc_html($plugin['status_text']); ?>
-                        </span>
-                        <?php if ($plugin['version']): ?>
-                            <span class="metasync-plugin-version">v<?php echo esc_html($plugin['version']); ?></span>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            <?php endforeach; ?>
+                    </details>
+                <?php endforeach; ?>
+            </div>
         </div>
+        <script>
+        document.querySelectorAll('#ms-comp-troubleshooting details').forEach(function(el) {
+            el.addEventListener('toggle', function() {
+                var arrow = el.querySelector('.dashicons-arrow-down-alt2');
+                if (arrow) arrow.style.transform = el.open ? 'rotate(180deg)' : '';
+            });
+        });
+        </script>
         <?php
     }
 
@@ -1083,7 +1121,7 @@ class Metasync_Compatibility_Checker
                 onfocus="this.style.background='#c82333'"
                 onblur="this.style.background='#dc3545'"
                 aria-label="Lock this section and require password for access">
-            <span style="font-size: 16px;" aria-hidden="true">🔒</span>
+            <span class="dashicons dashicons-lock" style="font-size:16px;width:16px;height:16px;" aria-hidden="true"></span>
             Lock Section
         </button>
         <?php
@@ -1094,31 +1132,37 @@ class Metasync_Compatibility_Checker
         $builders = [
             'elementor' => [
                 'name' => 'Elementor',
-                'plugin_files' => [
-                    'elementor/elementor.php',
-                    'elementor-pro/elementor-pro.php'
-                ],
+                'plugin_files' => [ 'elementor/elementor.php', 'elementor-pro/elementor-pro.php' ],
                 'supported' => true,
-                'version' => '3.31.5'
+                'version'   => '3.31.5',
             ],
             'gutenberg' => [
-                'name' => 'WordPress Block Editor',
-                'plugin_files' => [
-                    'gutenberg/gutenberg.php'
-                ],
-                'supported' => true,
-                'is_core' => true,
-                'version' => get_bloginfo('version')
+                'name'         => 'WordPress Block Editor',
+                'plugin_files' => [ 'gutenberg/gutenberg.php' ],
+                'supported'    => true,
+                'is_core'      => true,
+                'version'      => get_bloginfo( 'version' ),
             ],
             'divi' => [
-                'name' => 'Divi Builder',
-                'plugin_files' => [
-                    'divi-builder/divi-builder.php'
-                ],
-                'theme_name' => 'Divi',
-                'supported' => true,
-                'version' => ''
-            ]
+                'name'         => 'Divi Builder',
+                'plugin_files' => [ 'divi-builder/divi-builder.php' ],
+                'theme_name'   => 'Divi',
+                'supported'    => true,
+                'version'      => '',
+            ],
+            'oxygen' => [
+                'name'         => 'Oxygen Builder',
+                'plugin_files' => [ 'oxygen/functions.php' ],
+                'supported'    => true,
+                'version'      => '4.9',
+                'note'         => 'Enable Oxygen Compatibility in Settings for correct meta output.',
+            ],
+            'bricks' => [
+                'name'         => 'Bricks Builder',
+                'plugin_files' => [ 'bricks/bricks.php' ],
+                'supported'    => true,
+                'version'      => '1.11',
+            ],
         ];
 
         $result = [];
@@ -1137,14 +1181,14 @@ class Metasync_Compatibility_Checker
             }
 
             $result[] = [
-                'name' => $builder['name'],
-                'version' => $builder['version'],
-                'status' => $status,
-                'status_text' => $status_text,
+                'name'         => $builder['name'],
+                'version'      => $builder['version'],
+                'status'       => $status,
+                'status_text'  => $status_text,
                 'is_installed' => $plugin_status['is_installed'],
-                'is_active' => $plugin_status['is_active'],
-                'active_version' => $plugin_status['active_version'],
-                'logo' => $this->get_plugin_logo($key, 'page_builder')
+                'is_active'    => $plugin_status['is_active'],
+                'note'         => $builder['note'] ?? '',
+                'logo'         => $this->get_plugin_logo( $key, 'page_builder' ),
             ];
         }
 
@@ -1197,31 +1241,136 @@ class Metasync_Compatibility_Checker
             }
 
             $result[] = [
-                'name' => $plugin['name'],
-                'version' => $plugin['version'],
-                'status' => $status,
-                'status_text' => $status_text,
+                'name'         => $plugin['name'],
+                'version'      => $plugin['version'],
+                'status'       => $status,
+                'status_text'  => $status_text,
                 'is_installed' => $plugin_status['is_installed'],
-                'is_active' => $plugin_status['is_active'],
-                'active_version' => $plugin_status['active_version'],
-                'logo' => $this->get_plugin_logo($key, 'seo')
+                'is_active'    => $plugin_status['is_active'],
+                'note'         => $plugin['note'] ?? '',
+                'logo'         => $this->get_plugin_logo( $key, 'seo' ),
             ];
         }
 
         return $result;
     }
 
+    public function get_themes_compatibility()
+    {
+        $themes = [
+            'astra' => [
+                'name'       => 'Astra',
+                'theme_name' => 'Astra',
+                'plugin_files' => [],
+                'supported'  => true,
+                'version'    => '4.8',
+                'note'       => 'Full compatibility including title tag and schema support.',
+            ],
+            'generatepress' => [
+                'name'       => 'GeneratePress',
+                'theme_name' => 'GeneratePress',
+                'plugin_files' => [],
+                'supported'  => true,
+                'version'    => '3.5',
+            ],
+            'oceanwp' => [
+                'name'       => 'OceanWP',
+                'theme_name' => 'OceanWP',
+                'plugin_files' => [],
+                'supported'  => true,
+                'version'    => '3.5',
+            ],
+            'hello-elementor' => [
+                'name'       => 'Hello Elementor',
+                'theme_name' => 'Hello Elementor',
+                'plugin_files' => [],
+                'supported'  => true,
+                'version'    => '3.1',
+            ],
+            'kadence' => [
+                'name'       => 'Kadence',
+                'theme_name' => 'Kadence',
+                'plugin_files' => [],
+                'supported'  => true,
+                'version'    => '1.2',
+            ],
+        ];
+
+        $result = [];
+        foreach ( $themes as $key => $theme ) {
+            $status = $this->get_plugin_status( $theme['plugin_files'], false, $theme['theme_name'] );
+            $result[] = [
+                'name'         => $theme['name'],
+                'version'      => $theme['version'],
+                'status'       => 'supported',
+                'status_text'  => 'Supported',
+                'is_installed' => $status['is_installed'],
+                'is_active'    => $status['is_active'],
+                'note'         => $theme['note'] ?? '',
+                'logo'         => $this->get_plugin_logo( $key, 'theme' ),
+            ];
+        }
+        return $result;
+    }
+
     public function get_cache_plugins_compatibility()
     {
         $plugins = [
+            'wp-rocket' => [
+                'name'         => 'WP Rocket',
+                'plugin_files' => [ 'wp-rocket/wp-rocket.php' ],
+                'supported'    => true,
+                'version'      => '3.16',
+                'note'         => 'Automatic cache purge on OTTO update.',
+            ],
             'litespeed-cache' => [
-                'name' => 'LiteSpeed Cache',
-                'plugin_files' => [
-                    'litespeed-cache/litespeed-cache.php'
-                ],
-                'supported' => true,
-                'version' => '7.5.0.1'
-            ]
+                'name'         => 'LiteSpeed Cache',
+                'plugin_files' => [ 'litespeed-cache/litespeed-cache.php' ],
+                'supported'    => true,
+                'version'      => '7.5.0.1',
+            ],
+            'w3-total-cache' => [
+                'name'         => 'W3 Total Cache',
+                'plugin_files' => [ 'w3-total-cache/w3-total-cache.php' ],
+                'supported'    => true,
+                'version'      => '2.7',
+            ],
+            'sg-cachepress' => [
+                'name'         => 'SiteGround Optimizer',
+                'plugin_files' => [ 'sg-cachepress/sg-cachepress.php' ],
+                'supported'    => true,
+                'version'      => '7.6',
+            ],
+            'hummingbird-performance' => [
+                'name'         => 'Hummingbird',
+                'plugin_files' => [ 'hummingbird-performance/wp-hummingbird.php' ],
+                'supported'    => true,
+                'version'      => '3.9',
+            ],
+            'autoptimize' => [
+                'name'         => 'Autoptimize',
+                'plugin_files' => [ 'autoptimize/autoptimize.php' ],
+                'supported'    => true,
+                'version'      => '3.1',
+            ],
+            'comet-cache' => [
+                'name'         => 'Comet Cache',
+                'plugin_files' => [ 'comet-cache/comet-cache.php' ],
+                'supported'    => true,
+                'version'      => '17.6',
+            ],
+            'cache-enabler' => [
+                'name'         => 'Cache Enabler',
+                'plugin_files' => [ 'cache-enabler/cache-enabler.php' ],
+                'supported'    => true,
+                'version'      => '1.8',
+            ],
+            'breeze' => [
+                'name'         => 'Breeze (Cloudways)',
+                'plugin_files' => [ 'breeze/breeze.php' ],
+                'supported'    => true,
+                'version'      => '2.1',
+            ],
         ];
 
         $result = [];
@@ -1238,17 +1387,73 @@ class Metasync_Compatibility_Checker
             }
 
             $result[] = [
-                'name' => $plugin['name'],
-                'version' => $plugin['version'],
-                'status' => $status,
-                'status_text' => $status_text,
+                'name'         => $plugin['name'],
+                'version'      => $plugin['version'],
+                'status'       => $status,
+                'status_text'  => $status_text,
                 'is_installed' => $plugin_status['is_installed'],
-                'is_active' => $plugin_status['is_active'],
-                'active_version' => $plugin_status['active_version'],
-                'logo' => $this->get_plugin_logo($key, 'cache')
+                'is_active'    => $plugin_status['is_active'],
+                'note'         => $plugin['note'] ?? '',
+                'logo'         => $this->get_plugin_logo( $key, 'cache' ),
             ];
         }
 
+        return $result;
+    }
+
+    public function get_cdn_compatibility()
+    {
+        $providers = [
+            'cloudflare' => [
+                'name'         => 'Cloudflare',
+                'plugin_files' => [ 'cloudflare/cloudflare.php' ],
+                'supported'    => true,
+                'version'      => '',
+                'note'         => 'Cache purge supported. Ensure HTML caching is disabled or bypass rules set for admin.',
+            ],
+            'fastly' => [
+                'name'         => 'Fastly',
+                'plugin_files' => [ 'fastly/fastly.php' ],
+                'supported'    => true,
+                'version'      => '',
+                'note'         => 'Edge cache purge triggered on OTTO update.',
+            ],
+            'bunnycdn' => [
+                'name'         => 'Bunny CDN',
+                'plugin_files' => [ 'bunnycdn/bunnycdn.php', 'bunny-cdn/bunny-cdn.php' ],
+                'supported'    => true,
+                'version'      => '',
+            ],
+            'kinsta-mu-plugins' => [
+                'name'         => 'Kinsta (Managed Hosting)',
+                'plugin_files' => [ 'kinsta-mu-plugins/kinsta-mu-plugins.php' ],
+                'supported'    => true,
+                'version'      => '',
+                'note'         => 'Kinsta Varnish/Nginx cache purged per-URL on OTTO update.',
+            ],
+            'flywheel' => [
+                'name'         => 'Flywheel / Local',
+                'plugin_files' => [ 'flywheel-common/plugin.php' ],
+                'supported'    => true,
+                'version'      => '',
+                'note'         => 'Varnish cache purge supported.',
+            ],
+        ];
+
+        $result = [];
+        foreach ( $providers as $key => $provider ) {
+            $status = $this->get_plugin_status( $provider['plugin_files'] );
+            $result[] = [
+                'name'         => $provider['name'],
+                'version'      => $provider['version'],
+                'status'       => 'supported',
+                'status_text'  => 'Supported',
+                'is_installed' => $status['is_installed'],
+                'is_active'    => $status['is_active'],
+                'note'         => $provider['note'] ?? '',
+                'logo'         => $this->get_plugin_logo( $key, 'cdn' ),
+            ];
+        }
         return $result;
     }
 
@@ -1341,16 +1546,34 @@ class Metasync_Compatibility_Checker
             'page_builder' => [
                 'elementor' => 'https://ps.w.org/elementor/assets/icon-256x256.gif',
                 'gutenberg' => 'https://i0.wp.com/wordpress.org/files/2023/02/wmark.png',
-                'divi' => 'https://www.elegantthemes.com/images/logo.svg',
+                'divi'      => 'https://www.elegantthemes.com/images/logo.svg',
+                'oxygen'    => 'https://oxygenbuilder.com/wp-content/uploads/2021/09/oxygen-logo-icon.png',
+                'bricks'    => 'https://bricksbuilder.io/wp-content/uploads/2021/05/bricks-icon.svg',
+            ],
+            'theme' => [
+                'astra'           => 'https://ps.w.org/astra/assets/icon-128x128.png',
+                'generatepress'   => 'https://ps.w.org/generatepress/assets/icon-128x128.png',
+                'oceanwp'         => 'https://ps.w.org/ocean-extra/assets/icon-128x128.png',
+                'hello-elementor' => 'https://ps.w.org/hello-elementor/assets/icon-128x128.png',
+                'kadence'         => 'https://ps.w.org/kadence-blocks/assets/icon-128x128.png',
             ],
             'seo' => [
-                'yoast' => 'https://ps.w.org/wordpress-seo/assets/icon-128x128.gif',
+                'yoast'   => 'https://ps.w.org/wordpress-seo/assets/icon-128x128.gif',
                 'rankmath' => 'https://ps.w.org/seo-by-rank-math/assets/icon-128x128.png',
-                'aioseo' => 'https://ps.w.org/all-in-one-seo-pack/assets/icon-128x128.png',
+                'aioseo'  => 'https://ps.w.org/all-in-one-seo-pack/assets/icon-128x128.png',
             ],
             'cache' => [
-                'litespeed-cache' => 'https://ps.w.org/litespeed-cache/assets/icon-128x128.png',
-            ]
+                'wp-rocket'               => 'https://ps.w.org/rocket-lazy-load/assets/icon-128x128.png',
+                'litespeed-cache'         => 'https://ps.w.org/litespeed-cache/assets/icon-128x128.png',
+                'w3-total-cache'          => 'https://ps.w.org/w3-total-cache/assets/icon-128x128.png',
+                'sg-cachepress'           => 'https://ps.w.org/sg-cachepress/assets/icon-128x128.png',
+                'hummingbird-performance' => 'https://ps.w.org/hummingbird-performance/assets/icon-128x128.png',
+                'autoptimize'             => 'https://ps.w.org/autoptimize/assets/icon-128x128.png',
+            ],
+            'cdn' => [
+                'cloudflare' => 'https://ps.w.org/cloudflare/assets/icon-128x128.png',
+                'fastly'     => 'https://ps.w.org/purgely/assets/icon-128x128.png',
+            ],
         ];
 
         return isset($logos[$type][$plugin_key]) ? $logos[$type][$plugin_key] : '';

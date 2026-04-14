@@ -77,7 +77,7 @@ class Metasync_Admin_Navigation
             <div class="metasync-header-left">
                 <?php if ($show_logo && !empty($logo_url)): ?>
                     <div class="metasync-logo-container">
-                        <img src="<?php echo $logo_url; ?>" alt="Logo" class="metasync-logo" />
+                        <img src="<?php echo esc_url( $logo_url ); ?>" alt="Logo" class="metasync-logo" />
                     </div>
                 <?php endif; ?>
             </div>
@@ -87,8 +87,8 @@ class Metasync_Admin_Navigation
                     <span class="status-text"><?php echo $is_integrated ? 'Connected' : 'Not Connected'; ?></span>
                 </div>
                 <button type="button" class="metasync-theme-toggle" onclick="toggleMetasyncTheme()" title="Toggle theme">
-                    <span class="theme-icon-light">☀️</span>
-                    <span class="theme-icon-dark">🌙</span>
+                    <span class="theme-icon-light">&#9728;</span>
+                    <span class="theme-icon-dark">&#9790;</span>
                 </button>
             </div>
         </div>
@@ -106,19 +106,19 @@ class Metasync_Admin_Navigation
         
         $menu_items = [];
         $menu_icons = [
-            'dashboard' => '📊',
-            'seo_controls' => '🔍',
-            'optimal_settings' => '🚀',
-            'instant_index' => '🔗',
-            'google_console' => '📊',
-            'compatibility' => '🔧',
-            'sync_log' => '📋',
-            'redirections' => '↩️',
-            'robots_txt' => '🤖',
-            'xml_sitemap' => '🗺️',
-            'custom_pages' => '📝',
-            'report_issue' => '📝',
-            'general' => '⚙️'
+            'dashboard'        => 'dashboard',
+            'seo_controls'     => 'search',
+            'optimal_settings' => 'superhero-alt',
+            'instant_index'    => 'performance',
+            'google_console'   => 'chart-area',
+            'compatibility'    => 'admin-tools',
+            'sync_log'         => 'list-view',
+            'redirections'     => 'undo',
+            'robots_txt'       => 'shield',
+            'xml_sitemap'      => 'networking',
+            'custom_pages'     => 'admin-page',
+            'report_issue'     => 'sos',
+            'general'          => 'admin-settings',
         ];
         
         if (empty($whitelabel_settings['hide_dashboard'])) {
@@ -146,7 +146,7 @@ class Metasync_Admin_Navigation
         }
         
         if (empty($whitelabel_settings['hide_sync_log'])) {
-            $menu_items['sync_log'] = ['title' => 'Sync Log', 'slug_suffix' => '-sync-log'];
+            $menu_items['sync_log'] = ['title' => 'Changes Log', 'slug_suffix' => '-sync-log'];
         }
         
         if (empty($whitelabel_settings['hide_redirections'])) {
@@ -164,34 +164,34 @@ class Metasync_Admin_Navigation
                 <div class="metasync-nav-left">
                 <?php foreach ($menu_items as $key => $menu_item): 
                     $is_active = ($current_page === $key);
-                    $icon = $menu_icons[$key] ?? '📄';
+                    $icon = $menu_icons[$key] ?? 'admin-generic';
                     $page_url = '?page=' . $page_slug . $menu_item['slug_suffix'];
                 ?>
                     <a href="<?php echo esc_url($page_url); ?>" class="metasync-nav-tab <?php echo $is_active ? 'active' : ''; ?>">
-                        <span class="tab-icon"><?php echo $icon; ?></span>
+                        <span class="tab-icon"><span class="dashicons dashicons-<?php echo esc_attr($icon); ?>"></span></span>
                         <span class="tab-text"><?php echo esc_html($menu_item['title']); ?></span>
                     </a>
                 <?php endforeach; ?>
                 </div>
                 <div class="metasync-nav-right">
-                    <a href="?page=<?php echo $page_slug; ?>-custom-pages" class="metasync-nav-tab <?php echo $current_page === 'custom_pages' ? 'active' : ''; ?>" style="margin-right: 10px;">
-                        <span class="tab-icon">📝</span>
+                    <a href="?page=<?php echo esc_attr( $page_slug ); ?>-custom-pages" class="metasync-nav-tab <?php echo $current_page === 'custom_pages' ? 'active' : ''; ?>" style="margin-right: 10px;">
+                        <span class="tab-icon"><span class="dashicons dashicons-admin-page"></span></span>
                         <span class="tab-text">Custom Pages</span>
                     </a>
-                    <a href="?page=<?php echo $page_slug; ?>-report-issue" class="metasync-nav-tab <?php echo $current_page === 'report_issue' ? 'active' : ''; ?>">
-                        <span class="tab-icon">📝</span>
+                    <a href="?page=<?php echo esc_attr( $page_slug ); ?>-report-issue" class="metasync-nav-tab <?php echo $current_page === 'report_issue' ? 'active' : ''; ?>">
+                        <span class="tab-icon"><span class="dashicons dashicons-sos"></span></span>
                         <span class="tab-text">Report Issue</span>
                     </a>
                     <div class="metasync-simple-dropdown">
-                        <button type="button" class="metasync-seo-btn" id="metasync-seo-btn" onclick="toggleSeoMenuPortal(event)">
-                            <span class="tab-icon">🔍</span>
+                        <button type="button" class="metasync-seo-btn" id="metasync-seo-btn" onclick="toggleSeoMenuPortal(event)" aria-expanded="false">
+                            <span class="tab-icon"><span class="dashicons dashicons-search"></span></span>
                             <span class="tab-text">SEO</span>
                             <span class="dropdown-arrow">▼</span>
                         </button>
                     </div>
                     <div class="metasync-simple-dropdown">
                         <button type="button" class="metasync-settings-btn" id="metasync-settings-btn" onclick="toggleSettingsMenuPortal(event)" aria-expanded="false">
-                            <span class="tab-icon">⚙️</span>
+                            <span class="tab-icon"><span class="dashicons dashicons-admin-settings"></span></span>
                             <span class="tab-text">Settings</span>
                             <span class="dropdown-arrow">▼</span>
                         </button>
@@ -209,11 +209,27 @@ class Metasync_Admin_Navigation
             if (existingMenu) {
                 existingMenu.remove();
                 button.classList.remove('active');
+                button.setAttribute('aria-expanded', 'false');
                 return;
             }
             var menu = document.createElement('div');
             menu.id = 'metasync-seo-portal-menu';
             menu.className = 'metasync-portal-menu';
+
+            var pageSlug = '<?php echo esc_js( $page_slug ); ?>';
+            var seoLinks = [
+                { href: '?page=' + pageSlug + '-seo-controls', text: 'Indexation Control' },
+                { href: '?page=' + pageSlug + '-xml-sitemap',  text: 'XML Sitemap' },
+                { href: '?page=' + pageSlug + '-robots-txt',   text: 'Robots.txt' },
+                { href: '?page=' + pageSlug + '-redirections', text: 'Redirections' },
+            ];
+            seoLinks.forEach(function(item) {
+                var link = document.createElement('a');
+                link.href = item.href;
+                link.className = 'metasync-portal-item';
+                link.textContent = item.text;
+                menu.appendChild(link);
+            });
 
             var rect = button.getBoundingClientRect();
             menu.style.position = 'fixed';
@@ -222,6 +238,7 @@ class Metasync_Admin_Navigation
             menu.style.zIndex = '999999999';
             document.body.appendChild(menu);
             button.classList.add('active');
+            button.setAttribute('aria-expanded', 'true');
         }
 
         function toggleSettingsMenuPortal(event) {
@@ -232,6 +249,7 @@ class Metasync_Admin_Navigation
             if (existingMenu) {
                 existingMenu.remove();
                 button.classList.remove('active');
+                button.setAttribute('aria-expanded', 'false');
                 return;
             }
             var menu = document.createElement('div');
@@ -243,21 +261,21 @@ class Metasync_Admin_Navigation
             
             if (showGeneral) {
                 var generalLink = document.createElement('a');
-                generalLink.href = '?page=<?php echo $page_slug; ?>&tab=general';
+                generalLink.href = '?page=<?php echo esc_js( $page_slug ); ?>&tab=general';
                 generalLink.className = 'metasync-portal-item';
                 generalLink.textContent = 'General';
                 menu.appendChild(generalLink);
             }
 
             var whitelabelLink = document.createElement('a');
-            whitelabelLink.href = '?page=<?php echo $page_slug; ?>&tab=whitelabel';
+            whitelabelLink.href = '?page=<?php echo esc_js( $page_slug ); ?>&tab=whitelabel';
             whitelabelLink.className = 'metasync-portal-item';
             whitelabelLink.textContent = 'White Label';
             menu.appendChild(whitelabelLink);
 
             if (!hideAdvanced) {
                 var advancedLink = document.createElement('a');
-                advancedLink.href = '?page=<?php echo $page_slug; ?>&tab=advanced';
+                advancedLink.href = '?page=<?php echo esc_js( $page_slug ); ?>&tab=advanced';
                 advancedLink.className = 'metasync-portal-item';
                 advancedLink.textContent = 'Advanced';
                 menu.appendChild(advancedLink);
@@ -271,6 +289,7 @@ class Metasync_Admin_Navigation
             menu.style.zIndex = '999999999';
             document.body.appendChild(menu);
             button.classList.add('active');
+            button.setAttribute('aria-expanded', 'true');
         }
         document.addEventListener('click', function(event) {
             var seoButton = document.getElementById('metasync-seo-btn');
@@ -278,6 +297,7 @@ class Metasync_Admin_Navigation
             if (seoMenu && seoButton && !seoButton.contains(event.target) && !seoMenu.contains(event.target)) {
                 seoMenu.remove();
                 seoButton.classList.remove('active');
+                seoButton.setAttribute('aria-expanded', 'false');
             }
 
             var button = document.getElementById('metasync-settings-btn');
@@ -285,6 +305,7 @@ class Metasync_Admin_Navigation
             if (menu && button && !button.contains(event.target) && !menu.contains(event.target)) {
                 menu.remove();
                 button.classList.remove('active');
+                button.setAttribute('aria-expanded', 'false');
             }
         });
         </script>
@@ -397,6 +418,42 @@ class Metasync_Admin_Navigation
             ];
         }
         
+        // Schema Markup
+        $menu_items['schema_markup'] = [
+            'title' => 'Schema Markup',
+            'slug_suffix' => '-schema-markup',
+            'callback' => 'create_admin_schema_markup_page',
+            'internal_nav' => 'Schema Markup',
+            'group' => 'seo'
+        ];
+
+        // 404 Monitor (always available — SEO monitoring tool)
+        $menu_items['monitor_404'] = [
+            'title' => '404 Monitor',
+            'slug_suffix' => '-404-monitor',
+            'callback' => 'create_admin_404_monitor_page',
+            'internal_nav' => '404 Monitor',
+            'group' => 'seo'
+        ];
+
+        // Site Verification
+        $menu_items['site_verification'] = [
+            'title' => 'Site Verification',
+            'slug_suffix' => '-search-engine-verify',
+            'callback' => 'create_admin_search_engine_verification_page',
+            'internal_nav' => 'Site Verification',
+            'group' => 'seo'
+        ];
+
+        // SEO Health dashboard (always available)
+        $menu_items['seo_health'] = [
+            'title' => 'SEO Health',
+            'slug_suffix' => '-seo-health',
+            'callback' => 'create_admin_seo_health_page',
+            'internal_nav' => 'SEO Health',
+            'group' => 'seo'
+        ];
+
         // Import SEO Data page (check access control)
         if (Metasync_Access_Control::user_can_access('hide_import_seo')) {
             $menu_items['import_seo'] = [
@@ -410,7 +467,7 @@ class Metasync_Admin_Navigation
 
         // === PLUGIN GROUP ===
 
-        // Settings (renamed from General and moved after Dashboard) (check access control)
+        // Settings (check access control)
         if (Metasync_Access_Control::user_can_access('hide_settings')) {
             $menu_items['general'] = [
                 'title' => 'Settings',
@@ -420,7 +477,54 @@ class Metasync_Admin_Navigation
                 'group' => 'plugin'
             ];
         }
-        
+
+        // Local Business
+        $menu_items['local_business'] = [
+            'title' => 'Local Business',
+            'slug_suffix' => '-local-business',
+            'callback' => 'create_admin_local_business_page',
+            'internal_nav' => 'Local Business',
+            'group' => 'seo'
+        ];
+
+        // Breadcrumbs
+        $menu_items['breadcrumbs'] = [
+            'title' => 'Breadcrumbs',
+            'slug_suffix' => '-breadcrumbs',
+            'callback' => 'create_admin_breadcrumbs_page',
+            'internal_nav' => 'Breadcrumbs',
+            'group' => 'seo'
+        ];
+
+        // Code Snippets
+        $menu_items['code_snippets'] = [
+            'title' => 'Code Snippets',
+            'slug_suffix' => '-code-snippets',
+            'callback' => 'create_admin_code_snippets_page',
+            'internal_nav' => 'Code Snippets',
+            'group' => 'plugin'
+        ];
+
+        // Code Minification
+        $menu_items['code_minification'] = [
+            'title' => 'Code Minification',
+            'slug_suffix' => '-code-minification',
+            'callback' => 'create_admin_code_minification_page',
+            'internal_nav' => 'Code Minification',
+            'group' => 'plugin'
+        ];
+
+        // Custom HTML Pages (check access control)
+        if (Metasync_Access_Control::user_can_access('hide_custom_pages')) {
+            $menu_items['custom_pages'] = [
+                'title' => 'Custom Pages',
+                'slug_suffix' => '-custom-pages',
+                'callback' => 'create_admin_custom_pages_page',
+                'internal_nav' => 'Custom HTML Pages',
+                'group' => 'plugin'
+            ];
+        }
+
         if ($general_options['enable_optimal_settings'] ?? false) {
             $menu_items['optimal_settings'] = [
                 'title' => 'Optimal Settings',
@@ -445,35 +549,15 @@ class Metasync_Admin_Navigation
         // Sync Log page (check access control)
         if (Metasync_Access_Control::user_can_access('hide_sync_log')) {
             $menu_items['sync_log'] = [
-                'title' => 'Sync Log',
+                'title' => 'Changes Log',
                 'slug_suffix' => '-sync-log',
                 'callback' => 'create_admin_sync_log_page',
-                'internal_nav' => 'Sync Log',
+                'internal_nav' => 'Changes Log',
                 'group' => 'plugin'
             ];
         }
 
-        // Custom HTML Pages (check access control)
-        if (Metasync_Access_Control::user_can_access('hide_custom_pages')) {
-            $menu_items['custom_pages'] = [
-                'title' => 'Custom Pages',
-                'slug_suffix' => '-custom-pages',
-                'callback' => 'create_admin_custom_pages_page',
-                'internal_nav' => 'Custom HTML Pages',
-                'group' => 'plugin'
-            ];
-        }
-
-        // Code Minification (always available)
-        $menu_items['code_minification'] = [
-            'title' => 'Code Minification',
-            'slug_suffix' => '-code-minification',
-            'callback' => 'create_admin_code_minification_page',
-            'internal_nav' => 'Code Minification',
-            'group' => 'plugin'
-        ];
-
-        // Bot Statistics (always available)
+        // Bot Statistics
         $menu_items['bot_statistics'] = [
             'title' => 'Bot Statistics',
             'slug_suffix' => '-bot-statistics',
@@ -517,14 +601,21 @@ class Metasync_Admin_Navigation
         // Use 'read' capability since actual access is controlled by current_user_has_plugin_access() check above
         $menu_capability = 'read';
         
-        // Main menu page - Settings (default)
+        // Separator just before the plugin entry, after all other plugins (Yoast etc. ~99)
+        add_action('admin_menu', function() {
+            global $menu;
+            $menu['100'] = array('', 'read', 'separator-metasync-before', '', 'wp-menu-separator');
+        }, 5);
+
+        // Main menu page at position 100.1 — bottom of the menu after all standard items
         add_menu_page(
             $menu_name,
             $menu_title,
             $menu_capability,
             $menu_slug,
             array($admin, 'create_admin_settings_page'),
-            $menu_icon
+            $menu_icon,
+            '100.1'
         );
 
         // Check connection status for submenu availability
@@ -533,160 +624,218 @@ class Metasync_Admin_Navigation
         $has_uuid = !empty($general_options['otto_pixel_uuid']);
         $is_fully_connected = Metasync_Heartbeat_Manager::instance()->is_heartbeat_connected($general_options);
 
-        // Add Dashboard submenu (check access control)
+        $seo_controls = Metasync::get_option('seo_controls');
+
+        // ── Group header slugs ────────────────────────────────────────────
+        $slug_header_seo    = $menu_slug . '-group-seo';
+        $slug_header_plugin = $menu_slug . '-group-plugin';
+        $connect_slug       = $menu_slug . '-connect';
+
+        // ── SEO group header (non-functional label) ───────────────────────
+        add_submenu_page($menu_slug, 'SEO Features', 'SEO Features', $menu_capability, $slug_header_seo, array($admin, 'create_admin_settings_page'));
+
+        // Dashboard
         if (Metasync_Access_Control::user_can_access('hide_dashboard')) {
-            add_submenu_page(
-                $menu_slug,
-                'Dashboard',
-                'Dashboard',
-                $menu_capability,
-                $menu_slug . '-dashboard',
-                array($admin, 'create_admin_dashboard_iframe')
-            );
+            add_submenu_page($menu_slug, 'Dashboard', 'Dashboard', $menu_capability, $menu_slug . '-dashboard', array($admin, 'create_admin_dashboard_iframe'));
         }
 
-        // Add Compatibility submenu (check access control)
-        if (Metasync_Access_Control::user_can_access('hide_compatibility')) {
-            add_submenu_page(
-                $menu_slug,
-                'Compatibility',
-                'Compatibility',
-                $menu_capability,
-                $menu_slug . '-compatibility',
-                array($admin, 'create_admin_compatibility_page')
-            );
-        }
-
-        // Sync Log page (check access control)
-        if (Metasync_Access_Control::user_can_access('hide_sync_log')) {
-            add_submenu_page(
-                $menu_slug,
-                'Sync Log',
-                'Sync Log',
-                $menu_capability,
-                $menu_slug . '-sync-log',
-                array($admin, 'create_admin_sync_log_page')
-            );
-        }
-
-        // Indexation Control (check access control)
+        // Indexation Control
         if (Metasync_Access_Control::user_can_access('hide_indexation_control')) {
-            add_submenu_page(
-                $menu_slug,
-                'Indexation Control',
-                'Indexation Control',
-                $menu_capability,
-                $menu_slug . '-seo-controls',
-                array($admin, 'create_admin_seo_controls_page')
-            );
+            add_submenu_page($menu_slug, 'Indexation Control', 'Indexation Control', $menu_capability, $menu_slug . '-seo-controls', array($admin, 'create_admin_seo_controls_page'));
         }
 
+        // 404 Monitor
+        add_submenu_page($menu_slug, '404 Monitor', '404 Monitor', $menu_capability, $menu_slug . '-404-monitor', array($admin, 'create_admin_404_monitor_page'));
 
-        // Rename the auto-generated first submenu item from plugin name to "Settings"
-        add_action('admin_menu', function() use ($menu_slug) {
-            global $submenu;
-            if (isset($submenu[$menu_slug])) {
-                foreach ($submenu[$menu_slug] as $key => $item) {
-                    if ($item[2] === $menu_slug) {
-                        if (!Metasync_Access_Control::user_can_access('hide_settings')) {
-                            unset($submenu[$menu_slug][$key]);
-                        } else {
-                            $submenu[$menu_slug][$key][0] = 'Settings';
-                        }
-                        break;
-                    }
-                }
-
-                // Ensure proper ordering: Dashboard first, then Settings
-                if (count($submenu[$menu_slug]) > 1) {
-                    usort($submenu[$menu_slug], function($a, $b) {
-                        if (strpos($a[2], '-dashboard') !== false) return -1;
-                        if (strpos($b[2], '-dashboard') !== false) return 1;
-                        return 0;
-                    });
-                }
-            }
-        }, 999);
-
-        // Additional conditional features (commented out for now - can be enabled based on settings)
-        // if(@Metasync::get_option('general')['enable_404monitor'])
-        // add_submenu_page($menu_slug, '404 Monitor', '404 Monitor', 'manage_options', $menu_slug . '-404-monitor', array($admin, 'create_admin_404_monitor_page'));
-
-        // if(@Metasync::get_option('general')['enable_siteverification'])
-        // add_submenu_page($menu_slug, 'Site Verification', 'Site Verification', 'manage_options', $menu_slug . '-search-engine-verify', array($admin, 'create_admin_search_engine_verification_page'));
-
-        // if(@Metasync::get_option('general')['enable_localbusiness'])
-        // add_submenu_page($menu_slug, 'Local Business', 'Local Business', 'manage_options', $menu_slug . '-local-business', array($admin, 'create_admin_local_business_page'));
-
-        // if(@Metasync::get_option('general')['enable_codesnippets'])
-        // add_submenu_page($menu_slug, 'Code Snippets', 'Code Snippets', 'manage_options', $menu_slug . '-code-snippets', array($admin, 'create_admin_code_snippets_page'));
-
-        // if(@Metasync::get_option('general')['enable_globalsettings'])
-        // add_submenu_page($menu_slug, 'Global Settings', 'Global Settings', 'manage_options', $menu_slug . '-common-settings', array($admin, 'create_admin_global_settings_page'));
-
-        // if(@Metasync::get_option('general')['enable_commonmetastatus'])
-        // add_submenu_page($menu_slug, 'Common Meta Status', 'Common Meta Status', 'manage_options', $menu_slug . '-common-meta-settings', array($admin, 'create_admin_common_meta_settings_page'));
-
-        // if(@Metasync::get_option('general')['enable_socialmeta'])
-        // add_submenu_page($menu_slug, 'Social Meta', 'Social Meta', 'manage_options', $menu_slug . '-social-meta', array($admin, 'create_admin_social_meta_page'));
-
-        // Redirections (check access control)
+        // Redirections
         if (Metasync_Access_Control::user_can_access('hide_redirections')) {
             add_submenu_page($menu_slug, 'Redirections', 'Redirections', $menu_capability, $menu_slug . '-redirections', array($admin, 'create_admin_redirections_page'));
         }
 
-        // XML Sitemap (check access control)
+        // XML Sitemap
         if (Metasync_Access_Control::user_can_access('hide_xml_sitemap')) {
             add_submenu_page($menu_slug, 'XML Sitemap', 'XML Sitemap', $menu_capability, $menu_slug . '-xml-sitemap', array($admin, 'create_admin_xml_sitemap_page'));
         }
 
-        // Robots.txt (check access control)
+        // Robots.txt
         if (Metasync_Access_Control::user_can_access('hide_robots')) {
             add_submenu_page($menu_slug, 'Robots.txt', 'Robots.txt', $menu_capability, $menu_slug . '-robots-txt', array($admin, 'create_admin_robots_txt_page'));
         }
 
-        // Code Minification
-        add_submenu_page($menu_slug, 'Code Minification', 'Code Minification', $menu_capability, $menu_slug . '-code-minification', array($admin, 'create_admin_code_minification_page'));
+        // Site Verification
+        add_submenu_page($menu_slug, 'Site Verification', 'Site Verification', $menu_capability, $menu_slug . '-search-engine-verify', array($admin, 'create_admin_search_engine_verification_page'));
 
-        // Bot Statistics (hidden from sidebar - accessible via Plugin dropdown in grouped nav)
-        add_submenu_page(null, 'Bot Statistics', 'Bot Statistics', $menu_capability, $menu_slug . '-bot-statistics', array($admin, 'create_admin_bot_statistics_page'));
-
-        // Import SEO Data (check access control)
-        if (Metasync_Access_Control::user_can_access('hide_import_seo')) {
-            add_submenu_page($menu_slug, 'Import SEO Data', 'Import SEO Data', $menu_capability, $menu_slug . '-import-external', array($admin, 'render_import_external_data_page'));
-        }
-
-        // Custom Pages (check access control)
-        if (Metasync_Access_Control::user_can_access('hide_custom_pages')) {
-            add_submenu_page($menu_slug, 'Custom Pages', 'Custom Pages', $menu_capability, $menu_slug . '-custom-pages', array($admin, 'create_admin_custom_pages_page'));
-        }
-
-        // Report Issue (check access control)
-        if (Metasync_Access_Control::user_can_access('hide_report_issue')) {
-            add_submenu_page($menu_slug, 'Report Issue', 'Report Issue', $menu_capability, $menu_slug . '-report-issue', array($admin, 'create_admin_report_issue_page'));
-        }
-
-        // Setup Wizard as a hidden page (accessible via dashboard card only)
-        add_submenu_page('', 'Setup Wizard', 'Setup Wizard', $menu_capability, $menu_slug . '-setup-wizard', array($admin->setup_wizard, 'render_wizard_page'));
-
-        // 404 Monitor as a direct page (not submenu)
-        add_submenu_page('', '404 Monitor', '404 Monitor', $menu_capability, $menu_slug . '-404-monitor', array($admin, 'create_admin_404_monitor_page'));
-
-        // Google Instant Indexing (conditional - check if enabled)
-        $seo_controls = Metasync::get_option('seo_controls');
+        // Instant Indexing (conditional)
         if ($seo_controls['enable_googleinstantindex'] ?? false) {
             add_submenu_page($menu_slug, 'Instant Indexing', 'Instant Indexing', $menu_capability, $menu_slug . '-instant-index', array($admin, 'create_admin_google_instant_index_page'));
         }
 
-        // Google Console (conditional - check if enabled)
+        // Google Console (conditional)
         if ($general_options['enable_google_console'] ?? false) {
             add_submenu_page($menu_slug, 'Google Console', 'Google Console', $menu_capability, $menu_slug . '-google-console', array($admin, 'create_admin_google_console_page'));
         }
 
-        // Bing Console (conditional - hidden page, only accessible via direct link)
+        // Bing Console (conditional)
         if ($seo_controls['enable_binginstantindex'] ?? false) {
-            add_submenu_page('', 'Bing Console', 'Bing Console', $menu_capability, $menu_slug . '-bing-console', array($admin, 'create_admin_bing_console_page'));
+            add_submenu_page($menu_slug, 'Bing Console', 'Bing Console', $menu_capability, $menu_slug . '-bing-console', array($admin, 'create_admin_bing_console_page'));
         }
+
+        // Schema Markup
+        add_submenu_page($menu_slug, 'Schema Markup', 'Schema Markup', $menu_capability, $menu_slug . '-schema-markup', array($admin, 'create_admin_schema_markup_page'));
+
+        // Import SEO Data
+        if (Metasync_Access_Control::user_can_access('hide_import_seo')) {
+            add_submenu_page($menu_slug, 'Import SEO Data', 'Import SEO Data', $menu_capability, $menu_slug . '-import-external', array($admin, 'render_import_external_data_page'));
+        }
+
+        // ── Plugin group header (non-functional label) ────────────────────
+        add_submenu_page($menu_slug, 'Plugin', 'Plugin', $menu_capability, $slug_header_plugin, array($admin, 'create_admin_settings_page'));
+
+        // Settings
+        if (Metasync_Access_Control::user_can_access('hide_settings')) {
+            add_submenu_page($menu_slug, 'Settings', 'Settings', $menu_capability, $menu_slug, array($admin, 'create_admin_settings_page'));
+        }
+
+        // Local Business
+        add_submenu_page($menu_slug, 'Local Business', 'Local Business', $menu_capability, $menu_slug . '-local-business', array($admin, 'create_admin_local_business_page'));
+
+        // Breadcrumbs
+        add_submenu_page($menu_slug, 'Breadcrumbs', 'Breadcrumbs', $menu_capability, $menu_slug . '-breadcrumbs', array($admin, 'create_admin_breadcrumbs_page'));
+
+        // Code Snippets
+        add_submenu_page($menu_slug, 'Code Snippets', 'Code Snippets', $menu_capability, $menu_slug . '-code-snippets', array($admin, 'create_admin_code_snippets_page'));
+
+        // Code Minification
+        add_submenu_page($menu_slug, 'Code Minification', 'Code Minification', $menu_capability, $menu_slug . '-code-minification', array($admin, 'create_admin_code_minification_page'));
+
+        // Custom Pages
+        if (Metasync_Access_Control::user_can_access('hide_custom_pages')) {
+            add_submenu_page($menu_slug, 'Custom Pages', 'Custom Pages', $menu_capability, $menu_slug . '-custom-pages', array($admin, 'create_admin_custom_pages_page'));
+        }
+
+        // Bot Statistics
+        add_submenu_page($menu_slug, 'Bot Statistics', 'Bot Statistics', $menu_capability, $menu_slug . '-bot-statistics', array($admin, 'create_admin_bot_statistics_page'));
+
+        // SEO Health dashboard
+        add_submenu_page($menu_slug, 'SEO Health', 'SEO Health', $menu_capability, $menu_slug . '-seo-health', array($admin, 'create_admin_seo_health_page'));
+
+        // Compatibility
+        if (Metasync_Access_Control::user_can_access('hide_compatibility')) {
+            add_submenu_page($menu_slug, 'Compatibility', 'Compatibility', $menu_capability, $menu_slug . '-compatibility', array($admin, 'create_admin_compatibility_page'));
+        }
+
+        // Changes Log
+        if (Metasync_Access_Control::user_can_access('hide_sync_log')) {
+            add_submenu_page($menu_slug, 'Changes Log', 'Changes Log', $menu_capability, $menu_slug . '-sync-log', array($admin, 'create_admin_sync_log_page'));
+        }
+
+        // Report Issue
+        if (Metasync_Access_Control::user_can_access('hide_report_issue')) {
+            add_submenu_page($menu_slug, 'Report Issue', 'Report Issue', $menu_capability, $menu_slug . '-report-issue', array($admin, 'create_admin_report_issue_page'));
+        }
+
+        // ── Connect CTA (shown when not authenticated) ────────────────────
+        if (!$is_fully_connected) {
+            add_submenu_page($menu_slug, 'Connect to SearchAtlas', 'Connect to SearchAtlas', $menu_capability, $connect_slug, array($admin, 'create_admin_settings_page'));
+        }
+
+        // ── Hidden pages (no sidebar entry needed) ────────────────────────
+        add_submenu_page('', 'Setup Wizard', 'Setup Wizard', $menu_capability, $menu_slug . '-setup-wizard', array($admin->setup_wizard, 'render_wizard_page'));
+
+        // ── CSS: style group headers + Connect CTA ─────────────────────────
+        add_action('admin_head', function() use ($menu_slug, $slug_header_seo, $slug_header_plugin, $connect_slug, $is_fully_connected) {
+            $seo_href    = esc_attr('admin.php?page=' . $slug_header_seo);
+            $plugin_href = esc_attr('admin.php?page=' . $slug_header_plugin);
+            $connect_href = esc_attr('admin.php?page=' . $connect_slug);
+            $menu_id     = 'toplevel_page_' . $menu_slug;
+            ?>
+            <style>
+            /* Animated gradient on the plugin's top-level menu icon */
+            @keyframes metasync-icon-pulse {
+                0%   { filter: drop-shadow(0 0 0px #2271b1) hue-rotate(0deg); }
+                50%  { filter: drop-shadow(0 0 4px #a78bfa) hue-rotate(30deg); }
+                100% { filter: drop-shadow(0 0 0px #2271b1) hue-rotate(0deg); }
+            }
+            @keyframes metasync-menu-glow {
+                0%   { color: #a0a5aa; }
+                50%  { color: #7c8ef7; }
+                100% { color: #a0a5aa; }
+            }
+            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?> > a .wp-menu-image img,
+            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?> > a .wp-menu-image:before {
+                animation: metasync-icon-pulse 3s ease-in-out infinite;
+            }
+            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?> > a .wp-menu-name {
+                animation: metasync-menu-glow 3s ease-in-out infinite;
+            }
+            /* Pause animation when menu is open or item is active */
+            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?>.wp-has-current-submenu > a .wp-menu-image img,
+            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?>.wp-has-current-submenu > a .wp-menu-image:before,
+            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?>.wp-has-current-submenu > a .wp-menu-name,
+            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?> > a:hover .wp-menu-image img,
+            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?> > a:hover .wp-menu-image:before,
+            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?> > a:hover .wp-menu-name {
+                animation: none;
+            }
+
+            /* Group header: non-clickable label style */
+            #adminmenu #<?php echo esc_attr($menu_id); ?> a[href="<?php echo $seo_href; ?>"],
+            #adminmenu #<?php echo esc_attr($menu_id); ?> a[href="<?php echo $plugin_href; ?>"] {
+                pointer-events: none !important;
+                cursor: default !important;
+                color: #9aa2b0 !important;
+                font-size: 10px !important;
+                font-weight: 700 !important;
+                text-transform: uppercase !important;
+                letter-spacing: 0.08em !important;
+                padding: 14px 12px 3px !important;
+                margin-top: 4px !important;
+                opacity: 1 !important;
+            }
+            #adminmenu #<?php echo esc_attr($menu_id); ?> li:has(a[href="<?php echo $seo_href; ?>"]),
+            #adminmenu #<?php echo esc_attr($menu_id); ?> li:has(a[href="<?php echo $plugin_href; ?>"]) {
+                border-top: 1px solid rgba(255,255,255,0.08) !important;
+                margin-top: 4px !important;
+            }
+            <?php if ($is_fully_connected || !current_user_can('read')) : ?>
+            /* Hide connect item when authenticated */
+            #adminmenu #<?php echo esc_attr($menu_id); ?> a[href="<?php echo $connect_href; ?>"] {
+                display: none !important;
+            }
+            <?php else : ?>
+            /* Connect CTA button style */
+            #adminmenu #<?php echo esc_attr($menu_id); ?> a[href="<?php echo $connect_href; ?>"] {
+                color: #fff !important;
+                background: #2271b1 !important;
+                border-radius: 4px !important;
+                margin: 8px 8px 4px !important;
+                padding: 6px 10px !important;
+                display: block !important;
+                font-weight: 600 !important;
+                text-align: center !important;
+            }
+            #adminmenu #<?php echo esc_attr($menu_id); ?> a[href="<?php echo $connect_href; ?>"]:hover {
+                background: #135e96 !important;
+            }
+            <?php endif; ?>
+            </style>
+            <?php
+        });
+
+        // Rename auto-generated first submenu from plugin name to "Settings" and reorder
+        add_action('admin_menu', function() use ($menu_slug) {
+            global $submenu;
+            if (!isset($submenu[$menu_slug])) {
+                return;
+            }
+            // Remove the auto-duplicate of the main menu item (same slug as parent)
+            foreach ($submenu[$menu_slug] as $key => $item) {
+                if ($item[2] === $menu_slug) {
+                    unset($submenu[$menu_slug][$key]);
+                    break;
+                }
+            }
+        }, 999);
 
     }
 
@@ -699,24 +848,32 @@ class Metasync_Admin_Navigation
         $available_menu_items = $this->get_available_menu_items();
         
         $menu_icons = [
-            'general' => '⚙️',
-            'dashboard' => '📊',
-            'compatibility' => '🔧',
-            'sync_log' => '📋',
-            'seo_controls' => '🔍',
-            'optimal_settings' => '🚀',
-            'instant_index' => '🔗',
-            'google_console' => '📊',
-            'bing_console' => '📊',
-            'redirections' => '↩️',
-            'robots_txt' => '🤖',
-            'xml_sitemap' => '🗺️',
-            'import_seo' => '📥',
-            'custom_pages' => '📝',
-            'code_minification' => '⚡',
-            'bot_statistics' => '🤖',
-            'report_issue' => '📝',
-            'error_log' => '⚠️'
+            'general'          => 'admin-settings',
+            'dashboard'        => 'dashboard',
+            'compatibility'    => 'admin-tools',
+            'sync_log'         => 'list-view',
+            'seo_controls'     => 'search',
+            'optimal_settings' => 'superhero-alt',
+            'instant_index'    => 'performance',
+            'google_console'   => 'chart-area',
+            'bing_console'     => 'chart-bar',
+            'redirections'     => 'undo',
+            'robots_txt'       => 'shield',
+            'xml_sitemap'      => 'networking',
+            'schema_markup'    => 'tag',
+            'site_verification'=> 'yes-alt',
+            'import_seo'       => 'download',
+            'custom_pages'     => 'admin-page',
+            'code_minification'=> 'media-code',
+            'bot_statistics'   => 'visibility',
+            'breadcrumbs'      => 'menu',
+            'monitor_404'      => 'warning',
+            'local_business'   => 'building',
+            'code_snippets'    => 'editor-code',
+            'report_issue'     => 'sos',
+            'error_log'        => 'warning',
+            'seo_health'       => 'heart'
+
         ];
 
         $seo_items = [];
@@ -738,11 +895,11 @@ class Metasync_Admin_Navigation
                 // Dashboard tab (standalone)
                 if (isset($seo_items['dashboard'])) {
                     $is_active = ($current_page === 'dashboard');
-                    $icon = $menu_icons['dashboard'] ?? '📊';
+                    $icon = $menu_icons['dashboard'] ?? 'admin-generic';
                     $page_url = '?page=' . $page_slug . $seo_items['dashboard']['slug_suffix'];
                     ?>
                     <a href="<?php echo esc_url($page_url); ?>" class="metasync-nav-tab <?php echo $is_active ? 'active' : ''; ?>">
-                        <span class="tab-icon"><?php echo $icon; ?></span>
+                        <span class="tab-icon"><span class="dashicons dashicons-<?php echo esc_attr($icon); ?>"></span></span>
                         <span class="tab-text"><?php echo esc_html($seo_items['dashboard']['title']); ?></span>
                     </a>
                     <?php
@@ -761,7 +918,7 @@ class Metasync_Admin_Navigation
                     }
                     ?>
                     <button type="button" class="metasync-nav-dropdown-btn <?php echo $has_active_seo ? 'active' : ''; ?>" aria-haspopup="true" aria-expanded="false">
-                        <span class="tab-icon">🔍</span>
+                        <span class="tab-icon"><span class="dashicons dashicons-search"></span></span>
                         <span class="tab-text">SEO</span>
                         <span class="dropdown-arrow">▼</span>
                     </button>
@@ -773,11 +930,11 @@ class Metasync_Admin_Navigation
                             }
                             
                             $is_active = ($current_page === $key);
-                            $icon = $menu_icons[$key] ?? '📄';
+                            $icon = $menu_icons[$key] ?? 'admin-generic';
                             $page_url = '?page=' . $page_slug . $menu_item['slug_suffix'];
                             ?>
                             <a href="<?php echo esc_url($page_url); ?>" class="metasync-nav-dropdown-item <?php echo $is_active ? 'active' : ''; ?>">
-                                <span class="tab-icon"><?php echo $icon; ?></span>
+                                <span class="tab-icon"><span class="dashicons dashicons-<?php echo esc_attr($icon); ?>"></span></span>
                                 <span class="tab-text"><?php echo esc_html($menu_item['title']); ?></span>
                             </a>
                             <?php
@@ -798,7 +955,7 @@ class Metasync_Admin_Navigation
                     }
                     ?>
                     <button type="button" class="metasync-nav-dropdown-btn <?php echo $has_active_plugin ? 'active' : ''; ?>" aria-haspopup="true" aria-expanded="false">
-                        <span class="tab-icon">⚙️</span>
+                        <span class="tab-icon"><span class="dashicons dashicons-admin-settings"></span></span>
                         <span class="tab-text">Plugin</span>
                         <span class="dropdown-arrow">▼</span>
                     </button>
@@ -810,11 +967,11 @@ class Metasync_Admin_Navigation
                             }
 
                             $is_active = ($current_page === $key);
-                            $icon = $menu_icons[$key] ?? '📄';
+                            $icon = $menu_icons[$key] ?? 'admin-generic';
                             $page_url = '?page=' . $page_slug . $menu_item['slug_suffix'];
                             ?>
                             <a href="<?php echo esc_url($page_url); ?>" class="metasync-nav-dropdown-item <?php echo $is_active ? 'active' : ''; ?>">
-                                <span class="tab-icon"><?php echo $icon; ?></span>
+                                <span class="tab-icon"><span class="dashicons dashicons-<?php echo esc_attr($icon); ?>"></span></span>
                                 <span class="tab-text"><?php echo esc_html($menu_item['title']); ?></span>
                             </a>
                             <?php
@@ -831,13 +988,13 @@ class Metasync_Admin_Navigation
                         $page_url = '?page=' . $page_slug . $available_menu_items['report_issue']['slug_suffix'];
                         ?>
                         <a href="<?php echo esc_url($page_url); ?>" class="metasync-nav-tab <?php echo $is_active ? 'active' : ''; ?>">
-                            <span class="tab-icon">📝</span>
+                            <span class="tab-icon"><span class="dashicons dashicons-sos"></span></span>
                             <span class="tab-text">Report Issue</span>
                         </a>
                     <?php } ?>
                     <div class="metasync-simple-dropdown">
                         <button type="button" class="metasync-settings-btn" id="metasync-settings-btn" onclick="toggleSettingsMenuPortal(event)" aria-expanded="false">
-                            <span class="tab-icon">⚙️</span>
+                            <span class="tab-icon"><span class="dashicons dashicons-admin-settings"></span></span>
                             <span class="tab-text">Settings</span>
                             <span class="dropdown-arrow">▼</span>
                         </button>
@@ -1011,21 +1168,21 @@ class Metasync_Admin_Navigation
 
             if (showGeneral) {
                 const generalLink = document.createElement('a');
-                generalLink.href = '?page=<?php echo $page_slug; ?>&tab=general';
+                generalLink.href = '?page=<?php echo esc_js( $page_slug ); ?>&tab=general';
                 generalLink.className = 'metasync-portal-item' + (isGeneralActive ? ' active' : '');
                 generalLink.textContent = 'General';
                 menu.appendChild(generalLink);
             }
 
             const whitelabelLink = document.createElement('a');
-            whitelabelLink.href = '?page=<?php echo $page_slug; ?>&tab=whitelabel';
+            whitelabelLink.href = '?page=<?php echo esc_js( $page_slug ); ?>&tab=whitelabel';
             whitelabelLink.className = 'metasync-portal-item' + (isWhitelabelActive ? ' active' : '');
             whitelabelLink.textContent = 'White label';
             menu.appendChild(whitelabelLink);
 
             if (!hideAdvanced) {
                 const advancedLink = document.createElement('a');
-                advancedLink.href = '?page=<?php echo $page_slug; ?>&tab=advanced';
+                advancedLink.href = '?page=<?php echo esc_js( $page_slug ); ?>&tab=advanced';
                 advancedLink.className = 'metasync-portal-item' + (isAdvancedActive ? ' active' : '');
                 advancedLink.textContent = 'Advanced';
                 menu.appendChild(advancedLink);
@@ -1100,7 +1257,7 @@ class Metasync_Admin_Navigation
             <div class="metasync-header-left">
                 <?php if ($show_logo && !empty($logo_url)): ?>
                     <div class="metasync-logo-container">
-                        <img src="<?php echo $logo_url; ?>" alt="Logo" class="metasync-logo" />
+                        <img src="<?php echo esc_url( $logo_url ); ?>" alt="Logo" class="metasync-logo" />
         </div>
                 <?php endif; ?>
             </div>
@@ -1109,11 +1266,11 @@ class Metasync_Admin_Navigation
                              <!-- Theme Toggle -->
                         <div class="metasync-theme-toggle" role="group" aria-label="Theme Selector">
                             <button class="metasync-theme-option <?php echo ($current_theme === 'light') ? 'active' : ''; ?>" data-theme="light" aria-label="Light Theme" type="button">
-                                <span class="metasync-theme-icon">☀️</span>
+                                <span class="metasync-theme-icon">&#9728;</span>
                                 <span class="theme-label">Light</span>
                             </button>
                             <button class="metasync-theme-option <?php echo ($current_theme === 'dark') ? 'active' : ''; ?>" data-theme="dark" aria-label="Dark Theme" type="button">
-                                <span class="metasync-theme-icon">🌙</span>
+                                <span class="metasync-theme-icon">&#9790;</span>
                                 <span class="theme-label">Dark</span>
                             </button>
                         </div>
@@ -1364,5 +1521,332 @@ class Metasync_Admin_Navigation
                 'class' => $status_class
             )
         ));
+    }
+
+    // ------------------------------------------------------------------
+    //  Yoast-style 3-column layout helpers
+    // ------------------------------------------------------------------
+
+    /**
+     * Open the 3-column page layout.
+     * Call this at the start of every admin page callback instead of
+     * render_plugin_header() + render_navigation_menu().
+     * Close with render_layout_close().
+     *
+     * @param string $page_title      Human-readable page title.
+     * @param string $current_page    Key matching get_available_menu_items() (e.g. 'general').
+     * @param string $description     Optional subtitle shown below the title.
+     */
+    public function render_layout_open($page_title = '', $current_page = '', $description = '')
+    {
+        $theme       = esc_attr(get_option('metasync_theme', 'dark'));
+        $plugin_name = Metasync::get_effective_plugin_name();
+        $wl_logo     = Metasync::get_whitelabel_logo();
+        $wl_settings = Metasync::get_whitelabel_settings();
+        $is_wl       = !empty($wl_settings['is_whitelabel']);
+        $general     = Metasync::get_option('general') ?? [];
+        $is_connected = Metasync_Heartbeat_Manager::instance()->is_heartbeat_connected($general);
+
+        $show_logo = false;
+        $logo_url  = '';
+        if (!empty($wl_logo) && filter_var($wl_logo, FILTER_VALIDATE_URL)) {
+            $show_logo = true;
+            $logo_url  = esc_url($wl_logo);
+        } elseif (!$is_wl) {
+            $show_logo = true;
+            $logo_url  = Metasync::HOMEPAGE_DOMAIN . '/wp-content/uploads/2023/12/white.svg';
+        }
+
+        $current_theme = get_option('metasync_theme', 'dark');
+        $api_key       = $general['searchatlas_api_key'] ?? '';
+        ?>
+        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo $theme; ?>">
+
+        <!-- Compact top header -->
+        <div class="metasync-header-compact">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <?php if ($show_logo && $logo_url): ?>
+                    <img src="<?php echo $logo_url; ?>" alt="<?php echo esc_attr($plugin_name); ?>" class="metasync-logo" style="height:28px;width:auto;">
+                <?php else: ?>
+                    <strong style="font-size:15px;color:var(--dashboard-text-primary);"><?php echo esc_html($plugin_name); ?></strong>
+                <?php endif; ?>
+            </div>
+            <div class="metasync-header-compact-right">
+                <div class="metasync-status <?php echo !empty($api_key) ? 'connected' : 'disconnected'; ?>">
+                    <span class="status-dot"></span>
+                    <span class="status-text"><?php echo !empty($api_key) ? 'Connected' : 'Not Connected'; ?></span>
+                </div>
+                <button type="button" class="metasync-theme-toggle" onclick="toggleMetasyncTheme()" title="Toggle theme">
+                    <span class="theme-icon-light">&#9728;</span>
+                    <span class="theme-icon-dark">&#9790;</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 3-column layout -->
+        <div class="metasync-layout">
+
+            <!-- Left sidenav -->
+            <aside class="metasync-layout-nav">
+                <?php $this->render_sidenav($current_page); ?>
+            </aside>
+
+            <!-- Main content -->
+            <main class="metasync-layout-main">
+                <?php if ($page_title || $description): ?>
+                <div class="metasync-page-header">
+                    <?php if ($page_title): ?>
+                        <h1><?php echo esc_html($page_title); ?></h1>
+                    <?php endif; ?>
+                    <?php if ($description): ?>
+                        <p><?php echo esc_html($description); ?></p>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+        <?php
+        // Note: render_layout_close() closes </main>, renders promo sidebar, closes </div>.metasync-layout and </div>.wrap
+    }
+
+    /**
+     * Close the 3-column layout opened by render_layout_open().
+     *
+     * @param bool $show_promo Whether to render the right promo sidebar. Default true.
+     *                         Pass false for full-width pages (e.g. dashboard iframe).
+     */
+    public function render_layout_close($show_promo = true)
+    {
+        ?>
+            </main><!-- /.metasync-layout-main -->
+
+            <?php if ($show_promo):
+                $general      = Metasync::get_option('general') ?? [];
+                $is_connected = Metasync_Heartbeat_Manager::instance()->is_heartbeat_connected($general);
+            ?>
+            <!-- Right promo sidebar -->
+            <aside class="metasync-layout-promo">
+                <?php $this->render_promo_sidebar($is_connected); ?>
+            </aside>
+            <?php endif; ?>
+
+        </div><!-- /.metasync-layout -->
+        </div><!-- /.metasync-dashboard-wrap -->
+        <?php
+    }
+
+    /**
+     * Render the left sticky sidenav with grouped items.
+     *
+     * @param string $current_page  Active page key.
+     */
+    public function render_sidenav($current_page = '')
+    {
+        $page_slug   = Metasync_Admin::$page_slug;
+        $menu_items  = $this->get_available_menu_items();
+
+        // Dashicons names (without 'dashicons-' prefix) — monochrome, color set by CSS
+        $icons = [
+            'dashboard'        => 'dashboard',
+            'seo_controls'     => 'search',
+            'monitor_404'      => 'warning',
+            'redirections'     => 'undo',
+            'xml_sitemap'      => 'networking',
+            'robots_txt'       => 'shield',
+            'site_verification'=> 'yes-alt',
+            'instant_index'    => 'performance',
+            'google_console'   => 'chart-area',
+            'bing_console'     => 'chart-bar',
+            'import_seo'       => 'download',
+            'general'          => 'admin-settings',
+            'schema_markup'    => 'tag',
+            'local_business'   => 'building',
+            'breadcrumbs'      => 'menu',
+            'code_snippets'    => 'editor-code',
+            'code_minification'=> 'media-code',
+            'custom_pages'     => 'admin-page',
+            'optimal_settings' => 'superhero-alt',
+            'compatibility'    => 'admin-tools',
+            'sync_log'         => 'list-view',
+            'bot_statistics'   => 'visibility',
+            'report_issue'     => 'sos',
+            'media_optimization'=> 'images-alt2',
+            'seo_health'       => 'heart'
+        ];
+
+        $seo_items    = [];
+        $plugin_items = [];
+        foreach ($menu_items as $key => $item) {
+            if (($item['group'] ?? 'plugin') === 'seo') {
+                $seo_items[$key] = $item;
+            } else {
+                $plugin_items[$key] = $item;
+            }
+        }
+        ?>
+        <nav class="metasync-sidenav">
+
+            <!-- SEO Features group -->
+            <div class="metasync-sidenav-group">
+                <div class="metasync-sidenav-group-title">SEO Features</div>
+                <ul>
+                <?php foreach ($seo_items as $key => $item):
+                    $is_active = ($current_page === $key);
+                    $icon      = $icons[$key] ?? 'admin-generic';
+                    $url       = esc_url(admin_url('admin.php?page=' . $page_slug . $item['slug_suffix']));
+                ?>
+                    <li class="<?php echo $is_active ? 'metasync-sidenav-active' : ''; ?>">
+                        <a href="<?php echo $url; ?>">
+                            <span class="metasync-sidenav-icon"><span class="dashicons dashicons-<?php echo esc_attr($icon); ?>"></span></span>
+                            <?php echo esc_html($item['title']); ?>
+                        </a>
+                    </li>
+                <?php endforeach; ?>
+                </ul>
+            </div>
+
+            <!-- Plugin group -->
+            <div class="metasync-sidenav-group">
+                <div class="metasync-sidenav-group-title">Plugin</div>
+                <ul>
+                <?php foreach ($plugin_items as $key => $item):
+                    if ($key === 'report_issue') continue;
+                    $is_active = ($current_page === $key);
+                    $icon      = $icons[$key] ?? 'admin-generic';
+                    $url       = esc_url(admin_url('admin.php?page=' . $page_slug . $item['slug_suffix']));
+                ?>
+                    <li class="<?php echo $is_active ? 'metasync-sidenav-active' : ''; ?>">
+                        <a href="<?php echo $url; ?>">
+                            <span class="metasync-sidenav-icon"><span class="dashicons dashicons-<?php echo esc_attr($icon); ?>"></span></span>
+                            <?php echo esc_html($item['title']); ?>
+                        </a>
+                    </li>
+                    <?php if ($key === 'general'): ?>
+                    <li class="<?php echo $current_page === 'advanced_settings' ? 'metasync-sidenav-active' : ''; ?>" style="padding-left: 8px;">
+                        <a href="<?php echo esc_url(admin_url('admin.php?page=' . $page_slug . '&tab=advanced')); ?>">
+                            <span class="metasync-sidenav-icon"><span class="dashicons dashicons-admin-generic"></span></span>
+                            Advanced Settings
+                        </a>
+                    </li>
+                    <li class="<?php echo $current_page === 'whitelabel' ? 'metasync-sidenav-active' : ''; ?>" style="padding-left: 8px;">
+                        <a href="<?php echo esc_url(admin_url('admin.php?page=' . $page_slug . '&tab=whitelabel')); ?>">
+                            <span class="metasync-sidenav-icon"><span class="dashicons dashicons-tag"></span></span>
+                            Whitelabel
+                        </a>
+                    </li>
+                    <?php endif; ?>
+                <?php endforeach; ?>
+                </ul>
+            </div>
+
+            <!-- Report Issue at the bottom -->
+            <?php if (isset($menu_items['report_issue'])): ?>
+            <div class="metasync-sidenav-group">
+                <ul>
+                    <li class="<?php echo $current_page === 'report_issue' ? 'metasync-sidenav-active' : ''; ?>">
+                        <a href="<?php echo esc_url(admin_url('admin.php?page=' . $page_slug . $menu_items['report_issue']['slug_suffix'])); ?>">
+                            <span class="metasync-sidenav-icon"><span class="dashicons dashicons-sos"></span></span>
+                            Report Issue
+                        </a>
+                    </li>
+                </ul>
+            </div>
+            <?php endif; ?>
+
+        </nav>
+        <?php
+    }
+
+    /**
+     * Render the right promotional sidebar.
+     *
+     * @param bool $is_connected  Whether the plugin is authenticated.
+     */
+    public function render_promo_sidebar($is_connected = false)
+    {
+        $plugin_name      = Metasync::get_effective_plugin_name();
+        $otto_name        = Metasync::get_whitelabel_otto_name();
+        $settings_url     = esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug));
+        $homepage         = Metasync::HOMEPAGE_DOMAIN;
+        $is_default_brand = ( $plugin_name === 'Search Atlas' );
+        $whitelabel       = Metasync::get_whitelabel_settings();
+        $custom_links     = isset($whitelabel['quick_links']) && is_array($whitelabel['quick_links'])
+                              ? array_filter($whitelabel['quick_links'], function($l) { return !empty($l['url']); })
+                              : [];
+        ?>
+
+        <?php if (!$is_connected): ?>
+        <!-- Connect CTA card -->
+        <div class="metasync-promo-card metasync-promo-card--connect">
+            <div class="metasync-promo-card-header">
+                <div class="metasync-promo-card-icon">
+                    <span class="dashicons dashicons-admin-links"></span>
+                </div>
+                <div>
+                    <h3>Connect <?php echo esc_html($plugin_name); ?></h3>
+                </div>
+            </div>
+            <p class="metasync-promo-tagline">Link your site to <?php echo esc_html($plugin_name); ?> to unlock <?php echo esc_html($otto_name); ?>, keyword data, and automated SEO.</p>
+            <ul class="metasync-promo-benefits">
+                <li><span class="promo-check">&#10003;</span> <?php echo esc_html($otto_name); ?> — hands-free on-page SEO</li>
+                <li><span class="promo-check">&#10003;</span> Real-time keyword tracking</li>
+                <li><span class="promo-check">&#10003;</span> Automated schema markup</li>
+                <li><span class="promo-check">&#10003;</span> Instant Google indexing</li>
+            </ul>
+            <a href="<?php echo $settings_url; ?>" class="metasync-promo-btn metasync-promo-btn--primary">
+                Connect Now
+            </a>
+        </div>
+        <?php else: ?>
+        <!-- Connected — feature highlights -->
+        <div class="metasync-promo-card metasync-promo-card--accent">
+            <div class="metasync-promo-card-header">
+                <div class="metasync-promo-card-icon">
+                    <span class="dashicons dashicons-performance"></span>
+                </div>
+                <div>
+                    <h3><?php echo esc_html($otto_name); ?> Active</h3>
+                </div>
+            </div>
+            <p class="metasync-promo-tagline">Your site is connected and <?php echo esc_html($otto_name); ?> is optimizing pages automatically.</p>
+            <ul class="metasync-promo-benefits">
+                <li><span class="promo-check">&#10003;</span> Schema markup auto-applied</li>
+                <li><span class="promo-check">&#10003;</span> Meta titles &amp; descriptions optimized</li>
+                <li><span class="promo-check">&#10003;</span> Internal linking suggestions active</li>
+            </ul>
+            <?php if ($is_default_brand): ?>
+            <a href="<?php echo esc_url($homepage); ?>" target="_blank" rel="noopener" class="metasync-promo-btn metasync-promo-btn--outline">
+                View <?php echo esc_html($plugin_name); ?> Dashboard
+            </a>
+            <?php elseif (!empty($whitelabel['domain'])): ?>
+            <a href="<?php echo esc_url($whitelabel['domain']); ?>" target="_blank" rel="noopener" class="metasync-promo-btn metasync-promo-btn--outline">
+                View <?php echo esc_html($plugin_name); ?> Dashboard
+            </a>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
+
+        <?php
+        // Quick Links: show default links for default brand, custom links if whitelabeled + provided, hide if whitelabeled + none
+        $show_quick_links = $is_default_brand || !empty($custom_links);
+        if ($show_quick_links):
+        ?>
+        <!-- Quick links card -->
+        <div class="metasync-promo-card">
+            <h3 style="margin:0 0 12px;font-size:13px;font-weight:700;color:var(--dashboard-text-primary);">Quick Links</h3>
+            <ul class="metasync-promo-links">
+            <?php if ($is_default_brand): ?>
+                <li><a href="<?php echo esc_url($homepage . '/blog/'); ?>" target="_blank" rel="noopener"><span class="dashicons dashicons-rss"></span> SEO Blog</a></li>
+                <li><a href="<?php echo esc_url($homepage . '/academy/'); ?>" target="_blank" rel="noopener"><span class="dashicons dashicons-welcome-learn-more"></span> SEO Academy</a></li>
+                <li><a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-setup-wizard')); ?>"><span class="dashicons dashicons-admin-customizer"></span> Setup Wizard</a></li>
+                <li><a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-report-issue')); ?>"><span class="dashicons dashicons-sos"></span> Report Issue</a></li>
+            <?php else: ?>
+                <?php foreach ($custom_links as $link): ?>
+                <li><a href="<?php echo esc_url($link['url']); ?>" <?php echo !empty($link['external']) ? 'target="_blank" rel="noopener"' : ''; ?>><span class="dashicons dashicons-admin-links"></span> <?php echo esc_html($link['label'] ?: $link['url']); ?></a></li>
+                <?php endforeach; ?>
+            <?php endif; ?>
+            </ul>
+        </div>
+        <?php endif; ?>
+
+        <?php
     }
 }

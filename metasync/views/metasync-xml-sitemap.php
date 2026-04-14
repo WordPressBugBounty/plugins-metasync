@@ -14,17 +14,13 @@ if (!defined('ABSPATH')) {
 }
 ?>
 
-<div class="wrap metasync-dashboard-wrap">
-
-    <?php $this->render_plugin_header('XML Sitemap'); ?>
-
-    <?php $this->render_navigation_menu('xml-sitemap'); ?>
+<?php $this->render_layout_open('XML Sitemap', 'xml_sitemap', 'Manage your XML sitemap settings and status.'); ?>
 
         <div class="metasync-sitemap-container">
 
         <!-- Sitemap Status Card -->
         <div class="dashboard-card metasync-sitemap-status-card">
-            <h2>📊 Sitemap Status</h2>
+            <h2>Sitemap Status</h2>
             <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Monitor your sitemap generation and status.</p>
 
             <?php
@@ -34,7 +30,7 @@ if (!defined('ABSPATH')) {
 
             <div class="metasync-sitemap-status-grid">
                 <div class="metasync-sitemap-stat">
-                    <div class="stat-icon">📄</div>
+                    <div class="stat-icon"><span class="dashicons dashicons-media-default"></span></div>
                     <div class="stat-content">
                         <div class="stat-label">Status</div>
                         <div class="stat-value <?php echo $sitemap_exists ? 'status-active' : 'status-inactive'; ?>">
@@ -48,7 +44,7 @@ if (!defined('ABSPATH')) {
                 </div>
 
                 <div class="metasync-sitemap-stat">
-                    <div class="stat-icon">🔗</div>
+                    <div class="stat-icon"><span class="dashicons dashicons-admin-links"></span></div>
                     <div class="stat-content">
                         <div class="stat-label">Total URLs</div>
                         <div class="stat-value"><?php echo number_format($url_count); ?></div>
@@ -56,7 +52,7 @@ if (!defined('ABSPATH')) {
                 </div>
 
                 <div class="metasync-sitemap-stat">
-                    <div class="stat-icon">📑</div>
+                    <div class="stat-icon"><span class="dashicons dashicons-list-view"></span></div>
                     <div class="stat-content">
                         <div class="stat-label">Sitemap Files</div>
                         <div class="stat-value"><?php echo $sitemap_count; ?></div>
@@ -64,7 +60,7 @@ if (!defined('ABSPATH')) {
                 </div>
 
                 <div class="metasync-sitemap-stat">
-                    <div class="stat-icon">🔄</div>
+                    <div class="stat-icon"><span class="dashicons dashicons-update"></span></div>
                     <div class="stat-content">
                         <div class="stat-label">Auto-Update</div>
                         <div class="stat-value <?php echo $auto_update_enabled ? 'status-active' : 'status-inactive'; ?>">
@@ -74,7 +70,7 @@ if (!defined('ABSPATH')) {
                 </div>
 
                 <div class="metasync-sitemap-stat">
-                    <div class="stat-icon">⏰</div>
+                    <div class="stat-icon"><span class="dashicons dashicons-clock"></span></div>
                     <div class="stat-content">
                         <div class="stat-label">Last Generated</div>
                         <div class="stat-value stat-value-small">
@@ -109,7 +105,7 @@ if (!defined('ABSPATH')) {
         <!-- Info notice about other sitemap plugins -->
         <div class="dashboard-card metasync-sitemap-info-notice">
             <div class="metasync-info-notice-content">
-                <span class="dashicons dashicons-info" style="color: #0073aa; font-size: 20px;"></span>
+                <span class="dashicons dashicons-info" style="font-size: 20px; color: var(--dashboard-text-secondary);"></span>
                 <div>
                     <strong>Other Sitemap Plugins Detected:</strong>
                     <p style="margin: 5px 0 0 0; color: var(--dashboard-text-secondary); font-size: 14px;">
@@ -130,7 +126,7 @@ if (!defined('ABSPATH')) {
 
         <!-- Generate Sitemap Card -->
         <div class="dashboard-card metasync-sitemap-actions-card">
-            <h2>⚡ Sitemap Actions</h2>
+            <h2>Sitemap Actions</h2>
             <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">
                 Generate or manage your XML sitemap with the controls below.
             </p>
@@ -205,7 +201,7 @@ if (!defined('ABSPATH')) {
             <!-- Import from SEO Plugins Button (Always visible) -->
             <div >
                 <a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-import-external&tab=sitemap')); ?>" class="button button-secondary button-hero metasync-sitemap-button-large">
-                    <span>📥</span> Import from SEO Plugins
+                    <span class="dashicons dashicons-download" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Import from SEO Plugins
                 </a>
                 <p class="metasync-button-description">
                     Import sitemap settings from other SEO plugins like Yoast, Rank Math, or AIOSEO.
@@ -218,7 +214,7 @@ if (!defined('ABSPATH')) {
         <?php if ($sitemap_exists && !empty($sitemap_files)): ?>
         <!-- Sitemap Files List Card -->
         <div class="dashboard-card metasync-sitemap-files-card">
-            <h2>📑 Sitemap Files</h2>
+            <h2>Sitemap Files</h2>
             <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">
                 Your sitemap is split into <?php echo $sitemap_count; ?> file<?php echo $sitemap_count > 1 ? 's' : ''; ?> (up to <?php echo number_format($sitemap_generator->get_urls_per_sitemap()); ?> URLs each).
             </p>
@@ -273,7 +269,7 @@ if (!defined('ABSPATH')) {
 
         <!-- Sitemap Index Preview Card -->
         <div class="dashboard-card metasync-sitemap-preview-card">
-            <h2>👀 Sitemap Index Preview</h2>
+            <h2>Sitemap Index Preview</h2>
             <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">
                 Preview the sitemap index file that references all individual sitemaps.
             </p>
@@ -306,4 +302,4 @@ if (!defined('ABSPATH')) {
         <?php endif; ?>
 
     </div>
-</div>
+<?php $this->render_layout_close(); ?>

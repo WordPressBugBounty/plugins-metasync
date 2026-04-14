@@ -19,7 +19,7 @@ if (!defined('ABSPATH')) {
 ?>
 	<form enctype="multipart/form-data" method="POST" action="">
 		<div class="dashboard-card">
-			<h2>🔑 Google API Configuration</h2>
+			<h2>Google API Configuration</h2>
 			<p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure your Google API settings for instant indexing functionality.</p>
 
 			<table class="form-table">
@@ -37,7 +37,7 @@ if (!defined('ABSPATH')) {
 						<br>
 						<p class="description">
 							Upload the JSON key file you obtained from Google API Console.
-							<a href="<?php echo esc_url($google_guide_url); ?>" target="_blank" style="color: var(--dashboard-accent);"> Read API Guide 📖</a>
+							<a href="<?php echo esc_url($google_guide_url); ?>" target="_blank" style="color: var(--dashboard-accent);"> Read API Guide</a>
 						</p>
 					</td>
 				</tr>
@@ -45,7 +45,7 @@ if (!defined('ABSPATH')) {
 		</div>
 
 		<div class="dashboard-card">
-			<h2>📝 Post Types Configuration</h2>
+			<h2>Post Types Configuration</h2>
 			<p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Select which post types should be automatically indexed.</p>
 
 			<table class="form-table">
@@ -68,7 +68,7 @@ if (!defined('ABSPATH')) {
 		</div>
 
 		<div class="dashboard-card">
-			<h2>💾 Save Configuration</h2>
+			<h2>Save Configuration</h2>
 			<p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Apply your instant indexing configuration changes.</p>
 			<?php submit_button('Save Instant Index Settings', 'primary', 'submit', false, array('class' => 'button button-primary')); ?>
 		</div>

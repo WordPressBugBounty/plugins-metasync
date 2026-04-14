@@ -693,9 +693,7 @@ if (!defined('ABSPATH')) {
 	}
 </style>
 
-<div class="wrap">
-	<h1 class="wp-heading-inline">404 Error Monitor</h1>
-	
+<div>
 	<?php
 	// Get 404 statistics
 	$stats = $this->database->get_404_statistics();
@@ -755,7 +753,8 @@ if (!defined('ABSPATH')) {
 	</div>
 
 	<!-- 404 Errors List -->
-	<form id="404-monitor-form" method="post">
+	<div class="dashboard-card" style="padding: 0; overflow: hidden;">
+	<form id="404-monitor-form" method="post" style="padding: 16px;">
 		<?php wp_nonce_field('metasync_404_monitor_form'); ?>
 		
 		<!-- Search and Filter Controls -->
@@ -794,5 +793,6 @@ if (!defined('ABSPATH')) {
 		<!-- Now we can render the completed list table -->
 		<?php $Metasync404Monitor->display() ?>
 	</form>
+	</div>
 </div>
 

@@ -79,7 +79,6 @@ class Metasync_OpenGraph {
 
         # AJAX hooks for preview
         add_action('wp_ajax_metasync_og_preview', [$this, 'ajax_generate_preview']);
-        add_action('wp_ajax_nopriv_metasync_og_preview', [$this, 'ajax_generate_preview']);
     }
 
     /**

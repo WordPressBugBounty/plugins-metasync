@@ -51,7 +51,7 @@ class Metasync_Settings_Fields {
             'connection' => array(
                 'title' => 'Connection & Authentication',
                 'description' => 'Manage your API connection and authentication settings',
-                'icon' => '🔐',
+                'icon' => 'admin-network',
                 'priority' => 10,
                 'default_open' => true,
                 'fields' => array(
@@ -62,7 +62,7 @@ class Metasync_Settings_Fields {
             'otto_ssr' => array(
                 'title' => Metasync::get_whitelabel_otto_name() . ' Server-Side Rendering',
                 'description' => 'Configure ' . Metasync::get_whitelabel_otto_name() . ' rendering and display options',
-                'icon' => '🚀',
+                'icon' => 'performance',
                 'priority' => 20,
                 'default_open' => false, 
                 'fields' => array(
@@ -75,7 +75,7 @@ class Metasync_Settings_Fields {
             'edge_cache' => array(
                 'title' => 'Edge Cache / CDN',
                 'description' => 'Configure CDN credentials for cache-tag purging',
-                'icon' => '🌐',
+                'icon' => 'admin-site-alt3',
                 'priority' => 22,
                 'default_open' => false,
                 'render_callback' => array('Metasync_Edge_Cache_Settings', 'render'),
@@ -83,7 +83,7 @@ class Metasync_Settings_Fields {
             'bot_detection' => array(
                 'title' => 'Bot Detection & Filtering',
                 'description' => 'Manage bot traffic and reduce unnecessary API calls',
-                'icon' => '🤖',
+                'icon' => 'filter',
                 'priority' => 25,
                 'default_open' => false,
                 'fields' => array(
@@ -96,7 +96,7 @@ class Metasync_Settings_Fields {
             'editor_settings' => array(
                 'title' => 'Post/Page Editor Settings',
                 'description' => 'Customize meta boxes and editor functionality',
-                'icon' => '✏️',
+                'icon' => 'edit',
                 'priority' => 40,
                 'default_open' => false,
                 'fields' => array(
@@ -112,17 +112,27 @@ class Metasync_Settings_Fields {
             'user_management' => array(
                 'title' => 'User Management for Content',
                 'description' => 'Configure which users are allowed to be authors of content synced.',
-                'icon' => '👥',
+                'icon' => 'groups',
                 'priority' => 50,
                 'default_open' => false,
                 'fields' => array(
                     'content_genius_sync_roles'
                 )
             ),
+            'content_rendering' => array(
+                'title' => 'Content Rendering',
+                'description' => 'Configure how synced content is stored and rendered by your page builder',
+                'icon' => 'admin-appearance',
+                'priority' => 55,
+                'default_open' => false,
+                'fields' => array(
+                    'default_page_builder'
+                )
+            ),
             'advanced' => array(
                 'title' => 'Plugin Settings',
                 'description' => 'System configuration and maintenance options',
-                'icon' => '⚙️',
+                'icon' => 'admin-settings',
                 'priority' => 60,
                 'default_open' => false,
                 'fields' => array(
@@ -144,7 +154,7 @@ class Metasync_Settings_Fields {
             $config['plugin_access'] = array(
                 'title' => 'User Roles with Plugin Access',
                 'description' => 'Control which user roles can see and access this plugin',
-                'icon' => '🔐',
+                'icon' => 'admin-users',
                 'priority' => 5,
                 'default_open' => false,
                 'render_callback' => array($this, 'render_plugin_access_roles_section')
@@ -154,7 +164,7 @@ class Metasync_Settings_Fields {
         $config['debug_mode'] = array(
             'title' => 'Debug Mode',
             'description' => 'Manage debug mode with automatic disable and safety limits',
-            'icon' => '🐛',
+            'icon' => 'info',
             'priority' => 8,
             'default_open' => false,
             'render_callback' => array($this->admin_instance, 'render_debug_mode_section')
@@ -163,7 +173,7 @@ class Metasync_Settings_Fields {
         $config['error_logs'] = array(
             'title' => 'Error Logs',
             'description' => 'View and manage error logs to troubleshoot issues',
-            'icon' => '⚠️',
+            'icon' => 'warning',
             'priority' => 10,
             'default_open' => true,
             'render_callback' => array($this->admin_instance, 'render_error_log_content')
@@ -172,7 +182,7 @@ class Metasync_Settings_Fields {
         $config['execution_settings'] = array(
             'title' => 'Execution Settings',
             'description' => 'Configure resource limits and execution parameters',
-            'icon' => '⚡',
+            'icon' => 'controls-play',
             'priority' => 15,
             'default_open' => false,
             'render_callback' => array($this, 'render_execution_settings_section')
@@ -181,7 +191,7 @@ class Metasync_Settings_Fields {
         $config['otto_cache'] = array(
             'title' => 'Cache Management',
             'description' => 'Manage ' . Metasync::get_whitelabel_otto_name() . ' cache and clear all cache plugins',
-            'icon' => '🗄️',
+            'icon' => 'database',
             'priority' => 20,
             'default_open' => false,
             'render_callback' => array($this->admin_instance, 'render_otto_cache_management')
@@ -190,7 +200,7 @@ class Metasync_Settings_Fields {
         $config['db_cleanup'] = array(
             'title' => 'Database Cleanup',
             'description' => 'Remove orphaned data and schedule automated weekly cleanup',
-            'icon' => '🗃️',
+            'icon' => 'trash',
             'priority' => 25,
             'default_open' => false,
             'render_callback' => array($this->admin_instance, 'render_db_cleanup_section')
@@ -199,7 +209,7 @@ class Metasync_Settings_Fields {
         $config['performance'] = array(
             'title' => 'Performance & CPU Load',
             'description' => 'Configure CPU load thresholds to prevent processing during peak server load',
-            'icon' => '🖥️',
+            'icon' => 'chart-line',
             'priority' => 27,
             'default_open' => false,
             'render_callback' => array($this->admin_instance, 'render_cpu_monitor_section')
@@ -208,7 +218,7 @@ class Metasync_Settings_Fields {
         $config['reset_settings'] = array(
             'title' => 'Reset Plugin Settings',
             'description' => 'Reset all plugin settings to default values',
-            'icon' => '🔄',
+            'icon' => 'update',
             'priority' => 30,
             'default_open' => false,
             'render_callback' => array($this, 'render_reset_settings_section')
@@ -236,7 +246,7 @@ class Metasync_Settings_Fields {
 
             echo '<div class="metasync-accordion-header" role="button" tabindex="0" aria-expanded="' . $aria_expanded . '" aria-controls="' . $section_id . '">';
             echo '<div class="metasync-accordion-title">';
-            echo '<span class="metasync-accordion-icon">' . esc_html($section_data['icon']) . '</span>';
+            echo '<span class="metasync-accordion-icon"><span class="dashicons dashicons-' . esc_attr($section_data['icon']) . '"></span></span>';
             echo '<div class="metasync-accordion-text">';
             echo '<h3>' . esc_html($section_data['title']) . '</h3>';
             echo '<p class="metasync-accordion-description">' . esc_html($section_data['description']) . '</p>';
@@ -265,7 +275,7 @@ class Metasync_Settings_Fields {
         <div style="background: var(--dashboard-card-bg); padding: 20px; border-radius: 8px;">
             <div style="background: rgba(255, 243, 205, 0.1); border: 1px solid rgba(255, 234, 167, 0.3); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
                 <h4 style="color: var(--dashboard-warning, #f59e0b); margin: 0 0 12px 0; display: flex; align-items: center; gap: 8px;">
-                    <span>⚠️</span>
+                    <span class="dashicons dashicons-warning" style="color:var(--dashboard-warning,#f59e0b);font-size:18px;width:18px;height:18px;"></span>
                     <span>Important Warning</span>
                 </h4>
                 <p style="color: var(--dashboard-text-secondary); margin: 0 0 12px 0;">This action will permanently delete:</p>
@@ -282,7 +292,7 @@ class Metasync_Settings_Fields {
                 <?php wp_nonce_field('metasync_clear_all_settings_nonce', 'clear_all_settings_nonce'); ?>
                 <input type="hidden" name="clear_all_settings" value="yes" />
                 <button type="submit" class="metasync-btn-danger" style="background: var(--dashboard-error, #ef4444); color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.2);" onmouseover="this.style.background='#dc2626'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(239, 68, 68, 0.3)';" onmouseout="this.style.background='var(--dashboard-error, #ef4444)'; this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(239, 68, 68, 0.2)';">
-                    🗑️ Clear All Settings
+                    <span class="dashicons dashicons-trash" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Clear All Settings
                 </button>
             </form>
         </div>
@@ -340,7 +350,7 @@ class Metasync_Settings_Fields {
             <!-- About IndexNow (Collapsible) -->
             <details style="margin-bottom: 20px;">
                 <summary style="cursor: pointer; font-weight: 600; color: var(--dashboard-text-primary);">
-                    ℹ️ About IndexNow Protocol
+                    About IndexNow Protocol
                 </summary>
                 <div style="margin-top: 10px; padding: 15px; background: rgba(255, 255, 255, 0.03); border-radius: 4px;">
                     <p style="color: var(--dashboard-text-secondary); margin: 0 0 10px 0;">
@@ -367,7 +377,7 @@ class Metasync_Settings_Fields {
                 <?php if ($is_configured): ?>
                     <div style="padding: 12px; background: rgba(76, 175, 80, 0.1); border-left: 4px solid #4caf50; border-radius: 4px;">
                         <p style="margin: 0; color: var(--dashboard-text-primary);">
-                            <strong style="color: #4caf50;">✅ IndexNow API Configured</strong><br>
+                            <strong style="color: #4caf50;">IndexNow API Configured</strong><br>
                             <span style="color: var(--dashboard-text-secondary); font-size: 0.95em;">
                                 API Key: <code style="padding: 2px 6px; background: rgba(0,0,0,0.1); border-radius: 3px;"><?php echo esc_html(substr($api_key, 0, 8) . '...' . substr($api_key, -8)); ?></code>
                             </span>
@@ -376,7 +386,7 @@ class Metasync_Settings_Fields {
                 <?php else: ?>
                     <div style="padding: 12px; background: rgba(255, 152, 0, 0.1); border-left: 4px solid #ff9800; border-radius: 4px;">
                         <p style="margin: 0; color: var(--dashboard-text-primary);">
-                            <strong style="color: #ff9800;">⚠️ Configuration Required</strong><br>
+                            <strong style="color: #ff9800;">Configuration Required</strong><br>
                             <span style="color: var(--dashboard-text-secondary); font-size: 0.95em;">
                                 Configure your IndexNow API key below to enable instant indexing with Bing and other search engines.
                             </span>
@@ -403,7 +413,7 @@ class Metasync_Settings_Fields {
                                 id="generate-bing-api-key-inline"
                                 class="button button-secondary"
                                 style="margin-top: 8px;">
-                            🔑 Generate Random API Key
+                            Generate Random API Key
                         </button>
                         <p class="description" style="margin-top: 8px;">
                             Your IndexNow API key is required to submit URLs for instant indexing. You can generate a random key or use your own (32+ character hexadecimal string).
@@ -644,7 +654,7 @@ class Metasync_Settings_Fields {
                 <!-- Description -->
                 <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 16px; margin: 20px 0;">
                     <p style="color: var(--dashboard-text-secondary); margin: 0; font-size: 13px;">
-                        <strong style="color: var(--dashboard-info, #3b82f6);">ℹ️ How it works:</strong><br>
+                        <strong style="color: var(--dashboard-info, #3b82f6);">How it works:</strong><br>
                         <strong>Administrators always have access</strong> to this plugin regardless of settings.<br>
                         <strong>By default</strong>, only Administrators can access the plugin (no roles selected).<br>
                         If <strong>"All Roles"</strong> is selected, all users will see the plugin.<br>
@@ -653,7 +663,7 @@ class Metasync_Settings_Fields {
                 </div>
                 
                 <button type="submit" class="metasync-btn-primary" style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0, 0, 0, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0, 0, 0, 0.1)';">
-                    💾 Save Access Settings
+                    Save Access Settings
                 </button>
             </form>
         </div>
@@ -825,7 +835,7 @@ class Metasync_Settings_Fields {
                             Server Limit: <?php echo esc_html($server_limits['max_execution_time']); ?>
                         </p>
                         <p id="max_execution_time_warning" style="display: none; color: #f59e0b; font-size: 12px; margin: 4px 0 0 0;">
-                            <span style="margin-right: 4px;">⚠️</span>
+                            <span class="dashicons dashicons-warning" style="margin-right:4px;font-size:14px;width:14px;height:14px;color:#f59e0b;"></span>
                             <span>Configured value exceeds server limit</span>
                         </p>
                         <?php if (isset($warnings['max_execution_time'])): ?>
@@ -861,12 +871,12 @@ class Metasync_Settings_Fields {
                         </p>
                         <?php if (!$server_limits['can_change_memory']): ?>
                         <p style="color: #f59e0b; font-size: 12px; margin: 4px 0 0 0; display: flex; align-items: center; gap: 4px;">
-                            <span>🔒</span>
+                            <span class="dashicons dashicons-lock" style="font-size:14px;width:14px;height:14px;color:#f59e0b;"></span>
                             <span>Server does not allow changing memory limit. This setting is read-only.</span>
                         </p>
                         <?php else: ?>
                         <p id="max_memory_limit_warning" style="display: none; color: #f59e0b; font-size: 12px; margin: 4px 0 0 0;">
-                            <span style="margin-right: 4px;">⚠️</span>
+                            <span class="dashicons dashicons-warning" style="margin-right:4px;font-size:14px;width:14px;height:14px;color:#f59e0b;"></span>
                             <span>Configured value exceeds server limit</span>
                         </p>
                         <?php if (isset($warnings['max_memory_limit'])): ?>
@@ -916,7 +926,7 @@ class Metasync_Settings_Fields {
                                    style="width: 100px; padding: 8px; border: 1px solid var(--dashboard-border); border-radius: 6px; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary);" />
                         </div>
                         <p style="color: #f59e0b; font-size: 12px; margin: 4px 0 0 0; display: flex; align-items: center; gap: 4px;">
-                            <span>⚠️</span>
+                            <span class="dashicons dashicons-warning" style="font-size:14px;width:14px;height:14px;color:#f59e0b;"></span>
                             <span>Higher values increase server load</span>
                         </p>
                     </div>
@@ -1207,7 +1217,7 @@ class Metasync_Settings_Fields {
         $otto_name = Metasync::get_whitelabel_otto_name();
 
         return array(
-            'searchatlas_api_key' => sprintf('Connect your WordPress site to your %s dashboard to retrieve your Search Atlas API key and Otto UUID. This does not create a WordPress login session.', $plugin_name),
+            'searchatlas_api_key' => sprintf('Connect your WordPress site to your %s dashboard to retrieve your API key and OTTO UUID. This does not create a WordPress login session.', $plugin_name),
             'apikey' => sprintf('Auto-generated authentication token used for secure API communication between your WordPress site and %s services. You can refresh this token if needed for security purposes.', $plugin_name),
             'otto_pixel_uuid' => sprintf('Your unique %s tracking pixel identifier. This UUID is used to track %s modifications and analytics on your website pages.', $otto_name, $otto_name),
             'otto_disable_on_loggedin' => sprintf('Disable %s modifications when you are logged in to WordPress. This allows you to see and edit the original content without %s\'s enhancements during editing sessions.', $otto_name, $otto_name),
@@ -1230,7 +1240,8 @@ class Metasync_Settings_Fields {
             'show_admin_bar_status' => sprintf('Display the %s status indicator in the WordPress admin bar at the top of your screen. This provides quick visibility of plugin status and key metrics.', $plugin_name),
             'enable_auto_updates' => sprintf('Allow WordPress to automatically update the %s plugin when new versions are released. Recommended for security patches, but you may prefer manual updates for major versions.', $plugin_name),
             'import_external_data' => sprintf('Import your existing SEO settings and metadata from other popular SEO plugins like Yoast, Rank Math, or All in One SEO. This makes migration to %s seamless without losing your SEO data.', $plugin_name),
-            'import_seo_metadata' => 'Migrate your existing SEO titles and meta descriptions from Yoast, Rank Math, or All in One SEO. This one-click import preserves your search rankings by copying your optimized meta data to MetaSync, even if the source plugin is deactivated.'
+            'import_seo_metadata' => 'Migrate your existing SEO titles and meta descriptions from Yoast, Rank Math, or All in One SEO. This one-click import preserves your search rankings by copying your optimized meta data to MetaSync, even if the source plugin is deactivated.',
+            'default_page_builder' => 'Choose how Content Genius stores synced articles. "Gutenberg" works with all themes and page builders. Selecting a specific builder converts content to that builder\'s widget format, which inherits the builder\'s global typography and layout styles.'
         );
     }
 
@@ -1271,7 +1282,7 @@ class Metasync_Settings_Fields {
 
             echo '<div class="metasync-accordion-header" role="button" tabindex="0" aria-expanded="' . $aria_expanded . '" aria-controls="' . $section_id . '">';
             echo '<div class="metasync-accordion-title">';
-            echo '<span class="metasync-accordion-icon">' . esc_html($section_data['icon']) . '</span>';
+            echo '<span class="metasync-accordion-icon"><span class="dashicons dashicons-' . esc_attr($section_data['icon']) . '"></span></span>';
             echo '<div class="metasync-accordion-text">';
             echo '<h3>' . esc_html($section_data['title']) . '</h3>';
             echo '<p class="metasync-accordion-description">' . esc_html($section_data['description']) . '</p>';
@@ -1359,7 +1370,7 @@ class Metasync_Settings_Fields {
             esc_attr($display_value)
         );
         
-        printf('<button type="button" id="refresh-plugin-auth-token" class="button button-secondary" style="margin-left: 10px;">🔄 Refresh Token</button>');
+        printf('<button type="button" id="refresh-plugin-auth-token" class="button button-secondary" style="margin-left: 10px;"><span class="dashicons dashicons-controls-repeat" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Refresh Token</button>');
         printf('<p class="description">%s %s</p>', $status_message, $refresh_help);
     }
 
@@ -1428,7 +1439,7 @@ class Metasync_Settings_Fields {
         printf('<div class="metasync-sa-connect-container">');
         
         printf('<div class="metasync-sa-connect-title">');
-        printf('🔐 One-Click Authentication');
+        printf('One-Click Authentication');
         printf('</div>');
         
         printf('<div class="metasync-sa-connect-description">');
@@ -1444,7 +1455,7 @@ class Metasync_Settings_Fields {
         ?>
         <div class="metasync-mcp-consent" style="margin-top: 15px; padding: 12px 15px; background: #f0f9ff; border-left: 3px solid #0ea5e9; border-radius: 4px;">
             <p style="margin: 0; color: #334155; font-size: 13px; line-height: 1.6;">
-                <strong>🤖 AI-Powered SEO Automation:</strong> By authenticating, you authorize <strong><?php echo esc_html(Metasync::get_effective_plugin_name()); ?> Brain</strong> (our AI assistant) to access your WordPress admin capabilities through the Model Context Protocol (MCP). This enables intelligent automation for SEO optimizations, content enhancements, and performance improvements.
+                <strong>AI-Powered SEO Automation:</strong> By authenticating, you authorize <strong><?php echo esc_html(Metasync::get_effective_plugin_name()); ?> Brain</strong> (our AI assistant) to access your WordPress admin capabilities through the Model Context Protocol (MCP). This enables intelligent automation for SEO optimizations, content enhancements, and performance improvements.
             </p>
         </div>
         <?php
@@ -1453,17 +1464,17 @@ class Metasync_Settings_Fields {
         
         printf('<button type="button" id="connect-searchatlas-btn" class="metasync-sa-connect-btn">');
         if ($is_fully_connected) {
-            printf('🔄 Re-authenticate with %s', esc_html(Metasync::get_effective_plugin_name()));
+            printf('Re-authenticate with %s', esc_html(Metasync::get_effective_plugin_name()));
         } elseif ($has_api_key && !$has_otto_uuid) {
-            printf('🔧 Complete Authentication Setup');
+            printf('Complete Authentication Setup');
         } else {
-            printf('🔗 Connect to %s', esc_html(Metasync::get_effective_plugin_name()));
+            printf('Connect to %s', esc_html(Metasync::get_effective_plugin_name()));
         }
         printf('</button>');
         
         if ($has_api_key) {
             printf('<button type="button" id="reset-searchatlas-auth" class="metasync-sa-reset-btn" style="margin-left: 10px;">');
-            printf('🔓 Disconnect Account');
+            printf('Disconnect Account');
             printf('</button>');
         }
         
@@ -1471,7 +1482,7 @@ class Metasync_Settings_Fields {
         
         printf('<div style="margin-top: 15px;">');
         printf('<details style="margin-top: 10px;">');
-        printf('<summary style="cursor: pointer; color: #666; font-size: 13px;">💡 Authentication Tips</summary>');
+        printf('<summary style="cursor: pointer; color: #666; font-size: 13px;">Authentication Tips</summary>');
         printf('<div style="padding: 10px 0; color: #666; font-size: 13px; line-height: 1.5;">');
         printf('• Make sure you have a %s account before connecting<br/>', esc_html(Metasync::get_effective_plugin_name()));
         printf('• The authentication window will open in a popup - please allow popups<br/>');
@@ -1487,11 +1498,11 @@ class Metasync_Settings_Fields {
         
         printf('<div style="margin-top: 20px;">');
         printf('<label for="searchatlas-api-key" style="font-weight: 600; display: block; margin-bottom: 8px;">');
-        printf('🔑 %s API Key', esc_html(Metasync::get_effective_plugin_name()));
+        printf('%s API Key', esc_html(Metasync::get_effective_plugin_name()));
         if ($is_fully_connected) {
             printf('<span style="color: #46b450; margin-left: 10px; font-weight: normal;">✓ Synced</span>');
         } elseif ($has_api_key && !$has_otto_uuid) {
-            printf('<span style="color: #ff8c00; margin-left: 10px; font-weight: normal;">⚠️ Partial Connection (Missing %s UUID)</span>', esc_html(Metasync::get_whitelabel_otto_name()));
+            printf('<span style="color: #ff8c00; margin-left: 10px; font-weight: normal;">Partial Connection (Missing %s UUID)</span>', esc_html(Metasync::get_whitelabel_otto_name()));
         }
         printf('</label>');
         
@@ -1512,7 +1523,7 @@ class Metasync_Settings_Fields {
 
         ?>
         <p class="description" style="margin-top: 10px; padding: 8px 12px; background: #fff9e6; border-left: 3px solid #f0b849; border-radius: 4px; font-size: 12px;">
-            <strong>📝 Manual Authentication:</strong> If you manually enter your <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> API Key and OTTO UUID, you also consent to the same AI-powered automation permissions described above.
+            <strong>Manual Authentication:</strong> If you manually enter your <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> API Key and OTTO UUID, you also consent to the same AI-powered automation permissions described above.
         </p>
         <?php
 

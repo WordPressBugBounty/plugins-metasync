@@ -1025,6 +1025,45 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             # backslash-escaped quotes in JSON strings within the array.
             update_post_meta($post_id, 'metasync_schema_markup', wp_slash($existing_schema));
             $fields_updated['structured_data_persisted'] = true;
+
+            # Cross-plugin schema persistence: sync structured_data to RankMath, Yoast, AIOSEO
+            if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
+                $rankmath_schemas = metasync_convert_jsonld_to_rankmath($structured_data);
+                foreach ($rankmath_schemas as $schema_type => $schema_data) {
+                    update_post_meta($post_id, 'rank_math_schema_' . $schema_type, wp_slash($schema_data));
+                }
+            }
+            if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
+                $yoast_types = metasync_extract_yoast_schema_types($structured_data);
+                if (!empty($yoast_types['article_type'])) {
+                    update_post_meta($post_id, '_yoast_wpseo_schema_article_type', $yoast_types['article_type']);
+                }
+                if (!empty($yoast_types['page_type'])) {
+                    update_post_meta($post_id, '_yoast_wpseo_schema_page_type', $yoast_types['page_type']);
+                }
+                // Also update Yoast's indexable cache so the change renders immediately
+                if (!empty($yoast_types['article_type']) || !empty($yoast_types['page_type'])) {
+                    global $wpdb;
+                    $yoast_indexable_table = $wpdb->prefix . 'yoast_indexable';
+                    $update_cols = array();
+                    $update_vals = array();
+                    if (!empty($yoast_types['article_type'])) {
+                        $update_cols[] = 'schema_article_type = %s';
+                        $update_vals[] = $yoast_types['article_type'];
+                    }
+                    if (!empty($yoast_types['page_type'])) {
+                        $update_cols[] = 'schema_page_type = %s';
+                        $update_vals[] = $yoast_types['page_type'];
+                    }
+                    $update_vals[] = $post_id;
+                    $wpdb->query($wpdb->prepare(
+                        "UPDATE {$yoast_indexable_table} SET " . implode(', ', $update_cols) . " WHERE object_id = %d AND object_type = 'post'",
+                        $update_vals
+                    ));
+                }
+            }
+            // AIOSEO schema persistence skipped — AIOSEO Free locks Article/custom schema behind Pro paywall.
+            // The graphs array (Pro-only) and default.graphName (UI-gated) cannot reliably render OTTO schema on Free.
         }
 
         # PERSISTENCE: canonical_url → _metasync_canonical_url + SEO plugin canonical fields
@@ -1795,6 +1834,380 @@ function metasync_is_plugin_active($plugin_path) {
     }
     
     return is_plugin_active($plugin_path);
+}
+
+/**
+ * Extract a URL string from a JSON-LD image value.
+ *
+ * Handles the various shapes JSON-LD images can take:
+ * - Plain string: "https://example.com/img.jpg"
+ * - Object with url: {"url": "https://...", "width": 800}
+ * - Object with @id: {"@id": "#primaryimage"}
+ * - Flat array: ["https://example.com/a.jpg", "https://example.com/b.jpg"]
+ *
+ * @param mixed $image The image value from JSON-LD.
+ * @return string URL string or empty string.
+ */
+function metasync_extract_jsonld_image_url( $image ) {
+    if ( empty( $image ) ) {
+        return '';
+    }
+    if ( is_string( $image ) ) {
+        return $image;
+    }
+    if ( is_array( $image ) ) {
+        if ( isset( $image['url'] ) ) {
+            return $image['url'];
+        }
+        if ( isset( $image['@id'] ) ) {
+            return $image['@id'];
+        }
+        if ( isset( $image[0] ) && is_string( $image[0] ) ) {
+            return $image[0];
+        }
+    }
+    return '';
+}
+
+/**
+ * Convert JSON-LD string to RankMath schema format.
+ *
+ * @param string $json_ld_string JSON-LD structured data string.
+ * @return array Associative array of [$PascalCaseType => $fields_array].
+ */
+function metasync_convert_jsonld_to_rankmath( $json_ld_string ) {
+    $decoded = json_decode( $json_ld_string, true );
+    if ( ! is_array( $decoded ) ) {
+        return array();
+    }
+
+    // Normalize to array of schema items (unwrap @graph if present).
+    $items = array();
+    if ( isset( $decoded['@graph'] ) && is_array( $decoded['@graph'] ) ) {
+        $items = $decoded['@graph'];
+    } elseif ( isset( $decoded['@type'] ) ) {
+        $items = array( $decoded );
+    } elseif ( isset( $decoded[0] ) ) {
+        // Bare JSON array of schema objects (e.g. [{"@type":"Article",...}, ...]).
+        $items = $decoded;
+    }
+
+    $result = array();
+    foreach ( $items as $item ) {
+        if ( ! isset( $item['@type'] ) ) {
+            continue;
+        }
+
+        $type       = $item['@type'];
+        $type_lower = strtolower( $type );
+
+        if ( 'article' === $type_lower || 'blogposting' === $type_lower || 'newsarticle' === $type_lower ) {
+            // headline fallback: OTTO sometimes sends 'name' instead of 'headline'
+            $headline = '';
+            if ( ! empty( $item['headline'] ) ) {
+                $headline = $item['headline'];
+            } elseif ( ! empty( $item['name'] ) ) {
+                $headline = $item['name'];
+            }
+            $result['Article'] = array(
+                '@type'          => 'Article',
+                'headline'       => $headline,
+                'description'    => isset( $item['description'] ) ? $item['description'] : '',
+                'image'          => metasync_extract_jsonld_image_url( isset( $item['image'] ) ? $item['image'] : null ),
+                'publisher'      => isset( $item['publisher']['name'] ) ? $item['publisher']['name'] : ( is_string( $item['publisher'] ?? null ) ? $item['publisher'] : '' ),
+                'publisher_logo' => isset( $item['publisher']['logo']['url'] ) ? $item['publisher']['logo']['url'] : '',
+            );
+        } elseif ( 'faqpage' === $type_lower ) {
+            $questions = array();
+            if ( isset( $item['mainEntity'] ) && is_array( $item['mainEntity'] ) ) {
+                foreach ( $item['mainEntity'] as $question ) {
+                    if ( isset( $question['name'] ) && isset( $question['acceptedAnswer']['text'] ) ) {
+                        $questions[] = array(
+                            'name' => $question['name'],
+                            'text' => $question['acceptedAnswer']['text'],
+                        );
+                    }
+                }
+            }
+            $result['FAQPage'] = array(
+                '@type'     => 'FAQPage',
+                'questions' => $questions,
+            );
+        } elseif ( 'product' === $type_lower ) {
+            $result['Product'] = array(
+                '@type'       => 'Product',
+                'name'        => isset( $item['name'] ) ? $item['name'] : '',
+                'description' => isset( $item['description'] ) ? $item['description'] : '',
+                'image'       => metasync_extract_jsonld_image_url( isset( $item['image'] ) ? $item['image'] : null ),
+                'sku'         => isset( $item['sku'] ) ? $item['sku'] : '',
+                'brand'       => isset( $item['brand']['name'] ) ? $item['brand']['name'] : '',
+                'price'       => isset( $item['offers']['price'] ) ? floatval( $item['offers']['price'] ) : 0,
+                'currency'    => isset( $item['offers']['priceCurrency'] ) ? $item['offers']['priceCurrency'] : 'USD',
+                'inStock'     => isset( $item['offers']['availability'] ) ? ( strpos( $item['offers']['availability'], 'InStock' ) !== false ) : true,
+            );
+        } elseif ( 'recipe' === $type_lower ) {
+            $instructions = array();
+            if ( isset( $item['recipeInstructions'] ) && is_array( $item['recipeInstructions'] ) ) {
+                foreach ( $item['recipeInstructions'] as $step ) {
+                    if ( is_string( $step ) ) {
+                        $instructions[] = $step;
+                    } elseif ( isset( $step['text'] ) ) {
+                        $instructions[] = $step['text'];
+                    }
+                }
+            }
+            $result['Recipe'] = array(
+                '@type'             => 'Recipe',
+                'name'              => isset( $item['name'] ) ? $item['name'] : '',
+                'description'       => isset( $item['description'] ) ? $item['description'] : '',
+                'image'             => metasync_extract_jsonld_image_url( isset( $item['image'] ) ? $item['image'] : null ),
+                'recipeYield'       => isset( $item['recipeYield'] ) ? $item['recipeYield'] : '',
+                'recipeIngredient'  => isset( $item['recipeIngredient'] ) ? $item['recipeIngredient'] : array(),
+                'recipeInstructions' => $instructions,
+                'prepTime'          => isset( $item['prepTime'] ) ? metasync_parse_iso8601_duration( $item['prepTime'] ) : 0,
+                'cookTime'          => isset( $item['cookTime'] ) ? metasync_parse_iso8601_duration( $item['cookTime'] ) : 0,
+                'totalTime'         => isset( $item['totalTime'] ) ? metasync_parse_iso8601_duration( $item['totalTime'] ) : 0,
+                'calories'          => isset( $item['nutrition']['calories'] ) ? intval( $item['nutrition']['calories'] ) : 0,
+            );
+        } // Unrecognized types are skipped — RankMath can't render raw JSON-LD.
+          // They remain in metasync_schema_markup where our own renderer handles them.
+    }
+
+    return $result;
+}
+
+/**
+ * Extract Yoast-compatible schema type strings from OTTO JSON-LD.
+ *
+ * Yoast does NOT store full JSON schema. It stores only type strings in post meta:
+ *   _yoast_wpseo_schema_article_type  (e.g. "Article", "BlogPosting", "NewsArticle")
+ *   _yoast_wpseo_schema_page_type     (e.g. "FAQPage", "CollectionPage", "ItemPage")
+ * Yoast's own graph builder then generates the full schema from post data.
+ *
+ * @param string $json_ld_string JSON-LD structured data string.
+ * @return array With 'article_type' and/or 'page_type' keys, or empty array.
+ */
+function metasync_extract_yoast_schema_types( $json_ld_string ) {
+    $decoded = json_decode( $json_ld_string, true );
+    if ( ! is_array( $decoded ) ) {
+        return array();
+    }
+
+    // Normalize to array of items.
+    $items = array();
+    if ( isset( $decoded['@graph'] ) && is_array( $decoded['@graph'] ) ) {
+        $items = $decoded['@graph'];
+    } elseif ( isset( $decoded['@type'] ) ) {
+        $items = array( $decoded );
+    } elseif ( isset( $decoded[0] ) ) {
+        $items = $decoded;
+    }
+
+    // Valid Yoast article types (from Yoast's Schema_Types::ARTICLE_TYPES).
+    $valid_article_types = array(
+        'Article', 'BlogPosting', 'SocialMediaPosting', 'NewsArticle',
+        'AdvertiserContentArticle', 'SatiricalArticle', 'ScholarlyArticle',
+        'TechArticle', 'Report',
+    );
+
+    // Valid Yoast page types (from Yoast's Schema_Types::PAGE_TYPES).
+    $valid_page_types = array(
+        'WebPage', 'ItemPage', 'AboutPage', 'FAQPage', 'QAPage', 'ProfilePage',
+        'ContactPage', 'MedicalWebPage', 'CollectionPage', 'CheckoutPage',
+        'RealEstateListing', 'SearchResultsPage',
+    );
+
+    $result = array();
+    foreach ( $items as $item ) {
+        if ( ! is_array( $item ) || ! isset( $item['@type'] ) ) {
+            continue;
+        }
+        $type = $item['@type'];
+
+        if ( in_array( $type, $valid_article_types, true ) && ! isset( $result['article_type'] ) ) {
+            $result['article_type'] = $type;
+        } elseif ( in_array( $type, $valid_page_types, true ) && ! isset( $result['page_type'] ) ) {
+            $result['page_type'] = $type;
+        }
+    }
+
+    return $result;
+}
+
+/**
+ * Convert JSON-LD string to AIOSEO graph objects for the `schema` column.
+ *
+ * AIOSEO v4+ stores schema in the `schema` column as a JSON object with a `graphs`
+ * array. Each graph has `id`, `graphName`, `type`, and a `properties` object.
+ * The `schema_type` and `schema_type_options` columns are NOT used for rendering.
+ *
+ * @param string $json_ld_string JSON-LD structured data string.
+ * @return array Array of AIOSEO graph objects for the `graphs` key, or empty array.
+ */
+function metasync_convert_jsonld_to_aioseo( $json_ld_string ) {
+    $decoded = json_decode( $json_ld_string, true );
+    if ( ! is_array( $decoded ) ) {
+        return array();
+    }
+
+    // Normalize to array of items.
+    // OTTO can send: {"@graph":[...]}, {"@type":"..."}, or a bare array [{...},{...}].
+    $items = array();
+    if ( isset( $decoded['@graph'] ) && is_array( $decoded['@graph'] ) ) {
+        $items = $decoded['@graph'];
+    } elseif ( isset( $decoded['@type'] ) ) {
+        $items = array( $decoded );
+    } elseif ( isset( $decoded[0] ) ) {
+        // Bare JSON array of schema objects (e.g. [{"@type":"ImageObject",...}, ...]).
+        $items = $decoded;
+    }
+
+    $graphs = array();
+    foreach ( $items as $index => $item ) {
+        if ( ! is_array( $item ) || ! isset( $item['@type'] ) ) {
+            continue;
+        }
+
+        $type       = $item['@type'];
+        $type_lower = strtolower( $type );
+        $converted  = metasync_convert_jsonld_item_for_aioseo( $item, $type_lower );
+
+        if ( ! empty( $converted ) ) {
+            // Recognized type with field mapping.
+            $graphs[] = array(
+                'id'         => 'otto-schema-' . $index,
+                'slug'       => '',
+                'graphName'  => $converted['schema_type'],
+                'label'      => $converted['schema_type'],
+                'type'       => $converted['schema_type'],
+                'properties' => $converted['options'],
+            );
+        } else {
+            // Unrecognized type — pass through the raw JSON-LD properties.
+            $properties = $item;
+            unset( $properties['@context'], $properties['@type'] );
+            $graphs[] = array(
+                'id'         => 'otto-schema-' . $index,
+                'slug'       => '',
+                'graphName'  => $type,
+                'label'      => $type,
+                'type'       => $type,
+                'properties' => $properties,
+            );
+        }
+    }
+
+    return $graphs;
+}
+
+/**
+ * Convert a single JSON-LD item to AIOSEO option fields.
+ *
+ * @param array  $item       Decoded JSON-LD item.
+ * @param string $type_lower Lowercased @type value.
+ * @return array With 'schema_type' and 'options' keys, or empty array.
+ */
+function metasync_convert_jsonld_item_for_aioseo( $item, $type_lower ) {
+    if ( 'article' === $type_lower || 'blogposting' === $type_lower || 'newsarticle' === $type_lower ) {
+        $headline = '';
+        if ( ! empty( $item['headline'] ) ) {
+            $headline = $item['headline'];
+        } elseif ( ! empty( $item['name'] ) ) {
+            $headline = $item['name'];
+        }
+        return array(
+            'schema_type' => 'Article',
+            'options'     => array(
+                'headline'         => $headline,
+                'description'      => isset( $item['description'] ) ? $item['description'] : '',
+                'image'            => metasync_extract_jsonld_image_url( isset( $item['image'] ) ? $item['image'] : null ),
+                'organizationName' => isset( $item['publisher']['name'] ) ? $item['publisher']['name'] : ( is_string( $item['publisher'] ?? null ) ? $item['publisher'] : '' ),
+                'organizationLogo' => isset( $item['publisher']['logo']['url'] ) ? $item['publisher']['logo']['url'] : '',
+            ),
+        );
+    } elseif ( 'faqpage' === $type_lower ) {
+        $questions = array();
+        if ( isset( $item['mainEntity'] ) && is_array( $item['mainEntity'] ) ) {
+            foreach ( $item['mainEntity'] as $question ) {
+                if ( isset( $question['name'] ) && isset( $question['acceptedAnswer']['text'] ) ) {
+                    $questions[] = array(
+                        'question' => $question['name'],
+                        'answer'   => $question['acceptedAnswer']['text'],
+                    );
+                }
+            }
+        }
+        return array(
+            'schema_type' => 'FAQPage',
+            'options'     => array( 'questions' => $questions ),
+        );
+    } elseif ( 'product' === $type_lower ) {
+        return array(
+            'schema_type' => 'Product',
+            'options'     => array(
+                'name'         => isset( $item['name'] ) ? $item['name'] : '',
+                'description'  => isset( $item['description'] ) ? $item['description'] : '',
+                'image'        => metasync_extract_jsonld_image_url( isset( $item['image'] ) ? $item['image'] : null ),
+                'sku'          => isset( $item['sku'] ) ? $item['sku'] : '',
+                'brand'        => isset( $item['brand']['name'] ) ? $item['brand']['name'] : '',
+                'price'        => isset( $item['offers']['price'] ) ? floatval( $item['offers']['price'] ) : 0,
+                'currency'     => isset( $item['offers']['priceCurrency'] ) ? $item['offers']['priceCurrency'] : 'USD',
+                'availability' => isset( $item['offers']['availability'] ) ? basename( $item['offers']['availability'] ) : 'InStock',
+                'condition'    => isset( $item['offers']['itemCondition'] ) ? basename( $item['offers']['itemCondition'] ) : 'NewCondition',
+            ),
+        );
+    } elseif ( 'recipe' === $type_lower ) {
+        $instructions = array();
+        if ( isset( $item['recipeInstructions'] ) && is_array( $item['recipeInstructions'] ) ) {
+            foreach ( $item['recipeInstructions'] as $step ) {
+                if ( is_string( $step ) ) {
+                    $instructions[] = $step;
+                } elseif ( isset( $step['text'] ) ) {
+                    $instructions[] = $step['text'];
+                }
+            }
+        }
+        return array(
+            'schema_type' => 'Recipe',
+            'options'     => array(
+                'name'               => isset( $item['name'] ) ? $item['name'] : '',
+                'description'        => isset( $item['description'] ) ? $item['description'] : '',
+                'image'              => metasync_extract_jsonld_image_url( isset( $item['image'] ) ? $item['image'] : null ),
+                'recipeYield'        => isset( $item['recipeYield'] ) ? $item['recipeYield'] : '',
+                'recipeIngredient'   => isset( $item['recipeIngredient'] ) ? $item['recipeIngredient'] : array(),
+                'recipeInstructions' => $instructions,
+                'prepTime'           => isset( $item['prepTime'] ) ? metasync_parse_iso8601_duration( $item['prepTime'] ) : 0,
+                'cookTime'           => isset( $item['cookTime'] ) ? metasync_parse_iso8601_duration( $item['cookTime'] ) : 0,
+                'totalTime'          => isset( $item['totalTime'] ) ? metasync_parse_iso8601_duration( $item['totalTime'] ) : 0,
+                'calories'           => isset( $item['nutrition']['calories'] ) ? intval( $item['nutrition']['calories'] ) : 0,
+            ),
+        );
+    }
+
+    return array();
+}
+
+/**
+ * Parse ISO 8601 duration string to minutes.
+ * E.g., "PT15M" = 15, "PT1H30M" = 90.
+ *
+ * @param string $duration ISO 8601 duration string.
+ * @return int Duration in minutes.
+ */
+function metasync_parse_iso8601_duration( $duration ) {
+    if ( empty( $duration ) ) {
+        return 0;
+    }
+
+    $minutes = 0;
+    if ( preg_match( '/PT(\d+)H/', $duration, $hours ) ) {
+        $minutes += intval( $hours[1] ) * 60;
+    }
+    if ( preg_match( '/(\d+)M/', $duration, $mins ) ) {
+        $minutes += intval( $mins[1] );
+    }
+
+    return $minutes;
 }
 
 /**

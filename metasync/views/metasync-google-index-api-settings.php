@@ -20,7 +20,7 @@ if (!defined('ABSPATH')) {
 <div style="padding: 20px;">
    <!-- Requirements (Collapsible) -->
    <details style="margin-top: 20px; padding-top: 15px;">
-        <summary style="cursor: pointer; font-weight: 600; margin-bottom: 10px;">📋 Requirements</summary>
+        <summary style="cursor: pointer; font-weight: 600; margin-bottom: 10px;">Requirements</summary>
         <div style="margin-top: 10px;">
             <ul style="margin-left: 20px;">
                 <li>Google Cloud Project with Indexing API enabled</li>
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
         <?php if ($is_configured): ?>
             <div class="notice notice-success inline" style="margin: 0 0 15px 0; padding: 10px;">
                 <p style="margin: 0;">
-                    <strong>✅ Service Account Configured: </strong><br>
+                    <strong>Service Account Configured: </strong><br>
                     <strong>Email:</strong> <?php echo esc_html($service_info['client_email']); ?><br>
                     <strong>Project ID:</strong> <?php echo esc_html($service_info['project_id']); ?>
                 </p>
@@ -44,7 +44,7 @@ if (!defined('ABSPATH')) {
         <?php else: ?>
             <div class="notice notice-warning inline" style="margin: 0 0 15px 0; padding: 10px;">
                 <p style="margin: 0;">
-                    <strong>⚠️ Service Account Not Configured</strong><br>
+                    <strong>Service Account Not Configured</strong><br>
                     Please provide your Google service account JSON below.
                 </p>
             </div>
@@ -67,7 +67,7 @@ if (!defined('ABSPATH')) {
                     if (!$is_configured) {
                         echo esc_textarea('');
                     } else {
-                        echo esc_textarea("Service account configured ✅\nPaste new JSON here to update configuration.");
+                        echo esc_textarea("Service account configured\nPaste new JSON here to update configuration.");
                     }
                 ?></textarea>
                 <p class="description">
@@ -102,14 +102,14 @@ if (!defined('ABSPATH')) {
             <button type="button" 
                     id="google-index-test-connection" 
                     class="button button-secondary">
-                🧪 Test Connection
+                <span class="dashicons dashicons-yes" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Test Connection
             </button>
             
             <button type="button" 
                     id="google-index-clear-config"
                     class="button button-link-delete" 
                     style="margin-left: 10px;">
-                🗑️ Clear Configuration
+                <span class="dashicons dashicons-trash" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Clear Configuration
             </button>
             
             <div id="google-index-test-results" style="margin-top: 15px;"></div>

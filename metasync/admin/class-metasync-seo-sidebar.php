@@ -34,6 +34,16 @@ class Metasync_SEO_Sidebar {
     const META_DESCRIPTION = '_metasync_seo_desc';
 
     /**
+     * Meta key for primary category (used in breadcrumbs and canonical URL)
+     */
+    const META_PRIMARY_CATEGORY = '_metasync_primary_category';
+
+    /**
+     * Meta key for primary product category (WooCommerce)
+     */
+    const META_PRIMARY_PRODUCT_CAT = '_metasync_primary_product_cat';
+
+    /**
      * Constructor
      *
      * @param string $version Plugin version
@@ -58,6 +68,9 @@ class Metasync_SEO_Sidebar {
         add_filter('rest_pre_insert_page', array($this, 'track_meta_before_save'), 10, 2);
         add_action('rest_after_insert_post', array($this, 'cleanup_empty_seo_meta'), 10, 3);
         add_action('rest_after_insert_page', array($this, 'cleanup_empty_seo_meta'), 10, 3);
+
+        // Clean up primary category meta when category is unchecked (all post types)
+        add_action('save_post', array($this, 'cleanup_primary_category_meta'), 10, 1);
 
         // Frontend hooks for outputting SEO meta
         // Custom values ALWAYS take priority over OTTO suggestions
@@ -276,6 +289,19 @@ class Metasync_SEO_Sidebar {
                 },
             ));
 
+            // Note: _metasync_primary_category is registered by Metasync_Breadcrumbs::register_meta_fields() — no duplicate here.
+
+            // Register primary product category meta (WooCommerce-specific, not handled by breadcrumbs module)
+            register_post_meta($post_type, self::META_PRIMARY_PRODUCT_CAT, array(
+                'show_in_rest' => true,
+                'single' => true,
+                'type' => 'integer',
+                'sanitize_callback' => 'absint',
+                'auth_callback' => function() {
+                    return current_user_can('edit_posts');
+                },
+            ));
+
             // Register OTTO meta keys for REST API (read-only for fallback/prefill)
             register_post_meta($post_type, '_metasync_otto_title', array(
                 'show_in_rest' => true,
@@ -351,13 +377,16 @@ class Metasync_SEO_Sidebar {
             $plugin_name = Metasync::get_effective_plugin_name('MetaSync');
         }
 
-        // Get whitelabel logo (icon)
-        $icon_url = plugin_dir_url(__FILE__) . 'images/icon-256x256.svg'; // Default icon
-        if (class_exists('Metasync') && method_exists('Metasync', 'get_whitelabel_logo')) {
-            $whitelabel_logo = Metasync::get_whitelabel_logo();
-            if (!empty($whitelabel_logo)) {
-                $icon_url = $whitelabel_logo;
-            }
+        // Get whitelabel icon URL for the block editor sidebar.
+        // Priority: white_label_plugin_menu_icon (the icon set in WL Settings → Branding)
+        // because that's the same field driving the admin menu icon.
+        // Falls back to whitelabel['logo'], then the bundled default SVG.
+        $icon_url = plugin_dir_url(__FILE__) . 'images/icon-256x256.svg';
+        $menu_icon = Metasync::get_option('general')['white_label_plugin_menu_icon'] ?? '';
+        if (!empty($menu_icon) && filter_var($menu_icon, FILTER_VALIDATE_URL)) {
+            $icon_url = $menu_icon;
+        } elseif (!empty(Metasync::get_whitelabel_logo())) {
+            $icon_url = Metasync::get_whitelabel_logo();
         }
 
         // Get OTTO whitelabel name
@@ -400,11 +429,17 @@ class Metasync_SEO_Sidebar {
             'metaKeys' => array(
                 'seoTitle' => self::META_SEO_TITLE,
                 'metaDescription' => self::META_DESCRIPTION,
+                // Breadcrumb meta keys
+                'breadcrumbTitle' => '_metasync_breadcrumb_title',
+                'primaryCategory' => '_metasync_primary_category',
                 // OTTO keys for fallback (read-only, used to prefill if manual fields are empty)
                 'ottoTitle' => '_metasync_otto_title',
                 'ottoDescription' => '_metasync_otto_description',
                 // OTTO disabled per-post flag
                 'ottoDisabled' => '_metasync_otto_disabled',
+                // Primary category
+                'primaryCategory' => self::META_PRIMARY_CATEGORY,
+                'primaryProductCat' => self::META_PRIMARY_PRODUCT_CAT,
             ),
             'hasMetaKeys' => array(
                 // Whether the manual meta keys exist in database (PHP check)
@@ -442,10 +477,18 @@ class Metasync_SEO_Sidebar {
                 'serpDesktop' => __('Desktop', 'metasync'),
                 'serpMobile' => __('Mobile', 'metasync'),
                 'characters' => __('characters', 'metasync'),
+                'primaryCategoryLabel' => __('Primary Category', 'metasync'),
+                'primaryCategoryHelp' => __('Used in breadcrumbs and canonical URL when multiple categories are assigned.', 'metasync'),
+                'primaryCategoryNote' => __('Assign 2+ categories to enable this option.', 'metasync'),
                 'ottoPrefillHelp' => sprintf(
                     __('Pre-filled from %s. Edit to customize.', 'metasync'),
                     $otto_name
                 ),
+                'breadcrumbPanelTitle' => __('Breadcrumbs', 'metasync'),
+                'breadcrumbTitleLabel' => __('Breadcrumb Title Override', 'metasync'),
+                'breadcrumbTitleHelp' => __('Custom label for this page in breadcrumb trails. Leave empty to use the post title.', 'metasync'),
+                'primaryCategoryLabel' => __('Primary Category', 'metasync'),
+                'primaryCategoryHelp' => __('Select which category appears in the breadcrumb path when this post belongs to multiple categories.', 'metasync'),
                 /* translators: %s: OTTO name (whitelabel) */
                 'ottoOverrideNotice' => sprintf(
                     __('%s is enabled. Any SEO title and description changes from %s will be overwritten by your custom values entered here.', 'metasync'),
@@ -455,5 +498,32 @@ class Metasync_SEO_Sidebar {
             ),
         ));
     }
+
+    /**
+     * Clean up primary category meta if the selected category was unchecked from the post.
+     * Runs on save_post to cover all post types, not just 'post' and 'page'.
+     *
+     * @param int $post_id Post ID
+     */
+    public function cleanup_primary_category_meta($post_id) {
+        // Clean up primary category
+        $primary_cat = (int) get_post_meta($post_id, self::META_PRIMARY_CATEGORY, true);
+        if ($primary_cat > 0) {
+            $post_categories = wp_get_post_categories($post_id);
+            if (!in_array($primary_cat, $post_categories)) {
+                delete_post_meta($post_id, self::META_PRIMARY_CATEGORY);
+            }
+        }
+
+        // Clean up primary product category (WooCommerce)
+        $primary_product_cat = (int) get_post_meta($post_id, self::META_PRIMARY_PRODUCT_CAT, true);
+        if ($primary_product_cat > 0) {
+            $product_cat_ids = wp_get_object_terms($post_id, 'product_cat', array('fields' => 'ids'));
+            if (!is_wp_error($product_cat_ids) && !in_array($primary_product_cat, $product_cat_ids)) {
+                delete_post_meta($post_id, self::META_PRIMARY_PRODUCT_CAT);
+            }
+        }
+    }
+
 }
 

@@ -117,23 +117,17 @@ class Metasync_Debug_Manager
         $wp_debug_display_enabled = get_option('wp_debug_display_enabled', 'false');
         ?>
     
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-
-        
-        <?php
-        $admin->render_plugin_header('Error Logs');
-        $admin->render_navigation_menu('error-log');
-        ?>
+        <?php $admin->render_layout_open('Error Logs', 'error_log', 'View and manage WordPress error logs and debug settings.'); ?>
             
             <!-- Log File Management -->
             <div class="dashboard-card">
-                <h2>🗑️ Error Log Management</h2>
+                <h2>Error Log Management</h2>
                 <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Clear WordPress error logs to free up space and remove old entries.</p>
                 
                 <form method="post" style="margin-top: 15px;">
                     <input type="hidden" name="clear_log" value="yes" />
                     <?php wp_nonce_field('metasync_clear_log_nonce', 'clear_log_nonce'); ?>
-                    <?php submit_button('🧹 Clear Error Logs', 'secondary', 'clear-log', false, array('class' => 'button button-secondary')); ?>
+                    <?php submit_button('Clear Error Logs', 'secondary', 'clear-log', false, array('class' => 'button button-secondary')); ?>
             </form>
             </div>
             
@@ -141,7 +135,7 @@ class Metasync_Debug_Manager
             <form method="post">
                 <?php wp_nonce_field('metasync_wp_debug_settings', 'wp_debug_nonce'); ?>
                 <div class="dashboard-card">
-                    <h2>🔧 WordPress Debug Configuration</h2>
+                    <h2>WordPress Debug Configuration</h2>
                     <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure WordPress debug settings to control error logging and display.</p>
                     <?php settings_errors('metasync_messages'); ?>
                     
@@ -180,7 +174,7 @@ class Metasync_Debug_Manager
         </div>
                 
                 <div class="dashboard-card">
-                    <h2>💾 Save Changes</h2>
+                    <h2>Save Changes</h2>
                     <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Apply your WordPress logging configuration changes.</p>
                     <?php submit_button('Save WordPress Logging Settings', 'primary', 'submit', false, array('class' => 'button button-primary')); ?>
                 </div>
@@ -188,7 +182,7 @@ class Metasync_Debug_Manager
             
             <!-- Error Log Display -->
             <div class="dashboard-card">
-                <h2>📄 Error Log Contents</h2>
+                <h2>Error Log Contents</h2>
                 <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">View the current error log entries for troubleshooting and monitoring.</p>
                 
         <?php 
@@ -212,7 +206,7 @@ class Metasync_Debug_Manager
                 }
                 ?>
             </div>
-        </div>
+        <?php $admin->render_layout_close(); ?>
         <?php
     }
 
@@ -531,7 +525,7 @@ class Metasync_Debug_Manager
         ?>
         <!-- Error Summary Section -->
         <div style="margin-bottom: 30px;">
-            <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">📊 Error Summary</h4>
+            <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">Error Summary</h4>
             <p style="margin-bottom: 15px; color: var(--dashboard-text-secondary);">View categorized error statistics with counts and last occurrence times.</p>
             
             <?php
@@ -588,7 +582,7 @@ class Metasync_Debug_Manager
                         <input type="hidden" name="clear_error_summary" value="yes" />
                         <?php wp_nonce_field('metasync_clear_error_summary_nonce', 'clear_error_summary_nonce'); ?>
                         <button type="submit" class="button button-secondary" style="background: #dc3232; color: #ffffff; border: none; padding: 8px 16px; border-radius: 4px; font-weight: 500; cursor: pointer;">
-                            🗑️ Clear Error Summary
+                            <span class="dashicons dashicons-trash" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Clear Error Summary
                         </button>
                     </form>
                     <?php

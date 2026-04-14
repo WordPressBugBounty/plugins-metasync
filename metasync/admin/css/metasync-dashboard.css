@@ -59,6 +59,7 @@
     margin: 0 -20px;
     padding: 20px 40px;  /* More lateral padding for content breathing room */
     min-height: calc(100vh - 32px);
+    opacity: 1 !important;
 }
 
 /* Hide Jetpack identity crisis container within plugin pages */
@@ -821,6 +822,7 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     z-index: 999999999 !important; /* Ensure container is above forms */
 }
 
+.metasync-seo-btn,
 .metasync-settings-btn {
     background: transparent;
     border: 2px solid var(--dashboard-border);
@@ -837,22 +839,26 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     min-height: 44px;
 }
 
+.metasync-seo-btn:hover,
 .metasync-settings-btn:hover {
     background: var(--dashboard-card-hover);
     border-color: var(--dashboard-accent);
 }
 
+.metasync-seo-btn.active,
 .metasync-settings-btn.active {
     background: var(--dashboard-accent);
     border-color: var(--dashboard-accent);
     color: white;
 }
 
+.metasync-seo-btn .dropdown-arrow,
 .metasync-settings-btn .dropdown-arrow {
     transition: transform 0.2s ease;
     font-size: 10px;
 }
 
+.metasync-seo-btn[aria-expanded="true"] .dropdown-arrow,
 .metasync-settings-btn[aria-expanded="true"] .dropdown-arrow {
     transform: rotate(180deg);
 }
@@ -2802,9 +2808,21 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 }
 
 .metasync-accordion-icon {
-    font-size: 28px;
-    line-height: 1;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: var(--dashboard-gradient-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
+}
+
+.metasync-accordion-icon .dashicons {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    color: #ffffff;
 }
 
 .metasync-accordion-text h3 {
@@ -3184,4 +3202,51 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 [data-theme="light"] .metasync-dashboard-wrap .metasync-sa-connect-btn:hover,
 [data-theme="light"] .metasync-dashboard-wrap #connect-searchatlas-btn:hover {
     color: #ffffff !important;
+}
+
+/* ================================================
+   Monochrome Emoji System
+   Forces all decorative emoji to render as monochrome text glyphs
+   so they inherit the element's CSS color property (white in dark
+   theme, dark in light theme) rather than rendering as colorful
+   emoji pictographs. Applies throughout all admin screens.
+   ================================================ */
+
+.metasync-dashboard-wrap h1,
+.metasync-dashboard-wrap h2,
+.metasync-dashboard-wrap h3,
+.metasync-dashboard-wrap h4,
+.metasync-dashboard-wrap h5,
+.metasync-dashboard-wrap h6,
+.metasync-dashboard-wrap label,
+.metasync-dashboard-wrap th,
+.metasync-dashboard-wrap td,
+.metasync-dashboard-wrap legend,
+.metasync-dashboard-wrap .button,
+.metasync-dashboard-wrap .button-primary,
+.metasync-dashboard-wrap .button-secondary,
+.metasync-dashboard-wrap .metasync-stat-label,
+.metasync-dashboard-wrap .metasync-stat-value,
+.metasync-dashboard-wrap .dashboard-card-title,
+.metasync-dashboard-wrap .notice,
+.metasync-dashboard-wrap p,
+.metasync-dashboard-wrap .metasync-accordion-icon,
+.metasync-dashboard-wrap .sync-log-empty-icon,
+.metasync-dashboard-wrap .sync-icon,
+.metasync-dashboard-wrap span[class*="icon"],
+.metasync-dashboard-wrap div[class*="icon"] {
+    font-variant-emoji: text;
+}
+
+/* Dashicons inside sitemap stat-icon boxes */
+.metasync-dashboard-wrap .stat-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.metasync-dashboard-wrap .stat-icon .dashicons {
+    font-size: 24px;
+    width: 24px;
+    height: 24px;
+    color: var(--dashboard-text-secondary);
 }

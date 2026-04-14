@@ -51,49 +51,41 @@ class Metasync_Admin_Pages
         $hide_dashboard = $general_options['hide_dashboard_framework'] ?? false;
         
         if ($hide_dashboard) {
+            $this->admin->render_layout_open('Dashboard', 'dashboard', 'Overview of your SEO performance and plugin status.');
             ?>
-                <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-                <?php $this->admin->render_plugin_header('Dashboard'); ?>
-                
-                <?php $this->admin->render_navigation_menu('dashboard'); ?>
-                
                 <div class="dashboard-card">
-                    <h2>📊 Dashboard Disabled</h2>
+                    <h2>Dashboard Disabled</h2>
                     <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">
-                        The dashboard is currently Disabled.
+                        The dashboard is currently disabled.
                     </p>
                 </div>
-            </div>
             <?php
+            $this->admin->render_layout_close(false);
             return;
         }
 
         if (!$this->admin->is_heartbeat_connected()) {
+            $this->admin->render_layout_open('Dashboard', 'dashboard', 'Overview of your SEO performance and plugin status.');
             ?>
-                <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-                <?php $this->admin->render_plugin_header('Dashboard'); ?>
-                
-                <?php $this->admin->render_navigation_menu('dashboard'); ?>
-
                 <div class="dashboard-card">
-                    <h2>🚀 Setup Wizard</h2>
+                    <h2>Setup Wizard</h2>
                     <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Run the setup wizard to configure your plugin, import from other SEO plugins, and optimize your settings in just a few minutes.</p>
                     <a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-setup-wizard')); ?>" class="button button-primary" style="text-decoration: none;">
-                        ✨ Start Setup Wizard
+                        Start Setup Wizard
                     </a>
                 </div>
-                
+
                 <div class="dashboard-card">
-                    <h2>⚠️ Authentication Required</h2>
+                    <h2>Authentication Required</h2>
                     <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">
                         You need to authenticate with <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> to access the dashboard.
                     </p>
-                    <a href="<?php echo admin_url('admin.php?page=' . Metasync_Admin::$page_slug); ?>" class="button button-primary">
-                        🔗 Go to Settings & Connect
+                    <a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug)); ?>" class="button button-primary">
+                        Go to Settings &amp; Connect
                     </a>
                 </div>
-            </div>
             <?php
+            $this->admin->render_layout_close(false);
             return;
         }
         
@@ -141,44 +133,39 @@ class Metasync_Admin_Pages
         $whitelabel_settings = Metasync::get_whitelabel_settings();
         $is_whitelabel_domain = !empty($whitelabel_settings['domain']);
         
+        $this->admin->render_layout_open('Dashboard', 'dashboard', 'Overview of your SEO performance and plugin status.');
         ?>
-            <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-            <?php $this->admin->render_plugin_header('Dashboard'); ?>
-            
-            <?php $this->admin->render_navigation_menu('dashboard'); ?>
-            
             <iframe id="metasync-dashboard-iframe"
                     src="<?php echo esc_url($iframe_url); ?>"
                     width="100%"
-                    height="100vh"
                     frameborder="0"
                     <?php if (!$is_whitelabel_domain): ?>
                     allow="cookies"
                     referrerpolicy="strict-origin-when-cross-origin"
                     <?php endif; ?>
-                    style="border: none; margin: 0; padding: 0; min-height: 800px;"
+                    style="border: none; margin: 0; padding: 0; min-height: 800px; border-radius: 12px;"
                     onload="adjustIframeHeight(this)">
             </iframe>
-            
+
             <script>
             function adjustIframeHeight(iframe) {
                 var attempts = 0;
                 var maxAttempts = 20;
-                
+
                 function tryAdjustHeight() {
                     try {
                         attempts++;
-                        
+
                         var iframeDocument = iframe.contentDocument || iframe.contentWindow.document;
                         if (iframeDocument) {
                             var body = iframeDocument.body;
                             var hasContent = body && (body.children.length > 1 || body.innerText.trim().length > 100);
-                            
+
                             if (!hasContent && attempts < maxAttempts) {
                                 setTimeout(tryAdjustHeight, 500);
                                 return;
                             }
-                            
+
                             var height = Math.max(
                                 body ? body.scrollHeight : 0,
                                 body ? body.offsetHeight : 0,
@@ -186,7 +173,7 @@ class Metasync_Admin_Pages
                                 iframeDocument.documentElement.scrollHeight,
                                 iframeDocument.documentElement.offsetHeight
                             );
-                            
+
                             if (height > 600) {
                                 iframe.style.height = height + 'px';
                             } else if (attempts < maxAttempts) {
@@ -203,17 +190,17 @@ class Metasync_Admin_Pages
                         iframe.style.height = '100vh';
                     }
                 }
-                
+
                 tryAdjustHeight();
             }
-            
+
             window.addEventListener('resize', function() {
                 var iframe = document.getElementById('metasync-dashboard-iframe');
                 if (iframe) {
                     adjustIframeHeight(iframe);
                 }
             });
-            
+
             setTimeout(function() {
                 var iframe = document.getElementById('metasync-dashboard-iframe');
                 if (iframe) {
@@ -221,8 +208,8 @@ class Metasync_Admin_Pages
                 }
             }, 3000);
             </script>
-        </div>
         <?php
+        $this->admin->render_layout_close(false);
     }
 
     // ------------------------------------------------------------------
@@ -270,10 +257,12 @@ class Metasync_Admin_Pages
         
         $page_slug = Metasync_Admin::$page_slug;
     ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('Settings'); ?>
-        
+        <?php
+        $settings_current_page = 'general';
+        if ($active_tab === 'advanced') $settings_current_page = 'advanced_settings';
+        elseif ($active_tab === 'whitelabel') $settings_current_page = 'whitelabel';
+        $this->admin->render_layout_open('Settings', $settings_current_page, 'Manage all plugin settings and configuration.');
+        ?>
         <?php
         /*
         # Temporarily commented out: Clear Cache notice and button (can be re-enabled later)
@@ -288,7 +277,7 @@ class Metasync_Admin_Pages
         */
         ?>
         
-        <?php $this->admin->render_navigation_menu('general'); ?>
+        <?php /* Navigation now rendered in left sidenav via render_layout_open */ ?>
         
         <?php
             if (in_array($active_tab, $protected_tabs)) {
@@ -296,7 +285,7 @@ class Metasync_Admin_Pages
                 if ($password_protection_enabled && !$password_validated) {
         ?>
                     <div class="dashboard-card" style="max-width: 500px; margin: 0 auto;">
-                        <h2 style="text-align: center;">🔐 Protected Section</h2>
+                        <h2 style="text-align: center;">Protected Section</h2>
                         <p style="color: var(--dashboard-text-secondary); margin-bottom: 30px; text-align: center;">
                             <?php
                             $plugin_name = Metasync::get_effective_plugin_name('');
@@ -319,7 +308,7 @@ class Metasync_Admin_Pages
                             
                             <div style="margin-bottom: 20px;">
                                 <label for="whitelabel_password" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--dashboard-text-primary);">
-                                    🔑 Validate Password
+                                    Validate Password
                                 </label>
                                 <input
                                     type="password"
@@ -340,14 +329,14 @@ class Metasync_Admin_Pages
                                     class="button button-primary"
                                     style="padding: 12px 24px; font-size: 14px; font-weight: 600;"
                                 >
-                                    🚀 Submit Password
+                                    Submit Password
                                 </button>
                             </div>
                         </form>
 
                         <div style="text-align: center; margin-top: 20px;">
                             <a href="#" id="metasync-forgot-password-link" style="color: #2271b1; text-decoration: none; font-size: 14px;">
-                                🔓 Forgot Password?
+                                Forgot Password?
                             </a>
                             <div id="metasync-recovery-message" style="margin-top: 15px; padding: 12px; border-radius: 6px; display: none;"></div>
                         </div>
@@ -413,7 +402,7 @@ class Metasync_Admin_Pages
         ?>
                     <div class="notice notice-info" style="margin: 15px 0;">
                         <p>
-                            <strong>💡 Security Tip:</strong> You can set a custom password in the White Label Settings to protect this section.
+                            <strong>Security Tip:</strong> You can set a custom password in the White Label Settings to protect this section.
                         </p>
                     </div>
         <?php
@@ -432,7 +421,7 @@ class Metasync_Admin_Pages
                     <div class="dashboard-card">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                             <div style="flex: 1;">
-                                <h2 style="margin: 0;">🔧 General Configuration</h2>
+                                <h2 style="margin: 0;">General Configuration</h2>
                                 <p style="color: var(--dashboard-text-secondary); margin: 5px 0 0 0;">Configure your <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> API, plugin features, caching, and general settings.</p>
                             </div>
                             <?php if ($hide_settings_enabled && !empty($user_password) && $is_authenticated): ?>
@@ -454,18 +443,18 @@ class Metasync_Admin_Pages
                     </div>
 
                     <div class="dashboard-card">
-                        <h2>🔄 Content Genius Synchronization</h2>
+                        <h2>Content Genius Synchronization</h2>
                         <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Sync your categories and user/author data with <?php echo esc_html(Metasync::get_effective_plugin_name()); ?>.</p>
                         <button type="button" class="button button-primary" id="sendAuthToken" data-toggle="tooltip" data-placement="top" title="Sync Categories and User">
-                            🔄 Sync Now
+                            Sync Now
                         </button>
                     </div>
 
                     <div class="dashboard-card">
-                        <h2>🚀 Setup Wizard</h2>
+                        <h2>Setup Wizard</h2>
                         <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Run the setup wizard to configure your plugin, import from other SEO plugins, and optimize your settings in just a few minutes.</p>
                         <a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-setup-wizard')); ?>" class="button button-primary" style="text-decoration: none;">
-                            ✨ Start Setup Wizard
+                            Start Setup Wizard
                         </a>
                     </div>
                 <?php
@@ -477,7 +466,7 @@ class Metasync_Admin_Pages
                     <div class="dashboard-card">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                             <div>
-                                <h2>🎨 White Label Branding</h2>
+                                <h2>White Label Branding</h2>
                                 <p style="color: var(--dashboard-text-secondary); margin: 5px 0 0 0;">Customize the plugin appearance with your own branding and logo.</p>
                             </div>
                             <?php if ($password_protection_enabled && $is_authenticated): ?>
@@ -503,10 +492,10 @@ class Metasync_Admin_Pages
 
                     <!-- Export Whitelabel Settings section -->
                     <div class="dashboard-card">
-                        <h2>📦 Export Whitelabel Plugin</h2>
+                        <h2>Export Whitelabel Plugin</h2>
                         <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Export the entire plugin with all whitelabel settings pre-configured. This creates a complete plugin zip file ready for installation on another WordPress site.</p>
                         <button type="button" class="button button-primary" id="metasync-export-whitelabel-btn" style="padding: 10px 20px; font-size: 14px; font-weight: 600;">
-                            📥 Export Plugin with Whitelabel Settings
+                            Export Plugin with Whitelabel Settings
                         </button>
                         <p class="description" style="margin-top: 10px;">This will create a zip file containing the complete plugin with all your whitelabel settings included. Upload and install this zip file on another WordPress site via Plugins → Add New → Upload Plugin. All whitelabel configurations will be automatically applied upon activation.</p>
                     </div>
@@ -520,7 +509,7 @@ class Metasync_Admin_Pages
                             <div style="background: white; border-radius: 10px; padding: 0; overflow: hidden;">
                                 <!-- Header -->
                                 <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 24px; text-align: center;">
-                                    <div id="modal-icon" style="font-size: 48px; margin-bottom: 12px;">⚠️</div>
+                                    <div id="modal-icon" style="font-size: 48px; margin-bottom: 12px; color: #fff;">&#9888;</div>
                                     <h2 id="modal-title" style="color: white; margin: 0; font-size: 24px; font-weight: 600;">Password Required</h2>
                                 </div>
 
@@ -635,7 +624,7 @@ class Metasync_Admin_Pages
                                 e.stopImmediatePropagation();
 
                                 showModal(
-                                    '🔐',
+                                    '&#9888;',
                                     'Password Required',
                                     'You must set a <strong>Settings Password</strong> before enabling "Hide Settings".<br><br>Please scroll up to the <strong>Branding</strong> section and set a password first.'
                                 );
@@ -666,7 +655,7 @@ class Metasync_Admin_Pages
 
                                 if (!isShowingModal) {
                                     showModal(
-                                        '🚫',
+                                        '&#9888;',
                                         'Cannot Remove Password',
                                         'You cannot remove the <strong>White Label Settings Password</strong> while "Hide Settings" is enabled.<br><br>Please uncheck <strong>"Hide Settings"</strong> first if you want to remove the password.'
                                     );
@@ -725,7 +714,7 @@ class Metasync_Admin_Pages
                     } elseif ($active_tab == 'advanced') {
                         if (!Metasync_Access_Control::user_can_access('hide_advanced')) {
                             echo '<div class="dashboard-card" style="background: var(--dashboard-card-bg); padding: 25px; border-radius: 8px; text-align: center;">';
-                            echo '<h2 style="color: var(--dashboard-text-primary);">🔒 Access Denied</h2>';
+                            echo '<h2 style="color: var(--dashboard-text-primary);">Access Denied</h2>';
                             echo '<p style="color: var(--dashboard-text-secondary);">You do not have permission to access this page.</p>';
                             echo '</div>';
                         } else {
@@ -871,7 +860,7 @@ class Metasync_Admin_Pages
                     var originalText = $button.text();
                     
                     $button.prop('disabled', true);
-                    $button.text('🔄 Testing...');
+                    $button.text('Testing...');
                     
                     var $resultsDiv = $('#host-test-results');
                     var $resultsContent = $('#test-results-content');
@@ -943,9 +932,9 @@ class Metasync_Admin_Pages
                 
                 function resetButtons() {
                     $('#test-get-request, #test-post-request, #test-both-requests').prop('disabled', false);
-                    $('#test-get-request').text('🔍 Test GET Request');
-                    $('#test-post-request').text('📤 Test POST Request');
-                    $('#test-both-requests').text('🔄 Test Both Requests');
+                    $('#test-get-request').text('Test GET Request');
+                    $('#test-post-request').text('Test POST Request');
+                    $('#test-both-requests').text('Test Both Requests');
                 }
                 
                 function displayResults(results) {
@@ -1188,7 +1177,7 @@ class Metasync_Admin_Pages
                 <?php endif; ?>
 
             <?php endif; ?>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
                 <?php
     }
 
@@ -1199,36 +1188,28 @@ class Metasync_Admin_Pages
     public function create_admin_dashboard_page()
     {
         ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('Dashboard'); ?>
-        
-        <?php $this->admin->render_navigation_menu('dashboard'); ?>
+        <?php $this->admin->render_layout_open('Dashboard', 'dashboard', ''); ?>
             
             <div class="dashboard-card">
-                <h2>📊 <?php echo esc_html($this->admin->get_effective_menu_title()); ?> Dashboard</h2>
+                <h2><?php echo esc_html($this->admin->get_effective_menu_title()); ?> Dashboard</h2>
                 <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Access your <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> dashboard to view analytics, manage SEO settings, and monitor your site performance.</p>
                 <?php
         if (!isset(Metasync::get_option('general')['linkgraph_token']) || Metasync::get_option('general')['linkgraph_token'] == '') {
-                    echo '<p style="color: #d54e21; margin-bottom: 15px;">⚠️ Authentication required: Please authenticate with your ' . esc_html(Metasync::get_effective_plugin_name()) . ' account and save your auth token in general settings.</p>';
+                    echo '<p style="color: #d54e21; margin-bottom: 15px;">Authentication required: Please authenticate with your ' . esc_html(Metasync::get_effective_plugin_name()) . ' account and save your auth token in general settings.</p>';
                     echo '<a href="' . admin_url('admin.php?page=' . Metasync_Admin::$page_slug) . '" class="button button-secondary">Go to Settings</a>';
                 } else {
-                    echo '<a href="' . esc_url($this->admin->get_dashboard_url()) . '" target="_blank" class="button button-primary">🌐 Open Dashboard</a>';
+                    echo '<a href="' . esc_url($this->admin->get_dashboard_url()) . '" target="_blank" class="button button-primary">Open Dashboard</a>';
                 }
                 ?>
             </div>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
     <?php
     }
 
     public function create_admin_robots_txt_page()
     {
         ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('Robots.txt'); ?>
-        
-        <?php $this->admin->render_navigation_menu('robots_txt'); ?>
+        <?php $this->admin->render_layout_open('Robots.txt', 'robots_txt', 'Control which pages search engines can crawl.'); ?>
         
         <?php
         require_once plugin_dir_path(dirname(__FILE__)) . 'robots-txt/class-metasync-robots-txt.php';
@@ -1280,7 +1261,7 @@ class Metasync_Admin_Pages
 
         $robots_txt->render($this->admin, $current_content, $backups, $file_exists, $is_writable);
         ?>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
     <?php
     }
 
@@ -1363,11 +1344,7 @@ class Metasync_Admin_Pages
     public function create_admin_custom_pages_page()
     {
         ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('Custom HTML Pages'); ?>
-        
-        <?php $this->admin->render_navigation_menu('custom_pages'); ?>
+        <?php $this->admin->render_layout_open('Custom Pages', 'custom_pages', 'Create blank canvas pages for Elementor, Divi, or Gutenberg.'); ?>
         
         <div class="metasync-page-content">
             <?php
@@ -1375,8 +1352,8 @@ class Metasync_Admin_Pages
             Metasync_Custom_Pages_Admin::render_admin_page();
             ?>
         </div>
-        
-        </div>
+
+        <?php $this->admin->render_layout_close(); ?>
         <?php
     }
 
@@ -1387,45 +1364,100 @@ class Metasync_Admin_Pages
 
         $db_404 = new Metasync_Error_Monitor_Database();
         $ErrorMonitor = new Metasync_Error_Monitor($db_404);
-        
+
+        $this->admin->render_layout_open('404 Monitor', 'monitor_404', 'Track and manage 404 errors detected on your site.');
         $ErrorMonitor->create_admin_plugin_interface();
+        $this->admin->render_layout_close();
     }
 
     public function create_admin_search_engine_verification_page()
     {
         $page_slug = Metasync_Admin::$page_slug . '_searchengines-verification';
         ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('Site Verification'); ?>
-        
-        <?php $this->admin->render_navigation_menu('site-verification'); ?>
-            
+        <?php $this->admin->render_layout_open('Site Verification', 'site_verification', 'Verify your site ownership with search engines and other platforms.'); ?>
+
             <form method="post" action="options.php">
                 <div class="dashboard-card">
-                    <h2>🔍 Search Engine Verification</h2>
+                    <h2>Search Engine Verification</h2>
                     <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Verify your site ownership with major search engines to access their tools and analytics.</p>
                     <?php
         settings_fields(Metasync_Admin::option_group);
         do_settings_sections($page_slug);
+        submit_button();
                     ?>
                 </div>
-                
-                <!-- Save button removed - using floating notification system instead -->
             </form>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
         <?php
+    }
+
+    public function create_admin_breadcrumbs_page()
+    {
+        $page_slug = Metasync_Admin::$page_slug . '_breadcrumbs';
+        ?>
+        <?php $this->admin->render_layout_open('Breadcrumbs', 'breadcrumbs', 'Configure breadcrumb trail settings and placement.'); ?>
+
+            <form method="post" action="options.php">
+                <div class="dashboard-card">
+                    <h2>Breadcrumbs Settings</h2>
+                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure how breadcrumb trails are displayed across your site.</p>
+                    <?php
+        settings_fields(Metasync_Admin::option_group);
+        do_settings_sections($page_slug);
+        submit_button();
+                    ?>
+                </div>
+            </form>
+
+            <div class="dashboard-card" style="margin-top: 20px;">
+                <h2>📖 How to Display Breadcrumbs</h2>
+                <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Breadcrumbs are not inserted automatically. Use one of the methods below to place them on your site.</p>
+
+                <h3 style="margin-top: 0;">Option 1 — Shortcode</h3>
+                <p style="color: var(--dashboard-text-secondary);">Paste the shortcode inside any page, post, or widget:</p>
+                <pre style="background: var(--dashboard-bg, #1e1e1e); color: var(--dashboard-text, #e0e0e0); padding: 12px 16px; border-radius: 6px; font-size: 13px; overflow-x: auto;">[metasync_breadcrumb]</pre>
+
+                <h3>Option 2 — PHP Template Function</h3>
+                <p style="color: var(--dashboard-text-secondary);">Call the helper function directly inside your theme template files (e.g. <code>single.php</code>, <code>page.php</code>, <code>header.php</code>):</p>
+                <pre style="background: var(--dashboard-bg, #1e1e1e); color: var(--dashboard-text, #e0e0e0); padding: 12px 16px; border-radius: 6px; font-size: 13px; overflow-x: auto;">&lt;?php metasync_breadcrumb(); ?&gt;</pre>
+
+                <h3>Option 3 — PHP Return Value</h3>
+                <p style="color: var(--dashboard-text-secondary);">Get the breadcrumb HTML as a string to manipulate before output:</p>
+                <pre style="background: var(--dashboard-bg, #1e1e1e); color: var(--dashboard-text, #e0e0e0); padding: 12px 16px; border-radius: 6px; font-size: 13px; overflow-x: auto;">$breadcrumbs = new Metasync_Breadcrumbs();
+echo $breadcrumbs-&gt;render_breadcrumb_html();</pre>
+
+                <p style="color: var(--dashboard-text-secondary); margin-top: 16px; font-size: 12px;">
+                    <strong>Tip:</strong> You can also pass a <code>post_id</code> argument to generate breadcrumbs for a specific post outside of a template context:<br>
+                    <code>echo $breadcrumbs-&gt;render_breadcrumb_html(['post_id' =&gt; 123]);</code>
+                </p>
+            </div>
+        <?php $this->admin->render_layout_close(); ?>
+        <?php
+    }
+
+    public function create_admin_schema_markup_page()
+    {
+        $page_slug = Metasync_Admin::$page_slug . '_schema-markup';
+        $this->admin->render_layout_open('Schema Markup', 'schema_markup', 'Configure global schema markup settings for your site. Organization and WebSite schemas are injected site-wide.');
+        ?>
+            <form method="post" action="options.php">
+                <div class="dashboard-card">
+                    <?php
+                    settings_fields(Metasync_Admin::option_group);
+                    do_settings_sections($page_slug);
+                    submit_button('Save Changes');
+                    ?>
+                </div>
+            </form>
+        <?php
+        $this->admin->render_layout_close();
     }
 
     public function create_admin_local_business_page()
     {
         $page_slug = Metasync_Admin::$page_slug . '_local-seo';
         ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('Local Business'); ?>
-        
-        <?php $this->admin->render_navigation_menu('local-business'); ?>
+        <?php $this->admin->render_layout_open('Local Business', 'local_business', 'Configure local business information for better local SEO.'); ?>
             
             <form method="post" action="options.php">
                 <div class="dashboard-card">
@@ -1434,12 +1466,11 @@ class Metasync_Admin_Pages
                     <?php
         settings_fields(Metasync_Admin::option_group);
         do_settings_sections($page_slug);
+        submit_button();
                     ?>
                 </div>
-                
-                <!-- Save button removed - using floating notification system instead -->
             </form>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
         <?php
     }
 
@@ -1447,89 +1478,68 @@ class Metasync_Admin_Pages
     {
         $page_slug = Metasync_Admin::$page_slug . '_code-snippets';
         ?>
-       <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('Code Snippets'); ?>
-        
-        <?php $this->admin->render_navigation_menu('code-snippets'); ?>
+        <?php $this->admin->render_layout_open('Code Snippets', 'code_snippets', 'Add custom code to your site header and footer.'); ?>
             
             <form method="post" action="options.php">
                 <div class="dashboard-card">
-                    <h2>📝 Code Snippets Management</h2>
+                    <h2>Code Snippets Management</h2>
                     <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Add custom code snippets to enhance your site functionality and tracking capabilities.</p>
                     <?php
         settings_fields(Metasync_Admin::option_group);
         do_settings_sections($page_slug);
+        submit_button();
                     ?>
                 </div>
-                
-                <!-- Save button removed - using floating notification system instead -->
             </form>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
         <?php
     }
 
     public function create_admin_google_instant_index_page()
     {
         ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('Instant Indexing'); ?>
-        
-        <?php $this->admin->render_navigation_menu('instant_index'); ?>
+        <?php $this->admin->render_layout_open('Instant Indexing', 'instant_index', ''); ?>
         
         <?php
         google_index_direct()->show_google_instant_indexing_settings();
         ?>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
         <?php
     }
 
     public function create_admin_google_console_page()
     {
         ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-
-        <?php $this->admin->render_plugin_header('Google Console'); ?>
-
-        <?php $this->admin->render_navigation_menu('google_console'); ?>
+        <?php $this->admin->render_layout_open('Google Console', 'google_console', ''); ?>
 
         <?php
         google_index_direct()->show_google_instant_indexing_console();
         ?>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
         <?php
     }
 
     public function create_admin_bing_console_page()
     {
         ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-
-        <?php $this->admin->render_plugin_header('Bing Console'); ?>
-
-        <?php $this->admin->render_navigation_menu('bing_console'); ?>
+        <?php $this->admin->render_layout_open('Bing Console', 'bing_console', ''); ?>
 
         <?php
         require_once plugin_dir_path(dirname(__FILE__)) . 'bing-index/class-metasync-bing-instant-index.php';
         $bing_instant_index = new Metasync_Bing_Instant_Index();
         $bing_instant_index->show_bing_instant_indexing_console();
         ?>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
         <?php
     }
 
     public function create_admin_optimal_settings_page()
     {
         ?>
-       <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('Settings'); ?>
-        
-        <?php $this->admin->render_navigation_menu('optimal-settings'); ?>
+        <?php $this->admin->render_layout_open('Optimal Settings', 'optimal_settings', 'Apply recommended SEO settings automatically.'); ?>
             
             <div class="dashboard-card">
-                <h2>🚀 Site Compatibility Status</h2>
+                <h2>Site Compatibility Status</h2>
                 <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Check your site's compatibility with optimal <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> settings.</p>
                 <?php
         $optimal_settings = new Metasync_Optimal_Settings();
@@ -1538,13 +1548,13 @@ class Metasync_Admin_Pages
             </div>
 
             <div class="dashboard-card">
-                <h2>⚙️ Optimization Settings</h2>
+                <h2>Optimization Settings</h2>
                 <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure optimization settings for best performance.</p>
                 <?php
         $this->optimization_settings_options();
                 ?>
             </div>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
         <?php
     }
 
@@ -1552,15 +1562,11 @@ class Metasync_Admin_Pages
     {
         $page_slug = Metasync_Admin::$page_slug . '_common-settings';
         ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('Settings'); ?>
-        
-        <?php $this->admin->render_navigation_menu('global-settings'); ?>
+        <?php $this->admin->render_layout_open('Global Settings', 'general', ''); ?>
             
             <form method="post" action="options.php">
                 <div class="dashboard-card">
-                    <h2>🌐 Global Configuration</h2>
+                    <h2>Global Configuration</h2>
                     <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure global settings that apply across your entire site.</p>
                     <?php
         settings_fields(Metasync_Admin::option_group);
@@ -1570,7 +1576,7 @@ class Metasync_Admin_Pages
                 
                 <!-- Save button removed - using floating notification system instead -->
             </form>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
         <?php
     }
 
@@ -1578,15 +1584,11 @@ class Metasync_Admin_Pages
     {
         $page_slug = Metasync_Admin::$page_slug . '_common-meta-settings';
         ?>
-       <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('Settings'); ?>
-        
-        <?php $this->admin->render_navigation_menu('common-meta-settings'); ?>
+        <?php $this->admin->render_layout_open('Common Meta Settings', 'general', ''); ?>
             
             <form method="post" action="options.php">
                 <div class="dashboard-card">
-                    <h2>🏷️ Meta Configuration</h2>
+                    <h2>Meta Configuration</h2>
                     <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure common meta tags and SEO settings for your site.</p>
                     <?php
         settings_fields(Metasync_Admin::option_group);
@@ -1596,7 +1598,7 @@ class Metasync_Admin_Pages
                 
                 <!-- Save button removed - using floating notification system instead -->
             </form>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
         <?php
     }
 
@@ -1604,11 +1606,7 @@ class Metasync_Admin_Pages
     {
         $page_slug = Metasync_Admin::$page_slug . '_social-meta';
         ?>
-       <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('Settings'); ?>
-        
-        <?php $this->admin->render_navigation_menu('social-meta'); ?>
+        <?php $this->admin->render_layout_open('Social Meta', 'general', ''); ?>
             
             <form method="post" action="options.php">
                 <div class="dashboard-card">
@@ -1622,7 +1620,7 @@ class Metasync_Admin_Pages
                 
                 <!-- Save button removed - using floating notification system instead -->
             </form>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
         <?php
     }
 
@@ -1630,24 +1628,18 @@ class Metasync_Admin_Pages
     {
         $page_slug = Metasync_Admin::$page_slug . '_seo-controls';
         ?>
-       <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('Indexation Control'); ?>
-        
-        <?php $this->admin->render_navigation_menu('seo_controls'); ?>
+        <?php $this->admin->render_layout_open('Indexation Control', 'seo_controls', 'Control how search engines index your content.'); ?>
         
         <!-- Status Messages Container -->
         <div id="seo-controls-messages"></div>
             
             <form method="post" action="options.php" id="metaSyncSeoControlsForm">
                 <div class="dashboard-card">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                        <h2 style="margin: 0;">🚫 Indexation Control</h2>
+                    <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
                         <a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-import-external&tab=indexation')); ?>" class="button button-secondary">
-                            <span>📥</span> Import from SEO Plugins
+                            <span class="dashicons dashicons-download" style="margin-right:4px; font-size:15px; width:15px; height:15px; line-height:1.6;"></span> Import from SEO Plugins
                         </a>
                     </div>
-                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Control which archive pages should be disallowed from search engine indexing to improve your site's SEO health and conserve crawl budget.</p>
                     <?php
                          settings_fields(Metasync_Admin::option_group);
                          do_settings_sections($page_slug);
@@ -1658,7 +1650,7 @@ class Metasync_Admin_Pages
                 
                 <!-- Save button removed - using floating notification system instead -->
             </form>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
         <?php
     }
 
@@ -1678,14 +1670,10 @@ class Metasync_Admin_Pages
     public function create_admin_error_logs_page()
     {
         ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('Error Logs'); ?>
-        
-        <?php $this->admin->render_navigation_menu('error-log'); ?>
+        <?php $this->admin->render_layout_open('Error Logs', 'general', ''); ?>
             
             <div class="dashboard-card">
-                <h2>⚠️ Error Logs Management</h2>
+                <h2>Error Logs Management</h2>
                 <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">View and manage system error logs to troubleshoot issues and monitor plugin performance.</p>
                 <?php
         $error_logs = new Metasync_Error_Logs();
@@ -1707,18 +1695,18 @@ class Metasync_Admin_Pages
             if (!empty($error_message)) {
                 echo '<div class="dashboard-empty-state">';
                 echo '<p style="color: #d54e21; font-weight: bold; text-align: center; padding: 20px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; margin: 20px 0;">';
-                echo '⚠️ ' . esc_html($error_message);
+                echo esc_html($error_message);
                 echo '</p>';
                 echo '</div>';
             } else {
                 echo '<div class="dashboard-empty-state">';
-                echo '<p style="color: var(--dashboard-text-secondary); font-style: italic; text-align: center; padding: 40px 20px;">⚠️ Unable to access error log file. Please check permissions.</p>';
+                echo '<p style="color: var(--dashboard-text-secondary); font-style: italic; text-align: center; padding: 40px 20px;">Unable to access error log file. Please check permissions.</p>';
                 echo '</div>';
             }
         }
                 ?>
             </div>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
         <?php
     }
 
@@ -1786,16 +1774,12 @@ class Metasync_Admin_Pages
         $stats = $sync_db->get_statistics();
         
         ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('Sync History'); ?>
-        
-        <?php $this->admin->render_navigation_menu('sync_log'); ?>
+        <?php $this->admin->render_layout_open('Changes Log', 'sync_log', 'Track all SEO changes made by the plugin.'); ?>
             
             <div class="dashboard-card">
                 <div class="sync-log-header">
                     <div class="sync-log-title-section">
-                        <h2>📋 Sync History</h2>
+                        <h2>Changes Log</h2>
                         <p style="color: var(--dashboard-text-secondary); margin-bottom: 0;">Recent content synchronizations from external tools.</p>
                     </div>
                     
@@ -1825,7 +1809,7 @@ class Metasync_Admin_Pages
                 <div class="sync-log-list">
                     <?php if (empty($sync_records)): ?>
                         <div class="sync-log-empty">
-                            <div class="sync-log-empty-icon">📄</div>
+                            <div class="sync-log-empty-icon"><span class="dashicons dashicons-list-view" style="font-size:48px;width:48px;height:48px;color:var(--dashboard-text-secondary);"></span></div>
                             <h3>No sync records found</h3>
                             <p>Sync records will appear here when content/pages receive new updates.</p>
                         </div>
@@ -1834,14 +1818,14 @@ class Metasync_Admin_Pages
                             <div class="sync-log-item">
                                 <div class="sync-log-icon">
                                     <div class="sync-icon-circle">
-                                        <span class="sync-icon">📄</span>
+                                        <span class="dashicons dashicons-media-default sync-icon"></span>
                                     </div>
                                 </div>
                                 
                                 <div class="sync-log-content">
                                     <div class="sync-log-title"><?php echo esc_html($record->title); ?>
                                     <?php if (!empty($record->url)): ?>
-                                        <a href="<?php echo esc_url($record->url); ?>" target="_blank" rel="noopener" title="Open URL" style="margin-left:8px; text-decoration:none;">🔗</a>
+                                        <a href="<?php echo esc_url($record->url); ?>" target="_blank" rel="noopener" title="Open URL" style="margin-left:8px; text-decoration:none;"><span class="dashicons dashicons-external" style="font-size:14px;width:14px;height:14px;vertical-align:middle;"></span></a>
                                     <?php endif; ?>
                                     </div>
                                     <div class="sync-log-meta">
@@ -1891,7 +1875,7 @@ class Metasync_Admin_Pages
                     </div>
                 <?php endif; ?>
             </div>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
         <?php
     }
 
@@ -1905,11 +1889,7 @@ class Metasync_Admin_Pages
     public function create_admin_heartbeat_error_logs_page()
     {
         ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-        
-        <?php $this->admin->render_plugin_header('HeartBeat Error Logs'); ?>
-        
-        <?php $this->admin->render_navigation_menu('heartbeat-error-logs'); ?>
+        <?php $this->admin->render_layout_open('Heartbeat Error Logs', 'general', ''); ?>
             
             <div class="dashboard-card">
                 <h2>💓 HeartBeat Error Logs</h2>
@@ -1919,7 +1899,7 @@ class Metasync_Admin_Pages
         $heartbeat_errors->create_admin_heartbeat_errors_interface();
                 ?>
             </div>
-        </div>
+        <?php $this->admin->render_layout_close(); ?>
         <?php
     }
 

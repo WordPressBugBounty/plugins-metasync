@@ -114,7 +114,7 @@ class MCP_Tool_Update_Schema_Markup extends MCP_Tool_Base {
                         'properties' => [
                             'type' => [
                                 'type' => 'string',
-                                'enum' => ['article', 'FAQPage', 'product', 'recipe', 'LocalBusiness', 'HowTo', 'VideoObject', 'BreadcrumbList'],
+                                'enum' => ['article', 'FAQPage', 'product', 'recipe', 'Event', 'JobPosting', 'Review', 'Course', 'Organization', 'Person', 'WebSite', 'NewsArticle', 'LocalBusiness', 'HowTo', 'VideoObject'],
                             ],
                             'fields' => [
                                 'type' => 'object',
@@ -184,7 +184,7 @@ class MCP_Tool_Add_Schema_Type extends MCP_Tool_Base {
     }
 
     public function get_description() {
-        return 'Add a new schema type (article, FAQ, product, recipe, LocalBusiness, HowTo, VideoObject, BreadcrumbList) to a post';
+        return 'Add a new schema type (article, FAQ, product, recipe, Event, JobPosting, Review, Course, Organization, Person, WebSite, NewsArticle, LocalBusiness, HowTo, VideoObject) to a post';
     }
 
     public function get_input_schema() {
@@ -197,7 +197,7 @@ class MCP_Tool_Add_Schema_Type extends MCP_Tool_Base {
                 ],
                 'schema_type' => [
                     'type' => 'string',
-                    'enum' => ['article', 'FAQPage', 'product', 'recipe'],
+                    'enum' => ['article', 'FAQPage', 'product', 'recipe', 'Event', 'JobPosting', 'Review', 'Course', 'Organization', 'Person', 'WebSite', 'NewsArticle', 'LocalBusiness', 'HowTo', 'VideoObject'],
                     'description' => 'Schema type to add',
                 ],
                 'fields' => [
@@ -278,7 +278,7 @@ class MCP_Tool_Remove_Schema_Type extends MCP_Tool_Base {
                 ],
                 'schema_type' => [
                     'type' => 'string',
-                    'enum' => ['article', 'FAQPage', 'product', 'recipe'],
+                    'enum' => ['article', 'FAQPage', 'product', 'recipe', 'Event', 'JobPosting', 'Review', 'Course', 'Organization', 'Person', 'WebSite', 'NewsArticle', 'LocalBusiness', 'HowTo', 'VideoObject'],
                     'description' => 'Schema type to remove',
                 ],
             ],

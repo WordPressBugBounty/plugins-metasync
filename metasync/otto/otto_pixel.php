@@ -480,10 +480,15 @@ function metasync_otto_block_seo_plugins($block_title = false, $block_descriptio
     # Disable Yoast SEO
     if (is_plugin_active('wordpress-seo/wp-seo.php')) {
         
-        # Block title only if Otto has title
+        # Block title only if Otto has title.
+        # NOTE: We intentionally do NOT add pre_get_document_title => __return_empty_string here.
+        # Yoast removes WordPress's native _wp_render_title_tag action and is the sole renderer of
+        # the <title> tag. If we blank pre_get_document_title, Yoast's Title_Presenter receives an
+        # empty string from wp_get_document_title() and emits no <title> tag at all — leaving the
+        # page without any title. OTTO's buffer post-processing replaces the Yoast-rendered title
+        # in the final HTML, so we allow Yoast to output a title here and let OTTO overwrite it.
         if ($block_title) {
             add_filter('wpseo_title', '__return_false', 999);
-            add_filter('pre_get_document_title', '__return_empty_string', 999);
         }
         
         # Block description only if Otto has description

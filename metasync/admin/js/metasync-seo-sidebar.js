@@ -12,7 +12,7 @@
 
     const { registerPlugin } = wp.plugins;
     const { PluginSidebar, PluginSidebarMoreMenuItem } = wp.editPost;
-    const { PanelBody, TextControl, TextareaControl, Button, ButtonGroup, Spinner, Notice } = wp.components;
+    const { PanelBody, TextControl, TextareaControl, Button, ButtonGroup, SelectControl, Spinner, Notice } = wp.components;
     const { useSelect, useDispatch, select: wpSelect, dispatch: wpDispatch } = wp.data;
     const { useState, useEffect, useCallback, createElement: el } = wp.element;
     const { __ } = wp.i18n;
@@ -29,6 +29,9 @@
             ottoDescription: '_metasync_otto_description',
             // OTTO disabled per-post flag
             ottoDisabled: '_metasync_otto_disabled',
+            // Primary category
+            primaryCategory: '_metasync_primary_category',
+            primaryProductCat: '_metasync_primary_product_cat',
         },
         hasMetaKeys: {
             // Whether the manual meta keys exist in database (from PHP check)
@@ -56,6 +59,9 @@
             serpDesktop: 'Desktop',
             serpMobile: 'Mobile',
             characters: 'characters',
+            primaryCategoryLabel: 'Primary Category',
+            primaryCategoryHelp: 'Used in breadcrumbs and canonical URL when multiple categories are assigned.',
+            primaryCategoryNote: 'Assign 2+ categories to enable this option.',
             ottoPrefillHelp: 'Pre-filled from OTTO. Edit to customize.',
             ottoOverrideNotice: 'OTTO is enabled. Any SEO title and description changes from OTTO will be overwritten by your custom values entered here.',
         },
@@ -342,6 +348,71 @@
                     el('span', { className: 'metasync-permalink-base' }, baseUrl),
                     el('strong', { className: 'metasync-permalink-slug' }, slug || __('(auto-generated)', 'metasync'))
                 )
+            )
+        );
+    };
+
+    /**
+     * Primary Category Selector Component
+     * Shows a dropdown to select the primary category when 2+ categories are assigned
+     */
+    const PrimaryCategorySelector = () => {
+        const { categoryIds, postType, primaryCategoryId } = useSelect((select) => {
+            const editor = select('core/editor');
+            const meta = editor.getEditedPostAttribute('meta') || {};
+            return {
+                categoryIds: editor.getEditedPostAttribute('categories') || [],
+                postType: editor.getEditedPostAttribute('type') || 'post',
+                primaryCategoryId: meta[config.metaKeys.primaryCategory] || 0,
+            };
+        }, []);
+
+        const { categories } = useSelect((select) => {
+            if (!categoryIds || categoryIds.length < 2) {
+                return { categories: [] };
+            }
+            return {
+                categories: select('core').getEntityRecords('taxonomy', 'category', {
+                    include: categoryIds,
+                    per_page: 100,
+                }) || [],
+            };
+        }, [categoryIds]);
+
+        const { editPost } = useDispatch('core/editor');
+
+        // Show hint when exactly 1 category is assigned (need 2+ to enable selector)
+        if (!categoryIds || categoryIds.length < 2) {
+            if (categoryIds && categoryIds.length === 1) {
+                return el('p', { className: 'metasync-primary-category-note' },
+                    config.i18n.primaryCategoryNote
+                );
+            }
+            return null;
+        }
+
+        // Wait for categories to load from the store
+        if (!categories || categories.length < 2) {
+            return null;
+        }
+
+        const options = [
+            { label: __('— Select —', 'metasync'), value: 0 },
+        ].concat(categories.map(function(c) {
+            return { label: c.name, value: c.id };
+        }));
+
+        return el('div', { className: 'metasync-seo-field' },
+            el(SelectControl, {
+                label: config.i18n.primaryCategoryLabel,
+                value: primaryCategoryId,
+                options: options,
+                onChange: function(value) {
+                    editPost({ meta: { [config.metaKeys.primaryCategory]: parseInt(value) || 0 } });
+                },
+            }),
+            el('p', { className: 'metasync-primary-category-note' },
+                config.i18n.primaryCategoryHelp
             )
         );
     };
@@ -838,7 +909,8 @@
                 },
                     el(SeoTitleInput, null),
                     el(MetaDescriptionInput, null),
-                    el(UrlSlugInput, null)
+                    el(UrlSlugInput, null),
+                    el(PrimaryCategorySelector, null)
                 ),
                 el(PanelBody, {
                     title: config.i18n.serpPreviewTitle,
@@ -875,6 +947,125 @@
             el(MetaSyncSeoMenuItem, null)
         );
     };
+
+    /**
+     * Breadcrumb Title Override Component
+     */
+    const BreadcrumbTitleInput = () => {
+        const metaKey = config.metaKeys.breadcrumbTitle || '_metasync_breadcrumb_title';
+
+        const { value } = useSelect((select) => {
+            const meta = select('core/editor').getEditedPostAttribute('meta') || {};
+            return { value: meta[metaKey] || '' };
+        }, [metaKey]);
+
+        const { editPost } = useDispatch('core/editor');
+
+        const handleChange = (newValue) => {
+            editPost({ meta: { [metaKey]: newValue } });
+        };
+
+        return el(TextControl, {
+            label: (config.i18n && config.i18n.breadcrumbTitleLabel) || 'Breadcrumb Title Override',
+            value: value,
+            onChange: handleChange,
+            help: (config.i18n && config.i18n.breadcrumbTitleHelp) || 'Custom label for this page in breadcrumb trails.',
+            placeholder: __('Leave empty to use post title', 'metasync'),
+        });
+    };
+
+    /**
+     * Primary Category Selector Component
+     * Only shown for post types that support categories.
+     */
+    const PrimaryCategorySelect = () => {
+        const metaKey = config.metaKeys.primaryCategory || '_metasync_primary_category';
+
+        const { primaryCategoryId, postCategories, allCategories, postType } = useSelect((select) => {
+            const editor = select('core/editor');
+            const meta = editor.getEditedPostAttribute('meta') || {};
+            const currentPostType = editor.getCurrentPostType();
+            const assignedCatIds = editor.getEditedPostAttribute('categories') || [];
+
+            // Fetch category terms for the assigned IDs.
+            let cats = [];
+            if (assignedCatIds.length > 0) {
+                const allCats = select('core').getEntityRecords('taxonomy', 'category', {
+                    include: assignedCatIds,
+                    per_page: 100,
+                });
+                if (allCats) {
+                    cats = allCats;
+                }
+            }
+
+            return {
+                primaryCategoryId: meta[metaKey] || 0,
+                postCategories: assignedCatIds,
+                allCategories: cats,
+                postType: currentPostType,
+            };
+        }, [metaKey]);
+
+        const { editPost } = useDispatch('core/editor');
+
+        // Only show for post types with categories.
+        const supportsCategories = useSelect((select) => {
+            const type = select('core').getPostType(postType);
+            if (type && type.taxonomies) {
+                return type.taxonomies.indexOf('category') !== -1;
+            }
+            return false;
+        }, [postType]);
+
+        if (!supportsCategories || postCategories.length < 2) {
+            return null;
+        }
+
+        const options = [
+            { label: __('— Auto (first category) —', 'metasync'), value: 0 },
+        ];
+
+        if (allCategories && allCategories.length > 0) {
+            allCategories.forEach(function(cat) {
+                options.push({ label: cat.name, value: cat.id });
+            });
+        }
+
+        const handleChange = (newValue) => {
+            editPost({ meta: { [metaKey]: parseInt(newValue, 10) || 0 } });
+        };
+
+        return el(SelectControl, {
+            label: (config.i18n && config.i18n.primaryCategoryLabel) || 'Primary Category',
+            value: primaryCategoryId,
+            options: options,
+            onChange: handleChange,
+            help: (config.i18n && config.i18n.primaryCategoryHelp) || 'Select which category appears in the breadcrumb path.',
+        });
+    };
+
+    /**
+     * Breadcrumbs Panel Component
+     * Rendered inside the sidebar as a PluginDocumentSettingPanel.
+     */
+    const MetaSyncBreadcrumbsPanel = () => {
+        const { PluginDocumentSettingPanel } = wp.editPost;
+
+        return el(PluginDocumentSettingPanel, {
+            name: 'metasync-breadcrumbs-panel',
+            title: (config.i18n && config.i18n.breadcrumbPanelTitle) || 'Breadcrumbs',
+            className: 'metasync-breadcrumbs-panel',
+        },
+            el(BreadcrumbTitleInput, null),
+            el(PrimaryCategorySelect, null)
+        );
+    };
+
+    // Register the breadcrumbs panel as a separate plugin.
+    registerPlugin('metasync-breadcrumbs', {
+        render: MetaSyncBreadcrumbsPanel,
+    });
 
     // Register the plugin
     registerPlugin('metasync-seo', {

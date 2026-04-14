@@ -110,6 +110,11 @@ class Metasync_Robots_Txt_Database
     {
         global $wpdb;
 
+        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $this->table_name)) !== $this->table_name) {
+            $this->create_table();
+            return array();
+        }
+
         $limit = absint($limit);
 
         $results = $wpdb->get_results(

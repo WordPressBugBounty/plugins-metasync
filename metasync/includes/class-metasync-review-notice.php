@@ -46,7 +46,7 @@ class Metasync_Review_Notice {
      *
      * @var string
      */
-    private const REVIEW_URL = 'https://wordpress.org/support/plugin/flavor/reviews/#new-post';
+    private const REVIEW_URL = 'https://wordpress.org/support/plugin/metasync/reviews/#new-post';
 
     /**
      * Private constructor for singleton pattern
@@ -138,7 +138,7 @@ class Metasync_Review_Notice {
         <div id="metasync-review-notice" class="notice notice-info" style="padding: 12px 16px; border-left-color: #f0b849;">
             <div style="display: flex; align-items: center; gap: 14px;">
                 <div style="font-size: 28px; line-height: 1;">
-                    ⭐
+                    <span class="dashicons dashicons-star-filled" style="font-size:28px;width:28px;height:28px;color:#f0b849;"></span>
                 </div>
                 <div style="flex: 1;">
                     <p style="margin: 0 0 6px 0; font-size: 14px;">

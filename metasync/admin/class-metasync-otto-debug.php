@@ -386,15 +386,15 @@ class Metasync_Otto_Debug {
         $current_user = wp_get_current_user();
         ?>
         <div class="wrap">
-            <h1>🔑 <?php echo esc_html($whitelabel_otto_name); ?> Debug Access Granted</h1>
+            <h1><?php echo esc_html($whitelabel_otto_name); ?> Debug Access Granted</h1>
             
             <div class="notice notice-success">
-                <p><strong>✅ Debug Access Enabled!</strong></p>
+                <p><strong>Debug Access Enabled!</strong></p>
                 <p>You now have access to the <?php echo esc_html($whitelabel_otto_name); ?> Debug page.</p>
             </div>
             
             <div class="card">
-                <h2>🎯 Next Steps</h2>
+                <h2>Next Steps</h2>
                 <ol>
                     <li><strong>Access Debug Page:</strong> The "<?php echo esc_html($whitelabel_otto_name); ?> Debug" menu should now be visible in the MetaSync plugin menu</li>
                     <li><strong>Use Diagnostics:</strong> Click on "<?php echo esc_html($whitelabel_otto_name); ?> Debug" to access comprehensive diagnostic tools</li>
@@ -403,7 +403,7 @@ class Metasync_Otto_Debug {
             </div>
             
             <div class="card">
-                <h2>🔧 Access Information</h2>
+                <h2>Access Information</h2>
                 <table class="form-table">
                     <tr>
                         <th scope="row">Magic Word</th>
@@ -425,7 +425,7 @@ class Metasync_Otto_Debug {
             </div>
 
             <div class="card">
-                <h2>🔒 Security Notes</h2>
+                <h2>Security Notes</h2>
                 <ul>
                     <li><strong>Persistent Access:</strong> This access is stored in your user profile and persists across sessions</li>
                     <li><strong>Magic Word:</strong> Keep the magic word <code>abracadabra@2020</code> confidential</li>
@@ -435,7 +435,7 @@ class Metasync_Otto_Debug {
             </div>
             
             <div class="card">
-                <h2>🚀 Quick Access</h2>
+                <h2>Quick Access</h2>
                 <p>To access the debug page directly, use this URL:</p>
                 <p><a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-otto-debug')); ?>" class="button button-primary">Open <?php echo esc_html($whitelabel_otto_name); ?> Debug Page</a></p>
                 

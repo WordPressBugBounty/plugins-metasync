@@ -158,7 +158,10 @@ class Metasync_Admin_Ajax
             Metasync_Heartbeat_Manager::instance()->update_heartbeat_cache_after_sync(true, 'Sync Now - successful data sync');
             
             $result = json_decode($responseBody);
-            $timestamp = @Metasync::get_option('general')['send_auth_token_timestamp'];
+            if ( ! is_object( $result ) ) {
+                $result = new stdClass();
+            }
+            $timestamp = Metasync::get_option('general')['send_auth_token_timestamp'] ?? '';
             $result->send_auth_token_timestamp = $timestamp;
             $result->send_auth_token_diffrence = Metasync_Settings_Fields::instance()->time_elapsed_string($timestamp);
             wp_send_json($result);
@@ -178,7 +181,7 @@ class Metasync_Admin_Ajax
             wp_die('Insufficient permissions');
         }
 
-        if (!wp_verify_nonce($_POST['nonce'], 'metasync_update_db_nonce')) {
+        if (empty($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'metasync_update_db_nonce')) {
             wp_die('Security check failed');
         }
 
@@ -392,7 +395,7 @@ class Metasync_Admin_Ajax
 
     public function ajax_create_redirect_from_404()
     {
-        if (!wp_verify_nonce($_POST['nonce'], 'metasync_404_redirect')) {
+        if (empty($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'metasync_404_redirect')) {
             wp_die('Security check failed');
         }
 

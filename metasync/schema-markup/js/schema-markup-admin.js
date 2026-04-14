@@ -51,7 +51,18 @@ jQuery(document).ready(function($) {
             'article': 'Article',
             'FAQPage': 'FAQ',
             'product': 'Product',
-            'recipe': 'Recipe'
+            'recipe': 'Recipe',
+            'Event': 'Event',
+            'JobPosting': 'Job Posting',
+            'Review': 'Review',
+            'Course': 'Course',
+            'Organization': 'Organization',
+            'Person': 'Person',
+            'WebSite': 'Website',
+            'NewsArticle': 'News Article',
+            'LocalBusiness': 'Local Business',
+            'HowTo': 'How-To',
+            'VideoObject': 'Video Object'
         };
         const displayName = schemaTypeNames[schemaType] || schemaType;
 
@@ -162,7 +173,18 @@ jQuery(document).ready(function($) {
             { value: 'article', label: 'Article' },
             { value: 'FAQPage', label: 'FAQ' },
             { value: 'product', label: 'Product' },
-            { value: 'recipe', label: 'Recipe' }
+            { value: 'recipe', label: 'Recipe' },
+            { value: 'Event', label: 'Event' },
+            { value: 'JobPosting', label: 'Job Posting' },
+            { value: 'Review', label: 'Review' },
+            { value: 'Course', label: 'Course' },
+            { value: 'Organization', label: 'Organization' },
+            { value: 'Person', label: 'Person' },
+            { value: 'WebSite', label: 'Website' },
+            { value: 'NewsArticle', label: 'News Article' },
+            { value: 'LocalBusiness', label: 'Local Business' },
+            { value: 'HowTo', label: 'How-To' },
+            { value: 'VideoObject', label: 'Video Object' }
         ];
 
         let optionsHtml = '<option value="">Select Schema Type</option>';
@@ -294,6 +316,82 @@ jQuery(document).ready(function($) {
         $('#article_organization_logo_' + targetIndex).val('');
         $('#logo_preview_' + targetIndex).hide();
         $(this).hide();
+    });
+
+    // Add opening hours item (LocalBusiness)
+    $(document).on('click', '.add-opening-hours', function(e) {
+        e.preventDefault();
+        const container = $(this).siblings('.opening-hours-list');
+        const count = container.find('.opening-hours-item').length;
+        const schemaIndex = $(this).data('index');
+
+        const newItem = '<div class="opening-hours-item" style="margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9;">' +
+            '<input type="text" name="schema_markup[types][' + schemaIndex + '][fields][opening_hours][' + count + '][day]" value="" placeholder="e.g., Monday" style="width: 30%;">' +
+            '<input type="text" name="schema_markup[types][' + schemaIndex + '][fields][opening_hours][' + count + '][open]" value="" placeholder="09:00" style="width: 25%;">' +
+            '<input type="text" name="schema_markup[types][' + schemaIndex + '][fields][opening_hours][' + count + '][close]" value="" placeholder="17:00" style="width: 25%;">' +
+            '<button type="button" class="button remove-item">Remove</button>' +
+            '</div>';
+        container.append(newItem);
+    });
+
+    // Add supply item (HowTo)
+    $(document).on('click', '.add-supply', function(e) {
+        e.preventDefault();
+        const container = $(this).siblings('.supplies-list');
+        const schemaIndex = $(this).data('index');
+
+        const newItem = '<div class="supply-item">' +
+            '<input type="text" name="schema_markup[types][' + schemaIndex + '][fields][supplies][]" placeholder="Enter supply">' +
+            '<button type="button" class="remove-item">Remove</button>' +
+            '</div>';
+        container.append(newItem);
+    });
+
+    // Add tool item (HowTo)
+    $(document).on('click', '.add-tool', function(e) {
+        e.preventDefault();
+        const container = $(this).siblings('.tools-list');
+        const schemaIndex = $(this).data('index');
+
+        const newItem = '<div class="tool-item">' +
+            '<input type="text" name="schema_markup[types][' + schemaIndex + '][fields][tools][]" placeholder="Enter tool">' +
+            '<button type="button" class="remove-item">Remove</button>' +
+            '</div>';
+        container.append(newItem);
+    });
+
+    // Add HowTo step
+    $(document).on('click', '.add-howto-step', function(e) {
+        e.preventDefault();
+        const container = $(this).siblings('.howto-steps-list');
+        const count = container.find('.howto-step-item').length;
+        const schemaIndex = $(this).data('index');
+
+        const newItem = '<div class="howto-step-item" style="margin: 15px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9;">' +
+            '<div class="schema-field">' +
+            '<label>Step ' + (count + 1) + ' Instructions: <span style="color: #dc3232;">*</span></label>' +
+            '<textarea name="schema_markup[types][' + schemaIndex + '][fields][steps][' + count + '][instructions]" placeholder="Enter step instructions" style="width: 100%; height: 80px;"></textarea>' +
+            '</div>' +
+            '<div class="schema-field">' +
+            '<label>Step ' + (count + 1) + ' Image (optional):</label>' +
+            '<input type="url" name="schema_markup[types][' + schemaIndex + '][fields][steps][' + count + '][image]" value="" placeholder="https://example.com/step-image.jpg" style="width: 100%;">' +
+            '</div>' +
+            '<button type="button" class="button remove-howto-step" style="background: #dc3232; color: white; border-color: #dc3232;">Remove Step</button>' +
+            '</div>';
+        container.append(newItem);
+    });
+
+    // Remove HowTo step
+    $(document).on('click', '.remove-howto-step', function(e) {
+        e.preventDefault();
+        const container = $(this).closest('.howto-steps-list');
+        $(this).closest('.howto-step-item').fadeOut(200, function() {
+            $(this).remove();
+            container.find('.howto-step-item').each(function(index) {
+                $(this).find('label').first().text('Step ' + (index + 1) + ' Instructions: ');
+                $(this).find('label').first().append('<span style="color: #dc3232;">*</span>');
+            });
+        });
     });
 
     // Add FAQ item

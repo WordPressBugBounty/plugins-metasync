@@ -196,7 +196,7 @@ class Metasync_Otto_Cache_Manager
                             style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 9px 18px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease;"
                             onmouseover="this.style.transform='translateY(-1px)';"
                             onmouseout="this.style.transform='translateY(0)';">
-                        💾 Save Settings
+                        Save Settings
                     </button>
                     <span id="metasync-hc-save-msg" style="display: none; font-size: 13px;"></span>
                 </div>
@@ -213,7 +213,7 @@ class Metasync_Otto_Cache_Manager
                         style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: inline-block; min-width: 240px; max-width: fit-content;"
                         onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.15)';"
                         onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)';">
-                    🚀 Purge Entire Hosting Cache
+                    <span class="dashicons dashicons-update" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Purge Entire Hosting Cache
                 </button>
                 <p class="description" style="margin-top: 10px; color: var(--dashboard-text-secondary);">
                     Triggers a full-site cache purge using the native WP Engine and/or Kinsta APIs (based on toggles above).
@@ -273,7 +273,7 @@ class Metasync_Otto_Cache_Manager
                             $msg.text('❌ Request failed').css('color', '#ef4444').show();
                         },
                         complete: function() {
-                            $btn.prop('disabled', false).text('💾 Save Settings');
+                            $btn.prop('disabled', false).text('Save Settings');
                             setTimeout(function() { $msg.fadeOut(); }, 4000);
                         }
                     });

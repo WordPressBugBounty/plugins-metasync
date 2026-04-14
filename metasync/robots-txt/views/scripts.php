@@ -49,11 +49,11 @@ jQuery(document).ready(function($) {
         // Set icon
         let icon = '';
         if (type === 'error') {
-            icon = '<div class="metasync-modal-icon error">⛔</div>';
+            icon = '<div class="metasync-modal-icon error"><span class="dashicons dashicons-dismiss"></span></div>';
         } else if (type === 'warning') {
-            icon = '<div class="metasync-modal-icon warning">⚠️</div>';
+            icon = '<div class="metasync-modal-icon warning"><span class="dashicons dashicons-warning"></span></div>';
         } else {
-            icon = '<div class="metasync-modal-icon success">✅</div>';
+            icon = '<div class="metasync-modal-icon success"><span class="dashicons dashicons-yes-alt"></span></div>';
         }
 
         // Set content

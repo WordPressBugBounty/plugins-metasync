@@ -115,6 +115,7 @@ class Metasync_Settings_Registration
         $SECTION_SEO_CONTROLS_ADVANCED  = Metasync_Admin::SECTION_SEO_CONTROLS_ADVANCED;
         $SECTION_SEO_CONTROLS_INSTANT_INDEX = Metasync_Admin::SECTION_SEO_CONTROLS_INSTANT_INDEX;
         $SECTION_PLUGIN_VISIBILITY      = Metasync_Admin::SECTION_PLUGIN_VISIBILITY;
+        $SECTION_BREADCRUMBS            = Metasync_Admin::SECTION_BREADCRUMBS;
 
         $option_key = Metasync_Admin::option_key;
         $page_slug  = Metasync_Admin::$page_slug;
@@ -270,7 +271,7 @@ class Metasync_Settings_Registration
             function(){
                 echo '</div>'; // Close main Indexation Control card
                 echo '<div class="dashboard-card" style="margin-top: 20px;">';
-                echo '<h2>⚙️ Advanced Settings</h2>';
+                echo '<h2>Advanced Settings</h2>';
                 echo '<p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure how ' . esc_html(Metasync_Settings_Registration::instance()->get_effective_menu_title()) . ' interacts with other SEO plugins.</p>';
             },
             $page_slug . '_seo-controls' // Page
@@ -298,7 +299,7 @@ class Metasync_Settings_Registration
             function(){
                 echo '</div>'; // Close Advanced Settings card
                 echo '<div class="dashboard-card" style="margin-top: 20px;">';
-                echo '<h2>🔗 Google Instant Indexing</h2>';
+                echo '<h2>Google Instant Indexing</h2>';
                 echo '<p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure Google Indexing API for faster URL indexing. Enable this feature to access the Instant Indexing page.</p>';
             },
             $page_slug . '_seo-controls' // Page
@@ -334,7 +335,7 @@ class Metasync_Settings_Registration
             function(){
                 echo '</div>'; // Close Google Instant Indexing card
                 echo '<div class="dashboard-card" style="margin-top: 20px;">';
-                echo '<h2>🔗 Bing Instant Indexing (IndexNow)</h2>';
+                echo '<h2>Bing Instant Indexing (IndexNow)</h2>';
                 echo '<p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure IndexNow API for instant URL submission to Bing, Yandex, and other search engines that support the IndexNow protocol.</p>';
             },
             $page_slug . '_seo-controls' // Page
@@ -542,7 +543,7 @@ class Metasync_Settings_Registration
             'Bot Detection Statistics',
             function() use ($page_slug) {
                 printf(
-                    '<a href="%s" class="button button-secondary"><span>🤖</span> View Bot Statistics</a>',
+                    '<a href="%s" class="button button-secondary"><span class="dashicons dashicons-chart-bar" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> View Bot Statistics</a>',
                     esc_url(admin_url('admin.php?page=' . $page_slug . '-bot-statistics'))
                 );
                 printf('<p class="description">View detailed bot detection statistics, breakdown by bot type, and unique bot entries with hit counts.</p>');
@@ -875,7 +876,7 @@ class Metasync_Settings_Registration
                 
                 <!-- Description -->
                 <p class="description" style="margin-top: 10px;">
-                    <strong>ℹ️ How it works:</strong> 
+                    <strong>How it works:</strong> 
                     Select which user roles should be synced with Content Genius. 
                     If <strong>"All Roles"</strong> is selected or none are selected, all users will be synced. 
                     Otherwise, only users with the selected roles will be included in the sync.
@@ -885,12 +886,81 @@ class Metasync_Settings_Registration
             $page_slug . '_general',
             $SECTION_METASYNC
         );
+
+        # Default Page Builder setting
+        add_settings_field(
+            'default_page_builder',
+            'Default Page Builder',
+            function() use ($option_key) {
+                require_once plugin_dir_path(dirname(__FILE__)) . 'custom-pages/class-metasync-html-to-builder-converter.php';
+                $current = Metasync::get_option('general')['default_page_builder'] ?? '';
+                $builders = Metasync_HTML_To_Builder_Converter::get_available_builders();
+                $auto_detected = Metasync_HTML_To_Builder_Converter::auto_detect_builder();
+
+                echo '<div class="metasync-page-builder-setting">';
+                echo '<style>#default_page_builder:focus { color: #fff; }</style>';
+                echo '<select id="default_page_builder" name="' . esc_attr($option_key) . '[general][default_page_builder]" style="min-width: 300px;">';
+
+                foreach ($builders as $key => $builder) {
+                    $label = esc_html($builder['label']);
+                    if ($builder['detected'] && $key !== 'gutenberg') {
+                        $label .= ' — Detected';
+                    }
+                    if ($key === 'gutenberg' && empty($current)) {
+                        $label .= ' — Default';
+                    }
+                    printf(
+                        '<option value="%s" %s>%s</option>',
+                        esc_attr($key),
+                        selected(empty($current) ? 'gutenberg' : $current, $key, false),
+                        $label
+                    );
+                }
+
+                echo '</select>';
+
+                # Show current auto-detection result
+                if (!empty($builders[$auto_detected]) && $auto_detected !== 'gutenberg') {
+                    printf(
+                        '<p class="description" style="margin-top: 8px; color: #0073aa;">🔍 Auto-detected: <strong>%s</strong> is active on this site.</p>',
+                        esc_html($builders[$auto_detected]['label'])
+                    );
+                }
+
+                # Show description for the selected builder
+                echo '<div id="metasync-builder-descriptions" style="margin-top: 10px;">';
+                foreach ($builders as $key => $builder) {
+                    $is_visible = (empty($current) ? 'gutenberg' : $current) === $key;
+                    printf(
+                        '<p class="description metasync-builder-desc" data-builder="%s" style="%s">%s</p>',
+                        esc_attr($key),
+                        $is_visible ? '' : 'display:none;',
+                        esc_html($builder['description'])
+                    );
+                }
+                echo '</div>';
+
+                # Inline JS to toggle description on select change
+                ?>
+                <script>
+                document.getElementById('default_page_builder')?.addEventListener('change', function() {
+                    document.querySelectorAll('.metasync-builder-desc').forEach(function(el) {
+                        el.style.display = el.dataset.builder === this.value ? '' : 'none';
+                    }.bind(this));
+                });
+                </script>
+                <?php
+            },
+            $page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
         add_settings_field(
             'import_external_data',
             'Import settings and data from SEO Plugins',
             function() {
                 printf(
-                    '<a href="%s" class="button button-secondary"><span>📥</span> Import from SEO Plugins</a>',
+                    '<a href="%s" class="button button-secondary"><span class="dashicons dashicons-download" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Import from SEO Plugins</a>',
                     esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-import-external'))
                 );
                 printf('<p class="description">Import settings and data from other SEO plugins (Yoast, Rank Math, AIOSEO, etc).</p>');
@@ -1109,6 +1179,445 @@ class Metasync_Settings_Registration
             $SECTION_METASYNC
         );
 
+        add_settings_field(
+            'whitelabel_quick_links',
+            'Quick Links',
+            function() use ($option_key) {
+                $whitelabel_settings = Metasync::get_whitelabel_settings();
+                $links = isset($whitelabel_settings['quick_links']) && is_array($whitelabel_settings['quick_links'])
+                    ? $whitelabel_settings['quick_links']
+                    : [];
+                // Ensure at least 5 rows
+                while (count($links) < 5) {
+                    $links[] = ['label' => '', 'url' => '', 'external' => false];
+                }
+                echo '<p class="description" style="margin-bottom:8px;">Add up to 5 links to show in the sidebar Quick Links widget. Leave blank to hide the widget when whitelabeling is active.</p>';
+                echo '<table class="widefat" style="max-width:560px;">';
+                echo '<thead><tr><th>Label</th><th>URL</th><th>Open in new tab</th></tr></thead><tbody>';
+                foreach (array_slice($links, 0, 5) as $i => $link) {
+                    $label    = esc_attr($link['label'] ?? '');
+                    $url      = esc_attr($link['url'] ?? '');
+                    $external = !empty($link['external']);
+                    printf(
+                        '<tr>
+                            <td><input type="text" name="%s[whitelabel][quick_links][%d][label]" value="%s" placeholder="Link label" style="width:100%%" /></td>
+                            <td><input type="url"  name="%s[whitelabel][quick_links][%d][url]"   value="%s" placeholder="https://…"  style="width:100%%" /></td>
+                            <td style="text-align:center"><input type="checkbox" name="%s[whitelabel][quick_links][%d][external]" value="1" %s /></td>
+                        </tr>',
+                        esc_attr($option_key), $i, $label,
+                        esc_attr($option_key), $i, $url,
+                        esc_attr($option_key), $i, checked($external, true, false)
+                    );
+                }
+                echo '</tbody></table>';
+            },
+            $page_slug . '_branding',
+            $SECTION_METASYNC
+        );
+
+        // ======================================================================
+        // Schema Markup Settings — dedicated page (SEO → Schema Markup)
+        // ======================================================================
+        $schema_page = $page_slug . '_schema-markup';
+
+        add_settings_section(
+            'metasync_schema_org',
+            'Organization Schema (Site-Wide)',
+            function() {
+                echo '<p>This Organization schema is injected on every page of your site.</p>';
+            },
+            $schema_page
+        );
+
+        add_settings_field(
+            'schema_org_name',
+            'Organization Name',
+            function() use ($option_key) {
+                $schema = Metasync::get_option('schema') ?? [];
+                $value = $schema['org_name'] ?? '';
+                printf('<input type="text" name="' . $option_key . '[schema][org_name]" value="%s" size="40" placeholder="Your organization name" />', esc_attr($value));
+            },
+            $schema_page,
+            'metasync_schema_org'
+        );
+
+        add_settings_field(
+            'schema_org_url',
+            'Organization URL',
+            function() use ($option_key) {
+                $schema = Metasync::get_option('schema') ?? [];
+                $value = $schema['org_url'] ?? '';
+                printf('<input type="url" name="' . $option_key . '[schema][org_url]" value="%s" size="40" placeholder="https://example.com" />', esc_attr($value));
+            },
+            $schema_page,
+            'metasync_schema_org'
+        );
+
+        add_settings_field(
+            'schema_org_logo',
+            'Organization Logo URL',
+            function() use ($option_key) {
+                $schema = Metasync::get_option('schema') ?? [];
+                $value = $schema['org_logo'] ?? '';
+                printf('<input type="url" name="' . $option_key . '[schema][org_logo]" value="%s" size="40" placeholder="https://example.com/logo.png" />', esc_attr($value));
+            },
+            $schema_page,
+            'metasync_schema_org'
+        );
+
+        add_settings_field(
+            'schema_org_contact_telephone',
+            'Contact Telephone',
+            function() use ($option_key) {
+                $schema = Metasync::get_option('schema') ?? [];
+                $value = $schema['org_contact_telephone'] ?? '';
+                printf('<input type="text" name="' . $option_key . '[schema][org_contact_telephone]" value="%s" size="30" placeholder="+1-555-1234" />', esc_attr($value));
+            },
+            $schema_page,
+            'metasync_schema_org'
+        );
+
+        add_settings_field(
+            'schema_org_contact_type',
+            'Contact Type',
+            function() use ($option_key) {
+                $schema = Metasync::get_option('schema') ?? [];
+                $value = $schema['org_contact_type'] ?? '';
+                printf('<input type="text" name="' . $option_key . '[schema][org_contact_type]" value="%s" size="30" placeholder="customer support" />', esc_attr($value));
+            },
+            $schema_page,
+            'metasync_schema_org'
+        );
+
+        add_settings_field(
+            'schema_org_same_as',
+            'Social Profile URLs',
+            function() use ($option_key) {
+                $schema = Metasync::get_option('schema') ?? [];
+                $value = $schema['org_same_as'] ?? '';
+                printf('<textarea name="' . $option_key . '[schema][org_same_as]" rows="4" cols="50" placeholder="One URL per line&#10;https://facebook.com/...&#10;https://twitter.com/...">%s</textarea>', esc_textarea($value));
+                echo '<p class="description">Enter one social profile URL per line.</p>';
+            },
+            $schema_page,
+            'metasync_schema_org'
+        );
+
+        add_settings_section(
+            'metasync_schema_website',
+            'WebSite Schema (Homepage Only)',
+            function() {
+                echo '<p>This WebSite schema is injected on the homepage only. Enables the Google Sitelinks Searchbox.</p>';
+            },
+            $schema_page
+        );
+
+        add_settings_field(
+            'schema_website_name',
+            'WebSite Name',
+            function() use ($option_key) {
+                $schema = Metasync::get_option('schema') ?? [];
+                $value = $schema['website_name'] ?? '';
+                printf('<input type="text" name="' . $option_key . '[schema][website_name]" value="%s" size="40" placeholder="Your website name" />', esc_attr($value));
+            },
+            $schema_page,
+            'metasync_schema_website'
+        );
+
+        add_settings_field(
+            'schema_website_url',
+            'WebSite URL',
+            function() use ($option_key) {
+                $schema = Metasync::get_option('schema') ?? [];
+                $value = $schema['website_url'] ?? '';
+                printf('<input type="url" name="' . $option_key . '[schema][website_url]" value="%s" size="40" placeholder="https://example.com" />', esc_attr($value));
+            },
+            $schema_page,
+            'metasync_schema_website'
+        );
+
+        add_settings_field(
+            'schema_website_searchbox',
+            'Enable Sitelinks Searchbox',
+            function() use ($option_key) {
+                $schema = Metasync::get_option('schema') ?? [];
+                $value = $schema['website_searchbox'] ?? false;
+                printf(
+                    '<input type="checkbox" name="' . $option_key . '[schema][website_searchbox]" value="1" %s />',
+                    checked($value, true, false)
+                );
+                echo '<span class="description">Adds SearchAction to WebSite schema for Google Sitelinks Searchbox.</span>';
+            },
+            $schema_page,
+            'metasync_schema_website'
+        );
+
+        add_settings_section(
+            'metasync_schema_compat',
+            'Compatibility',
+            function() {
+                echo '<p>Control how MetaSync interacts with other plugins that output structured data.</p>';
+            },
+            $schema_page
+        );
+
+        add_settings_field(
+            'schema_override_woocommerce',
+            'Override WooCommerce Product Schema',
+            function() use ($option_key) {
+                $schema = Metasync::get_option('schema') ?? [];
+                $value = $schema['override_woocommerce_schema'] ?? false;
+                printf(
+                    '<input type="checkbox" name="' . $option_key . '[schema][override_woocommerce_schema]" value="1" %s />',
+                    checked($value, true, false)
+                );
+                echo '<span class="description">When unchecked (default), MetaSync suppresses its Product schema when WooCommerce is active to avoid duplication. Check to override WooCommerce\'s native Product schema.</span>';
+            },
+            $schema_page,
+            'metasync_schema_compat'
+        );
+
+        // ----------------------------------------------------------------
+        // Site Verification page
+        // ----------------------------------------------------------------
+        add_settings_section(
+            $SECTION_SEARCHENGINE,
+            '',
+            function() {},
+            $page_slug . '_searchengines-verification'
+        );
+
+        add_settings_field(
+            'google_site_verification',
+            'Google Search Console',
+            array( Metasync_Settings_Fields::instance(), 'google_site_verification_callback' ),
+            $page_slug . '_searchengines-verification',
+            $SECTION_SEARCHENGINE
+        );
+
+        add_settings_field(
+            'bing_site_verification',
+            'Bing Webmaster Tools',
+            array( Metasync_Settings_Fields::instance(), 'bing_site_verification_callback' ),
+            $page_slug . '_searchengines-verification',
+            $SECTION_SEARCHENGINE
+        );
+
+        add_settings_field(
+            'yandex_site_verification',
+            'Yandex Webmaster',
+            array( Metasync_Settings_Fields::instance(), 'yandex_site_verification_callback' ),
+            $page_slug . '_searchengines-verification',
+            $SECTION_SEARCHENGINE
+        );
+
+        add_settings_field(
+            'pinterest_site_verification',
+            'Pinterest',
+            array( Metasync_Settings_Fields::instance(), 'pinterest_site_verification_callback' ),
+            $page_slug . '_searchengines-verification',
+            $SECTION_SEARCHENGINE
+        );
+
+        add_settings_field(
+            'baidu_site_verification',
+            'Baidu',
+            function() use ($option_key) {
+                $value = Metasync::get_option('searchengines')['baidu_site_verification'] ?? '';
+                printf( '<input type="text" id="baidu_site_verification" name="' . $option_key . '[searchengines][baidu_site_verification]" value="%s" size="50" />', esc_attr( $value ) );
+            },
+            $page_slug . '_searchengines-verification',
+            $SECTION_SEARCHENGINE
+        );
+
+        add_settings_field(
+            'alexa_site_verification',
+            'Alexa',
+            function() use ($option_key) {
+                $value = Metasync::get_option('searchengines')['alexa_site_verification'] ?? '';
+                printf( '<input type="text" id="alexa_site_verification" name="' . $option_key . '[searchengines][alexa_site_verification]" value="%s" size="50" />', esc_attr( $value ) );
+            },
+            $page_slug . '_searchengines-verification',
+            $SECTION_SEARCHENGINE
+        );
+
+        add_settings_field(
+            'norton_save_site_verification',
+            'Norton Safe Web',
+            function() use ($option_key) {
+                $value = Metasync::get_option('searchengines')['norton_save_site_verification'] ?? '';
+                printf( '<input type="text" id="norton_save_site_verification" name="' . $option_key . '[searchengines][norton_save_site_verification]" value="%s" size="50" />', esc_attr( $value ) );
+            },
+            $page_slug . '_searchengines-verification',
+            $SECTION_SEARCHENGINE
+        );
+
+        // ----------------------------------------------------------------
+        // Code Snippets page
+        // ----------------------------------------------------------------
+        add_settings_section(
+            $SECTION_CODESNIPPETS,
+            '',
+            function() {},
+            $page_slug . '_code-snippets'
+        );
+
+        add_settings_field(
+            'header_snippet',
+            'Header Code',
+            array( Metasync_Settings_Fields::instance(), 'header_snippets_callback' ),
+            $page_slug . '_code-snippets',
+            $SECTION_CODESNIPPETS
+        );
+
+        add_settings_field(
+            'footer_snippet',
+            'Footer Code',
+            array( Metasync_Settings_Fields::instance(), 'footer_snippets_callback' ),
+            $page_slug . '_code-snippets',
+            $SECTION_CODESNIPPETS
+        );
+
+        // ----------------------------------------------------------------
+        // Local Business page
+        // ----------------------------------------------------------------
+        add_settings_section(
+            $SECTION_LOCALSEO,
+            '',
+            function() {},
+            $page_slug . '_local-seo'
+        );
+
+        $fields_instance = Metasync_Settings_Fields::instance();
+
+        add_settings_field( 'local_seo_person_organization', 'Type',           array( $fields_instance, 'local_seo_person_organization_callback' ), $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_name',                'Name',           array( $fields_instance, 'local_seo_name_callback' ),                $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_logo',                'Logo',           array( $fields_instance, 'local_seo_logo_callback' ),                $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_url',                 'Website URL',    array( $fields_instance, 'local_seo_url_callback' ),                 $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_email',               'Email',          array( $fields_instance, 'local_seo_email_callback' ),               $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_phone',               'Phone',          array( $fields_instance, 'local_seo_phone_callback' ),               $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_address',             'Address',        array( $fields_instance, 'local_seo_address_callback' ),             $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_business_type',       'Business Type',  array( $fields_instance, 'local_seo_business_type_callback' ),       $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_opening_hours',       'Opening Hours',  array( $fields_instance, 'local_seo_opening_hours_callback' ),       $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_phone_numbers',       'Phone Numbers',  array( $fields_instance, 'local_seo_phone_numbers_callback' ),       $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_price_range',         'Price Range',    array( $fields_instance, 'local_seo_price_range_callback' ),         $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_about_page',          'About Page',     array( $fields_instance, 'local_seo_about_page_callback' ),          $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_contact_page',        'Contact Page',   array( $fields_instance, 'local_seo_contact_page_callback' ),        $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_map_key',             'Google Maps Key', array( $fields_instance, 'local_seo_map_key_callback' ),            $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_geo_coordinates',     'Geo Coordinates', array( $fields_instance, 'local_seo_geo_coordinates_callback' ),    $page_slug . '_local-seo', $SECTION_LOCALSEO );
+
+        // ----------------------------------------------------------------
+        // Breadcrumbs page
+        // ----------------------------------------------------------------
+        add_settings_section(
+            $SECTION_BREADCRUMBS,
+            '',
+            function() {},
+            $page_slug . '_breadcrumbs'
+        );
+
+        add_settings_field(
+            'breadcrumbs_enabled',
+            'Enable Breadcrumbs',
+            function() use ($option_key) {
+                $value = Metasync::get_option('breadcrumbs')['enabled'] ?? true;
+                printf(
+                    '<input type="checkbox" id="breadcrumbs_enabled" name="' . $option_key . '[breadcrumbs][enabled]" value="1" %s />',
+                    checked(1, $value, false)
+                );
+                echo '<p class="description">Output breadcrumb trail HTML on your site.</p>';
+            },
+            $page_slug . '_breadcrumbs',
+            $SECTION_BREADCRUMBS
+        );
+
+        add_settings_field(
+            'breadcrumbs_separator',
+            'Separator',
+            function() use ($option_key) {
+                $value = Metasync::get_option('breadcrumbs')['separator'] ?? '&raquo;';
+                printf(
+                    '<input type="text" id="breadcrumbs_separator" name="' . $option_key . '[breadcrumbs][separator]" value="%s" size="10" />',
+                    esc_attr($value)
+                );
+                echo '<p class="description">Character or HTML entity shown between crumbs (e.g. &raquo; or /).</p>';
+            },
+            $page_slug . '_breadcrumbs',
+            $SECTION_BREADCRUMBS
+        );
+
+        add_settings_field(
+            'breadcrumbs_home_label',
+            'Home Label',
+            function() use ($option_key) {
+                $value = Metasync::get_option('breadcrumbs')['home_label'] ?? 'Home';
+                printf(
+                    '<input type="text" id="breadcrumbs_home_label" name="' . $option_key . '[breadcrumbs][home_label]" value="%s" size="30" />',
+                    esc_attr($value)
+                );
+            },
+            $page_slug . '_breadcrumbs',
+            $SECTION_BREADCRUMBS
+        );
+
+        add_settings_field(
+            'breadcrumbs_home_url',
+            'Home URL',
+            function() use ($option_key) {
+                $value = Metasync::get_option('breadcrumbs')['home_url'] ?? '';
+                printf(
+                    '<input type="url" id="breadcrumbs_home_url" name="' . $option_key . '[breadcrumbs][home_url]" value="%s" size="50" />',
+                    esc_attr($value)
+                );
+                echo '<p class="description">Leave blank to use the site home URL.</p>';
+            },
+            $page_slug . '_breadcrumbs',
+            $SECTION_BREADCRUMBS
+        );
+
+        add_settings_field(
+            'breadcrumbs_show_current_page',
+            'Show Current Page',
+            function() use ($option_key) {
+                $value = Metasync::get_option('breadcrumbs')['show_current_page'] ?? true;
+                printf(
+                    '<input type="checkbox" id="breadcrumbs_show_current_page" name="' . $option_key . '[breadcrumbs][show_current_page]" value="1" %s />',
+                    checked(1, $value, false)
+                );
+                echo '<p class="description">Include the current page as the last (non-linked) crumb.</p>';
+            },
+            $page_slug . '_breadcrumbs',
+            $SECTION_BREADCRUMBS
+        );
+
+        add_settings_field(
+            'breadcrumbs_prefix_text',
+            'Prefix Text',
+            function() use ($option_key) {
+                $value = Metasync::get_option('breadcrumbs')['prefix_text'] ?? '';
+                printf(
+                    '<input type="text" id="breadcrumbs_prefix_text" name="' . $option_key . '[breadcrumbs][prefix_text]" value="%s" size="30" />',
+                    esc_attr($value)
+                );
+                echo '<p class="description">Optional text before the breadcrumb trail (e.g. "You are here:").</p>';
+            },
+            $page_slug . '_breadcrumbs',
+            $SECTION_BREADCRUMBS
+        );
+
+        add_settings_field(
+            'breadcrumbs_archive_label_format',
+            'Archive Label Format',
+            function() use ($option_key) {
+                $value = Metasync::get_option('breadcrumbs')['archive_label_format'] ?? '{name}';
+                printf(
+                    '<input type="text" id="breadcrumbs_archive_label_format" name="' . $option_key . '[breadcrumbs][archive_label_format]" value="%s" size="30" />',
+                    esc_attr($value)
+                );
+                echo '<p class="description">Format for archive crumb labels. Use <code>{name}</code> as placeholder for the archive name.</p>';
+            },
+            $page_slug . '_breadcrumbs',
+            $SECTION_BREADCRUMBS
+        );
 
     }
 
@@ -1259,6 +1768,27 @@ class Metasync_Settings_Registration
         }
         if (isset($input['localseo']['local_seo_geo_coordinates'])) {
             $new_input['localseo']['local_seo_geo_coordinates'] = sanitize_text_field($input['localseo']['local_seo_geo_coordinates']);
+        }
+
+        // Breadcrumbs Settings
+        if (isset($input['breadcrumbs'])) {
+            $new_input['breadcrumbs']['enabled']              = !empty($input['breadcrumbs']['enabled']);
+            $new_input['breadcrumbs']['show_current_page']    = !empty($input['breadcrumbs']['show_current_page']);
+            if (isset($input['breadcrumbs']['separator'])) {
+                $new_input['breadcrumbs']['separator'] = sanitize_text_field($input['breadcrumbs']['separator']);
+            }
+            if (isset($input['breadcrumbs']['home_label'])) {
+                $new_input['breadcrumbs']['home_label'] = sanitize_text_field($input['breadcrumbs']['home_label']);
+            }
+            if (isset($input['breadcrumbs']['home_url'])) {
+                $new_input['breadcrumbs']['home_url'] = esc_url_raw($input['breadcrumbs']['home_url']);
+            }
+            if (isset($input['breadcrumbs']['prefix_text'])) {
+                $new_input['breadcrumbs']['prefix_text'] = sanitize_text_field($input['breadcrumbs']['prefix_text']);
+            }
+            if (isset($input['breadcrumbs']['archive_label_format'])) {
+                $new_input['breadcrumbs']['archive_label_format'] = sanitize_text_field($input['breadcrumbs']['archive_label_format']);
+            }
         }
 
         // Code Snippets Settings
@@ -1470,6 +2000,28 @@ class Metasync_Settings_Registration
 
             if (isset($input['whitelabel']['access_control'])) {
                 $new_input['whitelabel']['access_control'] = Metasync_Access_Control::sanitize_access_control($input['whitelabel']['access_control']);
+            }
+
+            // Sanitize quick_links (up to 5 entries)
+            if (isset($input['whitelabel']['quick_links']) && is_array($input['whitelabel']['quick_links'])) {
+                $sanitized_links = [];
+                foreach (array_slice($input['whitelabel']['quick_links'], 0, 5) as $link) {
+                    $url = isset($link['url']) ? esc_url_raw(trim((string) $link['url'])) : '';
+                    if (empty($url)) {
+                        continue; // skip blank rows
+                    }
+                    $sanitized_links[] = [
+                        'label'    => sanitize_text_field($link['label'] ?? ''),
+                        'url'      => $url,
+                        'external' => !empty($link['external']),
+                    ];
+                }
+                $new_input['whitelabel']['quick_links'] = $sanitized_links;
+            } else {
+                // Preserve existing links when not submitted
+                if (isset($existing_whitelabel['quick_links'])) {
+                    $new_input['whitelabel']['quick_links'] = $existing_whitelabel['quick_links'];
+                }
             }
 
             $new_input['whitelabel']['updated_at'] = time();
@@ -1690,6 +2242,12 @@ class Metasync_Settings_Registration
             } else {
                 $metasync_options['general']['content_genius_sync_roles'] = array();
             }
+        }
+
+        if ($general_tab_submitted && isset($_POST['metasync_options']['general']['default_page_builder'])) {
+            $allowed_builders = array('gutenberg', 'elementor', 'divi', 'oxygen');
+            $builder_value = sanitize_text_field($_POST['metasync_options']['general']['default_page_builder']);
+            $metasync_options['general']['default_page_builder'] = in_array($builder_value, $allowed_builders, true) ? $builder_value : 'gutenberg';
         }
 
         if ($whitelabel_tab_submitted && isset($_POST['metasync_options']['whitelabel'])) {

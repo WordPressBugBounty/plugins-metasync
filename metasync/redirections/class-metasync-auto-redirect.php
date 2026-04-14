@@ -202,7 +202,7 @@ class Metasync_Auto_Redirect
         }
 
         foreach ($all_redirects as $redirect) {
-            $sources = @unserialize($redirect->sources_from);
+            $sources = unserialize($redirect->sources_from, ['allowed_classes' => false]); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
             if (is_array($sources) && isset($sources[$source_url])) {
                 return $redirect;
             }

@@ -185,7 +185,7 @@ class Metasync_Access_Control_UI {
         $features = Metasync_Access_Control::get_features();
         ?>
         <div class="metasync-access-control-section">
-            <h2>🔐 Advanced Access Control</h2>
+            <h2>Advanced Access Control</h2>
             <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">
                 Control who can access each feature. You can restrict access by user role or specific users.
             </p>

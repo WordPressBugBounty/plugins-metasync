@@ -1,0 +1,549 @@
+/**
+ * SEO Health Dashboard Styles
+ *
+ * Dark/light theme styling for the SEO Health page.
+ * Uses the shared CSS custom properties defined in metasync-dashboard.css.
+ *
+ * @since  3.0.0
+ * @package Metasync
+ */
+
+/* Override the grid form layout from metasync-dashboard.css */
+.metasync-dashboard-wrap form,
+.metasync-layout-main form {
+	display: block !important;
+}
+
+/* ===== SEO Health Summary Cards ===== */
+.metasync-seo-health-summary {
+	display: flex;
+	gap: 16px;
+	margin: 0 0 24px 0;
+	flex-wrap: wrap;
+}
+
+.metasync-health-stat-card {
+	flex: 1;
+	min-width: 160px;
+	background: var(--dashboard-card-bg);
+	border: 1px solid var(--dashboard-border);
+	border-radius: 12px;
+	padding: 20px;
+	text-align: center;
+	box-shadow: var(--dashboard-shadow);
+	transition: all 0.3s ease;
+}
+
+.metasync-health-stat-card:hover {
+	background: var(--dashboard-card-hover);
+	box-shadow: var(--dashboard-shadow-hover);
+	transform: translateY(-2px);
+}
+
+.metasync-health-stat-card .stat-value {
+	font-size: 28px;
+	font-weight: 700;
+	line-height: 1.2;
+	margin-bottom: 4px;
+}
+
+.metasync-health-stat-card .stat-label {
+	font-size: 13px;
+	color: var(--dashboard-text-secondary);
+	font-weight: 500;
+}
+
+.metasync-health-stat-card .stat-neutral { color: var(--dashboard-text-primary); }
+.metasync-health-stat-card .stat-success { color: var(--dashboard-success); }
+.metasync-health-stat-card .stat-warning { color: var(--dashboard-warning); }
+.metasync-health-stat-card .stat-error   { color: var(--dashboard-error); }
+
+/* ===== Toolbar: Export CSV + Search in one row ===== */
+.metasync-health-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 16px;
+	gap: 16px;
+}
+
+.metasync-health-toolbar .search-box {
+	display: flex !important;
+	align-items: center !important;
+	gap: 8px !important;
+	margin: 0 !important;
+	padding: 0 !important;
+}
+
+/* ===== WP_List_Table dark-theme overrides ===== */
+
+/* Table container */
+.wrap .wp-list-table {
+	background: var(--dashboard-card-bg) !important;
+	border: 1px solid var(--dashboard-border) !important;
+	border-radius: 12px !important;
+	overflow: hidden !important;
+	box-shadow: var(--dashboard-shadow) !important;
+}
+
+.wrap .wp-list-table th {
+	background: var(--dashboard-card-hover) !important;
+	color: var(--dashboard-text-primary) !important;
+	border-bottom: 1px solid var(--dashboard-border) !important;
+	font-weight: 600 !important;
+}
+
+.wrap .wp-list-table td {
+	background: var(--dashboard-card-bg) !important;
+	border-bottom: 1px solid var(--dashboard-border) !important;
+	color: var(--dashboard-text-secondary) !important;
+}
+
+.wrap .wp-list-table tbody tr:nth-child(odd) td {
+	background: var(--dashboard-card-bg) !important;
+}
+
+.wrap .wp-list-table tbody tr:nth-child(even) td {
+	background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.wrap .wp-list-table tbody tr:hover td {
+	background: var(--dashboard-card-hover) !important;
+	color: var(--dashboard-text-primary) !important;
+}
+
+.wrap .wp-list-table a {
+	color: var(--dashboard-accent) !important;
+}
+
+.wrap .wp-list-table a:hover {
+	color: var(--dashboard-accent-hover) !important;
+}
+
+/* Sortable column headers */
+.wrap .wp-list-table th a,
+.wrap .wp-list-table th a:visited {
+	color: var(--dashboard-text-primary) !important;
+}
+
+.wrap .wp-list-table th.sorted a,
+.wrap .wp-list-table th.sorted .sorting-indicators {
+	color: var(--dashboard-accent) !important;
+}
+
+/* Check column */
+.wrap .wp-list-table th.check-column,
+.wrap .wp-list-table td.check-column {
+	width: 2.2em;
+	padding: 8px 0 0 3px;
+	vertical-align: middle;
+}
+
+/* ===== Tablenav (bulk actions, filters, pagination) ===== */
+.wrap .tablenav {
+	background: var(--dashboard-card-bg);
+	border: 1px solid var(--dashboard-border);
+	border-radius: 8px;
+	padding: 12px 16px;
+	margin-bottom: 16px;
+	box-shadow: var(--dashboard-shadow);
+	display: flex !important;
+	align-items: center !important;
+	justify-content: space-between !important;
+	flex-wrap: nowrap !important;
+	gap: 8px !important;
+	min-height: 56px !important;
+	overflow-x: auto !important;
+	overflow-y: visible !important;
+}
+
+.wrap .tablenav * {
+	box-sizing: border-box !important;
+}
+
+.wrap .tablenav .actions {
+	display: flex !important;
+	align-items: center !important;
+	gap: 6px !important;
+	flex-wrap: nowrap !important;
+	flex-shrink: 0 !important;
+	min-width: 0 !important;
+}
+
+.wrap .tablenav .alignleft {
+	display: flex !important;
+	align-items: center !important;
+	gap: 6px !important;
+	flex-wrap: nowrap !important;
+	flex-shrink: 0 !important;
+	min-width: 0 !important;
+}
+
+.wrap .tablenav .alignright {
+	display: flex !important;
+	align-items: center !important;
+	gap: 6px !important;
+	margin-left: auto !important;
+	flex-shrink: 0 !important;
+	min-width: 0 !important;
+}
+
+/* Force inline alignment for all tablenav children */
+.wrap .tablenav .alignleft > *,
+.wrap .tablenav .alignright > *,
+.wrap .tablenav .actions > * {
+	display: inline-flex !important;
+	align-items: center !important;
+	vertical-align: middle !important;
+	margin: 0 !important;
+}
+
+/* ===== Selects inside tablenav ===== */
+.wrap .tablenav select {
+	background: var(--dashboard-card-bg) !important;
+	border: 1px solid var(--dashboard-border) !important;
+	color: var(--dashboard-text-primary) !important;
+	border-radius: 6px !important;
+	padding: 7px 32px 7px 10px !important;
+	height: 36px !important;
+	max-width: 160px !important;
+	vertical-align: middle !important;
+	font-size: 12px !important;
+	font-weight: 500 !important;
+	appearance: none !important;
+	-webkit-appearance: none !important;
+	-moz-appearance: none !important;
+	background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e") !important;
+	background-repeat: no-repeat !important;
+	background-position: right 8px center !important;
+	background-size: 14px !important;
+	cursor: pointer !important;
+	flex-shrink: 1 !important;
+	white-space: nowrap !important;
+	text-overflow: ellipsis !important;
+	overflow: hidden !important;
+	line-height: 1.4 !important;
+}
+
+.wrap .tablenav select:focus {
+	border-color: var(--dashboard-accent) !important;
+	box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+	outline: none !important;
+}
+
+.wrap .tablenav select option {
+	background: var(--dashboard-card-bg) !important;
+	color: var(--dashboard-text-primary) !important;
+}
+
+/* ===== Search box ===== */
+.wrap .search-box,
+.wrap .tablenav .search-box,
+.wrap .tablenav p.search-box {
+	display: flex !important;
+	align-items: center !important;
+	gap: 8px !important;
+	margin: 0 !important;
+	padding: 0 !important;
+	border: none !important;
+	background: transparent !important;
+	flex-shrink: 0 !important;
+	height: 40px !important;
+}
+
+.wrap .search-box input[type="search"],
+.wrap .search-box input[type="text"],
+.wrap .tablenav #seo-health-search-search-input {
+	background: var(--dashboard-card-bg) !important;
+	border: 1px solid var(--dashboard-border) !important;
+	color: var(--dashboard-text-primary) !important;
+	border-radius: 6px !important;
+	padding: 8px 12px !important;
+	height: 36px !important;
+	font-size: 13px !important;
+	box-sizing: border-box !important;
+	margin: 0 !important;
+	vertical-align: middle !important;
+	line-height: 1 !important;
+}
+
+.wrap .search-box input[type="search"]:focus,
+.wrap .search-box input[type="text"]:focus {
+	border-color: var(--dashboard-accent) !important;
+	box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+	outline: none !important;
+}
+
+.wrap .search-box input[type="submit"] {
+	height: 36px !important;
+	vertical-align: middle !important;
+	line-height: 1 !important;
+	padding: 8px 16px !important;
+	margin: 0 !important;
+	box-sizing: border-box !important;
+}
+
+/* ===== Buttons ===== */
+.wrap .button-primary,
+.wrap .button-primary:visited,
+.wrap input[type="submit"].button-primary,
+.wrap input[type="submit"]#doaction,
+.wrap input[type="submit"].button {
+	background: var(--dashboard-accent) !important;
+	border-color: var(--dashboard-accent) !important;
+	color: white !important;
+	border-radius: 8px !important;
+	font-weight: 500 !important;
+	transition: all 0.3s ease !important;
+}
+
+.wrap .button-primary:hover,
+.wrap .button-primary:focus,
+.wrap input[type="submit"]#doaction:hover,
+.wrap input[type="submit"].button:hover {
+	background: var(--dashboard-accent-hover) !important;
+	border-color: var(--dashboard-accent-hover) !important;
+	transform: translateY(-1px) !important;
+	box-shadow: var(--dashboard-shadow-hover) !important;
+	color: white !important;
+}
+
+.wrap .tablenav input[type="submit"],
+.wrap .tablenav .button {
+	height: 40px !important;
+	vertical-align: middle !important;
+	line-height: 1 !important;
+	padding: 10px 20px !important;
+	flex-shrink: 0 !important;
+	white-space: nowrap !important;
+	width: auto !important;
+	min-width: 80px !important;
+	display: inline-flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+	text-align: center !important;
+	font-size: 13px !important;
+	font-weight: 500 !important;
+}
+
+.wrap .button-secondary,
+.wrap .button-secondary:visited {
+	background: transparent !important;
+	border: 1px solid var(--dashboard-border) !important;
+	color: var(--dashboard-text-secondary) !important;
+	border-radius: 8px !important;
+	transition: all 0.3s ease !important;
+	text-decoration: none !important;
+}
+
+.wrap .button-secondary:hover {
+	background: var(--dashboard-card-hover) !important;
+	color: var(--dashboard-text-primary) !important;
+	border-color: var(--dashboard-accent) !important;
+}
+
+/* ===== Pagination ===== */
+.wrap .tablenav-pages {
+	display: flex !important;
+	align-items: center !important;
+	gap: 8px !important;
+	margin-left: auto !important;
+	justify-content: flex-end !important;
+	white-space: nowrap !important;
+}
+
+.wrap .tablenav-pages .displaying-num {
+	color: var(--dashboard-text-primary) !important;
+	font-size: 13px !important;
+	font-weight: 500 !important;
+	background: var(--dashboard-card-hover) !important;
+	padding: 6px 12px !important;
+	border-radius: 6px !important;
+	border: 1px solid var(--dashboard-border) !important;
+	margin-right: 12px !important;
+	white-space: nowrap !important;
+	height: 32px !important;
+	box-sizing: border-box !important;
+	display: inline-block !important;
+	vertical-align: middle !important;
+	line-height: 1.4 !important;
+}
+
+.wrap .tablenav-pages .pagination-links {
+	display: flex !important;
+	align-items: center !important;
+	gap: 4px !important;
+}
+
+.wrap .tablenav-pages a,
+.wrap .tablenav-pages .button {
+	background: var(--dashboard-card-bg) !important;
+	border: 1px solid var(--dashboard-border) !important;
+	color: var(--dashboard-text-secondary) !important;
+	border-radius: 6px !important;
+	min-width: 30px !important;
+	height: 30px !important;
+	line-height: 28px !important;
+	text-align: center !important;
+	padding: 0 8px !important;
+	display: inline-flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+	text-decoration: none !important;
+}
+
+.wrap .tablenav-pages a:hover {
+	background: var(--dashboard-card-hover) !important;
+	color: var(--dashboard-text-primary) !important;
+	border-color: var(--dashboard-accent) !important;
+}
+
+.wrap .tablenav-pages .tablenav-paging-text {
+	display: inline-flex !important;
+	align-items: center !important;
+	gap: 4px !important;
+	color: var(--dashboard-text-secondary) !important;
+	font-size: 13px !important;
+	white-space: nowrap !important;
+}
+
+.wrap .tablenav-pages .current-page {
+	background: var(--dashboard-card-bg) !important;
+	border: 1px solid var(--dashboard-border) !important;
+	color: var(--dashboard-text-primary) !important;
+	border-radius: 6px !important;
+	width: 50px !important;
+	height: 30px !important;
+	text-align: center !important;
+	padding: 0 4px !important;
+}
+
+.wrap .tablenav-pages .current-page:focus {
+	border-color: var(--dashboard-accent) !important;
+	box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+	outline: none !important;
+}
+
+.wrap .tablenav-pages .total-pages {
+	color: var(--dashboard-text-secondary) !important;
+}
+
+/* Prevent "of X" from wrapping below the page input */
+.wrap .tablenav-pages .paging-input {
+	display: inline-flex !important;
+	align-items: center !important;
+	gap: 4px !important;
+	white-space: nowrap !important;
+}
+
+.wrap .tablenav-pages .paging-input label {
+	display: inline-flex !important;
+	align-items: center !important;
+	gap: 4px !important;
+	margin: 0 !important;
+	padding: 0 !important;
+	white-space: nowrap !important;
+}
+
+/* ===== Tablenav label spacing ===== */
+.wrap .tablenav label {
+	margin-right: 12px !important;
+	margin-left: 4px !important;
+	padding: 8px 4px !important;
+	white-space: nowrap !important;
+	flex-shrink: 0 !important;
+	font-weight: 500 !important;
+	color: var(--dashboard-text-secondary) !important;
+}
+
+/* ===== SEO status indicators ===== */
+.seo-status-missing {
+	color: var(--dashboard-error);
+	font-weight: 500;
+}
+
+.seo-status-set {
+	font-weight: 500;
+}
+
+.seo-status-set.optimal {
+	color: var(--dashboard-success);
+}
+
+.seo-status-set.suboptimal {
+	color: var(--dashboard-warning);
+}
+
+.seo-status-none {
+	color: var(--dashboard-text-secondary);
+}
+
+.seo-source-badge {
+	display: inline-block;
+	background: var(--dashboard-card-hover);
+	border: 1px solid var(--dashboard-border);
+	padding: 1px 6px;
+	border-radius: 4px;
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--dashboard-text-secondary);
+	margin-left: 4px;
+}
+
+/* ===== Column widths ===== */
+.wrap .wp-list-table .column-title { width: 18%; }
+.wrap .wp-list-table .column-post_type { width: 8%; }
+.wrap .wp-list-table .column-status { width: 7%; }
+.wrap .wp-list-table .column-seo_title { width: 14%; }
+.wrap .wp-list-table .column-meta_description { width: 14%; }
+.wrap .wp-list-table .column-schema { width: 8%; }
+.wrap .wp-list-table .column-og_image { width: 8%; }
+.wrap .wp-list-table .column-alt_text_coverage { width: 10%; }
+.wrap .wp-list-table .column-last_modified { width: 10%; }
+
+/* ===== Headings ===== */
+h1, h2, h3 {
+	color: var(--dashboard-text-primary) !important;
+}
+
+.wp-heading-inline {
+	color: var(--dashboard-text-primary) !important;
+}
+
+/* ===== Light theme adjustments ===== */
+[data-theme="light"] .wrap .tablenav select {
+	background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231a1f26' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e") !important;
+}
+
+[data-theme="light"] .seo-source-badge {
+	background: #f1f3f5;
+	border-color: #e5e7eb;
+	color: #6b7280;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 960px) {
+	.metasync-seo-health-summary {
+		gap: 12px;
+	}
+	.metasync-health-stat-card {
+		min-width: 120px;
+		padding: 14px;
+	}
+	.metasync-health-stat-card .stat-value {
+		font-size: 22px;
+	}
+}
+
+@media (max-width: 600px) {
+	.metasync-seo-health-summary {
+		flex-direction: column;
+	}
+	.metasync-health-stat-card {
+		min-width: auto;
+	}
+	.metasync-health-toolbar {
+		flex-direction: column;
+		align-items: stretch;
+	}
+}

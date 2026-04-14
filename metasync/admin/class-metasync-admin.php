@@ -43,6 +43,7 @@ class Metasync_Admin
     const SECTION_SEO_CONTROLS_ADVANCED = "seo_controls_advanced";
     const SECTION_SEO_CONTROLS_INSTANT_INDEX = "seo_controls_instant_index";
     const SECTION_PLUGIN_VISIBILITY     = "plugin_visibility_settings";
+    const SECTION_BREADCRUMBS           = "breadcrumbs_settings";
 
     /**
      * The ID of this plugin.
@@ -238,7 +239,8 @@ class Metasync_Admin
         #add css into admin header for icon image
 
         add_action('admin_head', array($this,'metasync_admin_icon_style'));
-        
+        add_action('admin_head', array($this, 'metasync_fouc_prevention_style'));
+
         // Always add admin bar styles - the method will check the setting internally
         add_action('wp_head', array($this,'metasync_admin_bar_style')); // For frontend admin bar
         add_action('admin_head', array($this,'metasync_admin_bar_style')); // For backend admin bar
@@ -462,7 +464,16 @@ class Metasync_Admin
                     width: 20px !important;
                 }
             </style>
-            <?php        
+            <?php
+    }
+
+    public function metasync_fouc_prevention_style() {
+        if ( ! isset( $_GET['page'] ) || strpos( $_GET['page'], self::$page_slug ) !== 0 ) {
+            return;
+        }
+        ?>
+        <style>.metasync-dashboard-wrap { opacity: 0; transition: opacity 0.15s ease-in; }</style>
+        <?php
     }
 
     #---------fixes issue : #95 ----------
@@ -730,11 +741,31 @@ class Metasync_Admin
             'all'
         );
 
+        // Enqueue 3-column layout CSS
+        wp_enqueue_style(
+            $this->plugin_name . '-layout',
+            plugin_dir_url(__FILE__) . 'css/metasync-layout.css',
+            array($this->plugin_name . '-dashboard'),
+            $this->version,
+            'all'
+        );
+
         // Enqueue wizard CSS if on wizard page
         if (isset($_GET['page']) && strpos($_GET['page'], '-setup-wizard') !== false) {
             wp_enqueue_style(
                 $this->plugin_name . '-setup-wizard',
                 plugin_dir_url(__FILE__) . 'css/metasync-setup-wizard.css',
+                array($this->plugin_name . '-dashboard'),
+                $this->version,
+                'all'
+            );
+        }
+
+        // Enqueue SEO Health CSS if on the SEO Health page
+        if (isset($_GET['page']) && strpos($_GET['page'], '-seo-health') !== false) {
+            wp_enqueue_style(
+                $this->plugin_name . '-seo-health',
+                plugin_dir_url(__FILE__) . 'css/metasync-seo-health.css',
                 array($this->plugin_name . '-dashboard'),
                 $this->version,
                 'all'
@@ -1188,6 +1219,7 @@ class Metasync_Admin
         ";
         wp_add_inline_script($this->plugin_name, $inline_script);
         add_action('admin_notices', array($this, 'permalink_structure_dashboard_warning'));
+        add_action('admin_notices', array($this, 'display_page_builder_notice'));
         // Display update warning banner if plugin update is available
         add_action('admin_notices', array($this, 'display_update_warning_banner'));
         // Enqueue wizard assets if on wizard page
@@ -1427,7 +1459,7 @@ class Metasync_Admin
                 <input type="hidden" name="action" value="metasync_clear_all_cache_plugins" />
                 <?php wp_nonce_field('metasync_clear_cache_nonce', 'clear_cache_nonce'); ?>
                 <button type="submit" class="metasync-btn-primary" style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); display: inline-block; width: auto; min-width: 240px; max-width: fit-content;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0, 0, 0, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0, 0, 0, 0.1)';">
-                    🔄 Clear All Cache Plugins
+                    <span class="dashicons dashicons-controls-repeat" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Clear All Cache Plugins
                 </button>
                 <p class="description" style="margin-top: 10px; color: var(--dashboard-text-secondary);">This will clear cache from WP Rocket, LiteSpeed, W3 Total Cache, and all other detected cache plugins.</p>
             </form>
@@ -1531,7 +1563,7 @@ class Metasync_Admin
                             style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 9px 18px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease;"
                             onmouseover="this.style.transform='translateY(-1px)';"
                             onmouseout="this.style.transform='translateY(0)';">
-                        💾 Save Settings
+                        Save Settings
                     </button>
                     <span id="metasync-hc-save-msg" style="display: none; font-size: 13px;"></span>
                 </div>
@@ -1548,7 +1580,7 @@ class Metasync_Admin
                         style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: inline-block; min-width: 240px; max-width: fit-content;"
                         onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.15)';"
                         onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)';">
-                    🚀 Purge Entire Hosting Cache
+                    <span class="dashicons dashicons-update" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Purge Entire Hosting Cache
                 </button>
                 <p class="description" style="margin-top: 10px; color: var(--dashboard-text-secondary);">
                     Triggers a full-site cache purge using the native WP Engine and/or Kinsta APIs (based on toggles above).
@@ -1647,7 +1679,7 @@ class Metasync_Admin
                             style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 9px 18px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease;"
                             onmouseover="this.style.transform='translateY(-1px)';"
                             onmouseout="this.style.transform='translateY(0)';">
-                        💾 Save Settings
+                        Save Settings
                     </button>
                     <span id="metasync-toc-save-msg" style="display: none; font-size: 13px;"></span>
                 </div>
@@ -1737,7 +1769,7 @@ class Metasync_Admin
                     <input type="hidden" name="action" value="metasync_clear_otto_cache_all" />
                     <?php wp_nonce_field('metasync_clear_otto_cache_nonce', 'clear_otto_cache_nonce'); ?>
                     <button type="submit" class="metasync-btn-primary" style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); display: inline-block; width: auto; min-width: 240px; max-width: fit-content;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0, 0, 0, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0, 0, 0, 0.1)';">
-                        🗑️ Clear Entire Cache
+                        <span class="dashicons dashicons-trash" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Clear Entire Cache
                     </button>
                 </form>
             </div>
@@ -1769,7 +1801,7 @@ class Metasync_Admin
                         </tr>
                     </table>
                     <button type="submit" class="metasync-btn-primary" style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); display: inline-block; width: auto; max-width: fit-content;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0, 0, 0, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0, 0, 0, 0.1)';">
-                        🗑️ Clear Cache for URL
+                        <span class="dashicons dashicons-trash" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Clear Cache for URL
                     </button>
                 </form>
             </div>
@@ -2211,6 +2243,25 @@ class Metasync_Admin
         Metasync_Admin_Navigation::instance()->render_plugin_header($page_title);
     }
 
+    /**
+     * Open the Yoast-style 3-column page layout.
+     * Must be paired with render_layout_close().
+     */
+    public function render_layout_open($page_title = '', $current_page = '', $description = '')
+    {
+        Metasync_Admin_Navigation::instance()->render_layout_open($page_title, $current_page, $description);
+    }
+
+    /**
+     * Close the 3-column layout opened by render_layout_open().
+     *
+     * @param bool $show_promo Whether to render the right promo sidebar. Default true.
+     */
+    public function render_layout_close($show_promo = true)
+    {
+        Metasync_Admin_Navigation::instance()->render_layout_close($show_promo);
+    }
+
     /*
         Method to handle Ajax request from "General Settings" page
     */
@@ -2332,14 +2383,7 @@ class Metasync_Admin
      */
     public function create_admin_media_optimization_page()
     {
-        ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-
-        <?php $this->render_plugin_header('Media Optimization'); ?>
-
-        <?php $this->render_navigation_menu('media_optimization'); ?>
-
-        <?php
+        $this->render_layout_open('Media Optimization', 'media_optimization', 'Compress and optimize images to improve page load speed.');
         // Load media optimization settings class
         require_once plugin_dir_path(dirname(__FILE__)) . 'media-optimization/class-media-settings.php';
 
@@ -2380,9 +2424,7 @@ class Metasync_Admin
 
         // Render the admin page view
         require_once plugin_dir_path(dirname(__FILE__)) . 'media-optimization/views/admin-page.php';
-        ?>
-        </div>
-    <?php
+        $this->render_layout_close();
     }
 
     /**
@@ -2390,14 +2432,7 @@ class Metasync_Admin
      */
     public function create_admin_code_minification_page()
     {
-        ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-
-        <?php $this->render_plugin_header('Code Minification'); ?>
-
-        <?php $this->render_navigation_menu('code_minification'); ?>
-
-        <?php
+        $this->render_layout_open('Code Minification', 'code_minification', 'Minify CSS, JavaScript, and HTML to improve performance.');
         // Load settings and compatibility classes
         require_once plugin_dir_path(dirname(__FILE__)) . 'code-minification/class-minification-settings.php';
         require_once plugin_dir_path(dirname(__FILE__)) . 'code-minification/class-minification-cache.php';
@@ -2428,9 +2463,7 @@ class Metasync_Admin
 
         // Render the admin page view
         require_once plugin_dir_path(dirname(__FILE__)) . 'code-minification/views/admin-page.php';
-        ?>
-        </div>
-    <?php
+        $this->render_layout_close();
     }
 
     // ── Media Optimization AJAX Handlers ──
@@ -2722,6 +2755,15 @@ class Metasync_Admin
     }
 
     /**
+     * SEO Health dashboard page callback
+     */
+    public function create_admin_seo_health_page()
+    {
+        require_once plugin_dir_path(__FILE__) . 'class-metasync-seo-health.php';
+        Metasync_SEO_Health::get_instance()->render_page();
+    }
+
+    /**
      * Site Verification page callback
      */
     public function create_admin_search_engine_verification_page()
@@ -2746,27 +2788,33 @@ class Metasync_Admin
     }
 
     /**
+     * Schema Markup settings page callback
+     */
+    public function create_admin_schema_markup_page()
+    {
+        Metasync_Admin_Pages::get_instance($this)->create_admin_schema_markup_page();
+    }
+
+    /**
+     * Breadcrumbs settings page callback
+     */
+    public function create_admin_breadcrumbs_page()
+    {
+        Metasync_Admin_Pages::get_instance($this)->create_admin_breadcrumbs_page();
+    }
+
+    /**
      * Google Instant Index Setting page callback
      */
     public function create_admin_google_instant_index_page()
     {
-        ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-
-        <?php $this->render_plugin_header('Instant Indexing'); ?>
-
-        <?php $this->render_navigation_menu('instant_index'); ?>
-
-        <?php
-        // Set up variables for the view template
+        $this->render_layout_open('Instant Indexing', 'instant_index', 'Submit URLs to Google for instant indexing via the Indexing API.');
         $options = get_option('metasync_options_instant_indexing', ['json_key' => '', 'post_types' => []]);
         $json_key = isset($options['json_key']) ? $options['json_key'] : '';
         $google_guide_url = 'https://developers.google.com/search/apis/indexing-api/v3/quickstart';
         $post_types_settings = isset($options['post_types']) && is_array($options['post_types']) ? $options['post_types'] : [];
         include_once plugin_dir_path(dirname(__FILE__)) . 'views/metasync-google-instant-settings.php';
-        ?>
-        </div>
-        <?php
+        $this->render_layout_close();
     }
 
     /**
@@ -2774,21 +2822,11 @@ class Metasync_Admin
      */
     public function create_admin_google_console_page()
     {
-        ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-
-        <?php $this->render_plugin_header('Google Console'); ?>
-
-        <?php $this->render_navigation_menu('google_console'); ?>
-
-        <?php
-        // Check if Google service account is configured via google_index_direct()
+        $this->render_layout_open('Google Console', 'google_console', 'View Google Search Console data and manage indexing requests.');
         $service_info = function_exists('google_index_direct') ? google_index_direct()->get_service_account_info() : ['error' => 'Module not loaded'];
         $is_configured = !isset($service_info['error']);
         include_once plugin_dir_path(dirname(__FILE__)) . 'views/metasync-google-console.php';
-        ?>
-        </div>
-        <?php
+        $this->render_layout_close();
     }
 
     /**
@@ -2796,20 +2834,11 @@ class Metasync_Admin
      */
     public function create_admin_bing_console_page()
     {
-        ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-
-        <?php $this->render_plugin_header('Bing Console'); ?>
-
-        <?php $this->render_navigation_menu('bing_console'); ?>
-
-        <?php
+        $this->render_layout_open('Bing Console', 'bing_console', 'Submit URLs to Bing for instant indexing via IndexNow.');
         require_once plugin_dir_path(dirname(__FILE__)) . 'bing-index/class-metasync-bing-instant-index.php';
         $bing_instant_index = new Metasync_Bing_Instant_Index();
         $bing_instant_index->show_bing_instant_indexing_console();
-        ?>
-        </div>
-        <?php
+        $this->render_layout_close();
     }
 
     /**
@@ -3141,17 +3170,12 @@ class Metasync_Admin
         // Get statistics
         $stats = $sync_db->get_statistics();
 
+        $this->render_layout_open('Changes Log', 'sync_log', 'Track recent content synchronizations and changes from external tools.');
         ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr(get_option('metasync_theme', 'dark')); ?>">
-
-        <?php $this->render_plugin_header('Sync History'); ?>
-
-        <?php $this->render_navigation_menu('sync_log'); ?>
-
             <div class="dashboard-card">
                 <div class="sync-log-header">
                     <div class="sync-log-title-section">
-                        <h2>📋 Sync History</h2>
+                        <h2>Changes Log</h2>
                         <p style="color: var(--dashboard-text-secondary); margin-bottom: 0;">
                             Recent content synchronizations from external tools.
                             <span style="margin-left:8px; font-size:12px; opacity:.75;">Records are automatically removed after 90 days.</span>
@@ -3189,7 +3213,7 @@ class Metasync_Admin
                 <div class="sync-log-list">
                     <?php if (empty($sync_records)): ?>
                         <div class="sync-log-empty">
-                            <div class="sync-log-empty-icon">📄</div>
+                            <div class="sync-log-empty-icon"><span class="dashicons dashicons-media-default" style="font-size:48px;width:48px;height:48px;color:var(--dashboard-text-secondary);"></span></div>
                             <h3>No sync records found</h3>
                             <p>Sync records will appear here when content/pages receive new updates.</p>
                         </div>
@@ -3198,14 +3222,14 @@ class Metasync_Admin
                             <div class="sync-log-item">
                                 <div class="sync-log-icon">
                                     <div class="sync-icon-circle">
-                                        <span class="sync-icon"><?php echo ($record->source === 'MCP Client') ? '🤖' : '📄'; ?></span>
+                                        <span class="sync-icon"><?php echo ($record->source === 'MCP Client') ? '<span class="dashicons dashicons-admin-users" style="font-size:16px;width:16px;height:16px;"></span>' : '<span class="dashicons dashicons-media-default" style="font-size:16px;width:16px;height:16px;"></span>'; ?></span>
                                     </div>
                                 </div>
 
                                 <div class="sync-log-content">
                                     <div class="sync-log-title"><?php echo esc_html($record->title); ?>
                                     <?php if (!empty($record->url)): ?>
-                                        <a href="<?php echo esc_url($record->url); ?>" target="_blank" rel="noopener" title="Open URL" style="margin-left:8px; text-decoration:none;">🔗</a>
+                                        <a href="<?php echo esc_url($record->url); ?>" target="_blank" rel="noopener" title="Open URL" style="margin-left:8px; text-decoration:none;"><span class="dashicons dashicons-external" style="font-size:14px;width:14px;height:14px;vertical-align:middle;"></span></a>
                                     <?php endif; ?>
                                     </div>
                                     <div class="sync-log-meta">
@@ -3268,7 +3292,7 @@ class Metasync_Admin
                     </div>
                 <?php endif; ?>
             </div>
-        </div>
+        <?php $this->render_layout_close(); ?>
 
         <script>
         (function () {
@@ -3631,7 +3655,7 @@ class Metasync_Admin
             <!-- Statistics -->
             <div style="background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px; padding: 16px; margin-bottom: 24px;">
                 <h4 style="margin: 0 0 12px 0; color: var(--dashboard-text); display: flex; align-items: center; gap: 8px;">
-                    <span>📊</span>
+                    <span class="dashicons dashicons-chart-bar" style="font-size:18px;width:18px;height:18px;"></span>
                     <span>CPU Load Statistics</span>
                 </h4>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
@@ -3652,7 +3676,7 @@ class Metasync_Admin
 
             <!-- Save Button -->
             <button type="button" class="metasync-btn-primary" onclick="submitPerformanceSettings(event)" style="background: var(--dashboard-primary, #3b82f6); color: #ffffff; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);" onmouseover="this.style.background='var(--dashboard-primary-hover, #2563eb)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(59, 130, 246, 0.3)';" onmouseout="this.style.background='var(--dashboard-primary, #3b82f6)'; this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(59, 130, 246, 0.2)';">
-                💾 Save Performance Settings
+                Save Performance Settings
             </button>
         </div>
         <script>
@@ -4383,9 +4407,67 @@ class Metasync_Admin
     }
 
     /**
+     * Show a one-time admin notice when a page builder is detected but the
+     * "Default Page Builder" setting has never been explicitly saved.
+     */
+    public function display_page_builder_notice() {
+        $configured = Metasync::get_option('general')['default_page_builder'] ?? '';
+
+        // Setting already saved — nothing to warn about
+        if (!empty($configured)) {
+            return;
+        }
+
+        // Check if user dismissed this notice
+        $dismissed = get_user_meta(get_current_user_id(), 'metasync_builder_notice_dismissed', true);
+        if ($dismissed) {
+            return;
+        }
+
+        // Handle dismiss action
+        if (isset($_GET['metasync_dismiss_builder_notice']) && wp_verify_nonce($_GET['_wpnonce'] ?? '', 'metasync_dismiss_builder')) {
+            update_user_meta(get_current_user_id(), 'metasync_builder_notice_dismissed', '1');
+            return;
+        }
+
+        require_once plugin_dir_path(dirname(__FILE__)) . 'custom-pages/class-metasync-html-to-builder-converter.php';
+        $detected = Metasync_HTML_To_Builder_Converter::auto_detect_builder();
+
+        // No non-Gutenberg builder detected — no need to warn
+        if ($detected === 'gutenberg') {
+            return;
+        }
+
+        $builders = Metasync_HTML_To_Builder_Converter::get_available_builders();
+        $builder_label = $builders[$detected]['label'] ?? $detected;
+        $plugin_name = Metasync::get_effective_plugin_name();
+        $settings_url = admin_url('admin.php?page=' . self::$page_slug . '&tab=general#metasync-section-content_rendering');
+        $dismiss_url = wp_nonce_url(add_query_arg('metasync_dismiss_builder_notice', '1'), 'metasync_dismiss_builder');
+
+        printf(
+            '<div class="notice notice-info is-dismissible" style="border-left-color: #0073aa;">
+                <p>
+                    <strong>%s — Page Builder Detected</strong><br>
+                    <strong>%s</strong> is active on this site. Content synced by Content Genius currently uses <strong>Gutenberg (WordPress Block Editor)</strong> format by default.
+                </p>
+                <p>
+                    If you want synced content to use %s\'s native widget format instead, you can change this in
+                    <a href="%s"><strong>Settings → Content Rendering → Default Page Builder</strong></a>.
+                </p>
+                <p><a href="%s" style="text-decoration: none;">Dismiss this notice</a></p>
+            </div>',
+            esc_html($plugin_name),
+            esc_html($builder_label),
+            esc_html($builder_label),
+            esc_url($settings_url),
+            esc_url($dismiss_url)
+        );
+    }
+
+    /**
      * Display update warning banner if plugin update is available
      * Checks WordPress update API to see if a newer version is available
-     * 
+     *
      * @since 1.0.0
      */
     public function display_update_warning_banner() {

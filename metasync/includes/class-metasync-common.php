@@ -61,7 +61,8 @@ class Metasync_Common
 	public function get_permalink_from_url($url)
 	{
 		$parse_url = wp_parse_url($url);
-		return end(array_diff(explode('/', $parse_url['path']), array('')));
+		$path = isset($parse_url['path']) ? $parse_url['path'] : '';
+		return end(array_diff(explode('/', $path), array('')));
 	}
 
 	/**
@@ -233,12 +234,13 @@ class Metasync_Common
      * Check if Gutenberg is enabled or Elementor is active
     */
     public static function check_default_page_editor() {
-        if (is_gutenberg_enabled()) {
-           return 'gutenberg';
-        } elseif (is_elementor_active()) {
+        $instance = new self();
+        if ($instance->is_gutenberg_enabled()) {
+            return 'gutenberg';
+        } elseif ($instance->is_elementor_active()) {
             return 'elementor';
         } else {
-            return 'neither';          
+            return 'neither';
         }
     }
 }

@@ -118,6 +118,27 @@ class Metasync_External_Importer
                 }
                 break;
 
+            case 'primary_category':
+                // Check for primary category data from other SEO plugins
+                $supported = ['yoast', 'rankmath', 'aioseo'];
+                foreach ($supported as $slug) {
+                    $plugin = $plugins[$slug];
+                    $is_active = defined($plugin['constant']);
+                    $count = 0;
+
+                    $has_data = $this->check_primary_category_data($slug, $count);
+
+                    $supported_plugins[$slug] = [
+                        'name' => $plugin['name'],
+                        'key' => $slug,
+                        'installed' => $is_active,
+                        'has_data' => $has_data,
+                        'count' => $count,
+                        'version' => $is_active ? constant($plugin['constant']) : ''
+                    ];
+                }
+                break;
+
             case 'seo_metadata':
                 // Check for actual SEO metadata (titles and descriptions)
                 // Even if plugin is deactivated, we can still import the data
@@ -287,6 +308,277 @@ class Metasync_External_Importer
         }
 
         return $count > 0;
+    }
+
+    /**
+     * Check if primary category data exists for a plugin
+     */
+    private function check_primary_category_data($plugin, &$count)
+    {
+        global $wpdb;
+
+        $count = 0;
+
+        switch ($plugin) {
+            case 'yoast':
+                $count = (int) $wpdb->get_var("
+                    SELECT COUNT(DISTINCT post_id)
+                    FROM {$wpdb->postmeta}
+                    WHERE meta_key = '_yoast_wpseo_primary_category'
+                    AND meta_value != ''
+                    AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+                ");
+                break;
+
+            case 'rankmath':
+                $count = (int) $wpdb->get_var("
+                    SELECT COUNT(DISTINCT post_id)
+                    FROM {$wpdb->postmeta}
+                    WHERE meta_key = 'rank_math_primary_category'
+                    AND meta_value != ''
+                    AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+                ");
+                break;
+
+            case 'aioseo':
+                $count = (int) $wpdb->get_var("
+                    SELECT COUNT(DISTINCT post_id)
+                    FROM {$wpdb->postmeta}
+                    WHERE meta_key = '_aioseo_primary_category'
+                    AND meta_value != ''
+                    AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+                ");
+                break;
+        }
+
+        return $count > 0;
+    }
+
+    /**
+     * Import primary category from another SEO plugin
+     *
+     * @param string $plugin Plugin slug (yoast, rankmath, aioseo)
+     * @param array  $options Import options
+     * @return array Result array with success, imported, skipped, total, etc.
+     */
+    public function import_primary_category($plugin, $options = [])
+    {
+        $defaults = [
+            'overwrite_existing' => false,
+            'batch_size' => 50,
+            'offset' => 0,
+        ];
+        $options = array_merge($defaults, $options);
+
+        if (!in_array($plugin, ['yoast', 'rankmath', 'aioseo'])) {
+            return [
+                'success' => false,
+                'message' => 'Invalid plugin specified.',
+            ];
+        }
+
+        switch ($plugin) {
+            case 'yoast':
+                return $this->import_yoast_primary_category($options);
+            case 'rankmath':
+                return $this->import_rankmath_primary_category($options);
+            case 'aioseo':
+                return $this->import_aioseo_primary_category($options);
+        }
+
+        return [
+            'success' => false,
+            'message' => 'Unknown error occurred.',
+        ];
+    }
+
+    /**
+     * Import primary category from Yoast SEO
+     */
+    private function import_yoast_primary_category($options)
+    {
+        global $wpdb;
+
+        $batch_size = intval($options['batch_size']);
+        $offset = intval($options['offset']);
+        $overwrite = (bool) $options['overwrite_existing'];
+
+        $total_posts = (int) $wpdb->get_var("
+            SELECT COUNT(DISTINCT post_id)
+            FROM {$wpdb->postmeta}
+            WHERE meta_key = '_yoast_wpseo_primary_category'
+            AND meta_value != ''
+            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+        ");
+
+        $posts = $wpdb->get_results($wpdb->prepare("
+            SELECT DISTINCT post_id
+            FROM {$wpdb->postmeta}
+            WHERE meta_key = '_yoast_wpseo_primary_category'
+            AND meta_value != ''
+            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+            ORDER BY post_id ASC
+            LIMIT %d OFFSET %d
+        ", $batch_size, $offset));
+
+        $imported_count = 0;
+        $skipped_count = 0;
+
+        foreach ($posts as $post_obj) {
+            $post_id = $post_obj->post_id;
+            $term_id = absint(get_post_meta($post_id, '_yoast_wpseo_primary_category', true));
+
+            if ($term_id <= 0 || !get_term($term_id, 'category')) {
+                $skipped_count++;
+                continue;
+            }
+
+            $existing = (int) get_post_meta($post_id, '_metasync_primary_category', true);
+            if ($existing > 0 && !$overwrite) {
+                $skipped_count++;
+                continue;
+            }
+
+            update_post_meta($post_id, '_metasync_primary_category', $term_id);
+            $imported_count++;
+        }
+
+        $processed = $offset + count($posts);
+        $has_more = $processed < $total_posts;
+
+        return [
+            'success' => true,
+            'imported' => $imported_count,
+            'skipped' => $skipped_count,
+            'total' => $total_posts,
+            'has_more' => $has_more,
+        ];
+    }
+
+    /**
+     * Import primary category from Rank Math
+     */
+    private function import_rankmath_primary_category($options)
+    {
+        global $wpdb;
+
+        $batch_size = intval($options['batch_size']);
+        $offset = intval($options['offset']);
+        $overwrite = (bool) $options['overwrite_existing'];
+
+        $total_posts = (int) $wpdb->get_var("
+            SELECT COUNT(DISTINCT post_id)
+            FROM {$wpdb->postmeta}
+            WHERE meta_key = 'rank_math_primary_category'
+            AND meta_value != ''
+            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+        ");
+
+        $posts = $wpdb->get_results($wpdb->prepare("
+            SELECT DISTINCT post_id
+            FROM {$wpdb->postmeta}
+            WHERE meta_key = 'rank_math_primary_category'
+            AND meta_value != ''
+            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+            ORDER BY post_id ASC
+            LIMIT %d OFFSET %d
+        ", $batch_size, $offset));
+
+        $imported_count = 0;
+        $skipped_count = 0;
+
+        foreach ($posts as $post_obj) {
+            $post_id = $post_obj->post_id;
+            $term_id = absint(get_post_meta($post_id, 'rank_math_primary_category', true));
+
+            if ($term_id <= 0 || !get_term($term_id, 'category')) {
+                $skipped_count++;
+                continue;
+            }
+
+            $existing = (int) get_post_meta($post_id, '_metasync_primary_category', true);
+            if ($existing > 0 && !$overwrite) {
+                $skipped_count++;
+                continue;
+            }
+
+            update_post_meta($post_id, '_metasync_primary_category', $term_id);
+            $imported_count++;
+        }
+
+        $processed = $offset + count($posts);
+        $has_more = $processed < $total_posts;
+
+        return [
+            'success' => true,
+            'imported' => $imported_count,
+            'skipped' => $skipped_count,
+            'total' => $total_posts,
+            'has_more' => $has_more,
+        ];
+    }
+
+    /**
+     * Import primary category from AIOSEO
+     */
+    private function import_aioseo_primary_category($options)
+    {
+        global $wpdb;
+
+        $batch_size = intval($options['batch_size']);
+        $offset = intval($options['offset']);
+        $overwrite = (bool) $options['overwrite_existing'];
+
+        $total_posts = (int) $wpdb->get_var("
+            SELECT COUNT(DISTINCT post_id)
+            FROM {$wpdb->postmeta}
+            WHERE meta_key = '_aioseo_primary_category'
+            AND meta_value != ''
+            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+        ");
+
+        $posts = $wpdb->get_results($wpdb->prepare("
+            SELECT DISTINCT post_id
+            FROM {$wpdb->postmeta}
+            WHERE meta_key = '_aioseo_primary_category'
+            AND meta_value != ''
+            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+            ORDER BY post_id ASC
+            LIMIT %d OFFSET %d
+        ", $batch_size, $offset));
+
+        $imported_count = 0;
+        $skipped_count = 0;
+
+        foreach ($posts as $post_obj) {
+            $post_id = $post_obj->post_id;
+            $term_id = absint(get_post_meta($post_id, '_aioseo_primary_category', true));
+
+            if ($term_id <= 0 || !get_term($term_id, 'category')) {
+                $skipped_count++;
+                continue;
+            }
+
+            $existing = (int) get_post_meta($post_id, '_metasync_primary_category', true);
+            if ($existing > 0 && !$overwrite) {
+                $skipped_count++;
+                continue;
+            }
+
+            update_post_meta($post_id, '_metasync_primary_category', $term_id);
+            $imported_count++;
+        }
+
+        $processed = $offset + count($posts);
+        $has_more = $processed < $total_posts;
+
+        return [
+            'success' => true,
+            'imported' => $imported_count,
+            'skipped' => $skipped_count,
+            'total' => $total_posts,
+            'has_more' => $has_more,
+        ];
     }
 
     /**

@@ -337,7 +337,7 @@
 							
 							// Update progress display and start polling
 							updateProgress(10, 1, 6); // Show initial progress
-							console.log('🔍 Starting connect polling with nonce:', response.data.nonce_token);
+							console.log('🔍 Starting connect polling...');
 							setTimeout(function () {
 								startSearchAtlasPolling(response.data.nonce_token);
 							}, 200);

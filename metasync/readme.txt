@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.5.27
+Stable tag: 2.6.1
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,39 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.1 =
+- Feature: Bulk SEO health dashboard — check pages missing meta title, description and schema
+  - Feature: New schema types: LocalBusiness, HowTo, VideoObject
+  - Feature: Extended schema types: Event, JobPosting, Review, Course, Organization, Person, WebSite
+  - Feature: Breadcrumbs module with HTML output and BreadcrumbList schema 
+  - Feature: Primary category selector in post editor sidebar 
+  - Feature: Internal link suggestions in post editor 
+  - Feature: Site Verification page added to SEO navigation
+  - Feature: CPU load awareness and deferral settings
+  - Feature: Whitelabel-aware promo sidebar and quick links settings
+  - Improvement: Replace all emoji icons with WordPress Dashicons across admin UI
+  - Improvement: Compatibility page redesign: accordion rows, themes, CDN, troubleshooting section
+  - Fix: Duplicate schema markup and meta descriptions on multiple pages 
+  - Fix: Sync handlers returning HTTP 200 with empty body on internal WP_Error — PHP 8 fatal prevented 
+  - Fix: Old UI flashing before new UI loads on page transition 
+  - Fix: UI misalignment on Dashboard and various admin pages 
+  - Fix: Schema markup not rendering correctly 
+  - Fix: NitroPack purge conflict on page-load path 
+  - Fix: Image alt-text fallback on Oxygen HTTP render path 
+  - Fix: Content Genius page sync full-width on Oxygen Builder 
+  - Fix: Crawl monitoring showing no data despite successful crawls
+  - Fix: Oxygen Builder synced post content not visible on front-end 
+  - Fix: Restore Performance and CPU settings tab removed during refactor
+  - Fix: Replace burst mode heartbeat with lightweight connection-ping 
+  - Fix: Render OTTO-persisted otto_jsonld in frontend schema output 
+  - Fix: schema_types returning empty array in wordpress_get_post_by_url
+  - Fix: Correct Rate Now review URL and replace emoji star with Dashicon
+  - Fix: Telemetry noise and whitelabel JSON decode bug
+  - Fix: Add save button to Site Verification, Local Business, Code Snippets pages
+  - Fix: Remove dead wp_ajax_metasync hook pointing to non-existent method
+  - Fix: robots_txt_backups table missing on fresh activation
+  - Fix: WP admin sidebar plugin icon vertical misalignment
+
 = 2.5.27 =
 - Fix: Image alt-text unreliable on Oxygen theme HTTP render path; added string-based fallback
 - Fix: Content Genius page sync renders full-width on Oxygen Builder

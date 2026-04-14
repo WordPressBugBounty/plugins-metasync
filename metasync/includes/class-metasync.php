@@ -315,6 +315,12 @@ class Metasync
 		require_once plugin_dir_path(dirname(__FILE__)) . 'schema-markup/class-metasync-schema-markup.php';
 
 		/**
+		 * The classes responsible for Breadcrumbs functionality.
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'breadcrumbs/class-metasync-breadcrumbs.php';
+		require_once plugin_dir_path(dirname(__FILE__)) . 'breadcrumbs/class-metasync-breadcrumbs-schema.php';
+
+		/**
 		 * The class responsible for OTTO Frontend Toolbar functionality.
 		 */
 		require_once plugin_dir_path(dirname(__FILE__)) . 'otto-frontend-toolbar/class-metasync-otto-frontend-toolbar.php';
@@ -447,6 +453,17 @@ class Metasync
 		$post_meta_setting = new Metasync_Post_Meta_Settings();
 		$this->loader->add_action('admin_init', $post_meta_setting, 'add_post_meta_data', 2);
 		$this->loader->add_action('admin_init', $post_meta_setting, 'show_top_admin_bar', 9);
+
+		// SEO Health CSV export: must run on admin_init (before output).
+		// Cheap $_GET check avoids loading the class on every admin page.
+		if (
+			isset($_GET['page'], $_GET['export'], $_GET['_wpnonce']) &&
+			$_GET['export'] === 'csv' &&
+			strpos($_GET['page'], '-seo-health') !== false
+		) {
+			require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-seo-health.php';
+			$this->loader->add_action('admin_init', Metasync_SEO_Health::get_instance(), 'handle_csv_export', 1);
+		}
 		$this->loader->add_action('wp', $post_meta_setting, 'show_top_admin_bar', 9);
 
 		// Initialize XML Sitemap auto-update hooks if enabled
@@ -462,6 +479,14 @@ class Metasync
 		$schema_markup = new Metasync_Schema_Markup($this->get_plugin_name(), $this->get_version());
 		$this->loader->add_action('wp_ajax_metasync_get_schema_fields', $schema_markup, 'ajax_get_schema_fields');
 		$this->loader->add_action('wp_ajax_metasync_preview_schema', $schema_markup, 'ajax_preview_schema');
+
+		// Initialize Breadcrumbs functionality
+		if (class_exists('Metasync_Breadcrumbs')) {
+			new Metasync_Breadcrumbs($this->get_plugin_name(), $this->get_version());
+		}
+		if (class_exists('Metasync_Breadcrumbs_Schema')) {
+			new Metasync_Breadcrumbs_Schema($this->get_plugin_name(), $this->get_version());
+		}
 
 		// Initialize Developer Panel (for endpoint switching)
 		if (class_exists('Metasync_Dev_Panel')) {

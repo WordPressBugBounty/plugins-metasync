@@ -235,6 +235,8 @@ class Metasync_Sitemap_Generator
                 $changefreq = 'monthly';
             }
 
+            // Note: get_permalink() respects the post_link_category filter registered
+            // in Metasync_Seo_Output, which automatically resolves the primary category.
             $urls[] = [
                 'loc' => get_permalink($post->ID),
                 'lastmod' => $post->post_modified_gmt,

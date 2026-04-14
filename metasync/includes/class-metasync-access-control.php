@@ -25,7 +25,7 @@ class Metasync_Access_Control {
         'hide_xml_sitemap' => 'XML Sitemap',
         'hide_import_seo' => 'Import SEO Data',
         'hide_custom_pages' => 'Custom Pages',
-        'hide_sync_log' => 'Sync Log',
+        'hide_sync_log' => 'Changes Log',
         'hide_compatibility' => 'Compatibility',
         'hide_report_issue' => 'Report Issue',
 

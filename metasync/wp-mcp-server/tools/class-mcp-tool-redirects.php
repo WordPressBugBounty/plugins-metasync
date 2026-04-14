@@ -160,7 +160,7 @@ class MCP_Tool_List_Redirects extends MCP_Tool_Base {
             $sources_raw = $redirect->sources_from;
             $source = null;
             if ( ! empty( $sources_raw ) ) {
-                $sources = @unserialize( $sources_raw );
+                $sources = unserialize( $sources_raw, ['allowed_classes' => false] ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
                 if ( is_array( $sources ) && ! empty( $sources ) ) {
                     $keys = array_keys( $sources );
                     $source = is_int( $keys[0] ) ? $sources[ $keys[0] ] : $keys[0];
@@ -324,7 +324,7 @@ class MCP_Tool_Update_Redirect extends MCP_Tool_Base {
         $updated = $db->find($redirect_id);
         $source = null;
         if ( ! empty( $updated->sources_from ) ) {
-            $sources = @unserialize( $updated->sources_from );
+            $sources = unserialize( $updated->sources_from, ['allowed_classes' => false] ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
             if ( is_array( $sources ) && ! empty( $sources ) ) {
                 $keys = array_keys( $sources );
                 $source = is_int( $keys[0] ) ? $sources[ $keys[0] ] : $keys[0];

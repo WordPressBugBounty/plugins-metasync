@@ -9,7 +9,7 @@
 
 	<?php if (!$this->get_setting('api_key')) { ?>
 		<div class="dashboard-card">
-			<h2>⚠️ Configuration Required</h2>
+			<h2>Configuration Required</h2>
 			<p class="description" style="color: var(--dashboard-text-secondary); font-size: 16px; line-height: 1.6;">
 			<?php
 			echo wp_kses_post(
@@ -33,7 +33,7 @@
 	?>
 	<form id="metasync-bing-form" class="wpform" method="post">
 		<div class="dashboard-card">
-			<h2>🔗 URL Configuration</h2>
+			<h2>URL Configuration</h2>
 			<p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Enter the URLs you want to submit to Bing and other search engines via IndexNow.</p>
 
 			<table class="form-table">
@@ -54,13 +54,13 @@
 
 			<div style="margin-top: 20px;">
 				<button type="button" id="metasync-bing-btn-send" name="metasync-bing-btn-send" class="button button-primary">
-					📤 Submit to IndexNow
+					<span class="dashicons dashicons-upload" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Submit to IndexNow
 				</button>
 			</div>
 		</div>
 
 		<div class="dashboard-card" id="metasync-bing-response" style="display: none;">
-			<h2>📋 Submission Response</h2>
+			<h2>Submission Response</h2>
 			<div class="result-wrapper" style="background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 20px; margin-top: 16px;">
 				<code class="result-urls" style="color: var(--dashboard-accent); font-weight: 600; display: block; margin-bottom: 12px;"></code>
 				<h4 class="result-status-code" style="color: var(--dashboard-text-primary); margin: 12px 0;"></h4>
@@ -69,7 +69,7 @@
 		</div>
 
 		<div class="dashboard-card">
-			<h2>ℹ️ About IndexNow Submission</h2>
+			<h2>About IndexNow Submission</h2>
 			<p style="color: var(--dashboard-text-secondary); margin-bottom: 15px;">
 				IndexNow is a simple protocol that notifies search engines when your content has been created, updated, or deleted.
 			</p>
@@ -82,7 +82,7 @@
 		</div>
 
 		<div class="dashboard-card">
-			<h2>🔧 Bing Webmaster Tools</h2>
+			<h2>Bing Webmaster Tools</h2>
 			<p style="color: var(--dashboard-text-secondary); margin-bottom: 15px;">
 				Monitor your IndexNow submissions and track your site's performance in Bing search results.
 			</p>
@@ -90,7 +90,7 @@
 				After submitting URLs via IndexNow, you can view submission history, indexing status, and detailed analytics in Bing Webmaster Tools.
 			</p>
 			<a href="https://www.bing.com/webmasters" target="_blank" rel="noopener noreferrer" class="button button-secondary" style="margin-bottom: 10px;">
-				🌐 Open Bing Webmaster Tools
+				<span class="dashicons dashicons-external" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Open Bing Webmaster Tools
 			</a>
 			<p class="description" style="color: var(--dashboard-text-secondary); margin-top: 15px;">
 				<strong>Note:</strong> Make sure your site is verified in Bing Webmaster Tools to see submission analytics and indexing reports.

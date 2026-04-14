@@ -112,11 +112,11 @@ class Metasync_Dev_Panel {
 		?>
 		<div class="notice notice-warning" style="border-left: 4px solid #ff9800; background: #fff3cd; padding: 12px 15px;">
 			<p style="font-size: 14px; margin: 0;">
-				<strong>⚠️ STAGING MODE ACTIVE</strong><br>
+				<strong>STAGING MODE ACTIVE</strong><br>
 				All <?php echo esc_html( Metasync::get_effective_plugin_name() ); ?> API endpoints are currently pointing to STAGING servers. This is intended for development and testing only.
 				<br>
 				<a href="<?php echo esc_url( $dev_panel_url ); ?>" class="button button-secondary" style="margin-top: 8px;">
-					🔧 Open Developer Tools
+					<span class="dashicons dashicons-admin-tools" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Open Developer Tools
 				</a>
 			</p>
 		</div>
@@ -202,14 +202,14 @@ class Metasync_Dev_Panel {
 			<?php Metasync_Admin::render_static_header( 'Developer Tools - Setup' ); ?>
 
 			<div class="dashboard-card" style="max-width: 600px; margin: 0 auto;">
-				<h2 style="text-align: center; color: #fff;">🔐 Developer Tools - Initial Setup</h2>
+				<h2 style="text-align: center; color: #fff;">Developer Tools - Initial Setup</h2>
 				<p style="color: #646970; margin-bottom: 30px; text-align: center;">
 					Welcome to the Developer Tools panel. Please create a password to secure access to endpoint switching features.
 				</p>
 
 				<?php if ( ! empty( $setup_error ) ) : ?>
 					<div style="background: #f8d7da; color: #721c24; padding: 12px; border-radius: 6px; margin-bottom: 20px; border: 1px solid #f5c6cb;">
-						<strong>❌ Error:</strong> <?php echo esc_html( $setup_error ); ?>
+						<strong>Error:</strong> <?php echo esc_html( $setup_error ); ?>
 					</div>
 				<?php endif; ?>
 
@@ -218,7 +218,7 @@ class Metasync_Dev_Panel {
 
 					<div style="margin-bottom: 20px;">
 						<label for="dev_panel_new_password" style="display: block; font-weight: 600; margin-bottom: 8px; color: #fff;">
-							🔑 Create Password
+							Create Password
 						</label>
 						<input
 							type="password"
@@ -233,7 +233,7 @@ class Metasync_Dev_Panel {
 
 					<div style="margin-bottom: 20px;">
 						<label for="dev_panel_confirm_password" style="display: block; font-weight: 600; margin-bottom: 8px; color: #fff;">
-							🔁 Confirm Password
+							Confirm Password
 						</label>
 						<input
 							type="password"
@@ -254,7 +254,7 @@ class Metasync_Dev_Panel {
 							class="button button-primary"
 							style="padding: 12px 24px; font-size: 14px; font-weight: 600;"
 						>
-							🚀 Create Password & Continue
+							Create Password & Continue
 						</button>
 					</div>
 				</form>
@@ -295,14 +295,14 @@ class Metasync_Dev_Panel {
 			<?php Metasync_Admin::render_static_header( 'Developer Tools' ); ?>
 
 			<div class="dashboard-card" style="max-width: 500px; margin: 0 auto;">
-				<h2 style="text-align: center; color: #fff;">🔐 Protected Area</h2>
+				<h2 style="text-align: center; color: #fff;">Protected Area</h2>
 				<p style="color: #646970; margin-bottom: 30px; text-align: center;">
 					Please enter the password to access the Developer Tools panel.
 				</p>
 
 				<?php if ( ! empty( $password_error ) ) : ?>
 					<div style="background: #f8d7da; color: #721c24; padding: 12px; border-radius: 6px; margin-bottom: 20px; border: 1px solid #f5c6cb;">
-						<strong>❌ Access Denied:</strong> <?php echo esc_html( $password_error ); ?>
+						<strong>Access Denied:</strong> <?php echo esc_html( $password_error ); ?>
 					</div>
 				<?php endif; ?>
 
@@ -311,7 +311,7 @@ class Metasync_Dev_Panel {
 
 					<div style="margin-bottom: 20px;">
 						<label for="dev_panel_password" style="display: block; font-weight: 600; margin-bottom: 8px; color: #fff;">
-							🔑 Enter Password
+							Enter Password
 						</label>
 						<input
 							type="password"
@@ -332,7 +332,7 @@ class Metasync_Dev_Panel {
 							class="button button-primary"
 							style="padding: 12px 24px; font-size: 14px; font-weight: 600;"
 						>
-							🚀 Submit Password
+							Submit Password
 						</button>
 					</div>
 				</form>
@@ -421,7 +421,7 @@ class Metasync_Dev_Panel {
 			<div class="dashboard-card">
 				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
 					<div>
-						<h2 style="margin: 0; color: #fff;">🔧 Developer Tools - Endpoint Switching</h2>
+						<h2 style="margin: 0; color: #fff;">Developer Tools - Endpoint Switching</h2>
 						<p style="color: #646970; margin: 5px 0 0 0;">
 							Switch between production and staging API endpoints for testing.
 						</p>
@@ -429,7 +429,7 @@ class Metasync_Dev_Panel {
 					<form method="post" style="margin: 0;">
 						<?php wp_nonce_field( 'metasync_dev_panel_logout', 'logout_nonce' ); ?>
 						<button type="submit" name="logout_submit" value="1" class="button" style="margin: 0;">
-							🔒 Logout
+							<span class="dashicons dashicons-exit" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Logout
 						</button>
 					</form>
 				</div>
@@ -451,7 +451,7 @@ class Metasync_Dev_Panel {
 					</p>
 				</div>
 
-				<h3 style="margin-top: 30px; margin-bottom: 15px; color: #fff;">🔄 Switch Endpoint Mode</h3>
+				<h3 style="margin-top: 30px; margin-bottom: 15px; color: #fff;">Switch Endpoint Mode</h3>
 				<form method="post">
 					<?php wp_nonce_field( 'metasync_switch_endpoints', 'switch_endpoints_nonce' ); ?>
 
@@ -468,13 +468,13 @@ class Metasync_Dev_Panel {
 					</div>
 
 					<button type="submit" name="switch_endpoints_submit" value="1" class="button button-primary">
-						🔄 Switch Endpoints
+						<span class="dashicons dashicons-controls-repeat" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Switch Endpoints
 					</button>
 				</form>
 			</div>
 
 			<div class="dashboard-card">
-				<h3 style="color: #fff;">📋 Current Endpoint Configuration</h3>
+				<h3 style="color: #fff;">Current Endpoint Configuration</h3>
 				<table class="widefat" style="border: 1px solid #ddd;">
 					<thead>
 						<tr>
@@ -496,7 +496,7 @@ class Metasync_Dev_Panel {
 			</div>
 
 			<div class="dashboard-card">
-				<h3 style="color: #fff;">🔐 Password Management</h3>
+				<h3 style="color: #fff;">Password Management</h3>
 				<p style="color: #646970; margin-bottom: 20px;">
 					Update the password required to access this developer panel.
 				</p>
@@ -519,7 +519,7 @@ class Metasync_Dev_Panel {
 					</div>
 
 					<button type="submit" name="update_password_submit" value="1" class="button">
-						💾 Update Password
+						Update Password
 					</button>
 				</form>
 			</div>

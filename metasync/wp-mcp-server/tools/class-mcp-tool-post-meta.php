@@ -51,7 +51,8 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
                         '_metasync_og_url',
                         '_metasync_og_type',
                         '_metasync_twitter_title',
-                        '_metasync_twitter_description'
+                        '_metasync_twitter_description',
+                        '_metasync_primary_category'
                     ]
                 ],
                 'meta_value' => [
@@ -75,6 +76,11 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
         // SECURITY: Additional sanitization for URL fields (prevent javascript: protocol)
         if (in_array($meta_key, ['_metasync_og_image', '_metasync_og_url', '_metasync_canonical_url'])) {
             $meta_value = esc_url_raw($meta_value);
+        }
+
+        // Sanitize integer meta fields
+        if ($meta_key === '_metasync_primary_category') {
+            $meta_value = (string) absint($meta_value);
         }
 
         // Verify post exists
@@ -250,7 +256,8 @@ class MCP_Tool_Get_SEO_Meta extends MCP_Tool_Base {
                 'meta_description' => get_post_meta($post_id, '_metasync_metadesc', true),
                 'focus_keyword' => get_post_meta($post_id, '_metasync_focus_keyword', true),
                 'robots_index' => get_post_meta($post_id, '_metasync_robots_index', true),
-                'canonical_url' => get_post_meta($post_id, '_metasync_canonical_url', true)
+                'canonical_url' => get_post_meta($post_id, '_metasync_canonical_url', true),
+                'primary_category' => $this->get_primary_category_data($post_id),
             ],
             'opengraph_meta' => [
                 'enabled' => get_post_meta($post_id, '_metasync_og_enabled', true),
@@ -271,5 +278,30 @@ class MCP_Tool_Get_SEO_Meta extends MCP_Tool_Base {
         ];
 
         return $this->success($seo_data);
+    }
+
+    /**
+     * Get primary category data for a post
+     *
+     * @param int $post_id The post ID
+     * @return array|null Primary category data or null if not set
+     */
+    private function get_primary_category_data($post_id) {
+        $primary_cat_id = (int) get_post_meta($post_id, '_metasync_primary_category', true);
+
+        if ($primary_cat_id === 0) {
+            return null;
+        }
+
+        $term = get_term($primary_cat_id, 'category');
+        if (!$term || is_wp_error($term)) {
+            return null;
+        }
+
+        return [
+            'term_id' => $primary_cat_id,
+            'name' => $term->name,
+            'slug' => $term->slug,
+        ];
     }
 }

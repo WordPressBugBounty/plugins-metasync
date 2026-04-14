@@ -167,7 +167,7 @@ class Metasync_Edge_Cache_Settings {
                 </label>
                 <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 16px;">
                     <p style="color: var(--dashboard-text-secondary); margin: 0; font-size: 13px;">
-                        <strong style="color: var(--dashboard-info, #3b82f6);">ℹ️ How it works:</strong><br>
+                        <strong style="color: var(--dashboard-info, #3b82f6);">How it works:</strong><br>
                         Adds <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px;">Cache-Tag</code>,
                         <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px;">Surrogate-Key</code>, and
                         <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px;">Edge-Cache-Tag</code>

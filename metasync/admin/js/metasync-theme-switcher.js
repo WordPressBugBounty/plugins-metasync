@@ -146,5 +146,16 @@
 		MetaSyncTheme.init();
 	});
 
+	// Global function called by the compact header toggle button
+	// (onclick="toggleMetasyncTheme()" in render_layout_open / render_plugin_header)
+	window.toggleMetasyncTheme = function () {
+		const wrap = document.querySelector('.metasync-dashboard-wrap');
+		const current = (wrap ? wrap.getAttribute('data-theme') : null)
+			|| localStorage.getItem('metasync_theme')
+			|| 'dark';
+		const next = current === 'dark' ? 'light' : 'dark';
+		MetaSyncTheme.toggleTheme(next);
+	};
+
 })(jQuery);
 

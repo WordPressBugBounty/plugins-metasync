@@ -227,7 +227,7 @@ mixpanel.register({
             $plugin_slug                        => 'Settings',
             $plugin_slug . '-dashboard'         => 'Dashboard',
             $plugin_slug . '-compatibility'     => 'Compatibility',
-            $plugin_slug . '-sync-log'          => 'Sync Log',
+            $plugin_slug . '-sync-log'          => 'Changes Log',
             $plugin_slug . '-seo-controls'      => 'Indexation Control',
             $plugin_slug . '-redirections'      => 'Redirections',
             $plugin_slug . '-xml-sitemap'       => 'XML Sitemap',

@@ -711,7 +711,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 	{
 		# $source_urls = unserialize($item['sources_from']);
 		# Unserialize the sources_from field
-		$source_urls = @unserialize($item['sources_from']);
+		$source_urls = unserialize($item['sources_from'], ['allowed_classes' => false]); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
 		
 		# If unserialize failed or returned non-array, try to handle it
 		if (!is_array($source_urls)) {
@@ -730,7 +730,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 			
 			# Check if source_name itself is serialized (edge case)
 			if (is_string($source_name) && strpos($source_name, 'a:') === 0) {
-				$unserialized = @unserialize($source_name);
+				$unserialized = unserialize($source_name, ['allowed_classes' => false]); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
 				if (is_array($unserialized) && isset($unserialized[0]['pattern'])) {
 					$clean_source = $unserialized[0]['pattern'];
 				}

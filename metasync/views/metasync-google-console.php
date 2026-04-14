@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) {
 
 	<?php if (!$is_configured) { ?>
 		<div class="dashboard-card">
-			<h2>⚠️ Configuration Required</h2>
+			<h2>Configuration Required</h2>
 			<p class="description" style="color: var(--dashboard-text-secondary); font-size: 16px; line-height: 1.6;">
 			<?php
 			echo wp_kses_post(
@@ -47,7 +47,7 @@ if (!defined('ABSPATH')) {
 	?>
 	<form id="metasync-giapi-form" class="wpform" method="post">
 		<div class="dashboard-card">
-			<h2>🔗 URL Configuration</h2>
+			<h2>URL Configuration</h2>
 			<p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Enter the URLs you want to index with Google.</p>
 
 			<table class="form-table">
@@ -65,7 +65,7 @@ if (!defined('ABSPATH')) {
 		</div>
 
 		<div class="dashboard-card">
-			<h2>⚡ Indexing Actions</h2>
+			<h2>Indexing Actions</h2>
 			<p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Choose the action you want to perform on the URLs.</p>
 
 			<table class="form-table">
@@ -77,15 +77,15 @@ if (!defined('ABSPATH')) {
 						<div style="display: flex; flex-direction: column; gap: 12px;">
 							<label style="display: flex; align-items: center; gap: 8px; color: var(--dashboard-text-primary);">
 								<input type="radio" name="metasync_api_action" value="update" class="metasync-giapi-action" <?php checked($action, 'update'); ?>>
-								🚀 Publish URL
+								Publish URL
 							</label>
 							<label style="display: flex; align-items: center; gap: 8px; color: var(--dashboard-text-primary);">
 								<input type="radio" name="metasync_api_action" value="status" class="metasync-giapi-action" <?php checked($action, 'status'); ?>>
-								📊 URL status
+								URL status
 							</label>
 							<label style="display: flex; align-items: center; gap: 8px; color: var(--dashboard-text-primary);">
 								<input type="radio" name="metasync_api_action" value="remove" class="metasync-giapi-action" <?php checked($action, 'remove'); ?>>
-								🗑️ Remove URL
+								Remove URL
 							</label>
 						</div>
 					</td>
@@ -94,16 +94,16 @@ if (!defined('ABSPATH')) {
 		</div>
 
 		<div class="dashboard-card">
-			<h2>📤 Execute Action</h2>
+			<h2>Execute Action</h2>
 			<p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Send your request to Google's Indexing API.</p>
 			<button type="button" id="metasync-btn-send" name="metasync-btn-send" class="button button-primary">
-				📤 Send URL
+				<span class="dashicons dashicons-upload" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Send URL
 			</button>
 		</div>
 	</form>
 
 	<div class="dashboard-card" id="metasync-giapi-response" style="display: none;">
-		<h2>📋 API Response</h2>
+		<h2>API Response</h2>
 		<div class="result-wrapper" style="background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 20px; margin-top: 16px;">
 			<code class="result-action" style="color: var(--dashboard-accent); font-weight: 600;"></code>
 			<h4 class="result-status-code" style="color: var(--dashboard-text-primary); margin: 12px 0;"></h4>

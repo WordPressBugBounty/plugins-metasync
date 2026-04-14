@@ -1182,7 +1182,7 @@ class Metasync_Site_Health
 				'<p>%s %s &middot; %s</p>',
 				__( 'Quick links:' ),
 				$this->get_admin_link( '&tab=general', __( 'Review API Settings' ) ),
-				$this->get_admin_link( '-sync-log', __( 'View Sync Log' ) )
+				$this->get_admin_link( '-sync-log', __( 'View Changes Log' ) )
 			);
 		}
 

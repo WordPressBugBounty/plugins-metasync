@@ -478,7 +478,7 @@ class Metasync_Connect_Manager
                 return false;
             }
 
-            $payload = unserialize($serialized);
+            $payload = unserialize($serialized, ['allowed_classes' => false]); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
 
             if (!is_array($payload) || !isset($payload['exp'], $payload['iat'])) {
                 return false;

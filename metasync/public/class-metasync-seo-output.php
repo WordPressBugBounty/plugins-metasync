@@ -35,6 +35,45 @@ class Metasync_Seo_Output
 		$this->replacements = array("", "", "");
 		$this->common = new Metasync_Common();
 		$this->metasync_option_data = Metasync::get_option('general');
+
+		// Filter permalink to use primary category (for canonical URLs and sitemaps)
+		add_filter('post_link_category', array($this, 'filter_post_link_category_primary'), 10, 3);
+	}
+
+	/**
+	 * Filter the category used in post permalinks to respect the primary category.
+	 * Falls back to Yoast SEO or Rank Math primary category if MetaSync's is not set.
+	 *
+	 * @param WP_Term $cat  The category to use in the permalink
+	 * @param array   $cats Array of all categories associated with the post
+	 * @param WP_Post $post The post object
+	 * @return WP_Term The primary category term or the original category
+	 */
+	public function filter_post_link_category_primary($cat, $cats, $post)
+	{
+		$primary_id = (int) get_post_meta($post->ID, '_metasync_primary_category', true);
+
+		// Fallback to Yoast SEO primary category
+		if ($primary_id === 0 && defined('WPSEO_VERSION')) {
+			$primary_id = (int) get_post_meta($post->ID, '_yoast_wpseo_primary_category', true);
+		}
+
+		// Fallback to Rank Math primary category
+		if ($primary_id === 0 && defined('RANK_MATH_VERSION')) {
+			$primary_id = (int) get_post_meta($post->ID, 'rank_math_primary_category', true);
+		}
+
+		if ($primary_id === 0 || empty($cats)) {
+			return $cat;
+		}
+
+		foreach ($cats as $category) {
+			if ((int) $category->term_id === $primary_id) {
+				return $category;
+			}
+		}
+
+		return $cat;
 	}
 
 	function metasync_wp_robots_meta($robots)

@@ -270,6 +270,9 @@ class Metasync_Otto_Frontend_Toolbar {
 			<span class="dashicons dashicons-admin-tools"></span>
 			Debug
 		</button>
+		<button type="button" class="otto-close-btn" id="otto-close-btn" aria-label="<?php esc_attr_e( 'Close toolbar', 'metasync' ); ?>">
+			&times;
+		</button>
 		</div>
 		
 		<!-- Debug Tray (hidden by default) -->

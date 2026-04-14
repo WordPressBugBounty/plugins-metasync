@@ -123,7 +123,7 @@ class Metasync_Redirection
     public function source_url_redirection(object $row, string $uri)
     {
         // Optimize: unserialize only once
-        $sources_from = unserialize($row->sources_from);
+        $sources_from = unserialize($row->sources_from, ['allowed_classes' => false]); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
         $source_urls = is_array($sources_from) ? $sources_from : [];
         $global_pattern_type = isset($row->pattern_type) ? $row->pattern_type : null;
         $regex_pattern = isset($row->regex_pattern) ? $row->regex_pattern : null;
@@ -374,7 +374,7 @@ class Metasync_Redirection
     private function get_destination_for_row_and_uri($row, $uri)
     {
         // Parse stored redirect sources (serialized: source path/URL => pattern type per source, or single list)
-        $sources_from = @unserialize($row->sources_from);
+        $sources_from = unserialize($row->sources_from, ['allowed_classes' => false]); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
         $source_urls = is_array($sources_from) ? $sources_from : array();
         $global_pattern_type = isset($row->pattern_type) ? $row->pattern_type : null;
         $regex_pattern = isset($row->regex_pattern) ? $row->regex_pattern : null;
