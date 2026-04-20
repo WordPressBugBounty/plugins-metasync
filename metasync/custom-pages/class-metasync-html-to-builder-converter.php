@@ -186,7 +186,7 @@ class Metasync_HTML_To_Builder_Converter
 			'gutenberg' => array(
 				'label'       => 'Gutenberg (WordPress Block Editor)',
 				'description' => 'Content is stored as WordPress blocks and rendered via the theme\'s native styling. Best compatibility with all themes and page builders.',
-				'detected'    => ($detected === 'gutenberg'),
+				'detected'    => true,
 			),
 			'elementor' => array(
 				'label'       => 'Elementor',

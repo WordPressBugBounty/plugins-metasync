@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.6.1
+Stable tag: 2.6.2
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,21 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.2 =
+- Improvement: Whitelabel now supports separate logo uploads for light and dark admin themes
+  - Improvement: Breadcrumbs settings panel redesigned with cleaner layout and more configuration options
+  - Fix: Page title tags now update correctly when Yoast SEO is active
+  - Fix: OTTO optimizations no longer disappear when Rank Math is installed alongside the plugin
+  - Fix: Duplicate keywords meta tag no longer appears in page source after OTTO applies keyword recommendations
+  - Fix: Theme builder selector no longer lists builders that are not installed or detected on the site
+  - Fix: MCP server now returns descriptive error messages instead of generic failures
+  - Fix: MCP server correctly handles post status and primary category fields
+  - Fix: MCP server now supports Twitter card meta fields and bulk taxonomy term operations
+  - Fix: Plugin sidebar icon and menu now match standard WordPress appearance
+  - Fix: Long field labels in Settings no longer overflow their column
+  - Fix: 404 Monitor bulk actions bar stays on one line instead of wrapping
+  - Fix: Breadcrumbs settings section now shows its icon correctly
+
 = 2.6.1 =
 - Feature: Bulk SEO health dashboard — check pages missing meta title, description and schema
   - Feature: New schema types: LocalBusiness, HowTo, VideoObject

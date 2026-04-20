@@ -263,6 +263,27 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     filter: brightness(1.1) contrast(1.1);
 }
 
+/* Dual-logo theme switching */
+/* Default: show dark logo, hide light (matches PHP default theme of 'dark') */
+.metasync-logo-light { display: none; }
+.metasync-logo-dark  { display: block; }
+
+[data-theme="light"] .metasync-logo-dark {
+    display: none;
+}
+
+[data-theme="dark"] .metasync-logo-light {
+    display: none;
+}
+
+.metasync-header[data-current-theme="light"] .metasync-logo-dark {
+    display: none;
+}
+
+.metasync-header[data-current-theme="dark"] .metasync-logo-light {
+    display: none;
+}
+
 /* Page Title Section - Below Header */
 .metasync-dashboard-wrap .metasync-page-title {
     margin-bottom: 2rem;
@@ -2972,13 +2993,15 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 /* Field Label Wrapper */
 .metasync-field-label-wrapper {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     position: relative;
 }
 
 .metasync-field-label-wrapper label {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
+    min-width: 0;
+    word-break: break-word;
 }
 
 /* Tooltip Trigger Button */

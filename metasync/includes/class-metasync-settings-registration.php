@@ -902,22 +902,27 @@ class Metasync_Settings_Registration
                 echo '<select id="default_page_builder" name="' . esc_attr($option_key) . '[general][default_page_builder]" style="min-width: 300px;">';
 
                 foreach ($builders as $key => $builder) {
+                    $is_detected = $builder['detected'];
                     $label = esc_html($builder['label']);
-                    if ($builder['detected'] && $key !== 'gutenberg') {
+                    if ($is_detected && $key !== 'gutenberg') {
                         $label .= ' — Detected';
+                    } elseif (!$is_detected) {
+                        $label .= ' — Not Detected';
                     }
                     if ($key === 'gutenberg' && empty($current)) {
                         $label .= ' — Default';
                     }
                     printf(
-                        '<option value="%s" %s>%s</option>',
+                        '<option value="%s" %s%s>%s</option>',
                         esc_attr($key),
                         selected(empty($current) ? 'gutenberg' : $current, $key, false),
+                        $is_detected ? '' : ' disabled',
                         $label
                     );
                 }
 
                 echo '</select>';
+                echo '<p class="description" style="margin-top: 6px;">Only theme builders detected on your site can be selected. Undetected builders are shown as disabled.</p>';
 
                 # Show current auto-detection result
                 if (!empty($builders[$auto_detected]) && $auto_detected !== 'gutenberg') {
@@ -1001,13 +1006,26 @@ class Metasync_Settings_Registration
         );
         
         add_settings_field(
-            'whitelabel_logo_url',
-            'Logo URL',
+            'whitelabel_logo_light_url',
+            'Logo (Light Theme)',
             function() use ($option_key) {
                 $whitelabel_settings = Metasync::get_whitelabel_settings();
-                $value = $whitelabel_settings['logo'] ?? '';   
-                printf('<input type="url" name="' . $option_key . '[whitelabel][logo]" value="' . esc_attr($value) . '" size="60" />');
-                printf('<p class="description">Enter the URL of your logo image. Leave blank to use the default %s logo.</p>', esc_html(Metasync::get_effective_plugin_name()));
+                $value = $whitelabel_settings['logo_light'] ?? '';
+                printf('<input type="url" name="' . $option_key . '[whitelabel][logo_light]" value="' . esc_attr($value) . '" size="60" />');
+                printf('<p class="description">Displayed when the admin UI is in light mode. Leave blank to use the default %s logo.</p>', esc_html(Metasync::get_effective_plugin_name()));
+            },
+            $page_slug . '_branding',
+            $SECTION_METASYNC
+        );
+
+        add_settings_field(
+            'whitelabel_logo_dark_url',
+            'Logo (Dark Theme)',
+            function() use ($option_key) {
+                $whitelabel_settings = Metasync::get_whitelabel_settings();
+                $value = $whitelabel_settings['logo_dark'] ?? '';
+                printf('<input type="url" name="' . $option_key . '[whitelabel][logo_dark]" value="' . esc_attr($value) . '" size="60" />');
+                printf('<p class="description">Displayed when the admin UI is in dark mode. Leave blank to use the default %s logo.</p>', esc_html(Metasync::get_effective_plugin_name()));
             },
             $page_slug . '_branding',
             $SECTION_METASYNC
@@ -1904,14 +1922,15 @@ class Metasync_Settings_Registration
 
             $general_input = $input['general'] ?? [];
             $plugin_name = isset($general_input['white_label_plugin_name']) ? trim((string) $general_input['white_label_plugin_name']) : '';
-            $logo = isset($input['whitelabel']['logo']) ? trim((string) $input['whitelabel']['logo']) : '';
+            $logo_light = isset($input['whitelabel']['logo_light']) ? trim((string) $input['whitelabel']['logo_light']) : '';
+            $logo_dark = isset($input['whitelabel']['logo_dark']) ? trim((string) $input['whitelabel']['logo_dark']) : '';
             $author = isset($general_input['white_label_plugin_author']) ? trim((string) $general_input['white_label_plugin_author']) : '';
             $author_uri = isset($general_input['white_label_plugin_author_uri']) ? trim((string) $general_input['white_label_plugin_author_uri']) : '';
             $plugin_uri = isset($general_input['white_label_plugin_uri']) ? trim((string) $general_input['white_label_plugin_uri']) : '';
             $domain = isset($input['whitelabel']['domain']) ? trim((string) $input['whitelabel']['domain']) : '';
             $description = isset($general_input['white_label_plugin_description']) ? trim((string) $general_input['white_label_plugin_description']) : '';
 
-            $has_core_field = (!empty($plugin_name) || (!empty($logo) && filter_var($logo, FILTER_VALIDATE_URL)) || !empty($author));
+            $has_core_field = (!empty($plugin_name) || (!empty($logo_light) && filter_var($logo_light, FILTER_VALIDATE_URL)) || (!empty($logo_dark) && filter_var($logo_dark, FILTER_VALIDATE_URL)) || !empty($author));
             $has_optional_only = (!empty($author_uri) || !empty($plugin_uri) || (!empty($domain) && filter_var($domain, FILTER_VALIDATE_URL)) || !empty($description));
 
             if ($has_optional_only && !$has_core_field) {
@@ -1937,7 +1956,27 @@ class Metasync_Settings_Registration
                 
                 }
             }
-            
+
+            if (isset($input['whitelabel']['logo_light'])) {
+                $logo_light_value = trim($input['whitelabel']['logo_light']);
+
+                if (!empty($logo_light_value) && filter_var($logo_light_value, FILTER_VALIDATE_URL)) {
+                    $new_input['whitelabel']['logo_light'] = esc_url_raw($logo_light_value);
+                } else {
+                    $new_input['whitelabel']['logo_light'] = '';
+                }
+            }
+
+            if (isset($input['whitelabel']['logo_dark'])) {
+                $logo_dark_value = trim($input['whitelabel']['logo_dark']);
+
+                if (!empty($logo_dark_value) && filter_var($logo_dark_value, FILTER_VALIDATE_URL)) {
+                    $new_input['whitelabel']['logo_dark'] = esc_url_raw($logo_dark_value);
+                } else {
+                    $new_input['whitelabel']['logo_dark'] = '';
+                }
+            }
+
             if (isset($input['whitelabel']['domain'])) {
                 $domain_value = trim($input['whitelabel']['domain']);
                 
@@ -2089,6 +2128,11 @@ class Metasync_Settings_Registration
     {
         if (!isset($_POST['meta_sync_nonce']) || !wp_verify_nonce($_POST['meta_sync_nonce'], 'meta_sync_general_setting_nonce')) {
             wp_send_json_error(array('message' => 'Invalid nonce'));
+            return;
+        }
+
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(['message' => 'Insufficient permissions.'], 403);
             return;
         }
 
@@ -2244,24 +2288,51 @@ class Metasync_Settings_Registration
             }
         }
 
+        if ($general_tab_submitted) {
+            $breadcrumbs_input = isset($_POST['metasync_options']['breadcrumbs']) && is_array($_POST['metasync_options']['breadcrumbs'])
+                ? $_POST['metasync_options']['breadcrumbs']
+                : array();
+
+            if (!isset($metasync_options['breadcrumbs']) || !is_array($metasync_options['breadcrumbs'])) {
+                $metasync_options['breadcrumbs'] = array();
+            }
+
+            $metasync_options['breadcrumbs']['enabled']             = !empty($breadcrumbs_input['enabled']);
+            $metasync_options['breadcrumbs']['show_current_page']   = !empty($breadcrumbs_input['show_current_page']);
+            $metasync_options['breadcrumbs']['separator']           = isset($breadcrumbs_input['separator']) ? sanitize_text_field($breadcrumbs_input['separator']) : '»';
+            $metasync_options['breadcrumbs']['home_label']          = isset($breadcrumbs_input['home_label']) ? sanitize_text_field($breadcrumbs_input['home_label']) : 'Home';
+            $metasync_options['breadcrumbs']['home_url']            = isset($breadcrumbs_input['home_url']) ? esc_url_raw($breadcrumbs_input['home_url']) : '';
+            $metasync_options['breadcrumbs']['prefix_text']         = isset($breadcrumbs_input['prefix_text']) ? sanitize_text_field($breadcrumbs_input['prefix_text']) : '';
+            $metasync_options['breadcrumbs']['archive_label_format'] = isset($breadcrumbs_input['archive_label_format']) ? sanitize_text_field($breadcrumbs_input['archive_label_format']) : '{name}';
+        }
+
         if ($general_tab_submitted && isset($_POST['metasync_options']['general']['default_page_builder'])) {
-            $allowed_builders = array('gutenberg', 'elementor', 'divi', 'oxygen');
+            require_once plugin_dir_path(dirname(__FILE__)) . 'custom-pages/class-metasync-html-to-builder-converter.php';
+            $available_builders = Metasync_HTML_To_Builder_Converter::get_available_builders();
             $builder_value = sanitize_text_field($_POST['metasync_options']['general']['default_page_builder']);
-            $metasync_options['general']['default_page_builder'] = in_array($builder_value, $allowed_builders, true) ? $builder_value : 'gutenberg';
+            if (isset($available_builders[$builder_value]) && $available_builders[$builder_value]['detected']) {
+                $metasync_options['general']['default_page_builder'] = $builder_value;
+            } else {
+                $metasync_options['general']['default_page_builder'] = 'gutenberg';
+                if (isset($available_builders[$builder_value]) && !$available_builders[$builder_value]['detected']) {
+                    $validation_errors[] = sprintf(__('Builder "%s" is not detected on this site. Reverted to Gutenberg.', 'metasync'), $available_builders[$builder_value]['label']);
+                }
+            }
         }
 
         if ($whitelabel_tab_submitted && isset($_POST['metasync_options']['whitelabel'])) {
             $gp = isset($_POST['metasync_options']['general']) && is_array($_POST['metasync_options']['general']) ? $_POST['metasync_options']['general'] : [];
             $wp = isset($_POST['metasync_options']['whitelabel']) && is_array($_POST['metasync_options']['whitelabel']) ? $_POST['metasync_options']['whitelabel'] : [];
             $plugin_name = isset($gp['white_label_plugin_name']) ? trim((string) $gp['white_label_plugin_name']) : '';
-            $logo = isset($wp['logo']) ? trim((string) $wp['logo']) : '';
+            $logo_light = isset($wp['logo_light']) ? trim((string) $wp['logo_light']) : '';
+            $logo_dark = isset($wp['logo_dark']) ? trim((string) $wp['logo_dark']) : '';
             $author = isset($gp['white_label_plugin_author']) ? trim((string) $gp['white_label_plugin_author']) : '';
             $author_uri = isset($gp['white_label_plugin_author_uri']) ? trim((string) $gp['white_label_plugin_author_uri']) : '';
             $plugin_uri = isset($gp['white_label_plugin_uri']) ? trim((string) $gp['white_label_plugin_uri']) : '';
             $domain = isset($wp['domain']) ? trim((string) $wp['domain']) : '';
             $description = isset($gp['white_label_plugin_description']) ? trim((string) $gp['white_label_plugin_description']) : '';
 
-            $has_core_field = (!empty($plugin_name) || (!empty($logo) && filter_var($logo, FILTER_VALIDATE_URL)) || !empty($author));
+            $has_core_field = (!empty($plugin_name) || (!empty($logo_light) && filter_var($logo_light, FILTER_VALIDATE_URL)) || (!empty($logo_dark) && filter_var($logo_dark, FILTER_VALIDATE_URL)) || !empty($author));
             $has_optional_only = (!empty($author_uri) || !empty($plugin_uri) || (!empty($domain) && filter_var($domain, FILTER_VALIDATE_URL)) || !empty($description));
 
             if ($has_optional_only && !$has_core_field) {
@@ -2321,6 +2392,26 @@ class Metasync_Settings_Registration
                     $metasync_options['whitelabel']['logo'] = esc_url_raw($logo_value);
                 } else {
                     $metasync_options['whitelabel']['logo'] = '';
+                }
+            }
+
+            if (isset($whitelabel_data['logo_light'])) {
+                $logo_light_value = trim($whitelabel_data['logo_light']);
+
+                if (!empty($logo_light_value) && filter_var($logo_light_value, FILTER_VALIDATE_URL)) {
+                    $metasync_options['whitelabel']['logo_light'] = esc_url_raw($logo_light_value);
+                } else {
+                    $metasync_options['whitelabel']['logo_light'] = '';
+                }
+            }
+
+            if (isset($whitelabel_data['logo_dark'])) {
+                $logo_dark_value = trim($whitelabel_data['logo_dark']);
+
+                if (!empty($logo_dark_value) && filter_var($logo_dark_value, FILTER_VALIDATE_URL)) {
+                    $metasync_options['whitelabel']['logo_dark'] = esc_url_raw($logo_dark_value);
+                } else {
+                    $metasync_options['whitelabel']['logo_dark'] = '';
                 }
             }
 

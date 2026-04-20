@@ -304,8 +304,10 @@ class Metasync_MCP_Server {
                     ]
                 ]
             ];
+        } catch (InvalidArgumentException $e) {
+            throw $e;
         } catch (Exception $e) {
-            throw new Exception("Tool execution failed: " . $e->getMessage());
+            throw new Exception('Tool execution failed: ' . $e->getMessage());
         }
     }
 

@@ -21,6 +21,11 @@
     // Get configuration from PHP
     const config = window.metasyncSeoSidebar || {
         iconUrl: '',
+        otherSeoPrimary: {
+            yoastActive: false,
+            rankMathActive: false,
+            aioseoActive: false,
+        },
         metaKeys: {
             seoTitle: '_metasync_seo_title',
             metaDescription: '_metasync_seo_desc',
@@ -29,6 +34,8 @@
             ottoDescription: '_metasync_otto_description',
             // OTTO disabled per-post flag
             ottoDisabled: '_metasync_otto_disabled',
+            // Breadcrumb title override
+            breadcrumbTitle: '_metasync_breadcrumb_title',
             // Primary category
             primaryCategory: '_metasync_primary_category',
             primaryProductCat: '_metasync_primary_product_cat',
@@ -62,10 +69,16 @@
             primaryCategoryLabel: 'Primary Category',
             primaryCategoryHelp: 'Used in breadcrumbs and canonical URL when multiple categories are assigned.',
             primaryCategoryNote: 'Assign 2+ categories to enable this option.',
+            breadcrumbTitleLabel: 'Breadcrumb Title Override',
+            breadcrumbTitleHelp: 'Custom label for this page in breadcrumb trails. Leave empty to use the post title.',
             ottoPrefillHelp: 'Pre-filled from OTTO. Edit to customize.',
             ottoOverrideNotice: 'OTTO is enabled. Any SEO title and description changes from OTTO will be overwritten by your custom values entered here.',
         },
     };
+
+    // Check if another SEO plugin already provides a primary category selector.
+    const otherSeo = config.otherSeoPrimary || {};
+    const hasOtherSeoPrimary = otherSeo.yoastActive || otherSeo.rankMathActive || otherSeo.aioseoActive;
 
     /**
      * Character Counter Component
@@ -348,71 +361,6 @@
                     el('span', { className: 'metasync-permalink-base' }, baseUrl),
                     el('strong', { className: 'metasync-permalink-slug' }, slug || __('(auto-generated)', 'metasync'))
                 )
-            )
-        );
-    };
-
-    /**
-     * Primary Category Selector Component
-     * Shows a dropdown to select the primary category when 2+ categories are assigned
-     */
-    const PrimaryCategorySelector = () => {
-        const { categoryIds, postType, primaryCategoryId } = useSelect((select) => {
-            const editor = select('core/editor');
-            const meta = editor.getEditedPostAttribute('meta') || {};
-            return {
-                categoryIds: editor.getEditedPostAttribute('categories') || [],
-                postType: editor.getEditedPostAttribute('type') || 'post',
-                primaryCategoryId: meta[config.metaKeys.primaryCategory] || 0,
-            };
-        }, []);
-
-        const { categories } = useSelect((select) => {
-            if (!categoryIds || categoryIds.length < 2) {
-                return { categories: [] };
-            }
-            return {
-                categories: select('core').getEntityRecords('taxonomy', 'category', {
-                    include: categoryIds,
-                    per_page: 100,
-                }) || [],
-            };
-        }, [categoryIds]);
-
-        const { editPost } = useDispatch('core/editor');
-
-        // Show hint when exactly 1 category is assigned (need 2+ to enable selector)
-        if (!categoryIds || categoryIds.length < 2) {
-            if (categoryIds && categoryIds.length === 1) {
-                return el('p', { className: 'metasync-primary-category-note' },
-                    config.i18n.primaryCategoryNote
-                );
-            }
-            return null;
-        }
-
-        // Wait for categories to load from the store
-        if (!categories || categories.length < 2) {
-            return null;
-        }
-
-        const options = [
-            { label: __('— Select —', 'metasync'), value: 0 },
-        ].concat(categories.map(function(c) {
-            return { label: c.name, value: c.id };
-        }));
-
-        return el('div', { className: 'metasync-seo-field' },
-            el(SelectControl, {
-                label: config.i18n.primaryCategoryLabel,
-                value: primaryCategoryId,
-                options: options,
-                onChange: function(value) {
-                    editPost({ meta: { [config.metaKeys.primaryCategory]: parseInt(value) || 0 } });
-                },
-            }),
-            el('p', { className: 'metasync-primary-category-note' },
-                config.i18n.primaryCategoryHelp
             )
         );
     };
@@ -892,6 +840,100 @@
         );
 
     /**
+     * Breadcrumb Title Override Component
+     * Now rendered inside the MetaSync SEO sidebar panel.
+     */
+    const BreadcrumbTitleInput = () => {
+        const metaKey = config.metaKeys.breadcrumbTitle || '_metasync_breadcrumb_title';
+
+        const { value } = useSelect((select) => {
+            const meta = select('core/editor').getEditedPostAttribute('meta') || {};
+            return { value: meta[metaKey] || '' };
+        }, [metaKey]);
+
+        const { editPost } = useDispatch('core/editor');
+
+        const handleChange = (newValue) => {
+            editPost({ meta: { [metaKey]: newValue } });
+        };
+
+        return el(TextControl, {
+            label: config.i18n.breadcrumbTitleLabel || 'Breadcrumb Title Override',
+            value: value,
+            onChange: handleChange,
+            help: config.i18n.breadcrumbTitleHelp || 'Custom label for this page in breadcrumb trails.',
+            placeholder: __('Leave empty to use post title', 'metasync'),
+        });
+    };
+
+    /**
+     * Primary Category Selector Component
+     *
+     * Rendered in two places:
+     * 1. Inside the MetaSync SEO sidebar panel
+     * 2. Injected below the WordPress Categories checklist (via editor.PostTaxonomyType filter)
+     *
+     * Hidden from the Categories panel when Yoast, Rank Math, or AIOSEO is active
+     * (those plugins provide their own selector), but always available in the SEO sidebar.
+     */
+    const PrimaryCategoryInjectPanel = () => {
+        const metaKey = config.metaKeys.primaryCategory || '_metasync_primary_category';
+
+        const { primaryCategoryId, postCategories, allCategories } = useSelect((select) => {
+            const editor = select('core/editor');
+            const meta = editor.getEditedPostAttribute('meta') || {};
+            const assignedCatIds = editor.getEditedPostAttribute('categories') || [];
+
+            let cats = [];
+            if (assignedCatIds.length > 0) {
+                const allCats = select('core').getEntityRecords('taxonomy', 'category', {
+                    include: assignedCatIds,
+                    per_page: 100,
+                });
+                if (allCats) {
+                    cats = allCats;
+                }
+            }
+
+            return {
+                primaryCategoryId: meta[metaKey] || 0,
+                postCategories: assignedCatIds,
+                allCategories: cats,
+            };
+        }, [metaKey]);
+
+        const { editPost } = useDispatch('core/editor');
+
+        if (postCategories.length < 2) {
+            return null;
+        }
+
+        // Wait for categories to resolve from the store.
+        if (!allCategories || allCategories.length < 2) {
+            return null;
+        }
+
+        const options = [
+            { label: __('— Auto (first category) —', 'metasync'), value: 0 },
+        ];
+        allCategories.forEach(function(cat) {
+            options.push({ label: cat.name, value: cat.id });
+        });
+
+        return el('div', { className: 'metasync-primary-category-panel' },
+            el(SelectControl, {
+                label: config.i18n.primaryCategoryLabel || 'Primary Category',
+                value: primaryCategoryId,
+                options: options,
+                onChange: function(value) {
+                    editPost({ meta: { [metaKey]: parseInt(value, 10) || 0 } });
+                },
+                help: config.i18n.primaryCategoryHelp || 'Used in breadcrumbs and canonical URL when multiple categories are assigned.',
+            })
+        );
+    };
+
+    /**
      * Main Sidebar Component
      */
     const MetaSyncSeoSidebar = () => {
@@ -910,7 +952,8 @@
                     el(SeoTitleInput, null),
                     el(MetaDescriptionInput, null),
                     el(UrlSlugInput, null),
-                    el(PrimaryCategorySelector, null)
+                    el(BreadcrumbTitleInput, null),
+                    el(PrimaryCategoryInjectPanel, null)
                 ),
                 el(PanelBody, {
                     title: config.i18n.serpPreviewTitle,
@@ -949,125 +992,31 @@
     };
 
     /**
-     * Breadcrumb Title Override Component
+     * Hook into the WordPress Categories taxonomy panel.
+     * Wraps the original component and appends our Primary Category selector
+     * directly below the category checkboxes — same UX as AIOSEO.
      */
-    const BreadcrumbTitleInput = () => {
-        const metaKey = config.metaKeys.breadcrumbTitle || '_metasync_breadcrumb_title';
+    if (!hasOtherSeoPrimary) {
+        wp.hooks.addFilter(
+            'editor.PostTaxonomyType',
+            'metasync/primary-category',
+            function(OriginalComponent) {
+                return function(props) {
+                    // Only inject into the 'category' taxonomy panel.
+                    if (props.slug !== 'category') {
+                        return el(OriginalComponent, props);
+                    }
 
-        const { value } = useSelect((select) => {
-            const meta = select('core/editor').getEditedPostAttribute('meta') || {};
-            return { value: meta[metaKey] || '' };
-        }, [metaKey]);
-
-        const { editPost } = useDispatch('core/editor');
-
-        const handleChange = (newValue) => {
-            editPost({ meta: { [metaKey]: newValue } });
-        };
-
-        return el(TextControl, {
-            label: (config.i18n && config.i18n.breadcrumbTitleLabel) || 'Breadcrumb Title Override',
-            value: value,
-            onChange: handleChange,
-            help: (config.i18n && config.i18n.breadcrumbTitleHelp) || 'Custom label for this page in breadcrumb trails.',
-            placeholder: __('Leave empty to use post title', 'metasync'),
-        });
-    };
-
-    /**
-     * Primary Category Selector Component
-     * Only shown for post types that support categories.
-     */
-    const PrimaryCategorySelect = () => {
-        const metaKey = config.metaKeys.primaryCategory || '_metasync_primary_category';
-
-        const { primaryCategoryId, postCategories, allCategories, postType } = useSelect((select) => {
-            const editor = select('core/editor');
-            const meta = editor.getEditedPostAttribute('meta') || {};
-            const currentPostType = editor.getCurrentPostType();
-            const assignedCatIds = editor.getEditedPostAttribute('categories') || [];
-
-            // Fetch category terms for the assigned IDs.
-            let cats = [];
-            if (assignedCatIds.length > 0) {
-                const allCats = select('core').getEntityRecords('taxonomy', 'category', {
-                    include: assignedCatIds,
-                    per_page: 100,
-                });
-                if (allCats) {
-                    cats = allCats;
-                }
+                    return el(wp.element.Fragment, null,
+                        el(OriginalComponent, props),
+                        el(PrimaryCategoryInjectPanel, null)
+                    );
+                };
             }
-
-            return {
-                primaryCategoryId: meta[metaKey] || 0,
-                postCategories: assignedCatIds,
-                allCategories: cats,
-                postType: currentPostType,
-            };
-        }, [metaKey]);
-
-        const { editPost } = useDispatch('core/editor');
-
-        // Only show for post types with categories.
-        const supportsCategories = useSelect((select) => {
-            const type = select('core').getPostType(postType);
-            if (type && type.taxonomies) {
-                return type.taxonomies.indexOf('category') !== -1;
-            }
-            return false;
-        }, [postType]);
-
-        if (!supportsCategories || postCategories.length < 2) {
-            return null;
-        }
-
-        const options = [
-            { label: __('— Auto (first category) —', 'metasync'), value: 0 },
-        ];
-
-        if (allCategories && allCategories.length > 0) {
-            allCategories.forEach(function(cat) {
-                options.push({ label: cat.name, value: cat.id });
-            });
-        }
-
-        const handleChange = (newValue) => {
-            editPost({ meta: { [metaKey]: parseInt(newValue, 10) || 0 } });
-        };
-
-        return el(SelectControl, {
-            label: (config.i18n && config.i18n.primaryCategoryLabel) || 'Primary Category',
-            value: primaryCategoryId,
-            options: options,
-            onChange: handleChange,
-            help: (config.i18n && config.i18n.primaryCategoryHelp) || 'Select which category appears in the breadcrumb path.',
-        });
-    };
-
-    /**
-     * Breadcrumbs Panel Component
-     * Rendered inside the sidebar as a PluginDocumentSettingPanel.
-     */
-    const MetaSyncBreadcrumbsPanel = () => {
-        const { PluginDocumentSettingPanel } = wp.editPost;
-
-        return el(PluginDocumentSettingPanel, {
-            name: 'metasync-breadcrumbs-panel',
-            title: (config.i18n && config.i18n.breadcrumbPanelTitle) || 'Breadcrumbs',
-            className: 'metasync-breadcrumbs-panel',
-        },
-            el(BreadcrumbTitleInput, null),
-            el(PrimaryCategorySelect, null)
         );
-    };
+    }
 
-    // Register the breadcrumbs panel as a separate plugin.
-    registerPlugin('metasync-breadcrumbs', {
-        render: MetaSyncBreadcrumbsPanel,
-    });
-
-    // Register the plugin
+    // Register the SEO sidebar plugin.
     registerPlugin('metasync-seo', {
         render: MetaSyncSeoPlugin,
         icon: MetaSyncIcon,

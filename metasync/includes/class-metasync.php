@@ -773,6 +773,8 @@ class Metasync
 			'is_whitelabel' => false,
 			'domain' => '',
 			'logo' => '',
+			'logo_light' => '',
+			'logo_dark' => '',
 			'company_name' => '',
 			'updated_at' => 0
 		);
@@ -823,6 +825,44 @@ class Metasync
 			return $whitelabel['logo'];
 		}
 		
+		return null;
+	}
+
+	/**
+	 * Get whitelabel logo URL for light theme
+	 * Falls back to legacy 'logo' field if logo_light is not set
+	 */
+	public static function get_whitelabel_logo_light()
+	{
+		$whitelabel = self::get_whitelabel_settings();
+
+		if (!empty($whitelabel['logo_light'])) {
+			return $whitelabel['logo_light'];
+		}
+
+		if (!empty($whitelabel['logo'])) {
+			return $whitelabel['logo'];
+		}
+
+		return null;
+	}
+
+	/**
+	 * Get whitelabel logo URL for dark theme
+	 * Falls back to legacy 'logo' field if logo_dark is not set
+	 */
+	public static function get_whitelabel_logo_dark()
+	{
+		$whitelabel = self::get_whitelabel_settings();
+
+		if (!empty($whitelabel['logo_dark'])) {
+			return $whitelabel['logo_dark'];
+		}
+
+		if (!empty($whitelabel['logo'])) {
+			return $whitelabel['logo'];
+		}
+
 		return null;
 	}
 

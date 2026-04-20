@@ -477,54 +477,44 @@ function metasync_otto_handle_cache_compatibility() {
  *                                 When empty, all AIOSEO description tags are suppressed (legacy behavior).
  */
 function metasync_otto_block_seo_plugins($block_title = false, $block_description = false, $description_tags = []) {
-    # Disable Yoast SEO
-    if (is_plugin_active('wordpress-seo/wp-seo.php')) {
-        
-        # Block title only if Otto has title.
-        # NOTE: We intentionally do NOT add pre_get_document_title => __return_empty_string here.
-        # Yoast removes WordPress's native _wp_render_title_tag action and is the sole renderer of
-        # the <title> tag. If we blank pre_get_document_title, Yoast's Title_Presenter receives an
-        # empty string from wp_get_document_title() and emits no <title> tag at all — leaving the
-        # page without any title. OTTO's buffer post-processing replaces the Yoast-rendered title
-        # in the final HTML, so we allow Yoast to output a title here and let OTTO overwrite it.
-        if ($block_title) {
-            add_filter('wpseo_title', '__return_false', 999);
-        }
-        
+    # Disable Yoast SEO (free and premium)
+    if (is_plugin_active('wordpress-seo/wp-seo.php') ||
+        is_plugin_active('wordpress-seo-premium/wp-seo-premium.php')) {
+
+        # TITLE: Never block Yoast's title output during SSR fetch.
+        # Yoast removes WordPress's native _wp_render_title_tag action and is the sole
+        # renderer of the <title> tag. Returning false/empty from wpseo_title or removing
+        # Title_Presenter leaves the page with NO <title> tag at all — OTTO's buffer
+        # post-processing then has nothing to replace, producing a missing title.
+        # Instead, let Yoast render its own title; OTTO's replace_title() will overwrite
+        # it in the final HTML buffer. deduplicate_title_tags() cleans up any duplicates.
+
         # Block description only if Otto has description
         if ($block_description) {
             add_filter('wpseo_metadesc', '__return_false', 999);
             add_filter('wpseo_meta_description', '__return_false', 999);
             add_filter('wpseo_metakeywords', '__return_false', 999);
         }
-        
-        # Block Yoast's modern presenters
-        add_filter('wpseo_frontend_presenters', function($presenters) use ($block_title, $block_description) {
+
+        # Block Yoast's modern presenters — description only, never title
+        add_filter('wpseo_frontend_presenters', function($presenters) use ($block_description) {
             if (!is_array($presenters)) return $presenters;
-            
+
             $presenters_to_remove = [];
-            
-            # Add title presenters to block if Otto has title
-            if ($block_title) {
-                $presenters_to_remove[] = 'Yoast\WP\SEO\Presenters\Title_Presenter';
-                $presenters_to_remove[] = 'Yoast\WP\SEO\Presenters\Open_Graph\Title_Presenter';
-                $presenters_to_remove[] = 'Yoast\WP\SEO\Presenters\Twitter\Title_Presenter';
-            }
-            
-            # Add description presenters to block if Otto has description
+
+
+            # Remove description presenters only when OTTO has a description
             if ($block_description) {
                 $presenters_to_remove[] = 'Yoast\WP\SEO\Presenters\Meta_Description_Presenter';
                 $presenters_to_remove[] = 'Yoast\WP\SEO\Presenters\Open_Graph\Description_Presenter';
                 $presenters_to_remove[] = 'Yoast\WP\SEO\Presenters\Twitter\Description_Presenter';
             }
-            
+
             foreach ($presenters as $key => $presenter) {
-                # $class_name = is_object($presenter) ? get_class($presenter) : '';
-                # if (in_array($class_name, $presenters_to_remove)) {
                 // Safely get class name, suppressing autoload errors
                 // This prevents warnings when Composer autoloader tries to load deprecated Yoast files
                 $class_name = is_object($presenter) ? @get_class($presenter) : '';
-                
+
                 if (!empty($class_name) && in_array($class_name, $presenters_to_remove)) {
                     unset($presenters[$key]);
                 }

@@ -47,6 +47,63 @@ class Metasync_Breadcrumbs {
 
         add_action('init', array($this, 'register_meta_fields'));
         add_action('init', array($this, 'register_shortcode'));
+        add_action('wp_enqueue_scripts', array($this, 'enqueue_styles'));
+        add_action('wp', array($this, 'maybe_override_woocommerce_breadcrumb'));
+    }
+
+    /**
+     * Enqueue breadcrumb styles on the front-end.
+     */
+    public function enqueue_styles() {
+        wp_enqueue_style(
+            'metasync-breadcrumbs',
+            plugin_dir_url(dirname(__FILE__)) . 'breadcrumbs/css/metasync-breadcrumbs.css',
+            array(),
+            $this->version
+        );
+    }
+
+    /**
+     * Replace WooCommerce breadcrumb with MetaSync's if the filter is enabled.
+     *
+     * Off by default — enable with:
+     *   add_filter( 'metasync_override_woocommerce_breadcrumb', '__return_true' );
+     */
+    public function maybe_override_woocommerce_breadcrumb() {
+        if (!class_exists('WooCommerce')) {
+            return;
+        }
+
+        if (!apply_filters('metasync_override_woocommerce_breadcrumb', false)) {
+            return;
+        }
+
+        // Remove from the standard hook (classic themes via woocommerce_before_main_content).
+        remove_action('woocommerce_before_main_content', 'woocommerce_breadcrumb', 20);
+
+        // Suppress via WooCommerce's own output filter — catches themes that call
+        // woocommerce_breadcrumb() directly outside the hook (Storefront, OceanWP, etc.).
+        add_filter('woocommerce_breadcrumb_defaults', array($this, 'suppress_woocommerce_breadcrumb_output'));
+
+        add_action('woocommerce_before_main_content', array($this, 'render_breadcrumb_html_echo'), 20);
+    }
+
+    /**
+     * Suppress WooCommerce's native breadcrumb output by setting an empty wrap format.
+     *
+     * @param array $defaults WooCommerce breadcrumb defaults.
+     * @return array
+     */
+    public function suppress_woocommerce_breadcrumb_output($defaults) {
+        $defaults['wrap_before'] = '<nav class="woocommerce-breadcrumb" style="display:none">';
+        return $defaults;
+    }
+
+    /**
+     * Echo wrapper for render_breadcrumb_html — used as an action callback.
+     */
+    public function render_breadcrumb_html_echo() {
+        echo $this->render_breadcrumb_html(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- HTML is escaped inside render method
     }
 
     /**
@@ -57,7 +114,7 @@ class Metasync_Breadcrumbs {
     private function load_settings() {
         $defaults = array(
             'enabled'              => true,
-            'separator'            => '&raquo;',
+            'separator'            => '»',
             'home_label'           => 'Home',
             'home_url'             => '',
             'show_current_page'    => true,
@@ -131,24 +188,22 @@ class Metasync_Breadcrumbs {
             return $trail;
         }
 
-        // --- Explicit post_id (MCP / non-frontend context) ---
-        // is_singular() and friends rely on the global query and are always false in
-        // admin or REST API requests. When an explicit post_id is supplied outside a
-        // frontend request, bypass the query-conditional checks entirely.
-        if ($post_id > 0 && !did_action('wp')) {
-            $current_post = get_post($post_id);
+        // --- WooCommerce pages (must be checked before generic singular) ---
+        if (class_exists('WooCommerce')) {
+            $woo_trail = $this->resolve_woocommerce_trail($post_id);
+            if ($woo_trail !== null) {
+                return array_merge($trail, $woo_trail);
+            }
+        }
+
+        // --- Single post / page / CPT ---
+        if (is_singular()) {
+            $current_post = $post_id ? get_post($post_id) : get_queried_object();
             if (!$current_post) {
                 return $trail;
             }
 
-            if (class_exists('WooCommerce') && $current_post->post_type === 'product') {
-                $woo_trail = $this->resolve_woocommerce_trail($post_id);
-                if ($woo_trail !== null) {
-                    return array_merge($trail, $woo_trail);
-                }
-            }
-
-            if ($current_post->post_type === 'page') {
+            if (is_page()) {
                 // Build parent chain.
                 $ancestors = get_post_ancestors($current_post);
                 $ancestors = array_reverse($ancestors);
@@ -200,70 +255,6 @@ class Metasync_Breadcrumbs {
             return $trail;
         }
 
-        // --- WooCommerce pages (must be checked before generic singular) ---
-        if (class_exists('WooCommerce')) {
-            $woo_trail = $this->resolve_woocommerce_trail($post_id);
-            if ($woo_trail !== null) {
-                return array_merge($trail, $woo_trail);
-            }
-        }
-
-        // --- Single post / page / CPT ---
-        if (is_singular()) {
-            $current_post = $post_id ? get_post($post_id) : get_queried_object();
-            if (!$current_post) {
-                return $trail;
-            }
-
-            if (is_page()) {
-                // Build parent chain.
-                $ancestors = get_post_ancestors($current_post);
-                $ancestors = array_reverse($ancestors);
-                foreach ($ancestors as $ancestor_id) {
-                    $ancestor = get_post($ancestor_id);
-                    if ($ancestor) {
-                        $trail[] = array(
-                            'label' => get_the_title($ancestor),
-                            'url'   => get_permalink($ancestor),
-                        );
-                    }
-                }
-            } elseif ($current_post->post_type === 'post') {
-                // Category in trail — respect primary category.
-                $category = $this->get_primary_category($current_post->ID);
-                if ($category) {
-                    $cat_ancestors = get_ancestors($category->term_id, 'category');
-                    $cat_ancestors = array_reverse($cat_ancestors);
-                    foreach ($cat_ancestors as $cat_ancestor_id) {
-                        $cat_ancestor = get_term($cat_ancestor_id, 'category');
-                        if ($cat_ancestor && !is_wp_error($cat_ancestor)) {
-                            $trail[] = array(
-                                'label' => $this->format_archive_label($cat_ancestor->name),
-                                'url'   => get_term_link($cat_ancestor),
-                            );
-                        }
-                    }
-                    $trail[] = array(
-                        'label' => $this->format_archive_label($category->name),
-                        'url'   => get_term_link($category),
-                    );
-                }
-            } else {
-                // Custom post type — add post type archive link if available.
-                $post_type_obj = get_post_type_object($current_post->post_type);
-                if ($post_type_obj && $post_type_obj->has_archive) {
-                    $trail[] = array(
-                        'label' => $post_type_obj->labels->name,
-                        'url'   => get_post_type_archive_link($current_post->post_type),
-                    );
-                }
-            }
-
-            $label   = $this->get_breadcrumb_title($current_post->ID);
-            $trail[] = array('label' => $label, 'url' => '');
-
-            return $trail;
-        }
 
         // --- Category archive ---
         if (is_category()) {
@@ -397,8 +388,13 @@ class Metasync_Breadcrumbs {
             return $trail;
         }
 
-        // Single product.
-        if (is_singular('product')) {
+        // Single product (frontend context or explicit post_id in MCP/CLI).
+        $is_product = is_singular('product');
+        if (!$is_product && $post_id > 0) {
+            $maybe_post = get_post($post_id);
+            $is_product = $maybe_post && $maybe_post->post_type === 'product';
+        }
+        if ($is_product) {
             $trail[] = array('label' => $shop_label, 'url' => $shop_url);
 
             $product_post = $post_id ? get_post($post_id) : get_queried_object();
@@ -528,12 +524,19 @@ class Metasync_Breadcrumbs {
                 continue;
             }
 
+            // Check if this is not the last item (for separator rendering)
+            $should_have_separator = !$is_last;
+
             if ($is_last || empty($item['url'])) {
                 $items_html[] = '<li class="metasync-breadcrumb__item metasync-breadcrumb__current">'
                     . '<span aria-current="page">' . esc_html($item['label']) . '</span>'
                     . '</li>';
             } else {
-                $items_html[] = '<li class="metasync-breadcrumb__item">'
+                $separator_attr = $should_have_separator
+                    ? ' data-separator="' . esc_attr($separator) . '"'
+                    : '';
+
+                $items_html[] = '<li class="metasync-breadcrumb__item"' . $separator_attr . '>'
                     . '<a class="metasync-breadcrumb__link" href="' . esc_url($item['url']) . '">'
                     . esc_html($item['label'])
                     . '</a>'
@@ -541,22 +544,23 @@ class Metasync_Breadcrumbs {
             }
         }
 
-        $separator_html = '<li class="metasync-breadcrumb__separator" aria-hidden="true">'
-            . '<span>' . wp_kses_post($separator) . '</span>'
-            . '</li>';
-
-        $list_html = implode($separator_html, $items_html);
+        $list_html = implode('', $items_html);
 
         $prefix_html = '';
         if (!empty($prefix_text)) {
             $prefix_html = '<span class="metasync-breadcrumb__prefix">' . esc_html($prefix_text) . '</span>';
         }
 
-        $html = '<nav class="metasync-breadcrumb" aria-label="breadcrumb">'
+        // Add dynamic separator CSS for the configured separator character
+        $separator_escaped = esc_attr($separator);
+        $separator_style = '<style>.metasync-breadcrumb__item[data-separator]::after { content: " ' . $separator_escaped . ' "; }</style>';
+
+        $html = $separator_style
+            . '<nav class="metasync-breadcrumb" aria-label="breadcrumb">'
             . $prefix_html
-            . '<ol class="metasync-breadcrumb__list">'
+            . '<ul class="metasync-breadcrumb__list">'
             . $list_html
-            . '</ol>'
+            . '</ul>'
             . '</nav>';
 
         return $html;

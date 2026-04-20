@@ -289,9 +289,29 @@ class Metasync_SEO_Sidebar {
                 },
             ));
 
-            // Note: _metasync_primary_category is registered by Metasync_Breadcrumbs::register_meta_fields() — no duplicate here.
+            // Register breadcrumb title override
+            register_post_meta($post_type, '_metasync_breadcrumb_title', array(
+                'show_in_rest' => true,
+                'single' => true,
+                'type' => 'string',
+                'sanitize_callback' => 'sanitize_text_field',
+                'auth_callback' => function() {
+                    return current_user_can('edit_posts');
+                },
+            ));
 
-            // Register primary product category meta (WooCommerce-specific, not handled by breadcrumbs module)
+            // Register primary category for breadcrumbs
+            register_post_meta($post_type, '_metasync_primary_category', array(
+                'show_in_rest' => true,
+                'single' => true,
+                'type' => 'integer',
+                'sanitize_callback' => 'absint',
+                'auth_callback' => function() {
+                    return current_user_can('edit_posts');
+                },
+            ));
+
+            // Register primary product category meta (WooCommerce-specific)
             register_post_meta($post_type, self::META_PRIMARY_PRODUCT_CAT, array(
                 'show_in_rest' => true,
                 'single' => true,
@@ -423,9 +443,17 @@ class Metasync_SEO_Sidebar {
             ),
         );
 
+        // Detect active SEO plugins that provide their own primary category selector
+        $other_seo_primary = array(
+            'yoastActive'    => defined('WPSEO_VERSION'),
+            'rankMathActive' => defined('RANK_MATH_VERSION'),
+            'aioseoActive'   => defined('AIOSEO_VERSION') || class_exists('AIOSEO\\Plugin\\AIOSEO'),
+        );
+
         // Localize script with meta keys and settings
         wp_localize_script('metasync-seo-sidebar', 'metasyncSeoSidebar', array(
             'iconUrl' => $icon_url,
+            'otherSeoPrimary' => $other_seo_primary,
             'metaKeys' => array(
                 'seoTitle' => self::META_SEO_TITLE,
                 'metaDescription' => self::META_DESCRIPTION,

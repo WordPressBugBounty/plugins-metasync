@@ -496,3 +496,16 @@
     margin-bottom: 0;
 }
 
+/* Primary Category panel injected below the WordPress Categories checklist */
+.metasync-primary-category-panel {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e0e0e0;
+}
+
+.metasync-primary-category-panel .components-base-control__label {
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+}
+

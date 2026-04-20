@@ -34,6 +34,53 @@ class Metasync_Admin_Navigation
     private function __construct() {}
 
     // ------------------------------------------------------------------
+    //  Logo resolution helper
+    // ------------------------------------------------------------------
+
+    /**
+     * Resolve which logo(s) to display based on whitelabel settings.
+     *
+     * @return array{show_logo: bool, use_dual: bool, url: string, light_url: string, dark_url: string}
+     */
+    private function resolve_logo_data()
+    {
+        $wl_settings  = Metasync::get_whitelabel_settings();
+        $is_whitelabel = !empty($wl_settings['is_whitelabel']);
+
+        $light_raw = Metasync::get_whitelabel_logo_light();
+        $dark_raw  = Metasync::get_whitelabel_logo_dark();
+        $has_light = !empty($light_raw) && filter_var($light_raw, FILTER_VALIDATE_URL);
+        $has_dark  = !empty($dark_raw) && filter_var($dark_raw, FILTER_VALIDATE_URL);
+        $use_dual  = ($has_light && $has_dark && $light_raw !== $dark_raw);
+
+        $data = [
+            'show_logo' => false,
+            'use_dual'  => false,
+            'url'       => '',
+            'light_url' => '',
+            'dark_url'  => '',
+        ];
+
+        if ($use_dual) {
+            $data['show_logo'] = true;
+            $data['use_dual']  = true;
+            $data['light_url'] = $light_raw;
+            $data['dark_url']  = $dark_raw;
+        } else {
+            $single = $has_light ? $light_raw : ($has_dark ? $dark_raw : null);
+            if ($single) {
+                $data['show_logo'] = true;
+                $data['url']       = $single;
+            } elseif (!$is_whitelabel) {
+                $data['show_logo'] = true;
+                $data['url']       = Metasync::HOMEPAGE_DOMAIN . '/wp-content/uploads/2023/12/white.svg';
+            }
+        }
+
+        return $data;
+    }
+
+    // ------------------------------------------------------------------
     //  Header + Nav rendering
     // ------------------------------------------------------------------
 
@@ -51,23 +98,10 @@ class Metasync_Admin_Navigation
      */
     public function render_static_header($page_title = null)
     {
-        $whitelabel_settings = Metasync::get_whitelabel_settings();
-        $whitelabel_logo = Metasync::get_whitelabel_logo();
-        $is_whitelabel = isset($whitelabel_settings['is_whitelabel']) ? $whitelabel_settings['is_whitelabel'] : false;
         $effective_plugin_name = Metasync::get_effective_plugin_name();
         $display_title = $page_title ?: $effective_plugin_name;
-        
-        $show_logo = false;
-        $logo_url = '';
-        
-        if (!empty($whitelabel_logo) && filter_var($whitelabel_logo, FILTER_VALIDATE_URL)) {
-            $show_logo = true;
-            $logo_url = esc_url($whitelabel_logo);
-        } elseif (!$is_whitelabel) {
-            $show_logo = true;
-            $logo_url = Metasync::HOMEPAGE_DOMAIN . '/wp-content/uploads/2023/12/white.svg';
-        }
-        
+        $logo = $this->resolve_logo_data();
+
         $current_theme = get_option('metasync_theme', 'dark');
         $general_settings = Metasync::get_option('general');
         $searchatlas_api_key = isset($general_settings['searchatlas_api_key']) ? $general_settings['searchatlas_api_key'] : '';
@@ -75,9 +109,14 @@ class Metasync_Admin_Navigation
         ?>
         <div class="metasync-header" data-current-theme="<?php echo esc_attr($current_theme); ?>">
             <div class="metasync-header-left">
-                <?php if ($show_logo && !empty($logo_url)): ?>
+                <?php if ($logo['show_logo'] && $logo['use_dual']): ?>
                     <div class="metasync-logo-container">
-                        <img src="<?php echo esc_url( $logo_url ); ?>" alt="Logo" class="metasync-logo" />
+                        <img src="<?php echo esc_url($logo['light_url']); ?>" alt="Logo" class="metasync-logo metasync-logo-light" />
+                        <img src="<?php echo esc_url($logo['dark_url']); ?>" alt="Logo" class="metasync-logo metasync-logo-dark" />
+                    </div>
+                <?php elseif ($logo['show_logo'] && !empty($logo['url'])): ?>
+                    <div class="metasync-logo-container">
+                        <img src="<?php echo esc_url($logo['url']); ?>" alt="Logo" class="metasync-logo" />
                     </div>
                 <?php endif; ?>
             </div>
@@ -596,7 +635,7 @@ class Metasync_Admin_Navigation
         $menu_name = $plugin_name;
         $menu_title = $plugin_name;
         $menu_slug = !isset($data['white_label_plugin_menu_slug']) || $data['white_label_plugin_menu_slug'] == "" ? Metasync_Admin::$page_slug : $data['white_label_plugin_menu_slug'];
-        $menu_icon = !isset($data['white_label_plugin_menu_icon']) || $data['white_label_plugin_menu_icon'] == "" ? 'dashicons-searchatlas' : $data['white_label_plugin_menu_icon'];
+        $menu_icon = !isset($data['white_label_plugin_menu_icon']) || $data['white_label_plugin_menu_icon'] == "" ? 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzQiIHZpZXdCb3g9IjAgMCAzMiAzNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGcgY2xpcC1wYXRoPSJ1cmwoI2NsaXAwXzE4NzlfMTcyNzcpIj4KPHBhdGggZD0iTTI5LjAyMTUgMi4xNjc2NkwzMC4wMTAxIDIuMTIyNDFMMjkuMTYyNyA4LjcyNzA1TDI5LjExNTcgOC44MTc0M0w1LjI5NTA0IDMzLjI0NTJMNC43MzAxMiAzMy4yOTA1TDQuMDcxMDQgMzMuOTY5MUgxLjk1MjYyTDIuMjM1MDggMzIuMjk1M0wyLjA5Mzg0IDMyLjM0MDZMMi4xODggMzEuNjYySDEuNjIzMDhDMS41NzYgMzEuNjYyIDEuNDgxODUgMzEuNjYyIDEuNDgxODUgMzEuNjE2N0MxLjQzNDc4IDMxLjU3MTYgMS4zODc3IDMxLjQ4MSAxLjM4NzcgMzEuNDM1OEwyLjUxNzU0IDI1LjEwMjdDMi41MTc1NCAyNS4wNTc1IDIuNTY0NiAyNS4wMTIyIDIuNTY0NiAyNS4wMTIyTDI2LjE5NjkgMC42Mjk2MDdDMjYuMjQ0IDAuNTg0MzY2IDI2LjI5MTEgMC41MzkxMjUgMjYuMzM4MSAwLjUzOTEyNUgyOC4zNjI1QzI4LjQwOTUgMC40OTM4ODQgMjguNDU2NiAwLjUzOTEyNSAyOC41MDM3IDAuNTg0MzY2QzI4LjU1MDcgMC42Mjk2MDcgMjguNTk3OSAwLjcyMDA3MSAyOC41OTc5IDAuNzY1MzExTDI4LjUwMzcgMS4zNTMzOUgyOS4xMTU3TDI5LjAyMTUgMi4xNjc2NlpNMS45MDU1NCAzMS4yMDk2SDIuMjgyMTZMMy4yMjM2OCAyNS43ODEySDMuMjcwNzZMNi44MDE1IDIyLjI1MjhMNi44NDg1MSAyMi4yOTgxTDIwLjIxODMgOC40NTU1N0wyNi45MDMxIDEuMzUzMzlIMjguMDMyOUwyOC4wNzk5IDAuOTkxNDk5SDI2LjQ3OTNMMi45ODgzIDI1LjIzODRMMS45MDU1NCAzMS4yMDk2Wk0yOC42OTE5IDguNTQ1OTVMMjkuNDQ1MiAyLjYyMDAxSDI4Ljk3NDVMMjguMzE1MyA3Ljc3Njk2TDI4LjI2ODMgNy44MjIyNEwyOC4xMjcxIDcuOTU3ODlMMjcuOTM4NyA5LjMxNTExTDI4LjY5MTkgOC41NDU5NVoiIGZpbGw9IndoaXRlIi8+CjxwYXRoIGQ9Ik0zMS41NTQ0IDE4LjE5MzdDMzEuNzM0OSAxOC42NjYyIDMxLjgwMjggMTkuMjA2NCAzMS42ODk4IDE5Ljc2OUwyOS42NTgyIDMyLjEwMTNIMjkuMDkzOUwyOS4wMjYyIDMyLjQzODhIMjUuOTMzNkwyNi4wNjkxIDMxLjYwNjJIMjYuMDAxM0wyNi4wNjkxIDMxLjI2ODZIMjUuNzk4MUMyNS43NTMgMzEuMjY4NiAyNS43MzA1IDMxLjI2ODYgMjUuNzA3OSAzMS4yNDYxQzI1LjY4NTIgMzEuMjIzNyAyNS42ODUyIDMxLjE3ODYgMjUuNjg1MiAzMS4xNTZMMjYuMzYyNCAyNy4zOThIMTguNDE2N0wxNy40MjM0IDMyLjA3ODdIMTYuODM2NUwxNi43Njg3IDMyLjQxNjNIMTMuNjk4OEwxMy45MDE5IDMxLjU4MzZIMTMuODM0M0wxMy45MDE5IDMxLjI2ODZIMTMuNjMxQzEzLjYwODQgMzEuMjY4NiAxMy41NjMzIDMxLjI2ODYgMTMuNTQwOCAzMS4yNDYxQzEzLjU0MDggMzEuMjAxMSAxMy41MTgyIDMxLjE3ODYgMTMuNTQwOCAzMS4xMzM2TDE2LjM2MjQgMTguOTEzOEMxNi40OTc5IDE4LjM1MTIgMTYuNzQ2MiAxNy44MzM2IDE3LjEyOTkgMTcuMzM4NUMxNy40OTEyIDE2Ljg2NiAxNy45NDI2IDE2LjQ4MzUgMTguNDYxOCAxNi4yMTM0QzE4Ljk4MSAxNS45MjA3IDE5LjUwMDIgMTUuNzg1OCAyMC4wNDE5IDE1Ljc4NThIMjguNTk3MkMyOS4xMzkgMTUuNzg1OCAyOS42MTMxIDE1LjkyMDcgMzAuMDE5MyAxNi4yMTM0QzMwLjM1NzkgMTYuNDYwOSAzMC42Mjg5IDE2Ljc5ODUgMzAuODA5NSAxNy4xODFDMzEuMTI1NSAxNy40NTExIDMxLjM5NjMgMTcuNzg4NiAzMS41NTQ0IDE4LjE5MzdaTTI3LjQ5MTIgMjMuMzY5N0wyOC4wNTU1IDIwLjI2NDFDMjguMDMyOSAyMC4yNDE1IDI4LjAzMjkgMjAuMjE5MSAyOC4wMTA0IDIwLjIxOTFIMjcuODk3NUwyNy4zNzgzIDIzLjA5OTZDMjcuMzc4MyAyMy4xNDQ3IDI3LjMxMDYgMjMuMTg5NiAyNy4yNjU1IDIzLjE4OTZIMTkuMzQyMUwxOS4yOTcgMjMuMzY5N0gyNy40OTEyWk0xOS4wOTM5IDIzLjE4OTZIMTguODQ1NUwxOC44MjI5IDIzLjM2OTdIMTkuMDcxM0wxOS4wOTM5IDIzLjE4OTZaTTE5LjUwMDIgMjAuMjY0MUwxOC45MTMzIDIyLjk2NDZIMTkuMTYxNUwxOS43NDg0IDIwLjIxOTFIMTkuNTQ1M0MxOS41NDUzIDIwLjIxOTEgMTkuNTIyNyAyMC4yNDE1IDE5LjUwMDIgMjAuMjY0MVpNMjcuNjcxOCAyMC4yMTkxSDE5Ljk3NDJMMTkuMzg3MiAyMi45NjQ2SDI3LjE3NTFMMjcuNjcxOCAyMC4yMTkxWk0xMy43ODkgMzEuMDQzNkgxMy45NDdMMTUuMDk4NCAyNi4xMTUySDE1LjE2NkwxNi43MjM2IDE5LjI5NjRDMTYuODU5MSAxOC43NTYzIDE3LjEwNzMgMTguMjM4OCAxNy40Njg1IDE3Ljc2NjFDMTcuODI5NiAxNy4zMTYxIDE4LjI4MTIgMTYuOTMzNCAxOC43Nzc4IDE2LjY2MzNDMTkuMDI2MSAxNi41Mjg0IDE5LjI3NDUgMTYuNDM4NCAxOS41MjI3IDE2LjM0ODNMMTkuNTAwMiAxNi4zMDM0QzE5Ljc0ODQgMTYuMjEzNCAyMC4wMTkzIDE2LjE5MDggMjAuMjkwMyAxNi4xOTA4SDI4Ljg2ODJDMjkuMjI5NCAxNi4xOTA4IDI5LjU5MDUgMTYuMjU4MyAyOS44ODQgMTYuMzkzNEMyOS41MjI5IDE2LjEyMzMgMjkuMDkzOSAxNi4wMTA4IDI4LjU5NzIgMTYuMDEwOEgyMC4wNDE5QzE5LjU0NTMgMTYuMDEwOCAxOS4wNDg2IDE2LjE0NTkgMTguNTc0NyAxNi4zOTM0QzE4LjA3OCAxNi42NjMzIDE3LjY0OTEgMTcuMDIzNSAxNy4zMTA0IDE3LjQ5NkMxNi45NDkzIDE3Ljk0NjIgMTYuNzAxIDE4LjQ0MTIgMTYuNTg4MSAxOC45NTg5TDEzLjc4OSAzMS4wNDM2Wk0xNy4yMjAyIDMxLjg1MzdMMTguMTkxIDI3LjM5OEgxNy45NDI2TDE3LjAxNzEgMzEuNTgzNkgxNi45NDkzTDE2LjkwNDIgMzEuODUzN0gxNy4yMjAyWk0yNS45MzM2IDMxLjA0MzZIMjYuMTE0MkwyNi43Njg5IDI3LjM5OEgyNi41ODgzTDI1LjkzMzYgMzEuMDQzNlpNMzEuNDg2NyAxOS43NDY0QzMxLjU3NjkgMTkuMjA2NCAzMS41MDkzIDE4LjcxMTMgMzEuMzI4NyAxOC4yNjEyQzMxLjI4MzYgMTguMTQ4OCAzMS4yMTU4IDE4LjAzNjIgMzEuMTQ4MSAxNy45MjM2QzMxLjI4MzYgMTguMzUxMiAzMS4zMjg3IDE4LjgwMTQgMzEuMjM4MyAxOS4yOTY0TDMwLjA4NzIgMjYuMTE1MkwzMC4xNTQ4IDI2LjEzNzdMMjkuMjUxOSAzMS42MDYySDI5LjE4NDNMMjkuMTM5IDMxLjg3NjNIMjkuNDU1TDMxLjQ4NjcgMTkuNzQ2NFoiIGZpbGw9IndoaXRlIi8+CjxwYXRoIGQ9Ik0xNy42ODQ3IDIuNDI3MTdIMTcuNjYxOEMxNy44NjgyIDIuODk5MTIgMTcuOTE0IDMuNDM4NDkgMTcuODIyMiA0LjAwMDMzTDE3LjU5MjkgNS4zOTM3SDE3LjA0MjNMMTYuOTczNSA1LjczMDhIMTMuOTY4NEwxNC4xMjkxIDQuODk5MjhIMTQuMDM3M0wxNC4xMDYyIDQuNTg0NjRIMTMuODUzOEMxMy44MDggNC41ODQ2NCAxMy43ODUxIDQuNTYyMTcgMTMuNzYyIDQuNTM5NjlDMTMuNzM5MSA0LjUxNzIzIDEzLjczOTEgNC40OTQ3NSAxMy43MzkxIDQuNDQ5OEg1LjkxNjg2TDUuNTQ5ODcgNi4wOTAzOUgxMy41Nzg1QzE0LjEyOTEgNi4wOTAzOSAxNC42MzM3IDYuMjQ3NzEgMTUuMDQ2NyA2LjUzOTg3QzE1LjM2NzggNi43NDIxMyAxNS41OTcxIDcuMDU2NzcgMTUuODAzNiA3LjM3MTQxQzE1Ljg0OTUgNy40Mzg4OSAxNS44NzI0IDcuNDgzODIgMTUuOTE4NCA3LjU1MTEyQzE2LjIxNjYgNy43OTgzMiAxNi40Njg4IDguMTEyOTkgMTYuNjI5NSA4LjQ5NTE0QzE2LjgzNTkgOC45NjY5OCAxNi45MDQ4IDkuNTA2NDcgMTYuNzkwMSAxMC4wOTA3TDE2LjI4NTMgMTMuMTY5NkMxNi4xOTM1IDEzLjczMTUgMTUuOTQxMyAxNC4yNDg0IDE1LjU3NDMgMTQuNzQyOEMxNS4yMDcyIDE1LjIxNDcgMTQuNzQ4NCAxNS41OTY4IDE0LjIyMDggMTUuODg4OUMxNC4xNTIgMTUuOTExNSAxNC4wNjAyIDE1Ljk1NjQgMTMuOTkxNSAxNS45Nzg4QzEzLjg3NjcgMTYuMDY4OCAxMy43NjIgMTYuMTU4NyAxMy42MjQ1IDE2LjIyNkMxMy4wOTY4IDE2LjQ5NTcgMTIuNTY5MiAxNi42NTMxIDExLjk5NTcgMTYuNjUzMUgyLjYzNjYxQzIuMDg2MDcgMTYuNjUzMSAxLjU4MTQxIDE2LjQ5NTcgMS4xNjg1IDE2LjIyNkMwLjc1NTYxIDE1Ljk1NjQgMC40ODAzMzEgMTUuNTc0MyAwLjMxOTc1IDE1LjEyNDhDMC4xODIxMiAxNC43NjUyIDAuMTU5MTg3IDE0LjQwNTggMC4xODIxMTkgMTQuMDAxMkMwLjE4MjExOSAxMy45NTYxIDAuMTM2MjU0IDEzLjkzMzggMC4xMzYyNTQgMTMuODg4OEMtMC4wMjQzMjYxIDEzLjQxNjggLTAuMDQ3MjU4MSAxMi44Nzc1IDAuMDkwMzcyNSAxMi4zMTU2TDAuMzg4NTgzIDExLjAxMjJDMC4zODg1ODMgMTAuOTY3MyAwLjQ1NzM5OCAxMC45MjIzIDAuNTAzMjY0IDEwLjkyMjNIMy41NTQxN0MzLjU3NzExIDEwLjkyMjMgMy42MDAwNCAxMC45NDQ3IDMuNjIyOTkgMTAuOTY3M0MzLjY0NTkyIDEwLjk4OTYgMy42Njg4NyAxMS4wMzQ2IDMuNjQ1OTIgMTEuMDU3MUwzLjYwMDA0IDExLjMyNjlIMy44OTgyNUwzLjgwNjUgMTEuNzMxNEg0LjMxMTE2TDQuMjE5MzkgMTIuMjAzMkgxMi4yNzFDMTIuMjcxIDEyLjIwMzIgMTIuMjcxIDEyLjIwMzIgMTIuMjkzOSAxMi4xODA4QzEyLjI5MzkgMTIuMTU4MyAxMi4zMTY4IDEyLjE1ODMgMTIuMzE2OCAxMi4xNTgzTDEyLjU5MjEgMTAuNTYyN0gzLjk5MDAyQzMuNDM5NDggMTAuNTYyNyAyLjk1Nzc1IDEwLjQyNzggMi41Njc3OSAxMC4xMzU2QzIuMTU0ODggOS44NjU5IDEuODc5NjIgOS41MDY0NyAxLjcxOTA0IDkuMDM0NDZDMS42MDQzNCA4LjY5NzQxIDEuNTU4NDYgOC4zMzc4MSAxLjYwNDM0IDcuOTMzMjhDMS42MDQzNCA3Ljg4ODM1IDEuNTU4NDYgNy44NjU4IDEuNTU4NDYgNy44MjA4N0MxLjM5NzkgNy4zNDg4NiAxLjM3NDk3IDYuODA5NTYgMS41MTI2IDYuMjI1MjNMMi4yNDY2NSAzLjE0NjM0QzIuMzg0MjggMi41ODQ0OSAyLjYzNjYxIDIuMDY3NTggMy4wMDM2MyAxLjU3MzE2QzMuMzcwNjYgMS4xMDEyMiAzLjgyOTQ0IDAuNzE5MTUyIDQuMzU3MDQgMC40NDk0NzZDNC44ODQ2MyAwLjE1NzMxOSA1LjQxMjI0IDAgNS45NjI4MyAwSDE0LjcwMjZDMTUuMjMwMSAwIDE1LjcxMTggMC4xNTczMTkgMTYuMTI0OCAwLjQ0OTQ3NkMxNi40NDU5IDAuNjc0MjA2IDE2LjY3NTMgMC45NjYzOCAxNi44NTg4IDEuMzAzNDhDMTYuOTA0OCAxLjM0ODQzIDE2LjkyNzcgMS4zOTMzNyAxNi45NzM1IDEuNDYwOEMxNy4yNzE4IDEuNzMwNDggMTcuNTI0IDIuMDIyNjQgMTcuNjg0NyAyLjQyNzE3Wk0zLjY0NTkyIDEyLjU4NTRWMTIuNjA3OEgzLjg5ODI1TDMuOTIxMiAxMi40MjhIMy42Njg4N0wzLjY0NTkyIDEyLjU2MjhDMy42MjI5OSAxMi41NjI4IDMuNjIyOTkgMTIuNTg1NCAzLjY0NTkyIDEyLjU4NTRaTTQuOTk5MzMgNi41NjIzNUg1LjIwNTc4TDUuMjc0NjEgNi4zMTUxNEg0Ljk1MzQ1TDQuOTA3NTggNi40NDk5N0M0LjkwNzU4IDYuNDk0OTIgNC45MDc1OCA2LjUxNzQgNC45MzA1MSA2LjUzOTg3QzQuOTUzNDUgNi41NjIzNSA0Ljk3NjQgNi41NjIzNSA0Ljk5OTMzIDYuNTYyMzVaTTEuNzQxOTcgNi4yNzAxN0MxLjY1MDIzIDYuNjc0NyAxLjY1MDIzIDcuMDU2NzcgMS43MTkwNCA3LjM5Mzc5TDEuNzQxOTcgNy4yMzY1NUMxLjc2NDkyIDcuMDExODEgMS43ODc4NiA2LjgwOTU2IDEuODMzNzQgNi41ODQ4MUwyLjU0NDg0IDMuNTI4MzlDMi42ODI0OSAyLjk2NjU0IDIuOTM0ODIgMi40NDk2NSAzLjMwMTg1IDEuOTc3NjlDMy4zNDc3MSAxLjkzMjc0IDMuMzcwNjYgMS44ODc4IDMuMzkzNTkgMS44NDI4NUwzLjQ2MjQxIDEuOTEwMjhDMy44MDY1IDEuNDgzMjcgNC4xOTY0NiAxLjE0NjE2IDQuNjc4MTkgMC44OTg5NTNDNS4xODI4NCAwLjYyOTI2IDUuNjg3NSAwLjQ5NDQyMyA2LjIxNTA2IDAuNDk0NDIzSDE0Ljk3NzlDMTUuMTg0MyAwLjQ5NDQyMyAxNS4zOTA3IDAuNTE2OTA0IDE1LjU5NzEgMC41NjE4NUwxNS42MiAwLjQ5NDQyM0MxNS43MzQ5IDAuNTE2OTA0IDE1Ljg0OTUgMC41NjE4NSAxNS45NjQyIDAuNjA2Nzk2QzE1LjU5NzEgMC4zNTk1ODUgMTUuMTg0MyAwLjI0NzIxMSAxNC43MDI2IDAuMjQ3MjExSDUuOTYyODNDNS40NTgxMiAwLjI0NzIxMSA0Ljk1MzQ1IDAuMzU5NTg0IDQuNDcxNzQgMC42MjkyNkMzLjk2NzA3IDAuODk4OTUzIDMuNTU0MTcgMS4yNTg1NCAzLjE4NzE1IDEuNzA4MDFDMi44NDMwNSAyLjE3OTk1IDIuNTkwNzIgMi42NzQzOCAyLjQ3NjAzIDMuMTkxMjhMMS43NDE5NyA2LjI3MDE3Wk0xMi4yNzEgMTIuNDI4SDQuMTczNTNMNC4xMjc2NSAxMi42MDc4SDcuNzI5MVYxMi42NzUySDEyLjU2OTJDMTIuNTkyMSAxMi42NzUyIDEyLjYxNSAxMi42NTI3IDEyLjY2MSAxMi42MzAzQzEyLjY4MzkgMTIuNjA3OCAxMi43MDY4IDEyLjU2MjggMTIuNzA2OCAxMi41NDAzTDEyLjg0NDUgMTEuODIxMkwxMy4wNTEgMTAuNjc1QzEzLjA3MzkgMTAuNjMgMTMuMDUxIDEwLjYwNzcgMTMuMDI4MSAxMC41ODUxQzEzLjAwNSAxMC41NjI3IDEyLjk4MjEgMTAuNTYyNyAxMi45NTkyIDEwLjU2MjdIMTIuODQ0NUwxMi41MjMzIDEyLjIwMzJDMTIuNTIzMyAxMi4yNDgyIDEyLjUwMDQgMTIuMzE1NiAxMi40MzE3IDEyLjM2MDZDMTIuMzg1NyAxMi40MDU1IDEyLjMxNjggMTIuNDI4IDEyLjI3MSAxMi40MjhaTTQuMDM1OSAxMS45NTZIMy43NjA2MkwzLjcxNDc0IDEyLjIwMzJIMy45NjcwN0w0LjAzNTkgMTEuOTU2Wk0wLjI5NjgxNyAxMi4zNjA2QzAuMjA1MDY5IDEyLjc2NTEgMC4yMDUwNyAxMy4xNjk2IDAuMjczODg2IDEzLjUyOTJMMC4zMTk3NSAxMy4zMDQ0QzAuMzE5NzUgMTMuMTAyMSAwLjM0MjcgMTIuODk5OSAwLjQxMTUxNiAxMi42NzUyTDAuNzA5NzI3IDExLjMyNjlIMy4zNzA2NkwzLjM5MzU5IDExLjE0N0gwLjU5NTAyOUwwLjI5NjgxNyAxMi4zNjA2Wk0xNi41ODM1IDEwLjA0NThDMTYuNjc1MyA5LjUwNjQ3IDE2LjYwNjYgOS4wMTE5MSAxNi40MjMgOC41ODVDMTYuNDAwMSA4LjU0MDA3IDE2LjM3NzEgOC40OTUxNCAxNi4zNTQyIDguNDUwMjFDMTYuNDAwMSA4LjY1MjQ4IDE2LjQyMyA4Ljg1NDc0IDE2LjQyMyA5LjA3OTM5QzE2LjQyMyA5LjI1OTI3IDE2LjQyMyA5LjQzODk5IDE2LjM3NzEgOS42MTg3TDE1Ljg3MjQgMTIuNjk3NkMxNS44MjY2IDEyLjkyMjQgMTUuNzU3OCAxMy4xMjQ3IDE1LjY4ODkgMTMuMzI3TDE1LjY0MzEgMTMuNTk2N0MxNS41NTE0IDE0LjA2ODUgMTUuMzQ0OSAxNC41MTggMTUuMDQ2NyAxNC45NDUxQzE1LjE2MTQgMTQuODMyNyAxNS4yOTkgMTQuNzIwMyAxNS4zOTA3IDE0LjYwOEMxNS43MzQ5IDE0LjE1ODQgMTUuOTY0MiAxMy42NDE2IDE2LjA1NiAxMy4xMjQ3TDE2LjU4MzUgMTAuMDQ1OFpNMTMuNTc4NSA2LjMxNTE0SDUuNTAzOTlMNS40NTgxMiA2LjU2MjM1SDEwLjA5MTdWNi40OTQ5MkgxMy44NTM4QzE0LjI0MzcgNi40OTQ5MiAxNC41ODc5IDYuNTYyMzUgMTQuOTA5IDYuNzE5NjVDMTQuNTE5IDYuNDQ5OTcgMTQuMDgzMyA2LjMxNTE0IDEzLjU3ODUgNi4zMTUxNFpNNS4zMjA0NyA2LjA5MDM5TDUuNjg3NSA0LjQ0OThINS40NTgxMkM1LjQzNTE3IDQuNDQ5OCA1LjQxMjI0IDQuNDcyMjggNS4zODkyOSA0LjQ5NDc1QzUuMzQzNDIgNC41MTcyMyA1LjM0MzQyIDQuNTYyMTggNS4zMjA0NyA0LjU4NDY0TDQuOTk5MzMgNi4wOTAzOUg1LjMyMDQ3Wk0xNy41OTI5IDMuOTc3ODZDMTcuNjg0NyAzLjQzODQ5IDE3LjYzODcgMi45NDQwNyAxNy40NTUyIDIuNDk0NTlDMTcuNDU1MiAyLjQ3MjExIDE3LjQwOTQgMi40NDk2NSAxNy40MDk0IDIuNDA0NjhDMTcuNDc4MyAyLjc2NDI3IDE3LjUwMTEgMy4xNDYzNCAxNy40MzIzIDMuNTUwODVMMTcuMjAzIDQuODk5MjhIMTcuMTM0MUwxNy4wODgzIDUuMTY4OTdIMTcuNDA5NEwxNy41OTI5IDMuOTc3ODZaIiBmaWxsPSJ3aGl0ZSIvPgo8L2c+CjxkZWZzPgo8Y2xpcFBhdGggaWQ9ImNsaXAwXzE4NzlfMTcyNzciPgo8cmVjdCB3aWR0aD0iMzEuNzQ0OSIgaGVpZ2h0PSIzNCIgZmlsbD0id2hpdGUiLz4KPC9jbGlwUGF0aD4KPC9kZWZzPgo8L3N2Zz4K' : $data['white_label_plugin_menu_icon'];
        
         // Use 'read' capability since actual access is controlled by current_user_has_plugin_access() check above
         $menu_capability = 'read';
@@ -626,13 +665,8 @@ class Metasync_Admin_Navigation
 
         $seo_controls = Metasync::get_option('seo_controls');
 
-        // ── Group header slugs ────────────────────────────────────────────
-        $slug_header_seo    = $menu_slug . '-group-seo';
-        $slug_header_plugin = $menu_slug . '-group-plugin';
-        $connect_slug       = $menu_slug . '-connect';
-
-        // ── SEO group header (non-functional label) ───────────────────────
-        add_submenu_page($menu_slug, 'SEO Features', 'SEO Features', $menu_capability, $slug_header_seo, array($admin, 'create_admin_settings_page'));
+        // ── Connect slug ──────────────────────────────────────────────────
+        $connect_slug = $menu_slug . '-connect';
 
         // Dashboard
         if (Metasync_Access_Control::user_can_access('hide_dashboard')) {
@@ -688,9 +722,6 @@ class Metasync_Admin_Navigation
             add_submenu_page($menu_slug, 'Import SEO Data', 'Import SEO Data', $menu_capability, $menu_slug . '-import-external', array($admin, 'render_import_external_data_page'));
         }
 
-        // ── Plugin group header (non-functional label) ────────────────────
-        add_submenu_page($menu_slug, 'Plugin', 'Plugin', $menu_capability, $slug_header_plugin, array($admin, 'create_admin_settings_page'));
-
         // Settings
         if (Metasync_Access_Control::user_can_access('hide_settings')) {
             add_submenu_page($menu_slug, 'Settings', 'Settings', $menu_capability, $menu_slug, array($admin, 'create_admin_settings_page'));
@@ -742,85 +773,6 @@ class Metasync_Admin_Navigation
         // ── Hidden pages (no sidebar entry needed) ────────────────────────
         add_submenu_page('', 'Setup Wizard', 'Setup Wizard', $menu_capability, $menu_slug . '-setup-wizard', array($admin->setup_wizard, 'render_wizard_page'));
 
-        // ── CSS: style group headers + Connect CTA ─────────────────────────
-        add_action('admin_head', function() use ($menu_slug, $slug_header_seo, $slug_header_plugin, $connect_slug, $is_fully_connected) {
-            $seo_href    = esc_attr('admin.php?page=' . $slug_header_seo);
-            $plugin_href = esc_attr('admin.php?page=' . $slug_header_plugin);
-            $connect_href = esc_attr('admin.php?page=' . $connect_slug);
-            $menu_id     = 'toplevel_page_' . $menu_slug;
-            ?>
-            <style>
-            /* Animated gradient on the plugin's top-level menu icon */
-            @keyframes metasync-icon-pulse {
-                0%   { filter: drop-shadow(0 0 0px #2271b1) hue-rotate(0deg); }
-                50%  { filter: drop-shadow(0 0 4px #a78bfa) hue-rotate(30deg); }
-                100% { filter: drop-shadow(0 0 0px #2271b1) hue-rotate(0deg); }
-            }
-            @keyframes metasync-menu-glow {
-                0%   { color: #a0a5aa; }
-                50%  { color: #7c8ef7; }
-                100% { color: #a0a5aa; }
-            }
-            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?> > a .wp-menu-image img,
-            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?> > a .wp-menu-image:before {
-                animation: metasync-icon-pulse 3s ease-in-out infinite;
-            }
-            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?> > a .wp-menu-name {
-                animation: metasync-menu-glow 3s ease-in-out infinite;
-            }
-            /* Pause animation when menu is open or item is active */
-            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?>.wp-has-current-submenu > a .wp-menu-image img,
-            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?>.wp-has-current-submenu > a .wp-menu-image:before,
-            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?>.wp-has-current-submenu > a .wp-menu-name,
-            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?> > a:hover .wp-menu-image img,
-            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?> > a:hover .wp-menu-image:before,
-            #adminmenu #toplevel_page_<?php echo esc_attr($menu_slug); ?> > a:hover .wp-menu-name {
-                animation: none;
-            }
-
-            /* Group header: non-clickable label style */
-            #adminmenu #<?php echo esc_attr($menu_id); ?> a[href="<?php echo $seo_href; ?>"],
-            #adminmenu #<?php echo esc_attr($menu_id); ?> a[href="<?php echo $plugin_href; ?>"] {
-                pointer-events: none !important;
-                cursor: default !important;
-                color: #9aa2b0 !important;
-                font-size: 10px !important;
-                font-weight: 700 !important;
-                text-transform: uppercase !important;
-                letter-spacing: 0.08em !important;
-                padding: 14px 12px 3px !important;
-                margin-top: 4px !important;
-                opacity: 1 !important;
-            }
-            #adminmenu #<?php echo esc_attr($menu_id); ?> li:has(a[href="<?php echo $seo_href; ?>"]),
-            #adminmenu #<?php echo esc_attr($menu_id); ?> li:has(a[href="<?php echo $plugin_href; ?>"]) {
-                border-top: 1px solid rgba(255,255,255,0.08) !important;
-                margin-top: 4px !important;
-            }
-            <?php if ($is_fully_connected || !current_user_can('read')) : ?>
-            /* Hide connect item when authenticated */
-            #adminmenu #<?php echo esc_attr($menu_id); ?> a[href="<?php echo $connect_href; ?>"] {
-                display: none !important;
-            }
-            <?php else : ?>
-            /* Connect CTA button style */
-            #adminmenu #<?php echo esc_attr($menu_id); ?> a[href="<?php echo $connect_href; ?>"] {
-                color: #fff !important;
-                background: #2271b1 !important;
-                border-radius: 4px !important;
-                margin: 8px 8px 4px !important;
-                padding: 6px 10px !important;
-                display: block !important;
-                font-weight: 600 !important;
-                text-align: center !important;
-            }
-            #adminmenu #<?php echo esc_attr($menu_id); ?> a[href="<?php echo $connect_href; ?>"]:hover {
-                background: #135e96 !important;
-            }
-            <?php endif; ?>
-            </style>
-            <?php
-        });
 
         // Rename auto-generated first submenu from plugin name to "Settings" and reorder
         add_action('admin_menu', function() use ($menu_slug) {
@@ -1221,44 +1173,31 @@ class Metasync_Admin_Navigation
     public function render_plugin_header($page_title = null)
     {
         $general_settings = Metasync::get_option('general');
-        $whitelabel_settings = Metasync::get_whitelabel_settings();
-        
-        $whitelabel_logo = Metasync::get_whitelabel_logo();
-        $is_whitelabel = isset($whitelabel_settings['is_whitelabel']) ? $whitelabel_settings['is_whitelabel'] : false;
-        
+
         $effective_plugin_name = Metasync::get_effective_plugin_name();
-        
         $display_title = $page_title ?: $effective_plugin_name;
-        
-        $show_logo = false;
-        $logo_url = '';
-        
-        if (!empty($whitelabel_logo) && filter_var($whitelabel_logo, FILTER_VALIDATE_URL)) {
-            $show_logo = true;
-            $logo_url = esc_url($whitelabel_logo);
-        } elseif (!$is_whitelabel) {
-            $show_logo = true;
-            $logo_url = Metasync::HOMEPAGE_DOMAIN . '/wp-content/uploads/2023/12/white.svg';
-        } else {
-            $show_logo = false;
-            $logo_url = '';
-        }
-        
+        $logo = $this->resolve_logo_data();
+
         $searchatlas_api_key = isset($general_settings['searchatlas_api_key']) ? $general_settings['searchatlas_api_key'] : '';
         $otto_pixel_uuid = isset($general_settings['otto_pixel_uuid']) ? $general_settings['otto_pixel_uuid'] : '';
-        
+
         $is_integrated = Metasync_Heartbeat_Manager::instance()->is_heartbeat_connected($general_settings);
 
         $current_theme = get_option('metasync_theme', 'dark');
         ?>
-        
+
         <!-- Plugin Header with Logo -->
         <div class="metasync-header" data-current-theme="<?php echo esc_attr($current_theme); ?>">
             <div class="metasync-header-left">
-                <?php if ($show_logo && !empty($logo_url)): ?>
+                <?php if ($logo['show_logo'] && $logo['use_dual']): ?>
                     <div class="metasync-logo-container">
-                        <img src="<?php echo esc_url( $logo_url ); ?>" alt="Logo" class="metasync-logo" />
-        </div>
+                        <img src="<?php echo esc_url($logo['light_url']); ?>" alt="Logo" class="metasync-logo metasync-logo-light" />
+                        <img src="<?php echo esc_url($logo['dark_url']); ?>" alt="Logo" class="metasync-logo metasync-logo-dark" />
+                    </div>
+                <?php elseif ($logo['show_logo'] && !empty($logo['url'])): ?>
+                    <div class="metasync-logo-container">
+                        <img src="<?php echo esc_url($logo['url']); ?>" alt="Logo" class="metasync-logo" />
+                    </div>
                 <?php endif; ?>
             </div>
             
@@ -1541,21 +1480,9 @@ class Metasync_Admin_Navigation
     {
         $theme       = esc_attr(get_option('metasync_theme', 'dark'));
         $plugin_name = Metasync::get_effective_plugin_name();
-        $wl_logo     = Metasync::get_whitelabel_logo();
-        $wl_settings = Metasync::get_whitelabel_settings();
-        $is_wl       = !empty($wl_settings['is_whitelabel']);
         $general     = Metasync::get_option('general') ?? [];
         $is_connected = Metasync_Heartbeat_Manager::instance()->is_heartbeat_connected($general);
-
-        $show_logo = false;
-        $logo_url  = '';
-        if (!empty($wl_logo) && filter_var($wl_logo, FILTER_VALIDATE_URL)) {
-            $show_logo = true;
-            $logo_url  = esc_url($wl_logo);
-        } elseif (!$is_wl) {
-            $show_logo = true;
-            $logo_url  = Metasync::HOMEPAGE_DOMAIN . '/wp-content/uploads/2023/12/white.svg';
-        }
+        $logo        = $this->resolve_logo_data();
 
         $current_theme = get_option('metasync_theme', 'dark');
         $api_key       = $general['searchatlas_api_key'] ?? '';
@@ -1565,8 +1492,11 @@ class Metasync_Admin_Navigation
         <!-- Compact top header -->
         <div class="metasync-header-compact">
             <div style="display:flex;align-items:center;gap:10px;">
-                <?php if ($show_logo && $logo_url): ?>
-                    <img src="<?php echo $logo_url; ?>" alt="<?php echo esc_attr($plugin_name); ?>" class="metasync-logo" style="height:28px;width:auto;">
+                <?php if ($logo['show_logo'] && $logo['use_dual']): ?>
+                    <img src="<?php echo esc_url($logo['light_url']); ?>" alt="<?php echo esc_attr($plugin_name); ?>" class="metasync-logo metasync-logo-light" style="height:28px;width:auto;">
+                    <img src="<?php echo esc_url($logo['dark_url']); ?>" alt="<?php echo esc_attr($plugin_name); ?>" class="metasync-logo metasync-logo-dark" style="height:28px;width:auto;">
+                <?php elseif ($logo['show_logo'] && $logo['url']): ?>
+                    <img src="<?php echo esc_url($logo['url']); ?>" alt="<?php echo esc_attr($plugin_name); ?>" class="metasync-logo" style="height:28px;width:auto;">
                 <?php else: ?>
                     <strong style="font-size:15px;color:var(--dashboard-text-primary);"><?php echo esc_html($plugin_name); ?></strong>
                 <?php endif; ?>

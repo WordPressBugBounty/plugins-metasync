@@ -52,7 +52,9 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
                         '_metasync_og_type',
                         '_metasync_twitter_title',
                         '_metasync_twitter_description',
-                        '_metasync_primary_category'
+                        '_metasync_twitter_card',
+                        '_metasync_primary_category',
+                        '_metasync_otto_keywords'
                     ]
                 ],
                 'meta_value' => [
@@ -80,7 +82,7 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
 
         // Sanitize integer meta fields
         if ($meta_key === '_metasync_primary_category') {
-            $meta_value = (string) absint($meta_value);
+            $meta_value = absint($meta_value);
         }
 
         // Verify post exists
@@ -91,6 +93,11 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
 
         // Update meta
         $current_value = get_post_meta($post_id, $meta_key, true);
+        // Normalize numeric meta keys: WordPress returns stored values as strings,
+        // so cast for type-safe comparison against the integer $meta_value above.
+        if ($meta_key === '_metasync_primary_category') {
+            $current_value = (int) $current_value;
+        }
         if ($current_value === $meta_value) {
             // Value already matches — return success without update
             return $this->success([
@@ -194,13 +201,21 @@ class MCP_Tool_Get_Post_Meta extends MCP_Tool_Base {
                 'og_type' => get_post_meta($post_id, '_metasync_og_type', true)
             ];
 
+            // Get Twitter Card meta
+            $twitter_meta = [
+                'twitter_card' => get_post_meta($post_id, '_metasync_twitter_card', true),
+                'twitter_title' => get_post_meta($post_id, '_metasync_twitter_title', true),
+                'twitter_description' => get_post_meta($post_id, '_metasync_twitter_description', true),
+            ];
+
             return $this->success([
                 'post_id' => $post_id,
                 'post_title' => $post->post_title,
                 'post_type' => $post->post_type,
                 'post_status' => $post->post_status,
                 'seo_meta' => $seo_meta,
-                'opengraph_meta' => $opengraph_meta
+                'opengraph_meta' => $opengraph_meta,
+                'twitter_meta' => $twitter_meta
             ]);
         }
     }
@@ -266,6 +281,11 @@ class MCP_Tool_Get_SEO_Meta extends MCP_Tool_Base {
                 'image' => get_post_meta($post_id, '_metasync_og_image', true),
                 'url' => get_post_meta($post_id, '_metasync_og_url', true),
                 'type' => get_post_meta($post_id, '_metasync_og_type', true)
+            ],
+            'twitter_meta' => [
+                'twitter_card' => get_post_meta($post_id, '_metasync_twitter_card', true),
+                'twitter_title' => get_post_meta($post_id, '_metasync_twitter_title', true),
+                'twitter_description' => get_post_meta($post_id, '_metasync_twitter_description', true),
             ],
             'analysis' => [
                 'meta_title_length' => mb_strlen(get_post_meta($post_id, '_metasync_metatitle', true)),

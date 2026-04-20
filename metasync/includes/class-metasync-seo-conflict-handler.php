@@ -79,7 +79,8 @@ class Metasync_SEO_Conflict_Handler {
             require_once ABSPATH . 'wp-admin/includes/plugin.php';
         }
 
-        if (is_plugin_active('wordpress-seo/wp-seo.php')) {
+        if (is_plugin_active('wordpress-seo/wp-seo.php') ||
+            is_plugin_active('wordpress-seo-premium/wp-seo-premium.php')) {
             $this->register_yoast_filters();
         }
 
@@ -116,6 +117,7 @@ class Metasync_SEO_Conflict_Handler {
         // is_plugin_active() availability ensured by is_aioseo_active() call
         return $this->is_aioseo_active()
             || is_plugin_active('wordpress-seo/wp-seo.php')
+            || is_plugin_active('wordpress-seo-premium/wp-seo-premium.php')
             || is_plugin_active('seo-by-rank-math/rank-math.php')
             || is_plugin_active('seo-by-rankmath/rank-math.php');
     }

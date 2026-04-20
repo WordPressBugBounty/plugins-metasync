@@ -156,6 +156,12 @@
     min-width: 0; /* prevent grid blowout */
 }
 
+/* Override the dashboard form-grid (metasync-dashboard.css) inside the
+   3-column layout so content stays within the main column. */
+.metasync-layout-main form {
+    display: block;
+}
+
 .metasync-page-header {
     margin-bottom: 20px;
 }

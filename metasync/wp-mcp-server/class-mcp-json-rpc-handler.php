@@ -100,7 +100,7 @@ class MCP_JSON_RPC_Handler {
         } catch (Exception $e) {
             // Log error
             error_log('MCP JSON-RPC Error: ' . $e->getMessage());
-            return $this->error_response($id, self::ERROR_INTERNAL_ERROR, 'Internal error');
+            return $this->error_response($id, self::ERROR_INTERNAL_ERROR, $e->getMessage());
         }
     }
 

@@ -1,0 +1,64 @@
+/**
+ * MetaSync Breadcrumbs Frontend Styles
+ *
+ * @package Metasync
+ * @subpackage Metasync/breadcrumbs/css
+ * @since 2.9.0
+ */
+
+.metasync-breadcrumb {
+    font-size: 0.875em;
+    line-height: 1.5;
+    margin: 1em 0;
+}
+
+.metasync-breadcrumb__prefix {
+    display: block;
+    font-size: 0.875em;
+    color: #666;
+    margin-bottom: 0.5em;
+    font-weight: 500;
+}
+
+.metasync-breadcrumb__list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    color: #666;
+}
+
+.metasync-breadcrumb__item {
+    display: inline;
+    padding: 0;
+    margin: 0;
+}
+
+.metasync-breadcrumb__item[data-separator]::after {
+    margin: 0 0.5em;
+    color: #999;
+    font-weight: normal;
+}
+
+.metasync-breadcrumb__link {
+    color: #0073aa;
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.metasync-breadcrumb__link:hover {
+    color: #005a87;
+    text-decoration: underline;
+}
+
+.metasync-breadcrumb__link:focus {
+    outline: 2px solid #4f94d4;
+    outline-offset: 2px;
+}
+
+.metasync-breadcrumb__current {
+    color: #333;
+    font-weight: 500;
+}

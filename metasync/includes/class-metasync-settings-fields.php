@@ -93,6 +93,14 @@ class Metasync_Settings_Fields {
                     'otto_bot_statistics_link'
                 )
             ),
+            'breadcrumbs' => array(
+                'title' => 'Breadcrumbs',
+                'description' => 'Configure breadcrumb navigation display',
+                'icon' => 'format-links',
+                'priority' => 35,
+                'default_open' => false,
+                'render_callback' => array($this, 'render_breadcrumbs_section')
+            ),
             'editor_settings' => array(
                 'title' => 'Post/Page Editor Settings',
                 'description' => 'Customize meta boxes and editor functionality',
@@ -2411,5 +2419,151 @@ class Metasync_Settings_Fields {
         ];
 
         return $business_type;
+    }
+
+    /**
+     * Render breadcrumbs settings section
+     */
+    public function render_breadcrumbs_section() {
+        $options = Metasync::get_option('breadcrumbs', array());
+
+        $defaults = array(
+            'enabled' => true,
+            'separator' => '&raquo;',
+            'home_label' => 'Home',
+            'home_url' => '',
+            'show_current_page' => true,
+            'prefix_text' => '',
+            'archive_label_format' => '{name}',
+        );
+
+        $options = wp_parse_args($options, $defaults);
+        ?>
+        <div style="background: var(--dashboard-card-bg); padding: 20px; border-radius: 8px;">
+
+            <!-- Enable/Disable -->
+            <div style="margin-bottom: 24px;">
+                <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                    <input type="checkbox"
+                           name="metasync_options[breadcrumbs][enabled]"
+                           value="1"
+                           <?php checked($options['enabled'], 1); ?>
+                           style="width: 18px; height: 18px; cursor: pointer;">
+                    <span style="font-weight: 500; color: var(--dashboard-text);">Enable breadcrumbs globally</span>
+                </label>
+                <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
+                    Enable or disable breadcrumb navigation on your site
+                </p>
+            </div>
+
+            <!-- Separator Character -->
+            <div style="margin-bottom: 24px;">
+                <label for="breadcrumb_separator" style="display: block; margin-bottom: 8px; font-weight: 500; color: var(--dashboard-text);">
+                    Separator Character
+                </label>
+                <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="radio" name="metasync_options[breadcrumbs][separator]" value="»" <?php checked($options['separator'], '»'); ?>>
+                        <span style="color: var(--dashboard-text);">»</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="radio" name="metasync_options[breadcrumbs][separator]" value="/" <?php checked($options['separator'], '/'); ?>>
+                        <span style="color: var(--dashboard-text);">/</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="radio" name="metasync_options[breadcrumbs][separator]" value=">" <?php checked($options['separator'], '>'); ?>>
+                        <span style="color: var(--dashboard-text);">></span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="radio" name="metasync_options[breadcrumbs][separator]" value="·" <?php checked($options['separator'], '·'); ?>>
+                        <span style="color: var(--dashboard-text);">·</span>
+                    </label>
+                </div>
+                <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
+                    Choose how to separate breadcrumb items
+                </p>
+            </div>
+
+            <!-- Home Label -->
+            <div style="margin-bottom: 24px;">
+                <label for="breadcrumb_home_label" style="display: block; margin-bottom: 8px; font-weight: 500; color: var(--dashboard-text);">
+                    Home Label
+                </label>
+                <input type="text"
+                       id="breadcrumb_home_label"
+                       name="metasync_options[breadcrumbs][home_label]"
+                       value="<?php echo esc_attr($options['home_label']); ?>"
+                       placeholder="Home"
+                       style="width: 100%; padding: 10px 12px; background: var(--dashboard-input-bg); border: 1px solid var(--dashboard-border); border-radius: 6px; color: var(--dashboard-text); font-size: 14px; box-sizing: border-box;">
+                <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
+                    Label for the home/root breadcrumb item
+                </p>
+            </div>
+
+            <!-- Home URL -->
+            <div style="margin-bottom: 24px;">
+                <label for="breadcrumb_home_url" style="display: block; margin-bottom: 8px; font-weight: 500; color: var(--dashboard-text);">
+                    Home URL
+                </label>
+                <input type="url"
+                       id="breadcrumb_home_url"
+                       name="metasync_options[breadcrumbs][home_url]"
+                       value="<?php echo esc_attr($options['home_url']); ?>"
+                       placeholder="<?php echo esc_attr(home_url('/')); ?>"
+                       style="width: 100%; padding: 10px 12px; background: var(--dashboard-input-bg); border: 1px solid var(--dashboard-border); border-radius: 6px; color: var(--dashboard-text); font-size: 14px; box-sizing: border-box;">
+                <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
+                    Leave empty to use your site home URL
+                </p>
+            </div>
+
+            <!-- Show Current Page -->
+            <div style="margin-bottom: 24px;">
+                <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                    <input type="checkbox"
+                           name="metasync_options[breadcrumbs][show_current_page]"
+                           value="1"
+                           <?php checked($options['show_current_page'], 1); ?>
+                           style="width: 18px; height: 18px; cursor: pointer;">
+                    <span style="font-weight: 500; color: var(--dashboard-text);">Show current page</span>
+                </label>
+                <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
+                    Include the current page as the last (unlinked) breadcrumb item
+                </p>
+            </div>
+
+            <!-- Prefix Text -->
+            <div style="margin-bottom: 24px;">
+                <label for="breadcrumb_prefix" style="display: block; margin-bottom: 8px; font-weight: 500; color: var(--dashboard-text);">
+                    Prefix Text
+                </label>
+                <input type="text"
+                       id="breadcrumb_prefix"
+                       name="metasync_options[breadcrumbs][prefix_text]"
+                       value="<?php echo esc_attr($options['prefix_text']); ?>"
+                       placeholder='e.g., "You are here:"'
+                       style="width: 100%; padding: 10px 12px; background: var(--dashboard-input-bg); border: 1px solid var(--dashboard-border); border-radius: 6px; color: var(--dashboard-text); font-size: 14px; box-sizing: border-box;">
+                <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
+                    Optional text to display before the breadcrumbs (leave empty for none)
+                </p>
+            </div>
+
+            <!-- Archive Label Format -->
+            <div style="margin-bottom: 24px;">
+                <label for="breadcrumb_archive_format" style="display: block; margin-bottom: 8px; font-weight: 500; color: var(--dashboard-text);">
+                    Archive Label Format
+                </label>
+                <input type="text"
+                       id="breadcrumb_archive_format"
+                       name="metasync_options[breadcrumbs][archive_label_format]"
+                       value="<?php echo esc_attr($options['archive_label_format']); ?>"
+                       placeholder="{name}"
+                       style="width: 100%; padding: 10px 12px; background: var(--dashboard-input-bg); border: 1px solid var(--dashboard-border); border-radius: 6px; color: var(--dashboard-text); font-size: 14px; box-sizing: border-box;">
+                <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
+                    Use <code style="background: rgba(0,0,0,0.1); padding: 2px 4px; border-radius: 3px;">{name}</code> as a placeholder for the archive name. Example: <code style="background: rgba(0,0,0,0.1); padding: 2px 4px; border-radius: 3px;">Category: {name}</code>
+                </p>
+            </div>
+
+        </div>
+        <?php
     }
 }

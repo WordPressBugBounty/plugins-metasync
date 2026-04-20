@@ -1776,6 +1776,15 @@ class Metasync_Schema_Markup
                                 continue;
                             }
 
+                            // Skip BreadcrumbList if already injected by the breadcrumbs module.
+                            if (
+                                $type_key === 'BreadcrumbList'
+                                && class_exists('Metasync_Breadcrumbs_Schema')
+                                && Metasync_Breadcrumbs_Schema::$breadcrumb_list_injected
+                            ) {
+                                continue;
+                            }
+
                             if ($this->should_output_schema_type($type_key)) {
                                 $json_ld = $this->generate_json_ld($post, $schema_type_data);
                                 if ($json_ld) {

@@ -456,12 +456,18 @@ Class Metasync_otto_html{
             }
         }
         if (!empty($replacement_data['body_top_html_insertion'])) {
-            $safe_body_top = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['body_top_html_insertion']);
-            $result_html = preg_replace('/(<body[^>]*>)/i', '$1' . "\n" . $safe_body_top, $result_html, 1);
+            $body_top_check = trim($replacement_data['body_top_html_insertion']);
+            if (strpos($result_html, $body_top_check) === false) {
+                $safe_body_top = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['body_top_html_insertion']);
+                $result_html = preg_replace('/(<body[^>]*>)/i', '$1' . "\n" . $safe_body_top, $result_html, 1);
+            }
         }
         if (!empty($replacement_data['body_bottom_html_insertion'])) {
-            $safe_body_bottom = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['body_bottom_html_insertion']);
-            $result_html = preg_replace('/(<\/body>)/i', $safe_body_bottom . "\n" . '$1', $result_html, 1);
+            $body_bottom_check = trim($replacement_data['body_bottom_html_insertion']);
+            if (strpos($result_html, $body_bottom_check) === false) {
+                $safe_body_bottom = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['body_bottom_html_insertion']);
+                $result_html = preg_replace('/(<\/body>)/i', $safe_body_bottom . "\n" . '$1', $result_html, 1);
+            }
         }
         if (!empty($replacement_data['footer_html_insertion'])) {
             $safe_footer = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['footer_html_insertion']);
@@ -1426,7 +1432,13 @@ Class Metasync_otto_html{
             if (isset($decoded['@graph']) && is_array($decoded['@graph'])) {
                 foreach ($decoded['@graph'] as $entry) {
                     if (!isset($entry['@type'])) continue;
-                    $type = $entry['@type'];
+                    // JSON-LD allows @type to be a string OR an array of strings.
+                    // Rank Math routinely emits multi-typed entries (e.g. ["Person", "Organization"]).
+                    // Using an array as an offset throws a fatal on PHP 8+, so normalize to scalar.
+                    $type = is_array($entry['@type'])
+                        ? (string) reset($entry['@type'])
+                        : (string) $entry['@type'];
+                    if ($type === '') continue;
                     if ($is_otto) {
                         $otto_graph[$type] = $entry;
                     } else {
@@ -1434,7 +1446,10 @@ Class Metasync_otto_html{
                     }
                 }
             } elseif (isset($decoded['@type'])) {
-                $type = $decoded['@type'];
+                $type = is_array($decoded['@type'])
+                    ? (string) reset($decoded['@type'])
+                    : (string) $decoded['@type'];
+                if ($type === '') continue;
                 if ($is_otto) {
                     $otto_by_type[$type] = $decoded;
                 } else {
@@ -1880,18 +1895,24 @@ Class Metasync_otto_html{
                 );
             }
 
-            # Apply body top HTML insertion
+            # Apply body top HTML insertion — only if DOM insertion didn't already apply it
             if (!empty($replacement_data['body_top_html_insertion'])) {
-                $body_top_html = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['body_top_html_insertion']);
-                # Insert after <body>
-                $result_html = preg_replace('/(<body[^>]*>)/i', '$1' . "\n" . $body_top_html, $result_html, 1);
+                $body_top_check = trim($replacement_data['body_top_html_insertion']);
+                if (strpos($result_html, $body_top_check) === false) {
+                    $body_top_html = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['body_top_html_insertion']);
+                    # Insert after <body>
+                    $result_html = preg_replace('/(<body[^>]*>)/i', '$1' . "\n" . $body_top_html, $result_html, 1);
+                }
             }
 
-            # Apply body bottom HTML insertion
+            # Apply body bottom HTML insertion — only if DOM insertion didn't already apply it
             if (!empty($replacement_data['body_bottom_html_insertion'])) {
-                $body_bottom_html = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['body_bottom_html_insertion']);
-                # Insert before </body>
-                $result_html = preg_replace('/(<\/body>)/i', $body_bottom_html . "\n" . '$1', $result_html, 1);
+                $body_bottom_check = trim($replacement_data['body_bottom_html_insertion']);
+                if (strpos($result_html, $body_bottom_check) === false) {
+                    $body_bottom_html = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['body_bottom_html_insertion']);
+                    # Insert before </body>
+                    $result_html = preg_replace('/(<\/body>)/i', $body_bottom_html . "\n" . '$1', $result_html, 1);
+                }
             }
 
             # Apply footer HTML insertion

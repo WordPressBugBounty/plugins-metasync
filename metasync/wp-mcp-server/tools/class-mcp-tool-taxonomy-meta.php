@@ -339,6 +339,39 @@ class MCP_Tool_Bulk_Update_Term_Meta extends MCP_Tool_Base {
                                 'type' => 'string',
                                 'description' => 'Focus keyword',
                             ],
+                            'canonical_url' => [
+                                'type' => 'string',
+                                'description' => 'Canonical URL',
+                            ],
+                            'og_enabled' => [
+                                'type' => 'boolean',
+                                'description' => 'Enable Open Graph tags',
+                            ],
+                            'og_title' => [
+                                'type' => 'string',
+                                'description' => 'Open Graph title',
+                            ],
+                            'og_description' => [
+                                'type' => 'string',
+                                'description' => 'Open Graph description',
+                            ],
+                            'og_image' => [
+                                'type' => 'string',
+                                'description' => 'Open Graph image URL',
+                            ],
+                            'twitter_card' => [
+                                'type' => 'string',
+                                'enum' => ['summary', 'summary_large_image'],
+                                'description' => 'Twitter Card type',
+                            ],
+                            'twitter_title' => [
+                                'type' => 'string',
+                                'description' => 'Twitter Card title',
+                            ],
+                            'twitter_description' => [
+                                'type' => 'string',
+                                'description' => 'Twitter Card description',
+                            ],
                         ],
                         'required' => ['term_id'],
                     ],
@@ -402,6 +435,51 @@ class MCP_Tool_Bulk_Update_Term_Meta extends MCP_Tool_Base {
                 if (isset($update['focus_keyword'])) {
                     update_term_meta($term_id, '_metasync_focus_keyword', sanitize_text_field($update['focus_keyword']));
                     $updated_fields[] = 'focus_keyword';
+                }
+
+                if (isset($update['canonical_url'])) {
+                    update_term_meta($term_id, '_metasync_canonical_url', esc_url_raw($update['canonical_url']));
+                    $updated_fields[] = 'canonical_url';
+                }
+
+                if (isset($update['og_enabled'])) {
+                    update_term_meta($term_id, '_metasync_og_enabled', $update['og_enabled'] ? '1' : '0');
+                    $updated_fields[] = 'og_enabled';
+                }
+
+                if (isset($update['og_title'])) {
+                    update_term_meta($term_id, '_metasync_og_title', sanitize_text_field($update['og_title']));
+                    $updated_fields[] = 'og_title';
+                }
+
+                if (isset($update['og_description'])) {
+                    update_term_meta($term_id, '_metasync_og_description', sanitize_textarea_field($update['og_description']));
+                    $updated_fields[] = 'og_description';
+                }
+
+                if (isset($update['og_image'])) {
+                    update_term_meta($term_id, '_metasync_og_image', esc_url_raw($update['og_image']));
+                    $updated_fields[] = 'og_image';
+                }
+
+                if (isset($update['twitter_card'])) {
+                    $allowed_cards = ['summary', 'summary_large_image'];
+                    if (!in_array($update['twitter_card'], $allowed_cards, true)) {
+                        $results['failed'][] = ['term_id' => $term_id, 'error' => 'Invalid twitter_card value: ' . sanitize_text_field($update['twitter_card'])];
+                        continue;
+                    }
+                    update_term_meta($term_id, '_metasync_twitter_card', sanitize_text_field($update['twitter_card']));
+                    $updated_fields[] = 'twitter_card';
+                }
+
+                if (isset($update['twitter_title'])) {
+                    update_term_meta($term_id, '_metasync_twitter_title', sanitize_text_field($update['twitter_title']));
+                    $updated_fields[] = 'twitter_title';
+                }
+
+                if (isset($update['twitter_description'])) {
+                    update_term_meta($term_id, '_metasync_twitter_description', sanitize_textarea_field($update['twitter_description']));
+                    $updated_fields[] = 'twitter_description';
                 }
 
                 $results['success'][] = [

@@ -80,15 +80,9 @@ class Metasync_Breadcrumbs_Schema {
             return;
         }
 
-        // AIOSEO.
-        if (defined('AIOSEO_VERSION') && function_exists('aioseo')) {
-            $aioseo_instance = aioseo();
-            if (!empty($aioseo_instance->breadcrumbs)
-                && method_exists($aioseo_instance->breadcrumbs, 'isEnabled')
-                && $aioseo_instance->breadcrumbs->isEnabled()
-            ) {
-                return;
-            }
+        // AIOSEO — breadcrumbs are always available in v4+ (the old enable toggle was removed).
+        if (defined('AIOSEO_VERSION')) {
+            return;
         }
 
         // Resolve the trail.

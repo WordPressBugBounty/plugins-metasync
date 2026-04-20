@@ -39,6 +39,11 @@ class MCP_Tool_Get_Otto_Persistence_Settings extends MCP_Tool_Base {
         $this->validate_params($params);
         $this->require_capability('manage_options');
 
+        $persistence_settings_file = dirname(dirname(dirname(__FILE__))) . '/otto/class-metasync-otto-persistence-settings.php';
+        if (file_exists($persistence_settings_file)) {
+            require_once $persistence_settings_file;
+        }
+
         if (!class_exists('Metasync_Otto_Persistence_Settings')) {
             throw new Exception('Metasync_Otto_Persistence_Settings class is not available. Ensure the OTTO persistence module is loaded.');
         }
@@ -104,6 +109,11 @@ class MCP_Tool_Update_Otto_Persistence_Settings extends MCP_Tool_Base {
     public function execute($params) {
         $this->validate_params($params);
         $this->require_capability('manage_options');
+
+        $persistence_settings_file = dirname(dirname(dirname(__FILE__))) . '/otto/class-metasync-otto-persistence-settings.php';
+        if (file_exists($persistence_settings_file)) {
+            require_once $persistence_settings_file;
+        }
 
         if (!class_exists('Metasync_Otto_Persistence_Settings')) {
             throw new Exception('Metasync_Otto_Persistence_Settings class is not available. Ensure the OTTO persistence module is loaded.');

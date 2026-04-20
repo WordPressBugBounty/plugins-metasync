@@ -401,14 +401,18 @@ if (!defined('ABSPATH')) {
 		display: flex !important;
 		align-items: center !important;
 		gap: 12px !important;
-		flex-wrap: wrap !important;
+		flex-wrap: nowrap !important;
 	}
 
 	.wrap .tablenav .alignleft {
 		display: flex !important;
 		align-items: center !important;
 		gap: 12px !important;
-		flex-wrap: wrap !important;
+		flex-wrap: nowrap !important;
+	}
+
+	.wrap .tablenav .bulkactions {
+		flex-wrap: nowrap !important;
 	}
 
 	.wrap .tablenav .alignright {

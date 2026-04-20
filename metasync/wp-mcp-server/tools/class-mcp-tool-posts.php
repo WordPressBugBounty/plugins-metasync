@@ -186,7 +186,7 @@ class MCP_Tool_Update_Post extends MCP_Tool_Base {
     }
 
     public function get_description() {
-        return 'Update a WordPress post title, content, or excerpt';
+        return 'Update a WordPress post title, content, excerpt, or status';
     }
 
     public function get_input_schema() {
@@ -209,6 +209,11 @@ class MCP_Tool_Update_Post extends MCP_Tool_Base {
                 'excerpt' => [
                     'type' => 'string',
                     'description' => 'New post excerpt (optional)'
+                ],
+                'status' => [
+                    'type' => 'string',
+                    'description' => 'New post status (optional)',
+                    'enum' => ['publish', 'draft', 'pending', 'private']
                 ]
             ],
             'required' => ['post_id']
@@ -242,9 +247,17 @@ class MCP_Tool_Update_Post extends MCP_Tool_Base {
             $update_args['post_excerpt'] = $this->sanitize_textarea($params['excerpt']);
         }
 
+        if (isset($params['status'])) {
+            $status = $this->sanitize_string($params['status']);
+            if (!in_array($status, ['publish', 'draft', 'pending', 'private'], true)) {
+                throw new InvalidArgumentException('Invalid status value');
+            }
+            $update_args['post_status'] = $status;
+        }
+
         // Only update if we have fields to update
         if (count($update_args) === 1) {
-            throw new InvalidArgumentException('At least one field (title, content, or excerpt) must be provided');
+            throw new InvalidArgumentException('At least one field (title, content, excerpt, or status) must be provided');
         }
 
         // Update post
