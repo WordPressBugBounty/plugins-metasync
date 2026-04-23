@@ -65,23 +65,8 @@ class Metasync_Breadcrumbs_Schema {
             return;
         }
 
-        // --- Cross-plugin compatibility: skip if another SEO plugin handles BreadcrumbList ---
-
-        // Yoast SEO.
-        if (defined('WPSEO_VERSION')) {
-            $wpseo_options = get_option('wpseo', array());
-            if (!empty($wpseo_options['breadcrumbs-enable'])) {
-                return;
-            }
-        }
-
-        // Rank Math.
-        if (defined('RANK_MATH_VERSION')) {
-            return;
-        }
-
-        // AIOSEO — breadcrumbs are always available in v4+ (the old enable toggle was removed).
-        if (defined('AIOSEO_VERSION')) {
+        // Skip on search results and 404 — BreadcrumbList is not meaningful there.
+        if (is_search() || is_404()) {
             return;
         }
 

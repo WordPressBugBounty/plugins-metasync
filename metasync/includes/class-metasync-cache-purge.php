@@ -240,7 +240,7 @@ class Metasync_Cache_Purge
             try {
                 Metasync_Minification_Cache::purge_all();
                 $results['cleared'][] = 'MetaSync Minification Cache';
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 $results['failed'][] = 'MetaSync Minification Cache';
             }
         }
@@ -282,7 +282,7 @@ class Metasync_Cache_Purge
                     rocket_clean_post($post_id);
                     $success = true;
                 }
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 error_log('MetaSync: WP Rocket per-URL purge failed - ' . $e->getMessage());
             }
         }
@@ -294,7 +294,7 @@ class Metasync_Cache_Purge
                     do_action('litespeed_purge_post', $post_id);
                     $success = true;
                 }
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 error_log('MetaSync: LiteSpeed per-URL purge failed - ' . $e->getMessage());
             }
         }
@@ -306,7 +306,7 @@ class Metasync_Cache_Purge
                     w3tc_flush_post($post_id);
                     $success = true;
                 }
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 error_log('MetaSync: W3 Total Cache per-URL purge failed - ' . $e->getMessage());
             }
         }
@@ -319,7 +319,7 @@ class Metasync_Cache_Purge
                         $success = true;
                     }
                 }
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 error_log('MetaSync: NitroPack per-URL purge failed - ' . $e->getMessage());
             }
         }
@@ -339,7 +339,7 @@ class Metasync_Cache_Purge
                         $success = true;
                     }
                 }
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 error_log('MetaSync: WP Super Cache per-URL purge failed - ' . $e->getMessage());
             }
         }
@@ -361,7 +361,7 @@ class Metasync_Cache_Purge
                     do_action('wpfc_clear_post_cache_by_url', $url);
                     $success = true;
                 }
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 error_log('MetaSync: WP Fastest Cache per-URL purge failed - ' . $e->getMessage());
             }
         }
@@ -373,7 +373,7 @@ class Metasync_Cache_Purge
                     do_action('cache_enabler_clear_page_cache_by_url', $url);
                     $success = true;
                 }
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 error_log('MetaSync: Cache Enabler per-URL purge failed - ' . $e->getMessage());
             }
         }
@@ -394,7 +394,7 @@ class Metasync_Cache_Purge
                         $success = true;
                     }
                 }
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 error_log('MetaSync: Hummingbird per-URL purge failed - ' . $e->getMessage());
             }
         }
@@ -409,7 +409,7 @@ class Metasync_Cache_Purge
                     do_action('sg_cachepress_purge_cache');
                     $success = true;
                 }
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 error_log('MetaSync: SG Optimizer per-URL purge failed - ' . $e->getMessage());
             }
         }
@@ -424,7 +424,7 @@ class Metasync_Cache_Purge
                     comet_cache::clearPost($post_id);
                     $success = true;
                 }
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 error_log('MetaSync: Comet Cache per-URL purge failed - ' . $e->getMessage());
             }
         }
@@ -437,7 +437,7 @@ class Metasync_Cache_Purge
                     Swift_Performance_Cache::clear_post_cache($post_id);
                     $success = true;
                 }
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 error_log('MetaSync: Swift Performance per-URL purge failed - ' . $e->getMessage());
             }
         }
@@ -449,20 +449,14 @@ class Metasync_Cache_Purge
             try {
                 KinstaCache::get_instance()->kinsta_cache_purge_single_url($url);
                 $success = true;
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 error_log('MetaSync: Kinsta per-URL purge failed - ' . $e->getMessage());
             }
         }
 
-        // WP Engine - Purge specific URL (hosting-level cache, no plugin check needed)
-        if ($url && class_exists('WpeCommon')) {
-            try {
-                WpeCommon::purge_url($url);
-                $success = true;
-            } catch (Exception $e) {
-                error_log('MetaSync: WP Engine per-URL purge failed - ' . $e->getMessage());
-            }
-        }
+        // WP Engine - Skipped for per-URL purge. WpeCommon has no per-URL method;
+        // purge_varnish_cache() is full-site and would nuke the entire cache on every
+        // OTTO URL in the batch. warm_urls() re-populates each affected URL instead.
 
         return $success;
     }
@@ -496,7 +490,7 @@ class Metasync_Cache_Purge
             }
 
             return true;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->log_cache_error('WordPress', $e);
             return false;
         }
@@ -523,7 +517,7 @@ class Metasync_Cache_Purge
             do_action('rocket_clean_domain');
             
             return true;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->log_cache_error('WP Rocket', $e);
             return false;
         }
@@ -549,7 +543,7 @@ class Metasync_Cache_Purge
             }
 
             return true;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->log_cache_error('LiteSpeed', $e);
             return false;
         }
@@ -591,7 +585,7 @@ class Metasync_Cache_Purge
             }
 
             return true;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->log_cache_error('W3 Total Cache', $e);
             return false;
         }
@@ -623,7 +617,7 @@ class Metasync_Cache_Purge
             }
 
             return false;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->log_cache_error('WP Super Cache', $e);
             return false;
         }
@@ -647,7 +641,7 @@ class Metasync_Cache_Purge
             do_action('wpfc_clear_all_cache');
 
             return true;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->log_cache_error('WP Fastest Cache', $e);
             return false;
         }
@@ -670,7 +664,7 @@ class Metasync_Cache_Purge
             do_action('cache_enabler_clear_complete_cache');
 
             return true;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->log_cache_error('Cache Enabler', $e);
             return false;
         }
@@ -694,7 +688,7 @@ class Metasync_Cache_Purge
             do_action('wphb_clear_page_cache');
 
             return true;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->log_cache_error('Hummingbird', $e);
             return false;
         }
@@ -715,7 +709,7 @@ class Metasync_Cache_Purge
             do_action('autoptimize_action_cachepurged');
 
             return true;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->log_cache_error('Autoptimize', $e);
             return false;
         }
@@ -736,7 +730,7 @@ class Metasync_Cache_Purge
             do_action('sg_cachepress_purge_cache');
 
             return true;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->log_cache_error('SG Optimizer', $e);
             return false;
         }
@@ -757,7 +751,7 @@ class Metasync_Cache_Purge
             do_action('comet_cache_clear');
 
             return true;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->log_cache_error('Comet Cache', $e);
             return false;
         }
@@ -778,7 +772,7 @@ class Metasync_Cache_Purge
             do_action('swift_performance_clear_all_cache');
 
             return true;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->log_cache_error('Swift Performance', $e);
             return false;
         }
@@ -792,7 +786,7 @@ class Metasync_Cache_Purge
         try {
             KinstaCache::get_instance()->kinsta_cache_purge_full();
             return true;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->log_cache_error('Kinsta', $e);
             return false;
         }
@@ -807,7 +801,7 @@ class Metasync_Cache_Purge
             WpeCommon::purge_varnish_cache();
             WpeCommon::purge_memcached();
             return true;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->log_cache_error('WP Engine', $e);
             return false;
         }
@@ -838,7 +832,7 @@ class Metasync_Cache_Purge
             }
 
             return false;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->log_cache_error('NitroPack', $e);
             return false;
         }
@@ -853,7 +847,7 @@ class Metasync_Cache_Purge
     {
         try {
             self::get_instance()->clear_all_caches($source);
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             error_log('MetaSync: Cache purge failed (' . $source . ') - ' . $e->getMessage());
         }
     }
@@ -867,7 +861,7 @@ class Metasync_Cache_Purge
     {
         try {
             self::get_instance()->clear_url_cache($url);
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             error_log('MetaSync: URL cache purge failed - ' . $e->getMessage());
         }
     }
@@ -982,7 +976,7 @@ class Metasync_Cache_Purge
      * Log a cache clear failure consistently
      *
      * @param string    $plugin_name Human-readable plugin name
-     * @param Exception $e           The caught exception
+     * @param \Throwable $e           The caught exception or error
      */
     private function log_cache_error($plugin_name, $e)
     {

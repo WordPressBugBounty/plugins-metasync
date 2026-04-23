@@ -16,6 +16,10 @@ if (!defined('ABSPATH')) {
 
 require_once plugin_dir_path(dirname(__FILE__)) . 'class-mcp-tool-base.php';
 
+// Term-level SEO plugin sync: propagate MCP-driven term meta updates into
+// Yoast / Rank Math / AIOSEO term storage.
+require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'includes/class-metasync-term-plugin-sync.php';
+
 /**
  * Get Taxonomy Term Meta Tool
  *
@@ -283,6 +287,35 @@ class MCP_Tool_Update_Term_Meta extends MCP_Tool_Base {
             $updated_fields[] = 'twitter_image';
         }
 
+        // Propagate MetaSync term meta into the active SEO plugins' term storage
+        // (Yoast / Rank Math / AIOSEO) so archive pages render these values.
+        if (!empty($updated_fields) && class_exists('Metasync_Term_Plugin_Sync')) {
+            $key_map = [
+                'meta_title'          => 'title',
+                'meta_description'    => 'desc',
+                'og_title'            => 'og_title',
+                'og_description'      => 'og_desc',
+                'og_image'            => 'og_image',
+                'twitter_title'       => 'twitter_title',
+                'twitter_description' => 'twitter_desc',
+                'canonical_url'       => 'canonical',
+                'robots_index'        => 'noindex',
+            ];
+            $sync_data = [];
+            foreach ($key_map as $param_key => $sync_key) {
+                if (isset($params[$param_key])) {
+                    $sync_data[$sync_key] = $params[$param_key];
+                }
+            }
+            if (!empty($sync_data)) {
+                Metasync_Term_Plugin_Sync::get_instance()->sync_term(
+                    $term_id,
+                    $term->taxonomy,
+                    $sync_data
+                );
+            }
+        }
+
         if (empty($updated_fields)) {
             throw new Exception('No meta fields provided to update');
         }
@@ -480,6 +513,35 @@ class MCP_Tool_Bulk_Update_Term_Meta extends MCP_Tool_Base {
                 if (isset($update['twitter_description'])) {
                     update_term_meta($term_id, '_metasync_twitter_description', sanitize_textarea_field($update['twitter_description']));
                     $updated_fields[] = 'twitter_description';
+                }
+
+                // Propagate this term's MCP-driven updates into the active
+                // SEO plugins' term storage (Yoast / Rank Math / AIOSEO).
+                if (!empty($updated_fields) && class_exists('Metasync_Term_Plugin_Sync')) {
+                    $bulk_key_map = [
+                        'meta_title'          => 'title',
+                        'meta_description'    => 'desc',
+                        'og_title'            => 'og_title',
+                        'og_description'      => 'og_desc',
+                        'og_image'            => 'og_image',
+                        'twitter_title'       => 'twitter_title',
+                        'twitter_description' => 'twitter_desc',
+                        'canonical_url'       => 'canonical',
+                        'robots_index'        => 'noindex',
+                    ];
+                    $sync_data = [];
+                    foreach ($bulk_key_map as $param_key => $sync_key) {
+                        if (isset($update[$param_key])) {
+                            $sync_data[$sync_key] = $update[$param_key];
+                        }
+                    }
+                    if (!empty($sync_data)) {
+                        Metasync_Term_Plugin_Sync::get_instance()->sync_term(
+                            $term_id,
+                            $term->taxonomy,
+                            $sync_data
+                        );
+                    }
                 }
 
                 $results['success'][] = [

@@ -144,8 +144,24 @@ class Metasync_SEO_Conflict_Handler {
             return $this->has_description_cache;
         }
 
-        $this->has_description_cache = !empty($this->get_metasync_description());
-        return $this->has_description_cache;
+        if (!empty($this->get_metasync_description())) {
+            $this->has_description_cache = true;
+            return true;
+        }
+
+        // Term-level: on taxonomy archives MetaSync may have term meta
+        // (`_metasync_metadesc`) set via MCP, OTTO, or the importer.
+        $term = $this->get_current_term();
+        if ($term) {
+            $term_desc = get_term_meta($term->term_id, '_metasync_metadesc', true);
+            if (!empty($term_desc)) {
+                $this->has_description_cache = true;
+                return true;
+            }
+        }
+
+        $this->has_description_cache = false;
+        return false;
     }
 
     /**
@@ -228,6 +244,17 @@ class Metasync_SEO_Conflict_Handler {
             $this->aioseo_has_description_cache = !empty($description);
         }
 
+        // Term archives: AIOSEO free doesn't read per-term custom descriptions
+        // from its `wp_aioseo_terms` table, so return the MetaSync value
+        // directly so AIOSEO renders it.
+        $term = $this->get_current_term();
+        if ($term) {
+            $term_desc = get_term_meta($term->term_id, '_metasync_metadesc', true);
+            if (!empty($term_desc)) {
+                return $term_desc;
+            }
+        }
+
         // Suppress when: OTTO active + has description, OR MetaSync sidebar has description
         if ($this->otto_has_tag('description') || $this->metasync_has_description()) {
             return '';
@@ -237,12 +264,24 @@ class Metasync_SEO_Conflict_Handler {
 
     /**
      * Filter AIOSEO title output.
-     * Returns empty string when MetaSync/OTTO has a title.
+     *
+     * On term archives: AIOSEO free doesn't read custom per-term titles from
+     * its `wp_aioseo_terms` table, so we replace AIOSEO's template-based title
+     * with the MetaSync term title directly.
      *
      * @param  string $title AIOSEO's computed title.
      * @return string
      */
     public function filter_aioseo_title($title) {
+        // Term archives: return MetaSync term title directly.
+        $term = $this->get_current_term();
+        if ($term) {
+            $term_title = get_term_meta($term->term_id, '_metasync_metatitle', true);
+            if (!empty($term_title)) {
+                return $term_title;
+            }
+        }
+
         if ($this->should_suppress_third_party_title()) {
             return '';
         }
@@ -348,6 +387,8 @@ class Metasync_SEO_Conflict_Handler {
     /**
      * Filter AIOSEO schema/JSON-LD output.
      * Suppress when OTTO has structured data for the current page.
+     * Also strip BreadcrumbList entries when MetaSync breadcrumbs are enabled,
+     * so MetaSync's own BreadcrumbList is the only one on the page.
      *
      * @param  array $output AIOSEO's @graph array.
      * @return array
@@ -356,6 +397,16 @@ class Metasync_SEO_Conflict_Handler {
         if ($this->otto_has_schema_for_current_page()) {
             return [];
         }
+
+        if ($this->metasync_breadcrumb_enabled() && is_array($output)) {
+            foreach ($output as $key => $entry) {
+                if (is_array($entry) && isset($entry['@type']) && $entry['@type'] === 'BreadcrumbList') {
+                    unset($output[$key]);
+                }
+            }
+            $output = array_values($output);
+        }
+
         return $output;
     }
 
@@ -396,7 +447,21 @@ class Metasync_SEO_Conflict_Handler {
         }
 
         $otto_title = get_post_meta($post_id, '_metasync_otto_title', true);
-        return !empty($otto_title);
+        if (!empty($otto_title)) {
+            return true;
+        }
+
+        // Term-level fallback: on taxonomy archives the "object" is a term,
+        // so read `_metasync_metatitle` from term meta when we're rendering one.
+        $term = $this->get_current_term();
+        if ($term) {
+            $term_title = get_term_meta($term->term_id, '_metasync_metatitle', true);
+            if (!empty($term_title)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -506,7 +571,7 @@ class Metasync_SEO_Conflict_Handler {
         add_filter('wpseo_twitter_card_type', [$this, 'filter_yoast_twitter_structural'], 999);
 
         // Suppress Yoast schema/JSON-LD when OTTO has structured data
-        add_filter('wpseo_json_ld_output', [$this, 'filter_yoast_schema'], 999);
+        add_filter('wpseo_schema_graph', [$this, 'filter_yoast_schema'], 999);
     }
 
     /**
@@ -523,6 +588,18 @@ class Metasync_SEO_Conflict_Handler {
      * HTML. Returning '' here would again leave the page with no <title> tag.
      */
     public function filter_yoast_title($title) {
+        // Term-level archives (category/tag/custom taxonomy): when MetaSync has
+        // an explicit `_metasync_metatitle`, return it so Yoast renders the
+        // MetaSync-managed archive title inside <title>. This mirrors the
+        // post-level sidebar-title precedence below.
+        $term = $this->get_current_term();
+        if ($term) {
+            $term_title = get_term_meta($term->term_id, '_metasync_metatitle', true);
+            if (!empty($term_title)) {
+                return $term_title;
+            }
+        }
+
         $post_id = $this->get_current_object_id();
 
         // Case 1: MetaSync sidebar has an explicit title — return it so Yoast
@@ -546,9 +623,24 @@ class Metasync_SEO_Conflict_Handler {
 
     /**
      * Filter Yoast SEO description output.
-     * Suppress when: OTTO active + has description, OR MetaSync sidebar has description.
+     *
+     * On term archives: the term-level sync writes MetaSync's description
+     * into Yoast's native storage, so Yoast already computes the correct
+     * value — let it through.
+     *
+     * On singular pages: suppress when OTTO or MetaSync sidebar provides
+     * the description (MetaSync outputs its own tag).
      */
     public function filter_yoast_description($description) {
+        // Term archives: MetaSync syncs to Yoast storage — let Yoast render it.
+        $term = $this->get_current_term();
+        if ($term) {
+            $term_desc = get_term_meta($term->term_id, '_metasync_metadesc', true);
+            if (!empty($term_desc)) {
+                return $description;
+            }
+        }
+
         if ($this->otto_has_tag('description') || $this->metasync_has_description()) {
             return '';
         }
@@ -626,6 +718,8 @@ class Metasync_SEO_Conflict_Handler {
     /**
      * Filter Yoast SEO schema/JSON-LD output.
      * Suppress when OTTO has structured data for the current page.
+     * Also strip BreadcrumbList entries when MetaSync breadcrumbs are enabled,
+     * so MetaSync's own BreadcrumbList is the only one on the page.
      *
      * @param  array|false $data Yoast's JSON-LD data.
      * @return array|false
@@ -634,6 +728,16 @@ class Metasync_SEO_Conflict_Handler {
         if ($this->otto_has_schema_for_current_page()) {
             return false;
         }
+
+        if ($this->metasync_breadcrumb_enabled() && is_array($data)) {
+            foreach ($data as $key => $entry) {
+                if (is_array($entry) && isset($entry['@type']) && $entry['@type'] === 'BreadcrumbList') {
+                    unset($data[$key]);
+                }
+            }
+            $data = array_values($data);
+        }
+
         return $data;
     }
 
@@ -655,27 +759,71 @@ class Metasync_SEO_Conflict_Handler {
 
     /**
      * Filter RankMath title output.
-     * Returns empty string when MetaSync/OTTO has a title.
+     *
+     * On taxonomy archive pages: when MetaSync has an explicit `_metasync_metatitle`
+     * term meta value, return it so Rank Math renders the MetaSync-managed archive
+     * title inside <title>. This mirrors the Yoast term-level title override in
+     * filter_yoast_title().
+     *
+     * On singular pages: return empty string when MetaSync/OTTO has a title (Rank
+     * Math controls the sole <title> renderer on classic themes, so OTTO's buffer
+     * post-processing will replace it — returning '' would leave no <title> at all).
      *
      * @param  string $title RankMath's computed title.
      * @return string
      */
     public function filter_rankmath_title($title) {
-        if ($this->should_suppress_third_party_title()) {
-            return '';
+        // Term-level archives (category/tag/custom taxonomy): when MetaSync has
+        // an explicit `_metasync_metatitle`, return it so Rank Math renders the
+        // MetaSync-managed archive title inside <title>.
+        $term = $this->get_current_term();
+        if ($term) {
+            $term_title = get_term_meta($term->term_id, '_metasync_metatitle', true);
+            if (!empty($term_title)) {
+                return $term_title;
+            }
         }
+
+        $post_id = $this->get_current_object_id();
+
+        // MetaSync sidebar has an explicit title — return it so Rank Math renders it.
+        if ($post_id) {
+            $sidebar_title = get_post_meta($post_id, '_metasync_seo_title', true);
+            if (!empty($sidebar_title)) {
+                return $sidebar_title;
+            }
+        }
+
+        // OTTO has a persisted title — do NOT suppress Rank Math here.
+        // OTTO's output-buffer post-processing replaces the <title> tag in the
+        // final HTML. Returning '' would remove the tag before OTTO can inject.
 
         return $title;
     }
 
     /**
      * Filter RankMath description output.
-     * Returns empty string when MetaSync/OTTO has a description.
+     *
+     * On term archives: the term-level sync writes MetaSync's description
+     * into Rank Math's native term meta, so Rank Math already computes the
+     * correct value — let it through.
+     *
+     * On singular pages: suppress when OTTO or MetaSync sidebar provides
+     * the description.
      *
      * @param  string $description RankMath's computed description.
      * @return string
      */
     public function filter_rankmath_description($description) {
+        // Term archives: MetaSync syncs to Rank Math storage — let it render.
+        $term = $this->get_current_term();
+        if ($term) {
+            $term_desc = get_term_meta($term->term_id, '_metasync_metadesc', true);
+            if (!empty($term_desc)) {
+                return $description;
+            }
+        }
+
         if ($this->otto_has_tag('description') || $this->metasync_has_description()) {
             return '';
         }
@@ -686,6 +834,8 @@ class Metasync_SEO_Conflict_Handler {
     /**
      * Filter RankMath schema/JSON-LD output.
      * Suppress when OTTO has structured data for the current page.
+     * Also strip BreadcrumbList entries when MetaSync breadcrumbs are enabled,
+     * so MetaSync's own BreadcrumbList is the only one on the page.
      *
      * @param  array $data RankMath's JSON-LD data array.
      * @return array
@@ -693,6 +843,15 @@ class Metasync_SEO_Conflict_Handler {
     public function filter_rankmath_schema($data) {
         if ($this->otto_has_schema_for_current_page()) {
             return [];
+        }
+
+        if ($this->metasync_breadcrumb_enabled() && is_array($data)) {
+            foreach ($data as $key => $entry) {
+                if (is_array($entry) && isset($entry['@type']) && $entry['@type'] === 'BreadcrumbList') {
+                    unset($data[$key]);
+                }
+            }
+            $data = array_values($data);
         }
 
         return $data;
@@ -782,6 +941,29 @@ class Metasync_SEO_Conflict_Handler {
     // ------------------------------------------------------------------
 
     /**
+     * Determine whether MetaSync's own BreadcrumbList output is enabled.
+     *
+     * Mirrors the gate logic in Metasync_Breadcrumbs_Schema::output_breadcrumb_schema():
+     * enabled by default, disabled only when the `enabled` setting is explicitly falsy.
+     * Used by the Yoast / RankMath / AIOSEO schema filters so we only strip their
+     * BreadcrumbList entries when MetaSync will emit one itself.
+     *
+     * @return bool
+     */
+    private function metasync_breadcrumb_enabled() {
+        $settings = Metasync::get_option('breadcrumbs', array());
+        if (!is_array($settings)) {
+            return true;
+        }
+
+        if (array_key_exists('enabled', $settings) && empty($settings['enabled'])) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Check whether OTTO has structured data (schema/JSON-LD) for the current page.
      *
      * @return bool
@@ -831,5 +1013,29 @@ class Metasync_SEO_Conflict_Handler {
         }
 
         return 0;
+    }
+
+    /**
+     * Return the WP_Term being rendered on taxonomy archive pages.
+     *
+     * Only returns a term when the current query is a category, tag, or
+     * custom taxonomy archive — i.e. when MetaSync term meta could be
+     * driving the rendered output. Returns null in every other context
+     * (singular, blog home, search, 404, etc.) so callers don't have to
+     * double-check the page type.
+     *
+     * @return \WP_Term|null
+     */
+    private function get_current_term() {
+        if (!(is_category() || is_tag() || is_tax())) {
+            return null;
+        }
+
+        $queried = get_queried_object();
+        if ($queried instanceof \WP_Term) {
+            return $queried;
+        }
+
+        return null;
     }
 }

@@ -265,6 +265,12 @@ document.addEventListener('DOMContentLoaded', function () {
     var form = document.querySelector('#redirection-form');
     if (form) {
         form.addEventListener('submit', function (e) {
+            // Skip validation for filter/search submits — only validate the Save button.
+            var submitter = e.submitter;
+            if (submitter && submitter.name !== 'submit') {
+                return true;
+            }
+
             var isValid = true;
             var errors = [];
 

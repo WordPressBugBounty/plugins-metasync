@@ -127,228 +127,11 @@ class Metasync
 	 */
 	private function load_dependencies()
 	{
-
-		/**
-		 * The class responsible for orchestrating the actions and filters of the
-		 * core plugin.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-loader.php';
-
-		/**
-		 * The class responsible for defining internationalization functionality
-		 * of the plugin.
-		 */
-		// require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-i18n.php'; // Language support removed
-
-		/**
-		 * The class responsible for heartbeat / connection-monitoring logic
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-heartbeat-manager.php';
-
-		/**
-		 * The class responsible for monitoring API key changes and triggering heartbeat updates
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-api-key-monitor.php';
-
-		/**
-		 * The class responsible for OTTO cache management logic
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-otto-cache-manager.php';
-
-		/**
-		 * The class responsible for debug / error-logging logic
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-debug-manager.php';
-
-		/**
-		 * SearchAtlas Connect / SSO Authentication Manager
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-connect-manager.php';
-
-		/**
-		 * Compatibility Checker (extracted from admin)
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-compatibility-checker.php';
-
-		/**
-		 * Settings field callbacks and accordion/section helpers (extracted from admin).
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-settings-fields.php';
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-settings-registration.php';
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-admin-navigation.php';
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-admin-ajax.php';
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-admin-assets.php';
-
-		/**
-		 * The class responsible for CPU load monitoring and deferral logic
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-cpu-monitor.php';
-
-		/**
-		 * The class responsible for defining all actions that occur in the admin area.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-admin.php';
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-admin-pages.php';
-		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-post-meta-setting.php';
-		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-edge-cache-settings.php';
-
-		/**
-		 * The class responsible for the setup wizard functionality.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-setup-wizard.php';
-
-		/**
-		 * The class responsible for displaying and managing error logs in admin settings.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'site-error-logs/class-metasync-error-logs.php';
-
-		/**
-		 * The class responsible for defining all actions that occur in the public-facing
-		 * side of the site.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'public/class-metasync-public.php';
-		require_once plugin_dir_path(dirname(__FILE__)) . 'public/class-metasync-rest-api.php';
-		require_once plugin_dir_path(dirname(__FILE__)) . 'public/class-metasync-seo-output.php';
-
-		/**
-		 * The class responsible for defining template crawling and check feture image and post_title
-		 * side of the site.
-		 */
-		require plugin_dir_path(dirname(__FILE__)) .	 'public/class-metasync-hidden-post.php';
-
-
-
-
-
-		/**
-		 * The class responsible for defining all actions that occur in the public-facing
-		 * side of the site.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'code-snippets/class-metasync-code-snippets.php';
-
-		/**
-		 * The class responsible for Open Graph and Twitter Card meta tags functionality
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-opengraph.php';
-
-		/**
-		 * Centralized handler for SEO plugin conflicts (duplicate meta descriptions).
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-seo-conflict-handler.php';
-
-		/**
-		 * The class responsible for defining all actions that occur in the public-facing
-		 * side of the site.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'optimal-settings/class-metasync-optimal-settings.php';
-
-
-
-
+		// WordPress core — cannot be autoloaded.
 		require_once ABSPATH . 'wp-admin/includes/taxonomy.php';
 
-		/**
-		 * The class responsible for defining all actions that occur in the public-facing
-		 * side of the site.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'customer-sync-requests/class-metasync-sync-requests.php';
-
-		/**
-		 * The class responsible for orchestrating the actions and filters of the
-		 * core plugin.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-common.php';
-
-		/**
-		 * The class responsible for access control functionality
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-access-control.php';
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-access-control-ui.php';
-
-		/**
-		 * The class responsible for authentication management
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-auth-manager.php';
-
-		/**
-		 * The class responsible for endpoint management (production/staging switching)
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-endpoint-manager.php';
-
-		/**
-		 * The class responsible for developer panel functionality
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-dev-panel.php';
-
-		/**
-		 * The class responsible for defining all actions that occur in the admin area.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'heartbeat-error-monitor/class-metasync-heartbeat-error-monitor-database.php';
-		require_once plugin_dir_path(dirname(__FILE__)) . 'heartbeat-error-monitor/class-metasync-heartbeat-error-monitor.php';
-
-		/**
-		 * The class responsible for redirection functionality.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'redirections/class-metasync-redirection-database.php';
-		require_once plugin_dir_path(dirname(__FILE__)) . 'redirections/class-metasync-redirection.php';
-		require_once plugin_dir_path(dirname(__FILE__)) . 'redirections/class-metasync-auto-redirect.php';
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-redirections-admin.php';
-
-		/**
-		 * The class responsible for custom HTML pages functionality.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'custom-pages/class-metasync-custom-pages.php';
-
-		/**
-		 * The class responsible for defining all actions that occur in the template.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-template.php';
-
-		/**
-		 * The class responsible for Google Index API functionality
-		 */
+		// Procedural init file — not a class, must stay explicit.
 		require_once plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php';
-
-		/**
-		 * The class responsible for Schema Markup functionality.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'schema-markup/class-metasync-schema-markup.php';
-
-		/**
-		 * The classes responsible for Breadcrumbs functionality.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'breadcrumbs/class-metasync-breadcrumbs.php';
-		require_once plugin_dir_path(dirname(__FILE__)) . 'breadcrumbs/class-metasync-breadcrumbs-schema.php';
-
-		/**
-		 * The class responsible for OTTO Frontend Toolbar functionality.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'otto-frontend-toolbar/class-metasync-otto-frontend-toolbar.php';
-
-		/**
-		 * The class responsible for SEO Sidebar in Gutenberg Block Editor.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-seo-sidebar.php';
-
-		/**
-		 * The class responsible for Internal Link Suggestions in Gutenberg Block Editor.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-link-suggestions.php';
-
-		/**
-		 * The class responsible for enhanced error logging with categories.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-error-logger.php';
-
-		/**
-		 * The class responsible for displaying the review/rate plugin notice.
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-review-notice.php';
-
-		/**
-		 * The class responsible for Site Health integration
-		 */
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-site-health.php';
 
 		$this->loader = new Metasync_Loader();
 		$this->db_heartbeat_errors = new Metasync_HeartBeat_Error_Monitor_Database();
@@ -404,7 +187,6 @@ class Metasync
 		$plugin_admin = new Metasync_Admin($this->get_plugin_name(), $this->get_version(), $this->database, $this->db_redirection, $this->db_heartbeat_errors); // , $this->data_error_log_list
 
 		// Initialize HTML Visual Editor
-		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-html-visual-editor.php';
 		$html_visual_editor = new Metasync_HTML_Visual_Editor($this->get_plugin_name(), $this->get_version());
 		$html_visual_editor->init();
 
@@ -461,7 +243,6 @@ class Metasync
 			$_GET['export'] === 'csv' &&
 			strpos($_GET['page'], '-seo-health') !== false
 		) {
-			require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-seo-health.php';
 			$this->loader->add_action('admin_init', Metasync_SEO_Health::get_instance(), 'handle_csv_export', 1);
 		}
 		$this->loader->add_action('wp', $post_meta_setting, 'show_top_admin_bar', 9);
@@ -471,7 +252,6 @@ class Metasync
 		// via the REST API where is_admin() returns false, and REST_REQUEST
 		// is not yet defined at plugin load time
 		if (get_option('metasync_sitemap_auto_update', false)) {
-			require_once plugin_dir_path(dirname(__FILE__)) . 'sitemap/class-metasync-sitemap-generator.php';
 			$sitemap_generator = new Metasync_Sitemap_Generator();
 			$sitemap_generator->setup_auto_update_hooks();
 		}
@@ -549,9 +329,18 @@ class Metasync
 		// third-party SEO plugin descriptions when MetaSync provides its own).
 		Metasync_SEO_Conflict_Handler::get_instance();
 
+		// Term-level SEO plugin sync: propagate MetaSync term meta (category/tag
+		// archives) into Yoast/Rank Math/AIOSEO term storage on every write.
+		$this->loader->add_action('updated_term_meta', $this, 'on_term_meta_updated', 10, 4);
+		$this->loader->add_action('added_term_meta', $this, 'on_term_meta_updated', 10, 4);
+
 		// SEO Output hooks (Metasync_Seo_Output)
 		$this->loader->add_action('wp_head', $seo_output, 'hook_metasync_metatags', 1, 1);
 		$this->loader->add_action('template_redirect', $seo_output, 'inject_archive_seo_controls');
+
+		// Hreflang / language alternates output (wp_head @ priority 2).
+		$plugin_hreflang = new Metasync_Hreflang_Output();
+		$this->loader->add_action('wp_head', $plugin_hreflang, 'output_hreflang_tags', 2);
 
 		// Edge Cache: detect Cloudways Varnish and persist for settings UI
 		$this->loader->add_action('init', 'Metasync_Edge_Cache_Purge', 'detect_cloudways');
@@ -625,8 +414,42 @@ class Metasync
 		$this->loader->add_action('wp_footer', $otto_toolbar, 'render_debug_bar', 999);
 
 		// Initialize Sitemap Generator on frontend (for virtual sitemap serving)
-		require_once plugin_dir_path(dirname(__FILE__)) . 'sitemap/class-metasync-sitemap-generator.php';
 		$sitemap_generator = new Metasync_Sitemap_Generator();
+
+		// Initialize LLMs.txt Generator (for virtual /llms.txt and /llms-full.txt serving)
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-html-to-markdown.php';
+		require_once plugin_dir_path(dirname(__FILE__)) . 'llms-txt/class-metasync-llms-txt-generator.php';
+		$llms_txt_generator = new Metasync_Llms_Txt_Generator();
+
+		// One-time upgrade: regenerate sitemap to remove any Beaver Builder template entries
+		$this->loader->add_action('init', $this, 'maybe_regenerate_sitemap_after_upgrade');
+	}
+
+	/**
+	 * One-time upgrade routine: regenerate the XML sitemap so that Beaver Builder
+	 * template post types (fl-builder-template, fl-theme-layout) that were already
+	 * present in previously-generated sitemaps are purged.
+	 *
+	 * Runs once on 'init' and sets a flag so it never runs again.
+	 *
+	 * @since 1.0.0
+	 */
+	public function maybe_regenerate_sitemap_after_upgrade() {
+		$done_key = 'metasync_sitemap_bb_exclusion_applied';
+		if ( get_option( $done_key ) ) {
+			return;
+		}
+
+		// Only regenerate if the custom sitemap feature is actually in use.
+		if ( get_option( 'metasync_sitemap_auto_update', false ) || file_exists( ABSPATH . 'sitemap_index.xml' ) ) {
+			if ( ! class_exists( 'Metasync_Sitemap_Generator' ) ) {
+				require_once plugin_dir_path( dirname( __FILE__ ) ) . 'sitemap/class-metasync-sitemap-generator.php';
+			}
+			$sitemap = new Metasync_Sitemap_Generator();
+			$sitemap->generate_sitemap();
+		}
+
+		update_option( $done_key, true );
 	}
 
 	/**
@@ -687,6 +510,58 @@ class Metasync
 		}
 
 		return $preempt;
+	}
+
+	/**
+	 * Term meta update hook: mirror MetaSync term meta (`_metasync_*`)
+	 * into the active third-party SEO plugins' term storage.
+	 *
+	 * Registered on both `updated_term_meta` and `added_term_meta` so new
+	 * fields are synced the first time they are written as well as on
+	 * subsequent updates.
+	 *
+	 * @param int    $meta_id    Meta row ID (unused).
+	 * @param int    $object_id  Term ID.
+	 * @param string $meta_key   Meta key being written.
+	 * @param mixed  $meta_value Meta value being written.
+	 */
+	public function on_term_meta_updated($meta_id, $object_id, $meta_key, $meta_value) {
+		if (strncmp($meta_key, '_metasync_', 10) !== 0) {
+			return;
+		}
+
+		if (!class_exists('Metasync_Term_Plugin_Sync')) {
+			return;
+		}
+
+		$term = get_term((int) $object_id);
+		if (!$term || is_wp_error($term)) {
+			return;
+		}
+
+		$canonical_map = [
+			'_metasync_metatitle'          => 'title',
+			'_metasync_metadesc'           => 'desc',
+			'_metasync_robots_index'       => 'noindex',
+			'_metasync_canonical_url'      => 'canonical',
+			'_metasync_og_title'           => 'og_title',
+			'_metasync_og_description'     => 'og_desc',
+			'_metasync_og_image'           => 'og_image',
+			'_metasync_twitter_title'      => 'twitter_title',
+			'_metasync_twitter_description' => 'twitter_desc',
+		];
+
+		if (!isset($canonical_map[$meta_key])) {
+			return;
+		}
+
+		$canonical_key = $canonical_map[$meta_key];
+
+		Metasync_Term_Plugin_Sync::get_instance()->sync_term(
+			(int) $object_id,
+			(string) $term->taxonomy,
+			[$canonical_key => $meta_value]
+		);
 	}
 
 	/**
@@ -776,6 +651,7 @@ class Metasync
 			'logo_light' => '',
 			'logo_dark' => '',
 			'company_name' => '',
+			'color_palette' => array(),
 			'updated_at' => 0
 		);
 	}
@@ -1107,7 +983,6 @@ class Metasync
 		}
 
 		// Initialize 404 monitor database
-		require_once plugin_dir_path(dirname(__FILE__)) . '404-monitor/class-metasync-404-monitor-database.php';
 		$db_404 = new Metasync_Error_Monitor_Database();
 
 		// Get user agent (sanitized)

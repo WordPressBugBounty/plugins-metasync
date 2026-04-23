@@ -39,12 +39,15 @@
             // Primary category
             primaryCategory: '_metasync_primary_category',
             primaryProductCat: '_metasync_primary_product_cat',
+            // Language alternates (hreflang) — JSON-encoded array
+            hreflang: '_metasync_hreflang',
         },
         hasMetaKeys: {
             // Whether the manual meta keys exist in database (from PHP check)
             seoTitle: false,
             metaDescription: false,
         },
+        wpmlEntries: [],
         otto: {
             globalEnabled: false,
             name: 'OTTO',
@@ -73,6 +76,14 @@
             breadcrumbTitleHelp: 'Custom label for this page in breadcrumb trails. Leave empty to use the post title.',
             ottoPrefillHelp: 'Pre-filled from OTTO. Edit to customize.',
             ottoOverrideNotice: 'OTTO is enabled. Any SEO title and description changes from OTTO will be overwritten by your custom values entered here.',
+            // Language Alternates (hreflang) panel strings
+            languageAlternatesTitle: 'Language Alternates',
+            addAlternate: 'Add alternate',
+            langLabel: 'Language',
+            regionLabel: 'Region',
+            urlLabel: 'URL',
+            editManually: 'Edit Manually',
+            wpmlAutoPopulated: 'Auto-populated from WPML. Click Edit Manually to override.',
         },
     };
 
@@ -934,6 +945,161 @@
     };
 
     /**
+     * Language Alternates (hreflang) Panel Component
+     *
+     * Renders the list of hreflang entries (read from the _metasync_hreflang
+     * post meta as a JSON array of {lang, region, url} objects).
+     *
+     * When WPML auto-populated entries are available and the user has not
+     * overridden them, renders them as read-only rows with an "Edit Manually"
+     * button that switches to manual-edit mode. In manual-edit mode (and
+     * when WPML is not active), renders editable rows plus an "Add alternate"
+     * button.
+     */
+    const LanguageAlternatesPanel = () => {
+        const metaKey = config.metaKeys.hreflang || '_metasync_hreflang';
+        const wpmlEntries = Array.isArray(config.wpmlEntries) ? config.wpmlEntries : [];
+
+        const { rawValue } = useSelect((select) => {
+            const meta = select('core/editor').getEditedPostAttribute('meta') || {};
+            return { rawValue: meta[metaKey] || '' };
+        }, [metaKey]);
+
+        const { editPost } = useDispatch('core/editor');
+
+        let rows = [];
+        if (rawValue) {
+            try {
+                const parsed = JSON.parse(rawValue);
+                if (Array.isArray(parsed)) {
+                    rows = parsed;
+                }
+            } catch (e) {
+                rows = [];
+            }
+        }
+
+        // Manual mode is active when the user explicitly overrode WPML
+        // (tracked in state for the current session) or when manual rows
+        // already exist in the stored meta.
+        const [manualMode, setManualMode] = useState(rows.length > 0);
+
+        const saveRows = (nextRows) => {
+            editPost({ meta: { [metaKey]: JSON.stringify(nextRows) } });
+        };
+
+        const updateRow = (index, field, value) => {
+            const next = rows.slice();
+            next[index] = Object.assign({}, next[index] || { lang: '', region: '', url: '' });
+            next[index][field] = value;
+            saveRows(next);
+        };
+
+        const addRow = () => {
+            const next = rows.slice();
+            next.push({ lang: '', region: '', url: '' });
+            saveRows(next);
+        };
+
+        const removeRow = (index) => {
+            const next = rows.slice();
+            next.splice(index, 1);
+            saveRows(next);
+        };
+
+        const startManualEdit = () => {
+            // Seed manual rows from the WPML entries so the user can tweak
+            // rather than re-enter everything.
+            if (rows.length === 0 && wpmlEntries.length > 0) {
+                const seeded = wpmlEntries.map(function(e) {
+                    return { lang: e.lang || '', region: '', url: e.url || '' };
+                });
+                saveRows(seeded);
+            }
+            setManualMode(true);
+        };
+
+        // WPML auto-populated, read-only view
+        if (!manualMode && wpmlEntries.length > 0) {
+            return el('div', { className: 'metasync-language-alternates' },
+                el('p', { className: 'metasync-language-alternates-help' },
+                    config.i18n.wpmlAutoPopulated || 'Auto-populated from WPML. Click Edit Manually to override.'
+                ),
+                el('table', { className: 'metasync-language-alternates-table' },
+                    el('thead', null,
+                        el('tr', null,
+                            el('th', null, config.i18n.langLabel || 'Language'),
+                            el('th', null, config.i18n.urlLabel || 'URL')
+                        )
+                    ),
+                    el('tbody', null,
+                        wpmlEntries.map(function(entry, i) {
+                            return el('tr', { key: 'wpml-' + i },
+                                el('td', null, entry.lang || ''),
+                                el('td', null,
+                                    el('a', {
+                                        href: entry.url,
+                                        target: '_blank',
+                                        rel: 'noopener noreferrer',
+                                    }, entry.url || '')
+                                )
+                            );
+                        })
+                    )
+                ),
+                el(Button, {
+                    isSecondary: true,
+                    isSmall: true,
+                    onClick: startManualEdit,
+                }, config.i18n.editManually || 'Edit Manually')
+            );
+        }
+
+        // Manual-edit view
+        const editableRows = rows.length > 0 ? rows : [];
+
+        return el('div', { className: 'metasync-language-alternates' },
+            editableRows.length === 0
+                ? el('p', { className: 'metasync-language-alternates-help' },
+                    __('No language alternates yet. Use "Add alternate" to create one.', 'metasync'))
+                : null,
+            editableRows.map(function(row, index) {
+                return el('div', { className: 'metasync-language-alternate-row', key: 'row-' + index },
+                    el(TextControl, {
+                        label: config.i18n.langLabel || 'Language',
+                        value: (row && row.lang) || '',
+                        onChange: function(value) { updateRow(index, 'lang', value); },
+                        placeholder: 'en',
+                    }),
+                    el(TextControl, {
+                        label: config.i18n.regionLabel || 'Region',
+                        value: (row && row.region) || '',
+                        onChange: function(value) { updateRow(index, 'region', value); },
+                        placeholder: 'us',
+                    }),
+                    el(TextControl, {
+                        label: config.i18n.urlLabel || 'URL',
+                        value: (row && row.url) || '',
+                        onChange: function(value) { updateRow(index, 'url', value); },
+                        placeholder: 'https://example.com/page/',
+                    }),
+                    el(Button, {
+                        isLink: true,
+                        isDestructive: true,
+                        isSmall: true,
+                        onClick: function() { removeRow(index); },
+                    }, __('Remove', 'metasync'))
+                );
+            }),
+            el(Button, {
+                isSecondary: true,
+                isSmall: true,
+                onClick: addRow,
+            }, config.i18n.addAlternate || 'Add alternate')
+        );
+    };
+
+    /**
      * Main Sidebar Component
      */
     const MetaSyncSeoSidebar = () => {
@@ -960,6 +1126,12 @@
                     initialOpen: true,
                 },
                     el(SerpPreview, null)
+                ),
+                el(PanelBody, {
+                    title: config.i18n.languageAlternatesTitle || 'Language Alternates',
+                    initialOpen: false,
+                },
+                    el(LanguageAlternatesPanel, null)
                 ),
                 el(PanelBody, {
                     title: (config.linkSuggestions && config.linkSuggestions.i18n && config.linkSuggestions.i18n.panelTitle) || 'Internal Link Suggestions',

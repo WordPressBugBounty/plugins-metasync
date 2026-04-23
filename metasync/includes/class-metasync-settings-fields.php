@@ -101,6 +101,21 @@ class Metasync_Settings_Fields {
                 'default_open' => false,
                 'render_callback' => array($this, 'render_breadcrumbs_section')
             ),
+            'open_graph' => array(
+                'title' => 'Open Graph',
+                'description' => 'Control which Open Graph and article meta tags are output',
+                'icon' => 'share',
+                'priority' => 38,
+                'default_open' => false,
+                'fields' => array(
+                    'og_image_dimensions',
+                    'article_timestamps',
+                    'article_author',
+                    'article_section',
+                    'article_tags',
+                    'twitter_image_alt'
+                )
+            ),
             'editor_settings' => array(
                 'title' => 'Post/Page Editor Settings',
                 'description' => 'Customize meta boxes and editor functionality',
@@ -136,6 +151,14 @@ class Metasync_Settings_Fields {
                 'fields' => array(
                     'default_page_builder'
                 )
+            ),
+            'llms_txt' => array(
+                'title' => 'LLMs.txt',
+                'description' => 'Publish a standards-compliant /llms.txt so AI search engines and assistants can discover your content',
+                'icon' => 'media-text',
+                'priority' => 56,
+                'default_open' => false,
+                'render_callback' => array($this, 'render_llms_txt_section'),
             ),
             'advanced' => array(
                 'title' => 'Plugin Settings',
@@ -340,7 +363,14 @@ class Metasync_Settings_Fields {
         $service_info = $google_index->get_service_account_info();
         $is_configured = !isset($service_info['error']);
 
+        $saved_json_display = $is_configured ? $google_index->get_redacted_config_json() : '';
+
         include plugin_dir_path(dirname(__FILE__)) . 'views/metasync-google-index-api-settings.php';
+
+        // Render post types selection
+        $options = get_option('metasync_options_instant_indexing', ['post_types' => []]);
+        $post_types_settings = isset($options['post_types']) && is_array($options['post_types']) ? $options['post_types'] : [];
+        include plugin_dir_path(dirname(__FILE__)) . 'views/metasync-google-instant-post-types.php';
     }
 
     public function render_bing_index_section() {
@@ -1355,6 +1385,60 @@ class Metasync_Settings_Fields {
         echo '</div>';
     }
 
+    public function render_llms_txt_section() {
+        global $wp_settings_fields;
+
+        $page    = Metasync_Admin::$page_slug . '_general';
+        $section = Metasync_Admin::SECTION_LLMS_TXT;
+
+        if (empty($wp_settings_fields[$page][$section])) {
+            return;
+        }
+
+        echo '<table class="form-table" role="presentation">';
+        foreach ($wp_settings_fields[$page][$section] as $field) {
+            echo '<tr>';
+            echo '<th scope="row">';
+            if (!empty($field['title'])) {
+                echo '<label for="' . esc_attr($field['id']) . '">' . $field['title'] . '</label>';
+            }
+            echo '</th>';
+            echo '<td>';
+            call_user_func($field['callback'], $field['args']);
+            echo '</td>';
+            echo '</tr>';
+        }
+        echo '</table>';
+        ?>
+        <script>
+        (function(){
+            function toggleLlms(){
+                var enabled = document.getElementById('llms_txt_enabled');
+                var fullEnabled = document.getElementById('llms_full_enabled');
+                var deps = document.querySelectorAll('.llms-txt-dependent');
+                var fullDeps = document.querySelectorAll('.llms-full-dependent');
+                var i;
+                for(i = 0; i < deps.length; i++){
+                    var row = deps[i].closest('tr');
+                    if(row) row.style.display = enabled && enabled.checked ? '' : 'none';
+                }
+                for(i = 0; i < fullDeps.length; i++){
+                    var row = fullDeps[i].closest('tr');
+                    if(row) row.style.display = (enabled && enabled.checked && fullEnabled && fullEnabled.checked) ? '' : 'none';
+                }
+            }
+            document.addEventListener('DOMContentLoaded', function(){
+                var enabled = document.getElementById('llms_txt_enabled');
+                var fullEnabled = document.getElementById('llms_full_enabled');
+                if(enabled) enabled.addEventListener('change', toggleLlms);
+                if(fullEnabled) fullEnabled.addEventListener('change', toggleLlms);
+                toggleLlms();
+            });
+        })();
+        </script>
+        <?php
+    }
+
     // ────────────────────────────────────────────────────────────────
     //  Settings field callbacks
     // ────────────────────────────────────────────────────────────────
@@ -2206,6 +2290,66 @@ class Metasync_Settings_Fields {
             isset(Metasync::get_option('common_meta_settings')['twitter_meta_tags']) && Metasync::get_option('common_meta_settings')['twitter_meta_tags'] == 'true' ? 'checked' : ''
         );
         printf(' <br> <span class="description"> Automatically add the Twitter meta tags in a page or post.</span>');
+    }
+
+    public function og_image_dimensions_callback()
+    {
+        $val = Metasync::get_option('common_meta_settings')['og_image_dimensions'] ?? 'true';
+        printf(
+            '<input type="checkbox" name="' . Metasync_Admin::option_key . '[common_meta_settings][og_image_dimensions]" value="true" %s />',
+            $val === 'true' ? 'checked' : ''
+        );
+        printf('<span class="description"> Output og:image:width, og:image:height, and og:image:type when OG image metadata is available.</span>');
+    }
+
+    public function article_timestamps_callback()
+    {
+        $val = Metasync::get_option('common_meta_settings')['article_timestamps'] ?? 'true';
+        printf(
+            '<input type="checkbox" name="' . Metasync_Admin::option_key . '[common_meta_settings][article_timestamps]" value="true" %s />',
+            $val === 'true' ? 'checked' : ''
+        );
+        printf('<span class="description"> Output article:published_time and article:modified_time from the post publish and modified dates (ISO 8601).</span>');
+    }
+
+    public function article_author_callback()
+    {
+        $val = Metasync::get_option('common_meta_settings')['article_author'] ?? 'true';
+        printf(
+            '<input type="checkbox" name="' . Metasync_Admin::option_key . '[common_meta_settings][article_author]" value="true" %s />',
+            $val === 'true' ? 'checked' : ''
+        );
+        printf('<span class="description"> Output article:author using the post author website URL or archive URL (overridable per-post via _metasync_og_article_author meta).</span>');
+    }
+
+    public function article_section_callback()
+    {
+        $val = Metasync::get_option('common_meta_settings')['article_section'] ?? 'true';
+        printf(
+            '<input type="checkbox" name="' . Metasync_Admin::option_key . '[common_meta_settings][article_section]" value="true" %s />',
+            $val === 'true' ? 'checked' : ''
+        );
+        printf('<span class="description"> Output article:section from the primary category (falls back to first category).</span>');
+    }
+
+    public function article_tags_callback()
+    {
+        $val = Metasync::get_option('common_meta_settings')['article_tags'] ?? 'true';
+        printf(
+            '<input type="checkbox" name="' . Metasync_Admin::option_key . '[common_meta_settings][article_tags]" value="true" %s />',
+            $val === 'true' ? 'checked' : ''
+        );
+        printf('<span class="description"> Output one article:tag meta tag per WordPress post tag.</span>');
+    }
+
+    public function twitter_image_alt_callback()
+    {
+        $val = Metasync::get_option('common_meta_settings')['twitter_image_alt'] ?? 'true';
+        printf(
+            '<input type="checkbox" name="' . Metasync_Admin::option_key . '[common_meta_settings][twitter_image_alt]" value="true" %s />',
+            $val === 'true' ? 'checked' : ''
+        );
+        printf('<span class="description"> Output twitter:image:alt using the stored alt text or the OG image attachment alt attribute.</span>');
     }
 
     public function facebook_page_url_callback()

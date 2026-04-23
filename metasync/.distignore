@@ -21,7 +21,9 @@ composer.lock
 package.json
 package-lock.json
 node_modules
-vendor
+vendor/*
+!vendor/autoload.php
+!vendor/composer/
 
 # Test files
 tests

@@ -59,10 +59,27 @@ class MCP_Tool_Get_Breadcrumb_Path extends MCP_Tool_Base {
         $breadcrumbs = new Metasync_Breadcrumbs();
         $trail       = $breadcrumbs->resolve_breadcrumb_trail($post_id);
 
-        return $this->success(array(
-            'post_id'     => $post_id,
-            'trail'       => $trail,
-            'trail_count' => count($trail),
-        ));
+        if (!function_exists('is_plugin_active')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+
+        $payload = array(
+            'post_id'      => $post_id,
+            'trail'        => $trail,
+            'trail_count'  => count($trail),
+            'custom_label' => get_post_meta($post_id, '_metasync_breadcrumb_title', true),
+        );
+
+        if (is_plugin_active('wordpress-seo/wp-seo.php') ||
+            is_plugin_active('wordpress-seo-premium/wp-seo-premium.php')) {
+            $payload['yoast_label'] = get_post_meta($post_id, '_yoast_wpseo_bctitle', true);
+        }
+
+        if (is_plugin_active('seo-by-rank-math/rank-math.php') ||
+            is_plugin_active('seo-by-rankmath/rank-math.php')) {
+            $payload['rankmath_label'] = get_post_meta($post_id, 'rank_math_breadcrumb_title', true);
+        }
+
+        return $this->success($payload);
     }
 }

@@ -23,7 +23,7 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
     }
 
     public function get_description() {
-        return 'Update a WordPress post meta field (SEO data like title, description, keywords, robots settings, Open Graph/social meta)';
+        return 'Update a WordPress post meta field (SEO data like title, description, keywords, robots settings, Open Graph/social meta, hreflang/language alternates)';
     }
 
     public function get_input_schema() {
@@ -54,7 +54,10 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
                         '_metasync_twitter_description',
                         '_metasync_twitter_card',
                         '_metasync_primary_category',
-                        '_metasync_otto_keywords'
+                        '_metasync_otto_keywords',
+                        '_metasync_og_article_author',
+                        '_metasync_hreflang',
+                        '_metasync_breadcrumb_title'
                     ]
                 ],
                 'meta_value' => [
@@ -75,8 +78,31 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
         $meta_key = $this->sanitize_string($params['meta_key']);
         $meta_value = $this->sanitize_textarea($params['meta_value']);
 
-        // SECURITY: Additional sanitization for URL fields (prevent javascript: protocol)
-        if (in_array($meta_key, ['_metasync_og_image', '_metasync_og_url', '_metasync_canonical_url'])) {
+        // hreflang / language alternates: value must be a JSON array of
+        // {lang, url} objects (with optional region). Parse from the raw
+        // param to avoid textarea sanitization mangling the JSON, validate
+        // shape, and re-encode to canonical form before storing.
+        if ($meta_key === '_metasync_hreflang') {
+            $raw_value = isset($params['meta_value']) ? (string) $params['meta_value'] : '';
+            $decoded = json_decode($raw_value, true);
+            if (!is_array($decoded)) {
+                throw new Exception("_metasync_hreflang must be a JSON array");
+            }
+            foreach ($decoded as $entry) {
+                if (!is_array($entry) || !isset($entry['lang']) || !isset($entry['url'])) {
+                    throw new Exception("Each hreflang entry must have 'lang' and 'url' keys");
+                }
+            }
+            // Sanitize each URL to strip javascript: and other unsafe protocols.
+            foreach ($decoded as &$entry) {
+                $entry['url'] = esc_url_raw($entry['url']);
+            }
+            unset($entry);
+            $meta_value = wp_json_encode($decoded);
+        }
+
+        // SECURITY: Apply esc_url_raw() to URL-typed meta keys (prevent javascript: protocol).
+        if (in_array($meta_key, ['_metasync_og_image', '_metasync_og_url', '_metasync_canonical_url', '_metasync_og_article_author'])) {
             $meta_value = esc_url_raw($meta_value);
         }
 
@@ -323,5 +349,209 @@ class MCP_Tool_Get_SEO_Meta extends MCP_Tool_Base {
             'name' => $term->name,
             'slug' => $term->slug,
         ];
+    }
+}
+
+/**
+ * Get Hreflang Links Tool
+ *
+ * Returns all hreflang entries for a post (manual + WPML auto-detected),
+ * validates that each referenced URL returns HTTP 200, and flags a missing
+ * x-default entry.
+ */
+class MCP_Tool_Get_Hreflang_Links extends MCP_Tool_Base {
+
+    public function get_name() {
+        return 'wordpress_get_hreflang_links';
+    }
+
+    public function get_description() {
+        return 'Get all hreflang entries for a post (manual + WPML auto-detected), validate each URL returns HTTP 200, and flag a missing x-default entry';
+    }
+
+    public function get_input_schema() {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'post_id' => [
+                    'type' => 'integer',
+                    'description' => 'WordPress post or page ID',
+                    'minimum' => 1
+                ]
+            ],
+            'required' => ['post_id']
+        ];
+    }
+
+    public function execute($params) {
+        $this->validate_params($params);
+        $this->require_capability('read');
+
+        $post_id = $this->sanitize_integer($params['post_id']);
+        $post = $this->verify_post_exists($post_id);
+        $this->check_post_permission($post_id);
+
+        $manual_entries = $this->get_manual_entries($post_id);
+        $wpml_entries   = $this->get_wpml_entries($post_id, $post);
+
+        // Merge: auto-detected first, then manual entries override by
+        // lang+region collision key.
+        $by_key = [];
+        foreach ($wpml_entries as $entry) {
+            $by_key[$this->collision_key($entry)] = $entry;
+        }
+        foreach ($manual_entries as $entry) {
+            $by_key[$this->collision_key($entry)] = $entry;
+        }
+        $entries = array_values($by_key);
+
+        // Validate each URL returns HTTP 200 (try HEAD first, fall back to
+        // GET on 405 Method Not Allowed).
+        $has_x_default = false;
+        foreach ($entries as &$entry) {
+            $url = isset($entry['url']) ? $entry['url'] : '';
+            $status = null;
+            $error = null;
+
+            if (!empty($url)) {
+                $response = wp_remote_head($url, ['timeout' => 5, 'sslverify' => false]);
+                if (is_wp_error($response)) {
+                    $error = $response->get_error_message();
+                } else {
+                    $status = (int) wp_remote_retrieve_response_code($response);
+                    if ($status === 405) {
+                        $response = wp_remote_get($url, ['timeout' => 5, 'sslverify' => false]);
+                        if (is_wp_error($response)) {
+                            $error = $response->get_error_message();
+                            $status = null;
+                        } else {
+                            $status = (int) wp_remote_retrieve_response_code($response);
+                        }
+                    }
+                }
+            }
+
+            $entry['http_status'] = $status;
+            $entry['http_ok'] = ($status === 200);
+            if ($error !== null) {
+                $entry['http_error'] = $error;
+            }
+
+            if (isset($entry['lang']) && $entry['lang'] === 'x-default') {
+                $has_x_default = true;
+            }
+        }
+        unset($entry);
+
+        $missing_x_default = !$has_x_default;
+
+        return $this->success([
+            'post_id'           => $post_id,
+            'post_title'        => $post->post_title,
+            'entries'           => $entries,
+            'missing_x_default' => $missing_x_default,
+        ]);
+    }
+
+    /**
+     * Read manual hreflang entries from `_metasync_hreflang` post meta.
+     *
+     * @param int $post_id Post ID.
+     * @return array
+     */
+    private function get_manual_entries($post_id) {
+        $raw = get_post_meta($post_id, '_metasync_hreflang', true);
+        if (empty($raw)) {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+        $entries = [];
+        foreach ($decoded as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $entries[] = [
+                'lang'   => isset($entry['lang']) ? (string) $entry['lang'] : '',
+                'region' => isset($entry['region']) ? (string) $entry['region'] : '',
+                'url'    => isset($entry['url']) ? (string) $entry['url'] : '',
+                'source' => 'manual',
+            ];
+        }
+        return $entries;
+    }
+
+    /**
+     * Build WPML auto-detected entries by querying the icl_translations table.
+     * Mirrors the logic in Metasync_Hreflang_Output::get_wpml_entries.
+     *
+     * @param int     $post_id Post ID.
+     * @param WP_Post $post    Post object (already verified).
+     * @return array
+     */
+    private function get_wpml_entries($post_id, $post) {
+        if (!defined('ICL_SITEPRESS_VERSION')) {
+            return [];
+        }
+        global $wpdb;
+        $table = $wpdb->prefix . 'icl_translations';
+        $element_type = 'post_' . $post->post_type;
+
+        $trid = $wpdb->get_var($wpdb->prepare(
+            "SELECT trid FROM {$table} WHERE element_id = %d AND element_type = %s LIMIT 1",
+            $post_id,
+            $element_type
+        ));
+        if (empty($trid)) {
+            return [];
+        }
+
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT language_code, element_id FROM {$table} WHERE trid = %d",
+            $trid
+        ));
+        if (empty($rows)) {
+            return [];
+        }
+
+        $default_lang = apply_filters('wpml_default_language', null);
+        if (empty($default_lang)) {
+            $default_lang = get_option('wpml_default_language');
+        }
+
+        $entries = [];
+        foreach ($rows as $row) {
+            $permalink = get_permalink((int) $row->element_id);
+            if (empty($permalink)) {
+                continue;
+            }
+            $entries[] = [
+                'lang'   => (string) $row->language_code,
+                'region' => '',
+                'url'    => $permalink,
+                'source' => 'wpml',
+            ];
+            if (!empty($default_lang) && $row->language_code === $default_lang) {
+                $entries[] = [
+                    'lang'   => 'x-default',
+                    'region' => '',
+                    'url'    => $permalink,
+                    'source' => 'wpml',
+                ];
+            }
+        }
+        return $entries;
+    }
+
+    /**
+     * Collision key in the form `lang-region` (or just `lang` when region
+     * is empty) for de-duplicating entries.
+     */
+    private function collision_key(array $entry) {
+        $lang = isset($entry['lang']) ? (string) $entry['lang'] : '';
+        $region = isset($entry['region']) ? (string) $entry['region'] : '';
+        return $region !== '' ? $lang . '-' . $region : $lang;
     }
 }

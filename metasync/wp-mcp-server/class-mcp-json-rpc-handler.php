@@ -29,6 +29,7 @@ class MCP_JSON_RPC_Handler {
     const ERROR_INVALID_PARAMS = -32602;
     const ERROR_INTERNAL_ERROR = -32603;
     const ERROR_SERVER_ERROR = -32000;
+    const ERROR_RATE_LIMITED = -32029;
 
     /**
      * Method handlers

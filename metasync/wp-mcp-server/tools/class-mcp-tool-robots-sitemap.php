@@ -666,3 +666,139 @@ class MCP_Tool_Validate_Robots_Txt extends MCP_Tool_Base {
         ]);
     }
 }
+
+/**
+ * Get News Sitemap Tool
+ */
+class MCP_Tool_Get_News_Sitemap extends MCP_Tool_Base {
+
+    public function get_name() {
+        return 'wordpress_get_news_sitemap';
+    }
+
+    public function get_description() {
+        return 'Get the Google News sitemap XML content';
+    }
+
+    public function get_input_schema() {
+        return [
+            'type' => 'object',
+            'properties' => (object)[],
+            'required' => []
+        ];
+    }
+
+    public function execute($params) {
+        $this->validate_params($params);
+        $this->require_capability('manage_options');
+
+        $settings = get_option('metasync_news_sitemap_settings', []);
+        $enabled = !empty($settings['enabled']);
+
+        $xml = $this->get_sitemap_content('news-sitemap.xml');
+
+        return $this->success([
+            'content' => $xml,
+            'url' => home_url('/news-sitemap.xml'),
+            'enabled' => $enabled,
+        ]);
+    }
+
+    /**
+     * Read sitemap content from physical file, transient, or legacy option.
+     *
+     * @param string $filename The sitemap filename.
+     * @return string XML content or empty string.
+     */
+    private function get_sitemap_content($filename)
+    {
+        // 1. Physical file
+        $physical_path = ABSPATH . $filename;
+        if (file_exists($physical_path) && is_readable($physical_path)) {
+            return file_get_contents($physical_path);
+        }
+
+        // 2. Transient-based virtual storage
+        $cache_key = 'metasync_vsm_' . md5($filename);
+        $content = get_transient($cache_key);
+        if (false !== $content) {
+            return $content;
+        }
+
+        // 3. Legacy option storage
+        $virtual_sitemaps = get_option('metasync_sitemap_virtual', []);
+        if (isset($virtual_sitemaps[$filename])) {
+            return $virtual_sitemaps[$filename];
+        }
+
+        return '';
+    }
+}
+
+/**
+ * Get Video Sitemap Tool
+ */
+class MCP_Tool_Get_Video_Sitemap extends MCP_Tool_Base {
+
+    public function get_name() {
+        return 'wordpress_get_video_sitemap';
+    }
+
+    public function get_description() {
+        return 'Get the video sitemap XML content';
+    }
+
+    public function get_input_schema() {
+        return [
+            'type' => 'object',
+            'properties' => (object)[],
+            'required' => []
+        ];
+    }
+
+    public function execute($params) {
+        $this->validate_params($params);
+        $this->require_capability('manage_options');
+
+        $settings = get_option('metasync_video_sitemap_settings', []);
+        $enabled = !empty($settings['enabled']);
+
+        $xml = $this->get_sitemap_content('video-sitemap.xml');
+
+        return $this->success([
+            'content' => $xml,
+            'url' => home_url('/video-sitemap.xml'),
+            'enabled' => $enabled,
+        ]);
+    }
+
+    /**
+     * Read sitemap content from physical file, transient, or legacy option.
+     *
+     * @param string $filename The sitemap filename.
+     * @return string XML content or empty string.
+     */
+    private function get_sitemap_content($filename)
+    {
+        // 1. Physical file
+        $physical_path = ABSPATH . $filename;
+        if (file_exists($physical_path) && is_readable($physical_path)) {
+            return file_get_contents($physical_path);
+        }
+
+        // 2. Transient-based virtual storage
+        $cache_key = 'metasync_vsm_' . md5($filename);
+        $content = get_transient($cache_key);
+        if (false !== $content) {
+            return $content;
+        }
+
+        // 3. Legacy option storage
+        $virtual_sitemaps = get_option('metasync_sitemap_virtual', []);
+        if (isset($virtual_sitemaps[$filename])) {
+            return $virtual_sitemaps[$filename];
+        }
+
+        return '';
+    }
+}

@@ -1,0 +1,169 @@
+/**
+ * Sitemap Tabs - News & Video Sitemap tab UI
+ *
+ * @package Metasync
+ * @since   1.0.0
+ */
+
+/* Tab bar container */
+.metasync-sitemap-tabs {
+    margin: 20px 0;
+    background: var(--dashboard-card-bg);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 12px;
+    padding: 6px;
+    box-shadow: var(--dashboard-shadow);
+}
+
+.metasync-sitemap-tabs .metasync-tab-nav {
+    border-bottom: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    gap: 4px;
+    background: transparent;
+    list-style: none;
+}
+
+.metasync-sitemap-tabs .metasync-tab-nav li {
+    display: inline-block;
+    margin: 0;
+    list-style: none;
+}
+
+.metasync-sitemap-tabs .metasync-tab-nav a {
+    display: block;
+    padding: 12px 20px;
+    text-decoration: none;
+    color: var(--dashboard-text-secondary);
+    border-bottom: none;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    font-weight: 500;
+    font-size: 14px;
+    background: transparent;
+    position: relative;
+    overflow: hidden;
+}
+
+.metasync-sitemap-tabs .metasync-tab-nav a:hover {
+    color: var(--dashboard-text-primary);
+    background: rgba(255, 255, 255, 0.05);
+    transform: translateY(-1px);
+}
+
+.metasync-sitemap-tabs .metasync-tab-nav a.active {
+    color: var(--dashboard-text-primary);
+    background: var(--dashboard-card-hover);
+    border-bottom: none;
+    box-shadow: var(--dashboard-shadow);
+    transform: translateY(-1px);
+    font-weight: 600;
+}
+
+.metasync-sitemap-tabs .metasync-tab-nav a.active::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--dashboard-accent);
+    border-radius: 1px;
+}
+
+/* Tab content panels */
+.metasync-sitemap-tab-content {
+    display: none;
+}
+
+.metasync-sitemap-tab-content.active {
+    display: block;
+}
+
+/* Outer wrapper for tab content */
+.metasync-sitemap-outer {
+    background: var(--dashboard-card-bg);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: var(--dashboard-shadow);
+}
+
+/* Scrollable checkbox list (>10 items) */
+.metasync-checkbox-scroll {
+    max-height: 280px;
+    overflow-y: auto;
+    border: 1px solid var(--dashboard-border, #30363d);
+    border-radius: 8px;
+    padding: 10px 14px;
+    background: var(--dashboard-bg, #0f1419);
+}
+
+.metasync-checkbox-scroll label {
+    display: block;
+    margin-bottom: 6px;
+    padding: 4px 0;
+    cursor: pointer;
+}
+
+.metasync-checkbox-scroll label:last-child {
+    margin-bottom: 0;
+}
+
+/* Scrollbar styling */
+.metasync-checkbox-scroll::-webkit-scrollbar {
+    width: 6px;
+}
+
+.metasync-checkbox-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.metasync-checkbox-scroll::-webkit-scrollbar-thumb {
+    background: var(--dashboard-border, #30363d);
+    border-radius: 3px;
+}
+
+.metasync-checkbox-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--dashboard-text-secondary, #8b949e);
+}
+
+/* Search filter input */
+.metasync-checkbox-search {
+    width: 100%;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    border: 1px solid var(--dashboard-border, #30363d);
+    border-radius: 6px;
+    background: var(--dashboard-bg, #0f1419);
+    color: var(--dashboard-text-primary, #e6edf3);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+
+.metasync-checkbox-search:focus {
+    border-color: var(--dashboard-accent, #3b82f6);
+}
+
+.metasync-checkbox-search::placeholder {
+    color: var(--dashboard-text-secondary, #8b949e);
+}
+
+/* Item count badge */
+.metasync-checkbox-count {
+    display: inline-block;
+    font-size: 12px;
+    color: var(--dashboard-text-secondary, #8b949e);
+    margin-left: 4px;
+}
+
+/* No results message */
+.metasync-checkbox-scroll .metasync-no-results {
+    display: none;
+    padding: 12px 0;
+    color: var(--dashboard-text-secondary, #8b949e);
+    font-style: italic;
+    font-size: 13px;
+}

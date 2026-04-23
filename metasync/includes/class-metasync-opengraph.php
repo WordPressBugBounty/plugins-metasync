@@ -64,21 +64,25 @@ class Metasync_OpenGraph {
 
         # Frontend hooks
         add_action('wp_head', [$this, 'output_opengraph_tags'], 5);
+        add_action('wp_head', [$this, 'output_article_tags'], 6);
 
         # Update OpenGraph URL when post is published/updated
         add_action('save_post', [$this, 'update_opengraph_url'], 20);
-        
+
         # Update OpenGraph URL when post permalink changes
         add_action('post_updated', [$this, 'check_permalink_change'], 10, 3);
-        
+
         # Also check on transition_post_status for status changes
         add_action('transition_post_status', [$this, 'check_status_change'], 10, 3);
-        
+
         # Check when post slug is updated via edit slug functionality
         add_action('wp_ajax_sample-permalink', [$this, 'check_slug_change'], 5);
 
         # AJAX hooks for preview
         add_action('wp_ajax_metasync_og_preview', [$this, 'ajax_generate_preview']);
+
+        # Register cross-plugin dedup filters (Yoast / Rank Math) when their plugins are active
+        $this->register_dedup_filters();
     }
 
     /**
@@ -432,6 +436,28 @@ class Metasync_OpenGraph {
             ?: $og_description;
         $twitter_image = get_post_meta($post->ID, '_metasync_twitter_image', true) ?: $og_image;
         $twitter_image_alt = get_post_meta($post->ID, '_metasync_twitter_image_alt', true);
+
+        # Resolve OG image attachment ID once for reuse (twitter:image:alt fallback + og:image dimensions)
+        $og_image_attachment_id = 0;
+        if (!empty($og_image)) {
+            $og_image_attachment_id = attachment_url_to_postid($og_image);
+        }
+
+        # Fall back to the OG image's WP attachment alt text when no explicit twitter:image:alt is set
+        if (empty($twitter_image_alt) && $og_image_attachment_id > 0) {
+            $attachment_alt = get_post_meta($og_image_attachment_id, '_wp_attachment_image_alt', true);
+            if (!empty($attachment_alt)) {
+                $twitter_image_alt = $attachment_alt;
+            }
+        }
+
+        # Per-field toggles from common_meta_settings (default enabled when unset)
+        $common_meta_settings = Metasync::get_option('common_meta_settings');
+        if (!is_array($common_meta_settings)) {
+            $common_meta_settings = [];
+        }
+        $og_image_dimensions_enabled = ($common_meta_settings['og_image_dimensions'] ?? 'true') !== 'false';
+        $twitter_image_alt_enabled   = ($common_meta_settings['twitter_image_alt'] ?? 'true') !== 'false';
         
         # Get Twitter App Card data
         $twitter_app_id_iphone = get_post_meta($post->ID, '_metasync_twitter_app_id_iphone', true);
@@ -457,6 +483,21 @@ class Metasync_OpenGraph {
         }
         if ($og_image) {
             echo '<meta property="og:image" content="' . esc_url($og_image) . '">' . "\n";
+
+            if ($og_image_dimensions_enabled) {
+                $og_image_dims = $this->get_og_image_dimensions($og_image, $og_image_attachment_id);
+                if (is_array($og_image_dims)) {
+                    if (!empty($og_image_dims['width'])) {
+                        echo '<meta property="og:image:width" content="' . esc_attr((string) $og_image_dims['width']) . '">' . "\n";
+                    }
+                    if (!empty($og_image_dims['height'])) {
+                        echo '<meta property="og:image:height" content="' . esc_attr((string) $og_image_dims['height']) . '">' . "\n";
+                    }
+                    if (!empty($og_image_dims['mime'])) {
+                        echo '<meta property="og:image:type" content="' . esc_attr($og_image_dims['mime']) . '">' . "\n";
+                    }
+                }
+            }
         }
         if ($og_url) {
             echo '<meta property="og:url" content="' . esc_url($og_url) . '">' . "\n";
@@ -482,7 +523,7 @@ class Metasync_OpenGraph {
         if ($twitter_image) {
             echo '<meta name="twitter:image" content="' . esc_url($twitter_image) . '">' . "\n";
         }
-        if ($twitter_image_alt) {
+        if ($twitter_image_alt && $twitter_image_alt_enabled) {
             echo '<meta name="twitter:image:alt" content="' . esc_attr($twitter_image_alt) . '">' . "\n";
         }
         
@@ -525,6 +566,223 @@ class Metasync_OpenGraph {
         }
         
         echo "<!-- End MetaSync Social Media Tags -->\n\n";
+    }
+
+    /**
+     * Resolve OG image dimensions + MIME without making remote HTTP calls.
+     *
+     * Returns an array with 'width', 'height', and 'mime' when available,
+     * or null when no dimensions are known. For WP-hosted attachments the
+     * data comes from attachment metadata. For external URLs we only read
+     * a pre-seeded transient (metasync_og_img_dims_{md5(url)}).
+     *
+     * @param string $url
+     * @param int    $attachment_id Pre-resolved attachment ID (0 = auto-detect).
+     * @return array|null
+     */
+    private function get_og_image_dimensions($url, $attachment_id = 0) {
+        if (empty($url) || !is_string($url)) {
+            return null;
+        }
+
+        if ($attachment_id <= 0) {
+            $attachment_id = attachment_url_to_postid($url);
+        }
+        if ($attachment_id > 0) {
+            $meta = wp_get_attachment_metadata($attachment_id);
+            $width = isset($meta['width']) ? (int) $meta['width'] : 0;
+            $height = isset($meta['height']) ? (int) $meta['height'] : 0;
+            $mime = get_post_mime_type($attachment_id) ?: '';
+            if ($width > 0 || $height > 0 || $mime !== '') {
+                return [
+                    'width'  => $width,
+                    'height' => $height,
+                    'mime'   => $mime,
+                ];
+            }
+            return null;
+        }
+
+        # External URLs: only read the pre-seeded transient, never make remote HTTP calls here.
+        $cached = get_transient('metasync_og_img_dims_' . md5($url));
+        if (is_array($cached)) {
+            return [
+                'width'  => isset($cached['width']) ? (int) $cached['width'] : 0,
+                'height' => isset($cached['height']) ? (int) $cached['height'] : 0,
+                'mime'   => isset($cached['mime']) ? (string) $cached['mime'] : '',
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Output article:* Open Graph tags for article-type singular views.
+     *
+     * Runs independently of has_seo_plugin_conflicts() so we can still emit
+     * complete article metadata while other SEO plugins handle og:title/description.
+     * Cross-plugin dedup is handled via register_dedup_filters() instead.
+     */
+    public function output_article_tags() {
+        if (!is_singular()) {
+            return;
+        }
+
+        global $post;
+        if (!$post instanceof WP_Post) {
+            return;
+        }
+
+        $og_type = get_post_meta($post->ID, '_metasync_og_type', true) ?: 'article';
+        if ($og_type !== 'article') {
+            return;
+        }
+
+        $article_post_types = apply_filters('metasync_og_article_post_types', ['post']);
+        if (!is_array($article_post_types) || !in_array($post->post_type, $article_post_types, true)) {
+            return;
+        }
+
+        $settings = Metasync::get_option('common_meta_settings');
+        if (!is_array($settings)) {
+            $settings = [];
+        }
+
+        $article_timestamps_enabled = ($settings['article_timestamps'] ?? 'true') !== 'false';
+        $article_author_enabled     = ($settings['article_author']     ?? 'true') !== 'false';
+        $article_section_enabled    = ($settings['article_section']    ?? 'true') !== 'false';
+        $article_tags_enabled       = ($settings['article_tags']       ?? 'true') !== 'false';
+
+        echo "<!-- MetaSync Article Tags -->\n";
+
+        # article:published_time / article:modified_time
+        if ($article_timestamps_enabled) {
+            if (!empty($post->post_date_gmt) && $post->post_date_gmt !== '0000-00-00 00:00:00') {
+                $published_ts = strtotime($post->post_date_gmt);
+                if ($published_ts) {
+                    echo '<meta property="article:published_time" content="' . esc_attr(gmdate('c', $published_ts)) . '">' . "\n";
+                }
+            }
+            if (!empty($post->post_modified_gmt) && $post->post_modified_gmt !== '0000-00-00 00:00:00') {
+                $modified_ts = strtotime($post->post_modified_gmt);
+                if ($modified_ts) {
+                    echo '<meta property="article:modified_time" content="' . esc_attr(gmdate('c', $modified_ts)) . '">' . "\n";
+                }
+            }
+        }
+
+        # article:author
+        if ($article_author_enabled) {
+            $author_url = get_post_meta($post->ID, '_metasync_og_article_author', true);
+            if (empty($author_url)) {
+                $author_url = get_the_author_meta('url', $post->post_author);
+            }
+            if (empty($author_url)) {
+                $author_url = get_author_posts_url($post->post_author);
+            }
+            if (!empty($author_url)) {
+                echo '<meta property="article:author" content="' . esc_url($author_url) . '">' . "\n";
+            }
+        }
+
+        # article:section – prefer explicit primary category, fall back to first category
+        if ($article_section_enabled) {
+            $section_name = '';
+            $primary_category_id = (int) get_post_meta($post->ID, '_metasync_primary_category', true);
+            if ($primary_category_id > 0) {
+                $category = get_category($primary_category_id);
+                if ($category && !is_wp_error($category) && !empty($category->name)) {
+                    $section_name = $category->name;
+                }
+            }
+            if (empty($section_name)) {
+                $categories = get_the_category($post->ID);
+                if (!empty($categories) && isset($categories[0]->name)) {
+                    $section_name = $categories[0]->name;
+                }
+            }
+            if (!empty($section_name)) {
+                echo '<meta property="article:section" content="' . esc_attr($section_name) . '">' . "\n";
+            }
+        }
+
+        # article:tag – one tag per WP post tag
+        if ($article_tags_enabled) {
+            $post_tags = get_the_tags($post->ID);
+            if (!empty($post_tags) && !is_wp_error($post_tags)) {
+                foreach ($post_tags as $tag) {
+                    if (!empty($tag->name)) {
+                        echo '<meta property="article:tag" content="' . esc_attr($tag->name) . '">' . "\n";
+                    }
+                }
+            }
+        }
+
+        echo "<!-- End MetaSync Article Tags -->\n";
+    }
+
+    /**
+     * Register cross-plugin dedup filters so Yoast / Rank Math don't double-emit
+     * article:* tags alongside our own output.
+     */
+    private function register_dedup_filters() {
+        # Ensure is_plugin_active() is available on the frontend too.
+        if (!function_exists('is_plugin_active')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+
+        $settings = Metasync::get_option('common_meta_settings');
+        if (!is_array($settings)) {
+            $settings = [];
+        }
+
+        $yoast_active = is_plugin_active('wordpress-seo/wp-seo.php')
+            || is_plugin_active('wordpress-seo-premium/wp-seo-premium.php');
+        $rank_math_active = is_plugin_active('seo-by-rank-math/rank-math.php');
+
+        $article_timestamps_enabled = ($settings['article_timestamps'] ?? 'true') !== 'false';
+        $article_author_enabled     = ($settings['article_author']     ?? 'true') !== 'false';
+        $article_section_enabled    = ($settings['article_section']    ?? 'true') !== 'false';
+        $article_tags_enabled       = ($settings['article_tags']       ?? 'true') !== 'false';
+
+        # Yoast: remove individual presenters based on which MetaSync features are enabled
+        if ($yoast_active && ($article_timestamps_enabled || $article_author_enabled)) {
+            add_filter('wpseo_frontend_presenters', function( $presenters ) use ( $article_timestamps_enabled, $article_author_enabled ) {
+                foreach ( $presenters as $key => $presenter ) {
+                    if ( $article_timestamps_enabled && (
+                        $presenter instanceof \Yoast\WP\SEO\Presenters\Open_Graph\Article_Published_Time_Presenter ||
+                        $presenter instanceof \Yoast\WP\SEO\Presenters\Open_Graph\Article_Modified_Time_Presenter
+                    )) {
+                        unset( $presenters[ $key ] );
+                    }
+                    if ( $article_author_enabled &&
+                        $presenter instanceof \Yoast\WP\SEO\Presenters\Open_Graph\Article_Author_Presenter ) {
+                        unset( $presenters[ $key ] );
+                    }
+                }
+                return array_values( $presenters );
+            }, 999 );
+        }
+
+        # Rank Math: suppress individual article:* tags via content filters.
+        # Rank Math's tag() method passes content through rank_math/opengraph/facebook/{property}
+        # where {property} is the OG property with colons replaced by underscores.
+        # Returning false causes tag() to skip output (empty($content) check).
+        if ($rank_math_active) {
+            if ($article_timestamps_enabled) {
+                add_filter('rank_math/opengraph/facebook/article_published_time', '__return_false', 999);
+                add_filter('rank_math/opengraph/facebook/article_modified_time', '__return_false', 999);
+            }
+            if ($article_tags_enabled) {
+                add_filter('rank_math/opengraph/facebook/article_tag', '__return_false', 999);
+            }
+            if ($article_author_enabled) {
+                add_filter('rank_math/opengraph/facebook/article_author', '__return_false', 999);
+            }
+            if ($article_section_enabled) {
+                add_filter('rank_math/opengraph/facebook/article_section', '__return_false', 999);
+            }
+        }
     }
 
     /**
@@ -828,7 +1086,7 @@ class Metasync_OpenGraph {
         }
 
         # Check if RankMath has Open Graph data
-        if (is_plugin_active('seo-by-rank-math/rank-math.php') || is_plugin_active('seo-by-rankmath/rank-math.php')) {
+        if (is_plugin_active('seo-by-rank-math/rank-math.php')) {
             $rm_title = get_post_meta($post_id, 'rank_math_title', true);
             $rm_desc = get_post_meta($post_id, 'rank_math_description', true);
             if (!empty($rm_title) || !empty($rm_desc)) {

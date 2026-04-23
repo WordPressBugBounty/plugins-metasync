@@ -63,11 +63,8 @@ if (!defined('ABSPATH')) {
                           class="large-text code" 
                           rows="8" 
                           placeholder="Paste your Google service account JSON here..."><?php
-                    // Only show placeholder text if not configured
-                    if (!$is_configured) {
-                        echo esc_textarea('');
-                    } else {
-                        echo esc_textarea("Service account configured\nPaste new JSON here to update configuration.");
+                    if ($is_configured && !empty($saved_json_display)) {
+                        echo esc_textarea($saved_json_display);
                     }
                 ?></textarea>
                 <p class="description">

@@ -106,6 +106,14 @@ class Metasync_Admin_Assets
             )
         );
 
+        wp_enqueue_script(
+            $plugin_name . '-color-palette',
+            $admin_dir_url . 'js/metasync-color-palette.js',
+            array('jquery'),
+            $version,
+            true
+        );
+
         $options = Metasync::get_option('general');
         $general_settings = Metasync::get_option('general');
         $searchatlas_api_key = isset($general_settings['searchatlas_api_key']) ? $general_settings['searchatlas_api_key'] : '';

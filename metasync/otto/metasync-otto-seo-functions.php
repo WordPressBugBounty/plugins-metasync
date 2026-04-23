@@ -1608,6 +1608,23 @@ function metasync_update_comprehensive_taxonomy_seo_fields($term_id, $taxonomy, 
             update_term_meta($term_id, '_metasync_otto_last_update', current_time('timestamp'));
         }
 
+        # Mirror OTTO term SEO data into the active SEO plugin(s) term storage
+        # so category/tag archive pages render OTTO-managed values regardless
+        # of which SEO plugin is active.
+        if (class_exists('Metasync_Term_Plugin_Sync')) {
+            $sync_data = array();
+            if (!empty($meta_title))          { $sync_data['title']         = $meta_title; }
+            if (!empty($meta_description))    { $sync_data['desc']          = $meta_description; }
+            if (!empty($og_title))            { $sync_data['og_title']      = $og_title; }
+            if (!empty($og_description))      { $sync_data['og_desc']       = $og_description; }
+            if (!empty($twitter_title))       { $sync_data['twitter_title'] = $twitter_title; }
+            if (!empty($twitter_description)) { $sync_data['twitter_desc']  = $twitter_description; }
+
+            if (!empty($sync_data)) {
+                Metasync_Term_Plugin_Sync::get_instance()->sync_term($term_id, $taxonomy, $sync_data);
+            }
+        }
+
         return array(
             'updated' => $any_updated,
             'fields_updated' => $fields_updated
@@ -1619,6 +1636,63 @@ function metasync_update_comprehensive_taxonomy_seo_fields($term_id, $taxonomy, 
             'fields_updated' => array()
         );
     }
+}
+
+/**
+ * Resolve a URL to a taxonomy term when `url_to_postid()` reports no matching
+ * post. This lets OTTO optimizations targeting category/tag/custom-taxonomy
+ * archive URLs be routed to term-level persistence.
+ *
+ * Strategy: try each registered public taxonomy's `rewrite` slugs against each
+ * non-empty segment of the URL path (in reverse order so the most specific
+ * term wins), and return the first match.
+ *
+ * @param string $url Absolute or relative URL.
+ * @return array|null ['term_id'=>int,'taxonomy'=>string] on a hit, null otherwise.
+ */
+function metasync_resolve_url_to_term($url) {
+    if (empty($url) || !is_string($url)) {
+        return null;
+    }
+
+    # If WordPress can resolve the URL to a post, it isn't a term archive.
+    if (function_exists('url_to_postid')) {
+        $post_id = url_to_postid($url);
+        if ($post_id > 0) {
+            return null;
+        }
+    }
+
+    $path = parse_url($url, PHP_URL_PATH);
+    if (empty($path)) {
+        return null;
+    }
+
+    $segments = array_values(array_filter(explode('/', trim($path, '/')), 'strlen'));
+    if (empty($segments)) {
+        return null;
+    }
+
+    $taxonomies = get_taxonomies(array('public' => true), 'names');
+    if (empty($taxonomies)) {
+        return null;
+    }
+
+    # Walk segments from most-specific (last) to least-specific (first).
+    for ($i = count($segments) - 1; $i >= 0; $i--) {
+        $slug = $segments[$i];
+        foreach ($taxonomies as $taxonomy_name) {
+            $term = get_term_by('slug', $slug, $taxonomy_name);
+            if ($term && !is_wp_error($term)) {
+                return array(
+                    'term_id'  => (int) $term->term_id,
+                    'taxonomy' => (string) $taxonomy_name,
+                );
+            }
+        }
+    }
+
+    return null;
 }
 
 /**

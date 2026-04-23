@@ -155,12 +155,11 @@ function metasync_otto_crawl_notify($request){
     # Tag-based providers purge only the affected posts; full-flush providers fire once per batch.
     Metasync_Edge_Cache_Purge::purge($urls_to_warm);
 
-    # Track OTTO optimization event in Mixpanel
+    # Track OTTO optimization event in GA4
     try {
-        $mixpanel = Metasync_Mixpanel::get_instance();
-        $mixpanel->track_otto_optimization($data);
+        Metasync_GA4::get_instance()->track_otto_optimization($data);
     } catch (Exception $e) {
-        // Mixpanel tracking failed, continue
+        // Analytics tracking failed, continue
     }
 
     # Handle the POST request

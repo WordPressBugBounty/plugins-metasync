@@ -15,13 +15,9 @@ if (!defined('WPINC')) {
     die;
 }
 
-// Include telemetry classes (Sentry-only)
-require_once plugin_dir_path(__FILE__) . 'config.php';
-require_once plugin_dir_path(__FILE__) . 'class-sentry-telemetry.php';
+// Class files are autoloaded by Composer. Procedural/side-effect files stay explicit.
 require_once plugin_dir_path(__FILE__) . 'sentry-wordpress-integration.php';
 require_once plugin_dir_path(__FILE__) . 'wordpress-error-handler.php';
-require_once plugin_dir_path(__FILE__) . 'class-telemetry-manager.php';
-require_once plugin_dir_path(__FILE__) . 'class-request_monitor.php';
 require_once plugin_dir_path(__FILE__) . 'sentry-helper.php';
 
 

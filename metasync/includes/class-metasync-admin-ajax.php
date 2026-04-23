@@ -997,10 +997,9 @@ class Metasync_Admin_Ajax
         $auth_method = isset($_POST['auth_method']) ? sanitize_text_field(wp_unslash($_POST['auth_method'])) : 'searchatlas_connect';
         $is_reconnection = isset($_POST['is_reconnection']) ? filter_var($_POST['is_reconnection'], FILTER_VALIDATE_BOOLEAN) : false;
 
-        # Track the event in Mixpanel
+        # Track the event in GA4
         try {
-            $mixpanel = Metasync_Mixpanel::get_instance();
-            $mixpanel->track_one_click_activation($auth_method, $is_reconnection);
+            Metasync_GA4::get_instance()->track_one_click_activation($auth_method, $is_reconnection);
 
             wp_send_json_success([
                 'message' => '1-click activation tracked successfully',

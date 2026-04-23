@@ -423,7 +423,7 @@ class Metasync_Robots_Txt
         }
 
         // Normalize the sitemap URL
-        $sitemap_url = esc_url($sitemap_url);
+        $sitemap_url = esc_url_raw($sitemap_url);
         $sitemap_line = "Sitemap: {$sitemap_url}";
 
         // Check if there's already a Sitemap line
@@ -520,6 +520,208 @@ class Metasync_Robots_Txt
         }
 
         return (bool) preg_match('/^Sitemap:\s*' . preg_quote($sitemap_url, '/') . '\s*$/im', $content);
+    }
+
+    /**
+     * Add a sitemap URL to robots.txt without replacing existing ones.
+     *
+     * @param string $sitemap_url The sitemap URL to add.
+     * @return array Result with 'success' boolean and 'action' string ('added' or 'unchanged').
+     */
+    public function add_sitemap_url($sitemap_url)
+    {
+        $content = $this->read_robots_file();
+
+        if (is_wp_error($content)) {
+            return [
+                'success' => false,
+                'action'  => 'error',
+                'message' => $content->get_error_message(),
+            ];
+        }
+
+        $sitemap_url = esc_url_raw($sitemap_url);
+
+        // Check if the specific sitemap line already exists
+        if (preg_match('/^Sitemap:\s*' . preg_quote($sitemap_url, '/') . '\s*$/im', $content)) {
+            return [
+                'success' => true,
+                'action'  => 'unchanged',
+                'message' => esc_html__('Sitemap URL already exists in robots.txt.', 'metasync'),
+            ];
+        }
+
+        // Append the new Sitemap line
+        $content = rtrim($content) . "\nSitemap: " . $sitemap_url;
+
+        $result = $this->write_robots_file($content);
+
+        if (is_wp_error($result)) {
+            return [
+                'success' => false,
+                'action'  => 'error',
+                'message' => $result->get_error_message(),
+            ];
+        }
+
+        return [
+            'success' => true,
+            'action'  => 'added',
+            'message' => esc_html__('Sitemap URL has been added to robots.txt.', 'metasync'),
+        ];
+    }
+
+    /**
+     * Remove a specific sitemap URL from robots.txt.
+     *
+     * @param string $sitemap_url The sitemap URL to remove.
+     * @return array Result with 'success' boolean and 'action' string ('removed' or 'not_found').
+     */
+    public function remove_sitemap_url($sitemap_url)
+    {
+        $content = $this->read_robots_file();
+
+        if (is_wp_error($content)) {
+            return [
+                'success' => false,
+                'action'  => 'error',
+                'message' => $content->get_error_message(),
+            ];
+        }
+
+        $sitemap_url = esc_url_raw($sitemap_url);
+        $pattern = '/^Sitemap:\s*' . preg_quote($sitemap_url, '/') . '\s*$/im';
+
+        if (!preg_match($pattern, $content)) {
+            return [
+                'success' => true,
+                'action'  => 'not_found',
+                'message' => esc_html__('Sitemap URL not found in robots.txt.', 'metasync'),
+            ];
+        }
+
+        $new_content = preg_replace($pattern, '', $content);
+        // Clean up extra blank lines
+        $new_content = preg_replace("/\n{3,}/", "\n\n", $new_content);
+        $new_content = rtrim($new_content) . "\n";
+
+        $result = $this->write_robots_file($new_content);
+
+        if (is_wp_error($result)) {
+            return [
+                'success' => false,
+                'action'  => 'error',
+                'message' => $result->get_error_message(),
+            ];
+        }
+
+        return [
+            'success' => true,
+            'action'  => 'removed',
+            'message' => esc_html__('Sitemap URL has been removed from robots.txt.', 'metasync'),
+        ];
+    }
+
+    /**
+     * Add a reference to /llms.txt in robots.txt.
+     *
+     * robots.txt has no official directive for LLMs.txt, so the reference is
+     * written as a comment (ignored by crawlers but visible to humans and
+     * tools that scan robots.txt for related assets).
+     *
+     * @param string $llms_url Absolute URL to the LLMs.txt file.
+     * @return array Result with 'success' and 'action' keys.
+     */
+    public function add_llms_txt_url($llms_url)
+    {
+        $content = $this->read_robots_file();
+
+        if (is_wp_error($content)) {
+            return [
+                'success' => false,
+                'action'  => 'error',
+                'message' => $content->get_error_message(),
+            ];
+        }
+
+        $llms_url = esc_url_raw($llms_url);
+        $line = '# LLMs.txt: ' . $llms_url;
+
+        if (false !== strpos($content, $line)) {
+            return [
+                'success' => true,
+                'action'  => 'unchanged',
+                'message' => esc_html__('LLMs.txt reference already exists in robots.txt.', 'metasync'),
+            ];
+        }
+
+        $content = rtrim($content) . "\n" . $line . "\n";
+
+        $result = $this->write_robots_file($content);
+
+        if (is_wp_error($result)) {
+            return [
+                'success' => false,
+                'action'  => 'error',
+                'message' => $result->get_error_message(),
+            ];
+        }
+
+        return [
+            'success' => true,
+            'action'  => 'added',
+            'message' => esc_html__('LLMs.txt reference has been added to robots.txt.', 'metasync'),
+        ];
+    }
+
+    /**
+     * Remove a /llms.txt reference from robots.txt.
+     *
+     * @param string $llms_url Absolute URL of the LLMs.txt file to remove.
+     * @return array Result with 'success' and 'action' keys.
+     */
+    public function remove_llms_txt_url($llms_url)
+    {
+        $content = $this->read_robots_file();
+
+        if (is_wp_error($content)) {
+            return [
+                'success' => false,
+                'action'  => 'error',
+                'message' => $content->get_error_message(),
+            ];
+        }
+
+        $llms_url = esc_url_raw($llms_url);
+        $pattern = '/^#\s*LLMs\.txt:\s*' . preg_quote($llms_url, '/') . '\s*$/im';
+
+        if (!preg_match($pattern, $content)) {
+            return [
+                'success' => true,
+                'action'  => 'not_found',
+                'message' => esc_html__('LLMs.txt reference not found in robots.txt.', 'metasync'),
+            ];
+        }
+
+        $new_content = preg_replace($pattern, '', $content);
+        $new_content = preg_replace("/\n{3,}/", "\n\n", $new_content);
+        $new_content = rtrim($new_content) . "\n";
+
+        $result = $this->write_robots_file($new_content);
+
+        if (is_wp_error($result)) {
+            return [
+                'success' => false,
+                'action'  => 'error',
+                'message' => $result->get_error_message(),
+            ];
+        }
+
+        return [
+            'success' => true,
+            'action'  => 'removed',
+            'message' => esc_html__('LLMs.txt reference has been removed from robots.txt.', 'metasync'),
+        ];
     }
 
     /**

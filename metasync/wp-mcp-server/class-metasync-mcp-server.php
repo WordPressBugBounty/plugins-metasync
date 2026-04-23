@@ -30,6 +30,16 @@ class Metasync_MCP_Server {
     private $tool_registry;
 
     /**
+     * Authenticated identity for the current request
+     *
+     * Populated by authenticate_request() with the shape
+     * ['type' => 'api_key'|'jwt'|'user'|'nonce', 'id' => <stable string>].
+     *
+     * @var array|null
+     */
+    private $authenticated_identity = null;
+
+    /**
      * REST namespace
      */
     const REST_NAMESPACE = 'metasync/v1';
@@ -44,6 +54,16 @@ class Metasync_MCP_Server {
      * Default: 24 hours
      */
     const JWT_EXPIRATION = 86400;
+
+    /**
+     * Default tool-call rate limit (requests per window) for authenticated MCP clients.
+     */
+    const DEFAULT_TOOL_CALL_LIMIT = 60;
+
+    /**
+     * Default tool-call rate-limit window in seconds.
+     */
+    const DEFAULT_TOOL_CALL_WINDOW = 60;
 
     /**
      * Constructor
@@ -70,6 +90,7 @@ class Metasync_MCP_Server {
         require_once plugin_dir_path(__FILE__) . 'class-mcp-json-rpc-handler.php';
         require_once plugin_dir_path(__FILE__) . 'class-mcp-tool-base.php';
         require_once plugin_dir_path(__FILE__) . 'class-mcp-tool-registry.php';
+        require_once plugin_dir_path(__FILE__) . '../includes/class-metasync-rate-limiter.php';
     }
 
     /**
@@ -113,6 +134,53 @@ class Metasync_MCP_Server {
      */
     public function handle_rest_request($request) {
         $request_body = $request->get_body();
+
+        // Only rate-limit tools/call requests, not tools/list or other methods.
+        $decoded = json_decode($request_body, true);
+        $is_tool_call = is_array($decoded)
+            && isset($decoded['method'])
+            && $decoded['method'] === 'tools/call';
+
+        if ($is_tool_call && $this->authenticated_identity !== null) {
+            $default_limits = [
+                'max'    => self::DEFAULT_TOOL_CALL_LIMIT,
+                'window' => self::DEFAULT_TOOL_CALL_WINDOW,
+            ];
+            $limits = apply_filters('metasync_mcp_tool_call_rate_limit', $default_limits, $this->authenticated_identity);
+
+            $max    = isset($limits['max']) ? (int) $limits['max'] : self::DEFAULT_TOOL_CALL_LIMIT;
+            $window = isset($limits['window']) ? (int) $limits['window'] : self::DEFAULT_TOOL_CALL_WINDOW;
+
+            $rate_result = Metasync_Rate_Limiter::get_instance()->check_rate_limit(
+                $this->authenticated_identity['id'],
+                $max,
+                $window,
+                'mcp_tool_'
+            );
+
+            if (is_wp_error($rate_result)) {
+                $error_data  = $rate_result->get_error_data();
+                $retry_after = isset($error_data['retry_after']) ? (int) $error_data['retry_after'] : $window;
+
+                $req_id = isset($decoded['id']) ? $decoded['id'] : null;
+
+                $error_body = [
+                    'jsonrpc' => '2.0',
+                    'id'      => $req_id,
+                    'error'   => [
+                        'code'    => MCP_JSON_RPC_Handler::ERROR_RATE_LIMITED,
+                        'message' => 'Rate limit exceeded',
+                        'data'    => [
+                            'retry_after' => $retry_after,
+                        ],
+                    ],
+                ];
+
+                $response = new WP_REST_Response($error_body, 429);
+                $response->header('Retry-After', (string) $retry_after);
+                return $response;
+            }
+        }
 
         // Process through JSON-RPC handler
         $response = $this->json_rpc_handler->handle_request($request_body);
@@ -203,12 +271,20 @@ class Metasync_MCP_Server {
         // Method 1: WordPress nonce (for same-origin requests)
         $nonce = $request->get_header('X-WP-Nonce');
         if ($nonce && wp_verify_nonce($nonce, 'wp_rest')) {
+            $this->authenticated_identity = [
+                'type' => 'user',
+                'id'   => 'user:' . get_current_user_id(),
+            ];
             return true;
         }
 
         // Method 2: Plugin auth token (for external clients like Claude Desktop)
         $api_key = $request->get_header('X-API-Key');
         if ($api_key && $this->verify_plugin_auth_token($api_key)) {
+            $this->authenticated_identity = [
+                'type' => 'api_key',
+                'id'   => hash('sha256', $api_key),
+            ];
             return true;
         }
 
@@ -227,12 +303,20 @@ class Metasync_MCP_Server {
                     if (!defined('METASYNC_MCP_API_KEY_AUTH')) {
                         define('METASYNC_MCP_API_KEY_AUTH', true);
                     }
+                    $this->authenticated_identity = [
+                        'type' => 'api_key',
+                        'id'   => $jwt_result['sub'],
+                    ];
                 } else {
                     // Set the authenticated user from JWT
                     wp_set_current_user($jwt_result['user_id']);
                     if (!defined('METASYNC_MCP_JWT_AUTH')) {
                         define('METASYNC_MCP_JWT_AUTH', true);
                     }
+                    $this->authenticated_identity = [
+                        'type' => 'user',
+                        'id'   => $jwt_result['sub'],
+                    ];
                 }
                 return true;
             }

@@ -116,6 +116,7 @@ class Metasync_Settings_Registration
         $SECTION_SEO_CONTROLS_INSTANT_INDEX = Metasync_Admin::SECTION_SEO_CONTROLS_INSTANT_INDEX;
         $SECTION_PLUGIN_VISIBILITY      = Metasync_Admin::SECTION_PLUGIN_VISIBILITY;
         $SECTION_BREADCRUMBS            = Metasync_Admin::SECTION_BREADCRUMBS;
+        $SECTION_LLMS_TXT               = Metasync_Admin::SECTION_LLMS_TXT;
 
         $option_key = Metasync_Admin::option_key;
         $page_slug  = Metasync_Admin::$page_slug;
@@ -129,13 +130,168 @@ class Metasync_Settings_Registration
             array(self::instance(), 'sanitize')
         );
 
-       
+        // LLMs.txt settings are stored in a dedicated option so MCP tools and
+        // the admin UI share one source of truth.
+        register_setting(
+            Metasync_Admin::option_group,
+            'metasync_llms_txt_settings',
+            array(
+                'sanitize_callback' => array(self::instance(), 'sanitize_llms_txt_settings'),
+                'default'           => array(),
+            )
+        );
+
+
         add_settings_section(
             $SECTION_METASYNC, // ID
             '', // Title - removed to prevent duplication with dashboard card
             function(){}, // Callback
             $page_slug . '_general' // Page
         );
+
+        add_settings_section(
+            $SECTION_LLMS_TXT,
+            esc_html__('LLMs.txt Settings', 'metasync'),
+            function () {
+                echo '<p>' . esc_html__('Publish a standards-compliant /llms.txt so AI search engines and assistants can discover your most important pages.', 'metasync') . '</p>';
+            },
+            $page_slug . '_general'
+        );
+
+        add_settings_field(
+            'llms_txt_enabled',
+            esc_html__('Enable /llms.txt', 'metasync'),
+            function () {
+                $settings = get_option('metasync_llms_txt_settings', array());
+                $checked = !empty($settings['enabled']);
+                printf(
+                    '<input type="checkbox" id="llms_txt_enabled" name="metasync_llms_txt_settings[enabled]" value="1" %s />',
+                    $checked ? 'checked' : ''
+                );
+                echo '<span class="description">' . esc_html__('Serve /llms.txt via a virtual route.', 'metasync') . '</span>';
+            },
+            $page_slug . '_general',
+            $SECTION_LLMS_TXT
+        );
+
+        add_settings_field(
+            'llms_txt_post_types',
+            esc_html__('Post types to include', 'metasync'),
+            function () {
+                $settings = get_option('metasync_llms_txt_settings', array());
+                $selected = isset($settings['post_types']) && is_array($settings['post_types'])
+                    ? $settings['post_types']
+                    : array('page', 'post');
+                $public_types = get_post_types(array('public' => true), 'objects');
+                echo '<div class="llms-txt-dependent">';
+                foreach ($public_types as $type) {
+                    if (in_array($type->name, array('attachment'), true)) {
+                        continue;
+                    }
+                    printf(
+                        '<label style="display:inline-block;margin-right:12px;"><input type="checkbox" name="metasync_llms_txt_settings[post_types][]" value="%1$s" %2$s /> %3$s</label>',
+                        esc_attr($type->name),
+                        in_array($type->name, $selected, true) ? 'checked' : '',
+                        esc_html($type->labels->singular_name ?: $type->name)
+                    );
+                }
+                echo '</div>';
+            },
+            $page_slug . '_general',
+            $SECTION_LLMS_TXT
+        );
+
+        add_settings_field(
+            'llms_txt_max_posts',
+            esc_html__('Max posts to include', 'metasync'),
+            function () {
+                $settings = get_option('metasync_llms_txt_settings', array());
+                $value = isset($settings['max_posts']) ? (int) $settings['max_posts'] : 50;
+                echo '<div class="llms-txt-dependent">';
+                printf(
+                    '<input type="number" id="llms_txt_max_posts" name="metasync_llms_txt_settings[max_posts]" min="1" max="500" value="%d" />',
+                    $value
+                );
+                echo '</div>';
+            },
+            $page_slug . '_general',
+            $SECTION_LLMS_TXT
+        );
+
+        add_settings_field(
+            'llms_txt_excluded_ids',
+            esc_html__('Excluded post/page IDs', 'metasync'),
+            function () {
+                $settings = get_option('metasync_llms_txt_settings', array());
+                $ids = isset($settings['excluded_ids']) && is_array($settings['excluded_ids'])
+                    ? implode(', ', array_map('absint', $settings['excluded_ids']))
+                    : '';
+                echo '<div class="llms-txt-dependent">';
+                printf(
+                    '<input type="text" id="llms_txt_excluded_ids" name="metasync_llms_txt_settings[excluded_ids]" value="%s" size="40" />',
+                    esc_attr($ids)
+                );
+                echo '<p class="description">' . esc_html__('Comma-separated list of IDs to exclude from the listing.', 'metasync') . '</p>';
+                echo '</div>';
+            },
+            $page_slug . '_general',
+            $SECTION_LLMS_TXT
+        );
+
+        add_settings_field(
+            'llms_txt_custom_description',
+            esc_html__('Custom description', 'metasync'),
+            function () {
+                $settings = get_option('metasync_llms_txt_settings', array());
+                $value = isset($settings['custom_description']) ? (string) $settings['custom_description'] : '';
+                echo '<div class="llms-txt-dependent">';
+                printf(
+                    '<input type="text" id="llms_txt_custom_description" name="metasync_llms_txt_settings[custom_description]" value="%s" size="60" />',
+                    esc_attr($value)
+                );
+                echo '<p class="description">' . esc_html__('Overrides the site tagline in the /llms.txt header.', 'metasync') . '</p>';
+                echo '</div>';
+            },
+            $page_slug . '_general',
+            $SECTION_LLMS_TXT
+        );
+
+        add_settings_field(
+            'llms_full_enabled',
+            esc_html__('Enable /llms-full.txt', 'metasync'),
+            function () {
+                $settings = get_option('metasync_llms_txt_settings', array());
+                $checked = !empty($settings['llms_full_enabled']);
+                echo '<div class="llms-txt-dependent">';
+                printf(
+                    '<input type="checkbox" id="llms_full_enabled" name="metasync_llms_txt_settings[llms_full_enabled]" value="1" %s />',
+                    $checked ? 'checked' : ''
+                );
+                echo '<span class="description">' . esc_html__('Also serve /llms-full.txt with full post bodies converted to markdown.', 'metasync') . '</span>';
+                echo '</div>';
+            },
+            $page_slug . '_general',
+            $SECTION_LLMS_TXT
+        );
+
+        add_settings_field(
+            'llms_txt_max_posts_full',
+            esc_html__('Max posts for full-text', 'metasync'),
+            function () {
+                $settings = get_option('metasync_llms_txt_settings', array());
+                $value = isset($settings['max_posts_full']) ? (int) $settings['max_posts_full'] : 25;
+                echo '<div class="llms-full-dependent">';
+                printf(
+                    '<input type="number" id="llms_txt_max_posts_full" name="metasync_llms_txt_settings[max_posts_full]" min="1" max="500" value="%d" />',
+                    $value
+                );
+                echo '<p class="description">' . esc_html__('Maximum posts for /llms-full.txt (lower than summary to protect server performance).', 'metasync') . '</p>';
+                echo '</div>';
+            },
+            $page_slug . '_general',
+            $SECTION_LLMS_TXT
+        );
+
 
         add_settings_section(
             $SECTION_METASYNC, // ID
@@ -1637,6 +1793,56 @@ class Metasync_Settings_Registration
             $SECTION_BREADCRUMBS
         );
 
+        # Open Graph / Article meta toggles — surface each new tag family as its
+        # own opt-out checkbox on the main Settings page (Open Graph accordion).
+        add_settings_field(
+            'og_image_dimensions',
+            'OG Image Dimensions',
+            array(Metasync_Settings_Fields::instance(), 'og_image_dimensions_callback'),
+            $page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        add_settings_field(
+            'article_timestamps',
+            'Article Timestamps',
+            array(Metasync_Settings_Fields::instance(), 'article_timestamps_callback'),
+            $page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        add_settings_field(
+            'article_author',
+            'Article Author',
+            array(Metasync_Settings_Fields::instance(), 'article_author_callback'),
+            $page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        add_settings_field(
+            'article_section',
+            'Article Section',
+            array(Metasync_Settings_Fields::instance(), 'article_section_callback'),
+            $page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        add_settings_field(
+            'article_tags',
+            'Article Tags',
+            array(Metasync_Settings_Fields::instance(), 'article_tags_callback'),
+            $page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        add_settings_field(
+            'twitter_image_alt',
+            'Twitter Image Alt',
+            array(Metasync_Settings_Fields::instance(), 'twitter_image_alt_callback'),
+            $page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
     }
 
     /**
@@ -1916,6 +2122,23 @@ class Metasync_Settings_Registration
             $new_input['social_meta']['twitter_username'] = sanitize_text_field($input['social_meta']['twitter_username']);
         }
 
+        // Common Meta Settings — Open Graph / article toggle checkboxes.
+        // Unchecked HTML checkboxes are absent from $input, so an explicit
+        // 'true'/'false' round-trip is required to persist opt-outs.
+        if (isset($input['common_meta_settings'])) {
+            $og_toggle_fields = [
+                'og_image_dimensions',
+                'article_timestamps',
+                'article_author',
+                'article_section',
+                'article_tags',
+                'twitter_image_alt',
+            ];
+            foreach ($og_toggle_fields as $field) {
+                $new_input['common_meta_settings'][$field] = (isset($input['common_meta_settings'][$field]) && $input['common_meta_settings'][$field] === 'true') ? 'true' : 'false';
+            }
+        }
+
         # Handle whitelabel URL fields with improved empty value handling
         if (isset($input['whitelabel'])) {
             $existing_whitelabel = Metasync::get_option()['whitelabel'] ?? [];
@@ -2060,6 +2283,38 @@ class Metasync_Settings_Registration
                 // Preserve existing links when not submitted
                 if (isset($existing_whitelabel['quick_links'])) {
                     $new_input['whitelabel']['quick_links'] = $existing_whitelabel['quick_links'];
+                }
+            }
+
+            // Sanitize color palette
+            if (isset($input['whitelabel']['color_palette']) && is_array($input['whitelabel']['color_palette'])) {
+                $allowed_vars = array(
+                    'dashboard-bg', 'dashboard-card-bg', 'dashboard-card-hover',
+                    'dashboard-text-primary', 'dashboard-text-secondary',
+                    'dashboard-accent', 'dashboard-accent-hover',
+                    'dashboard-success', 'dashboard-warning', 'dashboard-error',
+                    'dashboard-border',
+                    'dashboard-gradient-primary-from', 'dashboard-gradient-primary-to',
+                    'dashboard-gradient-accent-from', 'dashboard-gradient-accent-to'
+                );
+                $sanitized_palette = array();
+                foreach (array('dark', 'light') as $theme_key) {
+                    if (isset($input['whitelabel']['color_palette'][$theme_key]) && is_array($input['whitelabel']['color_palette'][$theme_key])) {
+                        $sanitized_palette[$theme_key] = array();
+                        foreach ($input['whitelabel']['color_palette'][$theme_key] as $var_name => $color_value) {
+                            if (in_array($var_name, $allowed_vars, true)) {
+                                $color_value = trim(sanitize_text_field($color_value));
+                                if ($color_value !== '' && preg_match('/^#[0-9a-fA-F]{3,8}$/', $color_value)) {
+                                    $sanitized_palette[$theme_key][$var_name] = $color_value;
+                                }
+                            }
+                        }
+                    }
+                }
+                $new_input['whitelabel']['color_palette'] = $sanitized_palette;
+            } else {
+                if (isset($existing_whitelabel['color_palette'])) {
+                    $new_input['whitelabel']['color_palette'] = $existing_whitelabel['color_palette'];
                 }
             }
 
@@ -2478,6 +2733,38 @@ class Metasync_Settings_Registration
                 $metasync_options['whitelabel']['hide_settings'] = 0;
             }
 
+            // Sanitize color palette
+            if (isset($whitelabel_data['color_palette']) && is_array($whitelabel_data['color_palette'])) {
+                $allowed_vars = array(
+                    'dashboard-bg', 'dashboard-card-bg', 'dashboard-card-hover',
+                    'dashboard-text-primary', 'dashboard-text-secondary',
+                    'dashboard-accent', 'dashboard-accent-hover',
+                    'dashboard-success', 'dashboard-warning', 'dashboard-error',
+                    'dashboard-border',
+                    'dashboard-gradient-primary-from', 'dashboard-gradient-primary-to',
+                    'dashboard-gradient-accent-from', 'dashboard-gradient-accent-to'
+                );
+                $sanitized_palette = array();
+                foreach (array('dark', 'light') as $theme_key) {
+                    if (isset($whitelabel_data['color_palette'][$theme_key]) && is_array($whitelabel_data['color_palette'][$theme_key])) {
+                        $sanitized_palette[$theme_key] = array();
+                        foreach ($whitelabel_data['color_palette'][$theme_key] as $var_name => $color_value) {
+                            if (in_array($var_name, $allowed_vars, true)) {
+                                $color_value = trim(sanitize_text_field($color_value));
+                                if ($color_value !== '' && preg_match('/^#[0-9a-fA-F]{3,8}$/', $color_value)) {
+                                    $sanitized_palette[$theme_key][$var_name] = $color_value;
+                                }
+                            }
+                        }
+                    }
+                }
+                $metasync_options['whitelabel']['color_palette'] = $sanitized_palette;
+            } else {
+                if (isset($existing_whitelabel['color_palette'])) {
+                    $metasync_options['whitelabel']['color_palette'] = $existing_whitelabel['color_palette'];
+                }
+            }
+
             $metasync_options['whitelabel']['updated_at'] = time();
 
             Metasync::set_option($metasync_options);
@@ -2632,6 +2919,14 @@ class Metasync_Settings_Registration
             $bing_save_result = $this->save_bing_inline_settings_ajax();
         }
 
+        // Save Google Instant Indexing post types
+        if (isset($_POST['metasync_post_types']) && is_array($_POST['metasync_post_types'])) {
+            $google_post_types = array_values(array_map('sanitize_title', wp_unslash($_POST['metasync_post_types'])));
+            $google_settings = get_option('metasync_options_instant_indexing', ['post_types' => []]);
+            $google_settings['post_types'] = $google_post_types;
+            update_option('metasync_options_instant_indexing', $google_settings);
+        }
+
         $options_changed = (json_encode($original_options) !== json_encode($current_options));
 
         $result = Metasync::set_option($current_options);
@@ -2713,5 +3008,79 @@ class Metasync_Settings_Registration
         }
 
         return $result;
+    }
+
+    /**
+     * Sanitize the metasync_llms_txt_settings option.
+     *
+     * The Settings API delivers raw form data; we coerce it into a predictable
+     * shape so the generator and MCP tools can rely on the structure.
+     *
+     * @param mixed $input Raw form data.
+     * @return array
+     */
+    public function sanitize_llms_txt_settings($input)
+    {
+        if (!is_array($input)) {
+            $input = array();
+        }
+
+        $existing = get_option('metasync_llms_txt_settings', array());
+        if (!is_array($existing)) {
+            $existing = array();
+        }
+
+        $output = $existing;
+
+        $output['enabled'] = !empty($input['enabled'])
+            ? (bool) filter_var($input['enabled'], FILTER_VALIDATE_BOOLEAN)
+            : false;
+
+        if (isset($input['post_types']) && is_array($input['post_types'])) {
+            $output['post_types'] = array_values(array_filter(array_map('sanitize_text_field', $input['post_types'])));
+        } else {
+            $output['post_types'] = array('page', 'post');
+        }
+
+        if (isset($input['max_posts'])) {
+            $max = absint($input['max_posts']);
+            if ($max < 1) {
+                $max = 1;
+            }
+            if ($max > 500) {
+                $max = 500;
+            }
+            $output['max_posts'] = $max;
+        }
+
+        if (isset($input['excluded_ids'])) {
+            if (is_array($input['excluded_ids'])) {
+                $ids = $input['excluded_ids'];
+            } else {
+                $ids = preg_split('/[\s,]+/', (string) $input['excluded_ids']);
+            }
+            $output['excluded_ids'] = array_values(array_filter(array_map('absint', (array) $ids)));
+        }
+
+        if (isset($input['custom_description'])) {
+            $output['custom_description'] = sanitize_text_field((string) $input['custom_description']);
+        }
+
+        $output['llms_full_enabled'] = !empty($input['llms_full_enabled'])
+            ? (bool) filter_var($input['llms_full_enabled'], FILTER_VALIDATE_BOOLEAN)
+            : false;
+
+        if (isset($input['max_posts_full'])) {
+            $max_full = absint($input['max_posts_full']);
+            if ($max_full < 1) {
+                $max_full = 1;
+            }
+            if ($max_full > 500) {
+                $max_full = 500;
+            }
+            $output['max_posts_full'] = $max_full;
+        }
+
+        return $output;
     }
 }

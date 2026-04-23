@@ -230,6 +230,50 @@ class MCP_Tool_DB_Select extends MCP_Tool_Base {
         'SLEEP(', 'BENCHMARK(',
     ];
 
+    /**
+     * Execute a read-only SQL query.
+     *
+     * Query timeout behaviour
+     * -----------------------
+     * Every query is guarded by a timeout (default 10 seconds) so that a slow
+     * or runaway SELECT cannot hang the PHP process. The effective limit is
+     * resolved in this order:
+     *
+     *   1. `METASYNC_MCP_DB_QUERY_TIMEOUT` constant, if defined.
+     *   2. The `mcp_db_query_timeout` WordPress filter.
+     *   3. The default of 10 seconds.
+     *
+     * The resolved value is clamped to at least 1 second.
+     *
+     * The timeout is enforced server-side where possible:
+     *
+     *   - MySQL >= 5.7.8: the statement is prefixed with the
+     *     `MAX_EXECUTION_TIME(<ms>)` optimizer hint (milliseconds). The hint
+     *     is only valid for SELECT and is skipped for SHOW / DESCRIBE /
+     *     EXPLAIN.
+     *   - MariaDB >= 10.1.1: the statement is wrapped with
+     *     `SET STATEMENT max_statement_time=<seconds> FOR ...` (seconds, not
+     *     milliseconds — this is a MariaDB specific distinction).
+     *   - Older MySQL / MariaDB: no DB-level hint is injected.
+     *
+     * On all versions, the call is additionally wrapped by a PHP-level
+     * `set_time_limit()` fallback scoped to the query, restored in a
+     * `finally` block, so the query cannot hang the PHP process beyond the
+     * configured timeout + a small safety margin even when no DB-level hint
+     * is available.
+     *
+     * When the DB reports a timeout (MySQL error 3024, MariaDB error 1969,
+     * or a `Query execution was interrupted` / `max_statement_time exceeded`
+     * message) the tool throws a descriptive `Exception` which the JSON-RPC
+     * handler converts into a structured error response.
+     *
+     * @param array $params {
+     *     @type string $sql   SQL to run (SELECT / SHOW / DESCRIBE / EXPLAIN).
+     *     @type int    $limit Max rows to return (1–500, default 100).
+     * }
+     * @return array Success payload as returned by {@see self::success()}.
+     * @throws Exception If the query is blocked, times out, or the DB errors.
+     */
     public function execute($params) {
         $this->validate_params($params);
         $this->require_capability('manage_options');
@@ -241,6 +285,9 @@ class MCP_Tool_DB_Select extends MCP_Tool_Base {
         $limit = max(1, min(500, $limit));
 
         // ── Security checks ──────────────────────────────────────────
+        // NOTE: all security checks operate on the ORIGINAL $sql (before any
+        // timeout rewriting). Only the timeout-wrapped SQL is passed to
+        // $wpdb->get_results() further down.
 
         // 1. Strip leading SQL block/line comments to find the real first keyword
         $stripped = preg_replace('/\A(\s*(\/\*.*?\*\/\s*|--[^\n]*\n?\s*))+/s', '', $sql);
@@ -270,11 +317,33 @@ class MCP_Tool_DB_Select extends MCP_Tool_Base {
         }
 
         // ── Execute ──────────────────────────────────────────────────
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- user-provided query, validated above
-        $results = $wpdb->get_results($sql, ARRAY_A);
+        $to = $this->apply_query_timeout($sql);
+
+        $prev_time_limit = (int) ini_get('max_execution_time');
+        // Give the DB-level hint a chance to fire first; the PHP fallback
+        // trails by a small margin so it only kicks in as a hard backstop.
+        @set_time_limit($to['timeout'] + 2);
+
+        try {
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- user-provided query, validated above
+            $results = $wpdb->get_results($to['sql'], ARRAY_A);
+        } finally {
+            @set_time_limit($prev_time_limit);
+        }
 
         if ($wpdb->last_error) {
-            throw new Exception('Database error: ' . $wpdb->last_error);
+            $err = $wpdb->last_error;
+            if (
+                preg_match('/\b3024\b/', $err) ||               // MySQL ER_QUERY_TIMEOUT
+                preg_match('/\b1969\b/', $err) ||               // MariaDB ER_STATEMENT_TIMEOUT
+                stripos($err, 'Query execution was interrupted') !== false ||
+                stripos($err, 'max_statement_time exceeded') !== false
+            ) {
+                throw new Exception(
+                    "Query timeout: query exceeded the {$to['timeout']}s limit and was cancelled."
+                );
+            }
+            throw new Exception('Database error: ' . $err);
         }
 
         $total   = is_array($results) ? count($results) : 0;
@@ -286,5 +355,88 @@ class MCP_Tool_DB_Select extends MCP_Tool_Base {
             'limit_applied'  => $total > $limit,
             'results'        => $trimmed,
         ]);
+    }
+
+    /**
+     * Resolve the effective query timeout and rewrite the SQL to enforce it.
+     *
+     * @param string $sql Original SQL statement.
+     * @return array{sql:string,timeout:int,mechanism:string}
+     *               The SQL to pass to $wpdb->get_results(), the effective
+     *               timeout in seconds, and which mechanism applied
+     *               ('mysql', 'mariadb', or 'php_only').
+     */
+    private function apply_query_timeout($sql) {
+        global $wpdb;
+
+        $default = defined('METASYNC_MCP_DB_QUERY_TIMEOUT')
+            ? (int) METASYNC_MCP_DB_QUERY_TIMEOUT
+            : 10;
+        $timeout = max(1, (int) apply_filters('mcp_db_query_timeout', $default));
+
+        $server_info = '';
+        if (is_object($wpdb) && method_exists($wpdb, 'db_server_info')) {
+            $info = $wpdb->db_server_info();
+            if (is_string($info)) {
+                $server_info = $info;
+            }
+        }
+
+        $is_mariadb = $server_info !== '' && stripos($server_info, 'MariaDB') !== false;
+
+        if ($is_mariadb) {
+            $version = '';
+            if (preg_match('/([0-9]+\.[0-9]+\.[0-9]+)-MariaDB/i', $server_info, $m)) {
+                $version = $m[1];
+            } elseif (preg_match('/([0-9]+\.[0-9]+\.[0-9]+)/', $server_info, $m)) {
+                $version = $m[1];
+            }
+            if ($version !== '' && version_compare($version, '10.1.1', '>=')) {
+                // MariaDB uses seconds. SET STATEMENT wraps any statement
+                // type, so SELECT / SHOW / DESCRIBE / EXPLAIN are all covered.
+                return [
+                    'sql'       => "SET STATEMENT max_statement_time={$timeout} FOR {$sql}",
+                    'timeout'   => $timeout,
+                    'mechanism' => 'mariadb',
+                ];
+            }
+        } else {
+            $version = '';
+            if (preg_match('/^([0-9]+\.[0-9]+\.[0-9]+)/', $server_info, $m)) {
+                $version = $m[1];
+            }
+            if ($version !== '' && version_compare($version, '5.7.8', '>=')) {
+                // Find the first real keyword (ignoring leading comments) to
+                // decide whether the MAX_EXECUTION_TIME hint applies. The
+                // hint is only valid for SELECT.
+                $stripped = preg_replace(
+                    '/\A(\s*(\/\*.*?\*\/\s*|--[^\n]*\n?\s*))+/s',
+                    '',
+                    $sql
+                );
+                $first_kw = strtoupper(preg_replace('/[\s(;].*/s', '', $stripped));
+                if ($first_kw === 'SELECT') {
+                    $ms      = $timeout * 1000;
+                    $leading = substr($sql, 0, strlen($sql) - strlen($stripped));
+                    $timeout_sql = $leading
+                        . substr($stripped, 0, 6)
+                        . " /*+ MAX_EXECUTION_TIME({$ms}) */"
+                        . substr($stripped, 6);
+                    return [
+                        'sql'       => $timeout_sql,
+                        'timeout'   => $timeout,
+                        'mechanism' => 'mysql',
+                    ];
+                }
+            }
+        }
+
+        // Unsupported DB version / non-SELECT on MySQL: rely on the PHP-level
+        // set_time_limit() fallback applied by the caller.
+        return [
+            'sql'       => $sql,
+            'timeout'   => $timeout,
+            'mechanism' => 'php_only',
+        ];
     }
 }

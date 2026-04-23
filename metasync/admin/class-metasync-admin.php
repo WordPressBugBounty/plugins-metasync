@@ -44,6 +44,7 @@ class Metasync_Admin
     const SECTION_SEO_CONTROLS_INSTANT_INDEX = "seo_controls_instant_index";
     const SECTION_PLUGIN_VISIBILITY     = "plugin_visibility_settings";
     const SECTION_BREADCRUMBS           = "breadcrumbs_settings";
+    const SECTION_LLMS_TXT              = "llms_txt_settings";
 
     /**
      * The ID of this plugin.
@@ -217,6 +218,9 @@ class Metasync_Admin
         // Display CPU deferral notices when batch processing is deferred
         add_action('admin_notices', array($this, 'display_cpu_deferral_notice'));
 
+        // Display LLMs.txt cross-plugin conflict notice
+        add_action('admin_notices', array($this, 'display_llms_txt_conflict_notice'));
+
         // Add custom column for HTML-converted pages
         add_filter('manage_posts_columns', array($this, 'add_html_converted_column'));
         add_filter('manage_pages_columns', array($this, 'add_html_converted_column'));
@@ -311,7 +315,7 @@ class Metasync_Admin
         add_action('wp_ajax_metasync_otto_get_excluded_urls', array($this, 'ajax_otto_get_excluded_urls'));
         add_action('wp_ajax_metasync_otto_recheck_excluded_url', array($this, 'ajax_otto_recheck_excluded_url'));
 
-        # Add AJAX handler for Mixpanel tracking
+        # Add AJAX handler for GA4 analytics tracking
         add_action('wp_ajax_metasync_track_one_click_activation', array($this, 'ajax_track_one_click_activation'));
 
         # Add AJAX handler for submitting issue reports
@@ -810,7 +814,7 @@ class Metasync_Admin
         );
         
         // --- Phase 5 (#887): Extracted inline JS files ---
-        $current_page = isset($_GET['page']) ? sanitize_text_field($_GET['page']) : '';
+        $current_page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
         $plugin_root_url = plugin_dir_url(dirname(__FILE__));
 
         // Dashboard iframe height (only on dashboard page)
@@ -844,6 +848,33 @@ class Metasync_Admin
                 $this->version,
                 true
             );
+        }
+
+        // Sitemap tabs (xml-sitemap page)
+        if ($current_page === self::$page_slug . '-xml-sitemap') {
+            wp_enqueue_style(
+                $this->plugin_name . '-sitemap-tabs',
+                plugin_dir_url(__FILE__) . 'css/metasync-sitemap-tabs.css',
+                array($this->plugin_name . '-dashboard'),
+                $this->version
+            );
+            wp_enqueue_script(
+                $this->plugin_name . '-sitemap-tabs',
+                plugin_dir_url(__FILE__) . 'js/metasync-sitemap-tabs.js',
+                array('jquery'),
+                $this->version,
+                true
+            );
+            // Pass the active tab from server (handles POST redirect)
+            $sitemap_active_tab = 'general';
+            if (isset($_GET['tab']) && in_array($_GET['tab'], ['general', 'news', 'video'], true)) {
+                $sitemap_active_tab = sanitize_text_field(wp_unslash($_GET['tab']));
+            } elseif (isset($_POST['redirect_tab']) && in_array($_POST['redirect_tab'], ['general', 'news', 'video'], true)) {
+                $sitemap_active_tab = sanitize_text_field(wp_unslash($_POST['redirect_tab']));
+            }
+            wp_localize_script($this->plugin_name . '-sitemap-tabs', 'metasyncSitemapTabs', [
+                'activeTab' => $sitemap_active_tab,
+            ]);
         }
 
         // Error logs — copy to clipboard
@@ -1469,7 +1500,7 @@ class Metasync_Admin
             if (isset($_GET['cache_cleared']) && $_GET['cache_cleared'] == '1') {
                 $cleared = isset($_GET['cleared']) ? intval($_GET['cleared']) : 0;
                 $failed = isset($_GET['failed']) ? intval($_GET['failed']) : 0;
-                $plugins = isset($_GET['plugins']) ? sanitize_text_field($_GET['plugins']) : '';
+                $plugins = isset($_GET['plugins']) ? sanitize_text_field(wp_unslash($_GET['plugins'])) : '';
 
                 if ($cleared > 0) {
                     echo '<div class="notice notice-success inline" style="margin-top: 15px;"><p>';
@@ -1492,7 +1523,7 @@ class Metasync_Admin
             }
 
             if (isset($_GET['cache_error']) && $_GET['cache_error'] == '1') {
-                $message = isset($_GET['message']) ? urldecode(sanitize_text_field($_GET['message'])) : '';
+                $message = isset($_GET['message']) ? urldecode(sanitize_text_field(wp_unslash($_GET['message']))) : '';
                 if (empty($message)) {
                     $message = 'An unknown error occurred while clearing cache. Please check error logs for details.';
                 }
@@ -1739,7 +1770,7 @@ class Metasync_Admin
             // Display success/error messages
             if (isset($_GET['otto_cache_cleared']) && $_GET['otto_cache_cleared'] == '1') {
                 $cleared_count = isset($_GET['count']) ? intval($_GET['count']) : 0;
-                $url = isset($_GET['url']) ? urldecode(sanitize_text_field($_GET['url'])) : '';
+                $url = isset($_GET['url']) ? urldecode(sanitize_text_field(wp_unslash($_GET['url']))) : '';
                 
                 echo '<div class="notice notice-success inline" style="margin-top: 15px;"><p>';
                 if (!empty($url)) {
@@ -1751,7 +1782,7 @@ class Metasync_Admin
             }
             
             if (isset($_GET['otto_cache_error']) && $_GET['otto_cache_error'] == '1') {
-                $message = isset($_GET['message']) ? urldecode(sanitize_text_field($_GET['message'])) : 'An unknown error occurred.';
+                $message = isset($_GET['message']) ? urldecode(sanitize_text_field(wp_unslash($_GET['message']))) : 'An unknown error occurred.';
                 echo '<div class="notice notice-error inline" style="margin-top: 15px;"><p>';
                 echo '❌ <strong>Error:</strong> ' . esc_html($message);
                 echo '</p></div>';
@@ -1792,7 +1823,7 @@ class Metasync_Admin
                                 <input type="url"
                                        id="otto_cache_url"
                                        name="otto_cache_url"
-                                       value="<?php echo isset($_GET['url']) ? esc_attr(urldecode(sanitize_text_field($_GET['url']))) : ''; ?>"
+                                       value="<?php echo isset($_GET['url']) ? esc_attr(urldecode(sanitize_text_field(wp_unslash($_GET['url'])))) : ''; ?>"
                                        class="regular-text"
                                        placeholder="https://example.com/page/"
                                        required />
@@ -2406,7 +2437,7 @@ class Metasync_Admin
         }
 
         // Tab handling
-        $current_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'settings';
+        $current_tab = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : 'settings';
 
         // Prepare image library data
         $list_table     = null;
@@ -2457,7 +2488,7 @@ class Metasync_Admin
         }
 
         // Tab handling
-        $current_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'settings';
+        $current_tab = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : 'settings';
         $settings    = Metasync_Minification_Settings::get_settings();
         $conflicts   = Metasync_Compatibility_Guard::get_active_conflicts();
 
@@ -2588,7 +2619,7 @@ class Metasync_Admin
             wp_send_json_error(__('Permission denied.', 'metasync'));
         }
 
-        $ids = isset($_POST['ids']) ? array_map('absint', explode(',', sanitize_text_field($_POST['ids']))) : [];
+        $ids = isset($_POST['ids']) ? array_map('absint', explode(',', sanitize_text_field(wp_unslash($_POST['ids'])))) : [];
         $ids = array_filter($ids);
 
         if (empty($ids)) {
@@ -2665,6 +2696,93 @@ class Metasync_Admin
 
         $sitemap_generator = new Metasync_Sitemap_Generator();
 
+        // Determine active tab (from GET param or POST redirect)
+        $active_tab = 'general';
+        if (isset($_GET['tab']) && in_array($_GET['tab'], ['general', 'news', 'video'], true)) {
+            $active_tab = sanitize_text_field(wp_unslash($_GET['tab']));
+        } elseif (isset($_POST['redirect_tab']) && in_array($_POST['redirect_tab'], ['general', 'news', 'video'], true)) {
+            $active_tab = sanitize_text_field(wp_unslash($_POST['redirect_tab']));
+        }
+
+        // Handle News Sitemap settings form submission
+        if (isset($_POST['metasync_news_sitemap_nonce']) && isset($_POST['save_news_sitemap'])) {
+            check_admin_referer('metasync_news_sitemap_action', 'metasync_news_sitemap_nonce');
+
+            $news_settings = [
+                'enabled'              => isset($_POST['news_enabled']),
+                'post_types'           => array_map('sanitize_key', (array) ($_POST['news_post_types'] ?? ['post'])),
+                'categories'           => array_map('absint', (array) ($_POST['news_categories'] ?? [])),
+                'tags'                 => array_map('absint', (array) ($_POST['news_tags'] ?? [])),
+                'publication_name'     => sanitize_text_field(wp_unslash($_POST['publication_name'] ?? '')),
+                'publication_language' => sanitize_text_field(wp_unslash($_POST['publication_language'] ?? '')),
+            ];
+
+            // Always invalidate old cache before saving new settings
+            delete_transient('metasync_vsm_' . md5('news-sitemap.xml'));
+
+            update_option('metasync_news_sitemap_settings', $news_settings);
+
+            if ($news_settings['enabled']) {
+                $sitemap_generator->generate_news_sitemap();
+                echo '<div class="notice notice-success"><p>' . esc_html__('News sitemap settings saved and sitemap regenerated!', 'metasync') . '</p></div>';
+            } else {
+                // Also remove physical file if it exists
+                if (file_exists(ABSPATH . 'news-sitemap.xml')) {
+                    @unlink(ABSPATH . 'news-sitemap.xml');
+                }
+                echo '<div class="notice notice-success"><p>' . esc_html__('News sitemap settings saved. Sitemap cache cleared.', 'metasync') . '</p></div>';
+            }
+        }
+
+        // Handle Video Sitemap settings form submission
+        if (isset($_POST['metasync_video_sitemap_nonce']) && isset($_POST['save_video_sitemap'])) {
+            check_admin_referer('metasync_video_sitemap_action', 'metasync_video_sitemap_nonce');
+
+            $video_settings = [
+                'enabled'     => isset($_POST['video_enabled']),
+                'post_types'  => array_map('sanitize_key', (array) ($_POST['video_post_types'] ?? ['post', 'page'])),
+                'auto_detect' => isset($_POST['auto_detect']),
+            ];
+
+            // Always invalidate old cache before saving new settings
+            delete_transient('metasync_vsm_' . md5('video-sitemap.xml'));
+
+            update_option('metasync_video_sitemap_settings', $video_settings);
+
+            if ($video_settings['enabled']) {
+                $sitemap_generator->generate_video_sitemap();
+                echo '<div class="notice notice-success"><p>' . esc_html__('Video sitemap settings saved and sitemap regenerated!', 'metasync') . '</p></div>';
+            } else {
+                // Also remove physical file if it exists
+                if (file_exists(ABSPATH . 'video-sitemap.xml')) {
+                    @unlink(ABSPATH . 'video-sitemap.xml');
+                }
+                echo '<div class="notice notice-success"><p>' . esc_html__('Video sitemap settings saved. Sitemap cache cleared.', 'metasync') . '</p></div>';
+            }
+        }
+
+        // Handle News Sitemap generate action
+        if (isset($_POST['metasync_news_sitemap_nonce']) && isset($_POST['generate_news_sitemap'])) {
+            check_admin_referer('metasync_news_sitemap_action', 'metasync_news_sitemap_nonce');
+            $result = $sitemap_generator->generate_news_sitemap();
+            if ($result) {
+                echo '<div class="notice notice-success"><p>' . esc_html__('News sitemap generated successfully!', 'metasync') . '</p></div>';
+            } else {
+                echo '<div class="notice notice-error"><p>' . esc_html__('News sitemap generation failed. Check if it is enabled and no conflicting plugins are active.', 'metasync') . '</p></div>';
+            }
+        }
+
+        // Handle Video Sitemap generate action
+        if (isset($_POST['metasync_video_sitemap_nonce']) && isset($_POST['generate_video_sitemap'])) {
+            check_admin_referer('metasync_video_sitemap_action', 'metasync_video_sitemap_nonce');
+            $result = $sitemap_generator->generate_video_sitemap();
+            if ($result) {
+                echo '<div class="notice notice-success"><p>' . esc_html__('Video sitemap generated successfully!', 'metasync') . '</p></div>';
+            } else {
+                echo '<div class="notice notice-error"><p>' . esc_html__('Video sitemap generation failed. Check if it is enabled and no conflicting plugins are active.', 'metasync') . '</p></div>';
+            }
+        }
+
         // Handle form submissions
         if (isset($_POST['metasync_sitemap_nonce'])) {
             check_admin_referer('metasync_sitemap_action', 'metasync_sitemap_nonce');
@@ -2673,12 +2791,34 @@ class Metasync_Admin
                 // Auto-disable other sitemap generators before generating
                 $disabled_plugins = $sitemap_generator->disable_other_sitemap_generators();
 
+                // Generate news/video sitemaps FIRST so they exist when the main sitemap builds its index
+                $news_opts = get_option('metasync_news_sitemap_settings', []);
+                $video_opts = get_option('metasync_video_sitemap_settings', []);
+                $extras = [];
+                if (!empty($news_opts['enabled'])) {
+                    if ($sitemap_generator->generate_news_sitemap()) {
+                        $extras[] = 'news';
+                    }
+                }
+                if (!empty($video_opts['enabled'])) {
+                    if ($sitemap_generator->generate_video_sitemap()) {
+                        $extras[] = 'video';
+                    }
+                }
+
+                // Generate main sitemap (its index will include news/video since they now exist)
                 $result = $sitemap_generator->generate_sitemap();
 
                 if (is_wp_error($result)) {
                     echo '<div class="notice notice-error"><p>' . esc_html($result->get_error_message()) . '</p></div>';
                 } else {
                     $message = esc_html__('Sitemap generated successfully!', 'metasync');
+                    if (!empty($extras)) {
+                        $message .= ' ' . sprintf(
+                            esc_html__('Also generated %s sitemap(s).', 'metasync'),
+                            implode(' & ', $extras)
+                        );
+                    }
                     if ($disabled_plugins) {
                         $message .= ' ' . esc_html__('Conflicting sitemap generators have been automatically disabled.', 'metasync');
                     }
@@ -2706,14 +2846,15 @@ class Metasync_Admin
                 update_option('metasync_sitemap_auto_update', false);
                 echo '<div class="notice notice-success"><p>' . esc_html__('Auto-update disabled!', 'metasync') . '</p></div>';
             } elseif (isset($_POST['delete_sitemap'])) {
-                // Delete the sitemap file (physical and/or virtual)
+                // Delete all sitemaps: main + news + video (handled by delete_sitemap)
                 $deleted = $sitemap_generator->delete_sitemap();
+
                 if ($deleted) {
                     // Also disable auto-update when deleting
                     update_option('metasync_sitemap_auto_update', false);
-                    echo '<div class="notice notice-success"><p>' . esc_html__('Sitemap deleted successfully!', 'metasync') . '</p></div>';
+                    echo '<div class="notice notice-success"><p>' . esc_html__('All sitemaps deleted successfully!', 'metasync') . '</p></div>';
                 } else {
-                    echo '<div class="notice notice-error"><p>' . esc_html__('Failed to delete sitemap. The file may not exist or is not writable.', 'metasync') . '</p></div>';
+                    echo '<div class="notice notice-error"><p>' . esc_html__('Failed to delete sitemaps. The files may not exist or are not writable.', 'metasync') . '</p></div>';
                 }
             } elseif (isset($_POST['enable_other_sitemaps'])) {
                 // Re-enable other sitemap plugins
@@ -2733,6 +2874,21 @@ class Metasync_Admin
         $last_generated = $sitemap_generator->get_last_generated_time();
         $auto_update_enabled = get_option('metasync_sitemap_auto_update', false);
         $active_sitemap_plugins = $sitemap_generator->check_active_sitemap_plugins();
+
+        // News and video sitemap settings for tabs
+        $news_settings = get_option('metasync_news_sitemap_settings', [
+            'enabled'              => false,
+            'post_types'           => ['post'],
+            'categories'           => [],
+            'tags'                 => [],
+            'publication_name'     => '',
+            'publication_language' => '',
+        ]);
+        $video_settings = get_option('metasync_video_sitemap_settings', [
+            'enabled'     => false,
+            'post_types'  => ['post', 'page'],
+            'auto_detect' => true,
+        ]);
 
         // Load view
         require_once plugin_dir_path(dirname(__FILE__)) . 'views/metasync-xml-sitemap.php';
@@ -2809,11 +2965,31 @@ class Metasync_Admin
     public function create_admin_google_instant_index_page()
     {
         $this->render_layout_open('Instant Indexing', 'instant_index', 'Submit URLs to Google for instant indexing via the Indexing API.');
-        $options = get_option('metasync_options_instant_indexing', ['json_key' => '', 'post_types' => []]);
-        $json_key = isset($options['json_key']) ? $options['json_key'] : '';
-        $google_guide_url = 'https://developers.google.com/search/apis/indexing-api/v3/quickstart';
+
+        // Render shared Google Index credentials section
+        if (!function_exists('google_index_direct')) {
+            require_once plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php';
+        }
+        $google_index = google_index_direct();
+        $service_info = $google_index->get_service_account_info();
+        $is_configured = !isset($service_info['error']);
+
+        $saved_json_display = $is_configured ? $google_index->get_redacted_config_json() : '';
+
+        include plugin_dir_path(dirname(__FILE__)) . 'views/metasync-google-index-api-settings.php';
+
+        // Render post types selection with save form
+        $options = get_option('metasync_options_instant_indexing', ['post_types' => []]);
         $post_types_settings = isset($options['post_types']) && is_array($options['post_types']) ? $options['post_types'] : [];
-        include_once plugin_dir_path(dirname(__FILE__)) . 'views/metasync-google-instant-settings.php';
+        ?>
+        <form method="POST" action="">
+            <?php include plugin_dir_path(dirname(__FILE__)) . 'views/metasync-google-instant-post-types.php'; ?>
+            <div class="dashboard-card" style="padding: 20px;">
+                <?php submit_button('Save Post Types', 'primary', 'submit', false, array('class' => 'button button-primary')); ?>
+            </div>
+        </form>
+        <?php
+
         $this->render_layout_close();
     }
 
@@ -2925,6 +3101,22 @@ class Metasync_Admin
             esc_html( $data['threshold'] ),
             esc_html( $data['cores'] )
         );
+        echo '</p></div>';
+    }
+
+    /**
+     * Display info notice when another SEO plugin also generates /llms.txt.
+     *
+     * MetaSync always serves its own version when enabled (priority 1). This
+     * notice simply informs the admin that another plugin was detected.
+     */
+    public function display_llms_txt_conflict_notice()
+    {
+        if (!get_transient('metasync_llms_conflict')) {
+            return;
+        }
+        echo '<div class="notice notice-info is-dismissible"><p>';
+        echo esc_html__('Note: Another SEO plugin (Yoast, Rank Math, or AIOSEO) may also be generating /llms.txt. MetaSync\'s version takes priority when enabled.', 'metasync');
         echo '</p></div>';
     }
 
@@ -3115,8 +3307,8 @@ class Metasync_Admin
         // Get filters
         $filters = [
             // UI exposes date_range and status only. We compute date_from/date_to based on date_range
-            'date_range' => isset($_GET['date_range']) ? sanitize_text_field($_GET['date_range']) : '',
-            'status' => isset($_GET['status']) ? sanitize_text_field($_GET['status']) : '',
+            'date_range' => isset($_GET['date_range']) ? sanitize_text_field(wp_unslash($_GET['date_range'])) : '',
+            'status' => isset($_GET['status']) ? sanitize_text_field(wp_unslash($_GET['status'])) : '',
         ];
 
         // Map date_range to concrete date_from/date_to for DB queries
@@ -4323,6 +4515,54 @@ class Metasync_Admin
     /**
      * Get the settings option array and print one of its values
      */
+    public function og_image_dimensions_callback()
+    {
+        Metasync_Settings_Fields::instance()->og_image_dimensions_callback();
+    }
+
+    /**
+     * Get the settings option array and print one of its values
+     */
+    public function article_timestamps_callback()
+    {
+        Metasync_Settings_Fields::instance()->article_timestamps_callback();
+    }
+
+    /**
+     * Get the settings option array and print one of its values
+     */
+    public function article_author_callback()
+    {
+        Metasync_Settings_Fields::instance()->article_author_callback();
+    }
+
+    /**
+     * Get the settings option array and print one of its values
+     */
+    public function article_section_callback()
+    {
+        Metasync_Settings_Fields::instance()->article_section_callback();
+    }
+
+    /**
+     * Get the settings option array and print one of its values
+     */
+    public function article_tags_callback()
+    {
+        Metasync_Settings_Fields::instance()->article_tags_callback();
+    }
+
+    /**
+     * Get the settings option array and print one of its values
+     */
+    public function twitter_image_alt_callback()
+    {
+        Metasync_Settings_Fields::instance()->twitter_image_alt_callback();
+    }
+
+    /**
+     * Get the settings option array and print one of its values
+     */
     public function facebook_page_url_callback()
     {
         Metasync_Settings_Fields::instance()->facebook_page_url_callback();
@@ -5284,7 +5524,7 @@ class Metasync_Admin
     }
 
     /**
-     * AJAX handler for tracking 1-click activation in Mixpanel
+     * AJAX handler for tracking 1-click activation in GA4
      */
     public function ajax_track_one_click_activation()
     {
@@ -5582,37 +5822,14 @@ class Metasync_Admin
             return;
         }
 
-        // Save Google Instant Indexing settings
-        if (isset($_POST['metasync_google_json_key'])) {
+        // Save post types for Google Instant Indexing auto-submit
+        if (isset($_POST['metasync_post_types'])) {
             $post_data = metasync_sanitize_input_array($_POST);
-            $settings = get_option('metasync_options_instant_indexing', ['json_key' => '', 'post_types' => []]);
+            $post_types = is_array($post_data['metasync_post_types']) ? array_map('sanitize_title', $post_data['metasync_post_types']) : [];
 
-            // Get JSON key from textarea or file upload
-            $json = sanitize_textarea_field(wp_unslash($post_data['metasync_google_json_key']));
-            if (isset($_FILES['metasync_google_json_file']) && !empty($_FILES['metasync_google_json_file']['tmp_name']) && file_exists($_FILES['metasync_google_json_file']['tmp_name'])) {
-                $json = wp_unslash(file_get_contents($_FILES['metasync_google_json_file']['tmp_name']));
-            }
-
-            $post_types = isset($post_data['metasync_post_types']) && is_array($post_data['metasync_post_types']) && !empty($json) ? array_map('sanitize_title', $post_data['metasync_post_types']) : [];
-
-            $new_settings = [
-                'json_key'   => $json,
-                'post_types' => array_values($post_types),
-            ];
-
-            $settings = array_merge($settings, $new_settings);
-
-            if (!empty($settings)) {
-                update_option('metasync_options_instant_indexing', $settings);
-            }
-
-            // Also save parsed credentials to google_index_direct for native API usage
-            if (!empty($json) && function_exists('google_index_direct')) {
-                $decoded = json_decode($json, true);
-                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                    google_index_direct()->save_service_account_config($decoded);
-                }
-            }
+            $settings = get_option('metasync_options_instant_indexing', ['post_types' => []]);
+            $settings['post_types'] = array_values($post_types);
+            update_option('metasync_options_instant_indexing', $settings);
         }
 
         // Note: Bing Instant Indexing settings are saved via AJAX in save_bing_inline_settings_ajax()
@@ -5673,9 +5890,30 @@ class Metasync_Admin
      */
     public function auto_submit_to_instant_indexing($post_id, $post, $update)
     {
-        // Google Instant Indexing auto-submit is not yet implemented via google_index_direct().
-        // The previous implementation was also a no-op for Google.
-        // TODO: Implement async auto-submit via WP-Cron or Action Scheduler in a future phase.
+        // Skip revisions, autosaves, and non-published posts
+        if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id)) {
+            return;
+        }
+        if ($post->post_status !== 'publish') {
+            return;
+        }
+        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+            return;
+        }
+
+        // Auto-submit to Google Instant Indexing
+        $seo_controls = Metasync::get_option('seo_controls');
+        if (!empty($seo_controls['enable_googleinstantindex']) && $seo_controls['enable_googleinstantindex'] === 'true') {
+            $options = get_option('metasync_options_instant_indexing', ['post_types' => []]);
+            $post_types = isset($options['post_types']) && is_array($options['post_types']) ? $options['post_types'] : [];
+
+            if (in_array($post->post_type, $post_types) && function_exists('google_index_direct')) {
+                $service_info = google_index_direct()->get_service_account_info();
+                if (!isset($service_info['error'])) {
+                    google_index_direct()->index_post($post_id, $post->post_type, 'update');
+                }
+            }
+        }
 
         // Auto-submit to Bing Instant Indexing
         require_once plugin_dir_path(dirname(__FILE__)) . 'bing-index/class-metasync-bing-instant-index.php';

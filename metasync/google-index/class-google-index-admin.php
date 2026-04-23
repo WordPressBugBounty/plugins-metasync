@@ -32,6 +32,7 @@ class Google_Index_Admin
         
         // Hook into MetaSync's AJAX settings processing
         add_action('wp_ajax_meta_sync_save_settings', array($this, 'process_google_index_settings'), 5);
+        add_action('wp_ajax_meta_sync_save_seo_controls', array($this, 'process_google_index_settings'), 5);
         
         // Display admin notices after redirect
         add_action('admin_notices', array($this, 'display_admin_notices'));
@@ -100,7 +101,9 @@ class Google_Index_Admin
         $google_index = google_index_direct();
         $service_info = $google_index->get_service_account_info();
         $is_configured = !isset($service_info['error']);
-        
+
+        $saved_json_display = $is_configured ? $google_index->get_redacted_config_json() : '';
+
         // Include the settings field view
         include plugin_dir_path(__FILE__) . '../views/metasync-google-index-api-settings.php';
     }
@@ -150,9 +153,9 @@ class Google_Index_Admin
         // Process service account JSON if provided
         elseif (!empty($service_account_json) && trim($service_account_json) !== '') {
             
-            // Skip if it's just the placeholder text
-            if (strpos($service_account_json, 'Service account configured') !== false) {
-                return; // Don't process placeholder text
+            // Skip if it contains redacted private key (user didn't paste new JSON)
+            if (strpos($service_account_json, '-----REDACTED-----') !== false) {
+                return; // Don't process redacted display text
             }
             
             // Decode and validate JSON

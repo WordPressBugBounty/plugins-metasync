@@ -44,6 +44,11 @@ class Metasync_SEO_Sidebar {
     const META_PRIMARY_PRODUCT_CAT = '_metasync_primary_product_cat';
 
     /**
+     * Meta key for hreflang / language alternates (JSON-encoded array)
+     */
+    const META_HREFLANG = '_metasync_hreflang';
+
+    /**
      * Constructor
      *
      * @param string $version Plugin version
@@ -350,7 +355,79 @@ class Metasync_SEO_Sidebar {
                     return current_user_can('edit_posts');
                 },
             ));
+
+            // Register hreflang / language alternates meta (JSON-encoded array)
+            register_post_meta($post_type, self::META_HREFLANG, array(
+                'show_in_rest' => true,
+                'single' => true,
+                'type' => 'string',
+                'sanitize_callback' => function($value) {
+                    $decoded = json_decode($value, true);
+                    if (!is_array($decoded)) {
+                        return '[]';
+                    }
+                    return wp_json_encode($decoded);
+                },
+                'auth_callback' => function() {
+                    return current_user_can('edit_posts');
+                },
+            ));
         }
+    }
+
+    /**
+     * Build a read-only list of WPML translation entries for a post.
+     *
+     * Returns an array of {lang, url} objects by querying the
+     * `icl_translations` table. Used to seed the "Language Alternates"
+     * Gutenberg panel with auto-populated values.
+     *
+     * @param int $post_id Post ID.
+     * @return array
+     */
+    private function get_wpml_entries_for_post($post_id) {
+        if (!defined('ICL_SITEPRESS_VERSION') || $post_id <= 0) {
+            return array();
+        }
+
+        global $wpdb;
+        $post = get_post($post_id);
+        if (!$post) {
+            return array();
+        }
+
+        $element_type = 'post_' . $post->post_type;
+        $table = $wpdb->prefix . 'icl_translations';
+
+        $trid = $wpdb->get_var($wpdb->prepare(
+            "SELECT trid FROM {$table} WHERE element_id = %d AND element_type = %s LIMIT 1",
+            $post_id,
+            $element_type
+        ));
+        if (empty($trid)) {
+            return array();
+        }
+
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT language_code, element_id FROM {$table} WHERE trid = %d",
+            $trid
+        ));
+        if (empty($rows)) {
+            return array();
+        }
+
+        $entries = array();
+        foreach ($rows as $row) {
+            $permalink = get_permalink((int) $row->element_id);
+            if (empty($permalink)) {
+                continue;
+            }
+            $entries[] = array(
+                'lang' => (string) $row->language_code,
+                'url'  => $permalink,
+            );
+        }
+        return $entries;
     }
 
     /**
@@ -419,12 +496,15 @@ class Metasync_SEO_Sidebar {
         $post_id = isset($_GET['post']) ? intval($_GET['post']) : 0;
         $has_seo_title = false;
         $has_seo_description = false;
-        
+
         if ($post_id > 0) {
             // Check if meta keys exist in database (even if value is empty)
             $has_seo_title = metadata_exists('post', $post_id, self::META_SEO_TITLE);
             $has_seo_description = metadata_exists('post', $post_id, self::META_DESCRIPTION);
         }
+
+        // Auto-detected WPML entries for the "Language Alternates" panel.
+        $wpml_entries = $this->get_wpml_entries_for_post($post_id);
 
         // Link Suggestions configuration
         $link_suggestions_config = array(
@@ -468,7 +548,10 @@ class Metasync_SEO_Sidebar {
                 // Primary category
                 'primaryCategory' => self::META_PRIMARY_CATEGORY,
                 'primaryProductCat' => self::META_PRIMARY_PRODUCT_CAT,
+                // Language alternates (hreflang) — JSON-encoded array
+                'hreflang' => self::META_HREFLANG,
             ),
+            'wpmlEntries' => $wpml_entries,
             'hasMetaKeys' => array(
                 // Whether the manual meta keys exist in database (PHP check)
                 'seoTitle' => $has_seo_title,
@@ -523,6 +606,14 @@ class Metasync_SEO_Sidebar {
                     $otto_name,
                     $otto_name
                 ),
+                // Language Alternates (hreflang) panel strings
+                'languageAlternatesTitle' => __('Language Alternates', 'metasync'),
+                'addAlternate' => __('Add alternate', 'metasync'),
+                'langLabel' => __('Language', 'metasync'),
+                'regionLabel' => __('Region', 'metasync'),
+                'urlLabel' => __('URL', 'metasync'),
+                'editManually' => __('Edit Manually', 'metasync'),
+                'wpmlAutoPopulated' => __('Auto-populated from WPML. Click Edit Manually to override.', 'metasync'),
             ),
         ));
     }

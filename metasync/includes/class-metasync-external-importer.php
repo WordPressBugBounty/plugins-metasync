@@ -2099,4 +2099,326 @@ class Metasync_External_Importer
                 : "Processing... {$imported_count} imported, {$skipped_count} skipped."
         ];
     }
+
+    /**
+     * Import term-level SEO metadata from a third-party SEO plugin into
+     * MetaSync term meta (`_metasync_*`).
+     *
+     * Mirrors import_seo_metadata() but operates on terms (wp_termmeta for
+     * Yoast/Rank Math and the wp_aioseo_terms table for AIOSEO) and walks
+     * every registered public taxonomy so category, post_tag, and custom
+     * taxonomies are all covered.
+     *
+     * @param string $plugin  One of 'yoast', 'rankmath', 'aioseo'.
+     * @param array  $options Batch options (overwrite_existing, batch_size, offset).
+     * @return array ['success'=>bool,'imported'=>int,'skipped'=>int,'total'=>int,'message'=>string]
+     */
+    public function import_term_seo_metadata($plugin, $options = [])
+    {
+        $defaults = [
+            'overwrite_existing' => false,
+            'batch_size'         => 100,
+            'offset'             => 0,
+        ];
+        $options = array_merge($defaults, $options);
+
+        if (!in_array($plugin, ['yoast', 'rankmath', 'aioseo'], true)) {
+            return [
+                'success' => false,
+                'message' => 'Invalid plugin specified.',
+            ];
+        }
+
+        switch ($plugin) {
+            case 'yoast':
+                return $this->import_yoast_term_meta($options);
+            case 'rankmath':
+                return $this->import_rankmath_term_meta($options);
+            case 'aioseo':
+                return $this->import_aioseo_term_meta($options);
+        }
+
+        return [
+            'success' => false,
+            'message' => 'Unknown error occurred.',
+        ];
+    }
+
+    /**
+     * Import Yoast term meta into MetaSync term meta.
+     *
+     * @param array $options
+     * @return array
+     */
+    private function import_yoast_term_meta($options)
+    {
+        $batch_size = intval($options['batch_size']);
+        $offset     = intval($options['offset']);
+        $overwrite  = (bool) $options['overwrite_existing'];
+
+        // Yoast stores taxonomy term SEO data in the `wpseo_taxonomy_meta`
+        // option (wp_options), NOT in wp_termmeta.  We must read from there.
+        if (!class_exists('WPSEO_Taxonomy_Meta')) {
+            return [
+                'success' => false,
+                'message' => 'Yoast SEO is not active or WPSEO_Taxonomy_Meta class not available.',
+            ];
+        }
+
+        $taxonomies = array_values(get_taxonomies(['public' => true], 'names'));
+
+        $terms = get_terms([
+            'taxonomy'   => $taxonomies,
+            'hide_empty' => false,
+            'number'     => $batch_size,
+            'offset'     => $offset,
+        ]);
+
+        if (is_wp_error($terms)) {
+            return [
+                'success' => false,
+                'message' => $terms->get_error_message(),
+            ];
+        }
+
+        $field_map = [
+            'wpseo_title'                 => '_metasync_metatitle',
+            'wpseo_desc'                  => '_metasync_metadesc',
+            'wpseo_opengraph-title'       => '_metasync_og_title',
+            'wpseo_opengraph-description' => '_metasync_og_description',
+            'wpseo_canonical'             => '_metasync_canonical_url',
+        ];
+
+        $imported = 0;
+        $skipped  = 0;
+
+        foreach ($terms as $term) {
+            $term_updated = false;
+
+            // Read from Yoast's wpseo_taxonomy_meta option via its API.
+            $yoast_meta = WPSEO_Taxonomy_Meta::get_term_meta($term->term_id, $term->taxonomy);
+            if (!is_array($yoast_meta)) {
+                $yoast_meta = [];
+            }
+
+            foreach ($field_map as $src_key => $dest_key) {
+                $src_value = isset($yoast_meta[$src_key]) ? $yoast_meta[$src_key] : '';
+                if ($src_value === '' || $src_value === null) {
+                    continue;
+                }
+
+                $existing = get_term_meta($term->term_id, $dest_key, true);
+                if (!empty($existing) && !$overwrite) {
+                    continue;
+                }
+
+                update_term_meta($term->term_id, $dest_key, $src_value);
+                $term_updated = true;
+            }
+
+            $noindex = isset($yoast_meta['wpseo_noindex']) ? $yoast_meta['wpseo_noindex'] : '';
+            if ($noindex === 'noindex') {
+                $existing = get_term_meta($term->term_id, '_metasync_robots_index', true);
+                if (empty($existing) || $overwrite) {
+                    update_term_meta($term->term_id, '_metasync_robots_index', 'noindex');
+                    $term_updated = true;
+                }
+            }
+
+            if ($term_updated) {
+                $imported++;
+            } else {
+                $skipped++;
+            }
+        }
+
+        $processed = $offset + count($terms);
+
+        return [
+            'success'  => true,
+            'imported' => $imported,
+            'skipped'  => $skipped,
+            'total'    => $processed,
+            'message'  => "Processed {$processed} terms: {$imported} imported, {$skipped} skipped.",
+        ];
+    }
+
+    /**
+     * Import Rank Math term meta into MetaSync term meta.
+     *
+     * @param array $options
+     * @return array
+     */
+    private function import_rankmath_term_meta($options)
+    {
+        $batch_size = intval($options['batch_size']);
+        $offset     = intval($options['offset']);
+        $overwrite  = (bool) $options['overwrite_existing'];
+
+        $taxonomies = array_values(get_taxonomies(['public' => true], 'names'));
+
+        $terms = get_terms([
+            'taxonomy'   => $taxonomies,
+            'hide_empty' => false,
+            'number'     => $batch_size,
+            'offset'     => $offset,
+        ]);
+
+        if (is_wp_error($terms)) {
+            return [
+                'success' => false,
+                'message' => $terms->get_error_message(),
+            ];
+        }
+
+        $field_map = [
+            'rank_math_title'                => '_metasync_metatitle',
+            'rank_math_description'          => '_metasync_metadesc',
+            'rank_math_facebook_title'       => '_metasync_og_title',
+            'rank_math_facebook_description' => '_metasync_og_description',
+            'rank_math_canonical_url'        => '_metasync_canonical_url',
+        ];
+
+        $imported = 0;
+        $skipped  = 0;
+
+        foreach ($terms as $term) {
+            $term_updated = false;
+
+            foreach ($field_map as $src_key => $dest_key) {
+                $src_value = get_term_meta($term->term_id, $src_key, true);
+                if ($src_value === '' || $src_value === null) {
+                    continue;
+                }
+
+                $existing = get_term_meta($term->term_id, $dest_key, true);
+                if (!empty($existing) && !$overwrite) {
+                    continue;
+                }
+
+                update_term_meta($term->term_id, $dest_key, $src_value);
+                $term_updated = true;
+            }
+
+            $robots_raw = get_term_meta($term->term_id, 'rank_math_robots', true);
+            $robots = maybe_unserialize($robots_raw);
+            if (is_array($robots) && in_array('noindex', $robots, true)) {
+                $existing = get_term_meta($term->term_id, '_metasync_robots_index', true);
+                if (empty($existing) || $overwrite) {
+                    update_term_meta($term->term_id, '_metasync_robots_index', 'noindex');
+                    $term_updated = true;
+                }
+            }
+
+            if ($term_updated) {
+                $imported++;
+            } else {
+                $skipped++;
+            }
+        }
+
+        $processed = $offset + count($terms);
+
+        return [
+            'success'  => true,
+            'imported' => $imported,
+            'skipped'  => $skipped,
+            'total'    => $processed,
+            'message'  => "Processed {$processed} terms: {$imported} imported, {$skipped} skipped.",
+        ];
+    }
+
+    /**
+     * Import AIOSEO term meta (from the wp_aioseo_terms custom table) into
+     * MetaSync term meta.
+     *
+     * @param array $options
+     * @return array
+     */
+    private function import_aioseo_term_meta($options)
+    {
+        global $wpdb;
+
+        $batch_size = intval($options['batch_size']);
+        $offset     = intval($options['offset']);
+        $overwrite  = (bool) $options['overwrite_existing'];
+
+        $table = $wpdb->prefix . 'aioseo_terms';
+
+        $table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+        if ($table_exists !== $table) {
+            return [
+                'success' => false,
+                'message' => 'AIOSEO terms table not found.',
+            ];
+        }
+
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT term_id, title, description, og_title, og_description, canonical_url, robots_noindex
+             FROM {$table}
+             ORDER BY term_id ASC
+             LIMIT %d OFFSET %d",
+            $batch_size,
+            $offset
+        ));
+
+        $imported = 0;
+        $skipped  = 0;
+
+        foreach ($rows as $row) {
+            $term_id = (int) $row->term_id;
+            if ($term_id <= 0) {
+                continue;
+            }
+
+            $term_updated = false;
+
+            $field_map = [
+                'title'         => '_metasync_metatitle',
+                'description'   => '_metasync_metadesc',
+                'og_title'      => '_metasync_og_title',
+                'og_description' => '_metasync_og_description',
+                'canonical_url' => '_metasync_canonical_url',
+            ];
+
+            foreach ($field_map as $column => $dest_key) {
+                $value = isset($row->$column) ? $row->$column : '';
+                if ($value === '' || $value === null) {
+                    continue;
+                }
+
+                $existing = get_term_meta($term_id, $dest_key, true);
+                if (!empty($existing) && !$overwrite) {
+                    continue;
+                }
+
+                update_term_meta($term_id, $dest_key, $value);
+                $term_updated = true;
+            }
+
+            if (!empty($row->robots_noindex) && (int) $row->robots_noindex === 1) {
+                $existing = get_term_meta($term_id, '_metasync_robots_index', true);
+                if (empty($existing) || $overwrite) {
+                    update_term_meta($term_id, '_metasync_robots_index', 'noindex');
+                    $term_updated = true;
+                }
+            }
+
+            if ($term_updated) {
+                $imported++;
+            } else {
+                $skipped++;
+            }
+        }
+
+        $processed = $offset + count($rows);
+
+        return [
+            'success'  => true,
+            'imported' => $imported,
+            'skipped'  => $skipped,
+            'total'    => $processed,
+            'message'  => "Processed {$processed} terms: {$imported} imported, {$skipped} skipped.",
+        ];
+    }
 }

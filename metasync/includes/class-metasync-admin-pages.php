@@ -490,6 +490,253 @@ class Metasync_Admin_Pages
                         ?>
                     </div>
 
+                    <!-- Color Palette Customization section -->
+                    <div class="dashboard-card" id="metasync-color-palette-section">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                            <div>
+                                <h2>Color Palette</h2>
+                                <p style="color: var(--dashboard-text-secondary); margin: 5px 0 0 0;">Customize the plugin color scheme for both dark and light themes. Changes preview instantly.</p>
+                            </div>
+                        </div>
+
+                        <?php
+                        $color_palette = isset($whitelabel_settings['color_palette']) && is_array($whitelabel_settings['color_palette'])
+                            ? $whitelabel_settings['color_palette']
+                            : array();
+                        $dark_colors  = isset($color_palette['dark']) && is_array($color_palette['dark']) ? $color_palette['dark'] : array();
+                        $light_colors = isset($color_palette['light']) && is_array($color_palette['light']) ? $color_palette['light'] : array();
+
+                        $palette_fields = array(
+                            'dashboard-bg' => array(
+                                'label' => 'Background',
+                                'hint'  => 'Main page background behind all content',
+                                'dark'  => '#0f1419',
+                                'light' => '#f8f9fa',
+                            ),
+                            'dashboard-card-bg' => array(
+                                'label' => 'Card Background',
+                                'hint'  => 'Background of cards, panels, and content boxes',
+                                'dark'  => '#1a1f26',
+                                'light' => '#ffffff',
+                            ),
+                            'dashboard-card-hover' => array(
+                                'label' => 'Card Hover',
+                                'hint'  => 'Card background when you hover over it',
+                                'dark'  => '#222831',
+                                'light' => '#f1f3f5',
+                            ),
+                            'dashboard-text-primary' => array(
+                                'label' => 'Primary Text',
+                                'hint'  => 'Headings, body text, and main content',
+                                'dark'  => '#ffffff',
+                                'light' => '#1a1f26',
+                            ),
+                            'dashboard-text-secondary' => array(
+                                'label' => 'Secondary Text',
+                                'hint'  => 'Descriptions, hints, and less important text',
+                                'dark'  => '#9ca3af',
+                                'light' => '#6b7280',
+                            ),
+                            'dashboard-accent' => array(
+                                'label' => 'Accent Color',
+                                'hint'  => 'Buttons, links, and highlighted elements',
+                                'dark'  => '#3b82f6',
+                                'light' => '#3b82f6',
+                            ),
+                            'dashboard-accent-hover' => array(
+                                'label' => 'Accent Hover',
+                                'hint'  => 'Buttons and links when hovered',
+                                'dark'  => '#2563eb',
+                                'light' => '#2563eb',
+                            ),
+                            'dashboard-success' => array(
+                                'label' => 'Success',
+                                'hint'  => 'Success messages, connected status, positive indicators',
+                                'dark'  => '#10b981',
+                                'light' => '#10b981',
+                            ),
+                            'dashboard-warning' => array(
+                                'label' => 'Warning',
+                                'hint'  => 'Warning alerts and caution indicators',
+                                'dark'  => '#f59e0b',
+                                'light' => '#f59e0b',
+                            ),
+                            'dashboard-error' => array(
+                                'label' => 'Error',
+                                'hint'  => 'Error messages and critical alerts',
+                                'dark'  => '#ef4444',
+                                'light' => '#ef4444',
+                            ),
+                            'dashboard-border' => array(
+                                'label' => 'Border',
+                                'hint'  => 'Card borders, dividers, and separators',
+                                'dark'  => '#374151',
+                                'light' => '#e5e7eb',
+                            ),
+                            'dashboard-gradient-primary-from' => array(
+                                'label' => 'Button Gradient Start',
+                                'hint'  => 'Left/top color of buttons, save bars, and active tabs',
+                                'dark'  => '#667eea',
+                                'light' => '#667eea',
+                            ),
+                            'dashboard-gradient-primary-to' => array(
+                                'label' => 'Button Gradient End',
+                                'hint'  => 'Right/bottom color of buttons, save bars, and active tabs',
+                                'dark'  => '#764ba2',
+                                'light' => '#764ba2',
+                            ),
+                            'dashboard-gradient-accent-from' => array(
+                                'label' => 'Accent Gradient Start',
+                                'hint'  => 'Left/top color of secondary badges and highlight bars',
+                                'dark'  => '#f093fb',
+                                'light' => '#f093fb',
+                            ),
+                            'dashboard-gradient-accent-to' => array(
+                                'label' => 'Accent Gradient End',
+                                'hint'  => 'Right/bottom color of secondary badges and highlight bars',
+                                'dark'  => '#f5576c',
+                                'light' => '#f5576c',
+                            ),
+                        );
+                        ?>
+
+                        <!-- Theme tabs -->
+                        <div style="display: flex; gap: 8px; margin-bottom: 20px;">
+                            <button type="button" class="metasync-palette-tab active" data-palette="dark"
+                                style="padding: 8px 20px; border-radius: 8px; border: 1px solid var(--dashboard-border); background: var(--dashboard-gradient-primary); color: #fff; cursor: pointer; font-weight: 600; font-size: 13px;">
+                                &#9790; Dark Theme
+                            </button>
+                            <button type="button" class="metasync-palette-tab" data-palette="light"
+                                style="padding: 8px 20px; border-radius: 8px; border: 1px solid var(--dashboard-border); background: transparent; color: var(--dashboard-text-secondary); cursor: pointer; font-weight: 600; font-size: 13px;">
+                                &#9728; Light Theme
+                            </button>
+                        </div>
+
+                        <!-- Dark theme palette -->
+                        <div class="metasync-palette-panel active" id="metasync-palette-dark">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
+                                <?php foreach ($palette_fields as $var_name => $field): ?>
+                                <div style="background: var(--dashboard-card-hover); border: 1px solid var(--dashboard-border); border-radius: 10px; padding: 14px;">
+                                    <label style="display: block; font-weight: 600; font-size: 13px; color: var(--dashboard-text-primary); margin-bottom: 2px;">
+                                        <?php echo esc_html($field['label']); ?>
+                                    </label>
+                                    <p style="font-size: 12px; color: var(--dashboard-text-secondary); margin: 0 0 10px 0;"><?php echo esc_html($field['hint']); ?></p>
+                                    <div style="display: flex; align-items: center; gap: 10px;">
+                                        <input type="color"
+                                            class="metasync-color-field"
+                                            name="<?php echo esc_attr(Metasync_Admin::option_key); ?>[whitelabel][color_palette][dark][<?php echo esc_attr($var_name); ?>]"
+                                            value="<?php echo esc_attr(!empty($dark_colors[$var_name]) ? $dark_colors[$var_name] : $field['dark']); ?>"
+                                            data-default-color="<?php echo esc_attr($field['dark']); ?>"
+                                            data-css-var="<?php echo esc_attr($var_name); ?>"
+                                            data-color-theme="dark"
+                                            style="width: 44px; height: 36px; padding: 2px; border: 1px solid var(--dashboard-border); border-radius: 8px; cursor: pointer; background: transparent;"
+                                        />
+                                        <code style="font-size: 12px; color: var(--dashboard-text-secondary); background: var(--dashboard-bg); padding: 3px 8px; border-radius: 4px;" class="metasync-color-hex-display"><?php echo esc_html(!empty($dark_colors[$var_name]) ? $dark_colors[$var_name] : $field['dark']); ?></code>
+                                    </div>
+                                </div>
+                                <?php endforeach; ?>
+                            </div>
+                            <div style="margin-top: 16px; text-align: right;">
+                                <button type="button" id="metasync-reset-dark-palette" data-reset-theme="dark"
+                                    style="padding: 8px 18px; border-radius: 6px; border: 1px solid var(--dashboard-border); background: transparent; color: var(--dashboard-text-secondary); cursor: pointer; font-size: 13px;">
+                                    Reset Dark Theme to Defaults
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Light theme palette -->
+                        <div class="metasync-palette-panel" id="metasync-palette-light">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
+                                <?php foreach ($palette_fields as $var_name => $field): ?>
+                                <div style="background: var(--dashboard-card-hover); border: 1px solid var(--dashboard-border); border-radius: 10px; padding: 14px;">
+                                    <label style="display: block; font-weight: 600; font-size: 13px; color: var(--dashboard-text-primary); margin-bottom: 2px;">
+                                        <?php echo esc_html($field['label']); ?>
+                                    </label>
+                                    <p style="font-size: 12px; color: var(--dashboard-text-secondary); margin: 0 0 10px 0;"><?php echo esc_html($field['hint']); ?></p>
+                                    <div style="display: flex; align-items: center; gap: 10px;">
+                                        <input type="color"
+                                            class="metasync-color-field"
+                                            name="<?php echo esc_attr(Metasync_Admin::option_key); ?>[whitelabel][color_palette][light][<?php echo esc_attr($var_name); ?>]"
+                                            value="<?php echo esc_attr(!empty($light_colors[$var_name]) ? $light_colors[$var_name] : $field['light']); ?>"
+                                            data-default-color="<?php echo esc_attr($field['light']); ?>"
+                                            data-css-var="<?php echo esc_attr($var_name); ?>"
+                                            data-color-theme="light"
+                                            style="width: 44px; height: 36px; padding: 2px; border: 1px solid var(--dashboard-border); border-radius: 8px; cursor: pointer; background: transparent;"
+                                        />
+                                        <code style="font-size: 12px; color: var(--dashboard-text-secondary); background: var(--dashboard-bg); padding: 3px 8px; border-radius: 4px;" class="metasync-color-hex-display"><?php echo esc_html(!empty($light_colors[$var_name]) ? $light_colors[$var_name] : $field['light']); ?></code>
+                                    </div>
+                                </div>
+                                <?php endforeach; ?>
+                            </div>
+                            <div style="margin-top: 16px; text-align: right;">
+                                <button type="button" id="metasync-reset-light-palette" data-reset-theme="light"
+                                    style="padding: 8px 18px; border-radius: 6px; border: 1px solid var(--dashboard-border); background: transparent; color: var(--dashboard-text-secondary); cursor: pointer; font-size: 13px;">
+                                    Reset Light Theme to Defaults
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <style>
+                        .metasync-palette-tab.active {
+                            background: var(--dashboard-gradient-primary) !important;
+                            color: #fff !important;
+                        }
+                        .metasync-palette-tab:not(.active) {
+                            background: transparent !important;
+                            color: var(--dashboard-text-secondary) !important;
+                        }
+                        .metasync-palette-panel { display: none !important; }
+                        .metasync-palette-panel.active { display: block !important; }
+                    </style>
+
+                    <script>
+                    jQuery(function($) {
+                        // Tab switching
+                        $(document).on('click', '.metasync-palette-tab', function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            var target = $(this).data('palette');
+                            $('.metasync-palette-tab').removeClass('active');
+                            $(this).addClass('active');
+                            $('.metasync-palette-panel').removeClass('active');
+                            $('#metasync-palette-' + target).addClass('active');
+                        });
+
+                        // Reset to defaults
+                        var paletteDefaults = <?php echo wp_json_encode(array(
+                            'dark' => array_combine(
+                                array_keys($palette_fields),
+                                array_column($palette_fields, 'dark')
+                            ),
+                            'light' => array_combine(
+                                array_keys($palette_fields),
+                                array_column($palette_fields, 'light')
+                            )
+                        )); ?>;
+
+                        $(document).on('click', '#metasync-reset-dark-palette, #metasync-reset-light-palette', function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            var theme = $(this).data('reset-theme');
+                            var defs = paletteDefaults[theme];
+                            if (!defs) return;
+                            $('#metasync-color-palette-section .metasync-color-field[data-color-theme="' + theme + '"]').each(function() {
+                                var $input = $(this);
+                                var varName = $input.data('css-var');
+                                var defVal = defs[varName] || '';
+                                if (defVal) {
+                                    $input.val(defVal);
+                                    $input.siblings('.metasync-color-hex-display').text(defVal);
+                                }
+                            });
+                            // Trigger live preview if external JS is loaded
+                            $input = $('#metasync-color-palette-section .metasync-color-field').first();
+                            if ($input.length) $input.trigger('input');
+                        });
+                    });
+                    </script>
+
                     <!-- Export Whitelabel Settings section -->
                     <div class="dashboard-card">
                         <h2>Export Whitelabel Plugin</h2>
@@ -1497,14 +1744,8 @@ echo $breadcrumbs-&gt;render_breadcrumb_html();</pre>
 
     public function create_admin_google_instant_index_page()
     {
-        ?>
-        <?php $this->admin->render_layout_open('Instant Indexing', 'instant_index', ''); ?>
-        
-        <?php
-        google_index_direct()->show_google_instant_indexing_settings();
-        ?>
-        <?php $this->admin->render_layout_close(); ?>
-        <?php
+        // Delegates to the admin class which uses the shared credentials view
+        $this->admin->create_admin_google_instant_index_page();
     }
 
     public function create_admin_google_console_page()

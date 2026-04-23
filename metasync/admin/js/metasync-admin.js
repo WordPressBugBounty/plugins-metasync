@@ -546,7 +546,7 @@
 								$button.closest('.metasync-sa-connect-container').removeClass('metasync-sa-connect-success-animation');
 							}, 600);
 						
-							// Track 1-click activation in Mixpanel
+							// Track 1-click activation in GA4
 							var hasExistingApiKey = $('#searchatlas-api-key').val() && $('#searchatlas-api-key').val().trim() !== '';
 							$.ajax({
 								url: metaSync.ajax_url,
@@ -557,6 +557,12 @@
 									is_reconnection: hasExistingApiKey
 								}
 							});
+							if (typeof window.metasyncGA4Track === 'function') {
+								window.metasyncGA4Track('one_click_activation', {
+									auth_method: 'searchatlas_connect',
+									is_reconnection: hasExistingApiKey
+								});
+							}
 							
 							showConnectSuccess('🎉 Authentication Successful', 
 								'Your ' + getPluginName() + ' account has been synced successfully! The page will reload to apply your new settings.',
@@ -1927,6 +1933,9 @@
 					$('#sendAuthTokenTimestamp').html('Please save your ' + getPluginName() + ' API key');
 					$('#sendAuthTokenTimestamp').css({ color: 'red' });
 
+					// Remove stale PHP-rendered "✓ Synced" label.
+					$('label[for="searchatlas-api-key"]').find('span:contains("Synced")').remove();
+
 					// Update header status to "Not Synced" for missing API key
 					updateHeaderStatus(false, 'Not Synced', 'Not Synced - API key required');
 
@@ -1969,7 +1978,10 @@
 				} else if (response && response.detail) {
 					$('#sendAuthTokenTimestamp').html('Please provide a valid ' + getPluginName() + ' API key');
 					$('#sendAuthTokenTimestamp').css({ color: 'red' });
-					
+
+					// Remove stale PHP-rendered "✓ Synced" label — key is invalid on the server.
+					$('label[for="searchatlas-api-key"]').find('span:contains("Synced")').remove();
+
 					// Update header status to "Not Synced" for invalid API key
 					updateHeaderStatus(false, 'Not Synced', 'Not Synced - Invalid API key');
 					
@@ -2266,10 +2278,10 @@
 				$forms.removeClass('has-unsaved-changes');
 				
 				// Hide sticky notification
-				hideUnsavedChangesNotification();
+				window.hideUnsavedChangesNotification();
 			}
 		}
-		
+
 		// Show sticky notification for unsaved changes
 		function showUnsavedChangesNotification() {
 			var $notification = $('.metasync-unsaved-notification');
@@ -2300,17 +2312,17 @@
 		}
 		
 		// Hide sticky notification
-		function hideUnsavedChangesNotification() {
+		window.hideUnsavedChangesNotification = function () {
 			var $notification = $('.metasync-unsaved-notification');
 			$notification.removeClass('show');
-		}
-		
+		};
+
 		// Scroll to save button functionality
 		window.scrollToSaveButton = function () {
 			var $saveButton = $('input[type="submit"], button[type="submit"]').filter('[name="submit"], [value*="Save"]').first();
 			if ($saveButton.length) {
 				// Hide notification temporarily while scrolling
-				hideUnsavedChangesNotification();
+				window.hideUnsavedChangesNotification();
 				
 				$('html, body').animate({
 					scrollTop: $saveButton.offset().top - 100

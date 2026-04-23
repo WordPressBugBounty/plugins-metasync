@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.6.2
+Stable tag: 2.6.3
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,34 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.3 =
+- Feature: BreadcrumbList schema auto-generated from post hierarchy with cross-plugin deduplication for Yoast, Rank Math, and AIOSEO
+  - Feature: Hreflang language alternates support with WPML integration for multilingual sites
+  - Feature: LLMs.txt generator with dedicated settings page and MCP tools
+  - Feature: News sitemap and video sitemap generation
+  - Feature: Taxonomy term SEO meta synced to Yoast, Rank Math, and AIOSEO for category and tag archive pages
+  - Feature: Open Graph output extended with article timestamps, author, section, tags, and og:image dimensions
+  - Feature: MCP tools for SEO plugin audit — read, diff, sync, and conflict detection across installed SEO plugins
+  - Feature: MCP tools for OTTO pipeline — trigger optimization, check status, and verify SEO output
+  - Feature: MCP cache-purge tools for per-URL and full-site cache invalidation
+  - Feature: Whitelabel color personalization for admin UI
+  - Improvement: Composer classmap autoloader covering all plugin classes, removing 55+ scattered require_once calls
+  - Improvement: MCP rate limiter wired into all tool calls with proper 429 responses
+  - Improvement: GA4 event tracking replaces Mixpanel for plugin analytics
+  - Improvement: Execution time limit added to MCP database query tool to prevent long-running queries
+  - Fix: OTTO title and meta replacement no longer strips dollar signs from values like $500
+  - Fix: Google Instant Indexing now auto-submits on post publish
+  - Fix: LLMs.txt generation now excludes noindex posts
+  - Fix: Missing PHP DOM extension handled gracefully in HTML-to-builder converter
+  - Fix: Yoast and AIOSEO term meta storage corrected; SEO conflict handler fixed for term archive pages
+  - Fix: WP Engine cache integration no longer calls non-existent purge_url() method; Throwable errors now caught
+  - Fix: Beaver Builder templates excluded from sitemap generation
+  - Fix: Gutenberg blockquote block no longer shows invalid content error after OTTO applies changes
+  - Fix: Redirections page filter and search controls no longer trigger add-redirection form validation
+  - Fix: Settings page no longer shows Synced label and invalid API key error simultaneously
+  - Fix: Unsaved changes notification close button now works correctly
+  - Fix: Composer autoloader updated with missing class entries to prevent fatal errors on fresh installs
+
 = 2.6.2 =
 - Improvement: Whitelabel now supports separate logo uploads for light and dark admin themes
   - Improvement: Breadcrumbs settings panel redesigned with cleaner layout and more configuration options

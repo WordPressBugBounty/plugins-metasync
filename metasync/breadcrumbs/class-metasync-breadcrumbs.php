@@ -49,6 +49,11 @@ class Metasync_Breadcrumbs {
         add_action('init', array($this, 'register_shortcode'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_styles'));
         add_action('wp', array($this, 'maybe_override_woocommerce_breadcrumb'));
+
+        // Cross-write the per-post breadcrumb label override to Yoast / Rank Math
+        // so sites running those plugins stay in sync when editors use MetaSync.
+        add_action('updated_post_meta', array($this, 'sync_breadcrumb_title_to_plugins'), 10, 4);
+        add_action('added_post_meta', array($this, 'sync_breadcrumb_title_to_plugins'), 10, 4);
     }
 
     /**
@@ -128,6 +133,47 @@ class Metasync_Breadcrumbs {
         }
 
         return wp_parse_args($saved, $defaults);
+    }
+
+    /**
+     * Cross-write `_metasync_breadcrumb_title` to Yoast / Rank Math meta keys.
+     *
+     * Fires on `added_post_meta` / `updated_post_meta`. Guards against recursion
+     * with a static flag so the cross-written updates don't re-trigger this
+     * handler for the other plugin keys.
+     *
+     * @param int    $meta_id    Meta ID (unused).
+     * @param int    $post_id    Post ID.
+     * @param string $meta_key   Meta key being written.
+     * @param mixed  $meta_value Meta value being written.
+     */
+    public function sync_breadcrumb_title_to_plugins($meta_id, $post_id, $meta_key, $meta_value) {
+        if ($meta_key !== '_metasync_breadcrumb_title') {
+            return;
+        }
+
+        static $is_cross_writing = false;
+        if ($is_cross_writing) {
+            return;
+        }
+
+        if (!function_exists('is_plugin_active')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+
+        $is_cross_writing = true;
+
+        if (is_plugin_active('wordpress-seo/wp-seo.php') ||
+            is_plugin_active('wordpress-seo-premium/wp-seo-premium.php')) {
+            update_post_meta($post_id, '_yoast_wpseo_bctitle', $meta_value);
+        }
+
+        if (is_plugin_active('seo-by-rank-math/rank-math.php') ||
+            is_plugin_active('seo-by-rankmath/rank-math.php')) {
+            update_post_meta($post_id, 'rank_math_breadcrumb_title', $meta_value);
+        }
+
+        $is_cross_writing = false;
     }
 
     /**

@@ -1795,12 +1795,11 @@ class Metasync_Rest_Api
 					])
 				]);
 
-				# Track Content Genius event in Mixpanel
+				# Track Content Genius event in GA4
 				try {
-					$mixpanel = Metasync_Mixpanel::get_instance();
-					$mixpanel->track_content_genius_event($post_id, strtolower($action));
+					Metasync_GA4::get_instance()->track_content_genius_event($post_id, strtolower($action));
 				} catch (Exception $e) {
-					error_log('MetaSync: Mixpanel tracking failed for Content Genius - ' . $e->getMessage());
+					error_log('MetaSync: Analytics tracking failed for Content Genius - ' . $e->getMessage());
 				}
 
 			// Google Indexing Integration
@@ -2513,12 +2512,11 @@ class Metasync_Rest_Api
 					])
 				]);
 
-				# Track Content Genius event in Mixpanel
+				# Track Content Genius event in GA4
 				try {
-					$mixpanel = Metasync_Mixpanel::get_instance();
-					$mixpanel->track_content_genius_event($post_id, 'updated');
+					Metasync_GA4::get_instance()->track_content_genius_event($post_id, 'updated');
 				} catch (Exception $e) {
-					error_log('MetaSync: Mixpanel tracking failed for Content Genius - ' . $e->getMessage());
+					error_log('MetaSync: Analytics tracking failed for Content Genius - ' . $e->getMessage());
 				}
 			}
 

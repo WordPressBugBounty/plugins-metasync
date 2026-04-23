@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.6.2 
+ * Version:           2.6.3 
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
  * License:           GPL v3
@@ -28,12 +28,15 @@ if (!defined('WPINC')) {
 	die;
 }
 
+// Composer classmap autoloader — loads all plugin classes on demand.
+require_once __DIR__ . '/vendor/autoload.php';
+
 /**
  * Currently plugin version.
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.6.2';
+$metasync_version = '2.6.3';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -57,16 +60,18 @@ define('METASYNC_SENTRY_RELEASE', METASYNC_VERSION);
 define('METASYNC_SENTRY_SAMPLE_RATE', 1.0);
 
 /**
- * Mixpanel Analytics Configuration
- * Project token for usage tracking 
+ * GA4 Analytics Configuration
+ * Measurement ID for Google Analytics 4 event tracking (format: G-XXXXXXXX)
  *
- * IMPORTANT: This constant is REQUIRED for Mixpanel tracking to function.
- * If not defined or empty, all analytics tracking will be disabled.
+ * IMPORTANT: This constant is REQUIRED for GA4 tracking to function.
+ * If not defined or empty, all GA4 analytics tracking will be disabled.
  *
- * To disable tracking: Comment out this line or set to empty string
+ * GA4_API_SECRET is required for server-side Measurement Protocol events
+ * (Content Genius, OTTO optimization). Generate it in GA4:
+ * Admin → Data Streams → (stream) → Measurement Protocol → Create
  */
-
-define('METASYNC_MIXPANEL_TOKEN', '90374a20c197bd2eb8312e0706e3b458');
+define('METASYNC_GA4_MEASUREMENT_ID', 'G-SBLWW1EMTJ');
+define('METASYNC_GA4_API_SECRET', 'nMGs22mxQ3qVUy-aInqfZA');
 
 /**
  * Define whether to show the plugin status in WordPress admin top navigation bar
@@ -103,94 +108,16 @@ if (!function_exists('metasync_sanitize_input_array')) {
 	}
 }
 
-/**
- * Include the Redirection class early (provides regex pattern utilities used across the plugin)
- */
-require_once plugin_dir_path( __FILE__ ) . 'redirections/class-metasync-redirection.php';
-
-/**
- * Centralized class loading function
- */
-function metasync_load_class($class_name) {
-    $class_map = [
-        'Metasync_Sync_History_Database' => 'sync-history/class-metasync-sync-history-database.php',
-        //'Metasync_Admin' => 'admin/class-metasync-admin.php',
-        //'Metasync_Public' => 'public/class-metasync-public.php',
-        //'Metasync_Activator' => 'includes/class-metasync-activator.php',
-        //'MetaSync_DBMigration' => 'database/class-db-migrations.php',
-        // Add more classes as needed
-    ];
-    
-    if (isset($class_map[$class_name])) {
-        $file_path = plugin_dir_path(__FILE__) . $class_map[$class_name];
-        if (file_exists($file_path)) {
-            require_once $file_path;
-        }
-    }
-}
-
-// Register the autoloader
-spl_autoload_register('metasync_load_class');
-
-/**
- * Include the Session Helper (must load before other classes that use it)
- * @deprecated 2.5.12 - Kept for backward compatibility only
- */
-require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-session-helper.php';
-
-/**
- * Include the Auth Manager (WordPress-native authentication without sessions)
- * @since 2.5.12
- */
-require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-auth-manager.php';
-
-/**
- * Include the Cache Purge Handler
- */
-require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-cache-purge.php';
-
-/**
- * Include the Edge Cache / CDN Purge Handler
- */
-require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-edge-cache-purge.php';
-
-/**
- * Include the API Backoff Manager
- * Handles exponential backoff for HTTP 429/503 responses
- * @since 2.7.1
- */
-require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-api-backoff-manager.php';
-
-/**
- * Include the API Backoff Admin Notices
- * Displays admin notices when API endpoints are in backoff mode
- * @since 2.7.1
- */
-require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-api-backoff-notices.php';
-
-/**
- * Include the API Backoff REST API
- * Provides REST endpoints for backoff management and monitoring
- * @since 2.7.1
- */
+// Phase 2 — these files have file-level side effects (add_action outside class body)
+// and must remain as explicit require_once until refactored.
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-api-backoff-rest.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-error-logger.php';
 
 /**
  * Include the Otto Pixel Php Code
  */
 require_once plugin_dir_path( __FILE__ ) . '/otto/otto_pixel.php';
 
-/**
- * Include the Otto Persistence Settings
- * Handles configuration for which OTTO data should be saved to native WordPress fields
- */
-require_once plugin_dir_path( __FILE__ ) . '/otto/class-metasync-otto-persistence-settings.php';
-
-/**
- * Include the Otto Persistence Handler
- * Handles actual persistence of OTTO data to native WordPress fields
- */
-require_once plugin_dir_path( __FILE__ ) . '/otto/class-metasync-otto-persistence-handler.php';
 
 /**
  * Initialize OTTO Persistence Settings (registers REST API endpoints)
@@ -266,8 +193,6 @@ function activate_metasync()
         );
     }
 
-	require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-activator.php';
-	require_once plugin_dir_path(__FILE__) . 'database/class-db-migrations.php';
 	Metasync_Activator::activate();
     // class name is changed at class-db-migrations.php
 	MetaSync_DBMigration::activation();
@@ -293,8 +218,6 @@ require_once plugin_dir_path(__FILE__) . 'telemetry/telemetry-init.php';
  */
 function deactivate_metasync()
 {
-	require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-deactivator.php';
-	require_once plugin_dir_path(__FILE__) . 'database/class-db-migrations.php';
 	Metasync_Deactivator::deactivate();
     // class name is changed at class-db-migrations.php
 	MetaSync_DBMigration::deactivation();
@@ -304,6 +227,11 @@ function deactivate_metasync()
 	if ($timestamp) {
 		wp_unschedule_event($timestamp, 'metasync_sync_log_daily_cleanup');
 	}
+
+	// Clear news/video sitemap caches
+	delete_transient('metasync_vsm_' . md5('news-sitemap.xml'));
+	delete_transient('metasync_vsm_' . md5('video-sitemap.xml'));
+	delete_option('metasync_sitemap_virtual_index');
 }
 
 register_activation_hook(__FILE__, 'activate_metasync');
@@ -323,9 +251,6 @@ function check_metasync_updates()
     
     // If versions don't match, run migration
     if (version_compare($current_version, $plugin_version, '<')) {
-        require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-activator.php';
-        require_once plugin_dir_path(__FILE__) . 'database/class-db-migrations.php';
-
         // Import whitelabel settings only if the JSON file is new or changed
         // (prevents overwriting admin UI changes on every version check)
         Metasync_Activator::check_whitelabel_settings_update();
@@ -430,7 +355,6 @@ function metasync_handle_plugin_upgrade($upgrader, $hook_extra)
         // Fallback: Check if whitelabel file exists in our plugin directory
         // This means our plugin was just installed/updated with whitelabel settings
         if (!$should_import) {
-            require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-activator.php';
             $whitelabel_file = Metasync_Activator::get_whitelabel_settings_file();
             if ($whitelabel_file !== false) {
                 $should_import = true;
@@ -439,7 +363,6 @@ function metasync_handle_plugin_upgrade($upgrader, $hook_extra)
     }
 
     if ($should_import) {
-        require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-activator.php';
         Metasync_Activator::check_whitelabel_settings_update();
     }
 }
@@ -469,27 +392,6 @@ add_action('upgrader_process_complete', 'metasync_handle_plugin_upgrade', 10, 2)
 // Check for whitelabel changes on admin pages (fallback for edge cases)
 // add_action('admin_init', 'metasync_check_whitelabel_on_admin', 1);
 
-/**
- * The core plugin class that is used to define internationalization,
- * admin-specific hooks, and public-facing site hooks.
- */
-require plugin_dir_path(__FILE__) . 'admin/class-metasync-admin.php';
-
-// Include OTTO Debug class for developers
-require plugin_dir_path(__FILE__) . 'admin/class-metasync-otto-debug.php';
-
-// Include OTTO MCP Integration class for direct MCP tool access
-require plugin_dir_path(__FILE__) . 'otto/class-metasync-otto-mcp-integration.php';
-
-// Include WordPress MCP Server for Model Context Protocol support
-require plugin_dir_path(__FILE__) . 'wp-mcp-server/class-metasync-mcp-server.php';
-
-// Include MCP Sync Logger (logs MCP write operations to Sync History)
-require plugin_dir_path(__FILE__) . 'wp-mcp-server/class-metasync-mcp-sync-logger.php';
-
-// Include Mixpanel Analytics Integration
-require plugin_dir_path(__FILE__) . 'includes/class-metasync-mixpanel.php';
-
 // Include Media Optimization Module
 require_once plugin_dir_path(__FILE__) . 'media-optimization/media-optimization-loader.php';
 
@@ -498,14 +400,6 @@ require_once plugin_dir_path(__FILE__) . 'code-minification/code-minification-lo
 
 // Include Zapier Connector
 require_once plugin_dir_path(__FILE__) . 'zapier/zapier-loader.php';
-
-try {
-	require plugin_dir_path(__FILE__) . 'includes/class-metasync.php';
-} catch (Exception $e) {
-
-    # Log into the default PHP error log and trigger error
-    error_log($e->getMessage());
-}
 
 function run_metasync()
 {
@@ -532,38 +426,7 @@ function metasync_init_mcp_server() {
 		new Metasync_MCP_Sync_Logger();
 
 		// SEO Inventory: shared builder + standalone REST endpoint (WP-135)
-		require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-seo-inventory-builder.php';
-		require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-rest-seo-inventory.php';
 		new Metasync_REST_SEO_Inventory();
-
-		// Load tool classes
-		$tool_path = plugin_dir_path(__FILE__) . 'wp-mcp-server/tools/';
-		require_once $tool_path . 'class-mcp-tool-post-meta.php';
-		require_once $tool_path . 'class-mcp-tool-posts.php';
-		require_once $tool_path . 'class-mcp-tool-seo-analysis.php';
-		require_once $tool_path . 'class-mcp-tool-search.php';
-		require_once $tool_path . 'class-mcp-tool-redirects.php';
-		require_once $tool_path . 'class-mcp-tool-404-monitor.php';
-		require_once $tool_path . 'class-mcp-tool-robots-sitemap.php';
-		require_once $tool_path . 'class-mcp-tool-plugin-settings.php';
-		require_once $tool_path . 'class-mcp-tool-schema-markup.php';
-		require_once $tool_path . 'class-mcp-tool-instant-index.php';
-		require_once $tool_path . 'class-mcp-tool-custom-pages.php';
-		require_once $tool_path . 'class-mcp-tool-html-converter.php';
-		require_once $tool_path . 'class-mcp-tool-code-snippets.php';
-		require_once $tool_path . 'class-mcp-tool-taxonomies.php';
-		require_once $tool_path . 'class-mcp-tool-taxonomy-meta.php';
-		require_once $tool_path . 'class-mcp-tool-media.php';
-		require_once $tool_path . 'class-mcp-tool-bulk-alt-text.php';
-		require_once $tool_path . 'class-mcp-tool-post-crud.php';
-		require_once $tool_path . 'class-mcp-tool-bulk-operations.php';
-		require_once $tool_path . 'class-mcp-tool-wordpress-settings.php';
-		require_once $tool_path . 'class-mcp-tool-otto-persistence.php';
-		require_once $tool_path . 'class-mcp-tool-system-info.php';
-		require_once $tool_path . 'class-mcp-tool-db-query.php';
-		require_once $tool_path . 'class-mcp-tool-seo-inventory.php';
-		require_once $tool_path . 'class-mcp-tool-breadcrumbs.php';
-		require_once $tool_path . 'class-mcp-tool-seo-health.php';
 	} catch (Exception $e) {
 		error_log('MCP Server Initialization Error: ' . $e->getMessage());
 		return;
@@ -581,10 +444,11 @@ function metasync_init_mcp_server() {
 	// Register MCP Tools (Total: 92 existing + 8 new = 100 tools total!)
 	// NEW in v2.8.0: +4 Taxonomy Meta tools, +4 Bulk Alt Text tools
 
-	// Post Meta Operations (3 tools)
+	// Post Meta Operations (4 tools)
 	$safe_register(new MCP_Tool_Update_Post_Meta());
 	$safe_register(new MCP_Tool_Get_Post_Meta());
 	$safe_register(new MCP_Tool_Get_SEO_Meta());
+	$safe_register(new MCP_Tool_Get_Hreflang_Links());
 
 	// Post Operations (4 tools)
 	$safe_register(new MCP_Tool_Get_Post());
@@ -616,7 +480,7 @@ function metasync_init_mcp_server() {
 	$safe_register(new MCP_Tool_Clear_404_Errors());
 	$safe_register(new MCP_Tool_Create_Redirect_From_404());
 
-	// Robots.txt & Sitemap Management (9 tools - 5 existing + 4 new)
+	// Robots.txt & Sitemap Management (11 tools - 7 existing + 4 new)
 	$safe_register(new MCP_Tool_Get_Robots_Txt());
 	$safe_register(new MCP_Tool_Update_Robots_Txt());
 	$safe_register(new MCP_Tool_Get_Sitemap_Status());
@@ -626,6 +490,8 @@ function metasync_init_mcp_server() {
 	$safe_register(new MCP_Tool_Remove_Robots_Rule());
 	$safe_register(new MCP_Tool_Parse_Robots_Txt());
 	$safe_register(new MCP_Tool_Validate_Robots_Txt());
+	$safe_register(new MCP_Tool_Get_News_Sitemap());
+	$safe_register(new MCP_Tool_Get_Video_Sitemap());
 
 	// Plugin Settings Management (4 tools)
 	$safe_register(new MCP_Tool_Get_Plugin_Settings());
@@ -737,6 +603,17 @@ function metasync_init_mcp_server() {
 		$safe_register(new MCP_Tool_Update_Otto_Persistence_Settings());
 	}
 
+	// OTTO Pipeline Tools (3 tools)
+	if (class_exists('MCP_Tool_Trigger_Otto_Optimization')) {
+		$safe_register(new MCP_Tool_Trigger_Otto_Optimization());
+	}
+	if (class_exists('MCP_Tool_Get_Otto_Status')) {
+		$safe_register(new MCP_Tool_Get_Otto_Status());
+	}
+	if (class_exists('MCP_Tool_Verify_SEO_Output')) {
+		$safe_register(new MCP_Tool_Verify_SEO_Output());
+	}
+
 	// System Diagnostics & Plugin Info (4 tools)
 	$safe_register(new MCP_Tool_System_Diagnostics());
 	$safe_register(new MCP_Tool_List_All_Plugins());
@@ -753,6 +630,25 @@ function metasync_init_mcp_server() {
 
 	// Breadcrumb Tools (1 tool)
 	$safe_register(new MCP_Tool_Get_Breadcrumb_Path());
+
+	// Cache Purge (2 tools)
+	$safe_register(new MCP_Tool_Cache_Purge_All());
+	$safe_register(new MCP_Tool_Cache_Purge_URL());
+
+	// LLMs.txt Tools (5 tools)
+	$safe_register(new MCP_Tool_Get_LLMs_Txt());
+	$safe_register(new MCP_Tool_Regenerate_LLMs_Txt());
+	$safe_register(new MCP_Tool_Get_LLMs_Txt_Settings());
+	$safe_register(new MCP_Tool_Update_LLMs_Txt_Settings());
+	$safe_register(new MCP_Tool_Get_Post_Markdown());
+
+	// SEO Plugin Audit (4 tools — WP-202)
+	$safe_register(new MCP_Tool_Read_SEO_Plugin_Data());
+	$safe_register(new MCP_Tool_SEO_Plugin_Diff());
+	if (class_exists('Metasync_Plugin_Sync')) {
+		$safe_register(new MCP_Tool_Sync_To_Active_Plugins());
+	}
+	$safe_register(new MCP_Tool_Detect_SEO_Conflicts());
 
 	// Allow other plugins/themes to register tools
 	do_action('metasync_mcp_register_tools', $metasync_mcp_server);
@@ -789,14 +685,14 @@ function metasync_output_dyo_init_flag() {
 add_action('wp_head', 'metasync_output_dyo_init_flag', 1);
 
 /**
- * Initialize Mixpanel Analytics for Admin Area
+ * Initialize GA4 Analytics for Admin Area
  * Hooked to admin_init for proper WordPress lifecycle integration
  * Only loads after WordPress, plugins, and themes are fully loaded
  */
 function metasync_init_analytics() {
 	// Only initialize in admin area (excludes AJAX and REST API requests)
 	if (is_admin() && !wp_doing_ajax() && !defined('REST_REQUEST')) {
-		Metasync_Mixpanel::get_instance();
+		Metasync_GA4::get_instance();
 	}
 }
 add_action('admin_init', 'metasync_init_analytics', 10);
@@ -844,15 +740,6 @@ if (!function_exists('metasync_get_jwt_token')) {
 	}
 }
 
-require plugin_dir_path(__FILE__) . 'MetaSyncDebug.php';
-
-/**
- * Include Debug Mode Manager
- * Handles automatic disable and safety limits for debug mode
- * UI integrated into Advanced Settings tab in class-metasync-admin.php
- * @since 2.5.15
- */
-require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-debug-mode-manager.php';
 
 /**
  * Initialize Debug Mode Manager
@@ -871,6 +758,5 @@ add_action('init', 'metasync_init_debug_mode_manager', 10);
  * Runs once on admin_init; skips entirely when Oxygen is inactive.
  */
 if (is_admin()) {
-	require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-oxygen-compat.php';
 	add_action('admin_init', ['Metasync_Oxygen_Compat', 'maybe_resign_shortcodes'], 20);
 }

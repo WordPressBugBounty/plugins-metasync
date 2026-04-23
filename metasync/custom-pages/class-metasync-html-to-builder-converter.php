@@ -46,6 +46,30 @@ class Metasync_HTML_To_Builder_Converter
 	}
 
 	/**
+	 * Whether the PHP dom extension (DOMDocument + DOMXPath) is available.
+	 *
+	 * Protected so tests can override it to force the "missing DOM" branch
+	 * without actually unloading the extension.
+	 *
+	 * @return bool
+	 */
+	protected function is_dom_available()
+	{
+		return class_exists('DOMDocument') && class_exists('DOMXPath');
+	}
+
+	/**
+	 * Log a single error_log line when the dom extension is missing.
+	 *
+	 * @param string $context Name of the method where the check fired.
+	 * @return void
+	 */
+	private function log_missing_dom($context)
+	{
+		error_log('[Metasync] PHP dom extension is not available; HTML-to-builder conversion skipped in ' . $context . '. Install/enable the php-dom extension to use this feature.');
+	}
+
+	/**
 	 * Main conversion entry point
 	 *
 	 * @param string $html HTML content to convert
@@ -79,6 +103,17 @@ class Metasync_HTML_To_Builder_Converter
 		if (empty($html) || !is_string($html)) {
 			return array(
 				'error' => 'Invalid HTML content provided',
+			);
+		}
+
+		// Bail out gracefully if the PHP dom extension is not installed on
+		// this server. Every conversion path below calls DOMDocument, so we
+		// short-circuit here and let callers (e.g. convert_legacy()) fall
+		// back to the raw post content instead of fatalling inside WP-Cron.
+		if (!$this->is_dom_available()) {
+			$this->log_missing_dom('convert');
+			return array(
+				'error' => 'PHP dom extension is not available on this server. HTML-to-builder conversion requires the DOMDocument class.',
 			);
 		}
 
@@ -214,6 +249,11 @@ class Metasync_HTML_To_Builder_Converter
 	 */
 	public function extract_css_styles($html)
 	{
+		if (!$this->is_dom_available()) {
+			$this->log_missing_dom('extract_css_styles');
+			return '';
+		}
+
 		// Create DOMDocument
 		$dom = new DOMDocument();
 		libxml_use_internal_errors(true);
@@ -247,6 +287,11 @@ class Metasync_HTML_To_Builder_Converter
 	 */
 	private function remove_style_tags($html)
 	{
+		if (!$this->is_dom_available()) {
+			$this->log_missing_dom('remove_style_tags');
+			return $html;
+		}
+
 		// Create DOMDocument
 		$dom = new DOMDocument();
 		libxml_use_internal_errors(true);
@@ -298,6 +343,11 @@ class Metasync_HTML_To_Builder_Converter
 	 */
 	public function extract_css_from_html($html)
 	{
+		if (!$this->is_dom_available()) {
+			$this->log_missing_dom('extract_css_from_html');
+			return $html;
+		}
+
 		// Create DOMDocument
 		$dom = new DOMDocument();
 		libxml_use_internal_errors(true);
@@ -898,6 +948,11 @@ class Metasync_HTML_To_Builder_Converter
 	 */
 	private function extract_header_footer($html)
 	{
+		if (!$this->is_dom_available()) {
+			$this->log_missing_dom('extract_header_footer');
+			return array('header' => null, 'footer' => null, 'body' => $html);
+		}
+
 		$dom = new DOMDocument();
 		libxml_use_internal_errors(true);
 
@@ -975,6 +1030,11 @@ class Metasync_HTML_To_Builder_Converter
 	 */
 	private function convert_to_elementor($html, $options)
 	{
+		if (!$this->is_dom_available()) {
+			$this->log_missing_dom('convert_to_elementor');
+			return array('content' => $html, 'meta_data' => array());
+		}
+
 		$dom = new DOMDocument();
 		libxml_use_internal_errors(true);
 
@@ -1285,6 +1345,11 @@ class Metasync_HTML_To_Builder_Converter
 	 */
 	private function convert_to_divi($html, $options)
 	{
+		if (!$this->is_dom_available()) {
+			$this->log_missing_dom('convert_to_divi');
+			return array('content' => $html, 'meta_data' => array());
+		}
+
 		$dom = new DOMDocument();
 		libxml_use_internal_errors(true);
 
@@ -1540,6 +1605,11 @@ class Metasync_HTML_To_Builder_Converter
 		$content = preg_replace('/^[\s\x{200B}-\x{200D}\x{FEFF}]+/u', '', $content);
 		$content = preg_replace('/[\s\x{200B}-\x{200D}\x{FEFF}]+$/u', '', $content);
 
+		if (!$this->is_dom_available()) {
+			$this->log_missing_dom('parse_html_to_gutenberg');
+			return array();
+		}
+
 		// Load HTML
 		$dom = null;
 		if (class_exists('Dom\HTMLDocument')) {
@@ -1722,14 +1792,59 @@ class Metasync_HTML_To_Builder_Converter
 		}
 		// Handle blockquotes
 		elseif ($node_name === 'blockquote') {
-			$node->setAttribute('class', 'wp-block-quote');
-			$quote_html = $node->ownerDocument->saveHTML($node);
+			// Gutenberg core/quote requires inner paragraph blocks
+			$inner_blocks = array();
+			$inner_html_parts = array('<blockquote class="wp-block-quote">');
+
+			// Collect text content from child nodes, splitting on <br><br> for paragraphs
+			$raw_html = '';
+			foreach ($node->childNodes as $child) {
+				$raw_html .= $node->ownerDocument->saveHTML($child);
+			}
+
+			// Split into paragraphs on double <br> (with optional whitespace)
+			$paragraphs = preg_split('/(<br\s*\/?\s*>[\s]*){2,}/i', $raw_html);
+			// Also split on single <br> that separates distinct content blocks,
+			// but keep single <br> within paragraphs. Only split on double breaks.
+			if (count($paragraphs) <= 1) {
+				// If no double breaks, try single <br> as paragraph separator
+				$paragraphs = preg_split('/<br\s*\/?\s*>/i', $raw_html);
+			}
+
+			foreach ($paragraphs as $para_text) {
+				$para_text = trim($para_text);
+				if (empty($para_text)) {
+					continue;
+				}
+
+				// Wrap in <p> if not already wrapped
+				if (stripos($para_text, '<p') !== 0) {
+					$para_text = '<p>' . $para_text . '</p>';
+				}
+
+				$inner_blocks[] = array(
+					'blockName' => 'core/paragraph',
+					'attrs' => array(),
+					'innerBlocks' => array(),
+					'innerHTML' => $para_text,
+					'innerContent' => array($para_text)
+				);
+				$inner_html_parts[] = null; // placeholder for inner block
+			}
+
+			$inner_html_parts[] = '</blockquote>';
+
+			// Build innerHTML with newlines between inner block positions
+			$quote_inner_html = '<blockquote class="wp-block-quote">'
+				. str_repeat("\n", count($inner_blocks))
+				. '</blockquote>';
+
 			return array(
 				'blockName' => 'core/quote',
 				'attrs' => array(),
-				'innerBlocks' => array(),
-				'innerHTML' => $quote_html,
-				'innerContent' => array($quote_html)
+				'innerBlocks' => $inner_blocks,
+				'innerHTML' => $quote_inner_html,
+				'innerContent' => $inner_html_parts
 			);
 		}
 

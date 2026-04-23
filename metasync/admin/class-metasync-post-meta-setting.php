@@ -29,6 +29,7 @@ class Metasync_Post_Meta_Settings
 		add_action('save_post', [$this, 'advance_robots_meta_box_save']);
 		add_action('save_post', [$this, 'redirection_meta_box_save']);
 		add_action('save_post', [$this, 'canonical_meta_box_save']);
+		add_action('save_post', [$this, 'video_sitemap_meta_box_save']);
 	}
 
 	public function add_post_meta_data()
@@ -56,6 +57,20 @@ class Metasync_Post_Meta_Settings
 
 		if (empty($general_settings['disable_canonical_metabox'])) {
 			add_meta_box('post-canonical-meta', "Canonical by $plugin_name", [$this, 'post_canonical_display'], ['page', 'post'], 'normal', 'default');
+		}
+
+		// Video Sitemap meta box — only if video sitemap is enabled
+		$video_settings = get_option('metasync_video_sitemap_settings', []);
+		if (!empty($video_settings['enabled'])) {
+			$video_post_types = !empty($video_settings['post_types']) ? (array) $video_settings['post_types'] : ['post', 'page'];
+			add_meta_box(
+				'metasync-video-sitemap-meta',
+				"Video Sitemap by $plugin_name",
+				[$this, 'video_sitemap_meta_box_display'],
+				$video_post_types,
+				'normal',
+				'default'
+			);
 		}
 	}
 
@@ -329,6 +344,103 @@ class Metasync_Post_Meta_Settings
 	public function show_top_admin_bar() {
 		if ( Metasync::current_user_has_plugin_access() ) {
 			show_admin_bar( true );
+		}
+	}
+
+	/**
+	 * Display the Video Sitemap meta box in post editor.
+	 */
+	public function video_sitemap_meta_box_display()
+	{
+		global $post;
+		$video_url       = get_post_meta($post->ID, '_metasync_video_url', true);
+		$video_thumbnail = get_post_meta($post->ID, '_metasync_video_thumbnail', true);
+		$video_title     = get_post_meta($post->ID, '_metasync_video_title', true);
+		$video_desc      = get_post_meta($post->ID, '_metasync_video_description', true);
+		$video_duration  = get_post_meta($post->ID, '_metasync_video_duration', true);
+
+		wp_nonce_field('metasync_video_sitemap_meta_nonce', 'metasync_video_sitemap_meta_nonce');
+		?>
+		<p style="color: #666; margin-bottom: 12px;">
+			<?php esc_html_e('Override auto-detected video data for this post. Leave fields empty to use auto-detection.', 'metasync'); ?>
+		</p>
+		<table class="form-table" style="margin: 0;">
+			<tr>
+				<th scope="row"><label for="metasync_video_url"><?php esc_html_e('Video URL', 'metasync'); ?></label></th>
+				<td><input type="url" id="metasync_video_url" name="metasync_video_url" value="<?php echo esc_attr($video_url); ?>" class="large-text" placeholder="https://www.youtube.com/watch?v=..." /></td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="metasync_video_thumbnail"><?php esc_html_e('Thumbnail URL', 'metasync'); ?></label></th>
+				<td><input type="url" id="metasync_video_thumbnail" name="metasync_video_thumbnail" value="<?php echo esc_attr($video_thumbnail); ?>" class="large-text" placeholder="https://img.youtube.com/vi/.../hqdefault.jpg" /></td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="metasync_video_title"><?php esc_html_e('Video Title', 'metasync'); ?></label></th>
+				<td><input type="text" id="metasync_video_title" name="metasync_video_title" value="<?php echo esc_attr($video_title); ?>" class="large-text" placeholder="<?php esc_attr_e('Defaults to post title', 'metasync'); ?>" /></td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="metasync_video_description"><?php esc_html_e('Video Description', 'metasync'); ?></label></th>
+				<td><textarea id="metasync_video_description" name="metasync_video_description" class="large-text" rows="3" placeholder="<?php esc_attr_e('Defaults to post excerpt', 'metasync'); ?>"><?php echo esc_textarea($video_desc); ?></textarea></td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="metasync_video_duration"><?php esc_html_e('Duration (seconds)', 'metasync'); ?></label></th>
+				<td><input type="number" id="metasync_video_duration" name="metasync_video_duration" value="<?php echo esc_attr($video_duration); ?>" class="small-text" min="0" step="1" placeholder="300" /></td>
+			</tr>
+		</table>
+		<?php
+	}
+
+	/**
+	 * Save the Video Sitemap meta box data.
+	 *
+	 * @param int $post_id The post ID.
+	 */
+	public function video_sitemap_meta_box_save($post_id)
+	{
+		if (!isset($_POST['metasync_video_sitemap_meta_nonce']) ||
+			!wp_verify_nonce($_POST['metasync_video_sitemap_meta_nonce'], 'metasync_video_sitemap_meta_nonce')) {
+			return;
+		}
+
+		if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+			return;
+		}
+
+		if (!current_user_can('edit_post', $post_id)) {
+			return;
+		}
+
+		$fields = [
+			'metasync_video_url'         => '_metasync_video_url',
+			'metasync_video_thumbnail'   => '_metasync_video_thumbnail',
+			'metasync_video_title'       => '_metasync_video_title',
+			'metasync_video_description' => '_metasync_video_description',
+			'metasync_video_duration'    => '_metasync_video_duration',
+		];
+
+		foreach ($fields as $form_key => $meta_key) {
+			if (!isset($_POST[$form_key])) {
+				continue;
+			}
+
+			$value = $_POST[$form_key];
+
+			// Sanitize per field type
+			if (in_array($meta_key, ['_metasync_video_url', '_metasync_video_thumbnail'], true)) {
+				$value = esc_url_raw($value);
+			} elseif ($meta_key === '_metasync_video_duration') {
+				$value = absint($value);
+				$value = $value > 0 ? $value : '';
+			} elseif ($meta_key === '_metasync_video_description') {
+				$value = sanitize_textarea_field($value);
+			} else {
+				$value = sanitize_text_field($value);
+			}
+
+			if (!empty($value)) {
+				update_post_meta($post_id, $meta_key, $value);
+			} else {
+				delete_post_meta($post_id, $meta_key);
+			}
 		}
 	}
 }

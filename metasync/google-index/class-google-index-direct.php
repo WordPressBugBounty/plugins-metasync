@@ -616,8 +616,23 @@ class Google_Index_Direct
     }
     
     /**
+     * Get saved service account JSON for display with private key redacted.
+     *
+     * @return string Pretty-printed JSON string or empty string if not configured
+     */
+    public function get_redacted_config_json()
+    {
+        $config = get_option(self::SERVICE_ACCOUNT_OPTION_KEY);
+        if (empty($config) || !is_array($config)) {
+            return '';
+        }
+        $config['private_key'] = '-----REDACTED-----';
+        return json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    }
+
+    /**
      * Get service account info (for debugging)
-     * 
+     *
      * @return array Service account details
      */
     public function get_service_account_info()

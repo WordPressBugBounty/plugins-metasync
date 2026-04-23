@@ -1489,6 +1489,44 @@ class Metasync_Admin_Navigation
         ?>
         <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo $theme; ?>">
 
+        <?php
+        // Inject whitelabel color palette overrides
+        $wl_settings = Metasync::get_whitelabel_settings();
+        $wl_palette  = isset($wl_settings['color_palette']) && is_array($wl_settings['color_palette']) ? $wl_settings['color_palette'] : array();
+        if (!empty($wl_palette)) {
+            echo '<style id="metasync-whitelabel-palette">';
+            foreach (array('dark', 'light') as $t) {
+                if (!empty($wl_palette[$t]) && is_array($wl_palette[$t])) {
+                    $selector = ($t === 'dark') ? ':root, [data-theme="dark"]' : '[data-theme="light"]';
+                    $vars = '';
+                    foreach ($wl_palette[$t] as $var_name => $color) {
+                        // Skip gradient partial keys — handled below
+                        if (strpos($var_name, 'gradient-') !== false) continue;
+                        if (preg_match('/^dashboard-[a-z-]+$/', $var_name) && preg_match('/^#[0-9a-fA-F]{3,8}$/', $color)) {
+                            $vars .= '--' . esc_attr($var_name) . ':' . esc_attr($color) . ';';
+                        }
+                    }
+                    // Build gradient overrides from paired from/to colors
+                    $gradient_pairs = array(
+                        'dashboard-gradient-primary' => array('dashboard-gradient-primary-from', 'dashboard-gradient-primary-to'),
+                        'dashboard-gradient-accent'  => array('dashboard-gradient-accent-from', 'dashboard-gradient-accent-to'),
+                    );
+                    foreach ($gradient_pairs as $grad_var => $pair) {
+                        $from = isset($wl_palette[$t][$pair[0]]) ? $wl_palette[$t][$pair[0]] : '';
+                        $to   = isset($wl_palette[$t][$pair[1]]) ? $wl_palette[$t][$pair[1]] : '';
+                        if ($from && $to && preg_match('/^#[0-9a-fA-F]{3,8}$/', $from) && preg_match('/^#[0-9a-fA-F]{3,8}$/', $to)) {
+                            $vars .= '--' . esc_attr($grad_var) . ':linear-gradient(135deg,' . esc_attr($from) . ' 0%,' . esc_attr($to) . ' 100%);';
+                        }
+                    }
+                    if ($vars) {
+                        echo $selector . '{' . $vars . '}';
+                    }
+                }
+            }
+            echo '</style>';
+        }
+        ?>
+
         <!-- Compact top header -->
         <div class="metasync-header-compact">
             <div style="display:flex;align-items:center;gap:10px;">

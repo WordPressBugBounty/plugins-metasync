@@ -372,7 +372,10 @@ Class Metasync_otto_html{
 
                 if ($type === 'title') {
                     $new_value = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-                    $result_html = preg_replace('/<title[^>]*>.*?<\/title>/is', '<title>' . $new_value . '</title>', $result_html, 1);
+                    $title_tag = '<title>' . $new_value . '</title>';
+                    $result_html = preg_replace_callback('/<title[^>]*>.*?<\/title>/is', function ($m) use ($title_tag) {
+                        return $title_tag;
+                    }, $result_html, 1);
                 } elseif ($type === 'meta') {
                     $name = $item['name'] ?? '';
                     $property = $item['property'] ?? '';
@@ -382,19 +385,27 @@ Class Metasync_otto_html{
                         $pattern = '/<meta\s+(?:name\s*=\s*["\']' . preg_quote($name, '/') . '["\']\s+content\s*=\s*["\'][^"\']*["\']|content\s*=\s*["\'][^"\']*["\']\s+name\s*=\s*["\']' . preg_quote($name, '/') . '["\'])\s*\/?>/i';
                         $replacement = '<meta name="' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '" content="' . $new_value . '">';
                         $count = 0;
-                        $result_html = preg_replace($pattern, $replacement, $result_html, -1, $count);
+                        $result_html = preg_replace_callback($pattern, function ($m) use ($replacement) {
+                            return $replacement;
+                        }, $result_html, -1, $count);
 
                         if ($count === 0) {
-                            $result_html = preg_replace('/(<head[^>]*>)/i', '$1' . "\n" . $replacement, $result_html, 1);
+                            $result_html = preg_replace_callback('/(<head[^>]*>)/i', function ($m) use ($replacement) {
+                                return $m[1] . "\n" . $replacement;
+                            }, $result_html, 1);
                         }
                     } elseif (!empty($property)) {
                         $pattern = '/<meta\s+property\s*=\s*["\']' . preg_quote($property, '/') . '["\']\s+content\s*=\s*["\'][^"\']*["\']\s*\/?>/i';
                         $replacement = '<meta property="' . htmlspecialchars($property, ENT_QUOTES, 'UTF-8') . '" content="' . $new_value . '">';
                         $count = 0;
-                        $result_html = preg_replace($pattern, $replacement, $result_html, -1, $count);
+                        $result_html = preg_replace_callback($pattern, function ($m) use ($replacement) {
+                            return $replacement;
+                        }, $result_html, -1, $count);
 
                         if ($count === 0) {
-                            $result_html = preg_replace('/(<head[^>]*>)/i', '$1' . "\n" . $replacement, $result_html, 1);
+                            $result_html = preg_replace_callback('/(<head[^>]*>)/i', function ($m) use ($replacement) {
+                                return $m[1] . "\n" . $replacement;
+                            }, $result_html, 1);
                         }
                     }
                 } elseif ($type === 'h1' || $type === 'heading') {
@@ -1781,10 +1792,14 @@ Class Metasync_otto_html{
                         # Replace title tag if present; otherwise insert (e.g. when Yoast was blocked and no <title> was output)
                         $new_value = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
                         $title_tag = '<title>' . $new_value . '</title>';
-                        $replaced = preg_replace('/<title[^>]*>.*?<\/title>/is', $title_tag, $result_html, 1);
+                        $replaced = preg_replace_callback('/<title[^>]*>.*?<\/title>/is', function ($m) use ($title_tag) {
+                            return $title_tag;
+                        }, $result_html, 1);
                         if ($replaced === $result_html && strpos($result_html, '<title') === false) {
                             # No <title> in document (common when Yoast is blocked) — insert after <head>
-                            $result_html = preg_replace('/(<head[^>]*>)/i', '$1' . "\n" . $title_tag, $result_html, 1);
+                            $result_html = preg_replace_callback('/(<head[^>]*>)/i', function ($m) use ($title_tag) {
+                                return $m[1] . "\n" . $title_tag;
+                            }, $result_html, 1);
                         } else {
                             $result_html = $replaced;
                         }
@@ -1831,17 +1846,23 @@ Class Metasync_otto_html{
 
                             # Now insert ONE new meta tag at the TOP of <head>
                             $replacement = '<meta name="' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '" content="' . $new_value . '" data-otto="true">';
-                            $result_html = preg_replace('/(<head[^>]*>)/i', '$1' . "\n" . $replacement, $result_html, 1);
+                            $result_html = preg_replace_callback('/(<head[^>]*>)/i', function ($m) use ($replacement) {
+                                return $m[1] . "\n" . $replacement;
+                            }, $result_html, 1);
                         } elseif (!empty($property)) {
                             # Replace meta property tag
                             $pattern = '/<meta\s+property\s*=\s*["\']' . preg_quote($property, '/') . '["\']\s+content\s*=\s*["\'][^"\']*["\']\s*\/?>/i';
                             $replacement = '<meta property="' . htmlspecialchars($property, ENT_QUOTES, 'UTF-8') . '" content="' . $new_value . '">';
 
                             if (preg_match($pattern, $result_html)) {
-                                $result_html = preg_replace($pattern, $replacement, $result_html, 1);
+                                $result_html = preg_replace_callback($pattern, function ($m) use ($replacement) {
+                                    return $replacement;
+                                }, $result_html, 1);
                             } else {
                                 # Meta tag doesn't exist, insert it in head
-                                $result_html = preg_replace('/(<head[^>]*>)/i', '$1' . "\n" . $replacement, $result_html, 1);
+                                $result_html = preg_replace_callback('/(<head[^>]*>)/i', function ($m) use ($replacement) {
+                                    return $m[1] . "\n" . $replacement;
+                                }, $result_html, 1);
                             }
                         }
                     } elseif ($type === 'h1' || $type === 'heading') {
