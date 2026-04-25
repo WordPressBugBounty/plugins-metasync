@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.6.3
+Stable tag: 2.6.4
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,17 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.4 =
+- Fix: LLMs.txt settings now correctly persisted on save
+  - Fix: Hidden diagnostic post no longer triggers Jetpack Social or RSS auto-share
+  - Fix: mb_encode_numericentity() fatal on hosts without mbstring extension replaced with pure-PHP fallback
+  - Fix: class-metasync-term-plugin-sync.php require_once guarded with file_exists to prevent fatal on Nexcess hosting
+  - Fix: wp_tempnam() undefined fatal in Dimension Injector when called outside wp-admin context
+  - Fix: WpeCommon::purge_url() undefined fatal in cache purge on WP Engine now guarded with method_exists
+  - Fix: MCP_Tool_Cache_Purge_All class not found fatal guarded with class_exists check
+  - Fix: Google Index require_once calls guarded with file_exists to prevent fatal when files are missing
+  - Fix: PHP 8.1 add_submenu_page(null) deprecation fixed in import page and HTML visual editor
+
 = 2.6.3 =
 - Feature: BreadcrumbList schema auto-generated from post hierarchy with cross-plugin deduplication for Yoast, Rank Math, and AIOSEO
   - Feature: Hreflang language alternates support with WPML integration for multilingual sites

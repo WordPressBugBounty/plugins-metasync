@@ -2780,6 +2780,13 @@ class Metasync_Settings_Registration
             Metasync_Edge_Cache_Settings::save_from_post();
         }
 
+        if ($general_tab_submitted && isset($_POST['metasync_llms_txt_settings'])) {
+            $llms_input = wp_unslash($_POST['metasync_llms_txt_settings']);
+            if (is_array($llms_input)) {
+                update_option('metasync_llms_txt_settings', $this->sanitize_llms_txt_settings($llms_input));
+            }
+        }
+
         wp_send_json_success(array(
             'message' => 'Settings saved successfully!',
             'redirect_url' => $redirect_url

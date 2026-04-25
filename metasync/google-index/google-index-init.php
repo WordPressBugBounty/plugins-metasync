@@ -28,11 +28,20 @@ define('GOOGLE_INDEX_DIRECT_URL', plugin_dir_url(__FILE__));
 function google_index_direct_init()
 {
     // Load the main class
-    require_once GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-direct.php';
+    if (file_exists(GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-direct.php')) {
+        require_once GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-direct.php';
+    } else {
+        error_log('MetaSync Google Index: class-google-index-direct.php not found at ' . GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-direct.php');
+        return;
+    }
 
     // Load admin interface if in admin area
     if (is_admin()) {
-        require_once GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-admin.php';
+        if (file_exists(GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-admin.php')) {
+            require_once GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-admin.php';
+        } else {
+            error_log('MetaSync Google Index: class-google-index-admin.php not found at ' . GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-admin.php');
+        }
     }
 }
 
@@ -41,14 +50,18 @@ function google_index_direct_init()
  * 
  * @return Google_Index_Direct
  */
-function google_index_direct() 
+function google_index_direct()
 {
     static $instance = null;
-    
+
     if ($instance === null) {
+        if (!class_exists('Google_Index_Direct')) {
+            error_log('MetaSync Google Index: Google_Index_Direct class not available.');
+            return null;
+        }
         $instance = new Google_Index_Direct();
     }
-    
+
     return $instance;
 }
 

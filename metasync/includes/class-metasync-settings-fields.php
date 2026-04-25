@@ -356,7 +356,12 @@ class Metasync_Settings_Fields {
 
     public function render_google_index_section() {
         if (!function_exists('google_index_direct')) {
-            require_once plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php';
+            if (file_exists(plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php')) {
+                require_once plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php';
+            } else {
+                error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php');
+                return;
+            }
         }
 
         $google_index = google_index_direct();

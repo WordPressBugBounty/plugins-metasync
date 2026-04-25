@@ -454,9 +454,20 @@ class Metasync_Cache_Purge
             }
         }
 
-        // WP Engine - Skipped for per-URL purge. WpeCommon has no per-URL method;
-        // purge_varnish_cache() is full-site and would nuke the entire cache on every
-        // OTTO URL in the batch. warm_urls() re-populates each affected URL instead.
+        // WP Engine - Purge specific URL (hosting-level cache, no plugin check needed)
+        if (class_exists('WpeCommon') && $url) {
+            try {
+                if (method_exists('WpeCommon', 'purge_url')) {
+                    WpeCommon::purge_url($url);
+                    $success = true;
+                } elseif (method_exists('WpeCommon', 'purge_varnish_cache_for_url')) {
+                    WpeCommon::purge_varnish_cache_for_url($url);
+                    $success = true;
+                }
+            } catch (\Throwable $e) {
+                error_log('MetaSync: WP Engine per-URL purge failed - ' . $e->getMessage());
+            }
+        }
 
         return $success;
     }

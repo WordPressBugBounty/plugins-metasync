@@ -155,14 +155,28 @@ class MetaSyncHiddenPostManager
         $content = new Metasync_Rest_Api($plugin_name,$version);
         $builderData = $content->metasync_upload_post_content($prepare_content);
 
-        # Insert a new private post
+        # Insert as draft so wp_insert_post does not fire transition_post_status
+        # with 'publish'. Jetpack Social, Zapier, RSS, and similar auto-share
+        # plugins listen to that hook and would broadcast this internal test post.
         $post_id = wp_insert_post([
-            'post_title'   => $this->post_title, # Insert poost title
-            'post_content' => $builderData['content'] ?  $builderData['content'] : $prepare_content, # Insert post content
-            'post_status'  => 'publish', # Make the post available
-            'post_type'    => 'post', # Default post type before hiding it
+            'post_title'   => $this->post_title,
+            'post_content' => $builderData['content'] ?  $builderData['content'] : $prepare_content,
+            'post_status'  => 'draft',
+            'post_type'    => 'post',
         ]);
 
+        if (is_wp_error($post_id)) {
+            return false;
+        }
+
+        # Flip to publish via direct DB write — bypasses transition_post_status
+        global $wpdb;
+        $wpdb->update(
+            $wpdb->posts,
+            ['post_status' => 'publish'],
+            ['ID' => $post_id]
+        );
+        clean_post_cache($post_id);
 
         $post_meta = array();
 
@@ -183,10 +197,6 @@ class MetaSyncHiddenPostManager
             
         }
 			
-        if (is_wp_error($post_id)) {
-            return false; # Return false if post creation fails
-        }
-
         # check if the feature image is empty
         if (!empty($this->image_url)) {
 
@@ -218,13 +228,17 @@ class MetaSyncHiddenPostManager
      */
     private function check_and_fix_page_content($post_id)
     {
-
-        # Update the Post type to page to check the template
-        wp_update_post([
-            'ID'        => $post_id,
-            'post_type' => 'page',
-            'post_status'  => 'publish', # Making Sure Page is Published 
-        ]);
+        # Switch to page type via direct DB write — bypasses transition_post_status
+        global $wpdb;
+        $wpdb->update(
+            $wpdb->posts,
+            [
+                'post_type'   => 'page',
+                'post_status' => 'publish',
+            ],
+            ['ID' => $post_id]
+        );
+        clean_post_cache($post_id);
     
         # Update Post meta for Divi
         $existing_meta = get_post_meta($post_id, '_et_pb_built_for_post_type', true);
@@ -386,17 +400,17 @@ class MetaSyncHiddenPostManager
     {
         global $wpdb;
 
+        # Single direct DB write for both type + status — bypasses
+        # transition_post_status so auto-share plugins never see this post
         $wpdb->update(
             $wpdb->posts,
-            ['post_type' => 'post'], # Change post type to show it
+            [
+                'post_type'   => 'post',
+                'post_status' => 'publish',
+            ],
             ['ID' => $post_id]
         );
-
-        # Publish the post to Access  
-        wp_update_post([
-            'ID'          => $post_id,
-            'post_status' => 'publish',
-        ]);
+        clean_post_cache($post_id);
     }
     /**
      * Change post type to a non-existent type to hide it from admin
@@ -405,18 +419,17 @@ class MetaSyncHiddenPostManager
     {
         global $wpdb;
 
-        # Update post to draft 
-        wp_update_post([
-            'ID'          => $post_id,
-            'post_status' => 'draft',
-        ]);
-        
+        # Single direct DB write — bypasses transition_post_status on the
+        # publish→draft transition (some plugins hook that direction too)
         $wpdb->update(
             $wpdb->posts,
-            ['post_type' => 'metasync_post_type'], # Change post type to hide it
+            [
+                'post_status' => 'draft',
+                'post_type'   => 'metasync_post_type',
+            ],
             ['ID' => $post_id]
         );
-        
+        clean_post_cache($post_id);
     }
 
     /**

@@ -822,6 +822,547 @@
         return el('div', null, children);
     };
 
+    // =========================================================================
+    // Schema Content Panel Components
+    // =========================================================================
+
+    const schemaConfig = config.schemaContent || {};
+    const schemaI18n = schemaConfig.i18n || {};
+
+    /**
+     * FAQ Panel - manages Q&A items
+     */
+    const FAQPanel = ({ fields, onChange }) => {
+        const items = (fields && fields.faq_items) || [];
+
+        const updateItem = (index, key, value) => {
+            const next = items.slice();
+            next[index] = Object.assign({}, next[index], { [key]: value });
+            onChange(Object.assign({}, fields, { faq_items: next }));
+        };
+
+        const addItem = () => {
+            const next = items.slice();
+            next.push({ question: '', answer: '' });
+            onChange(Object.assign({}, fields, { faq_items: next }));
+        };
+
+        const removeItem = (index) => {
+            const next = items.slice();
+            next.splice(index, 1);
+            onChange(Object.assign({}, fields, { faq_items: next }));
+        };
+
+        return el('div', { className: 'metasync-schema-faq-panel' },
+            items.map((item, i) =>
+                el('div', { key: 'faq-' + i, className: 'metasync-schema-repeater-row', style: { marginBottom: '12px', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' } },
+                    el(TextControl, {
+                        label: __('Question', 'metasync') + ' ' + (i + 1),
+                        value: item.question || '',
+                        onChange: (v) => updateItem(i, 'question', v),
+                    }),
+                    el(TextareaControl, {
+                        label: __('Answer', 'metasync'),
+                        value: item.answer || '',
+                        onChange: (v) => updateItem(i, 'answer', v),
+                        rows: 3,
+                    }),
+                    el(Button, {
+                        isDestructive: true,
+                        isSmall: true,
+                        isLink: true,
+                        onClick: () => removeItem(i),
+                    }, schemaI18n.removeQuestion || 'Remove')
+                )
+            ),
+            el(Button, {
+                isSecondary: true,
+                isSmall: true,
+                onClick: addItem,
+            }, schemaI18n.addQuestion || 'Add Question')
+        );
+    };
+
+    /**
+     * HowTo Panel - manages steps list
+     */
+    const HowToPanel = ({ fields, onChange }) => {
+        const steps = (fields && fields.steps) || [];
+
+        const updateStep = (index, key, value) => {
+            const next = steps.slice();
+            next[index] = Object.assign({}, next[index], { [key]: value });
+            onChange(Object.assign({}, fields, { steps: next }));
+        };
+
+        const addStep = () => {
+            const next = steps.slice();
+            next.push({ instructions: '', image: '' });
+            onChange(Object.assign({}, fields, { steps: next }));
+        };
+
+        const removeStep = (index) => {
+            const next = steps.slice();
+            next.splice(index, 1);
+            onChange(Object.assign({}, fields, { steps: next }));
+        };
+
+        return el('div', { className: 'metasync-schema-howto-panel' },
+            el(TextControl, {
+                label: __('Total Time (minutes)', 'metasync'),
+                value: (fields && fields.total_time) || '',
+                onChange: (v) => onChange(Object.assign({}, fields, { total_time: v })),
+                type: 'number',
+            }),
+            steps.map((step, i) =>
+                el('div', { key: 'step-' + i, className: 'metasync-schema-repeater-row', style: { marginBottom: '12px', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' } },
+                    el(TextareaControl, {
+                        label: __('Step', 'metasync') + ' ' + (i + 1) + ' — ' + __('Instructions', 'metasync'),
+                        value: step.instructions || '',
+                        onChange: (v) => updateStep(i, 'instructions', v),
+                        rows: 2,
+                    }),
+                    el(TextControl, {
+                        label: __('Image URL (optional)', 'metasync'),
+                        value: step.image || '',
+                        onChange: (v) => updateStep(i, 'image', v),
+                    }),
+                    el(Button, {
+                        isDestructive: true,
+                        isSmall: true,
+                        isLink: true,
+                        onClick: () => removeStep(i),
+                    }, schemaI18n.removeStep || 'Remove')
+                )
+            ),
+            el(Button, {
+                isSecondary: true,
+                isSmall: true,
+                onClick: addStep,
+            }, schemaI18n.addStep || 'Add Step')
+        );
+    };
+
+    /**
+     * Product Panel - price, currency, availability, condition, SKU, brand
+     */
+    const ProductPanel = ({ fields, onChange, woocommerceActive, woocommerceData }) => {
+        const f = fields || {};
+
+        const update = (key, value) => {
+            onChange(Object.assign({}, f, { [key]: value }));
+        };
+
+        const autoPopulateWC = () => {
+            if (woocommerceData) {
+                onChange(Object.assign({}, f, {
+                    price: woocommerceData.price || f.price || '',
+                    currency: woocommerceData.currency || f.currency || 'USD',
+                    availability: woocommerceData.availability || f.availability || 'InStock',
+                    sku: woocommerceData.sku || f.sku || '',
+                }));
+            }
+        };
+
+        return el('div', { className: 'metasync-schema-product-panel' },
+            woocommerceActive && woocommerceData && el(Button, {
+                isSecondary: true,
+                isSmall: true,
+                onClick: autoPopulateWC,
+                style: { marginBottom: '12px' },
+            }, schemaI18n.autoPopulateWC || 'Auto-populate from WooCommerce'),
+            el(TextControl, {
+                label: __('Price', 'metasync'),
+                value: f.price || '',
+                onChange: (v) => update('price', v),
+                type: 'number',
+            }),
+            el(SelectControl, {
+                label: __('Currency', 'metasync'),
+                value: f.currency || 'USD',
+                options: [
+                    { label: 'USD', value: 'USD' },
+                    { label: 'EUR', value: 'EUR' },
+                    { label: 'GBP', value: 'GBP' },
+                    { label: 'CAD', value: 'CAD' },
+                    { label: 'AUD', value: 'AUD' },
+                ],
+                onChange: (v) => update('currency', v),
+            }),
+            el(SelectControl, {
+                label: __('Availability', 'metasync'),
+                value: f.availability || 'InStock',
+                options: [
+                    { label: 'In Stock', value: 'InStock' },
+                    { label: 'Out of Stock', value: 'OutOfStock' },
+                    { label: 'Pre-Order', value: 'PreOrder' },
+                ],
+                onChange: (v) => update('availability', v),
+            }),
+            el(SelectControl, {
+                label: __('Condition', 'metasync'),
+                value: f.condition || 'NewCondition',
+                options: [
+                    { label: 'New', value: 'NewCondition' },
+                    { label: 'Used', value: 'UsedCondition' },
+                    { label: 'Refurbished', value: 'RefurbishedCondition' },
+                ],
+                onChange: (v) => update('condition', v),
+            }),
+            el(TextControl, {
+                label: __('SKU', 'metasync'),
+                value: f.sku || '',
+                onChange: (v) => update('sku', v),
+            }),
+            el(TextControl, {
+                label: __('Brand', 'metasync'),
+                value: f.brand || '',
+                onChange: (v) => update('brand', v),
+            })
+        );
+    };
+
+    /**
+     * Recipe Panel - yield, times, calories, ingredients, instructions
+     */
+    const RecipePanel = ({ fields, onChange }) => {
+        const f = fields || {};
+        const ingredients = f.ingredients || [];
+        const instructions = f.instructions || [];
+
+        const update = (key, value) => {
+            onChange(Object.assign({}, f, { [key]: value }));
+        };
+
+        const updateIngredient = (index, value) => {
+            const next = ingredients.slice();
+            next[index] = value;
+            update('ingredients', next);
+        };
+
+        const addIngredient = () => {
+            const next = ingredients.slice();
+            next.push('');
+            update('ingredients', next);
+        };
+
+        const removeIngredient = (index) => {
+            const next = ingredients.slice();
+            next.splice(index, 1);
+            update('ingredients', next);
+        };
+
+        const updateInstruction = (index, value) => {
+            const next = instructions.slice();
+            next[index] = { text: value };
+            update('instructions', next);
+        };
+
+        const addInstruction = () => {
+            const next = instructions.slice();
+            next.push({ text: '' });
+            update('instructions', next);
+        };
+
+        const removeInstruction = (index) => {
+            const next = instructions.slice();
+            next.splice(index, 1);
+            update('instructions', next);
+        };
+
+        return el('div', { className: 'metasync-schema-recipe-panel' },
+            el(TextControl, {
+                label: __('Yield (servings)', 'metasync'),
+                value: f.yield || '',
+                onChange: (v) => update('yield', v),
+            }),
+            el(TextControl, {
+                label: __('Prep Time (minutes)', 'metasync'),
+                value: f.prep_time || '',
+                onChange: (v) => update('prep_time', v),
+                type: 'number',
+            }),
+            el(TextControl, {
+                label: __('Cook Time (minutes)', 'metasync'),
+                value: f.cook_time || '',
+                onChange: (v) => update('cook_time', v),
+                type: 'number',
+            }),
+            el(TextControl, {
+                label: __('Total Time (minutes)', 'metasync'),
+                value: f.total_time || '',
+                onChange: (v) => update('total_time', v),
+                type: 'number',
+            }),
+            el(TextControl, {
+                label: __('Calories', 'metasync'),
+                value: f.calories || '',
+                onChange: (v) => update('calories', v),
+                type: 'number',
+            }),
+            el('h4', { style: { marginTop: '12px', marginBottom: '4px' } }, __('Ingredients', 'metasync')),
+            ingredients.map((ing, i) =>
+                el('div', { key: 'ing-' + i, style: { display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' } },
+                    el(TextControl, {
+                        value: typeof ing === 'string' ? ing : (ing || ''),
+                        onChange: (v) => updateIngredient(i, v),
+                        placeholder: __('Ingredient', 'metasync'),
+                        style: { flex: 1 },
+                    }),
+                    el(Button, {
+                        isDestructive: true,
+                        isSmall: true,
+                        isLink: true,
+                        onClick: () => removeIngredient(i),
+                    }, schemaI18n.removeIngredient || 'Remove')
+                )
+            ),
+            el(Button, {
+                isSecondary: true,
+                isSmall: true,
+                onClick: addIngredient,
+                style: { marginBottom: '12px' },
+            }, schemaI18n.addIngredient || 'Add Ingredient'),
+            el('h4', { style: { marginTop: '12px', marginBottom: '4px' } }, __('Instructions', 'metasync')),
+            instructions.map((inst, i) => {
+                var instText = typeof inst === 'string' ? inst : ((inst && inst.text) || '');
+                return el('div', { key: 'inst-' + i, style: { display: 'flex', alignItems: 'flex-start', gap: '4px', marginBottom: '4px' } },
+                    el(TextareaControl, {
+                        value: instText,
+                        onChange: (v) => updateInstruction(i, v),
+                        placeholder: __('Step', 'metasync') + ' ' + (i + 1),
+                        rows: 2,
+                        style: { flex: 1 },
+                    }),
+                    el(Button, {
+                        isDestructive: true,
+                        isSmall: true,
+                        isLink: true,
+                        onClick: () => removeInstruction(i),
+                    }, schemaI18n.removeInstruction || 'Remove')
+                );
+            }),
+            el(Button, {
+                isSecondary: true,
+                isSmall: true,
+                onClick: addInstruction,
+            }, schemaI18n.addInstruction || 'Add Instruction')
+        );
+    };
+
+    /**
+     * Schema Content Panel
+     * Main panel that fetches schema data and renders type-specific sub-panels
+     */
+    const SchemaContentPanel = () => {
+        const [schemaData, setSchemaData] = useState(null);
+        const [isLoading, setIsLoading] = useState(false);
+        const [isSavingSchema, setIsSavingSchema] = useState(false);
+        const [saveNotice, setSaveNotice] = useState(null);
+        const [validationWarnings, setValidationWarnings] = useState([]);
+        const [pendingChanges, setPendingChanges] = useState({});
+        // Only true after the user has actually edited a field; prevents firing
+        // extra REST calls on every post save when nothing has changed.
+        const [isDirty, setIsDirty] = useState(false);
+
+        const postId = useSelect((select) => {
+            return select('core/editor').getCurrentPostId();
+        }, []);
+
+        const isSavingPost = useSelect((select) => {
+            return select('core/editor').isSavingPost();
+        }, []);
+
+        const restUrl = schemaConfig.restUrl || '';
+
+        // Fetch schema content on mount
+        useEffect(() => {
+            if (!postId || !restUrl) return;
+            setIsLoading(true);
+            apiFetch({
+                url: restUrl + '/' + postId,
+            }).then((response) => {
+                setSchemaData(response);
+                // Initialize pending changes from fetched data
+                var initial = {};
+                if (response && response.types) {
+                    response.types.forEach(function(t) {
+                        initial[t.type] = t.fields || {};
+                    });
+                }
+                setPendingChanges(initial);
+                setIsLoading(false);
+            }).catch(() => {
+                setIsLoading(false);
+            });
+        }, [postId]);
+
+        // Save schema content — serialises requests to avoid lost-update race condition
+        const saveSchemaContent = useCallback(() => {
+            if (!postId || !restUrl) return;
+            var types = Object.keys(pendingChanges);
+            if (types.length === 0) return;
+
+            setIsSavingSchema(true);
+            setSaveNotice(null);
+            setValidationWarnings([]);
+
+            var allWarnings = [];
+            // Chain requests sequentially so each POST reads the latest DB state
+            var chain = types.reduce(function(promise, schemaType) {
+                return promise.then(function() {
+                    return apiFetch({
+                        url: restUrl + '/' + postId,
+                        method: 'POST',
+                        data: {
+                            schema_type: schemaType,
+                            fields: pendingChanges[schemaType],
+                        },
+                    }).then(function(resp) {
+                        if (resp.validation_warnings && resp.validation_warnings.length > 0) {
+                            allWarnings = allWarnings.concat(resp.validation_warnings);
+                        }
+                    });
+                });
+            }, Promise.resolve());
+
+            chain.then(function() {
+                setIsSavingSchema(false);
+                setIsDirty(false);
+                setValidationWarnings(allWarnings);
+                setSaveNotice({ type: 'success', message: schemaI18n.saved || 'Schema content saved.' });
+                setTimeout(function() { setSaveNotice(null); }, 4000);
+            }).catch(function() {
+                setIsSavingSchema(false);
+                setSaveNotice({ type: 'error', message: schemaI18n.saveError || 'Failed to save schema content.' });
+                setTimeout(function() { setSaveNotice(null); }, 4000);
+            });
+        }, [postId, restUrl, pendingChanges]);
+
+        // Auto-save on post save — only when the user has edited schema fields
+        const [wasSaving, setWasSaving] = useState(false);
+        useEffect(() => {
+            if (isSavingPost && !wasSaving) {
+                setWasSaving(true);
+            }
+            if (!isSavingPost && wasSaving) {
+                setWasSaving(false);
+                if (isDirty) {
+                    saveSchemaContent();
+                }
+            }
+        }, [isSavingPost, wasSaving, isDirty, saveSchemaContent]);
+
+        const updateTypeFields = (schemaType, newFields) => {
+            setIsDirty(true);
+            setPendingChanges(function(prev) {
+                var next = Object.assign({}, prev);
+                next[schemaType] = newFields;
+                return next;
+            });
+        };
+
+        // Build panel content
+        var children = [];
+
+        if (isLoading) {
+            children.push(el(Spinner, { key: 'loading' }));
+        } else if (!schemaData || !schemaData.types || schemaData.types.length === 0) {
+            children.push(
+                el('p', { key: 'no-types', style: { color: '#757575', fontStyle: 'italic' } },
+                    schemaI18n.noSchemaTypes || 'No schema types configured.'
+                )
+            );
+        } else {
+            schemaData.types.forEach(function(typeData) {
+                var schemaType = typeData.type;
+                var currentFields = pendingChanges[schemaType] || typeData.fields || {};
+                var onChangeFields = function(newFields) {
+                    updateTypeFields(schemaType, newFields);
+                };
+
+                var subPanel = null;
+                switch (schemaType) {
+                    case 'FAQPage':
+                        subPanel = el(FAQPanel, { key: 'faq', fields: currentFields, onChange: onChangeFields });
+                        break;
+                    case 'HowTo':
+                        subPanel = el(HowToPanel, { key: 'howto', fields: currentFields, onChange: onChangeFields });
+                        break;
+                    case 'product':
+                        subPanel = el(ProductPanel, {
+                            key: 'product',
+                            fields: currentFields,
+                            onChange: onChangeFields,
+                            woocommerceActive: schemaConfig.woocommerceActive || false,
+                            woocommerceData: schemaConfig.woocommerceData || null,
+                        });
+                        break;
+                    case 'recipe':
+                        subPanel = el(RecipePanel, { key: 'recipe', fields: currentFields, onChange: onChangeFields });
+                        break;
+                    default:
+                        subPanel = el('p', { key: 'unsupported-' + schemaType, style: { color: '#757575' } },
+                            __('Content editing for', 'metasync') + ' ' + schemaType + ' ' + __('is available in the classic editor.', 'metasync')
+                        );
+                        break;
+                }
+
+                children.push(
+                    el(PanelBody, {
+                        key: 'schema-type-' + schemaType,
+                        title: schemaType,
+                        initialOpen: true,
+                    }, subPanel)
+                );
+            });
+
+            // Validation warnings
+            if (validationWarnings.length > 0) {
+                children.push(
+                    el(Notice, {
+                        key: 'validation-warnings',
+                        status: 'warning',
+                        isDismissible: false,
+                        style: { marginTop: '8px' },
+                    },
+                        el('ul', { style: { margin: 0, paddingLeft: '16px' } },
+                            validationWarnings.map(function(w, i) {
+                                var msg = (typeof w === 'string') ? w : (w.message || w.error || JSON.stringify(w));
+                                return el('li', { key: 'warn-' + i }, msg);
+                            })
+                        )
+                    )
+                );
+            }
+
+            // Save notice
+            if (saveNotice) {
+                children.push(
+                    el(Notice, {
+                        key: 'save-notice',
+                        status: saveNotice.type === 'success' ? 'success' : 'error',
+                        isDismissible: false,
+                        style: { marginTop: '8px' },
+                    }, saveNotice.message)
+                );
+            }
+
+            // Save button
+            children.push(
+                el(Button, {
+                    key: 'save-btn',
+                    isPrimary: true,
+                    onClick: saveSchemaContent,
+                    disabled: isSavingSchema,
+                    style: { marginTop: '12px' },
+                }, isSavingSchema ? (schemaI18n.saving || 'Saving...') : (schemaI18n.saveButton || 'Save Schema Content'))
+            );
+        }
+
+        return el('div', { className: 'metasync-schema-content-panel' }, children);
+    };
+
     /**
      * MetaSync SEO Sidebar Icon
      * Uses external SVG from admin/images/icon-256x256.svg
@@ -1126,6 +1667,12 @@
                     initialOpen: true,
                 },
                     el(SerpPreview, null)
+                ),
+                el(PanelBody, {
+                    title: schemaI18n.panelTitle || 'Schema Markup Content',
+                    initialOpen: false,
+                },
+                    el(SchemaContentPanel, null)
                 ),
                 el(PanelBody, {
                     title: config.i18n.languageAlternatesTitle || 'Language Alternates',

@@ -94,7 +94,12 @@ class Google_Index_Admin
     {
         // Load Google Index functionality
         if (!function_exists('google_index_direct')) {
-            require_once plugin_dir_path(__FILE__) . 'google-index-init.php';
+            if (file_exists(plugin_dir_path(__FILE__) . 'google-index-init.php')) {
+                require_once plugin_dir_path(__FILE__) . 'google-index-init.php';
+            } else {
+                error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(__FILE__) . 'google-index-init.php');
+                return;
+            }
         }
         
         // Get current service account info (safe - doesn't expose private key)
@@ -123,7 +128,12 @@ class Google_Index_Admin
         
         // Load Google Index functionality
         if (!function_exists('google_index_save_service_account')) {
-            require_once plugin_dir_path(__FILE__) . 'google-index-init.php';
+            if (file_exists(plugin_dir_path(__FILE__) . 'google-index-init.php')) {
+                require_once plugin_dir_path(__FILE__) . 'google-index-init.php';
+            } else {
+                error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(__FILE__) . 'google-index-init.php');
+                return;
+            }
         }
         
         $service_account_json = '';
@@ -277,7 +287,12 @@ class Google_Index_Admin
         
         // Load Google Index functionality
         if (!function_exists('google_index_direct')) {
-            require_once plugin_dir_path(__FILE__) . 'google-index-init.php';
+            if (file_exists(plugin_dir_path(__FILE__) . 'google-index-init.php')) {
+                require_once plugin_dir_path(__FILE__) . 'google-index-init.php';
+            } else {
+                error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(__FILE__) . 'google-index-init.php');
+                return;
+            }
         }
         
         try {

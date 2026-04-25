@@ -1313,7 +1313,7 @@ class Metasync_Admin
 
         // Use 'read' capability since actual access is controlled by current_user_has_plugin_access() check above
         add_submenu_page(
-            null, // Hidden from menu, linked from other pages
+            '', // Hidden from menu, linked from other pages
             'Import External Data',
             'Import External Data',
             'read',
@@ -2968,7 +2968,12 @@ class Metasync_Admin
 
         // Render shared Google Index credentials section
         if (!function_exists('google_index_direct')) {
-            require_once plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php';
+            if (file_exists(plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php')) {
+                require_once plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php';
+            } else {
+                error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php');
+                return;
+            }
         }
         $google_index = google_index_direct();
         $service_info = $google_index->get_service_account_info();

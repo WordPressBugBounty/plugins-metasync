@@ -204,9 +204,6 @@ class MetaSync_DBMigration
 			$robots_db->create_table();
 		}
 
-		// Create Zapier Subscriptions Table
-		require_once dirname(__FILE__, 2) . '/zapier/class-metasync-zapier-database.php';
-		Metasync_Zapier_Database::create_table();
 	}
 
 	/**

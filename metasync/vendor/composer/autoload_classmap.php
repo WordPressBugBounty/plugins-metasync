@@ -270,10 +270,7 @@ return array(
     'Metasync_Telemetry_Request_Monitor' => $baseDir . '/telemetry/class-request_monitor.php',
     'Metasync_Template' => $baseDir . '/includes/class-metasync-template.php',
     'Metasync_Term_Plugin_Sync' => $baseDir . '/includes/class-metasync-term-plugin-sync.php',
-    'Metasync_Zapier_Database' => $baseDir . '/zapier/class-metasync-zapier-database.php',
-    'Metasync_Zapier_Dispatcher' => $baseDir . '/zapier/class-metasync-zapier-dispatcher.php',
-    'Metasync_Zapier_Dispatcher_Readonly' => $baseDir . '/zapier/class-metasync-zapier-rest.php',
-    'Metasync_Zapier_REST' => $baseDir . '/zapier/class-metasync-zapier-rest.php',
+
     'Metasync_otto_html' => $baseDir . '/otto/Otto_html_class.php',
     'Metasync_otto_pixel' => $baseDir . '/otto/Otto_pixel_class.php',
     'Test_CSS_Minifier' => $baseDir . '/code-minification/tests/Test_CSS_Minifier.php',

@@ -131,7 +131,11 @@ class Metasync
 		require_once ABSPATH . 'wp-admin/includes/taxonomy.php';
 
 		// Procedural init file — not a class, must stay explicit.
-		require_once plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php';
+		if (file_exists(plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php')) {
+			require_once plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php';
+		} else {
+			error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php');
+		}
 
 		$this->loader = new Metasync_Loader();
 		$this->db_heartbeat_errors = new Metasync_HeartBeat_Error_Monitor_Database();

@@ -530,6 +530,30 @@ class Metasync_SEO_Sidebar {
             'aioseoActive'   => defined('AIOSEO_VERSION') || class_exists('AIOSEO\\Plugin\\AIOSEO'),
         );
 
+        // Schema Content configuration
+        $schema_content_config = array(
+            'restUrl'             => rest_url('metasync/v1/schema-content'),
+            'woocommerceActive'   => class_exists('WooCommerce'),
+            'woocommerceData'     => $this->get_woocommerce_data_for_post($post_id),
+            'i18n'                => array(
+                'panelTitle'          => __('Schema Markup Content', 'metasync'),
+                'saveButton'          => __('Save Schema Content', 'metasync'),
+                'autoPopulateWC'      => __('Auto-populate from WooCommerce', 'metasync'),
+                'noSchemaTypes'       => __('No schema types configured. Add schema types in the classic editor or via the Schema Markup metabox.', 'metasync'),
+                'addQuestion'         => __('Add Question', 'metasync'),
+                'removeQuestion'      => __('Remove', 'metasync'),
+                'addStep'             => __('Add Step', 'metasync'),
+                'removeStep'          => __('Remove', 'metasync'),
+                'addIngredient'       => __('Add Ingredient', 'metasync'),
+                'removeIngredient'    => __('Remove', 'metasync'),
+                'addInstruction'      => __('Add Instruction', 'metasync'),
+                'removeInstruction'   => __('Remove', 'metasync'),
+                'saving'              => __('Saving...', 'metasync'),
+                'saved'               => __('Schema content saved.', 'metasync'),
+                'saveError'           => __('Failed to save schema content.', 'metasync'),
+            ),
+        );
+
         // Localize script with meta keys and settings
         wp_localize_script('metasync-seo-sidebar', 'metasyncSeoSidebar', array(
             'iconUrl' => $icon_url,
@@ -573,6 +597,7 @@ class Metasync_SEO_Sidebar {
                     'absolute' => 200,
                 ),
             ),
+            'schemaContent' => $schema_content_config,
             'linkSuggestions' => $link_suggestions_config,
             'i18n' => array(
                 /* translators: %s: Plugin name (whitelabel-aware) */
@@ -642,6 +667,35 @@ class Metasync_SEO_Sidebar {
                 delete_post_meta($post_id, self::META_PRIMARY_PRODUCT_CAT);
             }
         }
+    }
+
+    /**
+     * Get WooCommerce product data for a post (if WC is active and post is a product)
+     *
+     * @param int $post_id Post ID
+     * @return array|null Product data or null
+     */
+    private function get_woocommerce_data_for_post($post_id) {
+        if (!class_exists('WooCommerce') || $post_id <= 0) {
+            return null;
+        }
+
+        $post = get_post($post_id);
+        if (!$post || $post->post_type !== 'product') {
+            return null;
+        }
+
+        $product = wc_get_product($post_id);
+        if (!$product) {
+            return null;
+        }
+
+        return array(
+            'price'        => $product->get_price(),
+            'currency'     => get_woocommerce_currency(),
+            'availability' => $product->is_in_stock() ? 'InStock' : 'OutOfStock',
+            'sku'          => $product->get_sku(),
+        );
     }
 
 }

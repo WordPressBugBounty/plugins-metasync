@@ -18,7 +18,12 @@ require_once plugin_dir_path(dirname(__FILE__)) . 'class-mcp-tool-base.php';
 
 // Term-level SEO plugin sync: propagate MCP-driven term meta updates into
 // Yoast / Rank Math / AIOSEO term storage.
-require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'includes/class-metasync-term-plugin-sync.php';
+$term_sync_file = plugin_dir_path(dirname(dirname(__FILE__))) . 'includes/class-metasync-term-plugin-sync.php';
+if (file_exists($term_sync_file)) {
+    require_once $term_sync_file;
+} else {
+    error_log('[MetaSync] Term plugin sync class missing: ' . $term_sync_file);
+}
 
 /**
  * Get Taxonomy Term Meta Tool

@@ -433,3 +433,197 @@ class MCP_Tool_Validate_Schema extends MCP_Tool_Base {
         ]);
     }
 }
+
+/**
+ * Get Schema Content Tool
+ *
+ * Returns the full content fields for a specific schema type on a post
+ */
+class MCP_Tool_Get_Schema_Content extends MCP_Tool_Base {
+
+    public function get_name() {
+        return 'wordpress_get_schema_content';
+    }
+
+    public function get_description() {
+        return 'Get the full content fields for a specific schema type on a post';
+    }
+
+    public function get_input_schema() {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'post_id' => [
+                    'type' => 'integer',
+                    'description' => 'Post ID',
+                ],
+                'schema_type' => [
+                    'type' => 'string',
+                    'enum' => ['article', 'FAQPage', 'product', 'recipe', 'Event', 'JobPosting', 'Review', 'Course', 'Organization', 'Person', 'WebSite', 'NewsArticle', 'LocalBusiness', 'HowTo', 'VideoObject'],
+                    'description' => 'Schema type to retrieve content for',
+                ],
+            ],
+            'required' => ['post_id', 'schema_type'],
+        ];
+    }
+
+    public function execute($params) {
+        $this->validate_params($params);
+        $this->require_capability('edit_posts');
+
+        $post_id = intval($params['post_id']);
+        $schema_type = sanitize_text_field($params['schema_type']);
+
+        // Validate post exists
+        $post = $this->verify_post_exists($post_id);
+
+        // Get schema data
+        $schema_data = get_post_meta($post_id, 'metasync_schema_markup', true);
+
+        if (empty($schema_data) || empty($schema_data['types'])) {
+            return $this->success([
+                'post_id' => $post_id,
+                'schema_type' => $schema_type,
+                'fields' => null,
+                'message' => 'No schema types configured for this post',
+                'validation_warnings' => [],
+            ]);
+        }
+
+        // Find the requested schema type
+        $found_fields = null;
+        foreach ($schema_data['types'] as $type_data) {
+            if ($type_data['type'] === $schema_type) {
+                $found_fields = isset($type_data['fields']) ? $type_data['fields'] : [];
+                break;
+            }
+        }
+
+        if ($found_fields === null) {
+            return $this->success([
+                'post_id' => $post_id,
+                'schema_type' => $schema_type,
+                'fields' => null,
+                'message' => sprintf("Schema type '%s' not found for this post", esc_html($schema_type)),
+                'validation_warnings' => [],
+            ]);
+        }
+
+        // Run validation
+        require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'schema-markup/class-metasync-schema-markup.php';
+        $schema_markup = Metasync_Schema_Markup::get_instance();
+        $validation_warnings = $schema_markup->validate_schema_requirements($post_id, $schema_type, $found_fields);
+
+        return $this->success([
+            'post_id' => $post_id,
+            'schema_type' => $schema_type,
+            'fields' => $found_fields,
+            'validation_warnings' => $validation_warnings,
+        ]);
+    }
+}
+
+/**
+ * Set Schema Content Tool
+ *
+ * Sets the content fields for a specific schema type on a post
+ */
+class MCP_Tool_Set_Schema_Content extends MCP_Tool_Base {
+
+    public function get_name() {
+        return 'wordpress_set_schema_content';
+    }
+
+    public function get_description() {
+        return 'Set the content fields for a specific schema type on a post. Merges into existing schema markup data. For HowTo, steps must use the "instructions" key (not "text" or "instruction").';
+    }
+
+    public function get_input_schema() {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'post_id' => [
+                    'type' => 'integer',
+                    'description' => 'Post ID',
+                ],
+                'schema_type' => [
+                    'type' => 'string',
+                    'enum' => ['article', 'FAQPage', 'product', 'recipe', 'Event', 'JobPosting', 'Review', 'Course', 'Organization', 'Person', 'WebSite', 'NewsArticle', 'LocalBusiness', 'HowTo', 'VideoObject'],
+                    'description' => 'Schema type to set content for',
+                ],
+                'fields' => [
+                    'type' => 'object',
+                    'description' => 'Content fields for the schema type. FAQPage: faq_items array of {question, answer}. HowTo: steps array of {instructions, image?} (use "instructions" key, not "text"), plus total_time (minutes). product: price, currency, availability, condition, sku, brand. recipe: ingredients (string array), instructions (string array), prep_time, cook_time, total_time, calories, yield.',
+                ],
+            ],
+            'required' => ['post_id', 'schema_type', 'fields'],
+        ];
+    }
+
+    public function execute($params) {
+        $this->validate_params($params);
+        $this->require_capability('edit_posts');
+
+        $post_id     = intval($params['post_id']);
+        $schema_type = sanitize_text_field($params['schema_type']);
+
+        // Validate post exists and user can edit it
+        $this->verify_post_exists($post_id);
+        $this->check_post_permission($post_id);
+
+        // Sanitize fields before any DB write (same as Classic Editor and REST paths)
+        require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'schema-markup/class-metasync-schema-markup.php';
+        $schema_markup = Metasync_Schema_Markup::get_instance();
+        $content = $schema_markup->sanitize_schema_fields(
+            isset($params['fields']) && is_array($params['fields']) ? $params['fields'] : [],
+            $schema_type
+        );
+
+        // Get existing schema data
+        $schema_data = get_post_meta($post_id, 'metasync_schema_markup', true);
+        if (empty($schema_data)) {
+            $schema_data = ['enabled' => true, 'types' => []];
+        }
+
+        // Find and update or add the schema type
+        $found = false;
+        foreach ($schema_data['types'] as &$type_data) {
+            if ($type_data['type'] === $schema_type) {
+                $type_data['fields'] = $content;
+                $found = true;
+                break;
+            }
+        }
+        unset($type_data);
+
+        if (!$found) {
+            $schema_data['types'][] = [
+                'type'   => $schema_type,
+                'fields' => $content,
+            ];
+        }
+
+        // Save updated schema data
+        update_post_meta($post_id, 'metasync_schema_markup', $schema_data);
+
+        // Validate
+        $validation_warnings = $schema_markup->validate_schema_requirements($post_id, $schema_type, $content);
+
+        // Update validation errors
+        if (!empty($validation_warnings)) {
+            update_post_meta($post_id, '_metasync_schema_validation_errors', $validation_warnings);
+        } else {
+            delete_post_meta($post_id, '_metasync_schema_validation_errors');
+        }
+
+        // Cross-plugin sync
+        $schema_markup->sync_schema_to_seo_plugins($post_id, $schema_type, $content);
+
+        return $this->success([
+            'post_id' => $post_id,
+            'schema_type' => $schema_type,
+            'message' => "Schema content for '{$schema_type}' updated successfully",
+            'validation_warnings' => $validation_warnings,
+        ]);
+    }
+}

@@ -99,7 +99,7 @@ class Metasync_HTML_Visual_Editor
         $page_title = sprintf(__('%s HTML Editor', 'metasync'), $label);
 
         add_submenu_page(
-            null, // Hidden from menu
+            '', // Hidden from menu
             $page_title,
             $page_title,
             'edit_pages',

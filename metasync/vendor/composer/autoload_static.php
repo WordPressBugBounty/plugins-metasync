@@ -271,10 +271,7 @@ class ComposerStaticInit8e5917ee534e616253713b8104fcda43
         'Metasync_Telemetry_Request_Monitor' => __DIR__ . '/../..' . '/telemetry/class-request_monitor.php',
         'Metasync_Template' => __DIR__ . '/../..' . '/includes/class-metasync-template.php',
         'Metasync_Term_Plugin_Sync' => __DIR__ . '/../..' . '/includes/class-metasync-term-plugin-sync.php',
-        'Metasync_Zapier_Database' => __DIR__ . '/../..' . '/zapier/class-metasync-zapier-database.php',
-        'Metasync_Zapier_Dispatcher' => __DIR__ . '/../..' . '/zapier/class-metasync-zapier-dispatcher.php',
-        'Metasync_Zapier_Dispatcher_Readonly' => __DIR__ . '/../..' . '/zapier/class-metasync-zapier-rest.php',
-        'Metasync_Zapier_REST' => __DIR__ . '/../..' . '/zapier/class-metasync-zapier-rest.php',
+
         'Metasync_otto_html' => __DIR__ . '/../..' . '/otto/Otto_html_class.php',
         'Metasync_otto_pixel' => __DIR__ . '/../..' . '/otto/Otto_pixel_class.php',
         'Test_CSS_Minifier' => __DIR__ . '/../..' . '/code-minification/tests/Test_CSS_Minifier.php',

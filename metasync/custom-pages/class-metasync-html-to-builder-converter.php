@@ -70,6 +70,90 @@ class Metasync_HTML_To_Builder_Converter
 	}
 
 	/**
+	 * Encode non-ASCII characters in a UTF-8 string as numeric HTML entities.
+	 *
+	 * Prefers mb_encode_numericentity when available; otherwise falls back
+	 * to a pure-PHP UTF-8 byte walker so the converter keeps working on hosts
+	 * without the mbstring extension.
+	 *
+	 * @param string $str UTF-8 input.
+	 * @return string Same string with codepoints >= 0x80 replaced by &#NNN; entities.
+	 */
+	protected function encode_numeric_entities($str)
+	{
+		if (function_exists('mb_encode_numericentity')) {
+			return mb_encode_numericentity($str, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
+		}
+		return $this->encode_numeric_entities_fallback($str);
+	}
+
+	/**
+	 * Pure-PHP UTF-8 to numeric-entity encoder used when mbstring is missing.
+	 *
+	 * Walks the input byte-by-byte, decodes 1/2/3/4-byte UTF-8 sequences into
+	 * Unicode codepoints, and emits "&#N;" for any codepoint >= 0x80. ASCII
+	 * bytes are passed through unchanged. Malformed sequences are passed
+	 * through as-is so they remain visible to the caller (mirrors the
+	 * lenient behaviour libxml expects when given best-effort HTML).
+	 *
+	 * @param string $str UTF-8 input.
+	 * @return string Numeric-entity-encoded output.
+	 */
+	protected function encode_numeric_entities_fallback($str)
+	{
+		if ($str === '' || $str === null) {
+			return '';
+		}
+
+		$out = '';
+		$len = strlen($str);
+		$i = 0;
+		while ($i < $len) {
+			$byte = ord($str[$i]);
+
+			if ($byte < 0x80) {
+				$out .= $str[$i];
+				$i++;
+				continue;
+			}
+
+			if (($byte & 0xE0) === 0xC0 && $i + 1 < $len) {
+				$b2 = ord($str[$i + 1]);
+				if (($b2 & 0xC0) === 0x80) {
+					$cp = (($byte & 0x1F) << 6) | ($b2 & 0x3F);
+					$out .= '&#' . $cp . ';';
+					$i += 2;
+					continue;
+				}
+			} elseif (($byte & 0xF0) === 0xE0 && $i + 2 < $len) {
+				$b2 = ord($str[$i + 1]);
+				$b3 = ord($str[$i + 2]);
+				if (($b2 & 0xC0) === 0x80 && ($b3 & 0xC0) === 0x80) {
+					$cp = (($byte & 0x0F) << 12) | (($b2 & 0x3F) << 6) | ($b3 & 0x3F);
+					$out .= '&#' . $cp . ';';
+					$i += 3;
+					continue;
+				}
+			} elseif (($byte & 0xF8) === 0xF0 && $i + 3 < $len) {
+				$b2 = ord($str[$i + 1]);
+				$b3 = ord($str[$i + 2]);
+				$b4 = ord($str[$i + 3]);
+				if (($b2 & 0xC0) === 0x80 && ($b3 & 0xC0) === 0x80 && ($b4 & 0xC0) === 0x80) {
+					$cp = (($byte & 0x07) << 18) | (($b2 & 0x3F) << 12) | (($b3 & 0x3F) << 6) | ($b4 & 0x3F);
+					$out .= '&#' . $cp . ';';
+					$i += 4;
+					continue;
+				}
+			}
+
+			$out .= $str[$i];
+			$i++;
+		}
+
+		return $out;
+	}
+
+	/**
 	 * Main conversion entry point
 	 *
 	 * @param string $html HTML content to convert
@@ -259,12 +343,7 @@ class Metasync_HTML_To_Builder_Converter
 		libxml_use_internal_errors(true);
 
 		// Load HTML with proper encoding
-		if (version_compare(PHP_VERSION, '8.2.0', '<')) {
-			@$dom->loadHTML(mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'));
-		} else {
-			$encoded_content = mb_encode_numericentity($html, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-			@$dom->loadHTML($encoded_content);
-		}
+		@$dom->loadHTML($this->encode_numeric_entities($html));
 
 		libxml_clear_errors();
 		libxml_use_internal_errors(false);
@@ -297,12 +376,7 @@ class Metasync_HTML_To_Builder_Converter
 		libxml_use_internal_errors(true);
 
 		// Load HTML with proper encoding
-		if (version_compare(PHP_VERSION, '8.2.0', '<')) {
-			@$dom->loadHTML(mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'));
-		} else {
-			$encoded_content = mb_encode_numericentity($html, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-			@$dom->loadHTML($encoded_content);
-		}
+		@$dom->loadHTML($this->encode_numeric_entities($html));
 
 		libxml_clear_errors();
 		libxml_use_internal_errors(false);
@@ -353,12 +427,7 @@ class Metasync_HTML_To_Builder_Converter
 		libxml_use_internal_errors(true);
 
 		// Load HTML with proper encoding
-		if (version_compare(PHP_VERSION, '8.2.0', '<')) {
-			@$dom->loadHTML(mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'));
-		} else {
-			$encoded_content = mb_encode_numericentity($html, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-			@$dom->loadHTML($encoded_content);
-		}
+		@$dom->loadHTML($this->encode_numeric_entities($html));
 
 		libxml_clear_errors();
 		libxml_use_internal_errors(false);
@@ -956,12 +1025,7 @@ class Metasync_HTML_To_Builder_Converter
 		$dom = new DOMDocument();
 		libxml_use_internal_errors(true);
 
-		if (version_compare(PHP_VERSION, '8.2.0', '<')) {
-			@$dom->loadHTML(mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'));
-		} else {
-			$encoded_content = mb_encode_numericentity($html, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-			@$dom->loadHTML($encoded_content);
-		}
+		@$dom->loadHTML($this->encode_numeric_entities($html));
 
 		libxml_clear_errors();
 		libxml_use_internal_errors(false);
@@ -1038,12 +1102,7 @@ class Metasync_HTML_To_Builder_Converter
 		$dom = new DOMDocument();
 		libxml_use_internal_errors(true);
 
-		if (version_compare(PHP_VERSION, '8.2.0', '<')) {
-			@$dom->loadHTML(mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'));
-		} else {
-			$encoded_content = mb_encode_numericentity($html, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-			@$dom->loadHTML($encoded_content);
-		}
+		@$dom->loadHTML($this->encode_numeric_entities($html));
 
 		libxml_clear_errors();
 		libxml_use_internal_errors(false);
@@ -1201,12 +1260,7 @@ class Metasync_HTML_To_Builder_Converter
 		$dom = new DOMDocument();
 		libxml_use_internal_errors(true);
 
-		if (version_compare(PHP_VERSION, '8.2.0', '<')) {
-			@$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
-		} else {
-			$encoded_content = mb_encode_numericentity($content, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-			@$dom->loadHTML($encoded_content);
-		}
+		@$dom->loadHTML($this->encode_numeric_entities($content));
 
 		libxml_clear_errors();
 		libxml_use_internal_errors(false);
@@ -1353,12 +1407,7 @@ class Metasync_HTML_To_Builder_Converter
 		$dom = new DOMDocument();
 		libxml_use_internal_errors(true);
 
-		if (version_compare(PHP_VERSION, '8.2.0', '<')) {
-			@$dom->loadHTML(mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'));
-		} else {
-			$encoded_content = mb_encode_numericentity($html, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-			@$dom->loadHTML($encoded_content);
-		}
+		@$dom->loadHTML($this->encode_numeric_entities($html));
 
 		libxml_clear_errors();
 		libxml_use_internal_errors(false);
@@ -1444,12 +1493,7 @@ class Metasync_HTML_To_Builder_Converter
 		$dom = new DOMDocument();
 		libxml_use_internal_errors(true);
 
-		if (version_compare(PHP_VERSION, '8.2.0', '<')) {
-			@$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
-		} else {
-			$encoded_content = mb_encode_numericentity($content, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-			@$dom->loadHTML($encoded_content);
-		}
+		@$dom->loadHTML($this->encode_numeric_entities($content));
 
 		libxml_clear_errors();
 		libxml_use_internal_errors(false);
@@ -1629,7 +1673,7 @@ class Metasync_HTML_To_Builder_Converter
 				// Fallback to DOMDocument
 				$dom = new DOMDocument();
 				libxml_use_internal_errors(true);
-				$encoded_content = mb_encode_numericentity($content, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
+				$encoded_content = $this->encode_numeric_entities($content);
 				@$dom->loadHTML($encoded_content);
 				libxml_clear_errors();
 				libxml_use_internal_errors(false);
@@ -1644,12 +1688,7 @@ class Metasync_HTML_To_Builder_Converter
 				$html_content = '<!DOCTYPE html><html><body>' . $content . '</body></html>';
 			}
 
-			if (version_compare(PHP_VERSION, '8.2.0', '<')) {
-				$dom->loadHTML(mb_convert_encoding($html_content, 'HTML-ENTITIES', 'UTF-8'));
-			} else {
-				$encoded_content = mb_encode_numericentity($html_content, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-				$dom->loadHTML($encoded_content);
-			}
+			$dom->loadHTML($this->encode_numeric_entities($html_content));
 
 			libxml_clear_errors();
 			libxml_use_internal_errors(false);

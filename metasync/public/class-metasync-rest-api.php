@@ -88,6 +88,74 @@ class Metasync_Rest_Api
 		add_action('wp_ajax_metasyn_otto_ajax_action', array($this,'metasyn_otto_ajax'));
 	}
 
+	/**
+	 * Encode non-ASCII characters in a UTF-8 string as numeric HTML entities.
+	 *
+	 * Uses mb_encode_numericentity when the mbstring extension is loaded;
+	 * otherwise walks the UTF-8 byte sequence manually so DOMDocument loading
+	 * still works on hosts without mbstring.
+	 *
+	 * @param string $str UTF-8 input.
+	 * @return string Same string with codepoints >= 0x80 replaced by &#NNN; entities.
+	 */
+	private function encode_numeric_entities($str)
+	{
+		if (function_exists('mb_encode_numericentity')) {
+			return mb_encode_numericentity($str, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
+		}
+
+		if ($str === '' || $str === null) {
+			return '';
+		}
+
+		$out = '';
+		$len = strlen($str);
+		$i = 0;
+		while ($i < $len) {
+			$byte = ord($str[$i]);
+
+			if ($byte < 0x80) {
+				$out .= $str[$i];
+				$i++;
+				continue;
+			}
+
+			if (($byte & 0xE0) === 0xC0 && $i + 1 < $len) {
+				$b2 = ord($str[$i + 1]);
+				if (($b2 & 0xC0) === 0x80) {
+					$cp = (($byte & 0x1F) << 6) | ($b2 & 0x3F);
+					$out .= '&#' . $cp . ';';
+					$i += 2;
+					continue;
+				}
+			} elseif (($byte & 0xF0) === 0xE0 && $i + 2 < $len) {
+				$b2 = ord($str[$i + 1]);
+				$b3 = ord($str[$i + 2]);
+				if (($b2 & 0xC0) === 0x80 && ($b3 & 0xC0) === 0x80) {
+					$cp = (($byte & 0x0F) << 12) | (($b2 & 0x3F) << 6) | ($b3 & 0x3F);
+					$out .= '&#' . $cp . ';';
+					$i += 3;
+					continue;
+				}
+			} elseif (($byte & 0xF8) === 0xF0 && $i + 3 < $len) {
+				$b2 = ord($str[$i + 1]);
+				$b3 = ord($str[$i + 2]);
+				$b4 = ord($str[$i + 3]);
+				if (($b2 & 0xC0) === 0x80 && ($b3 & 0xC0) === 0x80 && ($b4 & 0xC0) === 0x80) {
+					$cp = (($byte & 0x07) << 18) | (($b2 & 0x3F) << 12) | (($b3 & 0x3F) << 6) | ($b4 & 0x3F);
+					$out .= '&#' . $cp . ';';
+					$i += 4;
+					continue;
+				}
+			}
+
+			$out .= $str[$i];
+			$i++;
+		}
+
+		return $out;
+	}
+
 	private function filter_post_attributes($posts)
 	{
 		$pi = -1;
@@ -1007,19 +1075,7 @@ class Metasync_Rest_Api
 	}
 	private function elementorBlockData($content){
 		$dom = new DOMDocument();
-		// Load HTML string
-		# @$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));	
-		
-		# Fix deprecated issue in PHP 8.2
-		# Check if the php version is below 8.2.0
-		if (version_compare(PHP_VERSION, '8.2.0', '<')) {
-			# Use mb_convert_encoding for PHP < 8.2
-			@$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
-		} else {
-			# Use mb_encode_numericentity for PHP >= 8.2
-			$encoded_content = mb_encode_numericentity($content, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-			@$dom->loadHTML($encoded_content);
-		}	
+		@$dom->loadHTML($this->encode_numeric_entities($content));
 
 		$outputArray = [];
 		foreach ( $dom->getElementsByTagName('*') as $rootElement) {	
@@ -1080,7 +1136,7 @@ class Metasync_Rest_Api
 				}
 				$dom = new DOMDocument();
 				libxml_use_internal_errors(true);
-				$encoded_content = mb_encode_numericentity($content, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
+				$encoded_content = $this->encode_numeric_entities($content);
 				@$dom->loadHTML($encoded_content);
 				libxml_clear_errors();
 				libxml_use_internal_errors(false);
@@ -1098,14 +1154,7 @@ class Metasync_Rest_Api
 				$htmlContent = '<!DOCTYPE html><html><body>' . $content . '</body></html>';
 			}
 
-			if (version_compare(PHP_VERSION, '8.2.0', '<')) {
-				// Use mb_convert_encoding for PHP < 8.2
-				$dom->loadHTML(mb_convert_encoding($htmlContent, 'HTML-ENTITIES', 'UTF-8'));
-			} else {
-				// Use mb_encode_numericentity for PHP >= 8.2
-				$encoded_content = mb_encode_numericentity($htmlContent, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-				$dom->loadHTML($encoded_content);
-			}
+			$dom->loadHTML($this->encode_numeric_entities($htmlContent));
 
 			// Clear any libxml errors and restore error handling
 			libxml_clear_errors();
@@ -1312,18 +1361,7 @@ class Metasync_Rest_Api
 	}
 	private function diviBlockData($content){
 		$dom = new DOMDocument();
-		// Load HTML string
-		# @$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));	
-		# Fix deprecated issue in PHP 8.2
-		# Check if the php version is below 8.2.0
-		if (version_compare(PHP_VERSION, '8.2.0', '<')) {
-			# Use mb_convert_encoding for PHP < 8.2
-			@$dom->loadHTML(mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8'));
-		} else {
-			# Use mb_encode_numericentity for PHP >= 8.2
-			$encoded_content = mb_encode_numericentity($content, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-			@$dom->loadHTML($encoded_content);
-		}
+		@$dom->loadHTML($this->encode_numeric_entities($content));
 
 		$outputArray = '[et_pb_section fb_built="1" _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" global_colors_info="{}"][et_pb_row _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" global_colors_info="{}"][et_pb_column type="4_4" _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" global_colors_info="{}"]';
 		foreach ( $dom->getElementsByTagName('*') as $rootElement) {	

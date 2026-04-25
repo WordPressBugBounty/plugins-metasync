@@ -182,12 +182,16 @@ class Metasync_Dimension_Injector {
             return null;
         }
 
-        $tmp = wp_tempnam($url);
         $body = wp_remote_retrieve_body($response);
         if (empty($body)) {
             return null;
         }
 
+        if (!function_exists('wp_tempnam')) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+        }
+
+        $tmp = wp_tempnam($url);
         file_put_contents($tmp, $body);
         $info = @getimagesize($tmp);
         @unlink($tmp);

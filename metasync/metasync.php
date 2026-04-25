@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.6.3 
+ * Version:           2.6.4 
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
  * License:           GPL v3
@@ -36,7 +36,7 @@ require_once __DIR__ . '/vendor/autoload.php';
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.6.3';
+$metasync_version = '2.6.4';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -398,8 +398,6 @@ require_once plugin_dir_path(__FILE__) . 'media-optimization/media-optimization-
 // Include Code Minification & Delivery Module
 require_once plugin_dir_path(__FILE__) . 'code-minification/code-minification-loader.php';
 
-// Include Zapier Connector
-require_once plugin_dir_path(__FILE__) . 'zapier/zapier-loader.php';
 
 function run_metasync()
 {
@@ -499,12 +497,14 @@ function metasync_init_mcp_server() {
 	$safe_register(new MCP_Tool_List_Plugin_Settings_Schema());
 	$safe_register(new MCP_Tool_Get_MCP_Settings());
 
-	// Schema Markup Management (5 tools)
+	// Schema Markup Management (7 tools)
 	$safe_register(new MCP_Tool_Get_Schema_Markup());
 	$safe_register(new MCP_Tool_Update_Schema_Markup());
 	$safe_register(new MCP_Tool_Add_Schema_Type());
 	$safe_register(new MCP_Tool_Remove_Schema_Type());
 	$safe_register(new MCP_Tool_Validate_Schema());
+	$safe_register(new MCP_Tool_Get_Schema_Content());
+	$safe_register(new MCP_Tool_Set_Schema_Content());
 
 	// Google Instant Index (6 tools)
 	$safe_register(new MCP_Tool_Instant_Index_Update());
@@ -632,8 +632,16 @@ function metasync_init_mcp_server() {
 	$safe_register(new MCP_Tool_Get_Breadcrumb_Path());
 
 	// Cache Purge (2 tools)
-	$safe_register(new MCP_Tool_Cache_Purge_All());
-	$safe_register(new MCP_Tool_Cache_Purge_URL());
+	if (class_exists('MCP_Tool_Cache_Purge_All')) {
+		$safe_register(new MCP_Tool_Cache_Purge_All());
+	} else {
+		error_log('MetaSync MCP: MCP_Tool_Cache_Purge_All class not found — skipping registration. Run composer dump-autoload to regenerate the classmap.');
+	}
+	if (class_exists('MCP_Tool_Cache_Purge_URL')) {
+		$safe_register(new MCP_Tool_Cache_Purge_URL());
+	} else {
+		error_log('MetaSync MCP: MCP_Tool_Cache_Purge_URL class not found — skipping registration. Run composer dump-autoload to regenerate the classmap.');
+	}
 
 	// LLMs.txt Tools (5 tools)
 	$safe_register(new MCP_Tool_Get_LLMs_Txt());

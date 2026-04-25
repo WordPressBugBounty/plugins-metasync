@@ -21,11 +21,40 @@ class Metasync_Schema_Markup
     private $version;
     private $common;
 
+    /** Shared instance — prevents MCP tools from re-registering hooks */
+    private static $instance = null;
+
+    /** Schema types supported by the content REST/MCP endpoints */
+    private static $supported_content_types = [
+        'article', 'FAQPage', 'product', 'recipe',
+        'Event', 'JobPosting', 'Review', 'Course',
+        'Organization', 'Person', 'WebSite', 'NewsArticle',
+        'LocalBusiness', 'HowTo', 'VideoObject',
+    ];
+
+    /**
+     * Returns the shared instance, or creates one if none exists yet.
+     * MCP tools use this instead of `new Metasync_Schema_Markup()` to
+     * avoid re-registering all WordPress hooks on every tool call.
+     */
+    public static function get_instance()
+    {
+        if (null === self::$instance) {
+            self::$instance = new self('metasync', defined('METASYNC_VERSION') ? METASYNC_VERSION : '1.0.0');
+        }
+        return self::$instance;
+    }
+
     public function __construct($plugin_name, $version)
     {
         $this->plugin_name = $plugin_name;
         $this->version = $version;
         $this->common = new Metasync_Common();
+
+        // Capture first instance so MCP tools can reuse it without re-registering hooks
+        if (null === self::$instance) {
+            self::$instance = $this;
+        }
 
         // Initialize hooks
         add_action('admin_init', [$this, 'add_schema_markup_meta_box']);
@@ -33,6 +62,7 @@ class Metasync_Schema_Markup
         add_action('wp_head', [$this, 'output_schema_markup']);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_scripts']);
         add_action('admin_notices', [$this, 'display_schema_validation_notices']);
+        add_action('rest_api_init', [$this, 'register_schema_content_rest_routes']);
     }
 
     /**
@@ -1020,6 +1050,13 @@ class Metasync_Schema_Markup
         
         // Save the schema data
         update_post_meta($post_id, 'metasync_schema_markup', $schema_data);
+
+        // Cross-plugin sync for each schema type
+        if (!empty($schema_data['enabled']) && !empty($schema_data['types'])) {
+            foreach ($schema_data['types'] as $schema_type_data) {
+                $this->sync_schema_to_seo_plugins($post_id, $schema_type_data['type'], $schema_type_data['fields']);
+            }
+        }
     }
 
     /**
@@ -1030,7 +1067,7 @@ class Metasync_Schema_Markup
      * @param array $fields Schema fields
      * @return array Array of validation errors (empty if valid)
      */
-    private function validate_schema_requirements($post_id, $type, $fields)
+    public function validate_schema_requirements($post_id, $type, $fields)
     {
         $errors = [];
 
@@ -1456,7 +1493,7 @@ class Metasync_Schema_Markup
     /**
      * Sanitize schema fields based on type
      */
-    private function sanitize_schema_fields($fields, $type)
+    public function sanitize_schema_fields($fields, $type)
     {
         $sanitized = [];
 
@@ -3736,6 +3773,389 @@ class Metasync_Schema_Markup
     public function get_version()
     {
         return $this->version;
+    }
+
+    /**
+     * Register REST API routes for schema content
+     */
+    public function register_schema_content_rest_routes()
+    {
+        register_rest_route('metasync/v1', '/schema-content/(?P<post_id>\d+)', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [$this, 'handle_rest_get_schema_content'],
+                'permission_callback' => function () {
+                    return current_user_can('edit_posts');
+                },
+                'args'                => [
+                    'post_id' => [
+                        'required'          => true,
+                        'validate_callback' => function ($param) {
+                            return is_numeric($param) && intval($param) > 0;
+                        },
+                        'sanitize_callback' => 'absint',
+                    ],
+                ],
+            ],
+            [
+                'methods'             => 'POST',
+                'callback'            => [$this, 'handle_rest_set_schema_content'],
+                'permission_callback' => function () {
+                    return current_user_can('edit_posts');
+                },
+                'args'                => [
+                    'post_id' => [
+                        'required'          => true,
+                        'validate_callback' => function ($param) {
+                            return is_numeric($param) && intval($param) > 0;
+                        },
+                        'sanitize_callback' => 'absint',
+                    ],
+                ],
+            ],
+        ]);
+    }
+
+    /**
+     * Handle GET request for schema content
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function handle_rest_get_schema_content(WP_REST_Request $request)
+    {
+        $post_id = $request->get_param('post_id');
+
+        $post = get_post($post_id);
+        if (!$post) {
+            return new WP_REST_Response(['error' => 'Post not found'], 404);
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            return new WP_REST_Response(['error' => 'Permission denied'], 403);
+        }
+
+        $schema_data = get_post_meta($post_id, 'metasync_schema_markup', true);
+
+        $result = [
+            'post_id'        => $post_id,
+            'schema_enabled' => false,
+            'types'          => [],
+        ];
+
+        if (!empty($schema_data)) {
+            $result['schema_enabled'] = isset($schema_data['enabled']) ? (bool) $schema_data['enabled'] : false;
+            if (!empty($schema_data['types']) && is_array($schema_data['types'])) {
+                $result['types'] = $schema_data['types'];
+            }
+        }
+
+        return new WP_REST_Response($result, 200);
+    }
+
+    /**
+     * Handle POST request to set schema content for a specific type
+     *
+     * Expects JSON body: { "schema_type": "FAQPage", "fields": { ... } }
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function handle_rest_set_schema_content(WP_REST_Request $request)
+    {
+        $post_id     = $request->get_param('post_id');
+        $schema_type = sanitize_text_field($request->get_param('schema_type'));
+        $fields      = $request->get_param('fields');
+
+        if (empty($schema_type)) {
+            return new WP_REST_Response(['error' => 'schema_type is required'], 400);
+        }
+
+        if (!in_array($schema_type, self::$supported_content_types, true)) {
+            return new WP_REST_Response(['error' => 'Unsupported schema_type: ' . $schema_type], 400);
+        }
+
+        $post = get_post($post_id);
+        if (!$post) {
+            return new WP_REST_Response(['error' => 'Post not found'], 404);
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            return new WP_REST_Response(['error' => 'Permission denied'], 403);
+        }
+
+        // Sanitize fields before saving (same as Classic Editor path)
+        $fields = $this->sanitize_schema_fields(is_array($fields) ? $fields : [], $schema_type);
+
+        // Get existing schema data
+        $schema_data = get_post_meta($post_id, 'metasync_schema_markup', true);
+        if (empty($schema_data)) {
+            $schema_data = ['enabled' => true, 'types' => []];
+        }
+
+        // Find and update or add the schema type
+        $found = false;
+        foreach ($schema_data['types'] as &$type_data) {
+            if ($type_data['type'] === $schema_type) {
+                $type_data['fields'] = $fields;
+                $found = true;
+                break;
+            }
+        }
+        unset($type_data);
+
+        if (!$found) {
+            $schema_data['types'][] = [
+                'type'   => $schema_type,
+                'fields' => $fields,
+            ];
+        }
+
+        // Save updated schema data
+        update_post_meta($post_id, 'metasync_schema_markup', $schema_data);
+
+        // Validate
+        $validation_warnings = $this->validate_schema_requirements($post_id, $schema_type, $fields);
+
+        // Update validation errors in post meta
+        if (empty($validation_warnings)) {
+            delete_post_meta($post_id, '_metasync_schema_validation_errors');
+        } else {
+            update_post_meta($post_id, '_metasync_schema_validation_errors', $validation_warnings);
+        }
+
+        // Cross-plugin sync
+        $this->sync_schema_to_seo_plugins($post_id, $schema_type, $fields);
+
+        return new WP_REST_Response([
+            'post_id'             => $post_id,
+            'schema_type'         => $schema_type,
+            'message'             => 'Schema content updated successfully',
+            'validation_warnings' => $validation_warnings,
+        ], 200);
+    }
+
+    /**
+     * Sync schema data to third-party SEO plugins (Yoast, Rank Math)
+     *
+     * @param int    $post_id
+     * @param string $type    Schema type
+     * @param array  $fields  Schema fields
+     */
+    public function sync_schema_to_seo_plugins($post_id, $type, $fields)
+    {
+        // Sync to Yoast SEO
+        if (defined('WPSEO_VERSION')) {
+            try {
+                $this->sync_schema_to_yoast($post_id, $type, $fields);
+            } catch (\Exception $e) {
+                error_log('MetaSync: Yoast schema sync failed for post ' . $post_id . ' — ' . $e->getMessage());
+            }
+        }
+
+        // Sync to Rank Math
+        if (defined('RANK_MATH_VERSION')) {
+            try {
+                $this->sync_schema_to_rank_math($post_id, $type, $fields);
+            } catch (\Exception $e) {
+                error_log('MetaSync: Rank Math schema sync failed for post ' . $post_id . ' — ' . $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Build a schema.org-compatible block array for a given type and fields.
+     * Used by both Yoast and Rank Math sync methods to avoid duplicating
+     * the field-mapping logic.
+     *
+     * @param int    $post_id
+     * @param string $type
+     * @param array  $fields
+     * @return array|null Schema block array, or null if required fields are missing.
+     */
+    private function build_schema_block($post_id, $type, $fields)
+    {
+        switch ($type) {
+            case 'FAQPage':
+                if (empty($fields['faq_items']) || !is_array($fields['faq_items'])) {
+                    return null;
+                }
+                $main_entity = [];
+                foreach ($fields['faq_items'] as $item) {
+                    if (!empty($item['question'])) {
+                        $main_entity[] = [
+                            '@type'          => 'Question',
+                            'name'           => $item['question'],
+                            'acceptedAnswer' => [
+                                '@type' => 'Answer',
+                                'text'  => isset($item['answer']) ? $item['answer'] : '',
+                            ],
+                        ];
+                    }
+                }
+                if (empty($main_entity)) {
+                    return null;
+                }
+                return [
+                    '@type'      => 'FAQPage',
+                    'mainEntity' => $main_entity,
+                ];
+
+            case 'HowTo':
+                if (empty($fields['steps']) || !is_array($fields['steps'])) {
+                    return null;
+                }
+                $steps = [];
+                foreach ($fields['steps'] as $i => $step) {
+                    if (!empty($step['instructions'])) {
+                        $step_data = [
+                            '@type'    => 'HowToStep',
+                            'position' => $i + 1,
+                            'text'     => $step['instructions'],
+                        ];
+                        if (!empty($step['image'])) {
+                            $step_data['image'] = $step['image'];
+                        }
+                        $steps[] = $step_data;
+                    }
+                }
+                if (empty($steps)) {
+                    return null;
+                }
+                $block = [
+                    '@type' => 'HowTo',
+                    'name'  => get_the_title($post_id),
+                    'step'  => $steps,
+                ];
+                if (!empty($fields['total_time'])) {
+                    $block['totalTime'] = 'PT' . intval($fields['total_time']) . 'M';
+                }
+                return $block;
+
+            case 'product':
+                if (empty($fields['price']) || floatval($fields['price']) <= 0) {
+                    return null;
+                }
+                $block = [
+                    '@type'  => 'Product',
+                    'name'   => get_the_title($post_id),
+                    'offers' => [
+                        '@type'         => 'Offer',
+                        'price'         => floatval($fields['price']),
+                        'priceCurrency' => !empty($fields['currency']) ? $fields['currency'] : 'USD',
+                        'availability'  => !empty($fields['availability'])
+                            ? 'https://schema.org/' . $fields['availability']
+                            : 'https://schema.org/InStock',
+                    ],
+                ];
+                if (!empty($fields['sku'])) {
+                    $block['sku'] = $fields['sku'];
+                }
+                if (!empty($fields['brand'])) {
+                    $block['brand'] = ['@type' => 'Brand', 'name' => $fields['brand']];
+                }
+                return $block;
+
+            case 'recipe':
+                if (empty($fields['ingredients']) && empty($fields['instructions'])) {
+                    return null;
+                }
+                $block = [
+                    '@type' => 'Recipe',
+                    'name'  => get_the_title($post_id),
+                ];
+                if (!empty($fields['ingredients']) && is_array($fields['ingredients'])) {
+                    $block['recipeIngredient'] = $fields['ingredients'];
+                }
+                if (!empty($fields['instructions']) && is_array($fields['instructions'])) {
+                    $inst_steps = [];
+                    foreach ($fields['instructions'] as $inst) {
+                        $text = is_array($inst) ? (isset($inst['text']) ? $inst['text'] : '') : $inst;
+                        if (!empty($text)) {
+                            $inst_steps[] = ['@type' => 'HowToStep', 'text' => $text];
+                        }
+                    }
+                    $block['recipeInstructions'] = $inst_steps;
+                }
+                if (!empty($fields['yield'])) {
+                    $block['recipeYield'] = $fields['yield'];
+                }
+                if (!empty($fields['prep_time'])) {
+                    $block['prepTime'] = 'PT' . intval($fields['prep_time']) . 'M';
+                }
+                if (!empty($fields['cook_time'])) {
+                    $block['cookTime'] = 'PT' . intval($fields['cook_time']) . 'M';
+                }
+                if (!empty($fields['total_time'])) {
+                    $block['totalTime'] = 'PT' . intval($fields['total_time']) . 'M';
+                }
+                if (!empty($fields['calories'])) {
+                    $block['nutrition'] = ['@type' => 'NutritionInformation', 'calories' => $fields['calories']];
+                }
+                return $block;
+        }
+
+        return null;
+    }
+
+    /**
+     * Sync schema to Yoast SEO
+     *
+     * @param int    $post_id
+     * @param string $type
+     * @param array  $fields
+     */
+    private function sync_schema_to_yoast($post_id, $type, $fields)
+    {
+        $schema_block = $this->build_schema_block($post_id, $type, $fields);
+        if ($schema_block === null) {
+            return;
+        }
+
+        // Yoast stores its custom schema blocks as a JSON-encoded array in this meta key.
+        // We replace or append our block within that array.
+        $yoast_schema = get_post_meta($post_id, '_yoast_wpseo_schema', true);
+        if (is_string($yoast_schema) && !empty($yoast_schema)) {
+            $decoded = json_decode($yoast_schema, true);
+            $yoast_schema = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($yoast_schema)) {
+            $yoast_schema = [];
+        }
+
+        $replaced = false;
+        foreach ($yoast_schema as &$existing) {
+            if (isset($existing['@type']) && $existing['@type'] === $schema_block['@type']) {
+                $existing = $schema_block;
+                $replaced = true;
+                break;
+            }
+        }
+        unset($existing);
+
+        if (!$replaced) {
+            $yoast_schema[] = $schema_block;
+        }
+
+        update_post_meta($post_id, '_yoast_wpseo_schema', wp_json_encode($yoast_schema));
+    }
+
+    /**
+     * Sync schema to Rank Math
+     *
+     * @param int    $post_id
+     * @param string $type
+     * @param array  $fields
+     */
+    private function sync_schema_to_rank_math($post_id, $type, $fields)
+    {
+        $rm_data = $this->build_schema_block($post_id, $type, $fields);
+        if ($rm_data === null) {
+            return;
+        }
+
+        $meta_key = 'rank_math_schema_' . $rm_data['@type'];
+        update_post_meta($post_id, $meta_key, $rm_data);
     }
 
     /**
