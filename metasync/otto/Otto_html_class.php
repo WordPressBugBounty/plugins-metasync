@@ -35,6 +35,48 @@ Class Metasync_otto_html{
     # Eliminates 8-10 full DOM traversals per page
     private $cached_elements = [];
 
+    /**
+     * Escape bare < characters in text content that SimpleHtmlDom misinterprets as HTML tags.
+     * Example: "<4 microns" gets parsed as a tag, corrupting the DOM and breaking page layout.
+     * Only targets < followed by digits (never valid HTML tag starts).
+     * Protects <script> and <style> blocks where < appears in code.
+     */
+    private function sanitize_text_less_than($html) {
+        $protected = [];
+        $html = preg_replace_callback(
+            '/<(script|style)([\s>])(.*?)<\/\1>/si',
+            function($match) use (&$protected) {
+                $placeholder = '<!--METASYNC_PROTECTED_' . count($protected) . '-->';
+                $protected[$placeholder] = $match[0];
+                return $placeholder;
+            },
+            $html
+        );
+
+        $html = preg_replace('/<(?=\d)/', '&lt;', $html);
+
+        if (!empty($protected)) {
+            $html = str_replace(array_keys($protected), array_values($protected), $html);
+        }
+
+        return $html;
+    }
+
+    /**
+     * Restore case-sensitive SVG and HTML5 attributes that SimpleHtmlDom lowercases.
+     * The DOM parser's $lowercase=true flag (required for find() queries) lowercases
+     * all attribute names, breaking case-sensitive attributes like viewBox.
+     * Applied on final HTML output after all DOM processing is complete.
+     */
+    private function restore_case_sensitive_attributes($html) {
+        static $map = [
+            ' viewbox='             => ' viewBox=',
+            ' preserveaspectratio=' => ' preserveAspectRatio=',
+            ' controlslist='       => ' controlsList=',
+        ];
+        return str_ireplace(array_keys($map), array_values($map), $html);
+    }
+
     #
     function __construct($otto_uuid){
 
@@ -308,6 +350,9 @@ Class Metasync_otto_html{
         # Remove XML declaration
         $html_body = preg_replace('/<\?xml[^?]*\?>\s*/i', '', $html_body);
 
+        # Escape bare < in text content (e.g. "<4 microns") before DOM parsing
+        $html_body = $this->sanitize_text_less_than($html_body);
+
         # now that the html is not empty
         # load it into the simple html dom
         $this->dom->load($html_body, true, false);
@@ -485,15 +530,18 @@ Class Metasync_otto_html{
             $result_html = preg_replace('/(<\/html>)/i', $safe_footer . "\n" . '$1', $result_html, 1);
         }
 
-        # DEDUPLICATION: Remove duplicate <title>, OG, Twitter tags, and JSON-LD schema
+        # DEDUPLICATION: Remove duplicate <title>, OG, Twitter tags, canonical, and JSON-LD schema
         $result_html = $this->deduplicate_title_tags($result_html);
         $result_html = $this->deduplicate_og_twitter_tags($result_html);
         $result_html = $this->deduplicate_schema_tags($result_html);
+        $result_html = $this->deduplicate_canonical_tags($result_html);
 
         # Ensure metasync_optimized attribute on <head> (post-serialization so dom->clear() can't wipe it)
         if (!$this->is_amp_page() && strpos($result_html, 'metasync_optimized') === false) {
             $result_html = preg_replace('/<head(\s|>)/i', '<head metasync_optimized$1', $result_html, 1);
         }
+
+        $result_html = $this->restore_case_sensitive_attributes($result_html);
 
         return $result_html;
     }
@@ -1410,6 +1458,48 @@ Class Metasync_otto_html{
     }
 
     /**
+     * Remove duplicate <link rel="canonical"> tags from HTML.
+     *
+     * When OTTO injects a canonical via header_html_insertion and MetaSync's
+     * SEO output (or WordPress core) has already emitted one, keep only the
+     * OTTO version (identified by data-otto marker). If no OTTO tag exists,
+     * keep the first occurrence.
+     *
+     * @param  string $html Full HTML document.
+     * @return string HTML with at most one canonical tag.
+     */
+    private function deduplicate_canonical_tags($html) {
+        $pattern = '/<link\s[^>]*rel=["\']canonical["\'][^>]*\/?>/i';
+
+        if (preg_match_all($pattern, $html, $matches) <= 1) {
+            return $html;
+        }
+
+        $all_tags = $matches[0];
+
+        $otto_tag = null;
+        foreach ($all_tags as $tag) {
+            if (stripos($tag, 'data-otto') !== false) {
+                $otto_tag = $tag;
+                break;
+            }
+        }
+
+        $keeper = $otto_tag ?: $all_tags[0];
+
+        $first_replaced = false;
+        $html = preg_replace_callback($pattern, function ($m) use ($keeper, &$first_replaced) {
+            if (!$first_replaced) {
+                $first_replaced = true;
+                return $keeper;
+            }
+            return '';
+        }, $html);
+
+        return $html;
+    }
+
+    /**
      * Deduplicate JSON-LD schema blocks.
      *
      * When OTTO and a third-party SEO plugin both inject <script type="application/ld+json">
@@ -1663,6 +1753,7 @@ Class Metasync_otto_html{
 
             # Reload DOM from the HTML string to refresh internal state
             # This replaces the file save/reload cycle that SimpleHtmlDOM expects
+            $current_html = $this->sanitize_text_less_than($current_html);
             $this->dom->load($current_html, true, false);
 
             # Force UTF-8 charset after reload to preserve emojis
@@ -1698,6 +1789,9 @@ Class Metasync_otto_html{
 
             # Remove XML declaration if present
             $html = preg_replace('/<\?xml[^?]*\?>\s*/i', '', $html);
+
+            # Escape bare < in text content before DOM parsing
+            $html = $this->sanitize_text_less_than($html);
 
             # Load HTML into DOM
             $this->dom->load($html, true, false);
@@ -2010,10 +2104,11 @@ Class Metasync_otto_html{
                 );
             }
 
-            # DEDUPLICATION: Remove duplicate <title>, OG, Twitter tags, and JSON-LD schema
+            # DEDUPLICATION: Remove duplicate <title>, OG, Twitter tags, canonical, and JSON-LD schema
             $result_html = $this->deduplicate_title_tags($result_html);
             $result_html = $this->deduplicate_og_twitter_tags($result_html);
             $result_html = $this->deduplicate_schema_tags($result_html);
+            $result_html = $this->deduplicate_canonical_tags($result_html);
 
             # MEMORY OPTIMIZED: Free all large objects and arrays before returning
             # This ensures memory is released immediately, especially important for high-traffic sites
@@ -2032,6 +2127,8 @@ Class Metasync_otto_html{
             if (!$this->is_amp_page() && strpos($result_html, 'metasync_optimized') === false) {
                 $result_html = preg_replace('/<head(\s|>)/i', '<head metasync_optimized$1', $result_html, 1);
             }
+
+            $result_html = $this->restore_case_sensitive_attributes($result_html);
 
             return $result_html;
 

@@ -70,6 +70,62 @@
 			$statusIndicator.attr('title', titleText);
 			console.log('🔄 Updated header status to: ' + statusText);
 		}
+
+		// Keep compact header badge in sync with integration status
+		var $badge = $('.metasync-status');
+		if ($badge.length > 0) {
+			$badge.removeClass('connected disconnected warning');
+			if (isIntegrated) {
+				$badge.addClass('connected');
+				$badge.find('.status-text').text('Connected');
+			} else if (statusText === 'Warning') {
+				$badge.addClass('warning');
+				$badge.find('.status-text').text('Warning');
+			} else {
+				$badge.addClass('disconnected');
+				$badge.find('.status-text').text('Not Connected');
+			}
+		}
+
+		// Immediately sync admin bar toolbar status
+		var $adminBarContainer = $('#wp-admin-bar-searchatlas-status');
+		var $adminBarItem = $adminBarContainer.find('.ab-item');
+		if ($adminBarItem.length > 0) {
+			var allClasses = 'searchatlas-synced searchatlas-not-synced searchatlas-warning';
+			var pluginName = (window.MetasyncConfig && window.MetasyncConfig.pluginName) || 'SearchAtlas';
+
+			var targetEmoji, targetSvgCode, barClass, barTitle;
+			if (isIntegrated) {
+				targetEmoji = '\uD83D\uDFE2'; targetSvgCode = '1f7e2';
+				barClass = 'searchatlas-synced';
+				barTitle = pluginName + ' - Synced';
+			} else if (statusText === 'Warning') {
+				targetEmoji = '\uD83D\uDFE1'; targetSvgCode = '1f7e1';
+				barClass = 'searchatlas-warning';
+				barTitle = pluginName + ' - ' + titleText;
+			} else {
+				targetEmoji = '\uD83D\uDD34'; targetSvgCode = '1f534';
+				barClass = 'searchatlas-not-synced';
+				barTitle = pluginName + ' - ' + (titleText || 'Not Synced');
+			}
+
+			// Update emoji (SVG image or text fallback)
+			var emojiImg = $adminBarItem.find('img.emoji');
+			if (emojiImg.length > 0) {
+				emojiImg.attr('alt', targetEmoji);
+				emojiImg.attr('src', emojiImg.attr('src').replace(/1f7e2\.svg|1f534\.svg|1f7e1\.svg/, targetSvgCode + '.svg'));
+			} else {
+				var newHtml = $adminBarItem.html().replace(/\uD83D\uDFE2|\uD83D\uDD34|\uD83D\uDFE1/, targetEmoji);
+				if (!newHtml.includes(targetEmoji) && newHtml.includes(pluginName)) {
+					newHtml = newHtml.replace(pluginName, pluginName + ' ' + targetEmoji);
+				}
+				$adminBarItem.html(newHtml);
+			}
+
+			$adminBarContainer.removeClass(allClasses).addClass(barClass);
+			$adminBarContainer.attr('title', barTitle);
+			$adminBarItem.attr('title', barTitle);
+		}
 	}
 
 	/**
@@ -166,7 +222,7 @@
 	// ========================================
 
 	function metasync_syncPostsAndPages() {
-		wp.ajax.post('lgSendCustomerParams', {})
+		wp.ajax.post('metasync_send_customer_params', {})
 			.done(function (response) {
 				console.log(response);
 			});
@@ -179,7 +235,7 @@
 
 	function metasyncLGLogin(user, pass) {
 		jQuery.post(ajaxurl, {
-			action: 'lglogin',
+			action: 'metasync_lglogin',
 			username: user, password: pass
 		}, function (response) {
 			if (typeof response.token !== 'undefined') {
@@ -240,7 +296,7 @@
 			url: ajaxUrl,
 			type: 'POST',
 			data: {
-				action: 'generate_searchatlas_connect_url',
+				action: 'metasync_generate_connect_url',
 				nonce: ajaxNonce
 			},
 			timeout: 30000, // 30 second timeout
@@ -495,7 +551,7 @@
 				url: ajaxurl,
 				type: 'POST',
 				data: {
-					action: 'check_searchatlas_connect_status',
+					action: 'metasync_check_connect_status',
 					nonce: metaSync.sa_connect_nonce || '',
 					nonce_token: nonceToken
 				},
@@ -522,7 +578,7 @@
 								url: ajaxurl,
 								type: 'POST',
 								data: {
-									action: 'get_plugin_auth_token',
+									action: 'metasync_get_plugin_auth_token',
 									nonce: metaSync.sa_connect_nonce || ''
 								},
 								success: function (tokenResponse) {
@@ -957,7 +1013,7 @@
 				url: ajaxurl,
 				type: 'POST',
 				data: {
-					action: 'test_searchatlas_ajax_endpoint',
+					action: 'metasync_test_ajax_endpoint',
 					nonce: metaSync.sa_connect_nonce
 				},
 				timeout: 10000,
@@ -1220,7 +1276,7 @@
 			url: ajaxurl,
 			type: 'POST',
 			data: {
-				action: 'reset_searchatlas_authentication',
+				action: 'metasync_reset_authentication',
 				nonce: metaSync.reset_auth_nonce
 			},
 			success: function (response) {
@@ -1338,7 +1394,7 @@
 		
 		// Update header status indicator to "Not Synced"
 		updateHeaderStatus(false, 'Not Synced', 'Missing ' + getPluginName() + ' API key or ' + getOttoName() + ' UUID');
-		
+
 		// Update metaSync object for JavaScript state tracking
 		if (typeof metaSync !== 'undefined') {
 			metaSync.searchatlas_api_key = false;
@@ -1396,7 +1452,7 @@
 		} else {
 			updateHeaderStatus(false, 'Warning', 'Connected but ' + getOttoName() + ' UUID is missing — deploys will not work. Please reconnect.');
 		}
-		
+
 		// Update metaSync object for JavaScript state tracking
 		if (typeof metaSync !== 'undefined') {
 			metaSync.searchatlas_api_key = true;
@@ -1787,7 +1843,7 @@
 				method: 'POST',
 				url: 'admin-ajax.php',
 				data: {
-					action: 'send_giapi',
+					action: 'metasync_send_giapi',
 					metasync_giapi_url: url.val(),
 					metasync_giapi_action: action.val()
 				}
@@ -1909,7 +1965,7 @@
 
 		// DEBUG: Log request parameters
 		const requestData = {
-			action: 'lgSendCustomerParams',
+			action: 'metasync_send_customer_params',
 			is_heart_beat : is_hb
 		};
 
@@ -2048,7 +2104,7 @@
 			url: ajaxurl,
 			type: 'GET',
 			data: {
-				action: 'clear_otto_cache',
+				action: 'metasync_clear_otto_cache',
 				clear_otto_cache: 1
 			},
 			success: function (response) {

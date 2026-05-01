@@ -160,8 +160,8 @@ class Metasync_Admin_Assets
                     button.prop('disabled', true).text('🔄 Refreshing...');
                     
                     $.post(ajaxurl, {
-                        action: 'refresh_plugin_auth_token',
-                        nonce: '" . wp_create_nonce('refresh_plugin_auth_token') . "'
+                        action: 'metasync_refresh_plugin_auth_token',
+                        nonce: '" . wp_create_nonce('metasync_refresh_plugin_auth_token') . "'
                     })
                     .done(function(response) {
                         if (response.success && response.data && response.data.new_token) {

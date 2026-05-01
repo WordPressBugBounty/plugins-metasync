@@ -8,6 +8,7 @@
  * @subpackage Metasync/redirections
  * @author     Engineering Team <support@searchatlas.com>
  */
+if (!class_exists('Metasync_Redirection_Database')) {
 class Metasync_Redirection_Database
 {
 	public static $table_name = "metasync_redirections";
@@ -364,4 +365,5 @@ class Metasync_Redirection_Database
 			return $wpdb->get_var($query);
 		}
 	}
+}
 }

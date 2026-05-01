@@ -151,7 +151,7 @@ class Metasync_Connect_Manager
      */
     public function refresh_plugin_auth_token()
     {
-        if (!wp_verify_nonce($_POST['nonce'], 'refresh_plugin_auth_token')) {
+        if (!wp_verify_nonce($_POST['nonce'], 'metasync_refresh_plugin_auth_token')) {
             wp_send_json_error(array('message' => 'Invalid nonce'));
             return;
         }
@@ -235,7 +235,7 @@ class Metasync_Connect_Manager
     /**
      * Generate Search Atlas Connect URL (1-click connect).
      *
-     * AJAX action: wp_ajax_generate_searchatlas_connect_url
+     * AJAX action: wp_ajax_metasync_generate_connect_url
      */
     public function generate_searchatlas_connect_url()
     {
@@ -295,7 +295,7 @@ class Metasync_Connect_Manager
     /**
      * Check Search Atlas Connect Status (polling endpoint).
      *
-     * AJAX action: wp_ajax_check_searchatlas_connect_status
+     * AJAX action: wp_ajax_metasync_check_connect_status
      */
     public function check_searchatlas_connect_status()
     {

@@ -207,7 +207,7 @@ $system_info = array(
 
                 <div class="metasync-form-actions">
                     <button type="submit" class="button button-primary button-large" id="metasync-submit-report-btn">
-                        <span class="metasync-btn-text"><span class="dashicons dashicons-upload" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Submit Report</span>
+                        <span class="metasync-btn-text"><span class="dashicons dashicons-upload" style="margin-top:9px;font-size:15px;width:15px;height:15px;"></span> Submit Report</span>
                         <span class="metasync-btn-loading">
                             <span class="spinner is-active metasync-spinner"></span>
                             Sending...

@@ -43,6 +43,13 @@ class Metasync_SEO_Conflict_Handler {
     private $aioseo_has_description_cache = null;
 
     /**
+     * Cached result: whether the current post has been synced via WP-196.
+     *
+     * @var array Keyed by post_id => bool
+     */
+    private $sync_cache = [];
+
+    /**
      * Get singleton instance.
      *
      * @return self
@@ -202,6 +209,94 @@ class Metasync_SEO_Conflict_Handler {
     public function reset_cache() {
         $this->has_description_cache = null;
         $this->aioseo_has_description_cache = null;
+        $this->sync_cache = [];
+    }
+
+    /**
+     * Check whether a post has been synced to third-party plugins via WP-196.
+     *
+     * When native-first sync is active, each plugin reads MetaSync values from
+     * its own storage — no filter suppression needed. This method returns true
+     * when _metasync_plugin_sync_ts exists and contains a timestamp for the
+     * given plugin slug.
+     *
+     * @param int    $post_id     Post ID.
+     * @param string $plugin_slug Plugin slug: 'yoast', 'rankmath', or 'aioseo'.
+     * @return bool True if the post has been synced to this plugin.
+     */
+    private function is_post_synced($post_id, $plugin_slug) {
+        if ($post_id <= 0) {
+            return false;
+        }
+
+        if (!isset($this->sync_cache[$post_id])) {
+            $ts_raw = get_post_meta($post_id, '_metasync_plugin_sync_ts', true);
+            $this->sync_cache[$post_id] = !empty($ts_raw) ? json_decode($ts_raw, true) : [];
+            if (!is_array($this->sync_cache[$post_id])) {
+                $this->sync_cache[$post_id] = [];
+            }
+        }
+
+        return !empty($this->sync_cache[$post_id][$plugin_slug]);
+    }
+
+    /**
+     * For synced posts with multiple SEO plugins active, determine if a
+     * specific plugin is the designated output owner.
+     *
+     * Only the first active plugin in priority order (Yoast > Rank Math > AIOSEO)
+     * is allowed to output — the others are suppressed to prevent duplicate tags.
+     *
+     * @param int    $post_id     Post ID.
+     * @param string $plugin_slug Plugin slug to check.
+     * @return bool True if this plugin should output its tags.
+     */
+    private function is_primary_output_plugin($post_id, $plugin_slug) {
+        // For synced posts: only the primary synced plugin passes through.
+        // For unsynced posts with multiple plugins: only the highest-priority
+        // active plugin outputs to prevent duplicate tags.
+        $this->ensure_plugin_api();
+        $priority = ['yoast', 'rankmath', 'aioseo'];
+        $active_check = [
+            'yoast'    => is_plugin_active('wordpress-seo/wp-seo.php') || is_plugin_active('wordpress-seo-premium/wp-seo-premium.php'),
+            'rankmath' => is_plugin_active('seo-by-rank-math/rank-math.php') || is_plugin_active('seo-by-rankmath/rank-math.php'),
+            'aioseo'   => is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') || is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php'),
+        ];
+
+        $has_any_sync = $post_id > 0 && ($this->is_post_synced($post_id, 'yoast') || $this->is_post_synced($post_id, 'rankmath') || $this->is_post_synced($post_id, 'aioseo'));
+
+        if ($has_any_sync) {
+            // Synced: primary = first active + synced plugin
+            foreach ($priority as $slug) {
+                if ($active_check[$slug] && $this->is_post_synced($post_id, $slug)) {
+                    return $slug === $plugin_slug;
+                }
+            }
+            return false;
+        }
+
+        // Unsynced / multiple plugins active: pick the first active plugin
+        // as the sole outputter to prevent duplicate tags.
+        $active_count = count(array_filter($active_check));
+        if ($active_count > 1) {
+            foreach ($priority as $slug) {
+                if ($active_check[$slug]) {
+                    return $slug === $plugin_slug;
+                }
+            }
+        }
+
+        // Single plugin active or no plugins — don't interfere
+        return false;
+    }
+
+    /**
+     * Ensure is_plugin_active() is loaded on the frontend.
+     */
+    private function ensure_plugin_api() {
+        if (!function_exists('is_plugin_active')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
     }
 
     // ------------------------------------------------------------------
@@ -244,6 +339,17 @@ class Metasync_SEO_Conflict_Handler {
             $this->aioseo_has_description_cache = !empty($description);
         }
 
+        // WP-196: Primary plugin check — only the designated plugin outputs.
+        $post_id = $this->get_current_object_id();
+        if ($post_id && $this->has_active_seo_plugin()) {
+            if ($this->is_primary_output_plugin($post_id, 'aioseo')) {
+                return $description;
+            }
+            if ($this->is_primary_output_plugin($post_id, 'yoast') || $this->is_primary_output_plugin($post_id, 'rankmath')) {
+                return '';
+            }
+        }
+
         // Term archives: AIOSEO free doesn't read per-term custom descriptions
         // from its `wp_aioseo_terms` table, so return the MetaSync value
         // directly so AIOSEO renders it.
@@ -273,6 +379,17 @@ class Metasync_SEO_Conflict_Handler {
      * @return string
      */
     public function filter_aioseo_title($title) {
+        // WP-196: Primary plugin check — only the designated plugin outputs.
+        $post_id = $this->get_current_object_id();
+        if ($post_id && $this->has_active_seo_plugin()) {
+            if ($this->is_primary_output_plugin($post_id, 'aioseo')) {
+                return $title;
+            }
+            if ($this->is_primary_output_plugin($post_id, 'yoast') || $this->is_primary_output_plugin($post_id, 'rankmath')) {
+                return '';
+            }
+        }
+
         // Term archives: return MetaSync term title directly.
         $term = $this->get_current_term();
         if ($term) {
@@ -304,8 +421,14 @@ class Metasync_SEO_Conflict_Handler {
             return $meta;
         }
 
-        // og:title — suppress when OTTO has og:title OR MetaSync has title
         $post_id = $this->get_current_object_id();
+
+        // WP-196: Post synced to AIOSEO — let AIOSEO read from its own storage.
+        if ($post_id && $this->is_primary_output_plugin($post_id, 'aioseo')) {
+            return $meta;
+        }
+
+        // og:title — suppress when OTTO has og:title OR MetaSync has title
         if ($this->otto_has_tag('og:title') || ($post_id && $this->metasync_has_title($post_id))) {
             unset($meta['og:title']);
         }
@@ -341,6 +464,11 @@ class Metasync_SEO_Conflict_Handler {
 
         $post_id = $this->get_current_object_id();
 
+        // WP-196: Post synced to AIOSEO — let AIOSEO read from its own storage.
+        if ($post_id && $this->is_primary_output_plugin($post_id, 'aioseo')) {
+            return $meta;
+        }
+
         if ($this->otto_has_tag('twitter:title') || ($post_id && $this->metasync_has_title($post_id))) {
             unset($meta['twitter:title']);
         }
@@ -373,6 +501,11 @@ class Metasync_SEO_Conflict_Handler {
     public function filter_aioseo_robots($robots) {
         $post_id = $this->get_current_object_id();
         if (!$post_id) {
+            return $robots;
+        }
+
+        // WP-196: Post synced to AIOSEO — let AIOSEO read from its own storage.
+        if ($this->is_primary_output_plugin($post_id, 'aioseo')) {
             return $robots;
         }
 
@@ -588,10 +721,28 @@ class Metasync_SEO_Conflict_Handler {
      * HTML. Returning '' here would again leave the page with no <title> tag.
      */
     public function filter_yoast_title($title) {
-        // Term-level archives (category/tag/custom taxonomy): when MetaSync has
-        // an explicit `_metasync_metatitle`, return it so Yoast renders the
-        // MetaSync-managed archive title inside <title>. This mirrors the
-        // post-level sidebar-title precedence below.
+        $post_id = $this->get_current_object_id();
+
+        // WP-196: When Yoast is the primary output plugin, let it through.
+        // For synced posts, Yoast reads from its own storage (already has the value).
+        // For unsynced posts as primary, still check for MetaSync sidebar override.
+        if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
+            // Even in passthrough, a sidebar title override takes precedence
+            $sidebar_title = get_post_meta($post_id, '_metasync_seo_title', true);
+            if (!empty($sidebar_title)) {
+                return $sidebar_title;
+            }
+            return $title;
+        }
+
+        // WP-196: Another plugin is primary — suppress Yoast.
+        if ($post_id && $this->has_active_seo_plugin()) {
+            if ($this->is_primary_output_plugin($post_id, 'rankmath') || $this->is_primary_output_plugin($post_id, 'aioseo')) {
+                return '';
+            }
+        }
+
+        // Term-level archives
         $term = $this->get_current_term();
         if ($term) {
             $term_title = get_term_meta($term->term_id, '_metasync_metatitle', true);
@@ -600,12 +751,7 @@ class Metasync_SEO_Conflict_Handler {
             }
         }
 
-        $post_id = $this->get_current_object_id();
-
-        // Case 1: MetaSync sidebar has an explicit title — return it so Yoast
-        // renders it inside <title>. The sidebar's pre_get_document_title filter
-        // (priority 100) already handles this for block themes; this wpseo_title
-        // filter covers classic-theme paths where Yoast builds the title differently.
+        // MetaSync sidebar has an explicit title — return it so Yoast renders it.
         if ($post_id) {
             $sidebar_title = get_post_meta($post_id, '_metasync_seo_title', true);
             if (!empty($sidebar_title)) {
@@ -632,6 +778,16 @@ class Metasync_SEO_Conflict_Handler {
      * the description (MetaSync outputs its own tag).
      */
     public function filter_yoast_description($description) {
+        $post_id = $this->get_current_object_id();
+        if ($post_id && $this->has_active_seo_plugin()) {
+            if ($this->is_primary_output_plugin($post_id, 'yoast')) {
+                return $description;
+            }
+            if ($this->is_primary_output_plugin($post_id, 'rankmath') || $this->is_primary_output_plugin($post_id, 'aioseo')) {
+                return '';
+            }
+        }
+
         // Term archives: MetaSync syncs to Yoast storage — let Yoast render it.
         $term = $this->get_current_term();
         if ($term) {
@@ -653,6 +809,9 @@ class Metasync_SEO_Conflict_Handler {
      */
     public function filter_yoast_og_title($value) {
         $post_id = $this->get_current_object_id();
+        if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
+            return $value;
+        }
         if ($this->otto_has_tag('og:title') || ($post_id && $this->metasync_has_title($post_id))) {
             return '';
         }
@@ -664,6 +823,10 @@ class Metasync_SEO_Conflict_Handler {
      * Suppress when: OTTO active + has og:description, OR MetaSync has description.
      */
     public function filter_yoast_og_description($value) {
+        $post_id = $this->get_current_object_id();
+        if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
+            return $value;
+        }
         if ($this->otto_has_tag('og:description') || $this->metasync_has_description()) {
             return '';
         }
@@ -675,6 +838,10 @@ class Metasync_SEO_Conflict_Handler {
      * Suppress when: OTTO active + has og:title (OTTO provides these alongside og:title).
      */
     public function filter_yoast_og_structural($value) {
+        $post_id = $this->get_current_object_id();
+        if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
+            return $value;
+        }
         if ($this->otto_has_tag('og:title')) {
             return '';
         }
@@ -687,6 +854,9 @@ class Metasync_SEO_Conflict_Handler {
      */
     public function filter_yoast_twitter_title($value) {
         $post_id = $this->get_current_object_id();
+        if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
+            return $value;
+        }
         if ($this->otto_has_tag('twitter:title') || ($post_id && $this->metasync_has_title($post_id))) {
             return '';
         }
@@ -698,6 +868,10 @@ class Metasync_SEO_Conflict_Handler {
      * Suppress when: OTTO active + has twitter:description, OR MetaSync has description.
      */
     public function filter_yoast_twitter_description($value) {
+        $post_id = $this->get_current_object_id();
+        if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
+            return $value;
+        }
         if ($this->otto_has_tag('twitter:description') || $this->metasync_has_description()) {
             return '';
         }
@@ -709,6 +883,10 @@ class Metasync_SEO_Conflict_Handler {
      * Suppress when: OTTO active + has any twitter tag.
      */
     public function filter_yoast_twitter_structural($value) {
+        $post_id = $this->get_current_object_id();
+        if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
+            return $value;
+        }
         if ($this->otto_has_tag('twitter:title') || $this->otto_has_tag('twitter:description')) {
             return '';
         }
@@ -773,6 +951,18 @@ class Metasync_SEO_Conflict_Handler {
      * @return string
      */
     public function filter_rankmath_title($title) {
+        $post_id = $this->get_current_object_id();
+        // WP-196: If another plugin is the primary output owner, suppress Rank Math.
+        if ($post_id && $this->has_active_seo_plugin()) {
+            if ($this->is_primary_output_plugin($post_id, 'rankmath')) {
+                return $title;
+            }
+            // Another plugin is primary — suppress this one
+            if ($this->is_primary_output_plugin($post_id, 'yoast') || $this->is_primary_output_plugin($post_id, 'aioseo')) {
+                return '';
+            }
+        }
+
         // Term-level archives (category/tag/custom taxonomy): when MetaSync has
         // an explicit `_metasync_metatitle`, return it so Rank Math renders the
         // MetaSync-managed archive title inside <title>.
@@ -815,6 +1005,16 @@ class Metasync_SEO_Conflict_Handler {
      * @return string
      */
     public function filter_rankmath_description($description) {
+        $post_id = $this->get_current_object_id();
+        if ($post_id && $this->has_active_seo_plugin()) {
+            if ($this->is_primary_output_plugin($post_id, 'rankmath')) {
+                return $description;
+            }
+            if ($this->is_primary_output_plugin($post_id, 'yoast') || $this->is_primary_output_plugin($post_id, 'aioseo')) {
+                return '';
+            }
+        }
+
         // Term archives: MetaSync syncs to Rank Math storage — let it render.
         $term = $this->get_current_term();
         if ($term) {
@@ -874,6 +1074,16 @@ class Metasync_SEO_Conflict_Handler {
      * @return bool True if the legacy output should include a description tag.
      */
     public function should_output_legacy_description() {
+        // WP-196: Post synced to any active plugin — that plugin now owns the
+        // description output from its native storage. Suppress MetaSync's own tag.
+        $post_id = $this->get_current_object_id();
+        if ($post_id && $this->has_active_seo_plugin()) {
+            // If synced to any plugin, a primary output plugin exists — suppress MetaSync's own tag.
+            if ($this->is_post_synced($post_id, 'yoast') || $this->is_post_synced($post_id, 'rankmath') || $this->is_post_synced($post_id, 'aioseo')) {
+                return false;
+            }
+        }
+
         // OTTO active + has description → suppress legacy auto-generated description.
         if ($this->otto_has_tag('description')) {
             return false;

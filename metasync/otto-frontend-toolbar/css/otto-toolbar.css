@@ -216,7 +216,7 @@
 }
 
 /* Preview Button */
-.otto-preview-btn {
+#metasync-otto-debug-bar .otto-preview-btn {
 	background: #3949AB;
 	color: #fff;
 	border: none;
@@ -232,21 +232,23 @@
 	text-decoration: none;
 	line-height: 1.4;
 	height: 38px;
+	box-shadow: none;
 }
 
-.otto-preview-btn:hover {
+#metasync-otto-debug-bar .otto-preview-btn:hover {
 	background: #283593;
 	text-decoration: none;
+	color: #fff;
 }
 
-.otto-preview-btn .dashicons {
+#metasync-otto-debug-bar .otto-preview-btn .dashicons {
 	width: 18px;
 	height: 18px;
 	font-size: 18px;
 }
 
 /* Debug Button */
-.otto-debug-btn {
+#metasync-otto-debug-bar .otto-debug-btn {
 	background: #f0b849;
 	color: #1e1e1e;
 	border: none;
@@ -262,21 +264,23 @@
 	text-decoration: none;
 	line-height: 1.4;
 	height: 38px;
+	box-shadow: none;
 }
 
-.otto-debug-btn:hover {
+#metasync-otto-debug-bar .otto-debug-btn:hover {
 	background: #d9a333;
 	text-decoration: none;
+	color: #1e1e1e;
 }
 
-.otto-debug-btn .dashicons {
+#metasync-otto-debug-bar .otto-debug-btn .dashicons {
 	width: 18px;
 	height: 18px;
 	font-size: 18px;
 }
 
 /* Close Button */
-.otto-close-btn {
+#metasync-otto-debug-bar .otto-close-btn {
 	background: transparent;
 	color: rgba(255, 255, 255, 0.6);
 	border: none;
@@ -293,9 +297,10 @@
 	margin-left: 4px;
 	transition: color 0.2s, background-color 0.2s;
 	flex-shrink: 0;
+	box-shadow: none;
 }
 
-.otto-close-btn:hover {
+#metasync-otto-debug-bar .otto-close-btn:hover {
 	color: #fff;
 	background-color: rgba(255, 255, 255, 0.15);
 }

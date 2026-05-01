@@ -38,7 +38,7 @@ class Google_Index_Admin
         add_action('admin_notices', array($this, 'display_admin_notices'));
         
         // AJAX handlers
-        add_action('wp_ajax_google_index_direct_test', array($this, 'ajax_test_connection'));
+        add_action('wp_ajax_metasync_google_index_direct_test', array($this, 'ajax_test_connection'));
     }
     
     
@@ -280,7 +280,7 @@ class Google_Index_Admin
     public function ajax_test_connection()
     {
         // Check nonce and permissions
-        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'google_index_direct_test') || 
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'metasync_google_index_direct_test') ||
             !Metasync::current_user_has_plugin_access()) {
             wp_die('Security check failed');
         }
@@ -340,7 +340,7 @@ class Google_Index_Admin
      */
     private function get_admin_javascript()
     {
-        $nonce = wp_create_nonce('google_index_direct_test');
+        $nonce = wp_create_nonce('metasync_google_index_direct_test');
         
         return "
         jQuery(document).ready(function($) {
@@ -411,7 +411,7 @@ class Google_Index_Admin
                     url: ajaxurl,
                     type: 'POST',
                     data: {
-                        action: 'google_index_direct_test',
+                        action: 'metasync_google_index_direct_test',
                         nonce: '{$nonce}'
                     },
                     success: function(response) {

@@ -85,7 +85,7 @@ class Metasync_Rest_Api
 
 	public function init_ajax_hooks()
 	{
-		add_action('wp_ajax_metasyn_otto_ajax_action', array($this,'metasyn_otto_ajax'));
+		add_action('wp_ajax_metasync_otto_ajax_action', array($this,'metasyn_otto_ajax'));
 	}
 
 	/**

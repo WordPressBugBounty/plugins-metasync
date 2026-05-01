@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.6.4 
+ * Version:           2.6.5 
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
  * License:           GPL v3
@@ -36,7 +36,7 @@ require_once __DIR__ . '/vendor/autoload.php';
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.6.4';
+$metasync_version = '2.6.5';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -108,6 +108,28 @@ if (!function_exists('metasync_sanitize_input_array')) {
 	}
 }
 
+// Skip heavy MetaSync init on admin-ajax requests that don't target our own actions (Sentry issue 7441226449 / WP-227).
+if (!function_exists('metasync_is_non_metasync_admin_ajax')) {
+	function metasync_is_non_metasync_admin_ajax() {
+		static $result = null;
+		if ($result !== null) {
+			return $result;
+		}
+		if (!defined('DOING_AJAX') || !DOING_AJAX) {
+			return ($result = false);
+		}
+		$action = isset($_POST['action']) ? sanitize_text_field(wp_unslash($_POST['action']))
+				: (isset($_GET['action']) ? sanitize_text_field(wp_unslash($_GET['action'])) : '');
+		if ($action === '') {
+			return ($result = true);
+		}
+		if (strpos($action, 'metasync_') === 0 || strpos($action, 'meta_sync_') === 0 || $action === 'sample-permalink') {
+			return ($result = false);
+		}
+		return ($result = true);
+	}
+}
+
 // Phase 2 — these files have file-level side effects (add_action outside class body)
 // and must remain as explicit require_once until refactored.
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-api-backoff-rest.php';
@@ -116,13 +138,18 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-error-logger
 /**
  * Include the Otto Pixel Php Code
  */
-require_once plugin_dir_path( __FILE__ ) . '/otto/otto_pixel.php';
+if (!metasync_is_non_metasync_admin_ajax()) {
+    require_once plugin_dir_path( __FILE__ ) . '/otto/otto_pixel.php';
+}
 
 
 /**
  * Initialize OTTO Persistence Settings (registers REST API endpoints)
  */
 add_action('init', function() {
+    if (metasync_is_non_metasync_admin_ajax()) {
+        return;
+    }
     Metasync_Otto_Persistence_Settings::init();
 }, 5);
 
@@ -210,7 +237,9 @@ function activate_metasync()
 /**
  * Initialize telemetry system for error monitoring and Sentry integration
  */
-require_once plugin_dir_path(__FILE__) . 'telemetry/telemetry-init.php';
+if (!metasync_is_non_metasync_admin_ajax()) {
+    require_once plugin_dir_path(__FILE__) . 'telemetry/telemetry-init.php';
+}
 
 /**
  * The code that runs during plugin deactivation.
@@ -393,10 +422,14 @@ add_action('upgrader_process_complete', 'metasync_handle_plugin_upgrade', 10, 2)
 // add_action('admin_init', 'metasync_check_whitelabel_on_admin', 1);
 
 // Include Media Optimization Module
-require_once plugin_dir_path(__FILE__) . 'media-optimization/media-optimization-loader.php';
+if (!metasync_is_non_metasync_admin_ajax()) {
+    require_once plugin_dir_path(__FILE__) . 'media-optimization/media-optimization-loader.php';
+}
 
 // Include Code Minification & Delivery Module
-require_once plugin_dir_path(__FILE__) . 'code-minification/code-minification-loader.php';
+if (!metasync_is_non_metasync_admin_ajax()) {
+    require_once plugin_dir_path(__FILE__) . 'code-minification/code-minification-loader.php';
+}
 
 
 function run_metasync()
@@ -414,6 +447,9 @@ run_metasync();
  * Hooked to 'init' for proper WordPress lifecycle integration.
  */
 function metasync_init_mcp_server() {
+	if (metasync_is_non_metasync_admin_ajax()) {
+		return;
+	}
 	// Initialize MCP server
 	global $metasync_mcp_server;
 
@@ -465,11 +501,12 @@ function metasync_init_mcp_server() {
 	$safe_register(new MCP_Tool_Search_By_Keyword());
 	$safe_register(new MCP_Tool_Find_Missing_Meta());
 
-	// Redirect Management (4 tools)
+	// Redirect Management (5 tools)
 	$safe_register(new MCP_Tool_Create_Redirect());
 	$safe_register(new MCP_Tool_List_Redirects());
 	$safe_register(new MCP_Tool_Delete_Redirect());
 	$safe_register(new MCP_Tool_Update_Redirect());
+	$safe_register(new MCP_Tool_Check_Redirects_Health());
 
 	// 404 Error Monitoring (5 tools)
 	$safe_register(new MCP_Tool_List_404_Errors());
@@ -712,6 +749,9 @@ add_action('admin_init', 'metasync_init_analytics', 10);
  * @since 2.7.1
  */
 function metasync_init_api_backoff() {
+	if (metasync_is_non_metasync_admin_ajax()) {
+		return;
+	}
 	// Initialize backoff manager (registers HTTP response filters)
 	Metasync_API_Backoff_Manager::get_instance();
 
@@ -728,6 +768,9 @@ add_action('init', 'metasync_init_api_backoff', 5);
  * @since 2.8.0
  */
 function metasync_init_review_notice() {
+	if (metasync_is_non_metasync_admin_ajax()) {
+		return;
+	}
 	if (is_admin()) {
 		Metasync_Review_Notice::get_instance();
 	}
@@ -754,6 +797,9 @@ if (!function_exists('metasync_get_jwt_token')) {
  * Hooked to 'init' for proper WordPress lifecycle integration
  */
 function metasync_init_debug_mode_manager() {
+	if (metasync_is_non_metasync_admin_ajax()) {
+		return;
+	}
 	// Initialize the Debug Mode Manager singleton
 	Metasync_Debug_Mode_Manager::get_instance();
 }

@@ -173,6 +173,9 @@ class Metasync_Seo_Output
 
 	public function hook_metasync_metatags()
 	{
+		// Remove WordPress core's canonical — MetaSync handles its own.
+		remove_action('wp_head', 'rel_canonical');
+
 		$get_page_meta = get_post_meta(get_the_ID());
 
 		// When a third-party SEO plugin is active, only output our description
@@ -183,21 +186,33 @@ class Metasync_Seo_Output
 
 		$list_page_meta = array();
 
+		// WP-196: When synced to an active SEO plugin, skip MetaSync's own
+		// robots and description output — the native plugin handles it.
+		$post_id = get_the_ID();
+		$is_synced_to_plugin = false;
+		if ($post_id && $conflict_handler->has_active_seo_plugin()) {
+			$sync_ts = get_post_meta($post_id, '_metasync_plugin_sync_ts', true);
+			if (!empty($sync_ts)) {
+				$is_synced_to_plugin = true;
+			}
+		}
+
 		// Robots: resolve from both meta_robots (REST API) and metasync_common_robots (checkbox).
 		// When a third-party SEO plugin is active:
 		//   - MetaSync has robots value  → output ours, AIOSEO suppressed via filter
 		//   - MetaSync has NO value      → skip, let the other plugin handle it
 		// When no third-party plugin → always output if we have a value.
-		$robots_value = $this->resolve_robots_value($get_page_meta);
-		if (!empty($robots_value)) {
-			if (!$conflict_handler->has_active_seo_plugin()) {
-				$list_page_meta['robots'] = $robots_value;
-			} else {
-				// Third-party active but MetaSync has intentional robots — output ours
-				// (the conflict handler filter suppresses the other plugin's robots tag)
-				$post_id = get_the_ID();
-				if ($post_id && $conflict_handler->metasync_has_robots($post_id)) {
+		if (!$is_synced_to_plugin) {
+			$robots_value = $this->resolve_robots_value($get_page_meta);
+			if (!empty($robots_value)) {
+				if (!$conflict_handler->has_active_seo_plugin()) {
 					$list_page_meta['robots'] = $robots_value;
+				} else {
+					// Third-party active but MetaSync has intentional robots — output ours
+					// (the conflict handler filter suppresses the other plugin's robots tag)
+					if ($post_id && $conflict_handler->metasync_has_robots($post_id)) {
+						$list_page_meta['robots'] = $robots_value;
+					}
 				}
 			}
 		}
@@ -549,40 +564,135 @@ class Metasync_Seo_Output
 	}
 
 	/**
-	 * Resolve the robots meta value from both storage formats.
+	 * Resolve the robots meta value from all storage formats.
 	 *
-	 * MetaSync stores robots in two independent meta keys:
-	 *   - meta_robots        (string, e.g. "noindex, nofollow") — set via REST API
-	 *   - metasync_common_robots (array, e.g. ['noindex'=>'noindex']) — set via admin checkbox
+	 * Priority order:
+	 *   1. _metasync_robots_advanced (WP-197 JSON)
+	 *   2. meta_robots (string, e.g. "noindex, nofollow") — set via REST API
+	 *   3. metasync_common_robots (array) + metasync_advance_robots (array) — admin checkboxes
+	 *   4. Global defaults from metasync_options['advance_robots_meta']
 	 *
-	 * Priority: meta_robots string wins if non-empty, then common_robots checkbox.
+	 * The noindex directive is sourced from _metasync_robots_index (separate key)
+	 * and merged into the final string regardless of which storage format is used.
 	 *
 	 * @param  array $all_meta Result of get_post_meta($id) (all meta as arrays).
-	 * @return string Robots directive string (e.g. "noindex, nofollow") or empty.
+	 * @return string Robots directive string (e.g. "nofollow, noarchive, max-snippet:-1") or empty.
 	 */
 	private function resolve_robots_value($all_meta) {
-		// 1. Check meta_robots (REST API / direct string)
+		$directives = [];
+
+		// Merge noindex from _metasync_robots_index (separate key, not part of advanced JSON)
+		$robots_index = $all_meta['_metasync_robots_index'][0] ?? '';
+		if ($robots_index === 'noindex') {
+			$directives[] = 'noindex';
+		}
+
+		// 1. Check _metasync_robots_advanced (WP-197 JSON)
+		$advanced_raw = $all_meta['_metasync_robots_advanced'][0] ?? '';
+		if (!empty($advanced_raw)) {
+			$advanced = json_decode($advanced_raw, true);
+			if (is_array($advanced) && !empty($advanced)) {
+				// Boolean directives
+				foreach (['nofollow', 'noarchive', 'nosnippet', 'noimageindex'] as $dir) {
+					if (!empty($advanced[$dir])) {
+						$directives[] = $dir;
+					}
+				}
+				// max-* directives
+				if (isset($advanced['max_snippet'])) {
+					$directives[] = 'max-snippet:' . (int) $advanced['max_snippet'];
+				}
+				if (isset($advanced['max_image_preview'])) {
+					$directives[] = 'max-image-preview:' . esc_attr($advanced['max_image_preview']);
+				}
+				if (isset($advanced['max_video_preview'])) {
+					$directives[] = 'max-video-preview:' . (int) $advanced['max_video_preview'];
+				}
+				return !empty($directives) ? implode(', ', $directives) : '';
+			}
+		}
+
+		// 2. Check meta_robots (REST API / direct string)
 		$meta_robots = $all_meta['meta_robots'][0] ?? '';
 		if (!empty($meta_robots)) {
+			// Prepend noindex from _metasync_robots_index if not already in the string
+			if (!empty($directives) && stripos($meta_robots, 'noindex') === false) {
+				return implode(', ', $directives) . ', ' . $meta_robots;
+			}
 			return $meta_robots;
 		}
 
-		// 2. Check metasync_common_robots (admin checkbox array)
+		// 3. Check metasync_common_robots (admin checkbox array)
 		$raw = $all_meta['metasync_common_robots'][0] ?? '';
 		if (!empty($raw)) {
 			$common = maybe_unserialize($raw);
 			if (is_array($common) && !empty($common)) {
-				// Build directive string from checked keys (e.g. noindex, nofollow)
-				$directives = array_values(array_filter($common, function ($v) {
+				$common_directives = array_values(array_filter($common, function ($v) {
 					return !empty($v);
 				}));
-				if (!empty($directives)) {
-					return implode(', ', $directives);
+				$directives = array_merge($directives, $common_directives);
+			}
+		}
+
+		// Also check metasync_advance_robots (admin per-post advanced checkboxes)
+		// Structure: ['max-snippet' => ['enable' => '1', 'length' => 100], ...]
+		$adv_raw = $all_meta['metasync_advance_robots'][0] ?? '';
+		if (!empty($adv_raw)) {
+			$adv = maybe_unserialize($adv_raw);
+			if (is_array($adv)) {
+				if (!empty($adv['max-snippet']['enable'])) {
+					$length = isset($adv['max-snippet']['length']) ? (int) $adv['max-snippet']['length'] : -1;
+					$directives[] = 'max-snippet:' . $length;
+				}
+				if (!empty($adv['max-video-preview']['enable'])) {
+					$length = isset($adv['max-video-preview']['length']) ? (int) $adv['max-video-preview']['length'] : -1;
+					$directives[] = 'max-video-preview:' . $length;
+				}
+				if (!empty($adv['max-image-preview']['enable'])) {
+					$length = isset($adv['max-image-preview']['length']) ? sanitize_text_field($adv['max-image-preview']['length']) : 'large';
+					$directives[] = 'max-image-preview:' . $length;
 				}
 			}
 		}
 
-		return '';
+		if (!empty($directives)) {
+			return implode(', ', array_unique($directives));
+		}
+
+		// 4. Global defaults from metasync_options['advance_robots_meta']
+		$global_options = Metasync::get_option('advance_robots_meta');
+		if (empty($global_options)) {
+			$global_options = Metasync::get_option('advance_robots_mata');
+		}
+		if (is_array($global_options)) {
+			if (!empty($global_options['max-snippet']['enable'])) {
+				$length = isset($global_options['max-snippet']['length']) ? (int) $global_options['max-snippet']['length'] : -1;
+				$directives[] = 'max-snippet:' . $length;
+			}
+			if (!empty($global_options['max-video-preview']['enable'])) {
+				$length = isset($global_options['max-video-preview']['length']) ? (int) $global_options['max-video-preview']['length'] : -1;
+				$directives[] = 'max-video-preview:' . $length;
+			}
+			if (!empty($global_options['max-image-preview']['enable'])) {
+				$length = isset($global_options['max-image-preview']['length']) ? sanitize_text_field($global_options['max-image-preview']['length']) : 'large';
+				$directives[] = 'max-image-preview:' . $length;
+			}
+		}
+
+		// AC-1: max-image-preview:large outputs by default even with no configuration.
+		// If no per-post or global setting included max-image-preview, apply the default.
+		$has_max_image = false;
+		foreach ($directives as $d) {
+			if (strpos($d, 'max-image-preview') !== false) {
+				$has_max_image = true;
+				break;
+			}
+		}
+		if (!$has_max_image) {
+			$directives[] = 'max-image-preview:large';
+		}
+
+		return !empty($directives) ? implode(', ', array_unique($directives)) : '';
 	}
 
 	/**

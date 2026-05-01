@@ -69,6 +69,18 @@ class MCP_Tool_Create_Redirect extends MCP_Tool_Base {
         // Parse source to get path
         $source_path = parse_url($source, PHP_URL_PATH) ?: $source;
 
+        // Loop detection — refuse to create a redirect whose chain resolves back to the source
+        require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'redirections/class-metasync-redirection.php';
+        $db_ref = $db;
+        $redirection_helper = new Metasync_Redirection($db_ref);
+        $loop_chain = [];
+        if ($redirection_helper->would_create_loop($source_path, $destination, $loop_chain)) {
+            return [
+                'error' => 'loop_detected',
+                'chain' => $loop_chain,
+            ];
+        }
+
         // Create redirect
         $result = $db->add([
             'sources_from' => [$source_path],

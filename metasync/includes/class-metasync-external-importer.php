@@ -789,6 +789,24 @@ class Metasync_External_Importer
                 }
             }
 
+            // WP-197: Also write to _metasync_robots_advanced JSON
+            $robots_advanced = [];
+            if (!empty($yoast_adv)) {
+                $adv_directives = array_map('trim', explode(',', $yoast_adv));
+                foreach (['noarchive', 'nosnippet', 'noimageindex'] as $dir) {
+                    if (in_array($dir, $adv_directives, true)) {
+                        $robots_advanced[$dir] = true;
+                    }
+                }
+            }
+            // nofollow from Yoast
+            if ($yoast_nofollow === '1') {
+                $robots_advanced['nofollow'] = true;
+            }
+            if (!empty($robots_advanced)) {
+                update_post_meta($post_id, '_metasync_robots_advanced', wp_json_encode($robots_advanced));
+            }
+
             // Import canonical URL
             $yoast_canonical = get_post_meta($post_id, '_yoast_wpseo_canonical', true);
             if (!empty($yoast_canonical)) {
@@ -862,6 +880,35 @@ class Metasync_External_Importer
                 }
             }
 
+            // WP-197: Parse max-* values and write _metasync_robots_advanced JSON
+            $robots_advanced = [];
+            // Boolean directives from rank_math_robots
+            if (is_array($rm_robots)) {
+                foreach (['nofollow', 'noarchive', 'nosnippet', 'noimageindex'] as $dir) {
+                    if (in_array($dir, $rm_robots, true)) {
+                        $robots_advanced[$dir] = true;
+                    }
+                }
+            }
+            // max-* directives from rank_math_advanced_robots
+            if (is_array($rm_adv_robots)) {
+                foreach ($rm_adv_robots as $key => $value) {
+                    // Values are formatted like "max-snippet:-1"
+                    if (strpos($key, 'max-snippet') !== false && strpos($value, ':') !== false) {
+                        $robots_advanced['max_snippet'] = (int) explode(':', $value)[1];
+                    }
+                    if (strpos($key, 'max-image-preview') !== false && strpos($value, ':') !== false) {
+                        $robots_advanced['max_image_preview'] = explode(':', $value)[1];
+                    }
+                    if (strpos($key, 'max-video-preview') !== false && strpos($value, ':') !== false) {
+                        $robots_advanced['max_video_preview'] = (int) explode(':', $value)[1];
+                    }
+                }
+            }
+            if (!empty($robots_advanced)) {
+                update_post_meta($post_id, '_metasync_robots_advanced', wp_json_encode($robots_advanced));
+            }
+
             // Import canonical URL
             $rm_canonical = get_post_meta($post_id, 'rank_math_canonical_url', true);
             if (!empty($rm_canonical)) {
@@ -906,6 +953,7 @@ class Metasync_External_Importer
         $posts = $wpdb->get_results("
             SELECT post_id, robots_default, robots_noindex, robots_nofollow,
                    robots_noarchive, robots_nosnippet, robots_noimageindex,
+                   robots_max_snippet, robots_max_imagepreview, robots_max_videopreview,
                    canonical_url
             FROM {$aioseo_table}
             WHERE post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
@@ -952,6 +1000,28 @@ class Metasync_External_Importer
                     $metasync_robots['noimageindex'] = 'noimageindex';
                     $has_changes = true;
                 }
+            }
+
+            // WP-197: Write _metasync_robots_advanced JSON
+            $robots_advanced = [];
+            if ($aioseo_data->robots_default == 0) {
+                if ($aioseo_data->robots_nofollow == 1) $robots_advanced['nofollow'] = true;
+                if ($aioseo_data->robots_noarchive == 1) $robots_advanced['noarchive'] = true;
+                if ($aioseo_data->robots_nosnippet == 1) $robots_advanced['nosnippet'] = true;
+                if ($aioseo_data->robots_noimageindex == 1) $robots_advanced['noimageindex'] = true;
+            }
+            if (isset($aioseo_data->robots_max_snippet) && is_numeric($aioseo_data->robots_max_snippet)) {
+                $robots_advanced['max_snippet'] = (int) $aioseo_data->robots_max_snippet;
+            }
+            if (!empty($aioseo_data->robots_max_imagepreview)) {
+                $robots_advanced['max_image_preview'] = $aioseo_data->robots_max_imagepreview;
+            }
+            if (isset($aioseo_data->robots_max_videopreview) && is_numeric($aioseo_data->robots_max_videopreview)) {
+                $robots_advanced['max_video_preview'] = (int) $aioseo_data->robots_max_videopreview;
+            }
+            if (!empty($robots_advanced)) {
+                update_post_meta($post_id, '_metasync_robots_advanced', wp_json_encode($robots_advanced));
+                $has_changes = true;
             }
 
             // Import canonical URL

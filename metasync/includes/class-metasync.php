@@ -215,25 +215,26 @@ class Metasync
 		# Redirection import AJAX handler
 		$redirection_handler = new Metasync_Redirection($this->db_redirection);
 		$this->loader->add_action('wp_ajax_metasync_import_redirections', $redirection_handler, 'handle_import_ajax');
-		
+		$this->loader->add_action('wp_ajax_metasync_check_redirects_health', $redirection_handler, 'handle_health_check_ajax');
+
 		// HeartBeat API Receive Respond and Settings.
 		$this->loader->add_action('heartbeat_settings', $plugin_admin, 'metasync_heartbeat_settings');
 		$this->loader->add_action('heartbeat_received', $plugin_admin, 'metasync_received_data', 10, 2);
-		$this->loader->add_action('wp_ajax_lgSendCustomerParams', $plugin_admin, 'lgSendCustomerParams');
+		$this->loader->add_action('wp_ajax_metasync_send_customer_params', $plugin_admin, 'lgSendCustomerParams');
 		
 		// Search Atlas Connect endpoints - authenticates with Search Atlas platform to retrieve SA API key and Otto UUID
-		$this->loader->add_action('wp_ajax_generate_searchatlas_connect_url', $plugin_admin, 'generate_searchatlas_connect_url');
-		$this->loader->add_action('wp_ajax_check_searchatlas_connect_status', $plugin_admin, 'check_searchatlas_connect_status');
-		$this->loader->add_action('wp_ajax_reset_searchatlas_authentication', $plugin_admin, 'reset_searchatlas_authentication');
+		$this->loader->add_action('wp_ajax_metasync_generate_connect_url', $plugin_admin, 'generate_searchatlas_connect_url');
+		$this->loader->add_action('wp_ajax_metasync_check_connect_status', $plugin_admin, 'check_searchatlas_connect_status');
+		$this->loader->add_action('wp_ajax_metasync_reset_authentication', $plugin_admin, 'reset_searchatlas_authentication');
 
 		// Auto-update filter
 		$this->loader->add_filter('auto_update_plugin', $plugin_admin, 'control_plugin_auto_updates', 10, 2);
 
 		// Search Atlas Connect development/testing endpoints
-		$this->loader->add_action('wp_ajax_test_enhanced_searchatlas_tokens', $plugin_admin, 'test_enhanced_searchatlas_tokens');
-		$this->loader->add_action('wp_ajax_test_whitelabel_domain', $plugin_admin, 'test_whitelabel_domain');
-		$this->loader->add_action('wp_ajax_test_searchatlas_ajax_endpoint', $plugin_admin, 'test_searchatlas_ajax_endpoint');
-		$this->loader->add_action('wp_ajax_simple_ajax_test', $plugin_admin, 'simple_ajax_test');
+		$this->loader->add_action('wp_ajax_metasync_test_enhanced_tokens', $plugin_admin, 'test_enhanced_searchatlas_tokens');
+		$this->loader->add_action('wp_ajax_metasync_test_whitelabel_domain', $plugin_admin, 'test_whitelabel_domain');
+		$this->loader->add_action('wp_ajax_metasync_test_ajax_endpoint', $plugin_admin, 'test_searchatlas_ajax_endpoint');
+		$this->loader->add_action('wp_ajax_metasync_simple_ajax_test', $plugin_admin, 'simple_ajax_test');
 
 
 		$post_meta_setting = new Metasync_Post_Meta_Settings();
@@ -338,6 +339,11 @@ class Metasync
 		$this->loader->add_action('updated_term_meta', $this, 'on_term_meta_updated', 10, 4);
 		$this->loader->add_action('added_term_meta', $this, 'on_term_meta_updated', 10, 4);
 
+		// Post-level plugin sync (WP-196): propagate MetaSync post meta into
+		// Yoast/Rank Math/AIOSEO post storage on every write.
+		$this->loader->add_action('updated_post_meta', $this, 'on_post_meta_updated', 10, 4);
+		$this->loader->add_action('added_post_meta', $this, 'on_post_meta_updated', 10, 4);
+
 		// SEO Output hooks (Metasync_Seo_Output)
 		$this->loader->add_action('wp_head', $seo_output, 'hook_metasync_metatags', 1, 1);
 		$this->loader->add_action('template_redirect', $seo_output, 'inject_archive_seo_controls');
@@ -384,7 +390,7 @@ class Metasync
 		// REST API hooks (Metasync_Rest_Api)
 		$this->loader->add_action('rest_api_init', $rest_api, 'metasync_register_rest_routes');
 		$this->loader->add_action('init', $plugin_public, 'metasync_plugin_init', 5);
-		$this->loader->add_action('wp_ajax_lglogin', $rest_api, 'linkgraph_login');
+		$this->loader->add_action('wp_ajax_metasync_lglogin', $rest_api, 'linkgraph_login');
 
 		// Robots meta filter (Metasync_Seo_Output)
 		$this->loader->add_filter('wp_robots', $seo_output, 'metasync_wp_robots_meta');
@@ -566,6 +572,27 @@ class Metasync
 			(string) $term->taxonomy,
 			[$canonical_key => $meta_value]
 		);
+	}
+
+	/**
+	 * Post meta update hook: mirror MetaSync post meta (`_metasync_*`)
+	 * into the active third-party SEO plugins' post storage.
+	 *
+	 * Registered on both `updated_post_meta` and `added_post_meta` so new
+	 * fields are synced the first time they are written as well as on
+	 * subsequent updates.
+	 *
+	 * @param int    $meta_id    Meta row ID (unused).
+	 * @param int    $post_id    Post ID.
+	 * @param string $meta_key   Meta key being written.
+	 * @param mixed  $meta_value Meta value being written.
+	 */
+	public function on_post_meta_updated($meta_id, $post_id, $meta_key, $meta_value) {
+		if (!class_exists('Metasync_Plugin_Sync')) {
+			return;
+		}
+
+		Metasync_Plugin_Sync::get_instance()->on_meta_updated($meta_id, $post_id, $meta_key, $meta_value);
 	}
 
 	/**

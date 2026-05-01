@@ -282,10 +282,10 @@ class Metasync_Admin
         // Add AJAX for saving edge cache / CDN settings
         add_action( 'wp_ajax_metasync_save_edge_cache_settings', array('Metasync_Edge_Cache_Settings', 'ajax_save') );
         // Add AJAX handler for Plugin Auth Token refresh
-        add_action('wp_ajax_refresh_plugin_auth_token', array($this, 'refresh_plugin_auth_token'));
+        add_action('wp_ajax_metasync_refresh_plugin_auth_token', array($this, 'refresh_plugin_auth_token'));
         
         // Add AJAX handler to get current Plugin Auth Token (for UI updates)
-        add_action('wp_ajax_get_plugin_auth_token', array($this, 'get_plugin_auth_token'));
+        add_action('wp_ajax_metasync_get_plugin_auth_token', array($this, 'get_plugin_auth_token'));
         
         // Add AJAX handler for creating redirects from 404 suggestions
         add_action('wp_ajax_metasync_create_redirect_from_404', array($this, 'ajax_create_redirect_from_404'));
@@ -360,10 +360,10 @@ class Metasync_Admin
         add_action('metasync_media_batch_optimize_cron', array($this, 'handle_media_batch_cron'));
 
         # Add AJAX handlers for Google Instant Indexing
-        add_action('wp_ajax_send_giapi', array($this, 'ajax_send_giapi'));
+        add_action('wp_ajax_metasync_send_giapi', array($this, 'ajax_send_giapi'));
 
         # Add AJAX handlers for Bing Instant Indexing (IndexNow)
-        add_action('wp_ajax_send_bing_indexnow', array($this, 'ajax_send_bing_indexnow'));
+        add_action('wp_ajax_metasync_send_bing_indexnow', array($this, 'ajax_send_bing_indexnow'));
 
         # Add hooks for instant indexing settings saves
         add_action('admin_init', array($this, 'save_instant_indexing_settings'));
@@ -919,6 +919,10 @@ class Metasync_Admin
                 $this->version,
                 true
             );
+            wp_localize_script($this->plugin_name . '-redirections', 'metasyncHealthCheck', array(
+                'ajaxUrl'     => admin_url('admin-ajax.php'),
+                'healthNonce' => wp_create_nonce('metasync_redirect_health_check'),
+            ));
         }
         // --- Phase 5 Part B: Extracted inline JS with wp_localize_script ---
 
@@ -1221,8 +1225,8 @@ class Metasync_Admin
                     button.prop('disabled', true).text('🔄 Refreshing...');
                     
                     $.post(ajaxurl, {
-                        action: 'refresh_plugin_auth_token',
-                        nonce: '" . wp_create_nonce('refresh_plugin_auth_token') . "'
+                        action: 'metasync_refresh_plugin_auth_token',
+                        nonce: '" . wp_create_nonce('metasync_refresh_plugin_auth_token') . "'
                     })
                     .done(function(response) {
                         if (response.success && response.data && response.data.new_token) {

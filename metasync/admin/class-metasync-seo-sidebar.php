@@ -49,6 +49,16 @@ class Metasync_SEO_Sidebar {
     const META_HREFLANG = '_metasync_hreflang';
 
     /**
+     * Meta key for plugin sync timestamps (JSON-encoded object keyed by plugin slug)
+     */
+    const META_PLUGIN_SYNC_TS = '_metasync_plugin_sync_ts';
+
+    /**
+     * Meta key for advanced robots directives (JSON-encoded object)
+     */
+    const META_ROBOTS_ADVANCED = '_metasync_robots_advanced';
+
+    /**
      * Constructor
      *
      * @param string $version Plugin version
@@ -178,6 +188,16 @@ class Metasync_SEO_Sidebar {
         $post_id = get_the_ID();
         if (!$post_id) {
             return;
+        }
+
+        // WP-196: When synced to an active SEO plugin, that plugin outputs
+        // the description from its native storage — skip MetaSync's own tag.
+        $conflict_handler = Metasync_SEO_Conflict_Handler::get_instance();
+        if ($conflict_handler->has_active_seo_plugin()) {
+            $sync_ts = get_post_meta($post_id, '_metasync_plugin_sync_ts', true);
+            if (!empty($sync_ts)) {
+                return;
+            }
         }
 
         // Get the custom SEO description (takes priority)
@@ -367,6 +387,51 @@ class Metasync_SEO_Sidebar {
                         return '[]';
                     }
                     return wp_json_encode($decoded);
+                },
+                'auth_callback' => function() {
+                    return current_user_can('edit_posts');
+                },
+            ));
+
+            // Register plugin sync timestamp meta (WP-196)
+            register_post_meta($post_type, self::META_PLUGIN_SYNC_TS, array(
+                'show_in_rest' => true,
+                'single' => true,
+                'type' => 'string',
+                'auth_callback' => function() {
+                    return current_user_can('edit_posts');
+                },
+            ));
+
+            // Register advanced robots directives meta (WP-197)
+            register_post_meta($post_type, self::META_ROBOTS_ADVANCED, array(
+                'show_in_rest' => true,
+                'single' => true,
+                'type' => 'string',
+                'sanitize_callback' => function($value) {
+                    $decoded = json_decode($value, true);
+                    if (!is_array($decoded)) {
+                        return '{}';
+                    }
+                    $allowed_bool = ['nofollow', 'noarchive', 'nosnippet', 'noimageindex'];
+                    $sanitized = [];
+                    foreach ($allowed_bool as $key) {
+                        if (isset($decoded[$key])) {
+                            $sanitized[$key] = (bool) $decoded[$key];
+                        }
+                    }
+                    if (isset($decoded['max_snippet'])) {
+                        $sanitized['max_snippet'] = (int) $decoded['max_snippet'];
+                    }
+                    if (isset($decoded['max_image_preview'])) {
+                        $allowed = ['none', 'standard', 'large'];
+                        $sanitized['max_image_preview'] = in_array($decoded['max_image_preview'], $allowed, true)
+                            ? $decoded['max_image_preview'] : 'large';
+                    }
+                    if (isset($decoded['max_video_preview'])) {
+                        $sanitized['max_video_preview'] = (int) $decoded['max_video_preview'];
+                    }
+                    return wp_json_encode($sanitized);
                 },
                 'auth_callback' => function() {
                     return current_user_can('edit_posts');
@@ -574,6 +639,15 @@ class Metasync_SEO_Sidebar {
                 'primaryProductCat' => self::META_PRIMARY_PRODUCT_CAT,
                 // Language alternates (hreflang) — JSON-encoded array
                 'hreflang' => self::META_HREFLANG,
+                // Plugin sync timestamp (WP-196)
+                'pluginSyncTs' => self::META_PLUGIN_SYNC_TS,
+                // Advanced robots directives (WP-197)
+                'robotsAdvanced' => self::META_ROBOTS_ADVANCED,
+            ),
+            'activeSeoPlugins' => array(
+                'yoast'    => defined('WPSEO_VERSION'),
+                'rankmath' => defined('RANK_MATH_VERSION'),
+                'aioseo'   => defined('AIOSEO_VERSION') || class_exists('AIOSEO\\Plugin\\AIOSEO'),
             ),
             'wpmlEntries' => $wpml_entries,
             'hasMetaKeys' => array(
@@ -639,6 +713,25 @@ class Metasync_SEO_Sidebar {
                 'urlLabel' => __('URL', 'metasync'),
                 'editManually' => __('Edit Manually', 'metasync'),
                 'wpmlAutoPopulated' => __('Auto-populated from WPML. Click Edit Manually to override.', 'metasync'),
+                // Advanced Robots Directives (WP-197)
+                'robotsAdvancedTitle' => __('Advanced Robots Directives', 'metasync'),
+                'nofollowLabel' => __('Nofollow', 'metasync'),
+                'nofollowHelp' => __('Prevent search engines from following links on this page.', 'metasync'),
+                'noarchiveLabel' => __('Noarchive', 'metasync'),
+                'noarchiveHelp' => __('Prevent search engines from showing cached versions.', 'metasync'),
+                'nosnippetLabel' => __('Nosnippet', 'metasync'),
+                'nosnippetHelp' => __('Prevent search engines from showing text snippets.', 'metasync'),
+                'noimageindexLabel' => __('No Image Index', 'metasync'),
+                'noimageindexHelp' => __('Prevent this page from appearing as image search referrer.', 'metasync'),
+                'maxSnippetLabel' => __('Max Snippet Length', 'metasync'),
+                'maxSnippetHelp' => __('Maximum character length for text snippets. -1 for unlimited.', 'metasync'),
+                'maxImagePreviewLabel' => __('Max Image Preview', 'metasync'),
+                'maxImagePreviewHelp' => __('Maximum size of image preview in search results.', 'metasync'),
+                // Plugin Sync Status (WP-196)
+                'syncStatusTitle'  => __('Plugin Sync Status', 'metasync'),
+                'syncedTo'         => __('Synced to:', 'metasync'),
+                'syncNever'        => __('Never synced', 'metasync'),
+                'syncAgo'          => __('ago', 'metasync'),
             ),
         ));
     }

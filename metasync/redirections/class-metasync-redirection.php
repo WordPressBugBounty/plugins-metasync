@@ -24,14 +24,75 @@ class Metasync_Redirection
     private $db_redirection;
     private $common;
     private $importer;
+
+    /** @var array|null Lazy-built exact-match lookup: normalized_path => row object */
+    private $exact_index = null;
+    /** @var array|null Pattern-based rows (wildcard, regex, contain, start, end) */
+    private $pattern_index = null;
+
     public function __construct(&$db_redirection)
     {
         $this->db_redirection = $db_redirection;
         $this->common = new Metasync_Common();
-        
+
         # Load importer class
         require_once dirname(__FILE__) . '/class-metasync-redirection-importer.php';
         $this->importer = new Metasync_Redirection_Importer($db_redirection);
+    }
+
+    /**
+     * Build the redirect lookup index (lazy, once per request).
+     * Exact-match sources go into a hashmap for O(1) lookup.
+     * Pattern-based sources (wildcard, regex, contain, start, end) stay in a list.
+     */
+    private function ensure_redirect_index()
+    {
+        if ($this->exact_index !== null) {
+            return;
+        }
+
+        $this->exact_index = array();
+        $this->pattern_index = array();
+
+        $redirections = $this->db_redirection->getAllActiveRecords();
+        if (empty($redirections)) {
+            return;
+        }
+
+        foreach ($redirections as $row) {
+            $sources_from = !empty($row->sources_from)
+                ? unserialize($row->sources_from, array('allowed_classes' => false))
+                : array();
+            $source_urls = is_array($sources_from) ? $sources_from : array();
+            $global_pattern_type = isset($row->pattern_type) ? $row->pattern_type : null;
+            $is_pattern = false;
+
+            foreach ($source_urls as $source_key => $source_value) {
+                $pattern_type = in_array($source_value, array('exact', 'contain', 'start', 'end', 'wildcard', 'regex'))
+                    ? $source_value
+                    : ($global_pattern_type ? $global_pattern_type : 'exact');
+
+                if ($pattern_type === 'exact' && strpos((string) $source_key, '*') === false) {
+                    // Normalize: extract path from full URLs, ensure leading slash, strip trailing slash
+                    $norm = (string) $source_key;
+                    if (strpos($norm, 'http') === 0) {
+                        $parsed = parse_url($norm);
+                        $norm = isset($parsed['path']) ? $parsed['path'] : '/';
+                    }
+                    if ($norm === '' || $norm[0] !== '/') {
+                        $norm = '/' . $norm;
+                    }
+                    $norm = rtrim($norm, '/') ?: '/';
+                    $this->exact_index[$norm] = $row;
+                } else {
+                    $is_pattern = true;
+                }
+            }
+
+            if ($is_pattern) {
+                $this->pattern_index[] = $row;
+            }
+        }
     }
 
     function contains($haystack, $needle, $caseSensitive = false)
@@ -160,6 +221,10 @@ class Metasync_Redirection
             if (!empty($normalized_uri) && $normalized_uri[0] !== '/') {
                 $normalized_uri = '/' . $normalized_uri;
             }
+
+            // Normalize trailing slashes so /path and /path/ match equivalently
+            $normalized_source = rtrim($normalized_source, '/') ?: '/';
+            $normalized_uri = rtrim($normalized_uri, '/') ?: '/';
 
             // Keep full URI path for matching (don't strip leading slash)
             // This allows matching against full URLs like /wordpress/index.php/category/article/*
@@ -365,6 +430,279 @@ class Metasync_Redirection
     }
 
     /**
+     * Determine whether creating a redirect from $source to $destination would
+     * produce a redirect loop or chain longer than the configured hop budget.
+     *
+     * Read-only: no DB writes, no side effects. Reuses
+     * get_redirect_destination_for_uri() so chain traversal matches the read path.
+     *
+     * @param string     $source      Source URL or path being created
+     * @param string     $destination Destination URL or path being created
+     * @param array|null $chain       Out param populated with the visited URI chain
+     * @param int|null   $max_hops    Optional hop budget; defaults to filter `metasync_redirect_loop_max_hops` (5)
+     * @return bool True if a loop or budget overrun is detected
+     */
+    public function would_create_loop($source, $destination, &$chain = null, $max_hops = null)
+    {
+        if ($max_hops === null) {
+            $max_hops = (int) apply_filters('metasync_redirect_loop_max_hops', 5);
+        }
+        if ($max_hops < 1) {
+            $max_hops = 1;
+        }
+
+        $source_uri = $this->normalize_uri_path($source);
+        $current = $this->normalize_uri_path($destination);
+        $chain = array($source_uri, $current);
+
+        // Trivial direct loop: redirect points back at itself
+        if ($current === $source_uri) {
+            return true;
+        }
+
+        $seen = array();
+        for ($i = 0; $i < $max_hops; $i++) {
+            if (isset($seen[$current])) {
+                // Pre-existing cycle that does not involve the new source — not our concern
+                return false;
+            }
+            $seen[$current] = true;
+
+            // Try matching with and without trailing slash to handle inconsistent storage
+            $dest = $this->get_redirect_destination_for_uri($current);
+            if ($dest === null) {
+                $alt = (substr($current, -1) === '/') ? rtrim($current, '/') : $current . '/';
+                if ($alt !== '' && $alt !== $current) {
+                    $dest = $this->get_redirect_destination_for_uri($alt);
+                }
+            }
+            if ($dest === null) {
+                return false;
+            }
+
+            $current = $this->normalize_uri_path($dest);
+
+            $chain[] = $current;
+
+            if ($current === $source_uri) {
+                return true;
+            }
+        }
+
+        // Hop budget exhausted without resolving — treat as a loop-equivalent warning
+        return true;
+    }
+
+    /**
+     * Normalise a URL or path to a leading-slash URI path used for chain comparison.
+     *
+     * @param string $url
+     * @return string
+     */
+    private function normalize_uri_path($url)
+    {
+        if (!is_string($url) || $url === '') {
+            return '/';
+        }
+        if (strpos($url, 'http') === 0) {
+            $parsed = parse_url($url);
+            $path = isset($parsed['path']) ? $parsed['path'] : '/';
+        } else {
+            $path = $url;
+        }
+        if ($path === '' || $path[0] !== '/') {
+            $path = '/' . $path;
+        }
+        $path = rtrim($path, '/') ?: '/';
+        return $path;
+    }
+
+    /**
+     * Check health of one or all active redirects.
+     *
+     * Returns per-redirect diagnostics: loop, chain_too_long, dead_end, or ok.
+     * Uses a prebuilt lookup index for O(1) exact-match chain walking instead
+     * of re-scanning all records per hop.
+     *
+     * @param int|null $redirect_id Optional single redirect ID to check.
+     * @param int      $max_hops    Hops beyond which a chain is flagged (default 3).
+     * @return array Array of health result objects.
+     */
+    public function check_redirect_health($redirect_id = null, $max_hops = 3)
+    {
+        // Preload all active records once and build a lookup index
+        $all_records = $this->db_redirection->getAllActiveRecords();
+        $exact_map = array();     // normalized_path => destination (O(1) lookup)
+        $pattern_rows = array();  // non-exact rows requiring linear scan
+
+        foreach ($all_records as $row) {
+            if (isset($row->http_code) && in_array((int) $row->http_code, array(410, 451), true)) {
+                continue;
+            }
+            if (empty($row->url_redirect_to)) {
+                continue;
+            }
+            $sources_from = !empty($row->sources_from)
+                ? unserialize($row->sources_from, array('allowed_classes' => false))
+                : array();
+            $source_urls = is_array($sources_from) ? $sources_from : array();
+            $global_pattern_type = isset($row->pattern_type) ? $row->pattern_type : null;
+
+            foreach ($source_urls as $source_key => $source_value) {
+                $pattern_type = in_array($source_value, array('exact', 'contain', 'start', 'end', 'wildcard', 'regex'))
+                    ? $source_value
+                    : ($global_pattern_type ? $global_pattern_type : 'exact');
+
+                if ($pattern_type === 'exact' && strpos((string) $source_key, '*') === false) {
+                    $norm = $this->normalize_uri_path($source_key);
+                    $exact_map[$norm] = $row->url_redirect_to;
+                } else {
+                    $pattern_rows[] = $row;
+                    break; // row already added, no need to check other sources
+                }
+            }
+        }
+
+        // Determine which records to check
+        if ($redirect_id !== null) {
+            $record = $this->db_redirection->find((int) $redirect_id);
+            $records = $record ? array($record) : array();
+        } else {
+            $records = $all_records;
+        }
+
+        $results = array();
+
+        foreach ($records as $row) {
+            $id = isset($row->id) ? (int) $row->id : 0;
+            $destination = isset($row->url_redirect_to) ? $row->url_redirect_to : '';
+            $http_code = isset($row->http_code) ? (int) $row->http_code : 301;
+
+            // Extract first source path for display
+            $sources_from = !empty($row->sources_from)
+                ? unserialize($row->sources_from, array('allowed_classes' => false))
+                : array();
+            $source_keys = is_array($sources_from) ? array_keys($sources_from) : array();
+            $source = !empty($source_keys) ? $source_keys[0] : '';
+            $source_path = $this->normalize_uri_path($source);
+
+            // 410/451 have no destination — always ok
+            if (in_array($http_code, array(410, 451), true)) {
+                $results[] = array(
+                    'id'                => $id,
+                    'source'            => $source_path,
+                    'destination'       => $destination,
+                    'final_destination' => null,
+                    'chain_length'      => 0,
+                    'chain'             => array($source_path),
+                    'status'            => 'ok',
+                );
+                continue;
+            }
+
+            // Walk chain using the prebuilt index
+            $current = $this->normalize_uri_path($destination);
+            $chain = array($source_path, $current);
+            $seen = array();
+            $is_loop = false;
+            $hard_limit = 20;
+
+            for ($i = 0; $i < $hard_limit; $i++) {
+                if (isset($seen[$current])) {
+                    $is_loop = true;
+                    break;
+                }
+                $seen[$current] = true;
+
+                // O(1) exact-match lookup first
+                $dest = isset($exact_map[$current]) ? $exact_map[$current] : null;
+                if ($dest === null) {
+                    // Try trailing slash variant
+                    $alt = (substr($current, -1) === '/') ? rtrim($current, '/') : $current . '/';
+                    if ($alt !== '' && $alt !== $current) {
+                        $dest = isset($exact_map[$alt]) ? $exact_map[$alt] : null;
+                    }
+                }
+                // Fallback: scan pattern-based rows only (small set)
+                if ($dest === null && !empty($pattern_rows)) {
+                    foreach ($pattern_rows as $prow) {
+                        $dest = $this->get_destination_for_row_and_uri($prow, $current);
+                        if ($dest !== null) {
+                            break;
+                        }
+                        // Try trailing slash alt for patterns too
+                        if (isset($alt)) {
+                            $dest = $this->get_destination_for_row_and_uri($prow, $alt);
+                            if ($dest !== null) {
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if ($dest === null) {
+                    break;
+                }
+
+                $current = $this->normalize_uri_path($dest);
+                $chain[] = $current;
+            }
+
+            // Classify: loop > chain_too_long > dead_end > ok
+            $chain_hops = count($chain) - 1;
+            if ($is_loop) {
+                $status = 'loop';
+            } elseif ($chain_hops > $max_hops) {
+                $status = 'chain_too_long';
+            } else {
+                // Check if terminal destination resolves to a real page
+                $is_dead = false;
+                if (function_exists('url_to_postid')) {
+                    $post_id = url_to_postid(site_url($current));
+                    if ($post_id === 0) {
+                        $post_id = url_to_postid(site_url($current . '/'));
+                    }
+                    $is_dead = ($post_id === 0);
+                }
+                $status = $is_dead ? 'dead_end' : 'ok';
+            }
+
+            $results[] = array(
+                'id'                => $id,
+                'source'            => $source_path,
+                'destination'       => $this->normalize_uri_path($destination),
+                'final_destination' => $current,
+                'chain_length'      => $chain_hops,
+                'chain'             => $chain,
+                'status'            => $status,
+            );
+        }
+
+        return $results;
+    }
+
+    /**
+     * Handle AJAX health check request from admin UI.
+     */
+    public function handle_health_check_ajax()
+    {
+        check_ajax_referer('metasync_redirect_health_check', 'nonce');
+
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(array('message' => 'Insufficient permissions.'));
+            return;
+        }
+
+        $redirect_id = isset($_POST['redirect_id']) ? intval($_POST['redirect_id']) : null;
+        if ($redirect_id === 0) {
+            $redirect_id = null;
+        }
+
+        $results = $this->check_redirect_health($redirect_id);
+        wp_send_json_success(array('results' => $results));
+    }
+
+    /**
      * Get destination for a single row and URI if it matches. Same matching logic as source_url_redirection.
      *
      * @param object $row Redirect row
@@ -404,6 +742,10 @@ class Metasync_Redirection
             if (!empty($normalized_uri) && $normalized_uri[0] !== '/') {
                 $normalized_uri = '/' . $normalized_uri;
             }
+
+            // Normalize trailing slashes so /path and /path/ match equivalently
+            $normalized_source = rtrim($normalized_source, '/') ?: '/';
+            $normalized_uri = rtrim($normalized_uri, '/') ?: '/';
 
             // --- Matching: regex, wildcard, or legacy pattern types ---
 
@@ -563,19 +905,26 @@ class Metasync_Redirection
         // Remove query string for matching
         $uri = strtok($uri, '?');
 
-        // Get all active redirections (cached for 1 hour)
-        $redirections = $this->db_redirection->getAllActiveRecords();
+        // Build the lookup index (lazy, once per request)
+        $this->ensure_redirect_index();
 
-        // Early exit if no redirections configured
-        if (empty($redirections)) {
-            return;
+        // O(1) exact-match lookup first
+        $normalized_uri = $uri;
+        if (!empty($normalized_uri) && $normalized_uri[0] !== '/') {
+            $normalized_uri = '/' . $normalized_uri;
+        }
+        $normalized_uri = rtrim($normalized_uri, '/') ?: '/';
+
+        if (isset($this->exact_index[$normalized_uri])) {
+            if ($this->source_url_redirection($this->exact_index[$normalized_uri], $uri)) {
+                return;
+            }
         }
 
-        // Process each redirection until a match is found
-        foreach ($redirections as $redirection) {
-            // Stop processing once a match is found and redirect is executed
+        // Fallback: scan only pattern-based rows (wildcard, regex, contain, start, end)
+        foreach ($this->pattern_index as $redirection) {
             if ($this->source_url_redirection($redirection, $uri)) {
-                break; // Early exit - no need to check remaining rules
+                return;
             }
         }
     }

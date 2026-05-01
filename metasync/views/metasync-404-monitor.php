@@ -393,8 +393,9 @@ if (!defined('ABSPATH')) {
 		display: flex !important;
 		align-items: center !important;
 		justify-content: space-between !important;
-		flex-wrap: wrap !important;
+		flex-wrap: nowrap !important;
 		gap: 12px !important;
+		overflow-x: auto !important;
 	}
 
 	.wrap .tablenav .actions {
@@ -483,10 +484,12 @@ if (!defined('ABSPATH')) {
 		display: flex !important;
 		align-items: center !important;
 		gap: 8px !important;
-		height: 32px !important;
 		padding: 0 !important;
 		border: none !important;
 		background: transparent !important;
+		flex-wrap: nowrap !important;
+		flex-shrink: 1 !important;
+		min-width: 0 !important;
 	}
 
 	.wrap .tablenav .search-box input[type="search"] {
@@ -520,10 +523,12 @@ if (!defined('ABSPATH')) {
 		display: flex !important;
 		align-items: center !important;
 		gap: 8px !important;
-		height: 32px !important;
 		margin: 0 !important;
 		padding: 0 !important;
 		line-height: 1 !important;
+		flex-wrap: nowrap !important;
+		flex-shrink: 1 !important;
+		min-width: 0 !important;
 	}
 
 	.wrap .tablenav p.search-box input {
@@ -615,21 +620,71 @@ if (!defined('ABSPATH')) {
 		white-space: nowrap !important;
 	}
 
-	.wrap .tablenav .alignright p,
-	.wrap .tablenav .alignright span {
+	.wrap .tablenav-pages .pagination-links {
+		display: inline-flex !important;
+		align-items: center !important;
+		gap: 4px !important;
+		background: transparent !important;
+		border: none !important;
+		padding: 0 !important;
+		height: auto !important;
+	}
+
+	.wrap .tablenav-pages .paging-input {
+		display: inline-flex !important;
+		align-items: center !important;
+		gap: 4px !important;
+		background: transparent !important;
+		border: none !important;
+		padding: 0 !important;
+		height: auto !important;
+		white-space: nowrap !important;
+	}
+
+	.wrap .tablenav-pages .tablenav-paging-text {
+		display: inline-flex !important;
+		align-items: center !important;
+		gap: 4px !important;
+		background: transparent !important;
+		border: none !important;
+		padding: 0 !important;
+		height: auto !important;
 		color: var(--dashboard-text-primary) !important;
 		font-size: 13px !important;
 		font-weight: 500 !important;
-		margin: 0 !important;
-		background: var(--dashboard-card-hover) !important;
+	}
+
+	.wrap .tablenav-pages .current-page {
+		width: 50px !important;
+		height: 32px !important;
+		text-align: center !important;
+		background: var(--dashboard-card-bg) !important;
+		border: 1px solid var(--dashboard-border) !important;
+		color: var(--dashboard-text-primary) !important;
+		border-radius: 6px !important;
+		font-size: 13px !important;
+		font-weight: 500 !important;
+		padding: 6px 8px !important;
+		box-sizing: border-box !important;
+	}
+
+	.wrap .tablenav-pages .total-pages {
+		background: transparent !important;
+		border: none !important;
+		padding: 0 !important;
+		height: auto !important;
+		color: var(--dashboard-text-primary) !important;
+		font-size: 13px !important;
+		font-weight: 500 !important;
+	}
+
+	.wrap .tablenav-pages .button,
+	.wrap .tablenav-pages .tablenav-pages-navspan {
+		min-width: 30px !important;
+		height: 30px !important;
 		padding: 0 !important;
 		border-radius: 6px !important;
-		border: 1px solid var(--dashboard-border) !important;
-		display: inline-block !important;
-		vertical-align: middle !important;
-		line-height: 1 !important;
-		height: 32px !important;
-		box-sizing: border-box !important;
+		font-size: 13px !important;
 	}
 
 	/* Ensure all buttons in tablenav are properly aligned */

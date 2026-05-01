@@ -632,7 +632,7 @@ function metasync_clear_otto_cache_handler() {
 }
 
 # Clear cache hook
-add_action('wp_ajax_clear_otto_cache', 'metasync_clear_otto_cache_handler');
+add_action('wp_ajax_metasync_clear_otto_cache', 'metasync_clear_otto_cache_handler');
 
 # add admin action to check script
 function metasync_show_otto_ssr_notice() {

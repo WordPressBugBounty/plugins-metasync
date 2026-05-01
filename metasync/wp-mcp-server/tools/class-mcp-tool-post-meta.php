@@ -57,7 +57,8 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
                         '_metasync_otto_keywords',
                         '_metasync_og_article_author',
                         '_metasync_hreflang',
-                        '_metasync_breadcrumb_title'
+                        '_metasync_breadcrumb_title',
+                        '_metasync_robots_advanced'
                     ]
                 ],
                 'meta_value' => [
@@ -98,6 +99,40 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
                 $entry['url'] = esc_url_raw($entry['url']);
             }
             unset($entry);
+            $meta_value = wp_json_encode($decoded);
+        }
+
+        // WP-197: Validate _metasync_robots_advanced JSON
+        if ($meta_key === '_metasync_robots_advanced') {
+            $raw_value = isset($params['meta_value']) ? (string) $params['meta_value'] : '';
+            $decoded = json_decode($raw_value, true);
+            if (!is_array($decoded)) {
+                throw new Exception("_metasync_robots_advanced must be a JSON object");
+            }
+            $allowed_keys = ['nofollow', 'noarchive', 'nosnippet', 'noimageindex', 'max_snippet', 'max_image_preview', 'max_video_preview'];
+            foreach (array_keys($decoded) as $k) {
+                if (!in_array($k, $allowed_keys, true)) {
+                    throw new Exception("Unknown key '{$k}' in _metasync_robots_advanced. Allowed: " . implode(', ', $allowed_keys));
+                }
+            }
+            // Validate types
+            foreach (['nofollow', 'noarchive', 'nosnippet', 'noimageindex'] as $bool_key) {
+                if (isset($decoded[$bool_key]) && !is_bool($decoded[$bool_key])) {
+                    $decoded[$bool_key] = (bool) $decoded[$bool_key];
+                }
+            }
+            if (isset($decoded['max_snippet'])) {
+                $decoded['max_snippet'] = (int) $decoded['max_snippet'];
+            }
+            if (isset($decoded['max_image_preview'])) {
+                $valid = ['none', 'standard', 'large'];
+                if (!in_array($decoded['max_image_preview'], $valid, true)) {
+                    throw new Exception("max_image_preview must be one of: " . implode(', ', $valid));
+                }
+            }
+            if (isset($decoded['max_video_preview'])) {
+                $decoded['max_video_preview'] = (int) $decoded['max_video_preview'];
+            }
             $meta_value = wp_json_encode($decoded);
         }
 
@@ -298,6 +333,7 @@ class MCP_Tool_Get_SEO_Meta extends MCP_Tool_Base {
                 'focus_keyword' => get_post_meta($post_id, '_metasync_focus_keyword', true),
                 'robots_index' => get_post_meta($post_id, '_metasync_robots_index', true),
                 'canonical_url' => get_post_meta($post_id, '_metasync_canonical_url', true),
+                'robots_advanced' => json_decode(get_post_meta($post_id, '_metasync_robots_advanced', true) ?: '{}', true),
                 'primary_category' => $this->get_primary_category_data($post_id),
             ],
             'opengraph_meta' => [
@@ -319,7 +355,8 @@ class MCP_Tool_Get_SEO_Meta extends MCP_Tool_Base {
                 'has_focus_keyword' => !empty(get_post_meta($post_id, '_metasync_focus_keyword', true)),
                 'is_indexable' => get_post_meta($post_id, '_metasync_robots_index', true) !== 'noindex',
                 'og_enabled' => get_post_meta($post_id, '_metasync_og_enabled', true) === '1',
-                'has_og_image' => !empty(get_post_meta($post_id, '_metasync_og_image', true))
+                'has_og_image' => !empty(get_post_meta($post_id, '_metasync_og_image', true)),
+                'has_robots_advanced' => !empty(get_post_meta($post_id, '_metasync_robots_advanced', true))
             ]
         ];
 

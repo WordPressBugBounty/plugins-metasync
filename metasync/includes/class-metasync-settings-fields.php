@@ -2584,6 +2584,7 @@ class Metasync_Settings_Fields {
             'show_current_page' => true,
             'prefix_text' => '',
             'archive_label_format' => '{name}',
+            'disable_schema' => false,
         );
 
         $options = wp_parse_args($options, $defaults);
@@ -2602,6 +2603,21 @@ class Metasync_Settings_Fields {
                 </label>
                 <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
                     Enable or disable breadcrumb navigation on your site
+                </p>
+            </div>
+
+            <!-- Disable Schema Markup -->
+            <div style="margin-bottom: 24px;">
+                <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                    <input type="checkbox"
+                           name="metasync_options[breadcrumbs][disable_schema]"
+                           value="1"
+                           <?php checked($options['disable_schema'], 1); ?>
+                           style="width: 18px; height: 18px; cursor: pointer;">
+                    <span style="font-weight: 500; color: var(--dashboard-text);">Disable breadcrumb schema markup (JSON-LD)</span>
+                </label>
+                <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
+                    When checked, MetaSync will not output the <code style="background: rgba(0,0,0,0.1); padding: 2px 4px; border-radius: 3px;">BreadcrumbList</code> JSON-LD in <code style="background: rgba(0,0,0,0.1); padding: 2px 4px; border-radius: 3px;">&lt;head&gt;</code>. Use this if another SEO plugin already handles breadcrumb schema.
                 </p>
             </div>
 

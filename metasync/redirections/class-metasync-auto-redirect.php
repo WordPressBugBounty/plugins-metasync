@@ -152,6 +152,18 @@ class Metasync_Auto_Redirect
             return true;
         }
 
+        // Loop detection — silently skip and log if creating this redirect would produce a chain back to $old_url
+        if (!class_exists('Metasync_Redirection')) {
+            require_once dirname(__FILE__) . '/class-metasync-redirection.php';
+        }
+        $db_ref = $this->db_redirection;
+        $redirection_helper = new Metasync_Redirection($db_ref);
+        $loop_chain = array();
+        if ($redirection_helper->would_create_loop($old_url, $new_url, $loop_chain)) {
+            error_log('[MetaSync] Auto-redirect skipped: loop detected — ' . implode(' → ', $loop_chain));
+            return false;
+        }
+
         // Prepare redirect data
         $redirect_data = array(
             'sources_from'    => serialize(array($old_url => 'exact')),

@@ -1998,6 +1998,7 @@ class Metasync_Settings_Registration
         if (isset($input['breadcrumbs'])) {
             $new_input['breadcrumbs']['enabled']              = !empty($input['breadcrumbs']['enabled']);
             $new_input['breadcrumbs']['show_current_page']    = !empty($input['breadcrumbs']['show_current_page']);
+            $new_input['breadcrumbs']['disable_schema']       = !empty($input['breadcrumbs']['disable_schema']);
             if (isset($input['breadcrumbs']['separator'])) {
                 $new_input['breadcrumbs']['separator'] = sanitize_text_field($input['breadcrumbs']['separator']);
             }

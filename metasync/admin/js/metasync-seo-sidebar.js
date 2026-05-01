@@ -12,7 +12,7 @@
 
     const { registerPlugin } = wp.plugins;
     const { PluginSidebar, PluginSidebarMoreMenuItem } = wp.editPost;
-    const { PanelBody, TextControl, TextareaControl, Button, ButtonGroup, SelectControl, Spinner, Notice } = wp.components;
+    const { PanelBody, TextControl, TextareaControl, Button, ButtonGroup, SelectControl, CheckboxControl, Spinner, Notice } = wp.components;
     const { useSelect, useDispatch, select: wpSelect, dispatch: wpDispatch } = wp.data;
     const { useState, useEffect, useCallback, createElement: el } = wp.element;
     const { __ } = wp.i18n;
@@ -1641,8 +1641,284 @@
     };
 
     /**
+     * Advanced Robots Directives Panel Component (WP-197)
+     * Allows per-post control of robots directives like nofollow, noarchive, etc.
+     */
+    const RobotsAdvancedPanel = () => {
+        const metaKey = config.metaKeys.robotsAdvanced || '_metasync_robots_advanced';
+        const i18nR = config.i18n || {};
+
+        const postId = useSelect(function(select) {
+            return select('core/editor').getCurrentPostId();
+        }, []);
+
+        // Local state for the form — initialized from DB on mount
+        const [localState, setLocalState] = useState(null);
+
+        // Load initial value from DB on mount
+        useEffect(function() {
+            if (localState === null && postId) {
+                apiFetch({ path: '/wp/v2/posts/' + postId + '?context=edit&_fields=meta' }).then(function(post) {
+                    var raw = (post.meta && post.meta[metaKey]) || '';
+                    var initial = {
+                        nofollow: false, noarchive: false, nosnippet: false, noimageindex: false,
+                        max_snippet: -1, max_image_preview: 'large',
+                    };
+                    if (raw) {
+                        try {
+                            var parsed = JSON.parse(raw);
+                            if (parsed && typeof parsed === 'object') {
+                                if (parsed.nofollow !== undefined) initial.nofollow = !!parsed.nofollow;
+                                if (parsed.noarchive !== undefined) initial.noarchive = !!parsed.noarchive;
+                                if (parsed.nosnippet !== undefined) initial.nosnippet = !!parsed.nosnippet;
+                                if (parsed.noimageindex !== undefined) initial.noimageindex = !!parsed.noimageindex;
+                                if (parsed.max_snippet !== undefined) initial.max_snippet = parsed.max_snippet;
+                                if (parsed.max_image_preview !== undefined) initial.max_image_preview = parsed.max_image_preview;
+                            }
+                        } catch (e) {}
+                    }
+                    setLocalState(initial);
+                });
+            }
+        }, [postId, localState, metaKey]);
+
+        // Listen for legacy meta box changes → sync to sidebar
+        useEffect(function() {
+            var legacyIds = {
+                'robots_common3': 'nofollow',
+                'robots_common4': 'noarchive',
+                'robots_common5': 'noimageindex',
+                'robots_common6': 'nosnippet',
+            };
+            var handlers = [];
+            Object.keys(legacyIds).forEach(function(elId) {
+                var checkbox = document.getElementById(elId);
+                if (checkbox) {
+                    var handler = function() {
+                        updateField(legacyIds[elId], checkbox.checked);
+                    };
+                    checkbox.addEventListener('change', handler);
+                    handlers.push({ el: checkbox, handler: handler });
+                }
+            });
+            // Advanced fields
+            var snippetVal = document.getElementById('advanced_robots_snippet_value');
+            if (snippetVal) {
+                var h = function() { updateField('max_snippet', parseInt(snippetVal.value, 10) || -1); };
+                snippetVal.addEventListener('change', h);
+                handlers.push({ el: snippetVal, handler: h });
+            }
+            var imageVal = document.getElementById('advanced_robots_image_value');
+            if (imageVal) {
+                var h2 = function() { updateField('max_image_preview', imageVal.value); };
+                imageVal.addEventListener('change', h2);
+                handlers.push({ el: imageVal, handler: h2 });
+            }
+            return function() {
+                handlers.forEach(function(item) {
+                    item.el.removeEventListener('change', item.handler);
+                });
+            };
+        }, []);
+
+        // Per-field save status tracking (hooks must be before any early return)
+        const [savingField, setSavingField] = useState('');
+        const [savedField, setSavedField] = useState('');
+
+        if (localState === null) {
+            return el('div', { style: { padding: '12px 0', color: '#757575' } }, 'Loading...');
+        }
+
+        var updateField = function(key, value) {
+            var updated = Object.assign({}, localState);
+            updated[key] = value;
+            setLocalState(updated);
+            syncToLegacyDOM(updated);
+            setSavingField(key);
+            setSavedField('');
+            if (!postId) return;
+            apiFetch({
+                path: '/wp/v2/posts/' + postId,
+                method: 'POST',
+                data: { meta: { [metaKey]: JSON.stringify(updated) } },
+            }).then(function() {
+                setSavingField('');
+                setSavedField(key);
+                setTimeout(function() { setSavedField(''); }, 1500);
+            }).catch(function() {
+                setSavingField('');
+            });
+        };
+
+        // Sync sidebar state to legacy meta box DOM elements in real-time
+        var syncToLegacyDOM = function(state) {
+            // Common robots checkboxes (by ID)
+            var checkboxMap = {
+                nofollow: 'robots_common3',
+                noarchive: 'robots_common4',
+                noimageindex: 'robots_common5',
+                nosnippet: 'robots_common6',
+            };
+            Object.keys(checkboxMap).forEach(function(key) {
+                var el = document.getElementById(checkboxMap[key]);
+                if (el) el.checked = !!state[key];
+            });
+
+            // Advanced robots: max-snippet
+            var snippetEnable = document.getElementById('advanced_robots_snippet');
+            var snippetValue = document.getElementById('advanced_robots_snippet_value');
+            if (snippetEnable && snippetValue) {
+                var hasSnippet = state.max_snippet !== undefined && state.max_snippet !== null && state.max_snippet !== -1;
+                snippetEnable.checked = hasSnippet;
+                snippetValue.value = state.max_snippet !== undefined ? state.max_snippet : -1;
+            }
+
+            // Advanced robots: max-image-preview
+            var imageEnable = document.getElementById('advanced_robots_image');
+            var imageValue = document.getElementById('advanced_robots_image_value');
+            if (imageEnable && imageValue) {
+                var hasImage = state.max_image_preview && state.max_image_preview !== 'large';
+                imageEnable.checked = !!hasImage;
+                imageValue.value = state.max_image_preview || 'large';
+            }
+        };
+
+        // Inline status badge for a field
+        var fieldStatus = function(key) {
+            if (savingField === key) {
+                return el('span', { style: { fontSize: '11px', color: '#dba617', marginLeft: '8px' } }, 'Saving...');
+            }
+            if (savedField === key) {
+                return el('span', { style: { fontSize: '11px', color: '#00a32a', marginLeft: '8px' } }, 'Saved');
+            }
+            return null;
+        };
+
+        return el('div', { className: 'metasync-robots-advanced' },
+            el('div', null,
+                el(CheckboxControl, {
+                    label: el(wp.element.Fragment, null, (i18nR.nofollowLabel || 'Nofollow'), fieldStatus('nofollow')),
+                    help: i18nR.nofollowHelp || 'Prevent search engines from following links on this page.',
+                    checked: localState.nofollow,
+                    onChange: function(val) { updateField('nofollow', val); },
+                })
+            ),
+            el('div', null,
+                el(CheckboxControl, {
+                    label: el(wp.element.Fragment, null, (i18nR.noarchiveLabel || 'Noarchive'), fieldStatus('noarchive')),
+                    help: i18nR.noarchiveHelp || 'Prevent search engines from showing cached versions.',
+                    checked: localState.noarchive,
+                    onChange: function(val) { updateField('noarchive', val); },
+                })
+            ),
+            el('div', null,
+                el(CheckboxControl, {
+                    label: el(wp.element.Fragment, null, (i18nR.nosnippetLabel || 'Nosnippet'), fieldStatus('nosnippet')),
+                    help: i18nR.nosnippetHelp || 'Prevent search engines from showing text snippets.',
+                    checked: localState.nosnippet,
+                    onChange: function(val) { updateField('nosnippet', val); },
+                })
+            ),
+            el('div', null,
+                el(CheckboxControl, {
+                    label: el(wp.element.Fragment, null, (i18nR.noimageindexLabel || 'No Image Index'), fieldStatus('noimageindex')),
+                    help: i18nR.noimageindexHelp || 'Prevent this page from appearing as image search referrer.',
+                    checked: localState.noimageindex,
+                    onChange: function(val) { updateField('noimageindex', val); },
+                })
+            ),
+            el('div', null,
+                el('div', { style: { display: 'flex', alignItems: 'center', marginBottom: '4px' } },
+                    el('span', { style: { fontWeight: 500, fontSize: '11px', textTransform: 'uppercase' } }, i18nR.maxSnippetLabel || 'Max Snippet Length'),
+                    fieldStatus('max_snippet')
+                ),
+                el(TextControl, {
+                    help: i18nR.maxSnippetHelp || 'Maximum character length for text snippets. -1 for unlimited.',
+                    type: 'number',
+                    min: '-1',
+                    value: String(localState.max_snippet),
+                    onChange: function(val) { updateField('max_snippet', parseInt(val, 10) || -1); },
+                })
+            ),
+            el('div', null,
+                el('div', { style: { display: 'flex', alignItems: 'center', marginBottom: '4px' } },
+                    el('span', { style: { fontWeight: 500, fontSize: '11px', textTransform: 'uppercase' } }, i18nR.maxImagePreviewLabel || 'Max Image Preview'),
+                    fieldStatus('max_image_preview')
+                ),
+                el(SelectControl, {
+                    help: i18nR.maxImagePreviewHelp || 'Maximum size of image preview in search results.',
+                    value: localState.max_image_preview,
+                    options: [
+                        { label: 'Large', value: 'large' },
+                        { label: 'Standard', value: 'standard' },
+                        { label: 'None', value: 'none' },
+                    ],
+                    onChange: function(val) { updateField('max_image_preview', val); },
+                })
+            )
+        );
+    };
+
+    /**
      * Main Sidebar Component
      */
+    /**
+     * Plugin Sync Status Panel Component (WP-196)
+     * Reads _metasync_plugin_sync_ts from post meta and displays sync status.
+     */
+    const PluginSyncStatusPanel = () => {
+        const syncTsRaw = useSelect(function(select) {
+            var metaKey = config.metaKeys.pluginSyncTs || '_metasync_plugin_sync_ts';
+            return select('core/editor').getEditedPostAttribute('meta')[metaKey] || '';
+        }, []);
+
+        var activeSeoPlugins = config.activeSeoPlugins || {};
+        var syncI18n = config.i18n || {};
+
+        // No active SEO plugins detected -- nothing to show
+        if (!activeSeoPlugins.yoast && !activeSeoPlugins.rankmath && !activeSeoPlugins.aioseo) {
+            return null;
+        }
+
+        var syncData = {};
+        if (syncTsRaw) {
+            try {
+                syncData = JSON.parse(syncTsRaw);
+            } catch (e) {
+                syncData = {};
+            }
+        }
+
+        var formatRelativeTime = function(isoString) {
+            if (!isoString) return syncI18n.syncNever || 'Never synced';
+            var diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000);
+            if (diff < 60) return diff + 's ' + (syncI18n.syncAgo || 'ago');
+            if (diff < 3600) return Math.floor(diff / 60) + 'm ' + (syncI18n.syncAgo || 'ago');
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h ' + (syncI18n.syncAgo || 'ago');
+            return Math.floor(diff / 86400) + 'd ' + (syncI18n.syncAgo || 'ago');
+        };
+
+        var pluginLabels = { yoast: 'Yoast SEO', rankmath: 'Rank Math', aioseo: 'AIOSEO' };
+        var items = [];
+        ['yoast', 'rankmath', 'aioseo'].forEach(function(slug) {
+            if (!activeSeoPlugins[slug]) return;
+            var ts = syncData[slug] || '';
+            items.push(
+                el('div', { key: slug, style: { display: 'flex', justifyContent: 'space-between', padding: '4px 0' } },
+                    el('span', { style: { fontWeight: 500 } }, pluginLabels[slug]),
+                    el('span', { style: { color: ts ? '#00a32a' : '#757575' } }, formatRelativeTime(ts))
+                )
+            );
+        });
+
+        if (items.length === 0) return null;
+
+        return el('div', { className: 'metasync-plugin-sync-status' },
+            el('p', { style: { fontWeight: 600, marginBottom: '8px' } }, syncI18n.syncedTo || 'Synced to:'),
+            items
+        );
+    };
+
     const MetaSyncSeoSidebar = () => {
         return el(PluginSidebar, {
             name: 'metasync-seo-sidebar',
@@ -1685,6 +1961,18 @@
                     initialOpen: false,
                 },
                     el(LinkSuggestionsPanel, null)
+                ),
+                el(PanelBody, {
+                    title: config.i18n.robotsAdvancedTitle || 'Advanced Robots Directives',
+                    initialOpen: false,
+                },
+                    el(RobotsAdvancedPanel, null)
+                ),
+                el(PanelBody, {
+                    title: config.i18n.syncStatusTitle || 'Plugin Sync Status',
+                    initialOpen: true,
+                },
+                    el(PluginSyncStatusPanel, null)
                 )
             )
         );

@@ -250,6 +250,14 @@ class Metasync_Post_Meta_Settings
 		if (!current_user_can('edit_post', $post_id))
 			return;
 
+		// WP-197: When saving from Gutenberg (REST API context) and the sidebar
+		// JSON exists, skip — the sidebar auto-save is the source of truth.
+		// Classic editor form submits (non-REST) always proceed so classic-only
+		// users can still save via the meta boxes.
+		if (defined('REST_REQUEST') && REST_REQUEST && !empty(get_post_meta($post_id, '_metasync_robots_advanced', true))) {
+			return;
+		}
+
 		$post_data =  metasync_sanitize_input_array($_POST);
 		// Check for new field name first, then old for backward compatibility
 		$field_name = isset($post_data['common_robots_meta']) ? 'common_robots_meta' : 'common_robots_mata';
@@ -274,6 +282,12 @@ class Metasync_Post_Meta_Settings
 	{
 		if (!current_user_can('edit_post', $post_id))
 			return;
+
+		// WP-197: When saving from Gutenberg (REST API context) and the sidebar
+		// JSON exists, skip — the sidebar auto-save is the source of truth.
+		if (defined('REST_REQUEST') && REST_REQUEST && !empty(get_post_meta($post_id, '_metasync_robots_advanced', true))) {
+			return;
+		}
 
 		$post_data =  metasync_sanitize_input_array($_POST);
 		// Check for new field name first, then old for backward compatibility

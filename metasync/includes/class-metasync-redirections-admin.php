@@ -220,13 +220,31 @@ class Metasync_Redirections_Admin
             if (!$has_valid_delimiters) {
                 $test_pattern = '/' . $test_pattern . '/';
             }
-            $is_valid = @preg_match($test_pattern, '');            
+            $is_valid = @preg_match($test_pattern, '');
             if ($is_valid === false) {
                 $error_message = error_get_last();
                 $error_text = isset($error_message['message']) ? $error_message['message'] : 'Unknown regex error';
                 set_transient('metasync_redirection_error', 'Invalid Regex Pattern: ' . $error_text . ' Please fix the regex pattern and try again.', 45);
                 $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
                 return;
+            }
+        }
+
+        // Loop detection: refuse to persist a chain that would resolve back to any source
+        if (!in_array($redirect_type, [410, 451]) && $redirect_id <= 0) {
+            require_once dirname(__FILE__, 2) . '/redirections/class-metasync-redirection.php';
+            $redirection_helper = new Metasync_Redirection($this->db_redirection);
+            foreach (array_keys($sources_from) as $source_url) {
+                $loop_chain = [];
+                if ($redirection_helper->would_create_loop($source_url, $destination_url, $loop_chain)) {
+                    set_transient(
+                        'metasync_redirection_error',
+                        'Redirect would create a loop: ' . implode(' → ', $loop_chain),
+                        45
+                    );
+                    $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
+                    return;
+                }
             }
         }
 

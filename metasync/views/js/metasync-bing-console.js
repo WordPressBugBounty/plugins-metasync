@@ -27,7 +27,7 @@ jQuery(document).ready(function($) {
             method: 'POST',
             url: ajaxurl,
             data: {
-                action: 'send_bing_indexnow',
+                action: 'metasync_send_bing_indexnow',
                 metasync_bing_url: $url.val()
             }
         })

@@ -27,9 +27,9 @@ class Metasync_Code_Snippets
 	{
 		$code_snippet_options = get_option(Metasync::option_name)['codesnippets'] ?? '';
 		$header_snippet_option = $code_snippet_options['header_snippet'] ?? '';
-		printf($header_snippet_option);
-		printf(get_post_meta(get_the_ID())['custom_post_header'][0] ?? '');
-		printf(get_post_meta(get_the_ID())['searchatlas_embed_top'][0] ?? '');
+		echo $header_snippet_option;
+		echo get_post_meta(get_the_ID())['custom_post_header'][0] ?? '';
+		echo get_post_meta(get_the_ID())['searchatlas_embed_top'][0] ?? '';
 
 	}
 
@@ -41,8 +41,8 @@ class Metasync_Code_Snippets
 	{
 		$code_snippet_options = get_option(Metasync::option_name)['codesnippets'] ?? '';
 		$footer_snippet_option = $code_snippet_options['footer_snippet'] ?? '';
-		printf($footer_snippet_option);
-		printf(get_post_meta(get_the_ID())['custom_post_footer'][0] ?? '');
-		printf(get_post_meta(get_the_ID())['searchatlas_embed_bottom'][0] ?? '');
+		echo $footer_snippet_option;
+		echo get_post_meta(get_the_ID())['custom_post_footer'][0] ?? '';
+		echo get_post_meta(get_the_ID())['searchatlas_embed_bottom'][0] ?? '';
 	}
 }

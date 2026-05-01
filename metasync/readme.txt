@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.6.4
+Stable tag: 2.6.5
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,24 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.5 =
+- Feat: Native-First SEO Write Layer — sync all MetaSync/OTTO optimizations to native WordPress SEO meta fields
+  - Feat: Per-post advanced robots directives — nofollow, noarchive, nosnippet, noimageindex, max-snippet, max-image-preview, max-video-preview
+  - Feat: Redirect health checker — MCP tool + admin panel
+  - Feat: Redirect loop detection on create/save
+  - Fix: Reduce memory footprint by gating heavy init on non-MetaSync AJAX requests
+  - Fix: ArgumentCountError resolved by replacing printf with echo in code-snippets template
+  - Fix: Unhook Elementor filters during MCP update_site_info under API key auth
+  - Fix: Rename 16 non-prefixed AJAX actions to use metasync_ prefix
+  - Fix: Promo sidebar overlap with main nav at narrow viewports
+  - Fix: OTTO DOM corruption when page text contains less-than followed by digits
+  - Fix: Restore case-sensitive SVG/HTML5 attributes after OTTO DOM processing
+  - Fix: MetaSync status badge not updating on disconnect/reconnect
+  - Fix: Remove duplicate canonical tags on sites without third-party SEO plugin
+  - Fix: Submit Report button icon vertical alignment
+  - Fix: 404 Monitor pagination layout and filter row overflow
+  - Fix: Responsive layout for Redirections tablenav filters and search
+
 = 2.6.4 =
 - Fix: LLMs.txt settings now correctly persisted on save
   - Fix: Hidden diagnostic post no longer triggers Jetpack Social or RSS auto-share

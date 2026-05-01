@@ -247,7 +247,7 @@
 			$button.prop('disabled', true).text('Opening SSO...');
 
 			$.post(ajaxurl, {
-				action: 'generate_searchatlas_connect_url',
+				action: 'metasync_generate_connect_url',
 				nonce: metasyncWizardData.saConnectNonce
 			}, function (response) {
 				if (response.success) {
@@ -294,7 +294,7 @@
 				$button.text('Waiting for authentication (' + timeLeft + 's)...');
 
 				$.post(ajaxurl, {
-					action: 'check_searchatlas_connect_status',
+					action: 'metasync_check_connect_status',
 					nonce: metasyncWizardData.saConnectNonce,
 					nonce_token: nonceToken
 				}, function (response) {

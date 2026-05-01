@@ -1105,6 +1105,11 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
+        // WP-196: Sync to all active SEO plugins
+        if (class_exists('Metasync_Plugin_Sync') && $any_updated) {
+            Metasync_Plugin_Sync::get_instance()->sync_post($post_id);
+        }
+
         # Store timestamp of last OTTO SEO update if any change
         if ($any_updated) {
             update_post_meta($post_id, '_metasync_otto_last_update', current_time('timestamp'));
@@ -2731,6 +2736,21 @@ add_filter('pre_get_document_title', 'metasync_pre_get_document_title', 99);
  * Unlike titles, WordPress doesn't automatically output meta descriptions from meta fields
  */
 function metasync_output_otto_meta_description() {
+    // WP-196: When synced to an active SEO plugin, that plugin outputs the
+    // description from its native storage — skip OTTO's own description tag.
+    if (is_singular()) {
+        $post_id = get_the_ID();
+        if ($post_id) {
+            $sync_ts = get_post_meta($post_id, '_metasync_plugin_sync_ts', true);
+            if (!empty($sync_ts) && class_exists('Metasync_SEO_Conflict_Handler')) {
+                $handler = Metasync_SEO_Conflict_Handler::get_instance();
+                if ($handler->has_active_seo_plugin()) {
+                    return;
+                }
+            }
+        }
+    }
+
     $description = null;
 
     # Shop page

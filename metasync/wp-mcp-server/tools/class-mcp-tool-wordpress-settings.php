@@ -90,6 +90,23 @@ class MCP_Tool_Update_Site_Info extends MCP_Tool_Base {
 
         $updated = [];
 
+        // Elementor hooks into update_option_blogname/blogdescription to sync its
+        // Kit settings and runs current_user_can() inside that hook. Under API key
+        // auth there is no WP user session, so Elementor throws "Access denied."
+        // Temporarily remove third-party hooks on these options during the update.
+        $should_unhook = defined('METASYNC_MCP_API_KEY_AUTH') && METASYNC_MCP_API_KEY_AUTH;
+        $saved_filters = [];
+
+        if ($should_unhook) {
+            global $wp_filter;
+            foreach (['update_option_blogname', 'update_option_blogdescription'] as $hook) {
+                if (isset($wp_filter[$hook])) {
+                    $saved_filters[$hook] = $wp_filter[$hook];
+                    remove_all_actions($hook);
+                }
+            }
+        }
+
         if (isset($params['site_title'])) {
             update_option('blogname', sanitize_text_field($params['site_title']));
             $updated[] = 'site_title';
@@ -98,6 +115,14 @@ class MCP_Tool_Update_Site_Info extends MCP_Tool_Base {
         if (isset($params['site_tagline'])) {
             update_option('blogdescription', sanitize_text_field($params['site_tagline']));
             $updated[] = 'site_tagline';
+        }
+
+        // Restore hooks
+        if ($should_unhook && !empty($saved_filters)) {
+            global $wp_filter;
+            foreach ($saved_filters as $hook => $filter_obj) {
+                $wp_filter[$hook] = $filter_obj;
+            }
         }
 
         if (empty($updated)) {

@@ -60,6 +60,11 @@ class Metasync_Breadcrumbs_Schema {
             return;
         }
 
+        // Check if schema output is disabled.
+        if (!empty($settings['disable_schema'])) {
+            return;
+        }
+
         // Skip on admin, feeds, robots.
         if (is_admin() || is_feed() || is_robots()) {
             return;

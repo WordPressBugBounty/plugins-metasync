@@ -240,8 +240,9 @@ if (!defined('ABSPATH')) {
 		text-decoration: none !important;
 	}
 
-	/* Add Redirection Form Styling */
+	/* Add Redirection Form Styling — hidden by default, shown via inline style by JS */
 	.wrap #add-redirection-form {
+		display: none;
 		background: var(--dashboard-card-bg) !important;
 		border: 1px solid var(--dashboard-border) !important;
 		border-radius: 12px !important;
@@ -534,319 +535,182 @@ if (!defined('ABSPATH')) {
 	}
 
 	/* Tablenav styling */
+	/* ── Tablenav ── */
 	.wrap .tablenav {
 		background: var(--dashboard-card-bg);
 		border: 1px solid var(--dashboard-border);
 		border-radius: 8px;
-		padding: 18px 24px;
+		padding: 12px 16px;
 		margin-bottom: 16px;
 		box-shadow: var(--dashboard-shadow);
-		display: flex !important;
-		align-items: center !important;
-		justify-content: space-between !important;
-		flex-wrap: nowrap !important;
-		gap: 18px !important;
-		min-height: 64px !important;
-		overflow-x: auto !important;
-		overflow-y: hidden !important;
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 8px;
 	}
+	.wrap .tablenav * { box-sizing: border-box; margin: 0; }
 
+	/* Left group: filters / bulk actions — shrinks equally with search */
+	.wrap .tablenav .alignleft,
 	.wrap .tablenav .actions {
-		display: flex !important;
-		align-items: center !important;
-		gap: 12px !important;
-		flex-wrap: nowrap !important;
-		flex-shrink: 0 !important;
-		min-width: 0 !important;
+		display: flex;
+		align-items: center;
+		flex-wrap: nowrap;
+		gap: 6px;
+		flex: 1 1 0;
+		min-width: 0;
 	}
 
-	.wrap .tablenav .alignleft {
-		display: flex !important;
-		align-items: center !important;
-		gap: 12px !important;
-		flex-wrap: nowrap !important;
-		flex-shrink: 0 !important;
-		min-width: 0 !important;
-	}
-
+	/* Right group: pagination */
 	.wrap .tablenav .alignright {
-		display: flex !important;
-		align-items: center !important;
-		gap: 12px !important;
-		margin-left: auto !important;
-		flex-shrink: 0 !important;
-		min-width: 0 !important;
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-left: auto;
+		min-width: 0;
 	}
 
+	/* Search box — sits inline with filters, shrinks to fit */
+	.wrap .tablenav .metasync-search-box {
+		display: flex;
+		align-items: center;
+		flex-wrap: nowrap;
+		gap: 6px;
+		flex: 1 1 0;
+		min-width: 0;
+	}
+	.wrap .tablenav .metasync-search-box input[type="search"] {
+		flex: 1 1 60px;
+		min-width: 0;
+		width: auto;
+	}
+
+	/* ── Shared control height ── */
+	.wrap .tablenav select,
+	.wrap .tablenav input[type="search"],
+	.wrap .tablenav input[type="text"],
+	.wrap .tablenav input[type="submit"],
+	.wrap .tablenav input[type="button"],
+	.wrap .tablenav .button {
+		height: 34px;
+		font-size: 13px;
+		font-weight: 500;
+		border-radius: 6px;
+		padding: 0 10px;
+		line-height: 34px;
+	}
+
+	/* Selects — shrinkable, text truncates when compressed */
 	.wrap .tablenav select {
-		background: var(--dashboard-card-bg) !important;
-		border: 1px solid var(--dashboard-border) !important;
-		color: var(--dashboard-text-primary) !important;
-		border-radius: 6px !important;
-		padding: 10px 16px !important;
-		height: 40px !important;
-		vertical-align: middle !important;
-		text-align: left !important;
-		line-height: 1.4 !important;
-		font-size: 13px !important;
-		font-weight: 500 !important;
-		appearance: none !important;
-		-moz-appearance: none !important;
-		-webkit-appearance: none !important;
-		background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e") !important;
-		background-repeat: no-repeat !important;
-		background-position: right 12px center !important;
-		background-size: 16px !important;
-		padding-right: 40px !important;
-		cursor: pointer !important;
-		width: 140px !important;
-		flex-shrink: 0 !important;
-		white-space: nowrap !important;
-		overflow: hidden !important;
-		text-overflow: ellipsis !important;
+		background: var(--dashboard-card-bg);
+		border: 1px solid var(--dashboard-border);
+		color: var(--dashboard-text-primary);
+		appearance: none;
+		-webkit-appearance: none;
+		background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
+		background-repeat: no-repeat;
+		background-position: right 6px center;
+		background-size: 14px;
+		padding-right: 28px;
+		cursor: pointer;
+		flex: 1 1 0;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
-
 	.wrap .tablenav select:focus {
-		border-color: var(--dashboard-accent) !important;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
-		outline: none !important;
+		border-color: var(--dashboard-accent);
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+		outline: none;
 	}
-
 	.wrap .tablenav select option {
-		background: var(--dashboard-card-bg) !important;
-		color: var(--dashboard-text-primary) !important;
-		padding: 8px !important;
-		font-size: 13px !important;
-		font-weight: 500 !important;
+		background: var(--dashboard-card-bg);
+		color: var(--dashboard-text-primary);
 	}
 
+	/* Text / search inputs — fully flexible */
 	.wrap .tablenav input[type="search"],
 	.wrap .tablenav input[type="text"] {
-		background: var(--dashboard-card-bg) !important;
-		border: 1px solid var(--dashboard-border) !important;
-		color: var(--dashboard-text-primary) !important;
-		border-radius: 6px !important;
-		padding: 10px 16px !important;
-		height: 40px !important;
-		vertical-align: middle !important;
-		width: 250px !important;
-		flex-shrink: 0 !important;
-		white-space: nowrap !important;
-		overflow: hidden !important;
-		text-overflow: ellipsis !important;
+		background: var(--dashboard-card-bg);
+		border: 1px solid var(--dashboard-border);
+		color: var(--dashboard-text-primary);
+		width: auto;
+		min-width: 0;
+		flex: 1 1 80px;
+	}
+	.wrap .tablenav input[type="search"]:focus,
+	.wrap .tablenav input[type="text"]:focus {
+		border-color: var(--dashboard-accent);
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+		outline: none;
 	}
 
-	.wrap .tablenav input[type="submit"] {
-		height: 40px !important;
-		vertical-align: middle !important;
-		line-height: 1 !important;
-		padding: 10px 20px !important;
-		flex-shrink: 0 !important;
-		white-space: nowrap !important;
-		width: auto !important;
-		min-width: 100px !important;
+	/* Pagination current-page — narrow */
+	.wrap .tablenav-pages input.current-page,
+	.wrap .tablenav .current-page {
+		width: 3em !important;
+		min-width: 3em !important;
+		flex: 0 0 3em !important;
+		text-align: center;
+		padding: 0 4px;
 	}
 
-	.wrap .tablenav .search-box {
-		margin: 0 !important;
-		display: flex !important;
-		align-items: center !important;
-		gap: 12px !important;
-		height: 40px !important;
-		padding: 0 !important;
-		border: none !important;
-		background: transparent !important;
-		flex-shrink: 0 !important;
-		white-space: nowrap !important;
-		min-width: 0 !important;
-	}
-
-	.wrap .tablenav .search-box input[type="search"] {
-		margin: 0 !important;
-		height: 32px !important;
-		vertical-align: middle !important;
-		line-height: 1 !important;
-		box-sizing: border-box !important;
-		padding: 8px 12px !important;
-		border: 1px solid var(--dashboard-border) !important;
-		background: var(--dashboard-card-bg) !important;
-		color: var(--dashboard-text-primary) !important;
-		border-radius: 6px !important;
-		font-size: 13px !important;
-	}
-
-	/* Specific search button alignment */
-	.wrap .tablenav .search-box input[type="submit"] {
-		height: 32px !important;
-		vertical-align: middle !important;
-		line-height: 1 !important;
-		padding: 8px 12px !important;
-		box-sizing: border-box !important;
-		margin: 0 !important;
-		border-radius: 6px !important;
-		font-size: 13px !important;
-	}
-
-	/* Additional targeting for WordPress default styles */
-	.wrap .tablenav p.search-box {
-		display: flex !important;
-		align-items: center !important;
-		gap: 8px !important;
-		height: 32px !important;
-		margin: 0 !important;
-		padding: 0 !important;
-		line-height: 1 !important;
-	}
-
-	.wrap .tablenav p.search-box input {
-		margin: 0 !important;
-		vertical-align: middle !important;
-		line-height: 1 !important;
-	}
-
-	/* Specific ID targeting for search elements - fixed padding */
-	.wrap .tablenav #post-search-input {
-		height: 32px !important;
-		line-height: 1 !important;
-		vertical-align: middle !important;
-		margin-left: 15px !important;
-		padding: 8px 12px !important;
-		border: 1px solid var(--dashboard-border) !important;
-		background: var(--dashboard-card-bg) !important;
-		color: var(--dashboard-text-primary) !important;
-		border-radius: 6px !important;
-		font-size: 13px !important;
-		box-sizing: border-box !important;
-	}
-
-	.wrap .tablenav #search-submit {
-		height: 32px !important;
-		line-height: 1 !important;
-		vertical-align: middle !important;
-		margin: 0 !important;
-		padding: 8px 12px !important;
-		border-radius: 6px !important;
-		font-size: 13px !important;
-		box-sizing: border-box !important;
-		display: inline-block !important;
-	}
-
-	/* Force alignment with transform if needed */
-	.wrap .tablenav .search-box {
-		transform: translateY(0) !important;
-	}
-
-	.wrap .tablenav .search-box input {
-		transform: translateY(0) !important;
-	}
-
-	/* Item count styling - fixed alignment */
-	.wrap .tablenav .displaying-num {
-		color: var(--dashboard-text-primary) !important;
-		font-size: 13px !important;
-		font-weight: 500 !important;
-		background: var(--dashboard-card-hover) !important;
-		padding: 6px 12px !important;
-		border-radius: 6px !important;
-		border: 1px solid var(--dashboard-border) !important;
-		margin: 0 !important;
-		display: inline-block !important;
-		vertical-align: middle !important;
-		line-height: 1 !important;
-		height: 32px !important;
-		box-sizing: border-box !important;
-	}
-
-	/* Alternative item count selectors - maintain inline flow */
-	.wrap .tablenav .alignright {
-		display: flex !important;
-		align-items: center !important;
-		gap: 12px !important;
-		margin-left: auto !important;
-	}
-
-	/* WordPress pagination controls - ensure right alignment */
-	.wrap .tablenav-pages {
-		display: flex !important;
-		align-items: center !important;
-		gap: 8px !important;
-		margin-left: auto !important;
-		justify-content: flex-end !important;
-	}
-
-
-	.wrap .tablenav-pages .displaying-num {
-		color: var(--dashboard-text-primary) !important;
-		font-size: 13px !important;
-		font-weight: 500 !important;
-		background: var(--dashboard-card-hover) !important;
-		padding: 6px 12px !important;
-		border-radius: 6px !important;
-		border: 1px solid var(--dashboard-border) !important;
-		margin-right: 12px !important;
-		white-space: nowrap !important;
-	}
-
-	.wrap .tablenav .alignright p,
-	.wrap .tablenav .alignright span {
-		color: var(--dashboard-text-primary) !important;
-		font-size: 13px !important;
-		font-weight: 500 !important;
-		margin: 0 !important;
-		background: var(--dashboard-card-hover) !important;
-		padding: 0 !important;
-		border-radius: 6px !important;
-		border: 1px solid var(--dashboard-border) !important;
-		display: inline-block !important;
-		vertical-align: middle !important;
-		line-height: 1 !important;
-		height: 32px !important;
-		box-sizing: border-box !important;
-	}
-
-	/* Ensure all buttons in tablenav are properly aligned */
-	.wrap .tablenav .button,
+	/* Buttons */
 	.wrap .tablenav input[type="submit"],
-	.wrap .tablenav input[type="button"] {
-		vertical-align: middle !important;
-		height: 32px !important;
-		line-height: 1 !important;
-		display: inline-flex !important;
-		align-items: center !important;
-		justify-content: center !important;
-		text-align: center !important;
-		font-size: 13px !important;
-		font-weight: 500 !important;
+	.wrap .tablenav input[type="button"],
+	.wrap .tablenav .button {
+		white-space: nowrap;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
 	}
 
-	/* Specific fix for Apply button text alignment */
-	.wrap .tablenav input[type="submit"][value="Apply"] {
-		text-align: center !important;
-		vertical-align: middle !important;
-		line-height: 1 !important;
-		padding: 6px 12px !important;
-		display: inline-flex !important;
-		align-items: center !important;
-		justify-content: center !important;
+
+	/* Item count badge */
+	.wrap .tablenav .displaying-num {
+		color: var(--dashboard-text-primary);
+		font-size: 12px;
+		font-weight: 500;
+		background: var(--dashboard-card-hover);
+		padding: 0 10px;
+		border-radius: 6px;
+		border: 1px solid var(--dashboard-border);
+		height: 30px;
+		line-height: 28px;
+		white-space: nowrap;
 	}
 
-	/* Fix for number input fields */
-	.wrap .tablenav input[type="number"] {
-		background: var(--dashboard-card-bg) !important;
-		border: 1px solid var(--dashboard-border) !important;
-		color: var(--dashboard-text-primary) !important;
-		border-radius: 6px !important;
-		padding: 6px 12px !important;
-		height: 32px !important;
-		vertical-align: middle !important;
-		width: auto !important;
-		min-width: 80px !important;
+	/* Pagination controls */
+	.wrap .tablenav-pages {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		margin-left: auto;
+		flex-wrap: wrap;
+	}
+	.wrap .tablenav-pages .paging-input {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.wrap .tablenav .alignright span,
+	.wrap .tablenav .alignright p {
+		color: var(--dashboard-text-primary);
+		font-size: 12px;
+		padding: 0;
+		border: none;
+		background: transparent;
+		height: auto;
 	}
 
-	.wrap .tablenav input[type="number"]:focus {
-		border-color: var(--dashboard-accent) !important;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
-		outline: none !important;
+	.wrap .tablenav label {
+		padding: 0;
+		white-space: nowrap;
+		font-weight: 500;
+		color: var(--dashboard-text-primary);
+		font-size: 13px;
 	}
 
 	/* Page title action styling */
@@ -863,7 +727,6 @@ if (!defined('ABSPATH')) {
 		align-items: center !important;
 		gap: 8px !important;
 	}
-
 	.page-title-action:hover {
 		background: var(--dashboard-accent-hover) !important;
 		border-color: var(--dashboard-accent-hover) !important;
@@ -873,142 +736,39 @@ if (!defined('ABSPATH')) {
 	}
 
 	/* Status indicators */
-	.status-active {
-		color: var(--dashboard-success) !important;
-		font-weight: 600;
-	}
-
-	.status-inactive {
-		color: var(--dashboard-text-secondary) !important;
-		font-weight: 600;
-	}
+	.status-active { color: var(--dashboard-success) !important; font-weight: 600; }
+	.status-inactive { color: var(--dashboard-text-secondary) !important; font-weight: 600; }
 
 	/* HTTP code styling */
-	.http-code-301, .http-code-302, .http-code-307 {
-		color: var(--dashboard-accent) !important;
-		font-weight: 600;
-	}
+	.http-code-301, .http-code-302, .http-code-307 { color: var(--dashboard-accent) !important; font-weight: 600; }
+	.http-code-410, .http-code-451 { color: var(--dashboard-warning) !important; font-weight: 600; }
 
-	.http-code-410, .http-code-451 {
-		color: var(--dashboard-warning) !important;
-		font-weight: 600;
-	}
+	/* Duplicate element guards */
+	.wrap .wp-list-table + .wp-list-table { display: none !important; }
+	.wrap .tablenav + .tablenav { display: none !important; }
+	.wrap .wp-list-table thead:not(:first-of-type) { display: none !important; }
 
-	/* Fix for duplicate table elements */
-	.wrap .wp-list-table + .wp-list-table {
-		display: none !important;
-	}
-
-	/* Hide duplicate bulk actions */
-	.wrap .tablenav + .tablenav {
-		display: none !important;
-	}
-
-	/* Ensure only one table header is visible */
-	.wrap .wp-list-table thead:not(:first-of-type) {
-		display: none !important;
-	}
-
-	/* Force no line breaks - aggressive approach */
-	.wrap .tablenav * {
-		box-sizing: border-box !important;
-	}
-
-	.wrap .tablenav .alignleft > *,
-	.wrap .tablenav .alignright > *,
-	.wrap .tablenav .actions > * {
-		display: inline-block !important;
-		vertical-align: middle !important;
-		margin: 0 !important;
-	}
-
-	/* Specific element spacing */
-	.wrap .tablenav label {
-		margin-right: 12px !important;
-		margin-left: 4px !important;
-		padding: 8px 4px !important;
-		white-space: nowrap !important;
-		flex-shrink: 0 !important;
-		font-weight: 500 !important;
-		color: var(--dashboard-text-primary) !important;
-		display: inline-block !important;
-		vertical-align: middle !important;
-	}
-
-	/* Responsive behavior for smaller screens */
-	@media (max-width: 1400px) {
-		.wrap .tablenav {
-			overflow-x: auto !important;
-			overflow-y: hidden !important;
-			padding: 16px 20px !important;
-		}
-		
-		.wrap .tablenav select {
-			width: 120px !important;
-			padding: 8px 12px !important;
-			height: 36px !important;
-		}
-		
-		.wrap .tablenav input[type="search"],
-		.wrap .tablenav input[type="text"] {
-			width: 200px !important;
-			padding: 8px 12px !important;
-			height: 36px !important;
-		}
-		
-		.wrap .tablenav input[type="submit"] {
-			padding: 8px 16px !important;
-			height: 36px !important;
-		}
-	}
-
+	/* ── Responsive ── */
 	@media (max-width: 1200px) {
-		.wrap .tablenav {
-			overflow-x: auto !important;
-			overflow-y: hidden !important;
-			padding: 14px 18px !important;
-		}
-		
-		.wrap .tablenav select {
-			width: 100px !important;
-			padding: 6px 10px !important;
-			height: 32px !important;
-		}
-		
-		.wrap .tablenav input[type="search"],
-		.wrap .tablenav input[type="text"] {
-			width: 180px !important;
-			padding: 6px 10px !important;
-			height: 32px !important;
-		}
-		
-		.wrap .tablenav input[type="submit"] {
-			padding: 6px 12px !important;
-			height: 32px !important;
-		}
-	}
-
-	@media (max-width: 768px) {
-		.wrap .tablenav {
-			flex-direction: column !important;
-			align-items: stretch !important;
-			gap: 12px !important;
-		}
-		
-		.wrap .tablenav .alignleft,
-		.wrap .tablenav .alignright {
-			justify-content: center !important;
-			margin: 0 !important;
-		}
-		
+		.wrap .tablenav { padding: 10px 12px; gap: 6px; }
 		.wrap .tablenav select,
 		.wrap .tablenav input[type="search"],
 		.wrap .tablenav input[type="text"],
-		.wrap .tablenav input[type="submit"] {
-			width: 100% !important;
-			max-width: none !important;
-			min-width: auto !important;
+		.wrap .tablenav input[type="submit"],
+		.wrap .tablenav .button {
+			height: 30px; font-size: 12px; line-height: 30px; padding: 0 8px;
 		}
+		.wrap .tablenav select { padding-right: 22px; background-size: 12px; }
+	}
+
+	@media (max-width: 782px) {
+		.wrap .tablenav { padding: 10px; gap: 8px; }
+		.wrap .tablenav .alignleft,
+		.wrap .tablenav .alignright,
+		.wrap .tablenav .actions,
+		.wrap .tablenav .metasync-search-box { width: 100%; flex: 1 1 100%; }
+		.wrap .tablenav select { flex: 1 1 0%; }
+		.wrap .tablenav-pages { margin-left: 0; width: 100%; justify-content: center; }
 	}
 
 	/* Description text styling */
@@ -1018,6 +778,30 @@ if (!defined('ABSPATH')) {
 		font-size: 13px !important;
 		line-height: 1.5 !important;
 	}
+
+	/* Health status column */
+	.column-health_status { width: 7%; text-align: center; }
+	.health-status-cell { display: inline-block; cursor: default; font-size: 16px; }
+
+	/* Body-appended floating tooltip — escapes all table stacking contexts */
+	.health-tooltip-floating {
+		position: fixed;
+		display: block;
+		background: #1e293b;
+		border: 1px solid #475569;
+		border-radius: 6px;
+		padding: 6px 12px;
+		z-index: 999999;
+		white-space: nowrap;
+		font-size: 12px;
+		color: #cbd5e1;
+		box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+		pointer-events: none;
+	}
+	.wrap .wp-list-table thead tr:first-child th:first-child { border-top-left-radius: 12px; }
+	.wrap .wp-list-table thead tr:first-child th:last-child { border-top-right-radius: 12px; }
+	.wrap .wp-list-table tbody tr:last-child td:first-child { border-bottom-left-radius: 12px; }
+	.wrap .wp-list-table tbody tr:last-child td:last-child { border-bottom-right-radius: 12px; }
 </style>
 
 <div class="wrap">
@@ -1027,6 +811,12 @@ if (!defined('ABSPATH')) {
 	<a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-import-external&tab=redirections')); ?>" class="page-title-action" style="background: #10b981 !important; border-color: #10b981 !important;">
 		<span>📥</span> Import from SEO Plugins
 	</a>
+
+	<!-- Check Health Button -->
+	<button type="button" id="metasync-check-health-btn" class="page-title-action" style="background: #f59e0b !important; border-color: #f59e0b !important; color: #000 !important;">
+		Check Health
+	</button>
+
 	<!-- Forms are NOT created automatically, so you need to wrap the table in one to use features like bulk actions -->
 	<form id="redirection-form" method="post" action="">
 		<?php wp_nonce_field('metasync_redirection_form', 'metasync_redirection_nonce'); ?>
@@ -1069,12 +859,10 @@ if (!defined('ABSPATH')) {
 				<input type="submit" name="filter_action" id="post-query-submit" class="button" value="Filter">
 			</div>
 			
-			<div class="alignright">
-				<p class="search-box">
-					<label class="screen-reader-text" for="post-search-input">Search Redirections:</label>
-					<input type="search" id="post-search-input" name="s" value="<?php echo esc_attr(isset($_REQUEST['s']) ? $_REQUEST['s'] : ''); ?>" placeholder="Search redirections...">
-					<input type="submit" id="search-submit" class="button" value="Search">
-				</p>
+			<div class="metasync-search-box">
+				<label class="screen-reader-text" for="post-search-input">Search Redirections:</label>
+				<input type="search" id="post-search-input" name="s" value="<?php echo esc_attr(isset($_REQUEST['s']) ? $_REQUEST['s'] : ''); ?>" placeholder="Search redirections...">
+				<input type="submit" id="search-submit" class="button" value="Search">
 			</div>
 		</div>
 		

@@ -125,6 +125,7 @@ class Metasync_Breadcrumbs {
             'show_current_page'    => true,
             'prefix_text'          => '',
             'archive_label_format' => '{name}',
+            'disable_schema'       => false,
         );
 
         $saved = Metasync::get_option('breadcrumbs', array());
