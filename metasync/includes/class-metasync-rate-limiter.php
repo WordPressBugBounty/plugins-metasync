@@ -2,11 +2,10 @@
 /**
  * MetaSync Rate Limiter
  *
- * A robust rate limiting implementation that uses direct database storage
- * to ensure consistent behavior across all server configurations including:
- * - Object caching (Redis, Memcached)
- * - Load-balanced environments
- * - Server-side page caching
+ * A robust rate limiting implementation that uses per-key WordPress
+ * transients so each IP/token hash is stored as its own row with a
+ * TTL matching the rate-limit window. This avoids the contention,
+ * race conditions, and unbounded growth of a single serialized blob.
  *
  * @package    Metasync
  * @subpackage Metasync/includes
@@ -21,9 +20,9 @@ if (!defined('ABSPATH')) {
 class Metasync_Rate_Limiter
 {
     /**
-     * Option name for storing rate limit data
+     * Prefix for per-key rate limit transients.
      */
-    const OPTION_NAME = 'metasync_rate_limits';
+    const TRANSIENT_PREFIX = 'metasync_rl_';
 
     /**
      * Singleton instance
@@ -50,51 +49,61 @@ class Metasync_Rate_Limiter
      */
     private function __construct()
     {
-        # Schedule cleanup if not already scheduled
-        if (!wp_next_scheduled('metasync_rate_limit_cleanup')) {
-            wp_schedule_event(time(), 'hourly', 'metasync_rate_limit_cleanup');
-        }
+        # Cancel any previously scheduled hourly cleanup job — transient
+        # expiry handles cleanup automatically now.
+        wp_clear_scheduled_hook('metasync_rate_limit_cleanup');
     }
 
     /**
-     * Check and increment rate limit for a given key
+     * Build the transient key for a given full rate-limit key.
      *
-     * Uses atomic database operations to ensure consistency across
-     * all server configurations including object caching and load balancers.
+     * Hashing keeps the resulting transient name comfortably under
+     * WordPress's 172-char limit regardless of the input length.
      *
-     * @param string $key           Unique identifier for rate limiting (e.g., hashed token or IP)
-     * @param int    $max_attempts  Maximum number of attempts allowed
+     * @param string $full_key Full rate-limit key (prefix + key).
+     * @return string Transient name.
+     */
+    private function get_transient_key($full_key)
+    {
+        return self::TRANSIENT_PREFIX . substr(hash('sha256', $full_key), 0, 40);
+    }
+
+    /**
+     * Check and increment rate limit for a given key.
+     *
+     * Each key is tracked in its own transient, so concurrent
+     * requests for different keys never share a write lock.
+     *
+     * @param string $key            Unique identifier for rate limiting (e.g., hashed token or IP)
+     * @param int    $max_attempts   Maximum number of attempts allowed
      * @param int    $window_seconds Time window in seconds
-     * @param string $prefix        Optional prefix for the rate limit key
+     * @param string $prefix         Optional prefix for the rate limit key
      * @return bool|WP_Error True if under limit, WP_Error if rate limit exceeded
      */
     public function check_rate_limit($key, $max_attempts, $window_seconds, $prefix = '')
     {
-        global $wpdb;
+        $full_key       = $prefix . $key;
+        $transient_key  = $this->get_transient_key($full_key);
+        $now            = time();
 
-        $full_key = $prefix . $key;
-        $now = time();
+        $data = get_transient($transient_key);
 
-        # Get current rate limit data with row-level locking for atomicity
-        # Using direct database query instead of get_option for reliability
-        $data = $this->get_rate_limit_data();
-
-        # Initialize entry if not exists or expired
-        if (!isset($data[$full_key]) || $data[$full_key]['expires_at'] < $now) {
-            $data[$full_key] = array(
-                'attempts' => 1,
+        # Initialize entry if not present or expired
+        if ($data === false || !is_array($data) || !isset($data['expires_at']) || $data['expires_at'] < $now) {
+            $data = array(
+                'attempts'         => 1,
                 'first_attempt_at' => $now,
-                'expires_at' => $now + $window_seconds,
-                'window_seconds' => $window_seconds,
+                'expires_at'       => $now + $window_seconds,
+                'window_seconds'   => $window_seconds,
             );
-            $this->save_rate_limit_data($data);
+            set_transient($transient_key, $data, $window_seconds);
 
             return true;
         }
 
         # Check if rate limit exceeded
-        if ($data[$full_key]['attempts'] >= $max_attempts) {
-            $remaining_seconds = $data[$full_key]['expires_at'] - $now;
+        if ($data['attempts'] >= $max_attempts) {
+            $remaining_seconds = $data['expires_at'] - $now;
             $remaining_minutes = ceil($remaining_seconds / 60);
 
             return new WP_Error(
@@ -106,16 +115,16 @@ class Metasync_Rate_Limiter
                 ),
                 array(
                     'retry_after' => $remaining_seconds,
-                    'attempts' => $data[$full_key]['attempts'],
+                    'attempts'    => $data['attempts'],
                     'max_attempts' => $max_attempts,
                 )
             );
         }
 
-        # Increment attempt count
-        $data[$full_key]['attempts']++;
-        $data[$full_key]['last_attempt_at'] = $now;
-        $this->save_rate_limit_data($data);
+        # Increment attempt count, preserving the original window end
+        $data['attempts']++;
+        $data['last_attempt_at'] = $now;
+        set_transient($transient_key, $data, max(1, $data['expires_at'] - $now));
 
         return true;
     }
@@ -173,92 +182,6 @@ class Metasync_Rate_Limiter
     }
 
     /**
-     * Get rate limit data from database
-     *
-     * Uses direct SQL query to bypass object caching and ensure
-     * we always get the latest data from the database.
-     *
-     * @return array Rate limit data
-     */
-    private function get_rate_limit_data()
-    {
-        global $wpdb;
-
-        # Bypass object cache by using direct SQL query
-        $value = $wpdb->get_var(
-            $wpdb->prepare(
-                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-                self::OPTION_NAME
-            )
-        );
-
-        if ($value === null) {
-            return array();
-        }
-
-        $data = maybe_unserialize($value);
-        return is_array($data) ? $data : array();
-    }
-
-    /**
-     * Save rate limit data to database
-     *
-     * Uses direct SQL query with ON DUPLICATE KEY UPDATE for atomicity.
-     *
-     * @param array $data Rate limit data
-     * @return bool Success
-     */
-    private function save_rate_limit_data($data)
-    {
-        global $wpdb;
-
-        $serialized = maybe_serialize($data);
-
-        # Use REPLACE to ensure atomic update (INSERT or UPDATE)
-        $result = $wpdb->query(
-            $wpdb->prepare(
-                "INSERT INTO {$wpdb->options} (option_name, option_value, autoload)
-                 VALUES (%s, %s, 'no')
-                 ON DUPLICATE KEY UPDATE option_value = VALUES(option_value)",
-                self::OPTION_NAME,
-                $serialized
-            )
-        );
-
-        # Clear any object cache for this option
-        wp_cache_delete(self::OPTION_NAME, 'options');
-
-        return $result !== false;
-    }
-
-    /**
-     * Clean up expired rate limit entries
-     *
-     * Called via cron job to prevent database bloat.
-     *
-     * @return int Number of entries cleaned up
-     */
-    public function cleanup_expired_entries()
-    {
-        $data = $this->get_rate_limit_data();
-        $now = time();
-        $original_count = count($data);
-
-        # Remove expired entries
-        $data = array_filter($data, function ($entry) use ($now) {
-            return isset($entry['expires_at']) && $entry['expires_at'] > $now;
-        });
-
-        $removed_count = $original_count - count($data);
-
-        if ($removed_count > 0) {
-            $this->save_rate_limit_data($data);
-        }
-
-        return $removed_count;
-    }
-
-    /**
      * Get client IP address
      *
      * Handles various proxy configurations and load balancers.
@@ -305,14 +228,7 @@ class Metasync_Rate_Limiter
      */
     public function reset_rate_limit($key, $prefix = '')
     {
-        $full_key = $prefix . $key;
-        $data = $this->get_rate_limit_data();
-
-        if (isset($data[$full_key])) {
-            unset($data[$full_key]);
-            return $this->save_rate_limit_data($data);
-        }
-
+        delete_transient($this->get_transient_key($prefix . $key));
         return true;
     }
 
@@ -325,31 +241,21 @@ class Metasync_Rate_Limiter
      */
     public function get_rate_limit_status($key, $prefix = '')
     {
-        $full_key = $prefix . $key;
-        $data = $this->get_rate_limit_data();
+        $data = get_transient($this->get_transient_key($prefix . $key));
 
-        if (!isset($data[$full_key])) {
+        if ($data === false || !is_array($data)) {
             return null;
         }
 
-        $entry = $data[$full_key];
         $now = time();
 
         return array(
-            'attempts' => $entry['attempts'],
-            'expires_at' => $entry['expires_at'],
-            'remaining_seconds' => max(0, $entry['expires_at'] - $now),
-            'is_expired' => $entry['expires_at'] < $now,
-            'first_attempt_at' => $entry['first_attempt_at'],
-            'last_attempt_at' => isset($entry['last_attempt_at']) ? $entry['last_attempt_at'] : null,
+            'attempts'          => $data['attempts'],
+            'expires_at'        => $data['expires_at'],
+            'remaining_seconds' => max(0, $data['expires_at'] - $now),
+            'is_expired'        => $data['expires_at'] < $now,
+            'first_attempt_at'  => $data['first_attempt_at'],
+            'last_attempt_at'   => isset($data['last_attempt_at']) ? $data['last_attempt_at'] : null,
         );
     }
 }
-
-/**
- * Hook for cron cleanup
- */
-add_action('metasync_rate_limit_cleanup', function () {
-    $rate_limiter = Metasync_Rate_Limiter::get_instance();
-    $rate_limiter->cleanup_expired_entries();
-});

@@ -461,12 +461,6 @@ class Metasync_Seo_Output
 				}
 			}
 		}
-
-		$this->facebook_graph_cache();
-
-
-
-
 	}
 
 	public function add_ld_json()
@@ -509,34 +503,6 @@ class Metasync_Seo_Output
 		);
 
 		return $schema;
-	}
-
-	public function facebook_graph_cache()
-	{
-		$facebook_app = Metasync::get_option('social_meta')['facebook_app'] ?? '';
-		$facebook_secret = Metasync::get_option('social_meta')['facebook_secret'] ?? '';
-
-		// Early bail!
-		if (!$facebook_app || !$facebook_secret) {
-			return;
-		}
-
-		# PERFORMANCE OPTIMIZATION: Add timeout and error handling
-		$response = wp_remote_post(
-			'https://graph.facebook.com/',
-			[
-				'body' => [
-					'id' => $facebook_app,
-					'access_token' => $facebook_secret,
-				],
-				'timeout' => 5,
-			]
-		);
-
-		# Error handling (fail silently, not critical)
-		if (is_wp_error($response)) {
-			error_log('MetaSync: Facebook Graph API failed: ' . $response->get_error_message());
-		}
 	}
 
 	/*

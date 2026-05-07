@@ -435,6 +435,8 @@ class Metasync_Otto_Cache_Manager
             $redirect_url .= '&otto_cache_error=1&message=' . urlencode('Transient Cache class not found');
         }
 
+        delete_transient('metasync_otto_js_detected');
+
         wp_safe_redirect($redirect_url);
         exit;
     }
@@ -480,6 +482,8 @@ class Metasync_Otto_Cache_Manager
         } else {
             $redirect_url .= '&otto_cache_error=1&message=' . urlencode('Transient Cache class not found');
         }
+
+        delete_transient('metasync_otto_js_detected');
 
         wp_safe_redirect($redirect_url);
         exit;

@@ -2476,6 +2476,9 @@
 
 				formData += '&action=meta_sync_save_settings&active_tab=' + encodeURIComponent(currentTab);
 
+				// Capture the current API key value so we can restore it client-side if validation fails
+				var savedApiKeyValue = $('#searchatlas-api-key').val();
+
 				$.ajax({
 					url: metaSync.ajax_url,
 					type: 'POST',
@@ -2485,10 +2488,32 @@
 							// Clear unsaved changes flag
 							hasUnsavedChanges = false;
 							updateUnsavedChangesIndicator();
-							
+
+							// Clear any previous save notices (success, error, or warning)
+							$('.metasync-save-notice').remove();
+
 							// Show temporary success indication in plugin area
-							var successNotice = '<div class="notice notice-success is-dismissible metasync-save-notice" style="margin: 20px 0; padding: 12px;"><p><strong>✅ Settings saved successfully!</strong></p></div>';
-							
+							var noticeType, noticeMessage, noAutoDismiss = false;
+							if (response.data && response.data.api_key_validated === true) {
+								noticeType    = 'notice-success';
+								noticeMessage = $('<span/>').text('Settings saved successfully! API key verified & connected. Reloading\u2026').html();
+								updateHeaderStatus(true, 'Synced', getPluginName() + ' connected');
+							} else if (response.data && response.data.api_key_validated === false) {
+								noticeType    = 'notice-error';
+								noticeMessage = $('<span/>').text(response.data.warning || 'The API key could not be verified. Your other settings were saved.').html();
+								noAutoDismiss = true;
+								// Revert the input field to the value before save attempt
+								$('#searchatlas-api-key').val(savedApiKeyValue);
+							} else if (response.data && response.data.warning) {
+								// Network failure — key saved but unverified
+								noticeType    = 'notice-warning';
+								noticeMessage = $('<span/>').text(response.data.warning).html();
+							} else {
+								noticeType    = 'notice-success';
+								noticeMessage = $('<span/>').text('Settings saved successfully!').html();
+							}
+							var successNotice = '<div class="notice ' + noticeType + ' is-dismissible metasync-save-notice" style="margin: 20px 0; padding: 12px;"><p><strong>' + noticeMessage + '</strong></p></div>';
+
 							// Insert between navigation menu and page content
 							var $navWrapper = $('.metasync-nav-wrapper');
 							if ($navWrapper.length > 0) {
@@ -2498,15 +2523,27 @@
 								// Fallback: insert at top of settings page
 								$('.metasync-dashboard-wrap').prepend(successNotice);
 							}
-							
-							// Scroll to the success message for better visibility
+
+							// Scroll to the notice for better visibility
 							$('html, body').animate({ scrollTop: 0 }, 'slow');
-							
-							setTimeout(function () {
-								$('.metasync-save-notice').fadeOut(300, function () {
-									$(this).remove(); 
-								});
-							}, 3000);
+
+							// Reload page when API key was validated so server-rendered
+							// sections (One-Click Authentication, promo sidebar) update
+							if (response.data && response.data.api_key_validated === true) {
+								setTimeout(function () {
+									location.reload();
+								}, 1500);
+								return;
+							}
+
+							// Auto-dismiss success/warning notices; keep errors visible
+							if (!noAutoDismiss) {
+								setTimeout(function () {
+									$('.metasync-save-notice').fadeOut(300, function () {
+										$(this).remove();
+									});
+								}, 3000);
+							}
 						} else {
 							// Handle validation errors
 							var errors = response.data && response.data.errors ? response.data.errors : [];

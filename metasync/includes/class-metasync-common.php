@@ -51,7 +51,7 @@ class Metasync_Common
 		global $wpdb;
 		$post = $wpdb->get_row(
 			$wpdb->prepare(
-				"SELECT * FROM $wpdb->posts WHERE `post_name` = '%s' and `post_type` = 'attachment' LIMIT 1",
+				"SELECT * FROM $wpdb->posts WHERE `post_name` = %s and `post_type` = 'attachment' LIMIT 1",
 				$attachment_name
 			)
 		);

@@ -64,6 +64,14 @@ class Metasync_Otto_Excluded_URLs_Database
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			$wpdb->query("UPDATE `{$table_name}` SET recheck_after = DATE_ADD(created_at, INTERVAL 7 DAY) WHERE auto_excluded = 1 AND (recheck_after IS NULL OR recheck_after = '0000-00-00 00:00:00')");
 		}
+
+		// status_auto_excluded composite index — speeds up the cache-miss query in metasync_is_otto_url_manually_excluded()
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$has_composite_index = $wpdb->get_var("SHOW INDEX FROM `{$table_name}` WHERE Key_name = 'status_auto_excluded'");
+		if (empty($has_composite_index)) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query("ALTER TABLE `{$table_name}` ADD KEY `status_auto_excluded` (`status`, `auto_excluded`)");
+		}
 	}
 
 	/**
@@ -448,6 +456,9 @@ class Metasync_Otto_Excluded_URLs_Database
 	public function clear_cache()
 	{
 		wp_cache_delete('metasync_otto_excluded_urls', 'metasync');
+		if (defined('METASYNC_OTTO_EXCLUDED_TRANSIENT_KEY')) {
+			delete_transient(METASYNC_OTTO_EXCLUDED_TRANSIENT_KEY);
+		}
 	}
 
 	/**

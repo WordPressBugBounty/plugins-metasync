@@ -727,32 +727,35 @@ class Metasync_Admin
      */
     public function enqueue_styles()
     {
+        $current_page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
 
-        wp_enqueue_style(
-            $this->plugin_name,
-            plugin_dir_url(__FILE__) . 'css/metasync-admin.css',
-            array(),
-            $this->version,
-            'all'
-        );
+        if (strpos($current_page, self::$page_slug) === 0) {
+            wp_enqueue_style(
+                $this->plugin_name,
+                plugin_dir_url(__FILE__) . 'css/metasync-admin.css',
+                array(),
+                $this->version,
+                'all'
+            );
 
-        // Enqueue dashboard-style CSS for admin pages
-        wp_enqueue_style(
-            $this->plugin_name . '-dashboard',
-            plugin_dir_url(__FILE__) . 'css/metasync-dashboard.css',
-            array($this->plugin_name),
-            $this->version,
-            'all'
-        );
+            // Enqueue dashboard-style CSS for admin pages
+            wp_enqueue_style(
+                $this->plugin_name . '-dashboard',
+                plugin_dir_url(__FILE__) . 'css/metasync-dashboard.css',
+                array($this->plugin_name),
+                $this->version,
+                'all'
+            );
 
-        // Enqueue 3-column layout CSS
-        wp_enqueue_style(
-            $this->plugin_name . '-layout',
-            plugin_dir_url(__FILE__) . 'css/metasync-layout.css',
-            array($this->plugin_name . '-dashboard'),
-            $this->version,
-            'all'
-        );
+            // Enqueue 3-column layout CSS
+            wp_enqueue_style(
+                $this->plugin_name . '-layout',
+                plugin_dir_url(__FILE__) . 'css/metasync-layout.css',
+                array($this->plugin_name . '-dashboard'),
+                $this->version,
+                'all'
+            );
+        }
 
         // Enqueue wizard CSS if on wizard page
         if (isset($_GET['page']) && strpos($_GET['page'], '-setup-wizard') !== false) {
@@ -784,38 +787,40 @@ class Metasync_Admin
      */
     public function enqueue_scripts()
     {
-
-        wp_enqueue_media();
-
-        wp_enqueue_script(
-            $this->plugin_name,
-            plugin_dir_url(__FILE__) . 'js/metasync-admin.js',
-            array('jquery'),
-            $this->version,
-            false
-        );
-
-        // Enqueue dashboard-style JavaScript for enhanced interactions
-        wp_enqueue_script(
-            $this->plugin_name . '-dashboard',
-            plugin_dir_url(__FILE__) . 'js/metasync-dashboard.js',
-            array('jquery', $this->plugin_name),
-            $this->version,
-            true
-        );
-
-        # Enqueue theme switcher
-        wp_enqueue_script(
-            $this->plugin_name . '-theme-switcher',
-            plugin_dir_url(__FILE__) . 'js/metasync-theme-switcher.js',
-            array('jquery'),
-            $this->version,
-            true
-        );
-        
         // --- Phase 5 (#887): Extracted inline JS files ---
         $current_page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
         $plugin_root_url = plugin_dir_url(dirname(__FILE__));
+        $is_metasync_page = ($current_page === self::$page_slug || strpos($current_page, self::$page_slug) === 0);
+
+        if ($is_metasync_page) {
+            wp_enqueue_media();
+
+            wp_enqueue_script(
+                $this->plugin_name,
+                plugin_dir_url(__FILE__) . 'js/metasync-admin.js',
+                array('jquery'),
+                $this->version,
+                false
+            );
+
+            // Enqueue dashboard-style JavaScript for enhanced interactions
+            wp_enqueue_script(
+                $this->plugin_name . '-dashboard',
+                plugin_dir_url(__FILE__) . 'js/metasync-dashboard.js',
+                array('jquery', $this->plugin_name),
+                $this->version,
+                true
+            );
+
+            # Enqueue theme switcher
+            wp_enqueue_script(
+                $this->plugin_name . '-theme-switcher',
+                plugin_dir_url(__FILE__) . 'js/metasync-theme-switcher.js',
+                array('jquery'),
+                $this->version,
+                true
+            );
+        }
 
         // Dashboard iframe height (only on dashboard page)
         if ($current_page === self::$page_slug . '-dashboard' || $current_page === self::$page_slug) {
@@ -829,7 +834,7 @@ class Metasync_Admin
         }
 
         // Settings page scripts (save btn, clear settings, bing key, access roles)
-        if ($current_page === self::$page_slug || strpos($current_page, self::$page_slug) === 0) {
+        if ($current_page === self::$page_slug) {
             wp_enqueue_script(
                 $this->plugin_name . '-settings',
                 plugin_dir_url(__FILE__) . 'js/metasync-settings.js',
@@ -878,7 +883,7 @@ class Metasync_Admin
         }
 
         // Error logs — copy to clipboard
-        if ($current_page === self::$page_slug || strpos($current_page, self::$page_slug) === 0) {
+        if ($current_page === self::$page_slug) {
             wp_enqueue_script(
                 $this->plugin_name . '-error-logs',
                 $plugin_root_url . 'site-error-logs/js/metasync-error-logs.js',
@@ -889,7 +894,7 @@ class Metasync_Admin
         }
 
         // Access control UI
-        if ($current_page === self::$page_slug || strpos($current_page, self::$page_slug) === 0) {
+        if ($current_page === self::$page_slug) {
             wp_enqueue_script(
                 $this->plugin_name . '-access-control',
                 $plugin_root_url . 'includes/js/metasync-access-control.js',
@@ -928,7 +933,7 @@ class Metasync_Admin
 
         // Navigation portal menus (top bar + settings inner page)
         $whitelabel_data = Metasync::get_option('whitelabel');
-        if ($current_page === self::$page_slug || strpos($current_page, self::$page_slug) === 0) {
+        if ($is_metasync_page) {
             wp_enqueue_script(
                 $this->plugin_name . '-navigation',
                 plugin_dir_url(__FILE__) . 'js/metasync-navigation.js',
@@ -944,7 +949,7 @@ class Metasync_Admin
         }
 
         // Debug mode timer
-        if ($current_page === self::$page_slug || strpos($current_page, self::$page_slug) === 0) {
+        if ($current_page === self::$page_slug) {
             $debug_manager = Metasync_Debug_Mode_Manager::get_instance();
             $debug_status = $debug_manager->get_status();
             wp_enqueue_script(
@@ -964,7 +969,7 @@ class Metasync_Admin
         }
 
         // MetasyncConfig + admin bar sync
-        if ($current_page === self::$page_slug || strpos($current_page, self::$page_slug) === 0) {
+        if ($is_metasync_page) {
             wp_enqueue_script(
                 $this->plugin_name . '-config',
                 plugin_dir_url(__FILE__) . 'js/metasync-config.js',
@@ -979,7 +984,7 @@ class Metasync_Admin
         }
 
         // Whitelabel password (forgot password handler)
-        if ($current_page === self::$page_slug || strpos($current_page, self::$page_slug) === 0) {
+        if ($current_page === self::$page_slug) {
             wp_enqueue_script(
                 $this->plugin_name . '-whitelabel',
                 plugin_dir_url(__FILE__) . 'js/metasync-whitelabel.js',
@@ -993,7 +998,7 @@ class Metasync_Admin
         }
 
         // Whitelabel connect (validation modal + lock section + export)
-        if ($current_page === self::$page_slug || strpos($current_page, self::$page_slug) === 0) {
+        if ($current_page === self::$page_slug) {
             wp_enqueue_script(
                 $this->plugin_name . '-connect',
                 plugin_dir_url(__FILE__) . 'js/metasync-connect.js',
@@ -1012,7 +1017,7 @@ class Metasync_Admin
         }
 
         // Host blocking test (settings + dashboard)
-        if ($current_page === self::$page_slug || strpos($current_page, self::$page_slug) === 0) {
+        if ($current_page === self::$page_slug || $current_page === self::$page_slug . '-dashboard') {
             wp_enqueue_script(
                 $this->plugin_name . '-host-blocking',
                 plugin_dir_url(__FILE__) . 'js/metasync-host-blocking.js',
@@ -1026,7 +1031,7 @@ class Metasync_Admin
         }
 
         // OTTO excluded URLs
-        if ($current_page === self::$page_slug || strpos($current_page, self::$page_slug) === 0) {
+        if ($current_page === self::$page_slug) {
             wp_enqueue_script(
                 $this->plugin_name . '-excluded-urls',
                 plugin_dir_url(__FILE__) . 'js/metasync-excluded-urls.js',
@@ -1041,7 +1046,7 @@ class Metasync_Admin
         }
 
         // Execution settings form
-        if ($current_page === self::$page_slug || strpos($current_page, self::$page_slug) === 0) {
+        if ($current_page === self::$page_slug) {
             $server_limits = $this->get_server_limits();
             wp_enqueue_script(
                 $this->plugin_name . '-execution-settings',
@@ -1058,16 +1063,19 @@ class Metasync_Admin
         }
 
         // Quick edit badge (custom pages)
-        wp_enqueue_script(
-            $this->plugin_name . '-quick-edit',
-            plugin_dir_url(__FILE__) . 'js/metasync-quick-edit.js',
-            array('jquery'),
-            $this->version,
-            true
-        );
-        wp_localize_script($this->plugin_name . '-quick-edit', 'metasyncQuickEditData', array(
-            'standardPageLabel' => __('Standard page', 'metasync'),
-        ));
+        global $pagenow;
+        if ($pagenow === 'edit.php') {
+            wp_enqueue_script(
+                $this->plugin_name . '-quick-edit',
+                plugin_dir_url(__FILE__) . 'js/metasync-quick-edit.js',
+                array('jquery'),
+                $this->version,
+                true
+            );
+            wp_localize_script($this->plugin_name . '-quick-edit', 'metasyncQuickEditData', array(
+                'standardPageLabel' => __('Standard page', 'metasync'),
+            ));
+        }
 
         // Report issue form
         if ($current_page === self::$page_slug . '-report-issue') {
@@ -1118,7 +1126,7 @@ class Metasync_Admin
         }
 
         // Import external data (SEO metadata)
-        if ($current_page === self::$page_slug || strpos($current_page, self::$page_slug) === 0) {
+        if ($current_page === self::$page_slug . '-import-external') {
             wp_enqueue_script(
                 $this->plugin_name . '-import-external-data',
                 $plugin_root_url . 'views/js/metasync-import-external-data.js',
@@ -1133,7 +1141,7 @@ class Metasync_Admin
         }
 
         // OTTO bot statistics
-        if ($current_page === self::$page_slug || strpos($current_page, self::$page_slug) === 0) {
+        if ($current_page === self::$page_slug . '-bot-statistics') {
             wp_enqueue_script(
                 $this->plugin_name . '-bot-statistics',
                 $plugin_root_url . 'views/js/metasync-bot-statistics.js',
@@ -1162,97 +1170,97 @@ class Metasync_Admin
 
         // --- End Phase 5 enqueues ---
 
-        # Localize theme switcher script
-        wp_localize_script(
-            $this->plugin_name . '-theme-switcher',
-            'metasyncThemeData',
-            array(
-                'ajaxUrl' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce('metasync_theme_nonce'),
-                'currentTheme' => get_option('metasync_theme', 'dark')
-            )
-        );
+        if ($is_metasync_page) {
+            # Localize theme switcher script
+            wp_localize_script(
+                $this->plugin_name . '-theme-switcher',
+                'metasyncThemeData',
+                array(
+                    'ajaxUrl' => admin_url('admin-ajax.php'),
+                    'nonce' => wp_create_nonce('metasync_theme_nonce'),
+                    'currentTheme' => get_option('metasync_theme', 'dark')
+                )
+            );
 
-        // Localize the script to make the AJAX URL accessible
-        $options = Metasync::get_option('general');
-        // Get connection status for JavaScript
-        $general_settings = Metasync::get_option('general');
-        $searchatlas_api_key = isset($general_settings['searchatlas_api_key']) ? $general_settings['searchatlas_api_key'] : '';
-        $otto_pixel_uuid = isset($general_settings['otto_pixel_uuid']) ? $general_settings['otto_pixel_uuid'] : '';
-        
-        // SECURITY FIX (CVE-2025-14386): Only generate Search Atlas connect nonce for administrators
-        // Using strict capability check instead of plugin access roles
-        $sa_connect_nonce = '';
-        if (current_user_can('manage_options')) {
-            $sa_connect_nonce = wp_create_nonce('metasync_sa_connect_nonce');
-        }
-        
-        $heartbeat_state = $this->get_heartbeat_state();
-        wp_localize_script( $this->plugin_name, 'metaSync', array(
-            'ajax_url' => admin_url( 'admin-ajax.php' ),
-			'admin_url'=>admin_url('admin.php'),
-			'sa_connect_nonce' => $sa_connect_nonce,
-			'reset_auth_nonce' => wp_create_nonce('metasync_reset_auth_nonce'),
-			'burst_ping_nonce' => wp_create_nonce('metasync_burst_ping'),
-			'heartbeat_state' => $heartbeat_state,
-			'dashboard_domain' => self::get_effective_dashboard_domain(),
-			'support_email' => Metasync::SUPPORT_EMAIL,
-			'documentation_domain' => Metasync::DOCUMENTATION_DOMAIN,
-			'debug_enabled' => WP_DEBUG || (defined('METASYNC_DEBUG') && constant('METASYNC_DEBUG')),
-			'searchatlas_api_key' => !empty($searchatlas_api_key),
-			'otto_pixel_uuid' => $otto_pixel_uuid,
-			'is_connected' => (bool)$this->is_heartbeat_connected()
-        ));
-        
-        // Ensure ajaxurl is available for admin pages (WordPress standard)  
-        // This creates a global ajaxurl variable for JavaScript
-        wp_enqueue_script('wp-util');
-        
-        // Add inline script to ensure ajaxurl is defined
-        $inline_script = "
-        if (typeof ajaxurl === 'undefined') {
-            var ajaxurl = '" . esc_js(admin_url('admin-ajax.php')) . "';
-        }
-        
-        // Add Plugin Auth Token refresh functionality
-        jQuery(document).ready(function($) {
-            $('#refresh-plugin-auth-token').click(function() {
-                var button = $(this);
-                var originalText = button.text();
-                
-                if (confirm('Are you sure you want to refresh the Plugin Auth Token? This will generate a new token and update the heartbeat API.')) {
-                    // Disable button and show loading
-                    button.prop('disabled', true).text('🔄 Refreshing...');
-                    
-                    $.post(ajaxurl, {
-                        action: 'metasync_refresh_plugin_auth_token',
-                        nonce: '" . wp_create_nonce('metasync_refresh_plugin_auth_token') . "'
-                    })
-                    .done(function(response) {
-                        if (response.success && response.data && response.data.new_token) {
-                            // Update the field value immediately
-                            $('#apikey').val(response.data.new_token);
-                            
-                            // Visual feedback with green border
-                            $('#apikey').css('border', '2px solid #28a745').animate({borderColor: '#ddd'}, 2000);
-                            
-                            alert('✅ Plugin Auth Token refreshed successfully!\\n\\nNew token: ' + response.data.new_token.substring(0, 8) + '...');
-                        } else {
-                            alert('❌ Error refreshing token: ' + (response.data ? response.data.message : 'Unknown error'));
-                        }
-                    })
-                    .fail(function() {
-                        alert('❌ Network error while refreshing token');
-                    })
-                    .always(function() {
-                        // Re-enable button
-                        button.prop('disabled', false).text(originalText);
-                    });
-                }
+            // Get connection status for JavaScript
+            $general_settings = Metasync::get_option('general');
+            $searchatlas_api_key = isset($general_settings['searchatlas_api_key']) ? $general_settings['searchatlas_api_key'] : '';
+            $otto_pixel_uuid = isset($general_settings['otto_pixel_uuid']) ? $general_settings['otto_pixel_uuid'] : '';
+
+            // SECURITY FIX (CVE-2025-14386): Only generate Search Atlas connect nonce for administrators
+            // Using strict capability check instead of plugin access roles
+            $sa_connect_nonce = '';
+            if (current_user_can('manage_options')) {
+                $sa_connect_nonce = wp_create_nonce('metasync_sa_connect_nonce');
+            }
+
+            $heartbeat_state = $this->get_heartbeat_state();
+            wp_localize_script( $this->plugin_name, 'metaSync', array(
+                'ajax_url' => admin_url( 'admin-ajax.php' ),
+                'admin_url'=>admin_url('admin.php'),
+                'sa_connect_nonce' => $sa_connect_nonce,
+                'reset_auth_nonce' => wp_create_nonce('metasync_reset_auth_nonce'),
+                'burst_ping_nonce' => wp_create_nonce('metasync_burst_ping'),
+                'heartbeat_state' => $heartbeat_state,
+                'dashboard_domain' => self::get_effective_dashboard_domain(),
+                'support_email' => Metasync::SUPPORT_EMAIL,
+                'documentation_domain' => Metasync::DOCUMENTATION_DOMAIN,
+                'debug_enabled' => WP_DEBUG || (defined('METASYNC_DEBUG') && constant('METASYNC_DEBUG')),
+                'searchatlas_api_key' => !empty($searchatlas_api_key),
+                'otto_pixel_uuid' => $otto_pixel_uuid,
+                'is_connected' => (bool)$this->is_heartbeat_connected()
+            ));
+
+            // Ensure ajaxurl is available for admin pages (WordPress standard)
+            // This creates a global ajaxurl variable for JavaScript
+            wp_enqueue_script('wp-util');
+
+            // Add inline script to ensure ajaxurl is defined
+            $inline_script = "
+            if (typeof ajaxurl === 'undefined') {
+                var ajaxurl = '" . esc_js(admin_url('admin-ajax.php')) . "';
+            }
+
+            // Add Plugin Auth Token refresh functionality
+            jQuery(document).ready(function($) {
+                $('#refresh-plugin-auth-token').click(function() {
+                    var button = $(this);
+                    var originalText = button.text();
+
+                    if (confirm('Are you sure you want to refresh the Plugin Auth Token? This will generate a new token and update the heartbeat API.')) {
+                        // Disable button and show loading
+                        button.prop('disabled', true).text('🔄 Refreshing...');
+
+                        $.post(ajaxurl, {
+                            action: 'metasync_refresh_plugin_auth_token',
+                            nonce: '" . wp_create_nonce('metasync_refresh_plugin_auth_token') . "'
+                        })
+                        .done(function(response) {
+                            if (response.success && response.data && response.data.new_token) {
+                                // Update the field value immediately
+                                $('#apikey').val(response.data.new_token);
+
+                                // Visual feedback with green border
+                                $('#apikey').css('border', '2px solid #28a745').animate({borderColor: '#ddd'}, 2000);
+
+                                alert('✅ Plugin Auth Token refreshed successfully!\\n\\nNew token: ' + response.data.new_token.substring(0, 8) + '...');
+                            } else {
+                                alert('❌ Error refreshing token: ' + (response.data ? response.data.message : 'Unknown error'));
+                            }
+                        })
+                        .fail(function() {
+                            alert('❌ Network error while refreshing token');
+                        })
+                        .always(function() {
+                            // Re-enable button
+                            button.prop('disabled', false).text(originalText);
+                        });
+                    }
+                });
             });
-        });
-        ";
-        wp_add_inline_script($this->plugin_name, $inline_script);
+            ";
+            wp_add_inline_script($this->plugin_name, $inline_script);
+        }
         add_action('admin_notices', array($this, 'permalink_structure_dashboard_warning'));
         add_action('admin_notices', array($this, 'display_page_builder_notice'));
         // Display update warning banner if plugin update is available

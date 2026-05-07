@@ -552,6 +552,8 @@ class Metasync_Otto_Transient_Cache {
             wp_cache_flush_group('transient');
         }
 
+        delete_transient('metasync_otto_js_detected');
+
         return [
             'success' => true,
             'cleared_count' => $cleared_count,

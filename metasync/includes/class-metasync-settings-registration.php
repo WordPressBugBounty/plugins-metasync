@@ -2372,6 +2372,8 @@ class Metasync_Settings_Registration
             $result['whitelabel'] = Metasync::get_option()['whitelabel'] ?? [];
         }
 
+        delete_transient('metasync_otto_js_detected');
+
         return $result;
     }
 
@@ -2606,7 +2608,51 @@ class Metasync_Settings_Registration
         $old_options = Metasync::get_option('general') ?? [];
         $old_api_key = $old_options['searchatlas_api_key'] ?? '';
 
+        $api_key_field_present = isset( $_POST['metasync_options']['general']['searchatlas_api_key'] );
+        $api_key_validated     = null;  // null = not checked, true = valid, false = rejected
+        $is_connected          = null;
+        $api_key_warning       = null;
+        // Value from $metasync_options after the sanitize loop (sanitize_text_field applied at line ~2474)
+        $proposed_new_api_key  = $metasync_options['general']['searchatlas_api_key'] ?? '';
+
+        // Only validate when the API key actually changed (new or modified)
+        if ( $api_key_field_present && $proposed_new_api_key !== '' && $proposed_new_api_key !== $old_api_key ) {
+            $ping = Metasync_Heartbeat_Manager::instance()->validate_api_key( $proposed_new_api_key );
+
+            if ( $ping['connected'] === true ) {
+                // Key validated — accept it and auto-populate UUID if returned
+                $api_key_validated = true;
+                $is_connected      = true;
+                if ( ! empty( $ping['otto_pixel_uuid'] ) ) {
+                    $existing_uuid = $metasync_options['general']['otto_pixel_uuid'] ?? '';
+                    if ( empty( $existing_uuid ) || $existing_uuid !== $ping['otto_pixel_uuid'] ) {
+                        $metasync_options['general']['otto_pixel_uuid'] = sanitize_text_field( $ping['otto_pixel_uuid'] );
+                    }
+                }
+            } elseif ( isset( $ping['network_error'] ) && $ping['network_error'] === true ) {
+                // Network/timeout failure — save the key but warn the user
+                $api_key_warning = 'Could not verify API key (network error). The key was saved — it will be verified on the next heartbeat.';
+            } else {
+                // Backend explicitly rejected the key — revert to old key
+                $metasync_options['general']['searchatlas_api_key'] = $old_api_key;
+                $api_key_validated = false;
+                $is_connected      = false;
+                $api_key_warning   = 'The API key could not be verified. Please check it and try again.';
+            }
+        }
+
         Metasync::set_option($metasync_options);
+
+        // Update connection state immediately when ping confirmed
+        if ( $api_key_validated === true ) {
+            update_option( 'metasync_last_known_connection_state', true );
+            set_transient( 'metasync_heartbeat_status_cache', [
+                'status'       => true,
+                'timestamp'    => time(),
+                'cached_until' => time() + 300,
+                'updated_by'   => 'manual_save_ping_connected',
+            ], 300 );
+        }
 
         $data = Metasync::get_option('general');
         $new_api_key = $data['searchatlas_api_key'] ?? '';
@@ -2615,24 +2661,37 @@ class Metasync_Settings_Registration
         $api_key_added = empty($old_api_key) && !empty($new_api_key);
         $api_key_removed = !empty($old_api_key) && empty($new_api_key);
 
-        $sync_request = new Metasync_Sync_Requests();
-        $response = $sync_request->SyncCustomerParams();
-        $responseCode = wp_remote_retrieve_response_code($response);
-
-        if ($responseCode == 200) {
+        // Skip heavy SyncCustomerParams when ping already validated the key — schedule
+        // an async heartbeat instead so the save response returns quickly.
+        if ( $api_key_validated === true ) {
             $dt = new DateTime();
             $send_auth_token_timestamp = Metasync::get_option();
             $send_auth_token_timestamp['general']['send_auth_token_timestamp'] = $dt->format('M d, Y  h:i:s A');
             Metasync::set_option($send_auth_token_timestamp);
 
-            if ($api_key_added) {
-                Metasync_Heartbeat_Manager::instance()->maybe_schedule_heartbeat_cron();
-                do_action('metasync_trigger_immediate_heartbeat', 'Manual API key update - new key added');
-            } elseif ($api_key_removed) {
-                Metasync_Heartbeat_Manager::instance()->unschedule_heartbeat_cron();
-                delete_transient('metasync_heartbeat_status_cache');
-            } elseif ($api_key_changed && !empty($new_api_key)) {
-                do_action('metasync_trigger_immediate_heartbeat', 'Manual API key update - key changed');
+            Metasync_Heartbeat_Manager::instance()->maybe_schedule_heartbeat_cron();
+            do_action('metasync_trigger_immediate_heartbeat', 'Manual API key update - validated via ping');
+        } else {
+            // No ping was done (key unchanged, cleared, or network failure) — fall back to sync
+            $sync_request = new Metasync_Sync_Requests();
+            $response = $sync_request->SyncCustomerParams();
+            $responseCode = wp_remote_retrieve_response_code($response);
+
+            if ($responseCode == 200) {
+                $dt = new DateTime();
+                $send_auth_token_timestamp = Metasync::get_option();
+                $send_auth_token_timestamp['general']['send_auth_token_timestamp'] = $dt->format('M d, Y  h:i:s A');
+                Metasync::set_option($send_auth_token_timestamp);
+
+                if ($api_key_added) {
+                    Metasync_Heartbeat_Manager::instance()->maybe_schedule_heartbeat_cron();
+                    do_action('metasync_trigger_immediate_heartbeat', 'Manual API key update - new key added');
+                } elseif ($api_key_removed) {
+                    Metasync_Heartbeat_Manager::instance()->unschedule_heartbeat_cron();
+                    delete_transient('metasync_heartbeat_status_cache');
+                } elseif ($api_key_changed && !empty($new_api_key)) {
+                    do_action('metasync_trigger_immediate_heartbeat', 'Manual API key update - key changed');
+                }
             }
         }
 
@@ -2788,10 +2847,24 @@ class Metasync_Settings_Registration
             }
         }
 
-        wp_send_json_success(array(
-            'message' => 'Settings saved successfully!',
-            'redirect_url' => $redirect_url
-        ));
+        $response_payload = array(
+            'message'      => 'Settings saved successfully!',
+            'redirect_url' => $redirect_url,
+        );
+
+        if ( $api_key_field_present && $proposed_new_api_key !== '' && $proposed_new_api_key !== $old_api_key ) {
+            if ( $api_key_validated !== null ) {
+                $response_payload['api_key_validated'] = $api_key_validated;
+                $response_payload['is_connected']      = $is_connected;
+            }
+            if ( $api_key_warning !== null ) {
+                $response_payload['warning'] = $api_key_warning;
+            }
+        }
+
+        delete_transient('metasync_otto_js_detected');
+
+        wp_send_json_success( $response_payload );
     }
 
     /**

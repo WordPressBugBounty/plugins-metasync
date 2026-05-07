@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.6.5
+Stable tag: 2.6.6
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,22 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.6 =
+- Fix: Invalidate OTTO JS detection transient on settings save and cache clear
+  - Fix: Harden MCP tool registration to prevent fatal error on missing class
+  - Fix: Heartbeat public-hash cache-key mismatch
+  - Fix: TypeError on strtolower() with array @type in OTTO crawl-notify endpoint
+  - Fix: Gate admin JS loading to MetaSync pages only
+  - Fix: Process OTTO webhook URLs in background via WP-Cron
+  - Fix: Optimize sync history cleanup with fetch-then-delete pattern
+  - Fix: Cache OTTO manual exclusion list with transient and add composite index
+  - Fix: Use SELECT COUNT(*) instead of loading all records in get_count()
+  - Fix: Remove blocking Facebook Graph API call from wp_head
+  - Fix: Only load MetaSync admin CSS on plugin pages
+  - Fix: Lazy-load MCP server and SEO-inventory controller for non-MCP requests
+  - Fix: Broken SQL placeholder in get_attachment_by_name()
+  - Fix: Refactor rate limiter to use per-key transients instead of wp_options blob
+
 = 2.6.5 =
 - Feat: Native-First SEO Write Layer — sync all MetaSync/OTTO optimizations to native WordPress SEO meta fields
   - Feat: Per-post advanced robots directives — nofollow, noarchive, nosnippet, noimageindex, max-snippet, max-image-preview, max-video-preview

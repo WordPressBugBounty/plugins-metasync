@@ -290,22 +290,38 @@ class Metasync_Sync_History_Database
 	
 	/**
 	 * Clean up old records, keeping only the most recent ones.
+	 *
+	 * Uses a two-step PHP fetch-then-delete approach instead of a nested
+	 * subquery DELETE. On MySQL 5.x the correlated subquery pattern caused
+	 * the inner SELECT to be re-evaluated per candidate row, holding table
+	 * locks during active syncing.
 	 */
 	public function cleanup_old_records($keep_count = 500)
 	{
 		global $wpdb;
 		$tableName = $this->get_table_name();
-		
-		$wpdb->query($wpdb->prepare(
-			"DELETE FROM `$tableName` 
-			WHERE id NOT IN (
-				SELECT id FROM (
-					SELECT id FROM `$tableName` 
-					ORDER BY created_at DESC 
-					LIMIT %d
-				) as keep_records
-			)",
+
+		$ids = $wpdb->get_col($wpdb->prepare(
+			"SELECT id FROM `$tableName` ORDER BY created_at DESC LIMIT %d",
 			$keep_count
+		));
+
+		if (empty($ids)) {
+			return;
+		}
+
+		$ids = array_map('intval', $ids);
+
+		// Nothing to prune — table has fewer rows than the retention limit.
+		if (count($ids) < $keep_count) {
+			return;
+		}
+
+		$placeholders = implode(',', array_fill(0, count($ids), '%d'));
+
+		$wpdb->query($wpdb->prepare(
+			"DELETE FROM `$tableName` WHERE id NOT IN ($placeholders)",
+			$ids
 		));
 	}
 	

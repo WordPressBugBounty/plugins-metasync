@@ -1289,7 +1289,14 @@ class Metasync_External_Importer
                     continue;
                 }
 
-                $type = strtolower($item['@type']);
+                $raw_type = $item['@type'];
+                if ( is_array( $raw_type ) ) {
+                    $raw_type = reset( $raw_type );
+                }
+                if ( ! is_string( $raw_type ) || '' === $raw_type ) {
+                    continue;
+                }
+                $type = strtolower( $raw_type );
 
                 // Map Yoast types to Metasync types
                 if ($type === 'article' || $type === 'newsarticle' || $type === 'blogposting') {

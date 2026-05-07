@@ -207,15 +207,30 @@ class Metasync_Heartbeat_Manager
         return true;
     }
 
+    /**
+     * Build the transient key used to cache the OTTO public hash.
+     *
+     * Centralised so that get / set / clear paths cannot drift apart and so
+     * the two non-heartbeat callers (connect manager, otto debug admin page)
+     * can re-use the same derivation.
+     *
+     * @param string $uuid OTTO pixel UUID.
+     * @return string
+     */
+    public static function public_hash_cache_key($uuid)
+    {
+        return 'metasync_public_hash_' . hash('sha256', $uuid . get_current_blog_id());
+    }
+
     private function get_cached_public_hash($uuid)
     {
-        $cache_key = 'metasync_public_hash_' . hash('sha256', $uuid . get_current_blog_id());
+        $cache_key = self::public_hash_cache_key($uuid);
         return get_transient($cache_key);
     }
 
     private function cache_public_hash($uuid, $hash, $duration)
     {
-        $cache_key = 'metasync_public_hash_' . hash('sha256', $uuid . get_current_blog_id());
+        $cache_key = self::public_hash_cache_key($uuid);
         set_transient($cache_key, sanitize_text_field($hash), $duration);
     }
 
@@ -457,7 +472,7 @@ class Metasync_Heartbeat_Manager
         }
 
         if (!empty($otto_pixel_uuid)) {
-            $cache_key = 'metasync_public_hash_' . md5($otto_pixel_uuid);
+            $cache_key = self::public_hash_cache_key($otto_pixel_uuid);
             delete_transient($cache_key);
         }
     }
@@ -683,17 +698,36 @@ class Metasync_Heartbeat_Manager
     }
 
     /**
+     * Validate a candidate API key against the Search Atlas backend.
+     *
+     * Public wrapper around `connection_ping()` for use outside this class
+     * (e.g. pre-save validation in the settings handler).
+     *
+     * @param string $api_key The API key to validate.
+     * @return array{connected: bool, otto_pixel_uuid: string|null, network_error?: bool}
+     */
+    public function validate_api_key( string $api_key ): array
+    {
+        return $this->connection_ping( $api_key );
+    }
+
+    /**
      * Lightweight connection-ping — checks whether the site is registered on the backend
      * without sending any heavy payload or triggering Celery tasks.
      *
-     * @return array{connected: bool, otto_pixel_uuid: string|null}
+     * @param string|null $api_key_override Optional API key to use instead of the saved key.
+     * @return array{connected: bool, otto_pixel_uuid: string|null, network_error?: bool}
      */
-    private function connection_ping(): array
+    private function connection_ping( ?string $api_key_override = null ): array
     {
         $default = ['connected' => false, 'otto_pixel_uuid' => null];
 
         $general = Metasync::get_option('general') ?? [];
         $searchatlas_api_key = $general['searchatlas_api_key'] ?? '';
+
+        if ( $api_key_override !== null && $api_key_override !== '' ) {
+            $searchatlas_api_key = $api_key_override;
+        }
 
         if (empty($searchatlas_api_key)) {
             $this->log_heartbeat('error', 'Connection ping skipped - no API key configured');
@@ -724,6 +758,7 @@ class Metasync_Heartbeat_Manager
                 'error_code' => $response->get_error_code(),
                 'error_message' => $response->get_error_message(),
             ]);
+            $default['network_error'] = true;
             return $default;
         }
 

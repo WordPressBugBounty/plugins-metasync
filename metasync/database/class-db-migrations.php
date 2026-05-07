@@ -439,6 +439,7 @@ class MetaSync_DBMigration
 				KEY created_at (created_at),
 				KEY is_permanent (is_permanent),
 				KEY auto_excluded (auto_excluded),
+				KEY status_auto_excluded (status, auto_excluded),
 				KEY recheck_after (recheck_after),
 				UNIQUE KEY url_pattern_type_unique (url_pattern(191), pattern_type)
 			) $collate;";
@@ -508,6 +509,11 @@ class MetaSync_DBMigration
 			// Note: TEXT columns need a prefix length for indexing (767 is max for UTF8)
 			if (!in_array('url_pattern_type_unique', $index_names)) {
 				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD UNIQUE KEY url_pattern_type_unique (url_pattern(191), pattern_type)");
+			}
+
+			// Composite index for the cache-miss path in metasync_is_otto_url_manually_excluded()
+			if (!in_array('status_auto_excluded', $index_names)) {
+				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD KEY status_auto_excluded (status, auto_excluded)");
 			}
 
 			// if ($missing_columns) {

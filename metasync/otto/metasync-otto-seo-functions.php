@@ -40,8 +40,11 @@ function metasync_fetch_otto_seo_data($route, $uuid) {
     );
 
     # Make API request with timeout and error handling
+    # Timeout is intentionally short: this function runs from a background job scheduled
+    # by metasync_otto_crawl_notify(), and a slow upstream response should not stall the
+    # job runner or pile up failures.
     $response = wp_remote_get($api_url, array(
-        'timeout' => 30,
+        'timeout' => 5,
         'sslverify' => true,
         'headers' => array(
             'User-Agent' => 'MetaSync-WordPress-Plugin/1.0'
@@ -1949,6 +1952,23 @@ function metasync_extract_jsonld_image_url( $image ) {
 }
 
 /**
+ * Normalize a JSON-LD `@type` value to a single string.
+ *
+ * Per JSON-LD spec `@type` may be a string or an array of strings; OTTO can
+ * send either form. Returns the first scalar element when given an array, or
+ * an empty string when no usable scalar is present.
+ *
+ * @param mixed $type Raw `@type` value.
+ * @return string Normalized type string (empty string if not derivable).
+ */
+function metasync_normalize_jsonld_type( $type ) {
+    if ( is_array( $type ) ) {
+        $type = reset( $type );
+    }
+    return is_string( $type ) && '' !== $type ? $type : '';
+}
+
+/**
  * Convert JSON-LD string to RankMath schema format.
  *
  * @param string $json_ld_string JSON-LD structured data string.
@@ -1977,7 +1997,10 @@ function metasync_convert_jsonld_to_rankmath( $json_ld_string ) {
             continue;
         }
 
-        $type       = $item['@type'];
+        $type = metasync_normalize_jsonld_type( $item['@type'] );
+        if ( '' === $type ) {
+            continue;
+        }
         $type_lower = strtolower( $type );
 
         if ( 'article' === $type_lower || 'blogposting' === $type_lower || 'newsarticle' === $type_lower ) {
@@ -2101,7 +2124,10 @@ function metasync_extract_yoast_schema_types( $json_ld_string ) {
         if ( ! is_array( $item ) || ! isset( $item['@type'] ) ) {
             continue;
         }
-        $type = $item['@type'];
+        $type = metasync_normalize_jsonld_type( $item['@type'] );
+        if ( '' === $type ) {
+            continue;
+        }
 
         if ( in_array( $type, $valid_article_types, true ) && ! isset( $result['article_type'] ) ) {
             $result['article_type'] = $type;
@@ -2147,7 +2173,10 @@ function metasync_convert_jsonld_to_aioseo( $json_ld_string ) {
             continue;
         }
 
-        $type       = $item['@type'];
+        $type = metasync_normalize_jsonld_type( $item['@type'] );
+        if ( '' === $type ) {
+            continue;
+        }
         $type_lower = strtolower( $type );
         $converted  = metasync_convert_jsonld_item_for_aioseo( $item, $type_lower );
 

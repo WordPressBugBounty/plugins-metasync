@@ -6,6 +6,13 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
+if (!defined('METASYNC_OTTO_EXCLUDED_TRANSIENT_KEY')) {
+    define('METASYNC_OTTO_EXCLUDED_TRANSIENT_KEY', 'metasync_otto_excluded_urls_manual');
+}
+if (!defined('METASYNC_OTTO_EXCLUDED_TRANSIENT_TTL')) {
+    define('METASYNC_OTTO_EXCLUDED_TRANSIENT_TTL', 60);
+}
+
 # uses the simple html dom library
 use simplehtmldom\HtmlDocument;
 
@@ -69,7 +76,7 @@ add_action('wp_head', function(){
 
 # function to register the route
 function metasync_otto_crawl_notify($request){
-    
+
     # get request data params
     $data = $request->get_json_params();
 
@@ -94,13 +101,17 @@ function metasync_otto_crawl_notify($request){
     # load otto pixel
     $otto_pixel = new Metasync_otto_pixel(false);
 
-    # save the otto data first
+    # save the otto data first (cheap local DB write — kept synchronous)
     $otto_pixel->save_crawl_data($data);
 
-    # Collect URLs that need cache warming after purge
-    $urls_to_warm = array();
+    # Defer the expensive per-URL work (OTTO API fetch, post meta sync,
+    # per-URL cache purge) to background jobs. The webhook caller enforces a
+    # strict response-time budget; doing this work inline previously blocked
+    # the response for up to 30s × N URLs and timed the caller out.
+    # Each URL gets its own scheduled event so failures are isolated.
+    $now = time();
+    $routes_to_process = array();
 
-    # now we have the data sets
     foreach($data['urls'] AS $key => $url){
         # prepare the route
         $route = $data['domain'] . $url;
@@ -117,11 +128,63 @@ function metasync_otto_crawl_notify($request){
         # Manual exclusions (auto_excluded = 0) are left untouched.
         metasync_otto_remove_auto_exclusion($route);
 
-        # Skip manually excluded URLs - don't process OTTO data for them
+        # Skip manually excluded URLs - don't queue OTTO processing for them
         if (metasync_is_otto_url_excluded($route)) {
             continue;
         }
 
+        # Queue the per-URL processing for background execution. The handler
+        # (metasync_handle_otto_crawl_url_job) performs transient warming,
+        # SEO meta sync, and per-URL host cache purge.
+        # Offset each event by $key seconds to avoid wp_schedule_single_event()
+        # silently dropping duplicates when timestamp + hook + args collide.
+        wp_schedule_single_event($now + $key, 'metasync_process_otto_crawl_url_job', array($route));
+
+        $routes_to_process[] = $route;
+    }
+
+    # Schedule a single batch job for cache warming and edge CDN purge.
+    # These operations benefit from batching: warm_urls() uses concurrent
+    # fire-and-forget requests, and edge providers (Cloudflare, Fastly)
+    # support multi-URL purge in a single API call.
+    if (!empty($routes_to_process)) {
+        $batch_time = $now + count($data['urls']) + 5; // run after all per-URL jobs
+        wp_schedule_single_event($batch_time, 'metasync_process_otto_batch_cache_job', array($routes_to_process));
+    }
+
+    # Track OTTO optimization event in GA4 (local, non-blocking)
+    try {
+        Metasync_GA4::get_instance()->track_otto_optimization($data);
+    } catch (Exception $e) {
+        // Analytics tracking failed, continue
+    }
+
+    # Return 200 immediately so the webhook caller does not time out.
+    return new WP_REST_Response(array(
+        'success' => true,
+        'message' => 'OTTO crawl notification received',
+    ), 200);
+}
+
+/**
+ * Background handler for a single OTTO crawl-notify URL.
+ *
+ * Runs the per-URL sequence that was previously inline in metasync_otto_crawl_notify():
+ * warm the OTTO transient cache, sync SEO post meta, and clear the per-URL host cache.
+ *
+ * Cache warming and edge CDN purge are handled separately by
+ * metasync_handle_otto_batch_cache_job() in a single batched event, because
+ * those operations benefit from multi-URL batching (fewer API calls).
+ *
+ * On failure, retries up to METASYNC_OTTO_JOB_MAX_RETRIES times with 60s backoff.
+ * After all retries are exhausted the failure is recorded via
+ * metasync_record_failed_action() for surfacing in Site Health.
+ *
+ * @param string $route       Fully-qualified URL to process.
+ * @param int    $retry_count Current retry attempt (0 = first run).
+ */
+function metasync_handle_otto_crawl_url_job($route, $retry_count = 0) {
+    try {
         # Step 1: Warm OTTO transient cache (fetch fresh suggestions from OTTO API into WP transient)
         $otto_uuid = Metasync_Otto_Config::get_otto_uuid();
         if (!empty($otto_uuid)) {
@@ -136,37 +199,50 @@ function metasync_otto_crawl_notify($request){
         metasync_process_otto_seo_data($route);
 
         # Step 3: Clear the per-URL cache entry
+        $otto_pixel = new Metasync_otto_pixel(false);
         $otto_pixel->refresh_cache($route);
         Metasync_Cache_Purge::purge_single_url($route);
 
-        $urls_to_warm[] = $route;
-    }
-
-    # Step 4: Re-populate the cache for each affected URL.
-    # purge_single_url() above cleared WP Rocket + Kinsta per-URL.
-    # warm_urls() hits each URL now so our code — with fresh transients and post meta —
-    # is first to populate the host cache. Kinsta stores the OTTO-modified version
-    # before any real visitor or external bot arrives.
-    # A full-site purge (purge_all) is intentionally absent: it was nuking the entire
-    # Kinsta cache for 1–3 URL updates, leaving all other pages cold.
-    Metasync_Cache_Purge::warm_urls($urls_to_warm);
-
-    # Step 5: Purge edge CDN caches (Cloudflare, Fastly, Akamai, Sucuri, Sevalla, etc.)
-    # Tag-based providers purge only the affected posts; full-flush providers fire once per batch.
-    Metasync_Edge_Cache_Purge::purge($urls_to_warm);
-
-    # Track OTTO optimization event in GA4
-    try {
-        Metasync_GA4::get_instance()->track_otto_optimization($data);
     } catch (Exception $e) {
-        // Analytics tracking failed, continue
-    }
+        $max_retries = defined('METASYNC_OTTO_JOB_MAX_RETRIES') ? METASYNC_OTTO_JOB_MAX_RETRIES : 3;
 
-    # Handle the POST request
-    return new WP_REST_Response(array(
-        'success' => true,
-        'message' => 'OTTO crawl notification received',
-    ), 200);
+        if ($retry_count < $max_retries) {
+            # Schedule a retry with exponential backoff: 60s, 120s, 240s
+            $delay = 60 * pow(2, $retry_count);
+            wp_schedule_single_event(time() + $delay, 'metasync_process_otto_crawl_url_job', array($route, $retry_count + 1));
+            error_log('MetaSync OTTO: retrying crawl-url job for ' . $route . ' (attempt ' . ($retry_count + 1) . '/' . $max_retries . ') in ' . $delay . 's: ' . $e->getMessage());
+        } else {
+            metasync_record_failed_action('metasync_process_otto_crawl_url_job');
+            error_log('MetaSync OTTO: background crawl-url job permanently failed for ' . $route . ' after ' . $max_retries . ' retries: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        }
+    }
+}
+
+/**
+ * Batch handler for cache warming and edge CDN purge.
+ *
+ * Runs after all per-URL jobs have had time to complete. Batching these
+ * operations avoids N separate API calls to edge providers (Cloudflare
+ * supports up to 30 tags per request) and lets warm_urls() issue concurrent
+ * fire-and-forget requests.
+ *
+ * @param array $routes List of fully-qualified URLs to warm and purge.
+ */
+function metasync_handle_otto_batch_cache_job($routes) {
+    try {
+        # Re-populate the cache so OTTO-modified output is what gets stored.
+        # Per-URL host cache was already cleared by individual jobs.
+        # warm_urls() hits each URL with a non-blocking request so our code —
+        # with fresh transients and post meta — is first to populate the host cache.
+        Metasync_Cache_Purge::warm_urls($routes);
+
+        # Purge edge CDN caches (Cloudflare, Fastly, Akamai, Sucuri, Sevalla, etc.)
+        # Tag-based providers purge only the affected posts; full-flush providers fire once per batch.
+        Metasync_Edge_Cache_Purge::purge($routes);
+    } catch (Exception $e) {
+        metasync_record_failed_action('metasync_process_otto_batch_cache_job');
+        error_log('MetaSync OTTO: batch cache job failed for ' . count($routes) . ' URLs: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    }
 }
 
 # NOTE: Cache system removed - these functions are no longer needed
@@ -623,9 +699,10 @@ function metasync_check_otto_js(){
 # NOTE: Cache system removed - this is now a no-op
 function metasync_clear_otto_cache_handler() {
     if (!empty($_GET['clear_otto_cache'])) {
+        delete_transient('metasync_otto_js_detected');
         # Cache system has been removed - no cache to clear
         wp_send_json_success(['message' => 'Cache system removed - all pages processed in real-time']);
-    } 
+    }
     else {
         wp_send_json_error(['message' => 'Missing parameter']);
     }
@@ -665,6 +742,8 @@ add_action('wp', 'metasync_start_otto');
   # ENHANCED OTTO SEO INTEGRATION
   # Register async SEO processing hook
   add_action('metasync_process_seo_job', 'metasync_process_otto_seo_data');
+  add_action('metasync_process_otto_crawl_url_job', 'metasync_handle_otto_crawl_url_job', 10, 2);
+  add_action('metasync_process_otto_batch_cache_job', 'metasync_handle_otto_batch_cache_job');
   
   # Process OTTO SEO data and update WordPress meta fields for SEO plugins
   # This function now runs asynchronously via WordPress cron system
@@ -1512,17 +1591,23 @@ function metasync_is_otto_url_manually_excluded($url)
         $table = $wpdb->prefix . Metasync_Otto_Excluded_URLs_Database::$table_name;
         $url_normalized = rtrim(trim($url), '/');
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- no user input, table name from $wpdb->prefix
-        $records = $wpdb->get_results(
-            "SELECT url_pattern, pattern_type FROM `{$table}` WHERE status = 'active' AND (auto_excluded = 0 OR auto_excluded IS NULL) ORDER BY created_at DESC"
-        );
+        $records = get_transient(METASYNC_OTTO_EXCLUDED_TRANSIENT_KEY);
 
-        // Graceful recovery: auto_excluded column missing on pre-v2.7.4 installs.
-        // Run ALTER TABLE to add it and treat URL as not excluded so OTTO continues rendering.
-        if ($wpdb->last_error && strpos($wpdb->last_error, 'auto_excluded') !== false) {
-            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-            $wpdb->query("ALTER TABLE `{$table}` ADD COLUMN `auto_excluded` TINYINT(1) NOT NULL DEFAULT 0");
-            return false;
+        if ($records === false) {
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- no user input, table name from $wpdb->prefix
+            $records = $wpdb->get_results(
+                "SELECT url_pattern, pattern_type FROM `{$table}` WHERE status = 'active' AND (auto_excluded = 0 OR auto_excluded IS NULL) ORDER BY created_at DESC"
+            );
+
+            // Graceful recovery: auto_excluded column missing on pre-v2.7.4 installs.
+            // Run ALTER TABLE to add it and treat URL as not excluded so OTTO continues rendering.
+            if ($wpdb->last_error && strpos($wpdb->last_error, 'auto_excluded') !== false) {
+                // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+                $wpdb->query("ALTER TABLE `{$table}` ADD COLUMN `auto_excluded` TINYINT(1) NOT NULL DEFAULT 0");
+                return false;
+            }
+
+            set_transient(METASYNC_OTTO_EXCLUDED_TRANSIENT_KEY, $records ?: [], METASYNC_OTTO_EXCLUDED_TRANSIENT_TTL);
         }
 
         if (empty($records)) {

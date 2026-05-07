@@ -759,7 +759,7 @@ class Metasync_Connect_Manager
 
             $otto_uuid = $cleared_data['otto_pixel_uuid'] ?? '';
             if (!empty($otto_uuid)) {
-                delete_transient('metasync_public_hash_' . md5($otto_uuid));
+                delete_transient(Metasync_Heartbeat_Manager::public_hash_cache_key($otto_uuid));
             }
             $cleared_data['public_hash_cache'] = 'cleared';
 

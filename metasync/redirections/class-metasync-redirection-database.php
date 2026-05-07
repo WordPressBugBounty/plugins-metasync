@@ -192,7 +192,9 @@ class Metasync_Redirection_Database
 	 */
 	public function get_count()
 	{
-		return count($this->getAllRecords());
+		global $wpdb;
+		$tableName = $this->get_table_name();
+		return (int) $wpdb->get_var("SELECT COUNT(*) FROM `$tableName`");
 	}
 
 	/**

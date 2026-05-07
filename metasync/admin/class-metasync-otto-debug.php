@@ -1163,10 +1163,11 @@ class Metasync_Otto_Debug {
         $otto_uuid = $general_options['otto_pixel_uuid'] ?? '';
         
         if (!empty($otto_uuid)) {
-            $cache_key = 'metasync_public_hash_' . md5($otto_uuid);
-            delete_transient($cache_key);
+            delete_transient(Metasync_Heartbeat_Manager::public_hash_cache_key($otto_uuid));
         }
-        
+
+        delete_transient('metasync_otto_js_detected');
+
         wp_send_json_success(array(
             'message' => Metasync::get_whitelabel_otto_name() . ' cache cleared successfully',
             'cleared_items' => array(

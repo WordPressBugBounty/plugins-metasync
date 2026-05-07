@@ -186,10 +186,10 @@ class Metasync_Error_Monitor_Database
 				'user_agent' => '',
 			]
 		);
-		//Maybe delete logs if record exceed defined limit.
+		//Maybe prune lowest-hit logs if record count reaches defined limit.
 		$limit = 100;
 		if ($limit && $this->get_count() >= $limit) {
-			$this->clear_logs();
+			$this->delete_lowest_hits(20);
 		}
 
 		return $wpdb->insert($this->get_table_name(), $args);
@@ -259,7 +259,9 @@ class Metasync_Error_Monitor_Database
 	 */
 	public function get_count()
 	{
-		return count($this->getAllRecords());
+		global $wpdb;
+		$tableName = $this->get_table_name();
+		return (int) $wpdb->get_var("SELECT COUNT(*) FROM `$tableName`");
 	}
 
 	/**
@@ -278,6 +280,23 @@ class Metasync_Error_Monitor_Database
 			DELETE FROM `$tableName`
 			WHERE `id` IN ($ids) ",
 			$items
+		));
+	}
+
+	/**
+	 * Delete the lowest-hit-count rows to make room for new entries.
+	 * Tie-breaks by oldest date_time so the least-recently-hit of equally
+	 * low-count rows are removed first.
+	 *
+	 * @param int $limit Number of rows to delete.
+	 */
+	private function delete_lowest_hits($limit = 20)
+	{
+		global $wpdb;
+		$tableName = $this->get_table_name();
+		$wpdb->query($wpdb->prepare(
+			"DELETE FROM `$tableName` ORDER BY hits_count ASC, date_time ASC LIMIT %d",
+			$limit
 		));
 	}
 
