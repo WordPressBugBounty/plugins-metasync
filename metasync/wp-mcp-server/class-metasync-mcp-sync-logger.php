@@ -111,7 +111,7 @@ class Metasync_MCP_Sync_Logger {
                 'url'          => $url ?: '',
                 'meta_data'    => wp_json_encode([
                     'tool'   => $tool_name,
-                    'params' => $params,
+                    'params' => self::redact_sensitive_params($params),
                     'before' => $before_state,
                 ]),
                 'created_at'   => current_time('mysql'),
@@ -310,6 +310,35 @@ class Metasync_MCP_Sync_Logger {
             return $action . ': ' . sanitize_text_field($params['name']);
         }
         return $action . ' via MCP';
+    }
+
+    /**
+     * Redact sensitive values from params before logging.
+     *
+     * Keys matching common credential patterns are replaced with '***REDACTED***'.
+     *
+     * @param mixed $params
+     * @return mixed
+     */
+    private static function redact_sensitive_params($params) {
+        if (!is_array($params)) {
+            return $params;
+        }
+
+        $sensitive_keys = ['apikey', 'api_key', 'token', 'password', 'secret', 'access_key', 'private_key'];
+        $redacted = [];
+
+        foreach ($params as $key => $value) {
+            if (is_string($key) && in_array(strtolower($key), $sensitive_keys, true)) {
+                $redacted[$key] = '***REDACTED***';
+            } elseif (is_array($value)) {
+                $redacted[$key] = self::redact_sensitive_params($value);
+            } else {
+                $redacted[$key] = $value;
+            }
+        }
+
+        return $redacted;
     }
 
     /**

@@ -244,7 +244,7 @@
 				$('.input.lguser,#lgerror').addClass('hidden');
 				localStorage.setItem('token', response.token);
 			} else {
-				$('#lgerror').html(`${response.detail} (${response.kind})`).removeClass('hidden');
+				$('#lgerror').text(response.detail + ' (' + response.kind + ')').removeClass('hidden');
 			}
 		}
 		);
@@ -609,6 +609,7 @@
 								type: 'POST',
 								data: {
 									action: 'metasync_track_one_click_activation',
+									nonce: metaSync.nonce,
 									auth_method: 'searchatlas_connect',
 									is_reconnection: hasExistingApiKey
 								}
@@ -862,8 +863,17 @@
 			'Your website hasn\'t been registered with ' + getPluginName() + ' yet. Registration is required to enable 1-click connect to retrieve your Search Atlas API key and Otto UUID.',
 			[{
 				text: '🌐 Register Website',
-				action: function () { 
-					window.open(registerUrl, '_blank');
+				action: function () {
+					try {
+						var parsedRegister = new URL(registerUrl);
+						if (parsedRegister.protocol === 'https:' || parsedRegister.protocol === 'http:') {
+							var a = document.createElement('a');
+							a.href = parsedRegister.href;
+							a.target = '_blank';
+							a.rel = 'noopener';
+							a.click();
+						}
+					} catch (e) { /* invalid URL */ }
 				},
 				primary: true
 			}, {
@@ -1966,6 +1976,7 @@
 		// DEBUG: Log request parameters
 		const requestData = {
 			action: 'metasync_send_customer_params',
+			nonce: metaSync.nonce,
 			is_heart_beat : is_hb
 		};
 
@@ -2007,18 +2018,18 @@
 					
 					// Disable sync button and show countdown
 					if (showAlerts) {
-						$('#sendAuthToken').prop('disabled', true).html('⏰ Throttled (' + remainingMinutes + 'm)');
-						
+						$('#sendAuthToken').prop('disabled', true).text('⏰ Throttled (' + remainingMinutes + 'm)');
+
 						// Start countdown timer
 						var countdownInterval = setInterval(function () {
 							remainingMinutes--;
 							if (remainingMinutes <= 0) {
 								clearInterval(countdownInterval);
-								$('#sendAuthToken').prop('disabled', false).html('🔄 Sync Now');
-								$('#sendAuthTokenTimestamp').html('Ready to sync');
+								$('#sendAuthToken').prop('disabled', false).text('🔄 Sync Now');
+								$('#sendAuthTokenTimestamp').text('Ready to sync');
 								$('#sendAuthTokenTimestamp').css({ color: 'green' });
 							} else {
-								$('#sendAuthToken').html('⏰ Throttled (' + remainingMinutes + 'm)');
+								$('#sendAuthToken').text('⏰ Throttled (' + remainingMinutes + 'm)');
 								//$('#sendAuthTokenTimestamp').html('Please wait ' + remainingMinutes + ' minutes before syncing again');
 							}
 						}, 60000); // Update every minute
@@ -2188,29 +2199,37 @@
 						let tabParam = new URLSearchParams(window.location.search).get('tab');
 						let tabQuery = tabParam ? '&tab=' + encodeURIComponent(tabParam) : '';
 					
-						// Handle undefined or empty white label URL
-						const pageSlug = (whiteLableUrl && whiteLableUrl !== '') ? whiteLableUrl : 'searchatlas';
-						window.location = metaSync.admin_url + '?page=' + pageSlug + tabQuery;
+						// Handle undefined or empty white label URL — sanitize to valid slug characters only
+						const rawSlug = (whiteLableUrl && whiteLableUrl !== '') ? whiteLableUrl : 'searchatlas';
+						const pageSlug = encodeURIComponent(rawSlug.replace(/[^a-zA-Z0-9_\-]/g, '')) || 'searchatlas';
+						var redirectUrl = metaSync.admin_url + '?page=' + pageSlug + tabQuery;
+						try {
+							var parsedRedirect = new URL(redirectUrl, window.location.origin);
+							if (parsedRedirect.origin === window.location.origin) {
+								var navLink = document.createElement('a');
+								navLink.href = parsedRedirect.href;
+								navLink.click();
+							}
+						} catch (e) { /* invalid URL */ }
 					}else {
 						// Handle error response
 						const errors = response.data?.errors || [];
 
-						// Create a notice element to display the errors
-						let html = '<div class="notice notice-error metasync-error-wrap">';
+						// Build error notice using DOM methods to avoid XSS
+						var $errorNotice = $('<div>').addClass('notice notice-error metasync-error-wrap');
 						if (Array.isArray(errors)) {
-							html += '<ul>';
+							var $ul = $('<ul>');
 							errors.forEach(function (err) {
-								html += '<li>' + err + '</li>';
+								$ul.append($('<li>').text(err));
 							});
-							html += '</ul>';
+							$errorNotice.append($ul);
 						}
-						html += '</div>';
 
 						// Remove previous error notices
 						$('.metasync-error-wrap').remove();
-							
+
 						// Insert the error message before the form
-						$('#metaSyncGeneralSetting').before(html);
+						$('#metaSyncGeneralSetting').before($errorNotice);
 
 						// Scroll to the top to ensure visibility
 						$('html, body').animate({ scrollTop: 0 }, 'slow');
@@ -2426,9 +2445,9 @@
 			var originalAjaxHandler = $(this).data('events') && $(this).data('events').submit;
 		});
 		
-	// Listen for successful form submission to clear the unsaved changes flag
-	$(document).ajaxSuccess(function (event, xhr, settings) {
-		if (settings.data && typeof settings.data === 'string' && settings.data.indexOf('action=meta_sync_save_settings') > -1) {
+		// Listen for successful form submission to clear the unsaved changes flag
+		$(document).ajaxSuccess(function (event, xhr, settings) {
+			if (settings.data && typeof settings.data === 'string' && settings.data.indexOf('action=meta_sync_save_settings') > -1) {
 				try {
 					var response = JSON.parse(xhr.responseText);
 					if (response.success) {
@@ -2547,29 +2566,30 @@
 						} else {
 							// Handle validation errors
 							var errors = response.data && response.data.errors ? response.data.errors : [];
-							var errorHtml = '<div class="notice notice-error metasync-error-wrap" style="margin: 20px; padding: 12px;">';
+
+							// Build error notice using DOM methods to avoid XSS
+							var $errorNotice = $('<div>').addClass('notice notice-error metasync-error-wrap').css({ margin: '20px', padding: '12px' });
 							if (Array.isArray(errors)) {
-								errorHtml += '<ul>';
+								var $ul = $('<ul>');
 								for (var i = 0; i < errors.length; i++) {
-									errorHtml += '<li>' + errors[i] + '</li>';
+									$ul.append($('<li>').text(errors[i]));
 								}
-								errorHtml += '</ul>';
+								$errorNotice.append($ul);
 							} else {
 								var message = 'An error occurred while saving settings.';
 								if (response.data && response.data.message) {
 									message = response.data.message;
 								}
-								errorHtml += '<p>' + message + '</p>';
+								$errorNotice.append($('<p>').text(message));
 							}
-							errorHtml += '</div>';
-							
+
 							// Insert error notice in plugin area
 							var $navWrapper = $('.metasync-nav-wrapper');
 							if ($navWrapper.length > 0) {
-								$navWrapper.after(errorHtml);
+								$navWrapper.after($errorNotice);
 							} else {
 								// Fallback: insert at top of plugin content area
-								$('.metasync-dashboard-wrap').prepend(errorHtml);
+								$('.metasync-dashboard-wrap').prepend($errorNotice);
 							}
 							
 							// Scroll to the error message for better visibility
@@ -2659,11 +2679,12 @@
 							success: function (response) {
 								if (response.success) {
 									// Show success message above Indexation Control section
-									$('#seo-controls-messages').html(
-										'<div class="notice notice-success is-dismissible" style="margin-bottom: 20px;">' +
-										'<p><strong>✅ Success!</strong> ' + response.data.message + '</p>' +
-										'</div>'
-									);
+									var $successNotice = $('<div>').addClass('notice notice-success is-dismissible').css('margin-bottom', '20px');
+									var $successP = $('<p>');
+									$successP.append($('<strong>').text('✅ Success! '));
+									$successP[0].appendChild(document.createTextNode(response.data.message));
+									$successNotice.append($successP);
+									$('#seo-controls-messages').empty().append($successNotice);
 
 									// Clear unsaved changes state
 									hasUnsavedChanges = false;
@@ -2681,11 +2702,12 @@
 									}, 5000);
 								} else {
 									// Show error message above Indexation Control section
-									$('#seo-controls-messages').html(
-										'<div class="notice notice-error is-dismissible" style="margin-bottom: 20px;">' +
-										'<p><strong>❌ Error!</strong> ' + (response.data.message || 'Failed to save settings') + '</p>' +
-										'</div>'
-									);
+									var $errorNoticeCtrl = $('<div>').addClass('notice notice-error is-dismissible').css('margin-bottom', '20px');
+									var $errorPCtrl = $('<p>');
+									$errorPCtrl.append($('<strong>').text('❌ Error! '));
+									$errorPCtrl[0].appendChild(document.createTextNode(response.data.message || 'Failed to save settings'));
+									$errorNoticeCtrl.append($errorPCtrl);
+									$('#seo-controls-messages').empty().append($errorNoticeCtrl);
 								}
 								
 								// Make dismiss buttons work
@@ -2713,7 +2735,7 @@
 								// Don't clear unsaved changes on network error
 								// User may want to retry or fix the issue
 							},
-							complete: function() {
+							complete: function () {
 								// Re-enable save button if it was disabled
 								$('.metasync-save-button').prop('disabled', false);
 							}
@@ -3124,9 +3146,13 @@
 
 		// PR3: Burst ping — 10 min polling when UNREGISTERED or KEY_PENDING. Stop after 5 failed attempts.
 		(function () {
-			if (typeof metaSync === 'undefined' || !metaSync.heartbeat_state) return;
+			if (typeof metaSync === 'undefined' || !metaSync.heartbeat_state) {
+				return;
+			}
 			var state = metaSync.heartbeat_state;
-			if (state !== 'UNREGISTERED' && state !== 'KEY_PENDING') return;
+			if (state !== 'UNREGISTERED' && state !== 'KEY_PENDING') {
+				return;
+			}
 
 			var INTERVAL_MS = 10 * 60 * 1000;
 			var MAX_ATTEMPTS = 5;
@@ -3149,7 +3175,9 @@
 					.done(function (res) {
 						if (!res || !res.data) {
 							attempts++;
-							if (attempts >= MAX_ATTEMPTS) stop();
+							if (attempts >= MAX_ATTEMPTS) {
+								stop();
+							}
 							return;
 						}
 						var data = res.data;
@@ -3171,11 +3199,15 @@
 							return;
 						}
 						attempts++;
-						if (attempts >= MAX_ATTEMPTS) stop();
+						if (attempts >= MAX_ATTEMPTS) {
+							stop();
+						}
 					})
 					.fail(function () {
 						attempts++;
-						if (attempts >= MAX_ATTEMPTS) stop();
+						if (attempts >= MAX_ATTEMPTS) {
+							stop();
+						}
 					});
 			}, INTERVAL_MS);
 		})();

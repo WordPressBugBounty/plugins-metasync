@@ -36,19 +36,17 @@ class Metasync_Deactivator
 		//delete_option( "metasync_options" );
 		//delete_option( "metasync_options_instant_indexing" );
 
-		// Clean up announce ping counter and cron
+		// Clean up announce ping counter
 		delete_option('metasync_announce_attempt_count');
-		$timestamp = wp_next_scheduled('metasync_announce_cron');
-		if ($timestamp) {
-			wp_unschedule_event($timestamp, 'metasync_announce_cron');
+
+		// Unschedule every MetaSync cron hook so no orphaned events remain after deactivation
+		foreach (Metasync_Activator::$cron_hooks as $hook) {
+			wp_unschedule_hook($hook);
 		}
 
 		flush_rewrite_rules();
 
-		// Unschedule DB cleanup cron so no orphaned events remain after deactivation
-		$timestamp = wp_next_scheduled('metasync_db_cleanup');
-		if ($timestamp) {
-			wp_unschedule_event($timestamp, 'metasync_db_cleanup');
-		}
+		// Reset WP-299 one-time cleanup flag so it re-runs on next activation/update
+		delete_option('metasync_wp299_cron_cleanup_done');
 	}
 }

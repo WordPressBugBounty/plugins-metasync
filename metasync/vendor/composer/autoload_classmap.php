@@ -244,6 +244,7 @@ return array(
     'Metasync_Redirection_Importer' => $baseDir . '/redirections/class-metasync-redirection-importer.php',
     'Metasync_Redirection_List_Table' => $baseDir . '/redirections/class-metasync-redirection-list-table.php',
     'Metasync_Redirections_Admin' => $baseDir . '/includes/class-metasync-redirections-admin.php',
+    'Metasync_Regex_Validator' => $baseDir . '/includes/class-metasync-regex-validator.php',
     'Metasync_Rest_Api' => $baseDir . '/public/class-metasync-rest-api.php',
     'Metasync_Review_Notice' => $baseDir . '/includes/class-metasync-review-notice.php',
     'Metasync_Robots_Txt' => $baseDir . '/robots-txt/class-metasync-robots-txt.php',

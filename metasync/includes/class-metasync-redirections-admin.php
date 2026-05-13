@@ -203,6 +203,21 @@ class Metasync_Redirections_Admin
                 return;
             }
 
+            // Limit pattern length to prevent ReDoS via catastrophic backtracking
+            if (strlen($regex_pattern) > 500) {
+                set_transient('metasync_redirection_error', 'Regex pattern is too long (max 500 characters).', 45);
+                $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
+                return;
+            }
+
+            // Reject patterns with nested quantifiers that could cause ReDoS
+            $raw_check = preg_replace('/^\S(.*)\S[a-zA-Z]*$/', '$1', $regex_pattern);
+            if (preg_match('/(\([^)]*[+*][^)]*\))[+*?{]|(\[[^\]]*\])[+*][+*?{]/', $raw_check)) {
+                set_transient('metasync_redirection_error', 'Regex pattern contains potentially unsafe nested quantifiers.', 45);
+                $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
+                return;
+            }
+
             $test_pattern = $regex_pattern;
             $delimiter_chars = ['/', '#', '~', '%', '@'];
             $has_valid_delimiters = false;
@@ -220,7 +235,7 @@ class Metasync_Redirections_Admin
             if (!$has_valid_delimiters) {
                 $test_pattern = '/' . $test_pattern . '/';
             }
-            $is_valid = @preg_match($test_pattern, '');
+            $is_valid = Metasync_Regex_Validator::is_valid($test_pattern);
             if ($is_valid === false) {
                 $error_message = error_get_last();
                 $error_text = isset($error_message['message']) ? $error_message['message'] : 'Unknown regex error';
@@ -231,17 +246,13 @@ class Metasync_Redirections_Admin
         }
 
         // Loop detection: refuse to persist a chain that would resolve back to any source
-        if (!in_array($redirect_type, [410, 451]) && $redirect_id <= 0) {
+        if (!in_array($redirect_type, [410, 451])) {
             require_once dirname(__FILE__, 2) . '/redirections/class-metasync-redirection.php';
             $redirection_helper = new Metasync_Redirection($this->db_redirection);
             foreach (array_keys($sources_from) as $source_url) {
-                $loop_chain = [];
-                if ($redirection_helper->would_create_loop($source_url, $destination_url, $loop_chain)) {
-                    set_transient(
-                        'metasync_redirection_error',
-                        'Redirect would create a loop: ' . implode(' → ', $loop_chain),
-                        45
-                    );
+                $loop_error = $redirection_helper->validate_no_loop($source_url, $destination_url);
+                if ($loop_error !== null) {
+                    set_transient('metasync_redirection_error', $loop_error, 45);
                     $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
                     return;
                 }
@@ -274,7 +285,8 @@ class Metasync_Redirections_Admin
             }
             
         } catch (Exception $e) {
-            set_transient('metasync_redirection_error', 'Error saving redirection: ' . $e->getMessage(), 45);
+            error_log('MetaSync error: ' . $e->getMessage());
+            set_transient('metasync_redirection_error', 'An error occurred while saving the redirection. Please try again.', 45);
             $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
         }
 
@@ -524,11 +536,11 @@ class Metasync_Redirections_Admin
                 $ErrorMonitor->create_admin_plugin_interface();
                 
             } catch (Exception $e) {
-                echo '<div class="notice notice-error"><p>Error loading 404 monitor: ' . esc_html($e->getMessage()) . '</p></div>';
                 error_log('MetaSync 404 Monitor Error: ' . $e->getMessage());
+                echo '<div class="notice notice-error"><p>An error occurred while loading the 404 monitor. Please check the server logs for details.</p></div>';
             } catch (Error $e) {
-                echo '<div class="notice notice-error"><p>Fatal error loading 404 monitor: ' . esc_html($e->getMessage()) . '</p></div>';
                 error_log('MetaSync 404 Monitor Fatal Error: ' . $e->getMessage());
+                echo '<div class="notice notice-error"><p>A fatal error occurred while loading the 404 monitor. Please check the server logs for details.</p></div>';
             }
             ?>
         </div>

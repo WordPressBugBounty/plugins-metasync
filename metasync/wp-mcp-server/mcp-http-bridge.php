@@ -291,9 +291,15 @@ function process_http_request($http_request) {
 		return implode("\r\n", $response_headers) . "\r\n\r\n" . $body;
 	}
 
-	// Check authentication
+	// Check authentication — deny by default when no API key is configured
 	$api_key = getenv('WP_MCP_API_KEY');
-	if ($api_key && (!isset($headers['x-api-key']) || $headers['x-api-key'] !== $api_key)) {
+	if (!$api_key) {
+		$response_headers[0] = 'HTTP/1.1 401 Unauthorized';
+		$body = json_encode(['error' => 'MCP bridge authentication not configured. Set WP_MCP_API_KEY environment variable.']);
+		$response_headers[] = 'Content-Length: ' . strlen($body);
+		return implode("\r\n", $response_headers) . "\r\n\r\n" . $body;
+	}
+	if (!isset($headers['x-api-key']) || !hash_equals($api_key, $headers['x-api-key'])) {
 		$response_headers[0] = 'HTTP/1.1 401 Unauthorized';
 		$body = json_encode(['error' => 'Invalid or missing API key']);
 		$response_headers[] = 'Content-Length: ' . strlen($body);
@@ -361,7 +367,17 @@ function parse_http_headers($http_request) {
  * Set CORS headers
  */
 function set_cors_headers() {
-	header('Access-Control-Allow-Origin: *');
+	$allowed_origins = array();
+	if (function_exists('home_url')) {
+		$allowed_origins[] = home_url();
+	}
+	if (function_exists('site_url')) {
+		$allowed_origins[] = site_url();
+	}
+	$origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
+	if (!empty($origin) && in_array($origin, $allowed_origins, true)) {
+		header('Access-Control-Allow-Origin: ' . $origin);
+	}
 	header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 	header('Access-Control-Allow-Headers: Content-Type, X-API-Key');
 }
@@ -372,12 +388,16 @@ function set_cors_headers() {
 function check_authentication() {
 	$api_key = getenv('WP_MCP_API_KEY');
 	if (!$api_key) {
-		return; // No authentication required
+		// Deny by default when no API key is configured
+		http_response_code(401);
+		header('Content-Type: application/json');
+		echo json_encode(['error' => 'MCP bridge authentication not configured. Set WP_MCP_API_KEY environment variable.']);
+		exit(0);
 	}
 
 	$provided_key = $_SERVER['HTTP_X_API_KEY'] ?? '';
 
-	if ($provided_key !== $api_key) {
+	if (!hash_equals($api_key, $provided_key)) {
 		http_response_code(401);
 		header('Content-Type: application/json');
 		echo json_encode(['error' => 'Invalid or missing API key']);

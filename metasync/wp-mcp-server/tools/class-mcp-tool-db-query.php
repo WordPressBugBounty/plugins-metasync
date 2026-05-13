@@ -230,6 +230,31 @@ class MCP_Tool_DB_Select extends MCP_Tool_Base {
         'SLEEP(', 'BENCHMARK(',
     ];
 
+    // wp_options keys (or substrings) that must never be exposed via the
+    // generic SELECT tool. Used both to reject queries that name them
+    // outright and to redact them from result rows.
+    private $sensitive_option_names = [
+        'metasync_jwt_secret',
+        'metasync_options',
+        'apikey',
+        'api_key',
+        'password',
+        'secret',
+        'token',
+    ];
+
+    // Tables that must never be queried via the generic SELECT tool.
+    // These contain credentials and session data that no MCP agent
+    // has a legitimate reason to read via raw SQL.
+    private $blocked_tables = ['users', 'usermeta'];
+
+    // SQL functions that can encode/obfuscate string literals to bypass
+    // keyword-based filtering on wp_options queries.
+    private $obfuscation_patterns = [
+        'CONCAT(', 'CONCAT_WS(', 'UNHEX(', 'CHAR(', 'HEX(',
+        'CONV(', 'LOAD_FILE(', '0X',
+    ];
+
     /**
      * Execute a read-only SQL query.
      *
@@ -316,6 +341,55 @@ class MCP_Tool_DB_Select extends MCP_Tool_Base {
             }
         }
 
+        // 4. Block access to sensitive tables entirely.
+        //
+        // wp_users and wp_usermeta contain credentials, password hashes,
+        // and session tokens. No MCP agent has a legitimate reason to
+        // query them via raw SQL.
+        $sql_upper = strtoupper($sql);
+        foreach ($this->blocked_tables as $table_suffix) {
+            $full_table = $wpdb->prefix . $table_suffix;
+            if (stripos($sql, $full_table) !== false) {
+                throw new Exception(
+                    "Query blocked: access to {$full_table} is restricted"
+                );
+            }
+        }
+
+        // 5. Sensitive wp_options protection.
+        //
+        // The JWT secret and other credential-bearing settings live in
+        // wp_options. Two layers protect them:
+        //
+        //   (a) SQL-level reject — if the query targets wp_options and
+        //       mentions a sensitive key by name, or uses encoding
+        //       functions that could obfuscate a key name, refuse.
+        //   (b) Result-row redaction (further down) — drop rows whose
+        //       option_name matches a sensitive pattern.
+        $options_table   = isset($wpdb->options) && is_string($wpdb->options) && $wpdb->options !== ''
+            ? $wpdb->options
+            : ($wpdb->prefix . 'options');
+        $sql_lower       = strtolower($sql);
+        $references_options = strpos($sql_lower, strtolower($options_table)) !== false;
+
+        if ($first_keyword === 'SELECT' && $references_options) {
+            foreach ($this->sensitive_option_names as $sensitive_name) {
+                if (stripos($sql, $sensitive_name) !== false) {
+                    throw new Exception(
+                        "Query blocked: query references a sensitive wp_options key ({$sensitive_name})"
+                    );
+                }
+            }
+
+            foreach ($this->obfuscation_patterns as $pattern) {
+                if (strpos($sql_upper, $pattern) !== false) {
+                    throw new Exception(
+                        "Query blocked: encoding functions are not allowed in wp_options queries"
+                    );
+                }
+            }
+        }
+
         // ── Execute ──────────────────────────────────────────────────
         $to = $this->apply_query_timeout($sql);
 
@@ -344,6 +418,29 @@ class MCP_Tool_DB_Select extends MCP_Tool_Base {
                 );
             }
             throw new Exception('Database error: ' . $err);
+        }
+
+        // Layer (b) of sensitive wp_options protection: drop result rows
+        // whose option_name matches any sensitive pattern, even when the
+        // query did not name the key literally (e.g. SELECT * or LIKE).
+        if (is_array($results) && $references_options) {
+            $filtered = [];
+            foreach ($results as $row) {
+                if (is_array($row) && isset($row['option_name']) && is_string($row['option_name'])) {
+                    $skip = false;
+                    foreach ($this->sensitive_option_names as $sensitive_name) {
+                        if (stripos($row['option_name'], $sensitive_name) !== false) {
+                            $skip = true;
+                            break;
+                        }
+                    }
+                    if ($skip) {
+                        continue;
+                    }
+                }
+                $filtered[] = $row;
+            }
+            $results = array_values($filtered);
         }
 
         $total   = is_array($results) ? count($results) : 0;

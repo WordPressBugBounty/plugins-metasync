@@ -18,6 +18,8 @@ class Metasync_Admin_Navigation
     /** @var self|null */
     private static $instance = null;
 
+    const CACHE_KEY = 'metasync_admin_bar_status';
+
     /**
      * Get singleton instance.
      *
@@ -1406,15 +1408,14 @@ class Metasync_Admin_Navigation
         if (defined('METASYNC_SHOW_ADMIN_BAR_STATUS') && !METASYNC_SHOW_ADMIN_BAR_STATUS) {
             return;
         }
-        
+
         # Check if admin bar status is disabled via setting
         $general_settings = Metasync::get_option('general');
+        if (!is_array($general_settings)) {
+            $general_settings = [];
+        }
         $show_admin_bar = $general_settings['show_admin_bar_status'] ?? true;
         if (!$show_admin_bar) {
-            return;
-        }
-        
-        if (!Metasync::current_user_has_plugin_access()) {
             return;
         }
 
@@ -1422,44 +1423,59 @@ class Metasync_Admin_Navigation
             return;
         }
 
-        $general_settings = Metasync::get_option('general');
-        if (!is_array($general_settings)) {
-            $general_settings = [];
-        }
-        
-        $is_synced = Metasync_Heartbeat_Manager::instance()->is_heartbeat_connected($general_settings);
-        
-        $plugin_name = Metasync::get_effective_plugin_name();
-        
-        if ($is_synced) {
-            $otto_uuid = $general_settings['otto_pixel_uuid'] ?? '';
-            if (!empty($otto_uuid)) {
-                $status_emoji = '🟢'; // Green circle for synced
-                $title = $plugin_name . ' - Synced (Heartbeat API connectivity verified)';
-                $status_class = 'searchatlas-synced';
+        $node = get_transient(self::CACHE_KEY);
+
+        if ($node === false) {
+            $is_synced = Metasync_Heartbeat_Manager::instance()->is_heartbeat_connected($general_settings);
+
+            $plugin_name = Metasync::get_effective_plugin_name();
+
+            if ($is_synced) {
+                $otto_uuid = $general_settings['otto_pixel_uuid'] ?? '';
+                if (!empty($otto_uuid)) {
+                    $status_emoji = '🟢'; // Green circle for synced
+                    $title = $plugin_name . ' - Synced (Heartbeat API connectivity verified)';
+                    $status_class = 'searchatlas-synced';
+                } else {
+                    $status_emoji = '🟡'; // Yellow circle for warning
+                    $title = $plugin_name . ' - Connected but OTTO UUID is missing — deploys will not work. Please reconnect.';
+                    $status_class = 'searchatlas-warning';
+                }
             } else {
-                $status_emoji = '🟡'; // Yellow circle for warning
-                $title = $plugin_name . ' - Connected but OTTO UUID is missing — deploys will not work. Please reconnect.';
-                $status_class = 'searchatlas-warning';
+                $status_emoji = '🔴'; // Red circle for not synced
+                $title = $plugin_name . ' - Not Synced (Heartbeat API not responding or unreachable)';
+                $status_class = 'searchatlas-not-synced';
             }
-        } else {
-            $status_emoji = '🔴'; // Red circle for not synced
-            $title = $plugin_name . ' - Not Synced (Heartbeat API not responding or unreachable)';
-            $status_class = 'searchatlas-not-synced';
+
+            $admin_bar_title = $plugin_name . ' ' . $status_emoji;
+
+            $node = array(
+                'title'      => $admin_bar_title,
+                'href'       => admin_url('admin.php?page=' . Metasync_Admin::$page_slug),
+                'meta_title' => $title,
+                'meta_class' => $status_class,
+            );
+
+            set_transient(self::CACHE_KEY, $node, apply_filters('metasync_admin_bar_status_cache_ttl', 5 * MINUTE_IN_SECONDS));
         }
 
-        $display_name = $plugin_name;
-        $admin_bar_title = $display_name . ' ' . $status_emoji;
-        
         $wp_admin_bar->add_node(array(
             'id'    => 'searchatlas-status',
-            'title' => $admin_bar_title,
-            'href'  => admin_url('admin.php?page=' . Metasync_Admin::$page_slug),
+            'title' => $node['title'],
+            'href'  => $node['href'],
             'meta'  => array(
-                'title' => $title,
-                'class' => $status_class
-            )
+                'title' => $node['meta_title'],
+                'class' => $node['meta_class'],
+            ),
         ));
+    }
+
+    /**
+     * Invalidate the admin bar status cache so the next page load recomputes status.
+     */
+    public static function invalidate_admin_bar_status_cache()
+    {
+        delete_transient(self::CACHE_KEY);
     }
 
     // ------------------------------------------------------------------

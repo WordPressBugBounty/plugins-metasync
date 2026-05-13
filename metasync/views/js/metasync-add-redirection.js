@@ -10,11 +10,11 @@
  * @since Phase 5
  */
 (function () {
-	// Show the add redirection form only when action=add or action=edit
+	// Show the add redirection form when action=add, edit, or redirect (from 404 monitor)
 	function showForm() {
 		var params = new URLSearchParams(window.location.search);
 		var action = params.get('action');
-		if (action !== 'add' && action !== 'edit') {
+		if (action !== 'add' && action !== 'edit' && action !== 'redirect') {
 			return;
 		}
 

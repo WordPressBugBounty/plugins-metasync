@@ -569,6 +569,20 @@ class Metasync_MCP_Server {
 
         list($header_encoded, $payload_encoded, $signature_encoded) = $parts;
 
+        // Validate header: enforce alg=HS256 and typ=JWT to defeat
+        // algorithm-confusion attacks (e.g. "alg":"none").
+        $header_json = $this->base64_url_decode($header_encoded);
+        $header = json_decode($header_json, true);
+        if (!is_array($header)) {
+            return false;
+        }
+        if (!isset($header['alg']) || $header['alg'] !== 'HS256') {
+            return false;
+        }
+        if (!isset($header['typ']) || $header['typ'] !== 'JWT') {
+            return false;
+        }
+
         // Verify signature
         $signature_input = $header_encoded . '.' . $payload_encoded;
         $secret = $this->get_jwt_secret();
@@ -587,13 +601,14 @@ class Metasync_MCP_Server {
             return false;
         }
 
-        // Check expiration
-        if (isset($payload['exp']) && $payload['exp'] < time()) {
+        // Check expiration — exp is mandatory; reject tokens missing or
+        // with a non-numeric / past expiry.
+        if (!isset($payload['exp']) || !is_numeric($payload['exp']) || (int) $payload['exp'] < time()) {
             return false;
         }
 
-        // Check issuer
-        if (isset($payload['iss']) && $payload['iss'] !== get_site_url()) {
+        // Check issuer — iss is mandatory and must match this site.
+        if (!isset($payload['iss']) || $payload['iss'] !== get_site_url()) {
             return false;
         }
 
@@ -666,9 +681,29 @@ class Metasync_MCP_Server {
      * @return void
      */
     private function record_failed_auth_attempt($ip) {
+        global $wpdb;
         $key = 'metasync_auth_attempts_' . md5($ip);
-        $attempts = (int) get_transient($key);
-        set_transient($key, $attempts + 1, 15 * MINUTE_IN_SECONDS);
+        $window = 15 * MINUTE_IN_SECONDS;
+
+        // Use get_transient to check existence first
+        $attempts = get_transient($key);
+        if ($attempts === false) {
+            // First attempt: set initial value atomically
+            set_transient($key, 1, $window);
+        } else {
+            // Increment atomically via direct SQL to avoid race conditions
+            $option_name = '_transient_' . $key;
+            $updated = $wpdb->query(
+                $wpdb->prepare(
+                    "UPDATE {$wpdb->options} SET option_value = option_value + 1 WHERE option_name = %s",
+                    $option_name
+                )
+            );
+            // If no rows updated (e.g. object cache backend), fall back to set
+            if ($updated === 0) {
+                set_transient($key, (int) $attempts + 1, $window);
+            }
+        }
     }
 
     /**

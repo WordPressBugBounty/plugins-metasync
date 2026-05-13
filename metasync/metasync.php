@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.6.6 
+ * Version:           2.6.7 
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
  * License:           GPL v3
@@ -36,7 +36,7 @@ require_once __DIR__ . '/vendor/autoload.php';
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.6.6';
+$metasync_version = '2.6.7';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -279,12 +279,6 @@ function deactivate_metasync()
     // class name is changed at class-db-migrations.php
 	MetaSync_DBMigration::deactivation();
 
-	// Unschedule the sync log cleanup cron to avoid orphaned events.
-	$timestamp = wp_next_scheduled('metasync_sync_log_daily_cleanup');
-	if ($timestamp) {
-		wp_unschedule_event($timestamp, 'metasync_sync_log_daily_cleanup');
-	}
-
 	// Clear news/video sitemap caches
 	delete_transient('metasync_vsm_' . md5('news-sitemap.xml'));
 	delete_transient('metasync_vsm_' . md5('video-sitemap.xml'));
@@ -337,6 +331,17 @@ function check_metasync_updates()
                 $options['general']['apikey'] = wp_generate_password(32, false, false);
                 update_option('metasync_options', $options);
             }
+        }
+
+        // WP-299: One-time purge of stale OTTO SEO cron backlog.
+        // Prior versions could accumulate thousands of metasync_process_seo_job and
+        // metasync_process_otto_crawl_url_job events due to unbounded rescheduling.
+        // Clear the backlog once on update; the new code prevents re-accumulation.
+        if (!get_option('metasync_wp299_cron_cleanup_done')) {
+            wp_unschedule_hook('metasync_process_seo_job');
+            wp_unschedule_hook('metasync_process_otto_crawl_url_job');
+            wp_unschedule_hook('metasync_process_otto_batch_cache_job');
+            update_option('metasync_wp299_cron_cleanup_done', true, false);
         }
 
         // Run full migration to ensure all tables are up to date

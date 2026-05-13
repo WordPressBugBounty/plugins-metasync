@@ -245,6 +245,7 @@ class ComposerStaticInit8e5917ee534e616253713b8104fcda43
         'Metasync_Redirection_Importer' => __DIR__ . '/../..' . '/redirections/class-metasync-redirection-importer.php',
         'Metasync_Redirection_List_Table' => __DIR__ . '/../..' . '/redirections/class-metasync-redirection-list-table.php',
         'Metasync_Redirections_Admin' => __DIR__ . '/../..' . '/includes/class-metasync-redirections-admin.php',
+        'Metasync_Regex_Validator' => __DIR__ . '/../..' . '/includes/class-metasync-regex-validator.php',
         'Metasync_Rest_Api' => __DIR__ . '/../..' . '/public/class-metasync-rest-api.php',
         'Metasync_Review_Notice' => __DIR__ . '/../..' . '/includes/class-metasync-review-notice.php',
         'Metasync_Robots_Txt' => __DIR__ . '/../..' . '/robots-txt/class-metasync-robots-txt.php',

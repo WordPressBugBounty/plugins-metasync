@@ -24,6 +24,31 @@ class Metasync_Activator
 {
 
 	/**
+	 * Canonical list of MetaSync custom WP-Cron hooks.
+	 * Shared with Metasync_Deactivator so deactivation cleans up every scheduled hook.
+	 *
+	 * @since 2.5.x
+	 * @var string[]
+	 */
+	public static $cron_hooks = [
+		'metasync_sync_log_daily_cleanup',
+		'metasync_announce_cron',
+		'metasync_rate_limit_cleanup',
+		'metasync_heartbeat_cron_check',
+		'metasync_burst_heartbeat',
+		'metasync_check_debug_limits',
+		'metasync_cleanup_transients',
+		'metasync_hidden_post_check',
+		'metasync_otto_recheck_404_exclusions',
+		'metasync_db_cleanup',
+		'metasync_media_batch_optimize_cron',
+		'metasync_speed_cache_cleanup',
+		'metasync_process_seo_job',
+		'metasync_process_otto_crawl_url_job',
+		'metasync_process_otto_batch_cache_job',
+	];
+
+	/**
 	 * Short Description. (use period)
 	 *
 	 * Long Description.

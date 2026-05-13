@@ -494,6 +494,21 @@ class Metasync_Redirection
     }
 
     /**
+     * Validate that a redirect would not create a loop.
+     *
+     * @param string $source      Source URL or path
+     * @param string $destination Destination URL or path
+     * @return string|null Null if no loop, error message string if loop detected
+     */
+    public function validate_no_loop($source, $destination) {
+        $chain = [];
+        if ($this->would_create_loop($source, $destination, $chain)) {
+            return 'Redirect would create a loop: ' . implode(' → ', $chain);
+        }
+        return null;
+    }
+
+    /**
      * Normalise a URL or path to a leading-slash URI path used for chain comparison.
      *
      * @param string $url
@@ -847,19 +862,15 @@ class Metasync_Redirection
      */
     private function match_wildcard($pattern, $uri)
     {
-        // Escape special regex characters except *
-        $pattern = str_replace(['\\', '/', '.', '+', '?', '[', '^', ']', '$', '(', ')', '{', '}', '=', '!', '<', '>', '|', ':', '-'],
-                              ['\\\\', '\\/', '\\.', '\\+', '\\?', '\\[', '\\^', '\\]', '\\$', '\\(', '\\)', '\\{', '\\}', '\\=', '\\!', '\\<', '\\>', '\\|', '\\:', '\\-'],
-                              $pattern);
-
-        // Replace * with capturing group
-        $pattern = str_replace('*', '(.*)', $pattern);
-
-        // Create regex pattern
-        $regex = '/^' . $pattern . '$/';
+        // Sanitize: escape the entire pattern for safe regex use, then restore wildcards
+        $escaped = preg_quote($pattern, '/');
+        // preg_quote escapes *, so replace the escaped \* back with a capturing group
+        $regex = '/^' . str_replace('\\*', '(.*)', $escaped) . '$/';
 
         $matches = [];
-        if (preg_match($regex, $uri, $matches)) {
+        $result = @preg_match($regex, $uri, $matches);
+
+        if ($result && $result !== false) {
             // Return the captured path (first capturing group)
             return isset($matches[1]) ? $matches[1] : '';
         }

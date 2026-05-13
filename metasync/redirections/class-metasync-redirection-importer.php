@@ -19,6 +19,8 @@ class Metasync_Redirection_Importer
 {
     private $db_redirection;
 
+    private $redirection_helper = null;
+
     /**
      * Supported plugins for import
      */
@@ -63,6 +65,18 @@ class Metasync_Redirection_Importer
     public function __construct(&$db_redirection)
     {
         $this->db_redirection = $db_redirection;
+    }
+
+    /**
+     * Lazy-load the Metasync_Redirection helper used for loop detection.
+     */
+    private function get_redirection_helper()
+    {
+        if ($this->redirection_helper === null) {
+            require_once dirname(__FILE__) . '/class-metasync-redirection.php';
+            $this->redirection_helper = new Metasync_Redirection($this->db_redirection);
+        }
+        return $this->redirection_helper;
     }
 
     /**
@@ -188,7 +202,8 @@ class Metasync_Redirection_Importer
                 'success' => false,
                 'message' => 'Redirection plugin table not found.',
                 'imported' => 0,
-                'skipped' => 0
+                'skipped' => 0,
+                'loop_skipped' => 0
             ];
         }
 
@@ -199,6 +214,7 @@ class Metasync_Redirection_Importer
 
         $imported = 0;
         $skipped = 0;
+        $loop_skipped = 0;
 
         foreach ($redirects as $redirect) {
             $http_code = intval($redirect->action_code ?? 301);
@@ -243,16 +259,27 @@ class Metasync_Redirection_Importer
                 'updated_at' => current_time('mysql')
             ];
 
+            if (!in_array($http_code, [410, 451]) && $this->get_redirection_helper()->validate_no_loop($redirect->url, $target_url) !== null) {
+                $loop_skipped++;
+                continue;
+            }
+
             if ($this->db_redirection->add($args)) {
                 $imported++;
             }
         }
 
+        $message = "Successfully imported $imported redirections from Redirection plugin.";
+        if ($loop_skipped > 0) {
+            $message .= " Skipped $loop_skipped redirect(s) that would have created loops.";
+        }
+
         return [
             'success' => true,
-            'message' => "Successfully imported $imported redirections from Redirection plugin.",
+            'message' => $message,
             'imported' => $imported,
-            'skipped' => $skipped
+            'skipped' => $skipped,
+            'loop_skipped' => $loop_skipped
         ];
     }
 
@@ -271,6 +298,7 @@ class Metasync_Redirection_Importer
         $imported = 0;
         $skipped = 0;
         $errors = [];
+        $loop_skipped = 0;
 
         # Try to import from base option first (preferred method)
         $base_redirects = get_option('wpseo-premium-redirects-base', []);
@@ -282,6 +310,8 @@ class Metasync_Redirection_Importer
                     $imported++;
                 } elseif ($result === 'skipped') {
                     $skipped++;
+                } elseif ($result === 'loop_skipped') {
+                    $loop_skipped++;
                 } else {
                     $errors[] = $result;
                 }
@@ -299,6 +329,8 @@ class Metasync_Redirection_Importer
                         $imported++;
                     } elseif ($result === 'skipped') {
                         $skipped++;
+                    } elseif ($result === 'loop_skipped') {
+                        $loop_skipped++;
                     } else {
                         $errors[] = $result;
                     }
@@ -314,6 +346,8 @@ class Metasync_Redirection_Importer
                         $imported++;
                     } elseif ($result === 'skipped') {
                         $skipped++;
+                    } elseif ($result === 'loop_skipped') {
+                        $loop_skipped++;
                     } else {
                         $errors[] = $result;
                     }
@@ -332,6 +366,8 @@ class Metasync_Redirection_Importer
                         $imported++;
                     } elseif ($result === 'skipped') {
                         $skipped++;
+                    } elseif ($result === 'loop_skipped') {
+                        $loop_skipped++;
                     } else {
                         $errors[] = $result;
                     }
@@ -347,6 +383,8 @@ class Metasync_Redirection_Importer
                         $imported++;
                     } elseif ($result === 'skipped') {
                         $skipped++;
+                    } elseif ($result === 'loop_skipped') {
+                        $loop_skipped++;
                     } else {
                         $errors[] = $result;
                     }
@@ -355,23 +393,30 @@ class Metasync_Redirection_Importer
         }
 
         # Return results
-        if ($imported === 0 && $skipped === 0) {
+        if ($imported === 0 && $skipped === 0 && $loop_skipped === 0) {
             return [
                 'success' => false,
                 'message' => 'No Yoast redirections found. ' . (!empty($errors) ? implode(' ', array_slice($errors, 0, 2)) : ''),
                 'imported' => 0,
                 'skipped' => 0,
+                'loop_skipped' => 0,
                 'errors' => $errors
             ];
         }
 
+        $message = $imported > 0
+            ? "Successfully imported $imported redirections from Yoast SEO."
+            : "All redirections already exist. Skipped $skipped duplicates.";
+        if ($loop_skipped > 0) {
+            $message .= " Skipped $loop_skipped redirect(s) that would have created loops.";
+        }
+
         return [
             'success' => true,
-            'message' => $imported > 0
-                ? "Successfully imported $imported redirections from Yoast SEO."
-                : "All redirections already exist. Skipped $skipped duplicates.",
+            'message' => $message,
             'imported' => $imported,
             'skipped' => $skipped,
+            'loop_skipped' => $loop_skipped,
             'errors' => $errors
         ];
     }
@@ -430,6 +475,10 @@ class Metasync_Redirection_Importer
                 'created_at' => current_time('mysql'),
                 'updated_at' => current_time('mysql')
             ];
+
+            if (!in_array(intval($type), [410, 451]) && $this->get_redirection_helper()->validate_no_loop($origin, $target) !== null) {
+                return 'loop_skipped';
+            }
 
             if ($this->db_redirection->add($args)) {
                 return true;
@@ -503,6 +552,10 @@ class Metasync_Redirection_Importer
                 'updated_at' => current_time('mysql')
             ];
 
+            if (!in_array(intval($type), [410, 451]) && $this->get_redirection_helper()->validate_no_loop($origin, $target) !== null) {
+                return 'loop_skipped';
+            }
+
             if ($this->db_redirection->add($args)) {
                 return true;
             }
@@ -528,6 +581,7 @@ class Metasync_Redirection_Importer
                 'message' => 'Rank Math redirections table not found.',
                 'imported' => 0,
                 'skipped' => 0,
+                'loop_skipped' => 0,
                 'errors' => ['Table not found: ' . $table_name]
             ];
         }
@@ -541,6 +595,7 @@ class Metasync_Redirection_Importer
                 'message' => 'No redirections found in Rank Math.',
                 'imported' => 0,
                 'skipped' => 0,
+                'loop_skipped' => 0,
                 'errors' => []
             ];
         }
@@ -548,6 +603,7 @@ class Metasync_Redirection_Importer
         $imported = 0;
         $skipped = 0;
         $errors = [];
+        $loop_skipped = 0;
 
         foreach ($redirects as $redirect) {
             try {
@@ -652,6 +708,11 @@ class Metasync_Redirection_Importer
                     'updated_at' => current_time('mysql')
                 ];
 
+                if (!in_array($http_code, [410, 451]) && $this->get_redirection_helper()->validate_no_loop($source_url, $target_url) !== null) {
+                    $loop_skipped++;
+                    continue;
+                }
+
                 $result = $this->db_redirection->add($args);
 
                 if ($result !== false && $result > 0) {
@@ -670,17 +731,23 @@ class Metasync_Redirection_Importer
         }
 
         # Return success if we processed redirections (even if all skipped)
-        $has_results = ($imported + $skipped) > 0;
+        $has_results = ($imported + $skipped + $loop_skipped) > 0;
+
+        $message = $imported > 0
+            ? "Successfully imported $imported redirections from Rank Math."
+            : ($skipped > 0
+                ? "All redirections already exist. Skipped $skipped duplicates."
+                : "No redirections found to import. " . (count($errors) > 0 ? implode(' ', array_slice($errors, 0, 2)) : ''));
+        if ($loop_skipped > 0) {
+            $message .= " Skipped $loop_skipped redirect(s) that would have created loops.";
+        }
 
         return [
             'success' => $has_results,
-            'message' => $imported > 0
-                ? "Successfully imported $imported redirections from Rank Math."
-                : ($skipped > 0
-                    ? "All redirections already exist. Skipped $skipped duplicates."
-                    : "No redirections found to import. " . (count($errors) > 0 ? implode(' ', array_slice($errors, 0, 2)) : '')),
+            'message' => $message,
             'imported' => $imported,
             'skipped' => $skipped,
+            'loop_skipped' => $loop_skipped,
             'errors' => $errors
         ];
     }
@@ -698,7 +765,8 @@ class Metasync_Redirection_Importer
                 'success' => false,
                 'message' => 'All in One SEO redirects table not found.',
                 'imported' => 0,
-                'skipped' => 0
+                'skipped' => 0,
+                'loop_skipped' => 0
             ];
         }
 
@@ -709,6 +777,7 @@ class Metasync_Redirection_Importer
 
         $imported = 0;
         $skipped = 0;
+        $loop_skipped = 0;
 
         foreach ($redirects as $redirect) {
             $http_code = intval($redirect->redirect_code ?? 301);
@@ -752,16 +821,27 @@ class Metasync_Redirection_Importer
                 'updated_at' => current_time('mysql')
             ];
 
+            if (!in_array($http_code, [410, 451]) && $this->get_redirection_helper()->validate_no_loop($redirect->source_url, $target_url) !== null) {
+                $loop_skipped++;
+                continue;
+            }
+
             if ($this->db_redirection->add($args)) {
                 $imported++;
             }
         }
 
+        $message = "Successfully imported $imported redirections from All in One SEO.";
+        if ($loop_skipped > 0) {
+            $message .= " Skipped $loop_skipped redirect(s) that would have created loops.";
+        }
+
         return [
             'success' => true,
-            'message' => "Successfully imported $imported redirections from All in One SEO.",
+            'message' => $message,
             'imported' => $imported,
-            'skipped' => $skipped
+            'skipped' => $skipped,
+            'loop_skipped' => $loop_skipped
         ];
     }
 
@@ -778,12 +858,14 @@ class Metasync_Redirection_Importer
                 'success' => false,
                 'message' => 'No Simple 301 Redirects found.',
                 'imported' => 0,
-                'skipped' => 0
+                'skipped' => 0,
+                'loop_skipped' => 0
             ];
         }
 
         $imported = 0;
         $skipped = 0;
+        $loop_skipped = 0;
 
         foreach ($redirects as $old_url => $new_url) {
             # Skip empty entries
@@ -815,16 +897,27 @@ class Metasync_Redirection_Importer
                 'updated_at' => current_time('mysql')
             ];
 
+            if ($this->get_redirection_helper()->validate_no_loop($old_url, $new_url) !== null) {
+                $loop_skipped++;
+                continue;
+            }
+
             if ($this->db_redirection->add($args)) {
                 $imported++;
             }
         }
 
+        $message = "Successfully imported $imported redirections from Simple 301 Redirects.";
+        if ($loop_skipped > 0) {
+            $message .= " Skipped $loop_skipped redirect(s) that would have created loops.";
+        }
+
         return [
             'success' => true,
-            'message' => "Successfully imported $imported redirections from Simple 301 Redirects.",
+            'message' => $message,
             'imported' => $imported,
-            'skipped' => $skipped
+            'skipped' => $skipped,
+            'loop_skipped' => $loop_skipped
         ];
     }
 

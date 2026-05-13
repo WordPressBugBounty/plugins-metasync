@@ -154,6 +154,16 @@ class Metasync_Error_Logger {
                 return false;
             }
         }
+
+        // Protect log directory from direct web access
+        $htaccess_file = $log_directory . '/.htaccess';
+        if (!file_exists($htaccess_file)) {
+            @file_put_contents($htaccess_file, "Order deny,allow\nDeny from all\n");
+        }
+        $index_file = $log_directory . '/index.php';
+        if (!file_exists($index_file)) {
+            @file_put_contents($index_file, "<?php\n// Silence is golden\n");
+        }
         
         // Verify directory is writable
         if (!is_writable($log_directory)) {

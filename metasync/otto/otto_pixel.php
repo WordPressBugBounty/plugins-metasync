@@ -109,10 +109,23 @@ function metasync_otto_crawl_notify($request){
     # strict response-time budget; doing this work inline previously blocked
     # the response for up to 30s × N URLs and timed the caller out.
     # Each URL gets its own scheduled event so failures are isolated.
+    #
+    # WP-299: Cap the number of per-URL cron jobs scheduled per webhook batch.
+    # Large crawl batches (100+ URLs) previously created hundreds of cron events
+    # that overwhelmed WP-Cron on shared/managed hosts like WP Engine. Excess
+    # URLs beyond the cap are silently skipped — OTTO will re-crawl them on the
+    # next webhook cycle.
+    $max_jobs_per_batch = defined('METASYNC_MAX_JOBS_PER_BATCH') ? METASYNC_MAX_JOBS_PER_BATCH : 25;
     $now = time();
     $routes_to_process = array();
+    $scheduled_count = 0;
 
     foreach($data['urls'] AS $key => $url){
+        # Enforce per-batch cap to prevent cron overload
+        if ($scheduled_count >= $max_jobs_per_batch) {
+            break;
+        }
+
         # prepare the route
         $route = $data['domain'] . $url;
 
@@ -141,6 +154,7 @@ function metasync_otto_crawl_notify($request){
         wp_schedule_single_event($now + $key, 'metasync_process_otto_crawl_url_job', array($route));
 
         $routes_to_process[] = $route;
+        $scheduled_count++;
     }
 
     # Schedule a single batch job for cache warming and edge CDN purge.
@@ -196,7 +210,10 @@ function metasync_handle_otto_crawl_url_job($route, $retry_count = 0) {
         # This ensures the DB is fully up-to-date when Kinsta (or any host) re-populates
         # the cache on the very next request — eliminating the race condition where the
         # 1-second scheduled job hadn't run yet and stale meta got cached.
-        metasync_process_otto_seo_data($route);
+        # allow_defer=false: do NOT reschedule a new metasync_process_seo_job cron
+        # event from this synchronous path — the crawl_url_job retry mechanism already
+        # handles failures, and rescheduling here caused an unbounded cron pile-up (WP-299).
+        metasync_process_otto_seo_data($route, false);
 
         # Step 3: Clear the per-URL cache entry
         $otto_pixel = new Metasync_otto_pixel(false);
@@ -741,25 +758,73 @@ add_action('wp', 'metasync_start_otto');
   
   # ENHANCED OTTO SEO INTEGRATION
   # Register async SEO processing hook
-  add_action('metasync_process_seo_job', 'metasync_process_otto_seo_data');
+  add_action('metasync_process_seo_job', 'metasync_process_otto_seo_data', 10, 3);
   add_action('metasync_process_otto_crawl_url_job', 'metasync_handle_otto_crawl_url_job', 10, 2);
   add_action('metasync_process_otto_batch_cache_job', 'metasync_handle_otto_batch_cache_job');
   
   # Process OTTO SEO data and update WordPress meta fields for SEO plugins
   # This function now runs asynchronously via WordPress cron system
-  
-function metasync_process_otto_seo_data($route) {
+  #
+  # @param string $route         Fully-qualified URL to process.
+  # @param bool   $allow_defer   When false, skip CPU-deferral rescheduling (used when
+  #                               called synchronously from crawl_url_job whose own retry
+  #                               mechanism already handles failures).
+  # @param int    $deferral_count How many times this job has already been deferred for
+  #                               CPU load. Prevents infinite reschedule loops.
+
+function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_count = 0) {
+    # Maximum number of times a job can be deferred before it is dropped.
+    $max_deferrals = defined('METASYNC_SEO_JOB_MAX_DEFERRALS') ? METASYNC_SEO_JOB_MAX_DEFERRALS : 5;
+    $lock_key      = null;
+    $lock_acquired = false;
+
     try {
         # Validate input
         if (empty($route) || !is_string($route)) {
             return false;
         }
 
-        # CPU load check — defer if server is under load
+        # CPU load check — defer if server is under load.
+        # Only reschedule when called from the cron hook (allow_defer=true) and
+        # we haven't exceeded the maximum deferral count.
+        # Checked BEFORE acquiring the lock so that deferred jobs don't
+        # acquire-then-immediately-release it (which defeats concurrency protection).
         if (!Metasync_CPU_Monitor::is_load_safe()) {
-            wp_schedule_single_event(time() + 60, 'metasync_process_seo_job', array($route));
+            if ($allow_defer && $deferral_count < $max_deferrals) {
+                wp_schedule_single_event(
+                    time() + 60,
+                    'metasync_process_seo_job',
+                    array($route, true, $deferral_count + 1)
+                );
+                return false;
+            }
+            # Max deferrals reached or not allowed to defer — drop the job to
+            # prevent unbounded cron accumulation that causes server overload.
+            if ($deferral_count >= $max_deferrals) {
+                metasync_record_failed_action('metasync_process_seo_job');
+                return false;
+            }
+            # allow_defer=false (sync path): just return false, parent handles retry.
             return false;
         }
+
+        # Concurrency lock: prevent multiple SEO jobs from running simultaneously.
+        # Uses a per-URL transient lock with a 120s TTL as a safety net (the lock is
+        # explicitly deleted on completion). If the lock exists another run is already
+        # processing this URL — reschedule once with a short delay instead of stacking.
+        $lock_key = 'metasync_seo_lock_' . md5($route);
+        if (get_transient($lock_key) !== false) {
+            if ($allow_defer && $deferral_count < $max_deferrals) {
+                wp_schedule_single_event(
+                    time() + 30,
+                    'metasync_process_seo_job',
+                    array($route, true, $deferral_count + 1)
+                );
+            }
+            return false;
+        }
+        set_transient($lock_key, true, 120);
+        $lock_acquired = true;
 
         # Resolve redirect table: use final destination URL before 404 checks and OTTO processing
         $route = metasync_otto_resolve_redirect_to_final_url($route);
@@ -1393,6 +1458,13 @@ function metasync_process_otto_seo_data($route) {
     } catch (Exception $e) {
         metasync_record_failed_action( 'metasync_process_seo_job' );
         return false;
+    } finally {
+        # Release the concurrency lock only if we actually acquired it.
+        # Early returns (CPU deferral, lock contention) must NOT delete a lock
+        # that another process may be holding.
+        if ($lock_acquired && $lock_key) {
+            delete_transient($lock_key);
+        }
     }
 }
 
@@ -1516,6 +1588,11 @@ function metasync_otto_resolve_redirect_to_final_url($url)
 function metasync_otto_auto_exclude_404_url($url)
 {
     if (empty($url) || !is_string($url)) {
+        return false;
+    }
+    $url = filter_var($url, FILTER_SANITIZE_URL);
+    $url = esc_url_raw($url);
+    if (empty($url) || mb_strlen($url) > 2048) {
         return false;
     }
     try {

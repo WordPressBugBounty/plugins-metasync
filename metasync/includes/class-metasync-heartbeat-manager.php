@@ -734,62 +734,84 @@ class Metasync_Heartbeat_Manager
             return $default;
         }
 
-        $hostname = wp_parse_url(get_home_url(), PHP_URL_HOST);
+        $raw_hostname = wp_parse_url(get_home_url(), PHP_URL_HOST);
+        $bare_hostname = preg_replace('/^www\./i', '', $raw_hostname);
+
+        // Try both original and www-stripped hostnames to support sites registered
+        // with or without www on SearchAtlas.
+        $hostnames_to_try = ($raw_hostname !== $bare_hostname)
+            ? [$raw_hostname, $bare_hostname]
+            : [$bare_hostname];
 
         if (strpos($searchatlas_api_key, 'pub-') === 0) {
             $domain = class_exists('Metasync_Endpoint_Manager')
                 ? Metasync_Endpoint_Manager::get_endpoint('API_DOMAIN')
                 : Metasync::API_DOMAIN;
-            $url = $domain . '/api/publisher/one-click-publishing/wp-website-heartbeat/connection-ping/?hostname=' . rawurlencode($hostname);
+            $base_url = $domain . '/api/publisher/one-click-publishing/wp-website-heartbeat/connection-ping/?hostname=';
         } else {
             $domain = class_exists('Metasync_Endpoint_Manager')
                 ? Metasync_Endpoint_Manager::get_endpoint('CA_API_DOMAIN')
                 : Metasync::CA_API_DOMAIN;
-            $url = $domain . '/api/wp-website-heartbeat/connection-ping/?hostname=' . rawurlencode($hostname);
+            $base_url = $domain . '/api/wp-website-heartbeat/connection-ping/?hostname=';
         }
 
-        $response = wp_remote_get($url, [
-            'headers' => ['x-api-key' => $searchatlas_api_key],
-            'timeout' => 10,
+        foreach ($hostnames_to_try as $hostname) {
+            $url = $base_url . rawurlencode($hostname);
+
+            $response = wp_remote_get($url, [
+                'headers' => ['x-api-key' => $searchatlas_api_key],
+                'timeout' => 10,
+            ]);
+
+            if (is_wp_error($response)) {
+                $this->log_heartbeat('error', 'Connection ping failed (WP_Error)', [
+                    'hostname' => $hostname,
+                    'error_code' => $response->get_error_code(),
+                    'error_message' => $response->get_error_message(),
+                ]);
+                $default['network_error'] = true;
+                return $default;
+            }
+
+            $status_code = wp_remote_retrieve_response_code($response);
+            if ($status_code !== 200) {
+                $this->log_heartbeat('error', 'Connection ping returned non-200 status', [
+                    'hostname' => $hostname,
+                    'status_code' => $status_code,
+                    'response_body' => $this->smart_truncate(wp_remote_retrieve_body($response), 300),
+                ]);
+                return $default;
+            }
+
+            $body = wp_remote_retrieve_body($response);
+            $data = json_decode($body, true);
+
+            if (!is_array($data)) {
+                $this->log_heartbeat('error', 'Connection ping returned invalid JSON', [
+                    'hostname' => $hostname,
+                    'response_body' => $this->smart_truncate($body, 300),
+                ]);
+                return $default;
+            }
+
+            $connected = (bool) ($data['connected'] ?? false);
+            $otto_pixel_uuid = $data['otto_pixel_uuid'] ?? null;
+
+            if ($connected) {
+                $this->log_heartbeat('info', 'Connection ping completed', [
+                    'hostname' => $hostname,
+                    'connected' => true,
+                    'uuid_prefix' => $otto_pixel_uuid ? substr($otto_pixel_uuid, 0, 8) . '...' : 'none',
+                ]);
+                return ['connected' => true, 'otto_pixel_uuid' => $otto_pixel_uuid];
+            }
+        }
+
+        $this->log_heartbeat('info', 'Connection ping completed — not connected on any hostname variant', [
+            'hostnames_tried' => $hostnames_to_try,
         ]);
 
-        if (is_wp_error($response)) {
-            $this->log_heartbeat('error', 'Connection ping failed (WP_Error)', [
-                'error_code' => $response->get_error_code(),
-                'error_message' => $response->get_error_message(),
-            ]);
-            $default['network_error'] = true;
-            return $default;
-        }
-
-        $status_code = wp_remote_retrieve_response_code($response);
-        if ($status_code !== 200) {
-            $this->log_heartbeat('error', 'Connection ping returned non-200 status', [
-                'status_code' => $status_code,
-                'response_body' => $this->smart_truncate(wp_remote_retrieve_body($response), 300),
-            ]);
-            return $default;
-        }
-
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
-
-        if (!is_array($data)) {
-            $this->log_heartbeat('error', 'Connection ping returned invalid JSON', [
-                'response_body' => $this->smart_truncate($body, 300),
-            ]);
-            return $default;
-        }
-
-        $connected = (bool) ($data['connected'] ?? false);
-        $otto_pixel_uuid = $data['otto_pixel_uuid'] ?? null;
-
-        $this->log_heartbeat('info', 'Connection ping completed', [
-            'connected' => $connected,
-            'uuid_prefix' => $otto_pixel_uuid ? substr($otto_pixel_uuid, 0, 8) . '...' : 'none',
-        ]);
-
-        return ['connected' => $connected, 'otto_pixel_uuid' => $otto_pixel_uuid];
+        return $default;
     }
 
     public function unschedule_heartbeat_cron()
@@ -1104,6 +1126,7 @@ class Metasync_Heartbeat_Manager
 
         if (empty($searchatlas_api_key)) {
             delete_transient('metasync_heartbeat_status_cache');
+            Metasync_Admin_Navigation::invalidate_admin_bar_status_cache();
 
             $cache_data = array(
                 'status' => false,
@@ -1120,6 +1143,7 @@ class Metasync_Heartbeat_Manager
         }
 
         delete_transient('metasync_heartbeat_status_cache');
+        Metasync_Admin_Navigation::invalidate_admin_bar_status_cache();
 
         $result = $this->execute_heartbeat_cron_check();
 

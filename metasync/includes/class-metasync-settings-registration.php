@@ -2556,6 +2556,7 @@ class Metasync_Settings_Registration
             }
 
             $metasync_options['breadcrumbs']['enabled']             = !empty($breadcrumbs_input['enabled']);
+            $metasync_options['breadcrumbs']['disable_schema']      = !empty($breadcrumbs_input['disable_schema']);
             $metasync_options['breadcrumbs']['show_current_page']   = !empty($breadcrumbs_input['show_current_page']);
             $metasync_options['breadcrumbs']['separator']           = isset($breadcrumbs_input['separator']) ? sanitize_text_field($breadcrumbs_input['separator']) : '»';
             $metasync_options['breadcrumbs']['home_label']          = isset($breadcrumbs_input['home_label']) ? sanitize_text_field($breadcrumbs_input['home_label']) : 'Home';
@@ -2900,8 +2901,8 @@ class Metasync_Settings_Registration
             return;
         }
 
-        if ($server_limits['max_execution_time_raw'] != -1 && $settings['max_execution_time'] > $server_limits['max_execution_time_raw']) {
-            wp_send_json_error(array('message' => sprintf('Max Execution Time exceeds server limit of %d seconds. Please reduce the value.', $server_limits['max_execution_time_raw'])));
+        if ((int)$server_limits['max_execution_time_raw'] !== -1 && (int)$settings['max_execution_time'] > (int)$server_limits['max_execution_time_raw']) {
+            wp_send_json_error(array('message' => sprintf('Max Execution Time exceeds server limit of %d seconds. Please reduce the value.', (int)$server_limits['max_execution_time_raw'])));
             return;
         }
 
@@ -3073,8 +3074,14 @@ class Metasync_Settings_Registration
         }
 
         if (!empty($api_key)) {
-            $file_path = ABSPATH . $api_key . '.txt';
-            $file_result = file_put_contents($file_path, $api_key);
+            $safe_key = sanitize_file_name( $api_key );
+            $file_path = ABSPATH . $safe_key . '.txt';
+            $real_path = realpath( ABSPATH );
+            if ( false === $real_path || 0 !== strpos( realpath( dirname( $file_path ) ), $real_path ) ) {
+                error_log( 'Bing IndexNow: Refusing to write outside ABSPATH' );
+                return false;
+            }
+            $file_result = file_put_contents( $file_path, $safe_key );
 
             if ($file_result === false) {
                 error_log('Bing IndexNow: Failed to create API key verification file at ' . $file_path);

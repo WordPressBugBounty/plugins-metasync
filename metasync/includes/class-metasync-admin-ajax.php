@@ -125,6 +125,11 @@ class Metasync_Admin_Ajax
 
     public function lgSendCustomerParams()
     {
+        check_ajax_referer('metasync_nonce', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized');
+            return;
+        }
         $sync_request = new Metasync_Sync_Requests();
 
         # use the existing apikey for backward compatibility
@@ -203,7 +208,11 @@ class Metasync_Admin_Ajax
         }
 
         $step = isset($_POST['step']) ? intval($_POST['step']) : 0;
-        $data = isset($_POST['data']) ? $_POST['data'] : array();
+        $raw_data = isset($_POST['data']) ? $_POST['data'] : array();
+
+        // Allowlist top-level wizard data keys to prevent mass assignment
+        $allowed_wizard_keys = array('verification', 'seo_settings', 'schema');
+        $data = is_array($raw_data) ? array_intersect_key($raw_data, array_flip($allowed_wizard_keys)) : array();
 
         $options = get_option('metasync_options', array());
 
@@ -262,6 +271,7 @@ class Metasync_Admin_Ajax
 
     public function ajax_validate_robots()
     {
+        check_ajax_referer('metasync_nonce', 'nonce');
         if (!Metasync::current_user_has_plugin_access()) {
             wp_send_json_error('Insufficient permissions');
             return;
@@ -278,6 +288,7 @@ class Metasync_Admin_Ajax
 
     public function ajax_get_default_robots()
     {
+        check_ajax_referer('metasync_nonce', 'nonce');
         if (!Metasync::current_user_has_plugin_access()) {
             wp_send_json_error('Insufficient permissions');
             return;
@@ -293,6 +304,7 @@ class Metasync_Admin_Ajax
 
     public function ajax_preview_robots_backup()
     {
+        check_ajax_referer('metasync_nonce', 'nonce');
         if (!Metasync::current_user_has_plugin_access()) {
             wp_send_json_error('Insufficient permissions');
             return;
@@ -426,6 +438,7 @@ class Metasync_Admin_Ajax
 
     public function ajax_test_host_blocking_get()
     {
+        check_ajax_referer('metasync_nonce', 'nonce');
         if (!Metasync::current_user_has_plugin_access()) {
             wp_send_json_error('Insufficient permissions');
             return;
@@ -507,6 +520,7 @@ class Metasync_Admin_Ajax
 
     public function ajax_test_host_blocking_post()
     {
+        check_ajax_referer('metasync_nonce', 'nonce');
         if (!Metasync::current_user_has_plugin_access()) {
             wp_send_json_error('Insufficient permissions');
             return;
@@ -706,14 +720,20 @@ class Metasync_Admin_Ajax
             # Handle file upload if present
             $attachment = null;
             if (!empty($_FILES['issue_attachment']['tmp_name'])) {
-                # Validate file type
-                $allowed_types = array('image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp');
-                $file_type = $_FILES['issue_attachment']['type'];
-                
-                if (!in_array($file_type, $allowed_types, true)) {
+                # Validate file type using server-side MIME detection (not client-supplied type)
+                $tmp_name = $_FILES['issue_attachment']['tmp_name'];
+                $filename = sanitize_file_name($_FILES['issue_attachment']['name']);
+                $file_info = wp_check_filetype_and_ext($tmp_name, $filename);
+                if (!$file_info['ext']) {
                     wp_send_json_error(array('message' => 'Invalid file type. Please upload a JPEG, PNG, GIF, or WebP image.'));
                     return;
                 }
+                $allowed_extensions = array('jpg', 'jpeg', 'png', 'gif', 'webp');
+                if (!in_array($file_info['ext'], $allowed_extensions, true)) {
+                    wp_send_json_error(array('message' => 'Invalid file type. Please upload a JPEG, PNG, GIF, or WebP image.'));
+                    return;
+                }
+                $file_type = $file_info['type'];
 
                 # Validate file size (5MB max)
                 $max_size = 5 * 1024 * 1024; // 5MB
@@ -723,10 +743,10 @@ class Metasync_Admin_Ajax
                 }
 
                 # Read file contents
-                $file_contents = file_get_contents($_FILES['issue_attachment']['tmp_name']);
+                $file_contents = file_get_contents($tmp_name);
                 if ($file_contents !== false) {
                     $attachment = array(
-                        'filename' => sanitize_file_name($_FILES['issue_attachment']['name']),
+                        'filename' => $filename,
                         'data' => $file_contents,
                         'content_type' => $file_type
                     );
@@ -985,8 +1005,9 @@ class Metasync_Admin_Ajax
         }
     }
 
-    public function ajax_track_one_click_activation() 
+    public function ajax_track_one_click_activation()
     {
+        check_ajax_referer('metasync_nonce', 'nonce');
         # Check user capabilities
         if (!Metasync::current_user_has_plugin_access()) {
             wp_send_json_error(['message' => 'Insufficient permissions']);

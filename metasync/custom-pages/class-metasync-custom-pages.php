@@ -446,6 +446,13 @@ class Metasync_Custom_Pages
             ));
         }
 
+        // Uploading raw HTML requires the unfiltered_html capability
+        if (!current_user_can('unfiltered_html')) {
+            wp_send_json_error(array(
+                'message' => esc_html__('You do not have permission to upload unfiltered HTML content.', 'metasync')
+            ));
+        }
+
         // Verify file was uploaded
         if (!isset($_FILES['html_file']) || empty($_FILES['html_file']['tmp_name'])) {
             wp_send_json_error(array(

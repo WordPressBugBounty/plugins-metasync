@@ -840,7 +840,7 @@ class Metasync_Settings_Fields {
         $server_limits = $this->get_server_limits();
         
         $warnings = array();
-        if ($server_limits['max_execution_time_raw'] != -1 && $settings['max_execution_time'] > $server_limits['max_execution_time_raw']) {
+        if ((int)$server_limits['max_execution_time_raw'] !== -1 && (int)$settings['max_execution_time'] > (int)$server_limits['max_execution_time_raw']) {
             $warnings['max_execution_time'] = true;
         }
         if ($server_limits['memory_limit_raw'] != -1 && $settings['max_memory_limit'] > $server_limits['memory_limit_raw']) {

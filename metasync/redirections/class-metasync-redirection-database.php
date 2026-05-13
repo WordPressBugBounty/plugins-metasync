@@ -12,6 +12,7 @@ if (!class_exists('Metasync_Redirection_Database')) {
 class Metasync_Redirection_Database
 {
 	public static $table_name = "metasync_redirections";
+	private static $structure_verified = false;
 
 	private function get_table_name()
 	{
@@ -24,9 +25,13 @@ class Metasync_Redirection_Database
 	 */
 	private function ensure_table_structure()
 	{
+		// Run schema inspection at most once per request — table schema only changes on activation/upgrade, handled by class-db-migrations.php.
+		if (self::$structure_verified) { return; }
+		self::$structure_verified = true;
+
 		global $wpdb;
 		$table_name = $this->get_table_name();
-		
+
 		// Check if table exists
 		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name)) != $table_name) {
 			// Table doesn't exist, run full migration
@@ -79,6 +84,7 @@ class Metasync_Redirection_Database
 	 */
 	public function force_table_update()
 	{
+		self::$structure_verified = false;
 		$this->ensure_table_structure();
 		return true;
 	}

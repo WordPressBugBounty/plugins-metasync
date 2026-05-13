@@ -274,6 +274,7 @@ class Metasync_Connect_Manager
             $sa_connect_url = $dashboard_domain . '/sso/wordpress?' . http_build_query([
                 'nonce_token' => $sa_connect_token,
                 'domain' => $domain,
+                'callback_url' => get_rest_url(null, 'metasync/v1/searchatlas/connect/callback'),
                 'return_url' => admin_url('admin.php?page=' . Metasync_Admin::$page_slug)
             ]);
 
@@ -764,6 +765,7 @@ class Metasync_Connect_Manager
             $cleared_data['public_hash_cache'] = 'cleared';
 
             delete_transient('metasync_heartbeat_status_cache');
+            Metasync_Admin_Navigation::invalidate_admin_bar_status_cache();
             $cleared_data['heartbeat_cache'] = 'cleared';
 
             Metasync_Heartbeat_Manager::instance()->unschedule_heartbeat_cron();

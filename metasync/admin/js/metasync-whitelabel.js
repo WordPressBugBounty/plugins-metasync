@@ -35,7 +35,7 @@ jQuery(document).ready(function($) {
         // Disable link and show loading state
         $link.css('pointer-events', 'none').css('opacity', '0.6');
         $message.removeClass('success error').hide();
-        $message.html('\u23F3 Sending recovery email...').css('background', '#f0f6fc').css('color', '#0c5ba5').css('border', '1px solid #cfe2f3').fadeIn(200);
+        $message.text('\u23F3 Sending recovery email...').css('background', '#f0f6fc').css('color', '#0c5ba5').css('border', '1px solid #cfe2f3').fadeIn(200);
 
         // Send AJAX request
         $.ajax({
@@ -49,12 +49,12 @@ jQuery(document).ready(function($) {
                 $link.css('pointer-events', 'auto').css('opacity', '1');
 
                 if (response.success) {
-                    $message.addClass('success').html('\u2705 ' + response.data.message)
+                    $message.addClass('success').text('\u2705 ' + response.data.message)
                         .css('background', '#d4edda')
                         .css('color', '#155724')
                         .css('border', '1px solid #c3e6cb');
                 } else {
-                    $message.addClass('error').html('\u274C ' + response.data.message)
+                    $message.addClass('error').text('\u274C ' + response.data.message)
                         .css('background', '#f8d7da')
                         .css('color', '#721c24')
                         .css('border', '1px solid #f5c6cb');
@@ -62,7 +62,7 @@ jQuery(document).ready(function($) {
             },
             error: function() {
                 $link.css('pointer-events', 'auto').css('opacity', '1');
-                $message.addClass('error').html('\u274C An error occurred. Please try again.')
+                $message.addClass('error').text('\u274C An error occurred. Please try again.')
                     .css('background', '#f8d7da')
                     .css('color', '#721c24')
                     .css('border', '1px solid #f5c6cb');

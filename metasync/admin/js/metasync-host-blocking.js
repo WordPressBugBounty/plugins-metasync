@@ -12,227 +12,256 @@
  * @since Phase 5
  */
 (function () {
-    // Wait for jQuery to be available
-    function initHostBlockingTest() {
-        if (typeof jQuery === 'undefined') {
-            setTimeout(initHostBlockingTest, 100);
-            return;
-        }
+	// Wait for jQuery to be available
+	function initHostBlockingTest() {
+		if (typeof jQuery === 'undefined') {
+			setTimeout(initHostBlockingTest, 100);
+			return;
+		}
 
-        jQuery(document).ready(function ($) {
-            // Ensure ajax URL is available in this scope
-            var ajaxUrl = (typeof window.ajaxurl !== 'undefined' && window.ajaxurl)
-                ? window.ajaxurl
-                : metasyncHostBlockingData.ajaxUrl;
+		jQuery(document).ready(function ($) {
+			// Ensure ajax URL is available in this scope
+			var ajaxUrl = (typeof window.ajaxurl !== 'undefined' && window.ajaxurl)
+				? window.ajaxurl
+				: metasyncHostBlockingData.ajaxUrl;
 
-            // --- Settings page buttons (GET / POST / BOTH) ---
-            $(document).on('click', '#test-get-request', function (e) {
-                e.preventDefault();
-                e.stopPropagation();
-                runHostTest('GET');
-                return false;
-            });
+			// --- Settings page buttons (GET / POST / BOTH) ---
+			$(document).on('click', '#test-get-request', function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				runHostTest('GET');
+				return false;
+			});
 
-            $(document).on('click', '#test-post-request', function (e) {
-                e.preventDefault();
-                e.stopPropagation();
-                runHostTest('POST');
-                return false;
-            });
+			$(document).on('click', '#test-post-request', function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				runHostTest('POST');
+				return false;
+			});
 
-            // --- Shared "Test Both" button (settings + dashboard) ---
-            var $btn = $('#test-both-requests');
+			// --- Shared "Test Both" button (settings + dashboard) ---
+			var $btn = $('#test-both-requests');
 
-            $btn.on('click', function (e) {
-                e.preventDefault();
-                e.stopPropagation();
-                runHostTest('BOTH');
-                return false;
-            });
+			$btn.on('click', function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				runHostTest('BOTH');
+				return false;
+			});
 
-            $(document).on('click', '#test-both-requests', function (e) {
-                e.preventDefault();
-                e.stopPropagation();
-                runHostTest('BOTH');
-                return false;
-            });
+			$(document).on('click', '#test-both-requests', function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				runHostTest('BOTH');
+				return false;
+			});
 
-            // Expose function globally for debugging
-            window.runHostBlockingTest = function () {
-                runHostTest('BOTH');
-            };
+			// Expose function globally for debugging
+			window.runHostBlockingTest = function () {
+				runHostTest('BOTH');
+			};
 
-            function runHostTest(method) {
-                var buttonId = (method === 'BOTH' ? 'test-both-requests' : 'test-' + method.toLowerCase() + '-request');
-                var $button = $('#' + buttonId);
+			function runHostTest(method) {
+				var buttonId = (method === 'BOTH' ? 'test-both-requests' : 'test-' + method.toLowerCase() + '-request');
+				var $button = $('#' + buttonId);
 
-                if ($button.length === 0) {
-                    alert('Error: Test button not found. Please refresh the page.');
-                    return;
-                }
+				if ($button.length === 0) {
+					alert('Error: Test button not found. Please refresh the page.');
+					return;
+				}
 
-                var originalText = $button.text();
+				var originalText = $button.text();
 
-                // Disable button and show loading
-                $button.prop('disabled', true);
-                $button.text('\uD83D\uDD04 Testing...');
+				// Disable button and show loading
+				$button.prop('disabled', true);
+				$button.text('\uD83D\uDD04 Testing...');
 
-                // Prepare results area
-                var $resultsDiv = $('#host-test-results');
-                var $resultsContent = $('#test-results-content');
-                $resultsDiv.show();
-                $resultsContent.html('<div class="notice notice-info"><p>Running ' + (method === 'BOTH' ? 'GET and POST' : method) + ' test(s)...</p></div>');
+				// Prepare results area
+				var $resultsDiv = $('#host-test-results');
+				var $resultsContent = $('#test-results-content');
+				$resultsDiv.show();
+				$resultsContent.html('<div class="notice notice-info"><p>Running ' + (method === 'BOTH' ? 'GET and POST' : method) + ' test(s)...</p></div>');
 
-                var testsToRun = (method === 'BOTH') ? ['GET', 'POST'] : [method];
-                var completedTests = 0;
-                var allResults = [];
+				var testsToRun = (method === 'BOTH') ? ['GET', 'POST'] : [method];
+				var completedTests = 0;
+				var allResults = [];
 
-                testsToRun.forEach(function (testMethod) {
-                    var action = 'metasync_test_host_blocking_' + testMethod.toLowerCase();
+				testsToRun.forEach(function (testMethod) {
+					var action = 'metasync_test_host_blocking_' + testMethod.toLowerCase();
 
-                    $.ajax({
-                        url: ajaxUrl,
-                        type: 'POST',
-                        dataType: 'json',
-                        data: { action: action },
-                        timeout: 35000,
-                        success: function (response, textStatus, xhr) {
-                            try {
-                                if (response && response.success && response.data) {
-                                    allResults.push(response.data);
-                                } else {
-                                    allResults.push({
-                                        method: testMethod,
-                                        status: 'error',
-                                        error: (response && response.data) ? response.data : 'Unexpected response',
-                                        blocked: true,
-                                        details: 'Received non-success response from server.'
-                                    });
-                                }
-                            } catch (e) {
-                                allResults.push({
-                                    method: testMethod,
-                                    status: 'error',
-                                    error: 'Response parse error: ' + (e && e.message ? e.message : e),
-                                    blocked: true
-                                });
-                            }
-                            finalizeOne();
-                        },
-                        error: function (xhr, status, error) {
-                            var payload = (xhr && xhr.responseText) ? xhr.responseText.substring(0, 500) : '';
-                            allResults.push({
-                                method: testMethod,
-                                status: 'error',
-                                error: 'AJAX failed: ' + error + (payload ? ' \u2014 ' + payload : ''),
-                                blocked: true,
-                                details: 'Request did not complete successfully. Status: ' + status
-                            });
-                            finalizeOne();
-                        }
-                    });
-                });
+					$.ajax({
+						url: ajaxUrl,
+						type: 'POST',
+						dataType: 'json',
+						data: { action: action, nonce: metasyncHostBlockingData.nonce },
+						timeout: 35000,
+						success: function (response, textStatus, xhr) {
+							try {
+								if (response && response.success && response.data) {
+									allResults.push(response.data);
+								} else {
+									allResults.push({
+										method: testMethod,
+										status: 'error',
+										error: (response && response.data) ? response.data : 'Unexpected response',
+										blocked: true,
+										details: 'Received non-success response from server.'
+									});
+								}
+							} catch (e) {
+								allResults.push({
+									method: testMethod,
+									status: 'error',
+									error: 'Response parse error: ' + (e && e.message ? e.message : e),
+									blocked: true
+								});
+							}
+							finalizeOne();
+						},
+						error: function (xhr, status, error) {
+							var payload = (xhr && xhr.responseText) ? xhr.responseText.substring(0, 500) : '';
+							allResults.push({
+								method: testMethod,
+								status: 'error',
+								error: 'AJAX failed: ' + error + (payload ? ' \u2014 ' + payload : ''),
+								blocked: true,
+								details: 'Request did not complete successfully. Status: ' + status
+							});
+							finalizeOne();
+						}
+					});
+				});
 
-                function finalizeOne() {
-                    completedTests++;
-                    if (completedTests === testsToRun.length) {
-                        displayResults(allResults);
-                        resetButtons();
-                        // Scroll results into view for clarity
-                        var $container = $('#host-test-results');
-                        if ($container && $container[0] && $container[0].scrollIntoView) {
-                            $container[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }
-                    }
-                }
-            }
+				function finalizeOne() {
+					completedTests++;
+					if (completedTests === testsToRun.length) {
+						displayResults(allResults);
+						resetButtons();
+						// Scroll results into view for clarity
+						var $container = $('#host-test-results');
+						if ($container && $container[0] && $container[0].scrollIntoView) {
+							$container[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
+						}
+					}
+				}
+			}
 
-            function resetButtons() {
-                $('#test-get-request, #test-post-request, #test-both-requests').prop('disabled', false);
-                $('#test-get-request').text('\uD83D\uDD0D Test GET Request');
-                $('#test-post-request').text('\uD83D\uDCE4 Test POST Request');
-                $('#test-both-requests').text('\uD83D\uDD04 Test Both Requests');
-            }
+			function resetButtons() {
+				$('#test-get-request, #test-post-request, #test-both-requests').prop('disabled', false);
+				$('#test-get-request').text('\uD83D\uDD0D Test GET Request');
+				$('#test-post-request').text('\uD83D\uDCE4 Test POST Request');
+				$('#test-both-requests').text('\uD83D\uDD04 Test Both Requests');
+			}
 
-            function displayResults(results) {
-                var html = '';
+			function makeText(str) {
+				return document.createTextNode(String(str));
+			}
 
-                results.forEach(function (result) {
-                    var statusClass = result.status === 'success' ? 'success' : 'error';
-                    var statusIcon = result.status === 'success' ? '\u2705' : '\u274C';
-                    var blockedStatus = result.blocked ? 'BLOCKED' : 'ALLOWED';
-                    var blockedClass = result.blocked ? 'blocked' : 'allowed';
+			function makePre(cssClass, content) {
+				var pre = document.createElement('pre');
+				pre.className = cssClass;
+				pre.appendChild(makeText(content));
+				return pre;
+			}
 
-                    html += '<div class="test-result-item ' + statusClass + '">';
-                    html += '<div class="test-result-header">';
-                    html += '<h4>' + statusIcon + ' ' + result.method + ' Request - ' + blockedStatus + '</h4>';
-                    html += '<span class="test-status ' + blockedClass + '">' + blockedStatus + '</span>';
-                    html += '</div>';
+			function makeP(labelText, valueText) {
+				var p = document.createElement('p');
+				var strong = document.createElement('strong');
+				strong.appendChild(makeText(labelText));
+				p.appendChild(strong);
+				p.appendChild(makeText(valueText));
+				return p;
+			}
 
-                    html += '<div class="test-result-details">';
-                    html += '<p><strong>Response Time:</strong> ' + result.response_time + '</p>';
-                    html += '<p><strong>Status:</strong> ' + result.status + '</p>';
+			function displayResults(results) {
+				var $container = $('#test-results-content').empty();
 
-                    if (result.status_code) {
-                        html += '<p><strong>HTTP Status Code:</strong> <span class="status-code">' + result.status_code + '</span></p>';
-                    }
+				results.forEach(function (result) {
+					var statusClass = result.status === 'success' ? 'success' : 'error';
+					var statusIcon = result.status === 'success' ? '\u2705' : '\u274C';
+					var blockedStatus = result.blocked ? 'BLOCKED' : 'ALLOWED';
+					var blockedClass = result.blocked ? 'blocked' : 'allowed';
 
-                    if (result.error) {
-                        html += '<p><strong>Error:</strong> <span class="error-message">' + result.error + '</span></p>';
-                    }
+					var $item = $('<div>').addClass('test-result-item ' + statusClass);
 
-                    if (result.body) {
-                        html += '<p><strong>Response Body:</strong></p>';
-                        html += '<pre class="response-body">' + escapeHtml(result.body) + '</pre>';
-                    }
+					// Header
+					var $header = $('<div>').addClass('test-result-header');
+					$('<h4>').text(statusIcon + ' ' + result.method + ' Request - ' + blockedStatus).appendTo($header);
+					$('<span>').addClass('test-status ' + blockedClass).text(blockedStatus).appendTo($header);
+					$item.append($header);
 
-                    if (result.headers && Object.keys(result.headers).length > 0) {
-                        html += '<p><strong>Response Headers:</strong></p>';
-                        html += '<pre class="response-headers">';
-                        Object.keys(result.headers).forEach(function (key) {
-                            html += key + ': ' + result.headers[key] + '\n';
-                        });
-                        html += '</pre>';
-                    }
+					// Details
+					var $details = $('<div>').addClass('test-result-details');
+					$details.append(makeP('Response Time: ', result.response_time));
+					$details.append(makeP('Status: ', result.status));
 
-                    if (result.sent_data) {
-                        html += '<p><strong>Sent Data:</strong></p>';
-                        html += '<pre class="sent-data">' + escapeHtml(JSON.stringify(result.sent_data, null, 2)) + '</pre>';
-                    }
+					if (result.status_code) {
+						var $p = $('<p>');
+						$('<strong>').text('HTTP Status Code: ').appendTo($p);
+						$('<span>').addClass('status-code').text(String(result.status_code)).appendTo($p);
+						$details.append($p);
+					}
 
-                    // Show parsed response data if available
-                    if (result.parsed_response) {
-                        html += '<p><strong>Parsed Response:</strong></p>';
-                        html += '<pre class="parsed-response">' + escapeHtml(JSON.stringify(result.parsed_response, null, 2)) + '</pre>';
-                    }
+					if (result.error) {
+						var $pe = $('<p>');
+						$('<strong>').text('Error: ').appendTo($pe);
+						$('<span>').addClass('error-message').text(result.error).appendTo($pe);
+						$details.append($pe);
+					}
 
-                    html += '<p><strong>Details:</strong> ' + result.details + '</p>';
-                    html += '</div>';
-                    html += '</div>';
-                });
+					if (result.body) {
+						$details.append($('<p>').append($('<strong>').text('Response Body:')));
+						$details.append(makePre('response-body', result.body));
+					}
 
-                $('#test-results-content').html(html);
-                $('#host-test-results').show();
-            }
+					if (result.headers && Object.keys(result.headers).length > 0) {
+						$details.append($('<p>').append($('<strong>').text('Response Headers:')));
+						var headersText = '';
+						Object.keys(result.headers).forEach(function (key) {
+							headersText += key + ': ' + String(result.headers[key]) + '\n';
+						});
+						$details.append(makePre('response-headers', headersText));
+					}
 
-            function escapeHtml(text) {
-                var map = {
-                    '&': '&amp;',
-                    '<': '&lt;',
-                    '>': '&gt;',
-                    '"': '&quot;',
-                    "'": '&#039;'
-                };
-                return text.replace(/[&<>"']/g, function (m) { return map[m]; });
-            }
+					if (result.sent_data) {
+						$details.append($('<p>').append($('<strong>').text('Sent Data:')));
+						$details.append(makePre('sent-data', JSON.stringify(result.sent_data, null, 2)));
+					}
 
-            // Verify button exists on page load
-            setTimeout(function () {
-                var btnBoth = $('#test-both-requests');
-            }, 500);
-        });
-    }
+					if (result.parsed_response) {
+						$details.append($('<p>').append($('<strong>').text('Parsed Response:')));
+						$details.append(makePre('parsed-response', JSON.stringify(result.parsed_response, null, 2)));
+					}
 
-    // Start initialization
-    initHostBlockingTest();
+					$details.append(makeP('Details: ', result.details));
+					$item.append($details);
+					$container.append($item);
+				});
+
+				$('#host-test-results').show();
+			}
+
+			function escapeHtml(text) {
+				var map = {
+					'&': '&amp;',
+					'<': '&lt;',
+					'>': '&gt;',
+					'"': '&quot;',
+					"'": '&#039;'
+				};
+				return text.replace(/[&<>"']/g, function (m) {
+					return map[m]; 
+				});
+			}
+
+			// Verify button exists on page load
+			setTimeout(function () {
+				var btnBoth = $('#test-both-requests');
+			}, 500);
+		});
+	}
+
+	// Start initialization
+	initHostBlockingTest();
 })();

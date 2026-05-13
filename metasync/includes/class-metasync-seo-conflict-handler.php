@@ -50,6 +50,14 @@ class Metasync_SEO_Conflict_Handler {
     private $sync_cache = [];
 
     /**
+     * Cached result for whether OTTO has live transient-cached suggestions
+     * for the current request URL.
+     *
+     * @var bool|null
+     */
+    private $live_suggestions_cache = null;
+
+    /**
      * Get singleton instance.
      *
      * @return self
@@ -210,6 +218,7 @@ class Metasync_SEO_Conflict_Handler {
         $this->has_description_cache = null;
         $this->aioseo_has_description_cache = null;
         $this->sync_cache = [];
+        $this->live_suggestions_cache = null;
     }
 
     /**
@@ -635,6 +644,44 @@ class Metasync_SEO_Conflict_Handler {
     }
 
     /**
+     * Check whether the OTTO transient cache has live suggestions for the
+     * current request URL.
+     *
+     * Passive get_transient() lookup only — no OTTO API call. Mirrors the
+     * cache-key format used by Metasync_Otto_Transient_Cache and the URL
+     * construction from Otto_pixel_class::get_route().
+     *
+     * @return bool
+     */
+    public function otto_has_live_suggestions() {
+        if ($this->live_suggestions_cache !== null) {
+            return $this->live_suggestions_cache;
+        }
+
+        if (!$this->is_otto_active()) {
+            $this->live_suggestions_cache = false;
+            return false;
+        }
+
+        if (empty($_SERVER['HTTP_HOST']) || empty($_SERVER['REQUEST_URI'])) {
+            $this->live_suggestions_cache = false;
+            return false;
+        }
+
+        $scheme      = is_ssl() ? 'https' : 'http';
+        $host        = $_SERVER['HTTP_HOST'];
+        $request_uri = strtok($_SERVER['REQUEST_URI'], '?') ?: $_SERVER['REQUEST_URI'];
+        $url         = $scheme . '://' . $host . $request_uri;
+
+        $hash    = md5(rtrim(strtolower($url), '/'));
+        $site_id = is_multisite() ? get_current_blog_id() : 0;
+        $cached  = get_transient('otto_suggestions_' . $site_id . '_' . $hash);
+
+        $this->live_suggestions_cache = ($cached !== false && !empty($cached));
+        return $this->live_suggestions_cache;
+    }
+
+    /**
      * Check whether OTTO has a persisted value for a specific meta tag.
      *
      * Two conditions must be true to suppress a third-party tag:
@@ -657,6 +704,10 @@ class Metasync_SEO_Conflict_Handler {
 
         $post_id = $this->get_current_object_id();
         if (!$post_id) {
+            return false;
+        }
+
+        if ($this->has_active_seo_plugin() && !$this->otto_has_live_suggestions()) {
             return false;
         }
 
@@ -1185,6 +1236,10 @@ class Metasync_SEO_Conflict_Handler {
 
         $post_id = $this->get_current_object_id();
         if (!$post_id) {
+            return false;
+        }
+
+        if ($this->has_active_seo_plugin() && !$this->otto_has_live_suggestions()) {
             return false;
         }
 

@@ -512,14 +512,16 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
                 $column_display_name = sprintf(
                     '<a href="%s"><span>%s</span><span class="sorting-indicators"><span class="sorting-indicator asc" aria-hidden="true"></span><span class="sorting-indicator desc" aria-hidden="true"></span></span></a>',
                     esc_url($sort_url),
-                    $column_display_name
+                    esc_html($column_display_name)
                 );
+            } elseif ($column_key !== 'cb') {
+                $column_display_name = esc_html($column_display_name);
             }
 
             $tag = ($column_key === 'cb') ? 'td' : 'th';
-            $id  = $with_id ? "id='$column_key'" : '';
+            $id  = $with_id ? "id='" . esc_attr($column_key) . "'" : '';
 
-            echo "<$tag $id class='" . implode(' ', $class) . "' $attr>$column_display_name</$tag>";
+            echo '<' . esc_attr($tag) . ' ' . $id . " class='" . esc_attr(implode(' ', $class)) . "' " . esc_attr($attr) . '>' . $column_display_name . '</' . esc_attr($tag) . '>';
         }
     }
 

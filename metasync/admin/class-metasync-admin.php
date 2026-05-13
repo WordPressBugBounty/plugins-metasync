@@ -254,6 +254,10 @@ class Metasync_Admin
         // Sync plugin file headers whenever metasync_options is updated (covers AJAX save, Settings API, import)
         add_action('update_option_metasync_options', array($this, 'on_options_updated_sync_file_headers'), 10, 2);
 
+        // Invalidate the admin bar status cache when settings change or the API key is rotated.
+        add_action('update_option_metasync_options', array('Metasync_Admin_Navigation', 'invalidate_admin_bar_status_cache'), 10, 0);
+        add_action('metasync_api_key_changed', array('Metasync_Admin_Navigation', 'invalidate_admin_bar_status_cache'), 10, 0);
+
         add_action('admin_init', array($this, 'initialize_cookie'));
         add_action('admin_init', array($this, 'maybe_redirect_to_wizard'));
 
@@ -494,7 +498,14 @@ class Metasync_Admin
         #check if we have the cookie set and check if the slug has changed
         if (isset($_COOKIE['metasync_previous_slug']) && $_COOKIE['metasync_previous_slug'] !== $current_slug) {
             # the slug changed so we need to update the cookie
-            setcookie('metasync_previous_slug', $current_slug, time() + 3600, COOKIEPATH, COOKIE_DOMAIN);
+            setcookie('metasync_previous_slug', $current_slug, [
+                'expires'  => time() + 3600,
+                'path'     => COOKIEPATH,
+                'domain'   => COOKIE_DOMAIN,
+                'secure'   => is_ssl(),
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ]);
             $_COOKIE['metasync_previous_slug'] = $current_slug;
     
             #Redirect url to the new slug
@@ -535,7 +546,14 @@ class Metasync_Admin
                 // Retrieve the current slug
                 $initial_slug = isset($data['white_label_plugin_menu_slug']) ? $data['white_label_plugin_menu_slug'] : self::$page_slug;
                 // Set the cookie
-                setcookie('metasync_previous_slug', $initial_slug, time() + 3600, COOKIEPATH, COOKIE_DOMAIN);
+                setcookie('metasync_previous_slug', $initial_slug, [
+                    'expires'  => time() + 3600,
+                    'path'     => COOKIEPATH,
+                    'domain'   => COOKIE_DOMAIN,
+                    'secure'   => is_ssl(),
+                    'httponly' => true,
+                    'samesite' => 'Lax',
+                ]);
             }
         }
     }
@@ -601,7 +619,14 @@ class Metasync_Admin
 
         if ($new_slug !== $old_slug && $old_slug !=='' ){
             // Set a new cookie
-            setcookie('metasync_previous_slug', $new_slug, time() + 3600, COOKIEPATH, COOKIE_DOMAIN);
+            setcookie('metasync_previous_slug', $new_slug, [
+                'expires'  => time() + 3600,
+                'path'     => COOKIEPATH,
+                'domain'   => COOKIE_DOMAIN,
+                'secure'   => is_ssl(),
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ]);
             $_COOKIE['metasync_previous_slug'] = $new_slug;           
             // Redirect to the new slug
             $redirect_url = admin_url('admin.php?page=' . $old_slug);
@@ -1027,11 +1052,12 @@ class Metasync_Admin
             );
             wp_localize_script($this->plugin_name . '-host-blocking', 'metasyncHostBlockingData', array(
                 'ajaxUrl' => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce('metasync_nonce'),
             ));
         }
 
-        // OTTO excluded URLs
-        if ($current_page === self::$page_slug) {
+        // OTTO excluded URLs (lives on the Compatibility page)
+        if ($current_page === self::$page_slug . '-compatibility') {
             wp_enqueue_script(
                 $this->plugin_name . '-excluded-urls',
                 plugin_dir_url(__FILE__) . 'js/metasync-excluded-urls.js',
@@ -1198,6 +1224,7 @@ class Metasync_Admin
             wp_localize_script( $this->plugin_name, 'metaSync', array(
                 'ajax_url' => admin_url( 'admin-ajax.php' ),
                 'admin_url'=>admin_url('admin.php'),
+                'nonce' => wp_create_nonce('metasync_nonce'),
                 'sa_connect_nonce' => $sa_connect_nonce,
                 'reset_auth_nonce' => wp_create_nonce('metasync_reset_auth_nonce'),
                 'burst_ping_nonce' => wp_create_nonce('metasync_burst_ping'),
@@ -1491,7 +1518,8 @@ class Metasync_Admin
                         echo '<p style="color: var(--dashboard-text-secondary);">ℹ️ No cache plugins detected.</p>';
                     }
                 } catch (Exception $e) {
-                    echo '<p style="color: var(--dashboard-error);">⚠️ Error: ' . esc_html($e->getMessage()) . '</p>';
+                    error_log('MetaSync Cache Status Error: ' . $e->getMessage());
+                    echo '<p style="color: var(--dashboard-error);">⚠️ An error occurred while retrieving cache plugin status.</p>';
                 }
             } else {
                 echo '<p style="color: var(--dashboard-error);">⚠️ Cache Purge class not loaded.</p>';
@@ -1516,7 +1544,7 @@ class Metasync_Admin
 
                 if ($cleared > 0) {
                     echo '<div class="notice notice-success inline" style="margin-top: 15px;"><p>';
-                    echo '✅ <strong>Success!</strong> Cleared cache for ' . $cleared . ' plugin(s)';
+                    echo '✅ <strong>Success!</strong> Cleared cache for ' . intval( $cleared ) . ' plugin(s)';
                     if ($plugins) {
                         echo ': ' . esc_html($plugins);
                     }
@@ -1529,7 +1557,7 @@ class Metasync_Admin
 
                 if ($failed > 0) {
                     echo '<div class="notice notice-warning inline" style="margin-top: 15px;"><p>';
-                    echo '⚠️ Failed to clear ' . $failed . ' plugin(s).';
+                    echo '⚠️ Failed to clear ' . intval( $failed ) . ' plugin(s).';
                     echo '</p></div>';
                 }
             }
@@ -1786,9 +1814,9 @@ class Metasync_Admin
                 
                 echo '<div class="notice notice-success inline" style="margin-top: 15px;"><p>';
                 if (!empty($url)) {
-                    echo '✅ <strong>Success!</strong> Cleared cache for URL: <code>' . esc_html($url) . '</code> (' . $cleared_count . ' entries)';
+                    echo '✅ <strong>Success!</strong> Cleared cache for URL: <code>' . esc_html($url) . '</code> (' . intval( $cleared_count ) . ' entries)';
                 } else {
-                    echo '✅ <strong>Success!</strong> Cleared entire transient cache (' . $cleared_count . ' entries)';
+                    echo '✅ <strong>Success!</strong> Cleared entire transient cache (' . intval( $cleared_count ) . ' entries)';
                 }
                 echo '</p></div>';
             }
@@ -3442,7 +3470,7 @@ class Metasync_Admin
                                     <?php endif; ?>
                                     </div>
                                     <div class="sync-log-meta">
-                                        <?php echo $this->time_elapsed_string($record->created_at); ?>
+                                        <?php echo esc_html( $this->time_elapsed_string($record->created_at) ); ?>
                                         <?php if (!empty($record->source)): ?>
                                             &nbsp;·&nbsp;<span style="opacity:.7;"><?php echo esc_html($record->source); ?></span>
                                         <?php endif; ?>
@@ -3481,21 +3509,21 @@ class Metasync_Admin
                 <?php if ($total_pages > 1): ?>
                     <div class="sync-log-pagination">
                         <div class="sync-log-pagination-info">
-                            Total records: <?php echo $total_records; ?> | Showing <?php echo $offset + 1; ?>-<?php echo min($offset + $per_page, $total_records); ?>
+                            Total records: <?php echo intval( $total_records ); ?> | Showing <?php echo intval( $offset ) + 1; ?>-<?php echo intval( min($offset + $per_page, $total_records) ); ?>
                         </div>
 
                         <div class="sync-log-pagination-controls">
                             <?php if ($page > 1): ?>
-                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo $page - 1; ?><?php echo $this->build_filter_query_string($filters); ?>" class="sync-pagination-btn">‹</a>
+                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo intval( $page ) - 1; ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>" class="sync-pagination-btn">‹</a>
                             <?php endif; ?>
 
                             <?php for ($i = max(1, $page - 2); $i <= min($total_pages, $page + 2); $i++): ?>
-                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo $i; ?><?php echo $this->build_filter_query_string($filters); ?>"
-                                   class="sync-pagination-btn <?php echo $i === $page ? 'active' : ''; ?>"><?php echo $i; ?></a>
+                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo intval( $i ); ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>"
+                                   class="sync-pagination-btn <?php echo $i === $page ? 'active' : ''; ?>"><?php echo intval( $i ); ?></a>
                             <?php endfor; ?>
 
                             <?php if ($page < $total_pages): ?>
-                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo $page + 1; ?><?php echo $this->build_filter_query_string($filters); ?>" class="sync-pagination-btn">›</a>
+                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo intval( $page ) + 1; ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>" class="sync-pagination-btn">›</a>
                             <?php endif; ?>
                         </div>
                     </div>

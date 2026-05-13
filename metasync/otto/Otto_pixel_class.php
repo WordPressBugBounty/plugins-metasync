@@ -346,6 +346,10 @@ Class Metasync_otto_pixel{
         # filters (minifiers, CDN rewriters, etc.) run on already-OTTO-modified HTML.
         add_filter('rocket_buffer', function($html) use ($o_html, $suggestions, $blocking_flags) {
             if (empty($html) || strlen($html) < 100) {
+                // Tell WP Rocket not to cache this empty/broken response.
+                if (!defined('DONOTCACHEPAGE')) {
+                    define('DONOTCACHEPAGE', true);
+                }
                 return $html;
             }
 

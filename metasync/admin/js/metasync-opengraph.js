@@ -413,13 +413,21 @@
 				},
 				success: function (response) {
 					if (response.success) {
-						$container.html(response.data.preview).show();
+						// Server-rendered admin HTML from nonce-protected AJAX endpoint
+						$container.empty().show();
+						var range = document.createRange();
+						var frag = range.createContextualFragment(response.data.preview || '');
+						$container[0].appendChild(frag);
 					} else {
-						$container.html('<p class="metasync-error">Failed to generate preview: ' + (response.data || 'Unknown error') + '</p>').show();
+						$container.empty().append(
+							$('<p>').addClass('metasync-error').text('Failed to generate preview: ' + (response.data || 'Unknown error'))
+						).show();
 					}
 				},
 				error: function (xhr, status, error) {
-					$container.html('<p class="metasync-error">AJAX Error: ' + error + '</p>').show();
+					$container.empty().append(
+						$('<p>').addClass('metasync-error').text('AJAX Error: ' + error)
+					).show();
 				},
 				complete: function () {
 					$loading.hide();

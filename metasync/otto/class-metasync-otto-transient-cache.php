@@ -122,19 +122,7 @@ class Metasync_Otto_Transient_Cache {
             return $cached;
         }
 
-        # Step 2: Check if another process is fetching (lock)
-        if (get_transient($keys['lock']) !== false) {
-            # Another process is fetching - wait briefly and retry
-            usleep(500000); // 0.5 seconds
-            $cached = get_transient($keys['transient']);
-            if ($cached !== false) {
-                self::$cache_status[$cache_status_key] = 'HIT'; // Got it from other process
-                return $cached;
-            }
-            # Still no cache - proceed with our own fetch
-        }
-
-        # Step 3: Check rate limit
+        # Step 2: Check rate limit
         if (!$this->can_make_api_call()) {
             # Rate limited - try to use stale cache
             $stale = get_transient($keys['stale']);
@@ -163,41 +151,60 @@ class Metasync_Otto_Transient_Cache {
             return false;
         }
 
-        # Step 4: Acquire lock
-        set_transient($keys['lock'], true, self::LOCK_TIMEOUT);
-
-        # Step 5: Fetch from API (with timeout and error handling)
-        $suggestions = $this->fetch_from_api($url);
-
-        # NitroPack purge removed from page-load path to prevent feedback loop:
-        # get_suggestions() runs on every visitor request when the transient expires,
-        # and purging NitroPack here causes it to flush its cache (and potentially the
-        # object cache holding our transients), triggering another API fetch → purge cycle.
-        # The webhook handler (otto_pixel.php → purge_single_url) already covers the
-        # legitimate case where suggestions change after an OTTO crawl.
-
-        # Step 6: Store result in transient
-        if ($suggestions && $this->has_payload($suggestions)) {
-            # Has suggestions - cache for 30 minutes
-            set_transient($keys['transient'], $suggestions, self::SUGGESTIONS_TTL);
-            # Also store as stale cache for fallback
-            set_transient($keys['stale'], $suggestions, self::SUGGESTIONS_TTL * 2);
-            self::$cache_status[$cache_status_key] = 'MISS'; // Cache miss, fetched from API
-        } elseif ($suggestions !== false) {
-            # API responded 200 OK but genuinely no OTTO suggestions for this URL.
-            # Cache the negative result for a short time to prevent hammering the API.
-            set_transient($keys['transient'], false, self::NO_SUGGESTIONS_TTL);
-            self::$cache_status[$cache_status_key] = 'NO_SUGGESTIONS';
-        } else {
-            # fetch_from_api() returned false — network error, timeout, or non-200 response.
-            # Do NOT cache the failure: a stale false would poison subsequent MISS requests
-            # (Kinsta sees MISS → PHP runs → transient HIT = false → OTTO skips → old title cached).
-            # Leave the transient empty so the very next page load retries the API call.
-            self::$cache_status[$cache_status_key] = 'API_ERROR';
+        # Step 3: Acquire lock atomically (test-and-set).
+        # If another worker already holds the lock, wait briefly for them to populate
+        # the cache, then either return their result or bail out — DO NOT fall through
+        # to fetch_from_api() (that was the original bug: duplicate concurrent API calls).
+        if (!$this->acquire_lock_atomic($keys['lock'], self::LOCK_TIMEOUT)) {
+            usleep(500000); // 0.5 seconds
+            $cached = get_transient($keys['transient']);
+            if ($cached !== false) {
+                self::$cache_status[$cache_status_key] = 'HIT';
+                return $cached;
+            }
+            self::$cache_status[$cache_status_key] = 'LOCKED';
+            return false;
         }
 
-        # Step 7: Release lock
-        delete_transient($keys['lock']);
+        $suggestions = false;
+        try {
+            # Step 4: Fetch from API (with timeout and error handling)
+            $suggestions = $this->fetch_from_api($url);
+
+            # NitroPack purge removed from page-load path to prevent feedback loop:
+            # get_suggestions() runs on every visitor request when the transient expires,
+            # and purging NitroPack here causes it to flush its cache (and potentially the
+            # object cache holding our transients), triggering another API fetch → purge cycle.
+            # The webhook handler (otto_pixel.php → purge_single_url) already covers the
+            # legitimate case where suggestions change after an OTTO crawl.
+
+            # Step 5: Store result in transient
+            if ($suggestions && $this->has_payload($suggestions)) {
+                # Has suggestions - cache for 30 minutes
+                set_transient($keys['transient'], $suggestions, self::SUGGESTIONS_TTL);
+                # Also store as stale cache for fallback
+                set_transient($keys['stale'], $suggestions, self::SUGGESTIONS_TTL * 2);
+                self::$cache_status[$cache_status_key] = 'MISS'; // Cache miss, fetched from API
+            } elseif ($suggestions !== false) {
+                # API responded 200 OK but genuinely no OTTO suggestions for this URL.
+                # Cache the negative result for a short time to prevent hammering the API.
+                set_transient($keys['transient'], false, self::NO_SUGGESTIONS_TTL);
+                self::$cache_status[$cache_status_key] = 'NO_SUGGESTIONS';
+            } else {
+                # fetch_from_api() returned false — network error, timeout, or non-200 response.
+                # Do NOT cache the failure: a stale false would poison subsequent MISS requests
+                # (Kinsta sees MISS → PHP runs → transient HIT = false → OTTO skips → old title cached).
+                # Leave the transient empty so the very next page load retries the API call.
+                self::$cache_status[$cache_status_key] = 'API_ERROR';
+            }
+        } finally {
+            # Step 6: Release lock — guaranteed to run even if fetch_from_api() throws
+            # or the storage block errors, so we never leak the lock for the full TTL.
+            # Note: acquire_lock_atomic() uses raw SQL (INSERT IGNORE / CAS UPDATE) on
+            # the MySQL path, but delete_transient() via the WP API is safe here because
+            # the rows use autoload='no' and are not in the alloptions cache.
+            delete_transient($keys['lock']);
+        }
 
         return $suggestions;
     }
@@ -206,7 +213,7 @@ class Metasync_Otto_Transient_Cache {
      * Get cache status for a request
      * 
      * @param string $key The tracking key
-     * @return string Cache status (HIT, MISS, STALE, RATE_LIMITED, NO_SUGGESTIONS)
+     * @return string Cache status (HIT, MISS, STALE, RATE_LIMITED, NO_SUGGESTIONS, LOCKED, UNKNOWN)
      */
     public static function get_cache_status($key) {
         return self::$cache_status[$key] ?? 'UNKNOWN';
@@ -414,30 +421,122 @@ class Metasync_Otto_Transient_Cache {
     
     /**
      * Check if we can make an API call (rate limiting)
-     * 
+     *
      * @return bool True if under rate limit
+     * @note With a persistent object cache (Redis/Memcached) the increment is atomic and race-free.
+     *       Without one, falls back to transients (minor TOCTOU race under concurrency, but the counter persists across requests).
      */
-    private function can_make_api_call() {
+    private function can_make_api_call(): bool {
         # Create rate limit key (per minute)
         $rate_key = self::RATE_LIMIT_PREFIX . date('Y-m-d-H-i');
-        
-        # Get current count
-        $count = (int) get_transient($rate_key);
-        
+
         # Get rate limit from execution settings
         $rate_limit = $this->get_rate_limit();
-        
-        # Check if under limit
+
+        if (wp_using_ext_object_cache()) {
+            # Atomic path — race-free on Redis/Memcached
+            wp_cache_add($rate_key, 0, 'otto_rate', MINUTE_IN_SECONDS);
+            $new_count = wp_cache_incr($rate_key, 1, 'otto_rate');
+            return $new_count <= $rate_limit;
+        }
+
+        # Transient fallback — persists across requests, minor race under concurrency
+        $count = (int) get_transient($rate_key);
         if ($count >= $rate_limit) {
             return false;
         }
-        
-        # Increment counter
         set_transient($rate_key, $count + 1, MINUTE_IN_SECONDS);
-        
         return true;
     }
-    
+
+    /**
+     * Atomically acquire a lock (test-and-set).
+     *
+     * On Redis/Memcached object cache backends, wp_cache_add() maps to SET NX —
+     * the kernel guarantees only one caller succeeds. On the MySQL transient
+     * backend we INSERT IGNORE the timeout and value rows; the unique key on
+     * option_name makes that atomic. For an expired-but-not-yet-deleted lock
+     * we use a compare-and-swap UPDATE so only one racing worker can claim it.
+     *
+     * @param string $lock_key Transient key for the lock (without _transient_ prefix)
+     * @param int    $ttl      Lock timeout in seconds
+     * @return bool True if this caller acquired the lock, false if it was already held
+     */
+    private function acquire_lock_atomic($lock_key, $ttl) {
+        # Fast path: external object cache (Redis/Memcached) — wp_cache_add is atomic.
+        if (wp_using_ext_object_cache()) {
+            return (bool) wp_cache_add($lock_key, '1', 'transient', $ttl);
+        }
+
+        # MySQL transient backend — emulate compare-and-set with INSERT IGNORE on the
+        # _transient_timeout_ row (which carries the unique option_name constraint).
+        global $wpdb;
+        $now             = time();
+        $new_expires     = $now + (int) $ttl;
+        $timeout_option  = '_transient_timeout_' . $lock_key;
+        $value_option    = '_transient_' . $lock_key;
+
+        $inserted = $wpdb->query(
+            $wpdb->prepare(
+                "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+                $timeout_option,
+                (string) $new_expires
+            )
+        );
+
+        if ($inserted === 1) {
+            # We won the insert race — now write the value row. INSERT IGNORE keeps it
+            # safe if a stale value row from a prior expired lock is still around.
+            $wpdb->query(
+                $wpdb->prepare(
+                    "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+                    $value_option,
+                    '1'
+                )
+            );
+            return true;
+        }
+
+        # Insert was ignored — a timeout row already exists. Check whether the
+        # existing lock has expired so we can attempt to take it over.
+        $existing_expires = (int) $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s",
+                $timeout_option
+            )
+        );
+
+        if ($existing_expires > $now) {
+            # Lock is still active — we did not acquire.
+            return false;
+        }
+
+        # Stale lock — try to claim it via compare-and-swap on the timeout column.
+        # Only the worker whose UPDATE actually changes a row wins the race.
+        $updated = $wpdb->query(
+            $wpdb->prepare(
+                "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND CAST(option_value AS UNSIGNED) = %d",
+                (string) $new_expires,
+                $timeout_option,
+                $existing_expires
+            )
+        );
+
+        if ($updated === 1) {
+            # We won the takeover. Make sure the value row exists.
+            $wpdb->query(
+                $wpdb->prepare(
+                    "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+                    $value_option,
+                    '1'
+                )
+            );
+            return true;
+        }
+
+        return false;
+    }
+
     /**
      * PERFORMANCE OPTIMIZATION: Generate all cache keys at once
      * Reduces redundant URL normalization and MD5 hashing
@@ -510,7 +609,9 @@ class Metasync_Otto_Transient_Cache {
             'has_suggestions' => $cached !== false && $this->has_payload($cached),
             'cache_key' => $transient_key,
             'rate_limit_key' => self::RATE_LIMIT_PREFIX . date('Y-m-d-H-i'),
-            'current_rate_count' => (int) get_transient(self::RATE_LIMIT_PREFIX . date('Y-m-d-H-i')),
+            'current_rate_count' => wp_using_ext_object_cache()
+                ? (int) wp_cache_get(self::RATE_LIMIT_PREFIX . date('Y-m-d-H-i'), 'otto_rate')
+                : (int) get_transient(self::RATE_LIMIT_PREFIX . date('Y-m-d-H-i')),
         ];
     }
     
@@ -550,6 +651,7 @@ class Metasync_Otto_Transient_Cache {
         # Also clear object cache if available
         if (function_exists('wp_cache_flush_group')) {
             wp_cache_flush_group('transient');
+            wp_cache_flush_group('otto_rate');
         }
 
         delete_transient('metasync_otto_js_detected');

@@ -218,7 +218,7 @@ class Metasync_Admin_Pages
 
     public function create_admin_settings_page()
     {
-        $active_tab = isset($_GET['tab']) ? $_GET['tab'] : 'general';
+        $active_tab = isset($_GET['tab']) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'general';
 
         $whitelabel_settings = Metasync::get_whitelabel_settings();
 
@@ -410,7 +410,7 @@ class Metasync_Admin_Pages
             }
         ?>
 
-            <form method="post" action="options.php?tab=<?php echo $active_tab?>" id="metaSyncGeneralSetting">
+            <form method="post" action="options.php?tab=<?php echo esc_attr( $active_tab ); ?>" id="metaSyncGeneralSetting">
                 <?php
                     settings_fields(Metasync_Admin::option_group);
 
@@ -1125,7 +1125,7 @@ class Metasync_Admin_Pages
                             url: ajaxUrl,
                             type: 'POST',
                             dataType: 'json',
-                            data: { action: action },
+                            data: { action: action, nonce: '<?php echo wp_create_nonce('metasync_nonce'); ?>' },
                             timeout: 35000,
                             success: function(response, textStatus, xhr) {
                                 try {
@@ -2070,7 +2070,7 @@ echo $breadcrumbs-&gt;render_breadcrumb_html();</pre>
                                     <?php endif; ?>
                                     </div>
                                     <div class="sync-log-meta">
-                                        <?php echo $this->time_elapsed_string($record->created_at); ?>
+                                        <?php echo esc_html( $this->time_elapsed_string($record->created_at) ); ?>
                                     </div>
                                 </div>
                                 
@@ -2096,21 +2096,21 @@ echo $breadcrumbs-&gt;render_breadcrumb_html();</pre>
                 <?php if ($total_pages > 1): ?>
                     <div class="sync-log-pagination">
                         <div class="sync-log-pagination-info">
-                            Total records: <?php echo $total_records; ?> | Showing <?php echo $offset + 1; ?>-<?php echo min($offset + $per_page, $total_records); ?>
+                            Total records: <?php echo intval( $total_records ); ?> | Showing <?php echo intval( $offset ) + 1; ?>-<?php echo intval( min($offset + $per_page, $total_records) ); ?>
                         </div>
-                        
+
                         <div class="sync-log-pagination-controls">
                             <?php if ($page > 1): ?>
-                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo $page - 1; ?><?php echo $this->build_filter_query_string($filters); ?>" class="sync-pagination-btn">‹</a>
+                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo intval( $page ) - 1; ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>" class="sync-pagination-btn">‹</a>
                             <?php endif; ?>
-                            
+
                             <?php for ($i = max(1, $page - 2); $i <= min($total_pages, $page + 2); $i++): ?>
-                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo $i; ?><?php echo $this->build_filter_query_string($filters); ?>" 
-                                   class="sync-pagination-btn <?php echo $i === $page ? 'active' : ''; ?>"><?php echo $i; ?></a>
+                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo intval( $i ); ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>"
+                                   class="sync-pagination-btn <?php echo $i === $page ? 'active' : ''; ?>"><?php echo intval( $i ); ?></a>
                             <?php endfor; ?>
-                            
+
                             <?php if ($page < $total_pages): ?>
-                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo $page + 1; ?><?php echo $this->build_filter_query_string($filters); ?>" class="sync-pagination-btn">›</a>
+                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo intval( $page ) + 1; ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>" class="sync-pagination-btn">›</a>
                             <?php endif; ?>
                         </div>
                     </div>

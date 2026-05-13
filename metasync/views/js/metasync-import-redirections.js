@@ -40,23 +40,21 @@ jQuery(document).ready(function ($) {
             success: function (response) {
                 if (response.success && response.data) {
                     button.removeClass('metasync-import-btn--importing').addClass('metasync-import-btn--success');
-                    button.html('\u2713 Import Complete');
+                    button.text('\u2713 Import Complete');
 
                     resultDiv.removeClass('metasync-import-result--error').addClass('metasync-import-result--success');
 
-                    // Build message with proper formatting
-                    var message = '<span class="metasync-import-result__title">' +
-                        (response.data.imported > 0 ? 'Success!' : 'Already Imported') + '</span>';
-                    message += '<div class="metasync-import-result__details">';
-                    message += 'Imported: <strong>' + (response.data.imported || 0) + '</strong><br>';
-
+                    // Build message with proper formatting using safe DOM construction
+                    var $title = $('<span>').addClass('metasync-import-result__title')
+                        .text(response.data.imported > 0 ? 'Success!' : 'Already Imported');
+                    var $details = $('<div>').addClass('metasync-import-result__details');
+                    $details.append('Imported: ').append($('<strong>').text(response.data.imported || 0));
                     if (response.data.skipped > 0) {
-                        message += 'Skipped (duplicates): <strong>' + response.data.skipped + '</strong>';
+                        $details.append(document.createTextNode(' Skipped (duplicates): '))
+                            .append($('<strong>').text(response.data.skipped));
                     }
 
-                    message += '</div>';
-
-                    resultDiv.html(message);
+                    resultDiv.empty().append($title).append($details);
                     resultDiv.show();
 
                     // Redirect to redirections page after successful import
@@ -68,31 +66,31 @@ jQuery(document).ready(function ($) {
                 } else {
                     button.removeClass('metasync-import-btn--importing');
                     button.prop('disabled', false);
-                    button.html('Import Redirections');
+                    button.text('Import Redirections');
 
                     resultDiv.removeClass('metasync-import-result--success').addClass('metasync-import-result--error');
-                    var errorMsg = '<span class="metasync-import-result__title">Error</span>';
+                    var $errTitle = $('<span>').addClass('metasync-import-result__title').text('Error');
+                    var $errDetails = $('<div>').addClass('metasync-import-result__details');
 
                     if (response.data && response.data.message) {
-                        errorMsg += '<div class="metasync-import-result__details">' + response.data.message + '</div>';
+                        $errDetails.text(response.data.message);
                     } else {
-                        errorMsg += '<div class="metasync-import-result__details">Import failed. Please try again.</div>';
+                        $errDetails.text('Import failed. Please try again.');
                     }
 
-                    resultDiv.html(errorMsg);
+                    resultDiv.empty().append($errTitle).append($errDetails);
                     resultDiv.show();
                 }
             },
             error: function (xhr, status, error) {
                 button.removeClass('metasync-import-btn--importing');
                 button.prop('disabled', false);
-                button.html('Import Redirections');
+                button.text('Import Redirections');
 
                 resultDiv.removeClass('metasync-import-result--success').addClass('metasync-import-result--error');
-                resultDiv.html(
-                    '<span class="metasync-import-result__title">Connection Error</span>' +
-                    '<div class="metasync-import-result__details">Unable to connect to server. Please check your connection and try again.</div>'
-                );
+                resultDiv.empty()
+                    .append($('<span>').addClass('metasync-import-result__title').text('Connection Error'))
+                    .append($('<div>').addClass('metasync-import-result__details').text('Unable to connect to server. Please check your connection and try again.'));
                 resultDiv.show();
             }
         });

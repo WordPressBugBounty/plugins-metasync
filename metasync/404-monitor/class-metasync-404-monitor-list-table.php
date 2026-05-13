@@ -304,7 +304,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 	 */
 	protected function get_orderby()
 	{
-		return isset($_REQUEST['orderby_404']) ? $_REQUEST['orderby_404'] : '';
+		return isset($_REQUEST['orderby_404']) ? sanitize_key($_REQUEST['orderby_404']) : '';
 	}
 
 	/**
@@ -312,7 +312,11 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 	 */
 	protected function get_order()
 	{
-		return isset($_REQUEST['order_404']) ? $_REQUEST['order_404'] : '';
+		$raw = isset($_REQUEST['order_404']) ? strtolower(sanitize_key($_REQUEST['order_404'])) : '';
+		if ($raw === 'desc') {
+			return 'desc';
+		}
+		return 'asc';
 	}
 
 	/**
@@ -322,10 +326,9 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 	{
 		list($columns, $hidden, $sortable, $primary) = $this->get_column_info();
 
-		$current_url = set_url_scheme('http://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']);
-		$current_url = remove_query_arg(array('paged_404', 'orderby_404', 'order_404'), $current_url);
-
-		// Preserve tab parameter - force 404-monitor tab
+		$current_page = isset($_GET['page']) ? sanitize_text_field($_GET['page']) : Metasync_Admin::$page_slug;
+		$current_url = admin_url('admin.php');
+		$current_url = add_query_arg('page', $current_page, $current_url);
 		$current_url = add_query_arg('tab', '404-monitor', $current_url);
 
 		$current_orderby = $this->get_orderby();
@@ -366,19 +369,21 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 				$column_display_name = sprintf(
 					'<a href="%s"><span>%s</span><span class="sorting-indicators"></span></a>',
 					esc_url(add_query_arg(array('orderby_404' => $orderby, 'order_404' => $order), $current_url)),
-					$column_display_name
+					esc_html($column_display_name)
 				);
+			} elseif ('cb' !== $column_key) {
+				$column_display_name = esc_html($column_display_name);
 			}
 
 			$tag = ('cb' === $column_key) ? 'td' : 'th';
 			$scope = ('th' === $tag) ? 'scope="col"' : '';
-			$id = $with_id ? "id='$column_key'" : '';
+			$id = $with_id ? "id='" . esc_attr($column_key) . "'" : '';
 
 			if (!empty($class)) {
-				$class = "class='" . implode(' ', $class) . "'";
+				$class = "class='" . esc_attr(implode(' ', $class)) . "'";
 			}
 
-			echo "<$tag $scope $id $class>$column_display_name</$tag>";
+			echo '<' . esc_attr($tag) . ' ' . $scope . ' ' . $id . ' ' . $class . '>' . $column_display_name . '</' . esc_attr($tag) . '>';
 		}
 	}
 
@@ -425,8 +430,10 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		}
 
 		// Build redirect row action.
+		// Always link to the redirections page (not the standalone 404-monitor page)
+		// so the add-redirection form is available.
 		$redirect_query_args = array(
-			'page'		=> sanitize_text_field($request_data['page']),
+			'page'		=> Metasync_Admin::$page_slug . '-redirections',
 			'tab'		=> 'redirections',
 			'action'	=> 'redirect',
 			'uri'		=> $uri,

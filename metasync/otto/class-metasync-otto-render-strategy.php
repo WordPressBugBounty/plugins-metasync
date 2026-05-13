@@ -323,8 +323,21 @@ class Metasync_Otto_Render_Strategy {
         
         
         try {
-            # Skip processing if no suggestions or empty HTML
-            if (empty(self::$pending_suggestions) || empty($html)) {
+            # If HTML is empty or too short, WordPress likely crashed before generating output.
+            # Override the cache headers OTTO already sent so downstream caches (WP Engine,
+            # Kinsta, Cloudflare, etc.) don't store and serve this broken response.
+            if (empty($html) || strlen($html) < 100) {
+                if (!headers_sent()) {
+                    header('Cache-Control: no-store, no-cache, private');
+                    header_remove('Surrogate-Key');
+                    header_remove('Cache-Tag');
+                    header_remove('Edge-Cache-Tag');
+                }
+                return $html;
+            }
+
+            # Skip processing if no suggestions (page is fine, just no OTTO modifications needed)
+            if (empty(self::$pending_suggestions)) {
                 return $html;
             }
 
@@ -333,13 +346,14 @@ class Metasync_Otto_Render_Strategy {
                 return $html;
             }
 
-            # Skip if this is a partial/AJAX response or error message
-            if (strlen($html) < 100) {
-                return $html;
-            }
-
             # Skip if this looks like an error page (WordPress fatal error)
             if (stripos($html, 'Fatal error') !== false || stripos($html, 'Parse error') !== false) {
+                if (!headers_sent()) {
+                    header('Cache-Control: no-store, no-cache, private');
+                    header_remove('Surrogate-Key');
+                    header_remove('Cache-Tag');
+                    header_remove('Edge-Cache-Tag');
+                }
                 return $html;
             }
 
@@ -363,8 +377,9 @@ class Metasync_Otto_Render_Strategy {
             } else {
             }
         } catch (Exception $e) {
+            error_log('[MetaSync OTTO] Render exception on ' . ($_SERVER['REQUEST_URI'] ?? 'unknown') . ': ' . $e->getMessage());
         } catch (Error $e) {
-            # PHP 7+ Error (like TypeError, ArgumentCountError, etc.)
+            error_log('[MetaSync OTTO] Render error on ' . ($_SERVER['REQUEST_URI'] ?? 'unknown') . ': ' . $e->getMessage());
         }
 
         # Return original HTML on any failure - NEVER return empty string
@@ -409,7 +424,9 @@ class Metasync_Otto_Render_Strategy {
                 return $result_string;
             }
         } catch (Exception $e) {
+            error_log('[MetaSync OTTO] Modification exception on ' . ($_SERVER['REQUEST_URI'] ?? 'unknown') . ': ' . $e->getMessage());
         } catch (Error $e) {
+            error_log('[MetaSync OTTO] Modification error on ' . ($_SERVER['REQUEST_URI'] ?? 'unknown') . ': ' . $e->getMessage());
         }
 
         return false;

@@ -167,12 +167,16 @@ class MCP_Tool_List_Redirects extends MCP_Tool_Base {
         $limit = isset($params['limit']) ? $this->sanitize_integer($params['limit']) : 50;
         $redirects = array_slice($redirects, 0, $limit);
 
-        // Format results (sources_from is stored serialized in DB)
+        // Format results (sources_from may be JSON or legacy serialized in DB)
         $result = array_map(function($redirect) {
             $sources_raw = $redirect->sources_from;
             $source = null;
             if ( ! empty( $sources_raw ) ) {
-                $sources = unserialize( $sources_raw, ['allowed_classes' => false] ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
+                // Try JSON first; fall back to unserialize for legacy DB records
+                $sources = json_decode( $sources_raw, true );
+                if ( $sources === null && $sources_raw !== 'null' ) {
+                    $sources = unserialize( $sources_raw, ['allowed_classes' => false] ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
+                }
                 if ( is_array( $sources ) && ! empty( $sources ) ) {
                     $keys = array_keys( $sources );
                     $source = is_int( $keys[0] ) ? $sources[ $keys[0] ] : $keys[0];
@@ -332,11 +336,15 @@ class MCP_Tool_Update_Redirect extends MCP_Tool_Base {
             throw new Exception('Failed to update redirect');
         }
 
-        // Get updated redirect (sources_from is stored serialized in DB)
+        // Get updated redirect (sources_from may be JSON or legacy serialized in DB)
         $updated = $db->find($redirect_id);
         $source = null;
         if ( ! empty( $updated->sources_from ) ) {
-            $sources = unserialize( $updated->sources_from, ['allowed_classes' => false] ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
+            // Try JSON first; fall back to unserialize for legacy DB records
+            $sources = json_decode( $updated->sources_from, true );
+            if ( $sources === null && $updated->sources_from !== 'null' ) {
+                $sources = unserialize( $updated->sources_from, ['allowed_classes' => false] ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
+            }
             if ( is_array( $sources ) && ! empty( $sources ) ) {
                 $keys = array_keys( $sources );
                 $source = is_int( $keys[0] ) ? $sources[ $keys[0] ] : $keys[0];

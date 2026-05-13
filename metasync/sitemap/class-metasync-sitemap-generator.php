@@ -74,6 +74,12 @@ class Metasync_Sitemap_Generator
             // Delete existing sitemap files first
             $this->delete_sitemap();
 
+            // Clean up any orphaned temp files from previous crashed generations
+            $this->cleanup_temp_sitemap_files();
+
+            // Resolve streaming preference once for the entire generation cycle
+            $force_memory = (bool) apply_filters('metasync_sitemap_force_memory', false);
+
             // Collect all URLs
             $all_urls = $this->collect_all_urls();
 
@@ -91,7 +97,7 @@ class Metasync_Sitemap_Generator
                 $sitemap_filename = $this->get_sitemap_filename($sitemap_number);
                 $sitemap_path = ABSPATH . $sitemap_filename;
 
-                $result = $this->generate_sitemap_file($sitemap_path, $urls);
+                $result = $this->generate_sitemap_file($sitemap_path, $urls, $force_memory);
 
                 if ($result === false) {
                     continue; // Skip this file if write permission issue
@@ -136,7 +142,7 @@ class Metasync_Sitemap_Generator
             }
 
             // Generate sitemap index file (includes all sitemaps)
-            $index_result = $this->generate_sitemap_index($index_entries);
+            $index_result = $this->generate_sitemap_index($index_entries, $force_memory);
 
             if ($index_result === false) {
                 return false; // Return false instead of WP_Error to prevent Sentry capture
@@ -343,67 +349,215 @@ class Metasync_Sitemap_Generator
      *
      * @param string $path The file path
      * @param array $urls Array of URL data
+     * @param bool $force_memory Whether to skip streaming and use in-memory generation
      * @return bool|WP_Error True on success, WP_Error on failure
      */
-    private function generate_sitemap_file($path, $urls)
+    private function generate_sitemap_file($path, $urls, $force_memory = false)
+    {
+        $dir = dirname($path);
+        $dir_writable = is_writable($dir) || (file_exists($path) && is_writable($path));
+
+        // Tier 1: XMLWriter streaming with atomic rename (preferred — lowest memory).
+        if (!$force_memory && $dir_writable && class_exists('XMLWriter')) {
+            $result = $this->stream_sitemap_urls($dir, $path, $urls);
+            if ($result) {
+                return true;
+            }
+            // Streaming failed — fall through to in-memory path.
+        }
+
+        // Tier 2: in-memory DOMDocument fallback.
+        if (!$force_memory && defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('MetaSync: sitemap streaming unavailable, using in-memory fallback');
+        }
+
+        $xml_content = $this->build_sitemap_xml_string($urls);
+
+        if ($dir_writable) {
+            if ($this->atomic_write($dir, $path, $xml_content)) {
+                return true;
+            }
+            error_log('Metasync Sitemap: Failed to save sitemap file: ' . basename($path));
+        } else {
+            error_log('Metasync Sitemap: Cannot write sitemap file to ' . $path . ' - directory is not writable');
+        }
+
+        // Tier 3: virtual storage fallback.
+        $this->store_virtual_sitemap_file(basename($path), $xml_content);
+        return true;
+    }
+
+    /**
+     * Stream sitemap URLs to a temp file using XMLWriter, then atomic-rename.
+     *
+     * @param string $dir Directory for the temp file (must be same mount as $final_path)
+     * @param string $final_path Final destination path
+     * @param array $urls Array of URL data
+     * @return bool True on success, false on failure
+     */
+    private function stream_sitemap_urls($dir, $final_path, $urls)
+    {
+        $writer = new XMLWriter();
+        $tmp_path = tempnam($dir, 'metasync-sitemap-tmp-');
+        if ($tmp_path === false) {
+            return false;
+        }
+        // tempnam creates the file; rename it with .xml extension for clarity
+        $tmp_xml_path = $tmp_path . '.xml';
+        rename($tmp_path, $tmp_xml_path);
+        $tmp_path = $tmp_xml_path;
+
+        if ($writer->openUri($tmp_path) === false) {
+            $this->safe_unlink($tmp_path);
+            return false;
+        }
+
+        $stream_ok = true;
+
+        try {
+            $writer->setIndent(true);
+            $writer->startDocument('1.0', 'UTF-8');
+            $writer->startElement('urlset');
+            $writer->writeAttribute('xmlns', 'http://www.sitemaps.org/schemas/sitemap/0.9');
+            $writer->writeAttribute('xmlns:xsi', 'http://www.w3.org/2001/XMLSchema-instance');
+            $writer->writeAttribute(
+                'xsi:schemaLocation',
+                'http://www.sitemaps.org/schemas/sitemap/0.9 http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd'
+            );
+
+            foreach ($urls as $url_data) {
+                $writer->startElement('url');
+                $writer->writeElement('loc', esc_url($url_data['loc']));
+                if (!empty($url_data['lastmod'])) {
+                    $writer->writeElement('lastmod', gmdate('Y-m-d\TH:i:s+00:00', strtotime($url_data['lastmod'])));
+                }
+                $writer->writeElement('changefreq', $url_data['changefreq']);
+                $writer->writeElement('priority', $url_data['priority']);
+                $writer->endElement();
+                $writer->flush();
+            }
+
+            $writer->endElement();
+            $writer->endDocument();
+            $writer->flush();
+        } catch (Exception $e) {
+            $stream_ok = false;
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('MetaSync: XMLWriter streaming error: ' . $e->getMessage());
+            }
+        }
+
+        unset($writer);
+
+        if ($stream_ok && file_exists($tmp_path) && rename($tmp_path, $final_path)) {
+            return true;
+        }
+
+        $this->safe_unlink($tmp_path);
+        return false;
+    }
+
+    /**
+     * Stream sitemap index entries to a temp file using XMLWriter, then atomic-rename.
+     *
+     * @param string $dir Directory for the temp file
+     * @param string $final_path Final destination path
+     * @param array $sitemap_files Array of sitemap file info
+     * @return bool True on success, false on failure
+     */
+    private function stream_sitemap_index($dir, $final_path, $sitemap_files)
+    {
+        $writer = new XMLWriter();
+        $tmp_path = tempnam($dir, 'metasync-sitemap-tmp-');
+        if ($tmp_path === false) {
+            return false;
+        }
+        $tmp_xml_path = $tmp_path . '.xml';
+        rename($tmp_path, $tmp_xml_path);
+        $tmp_path = $tmp_xml_path;
+
+        if ($writer->openUri($tmp_path) === false) {
+            $this->safe_unlink($tmp_path);
+            return false;
+        }
+
+        $stream_ok = true;
+
+        try {
+            $writer->setIndent(true);
+            $writer->startDocument('1.0', 'UTF-8');
+            $writer->startElement('sitemapindex');
+            $writer->writeAttribute('xmlns', 'http://www.sitemaps.org/schemas/sitemap/0.9');
+
+            foreach ($sitemap_files as $sitemap) {
+                $writer->startElement('sitemap');
+                $writer->writeElement('loc', esc_url($sitemap['url']));
+                if (!empty($sitemap['lastmod'])) {
+                    $writer->writeElement('lastmod', gmdate('Y-m-d\TH:i:s+00:00', strtotime($sitemap['lastmod'])));
+                }
+                $writer->endElement();
+                $writer->flush();
+            }
+
+            $writer->endElement();
+            $writer->endDocument();
+            $writer->flush();
+        } catch (Exception $e) {
+            $stream_ok = false;
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('MetaSync: XMLWriter streaming error: ' . $e->getMessage());
+            }
+        }
+
+        unset($writer);
+
+        if ($stream_ok && file_exists($tmp_path) && rename($tmp_path, $final_path)) {
+            return true;
+        }
+
+        $this->safe_unlink($tmp_path);
+        return false;
+    }
+
+    /**
+     * Build the sitemap XML string in memory using DOMDocument.
+     *
+     * @param array $urls Array of URL data
+     * @return string XML content
+     */
+    private function build_sitemap_xml_string($urls)
     {
         $xml = new DOMDocument('1.0', 'UTF-8');
         $xml->formatOutput = true;
 
-        // Create urlset element
         $urlset = $xml->createElement('urlset');
         $urlset->setAttribute('xmlns', 'http://www.sitemaps.org/schemas/sitemap/0.9');
         $urlset->setAttribute('xmlns:xsi', 'http://www.w3.org/2001/XMLSchema-instance');
         $urlset->setAttribute('xsi:schemaLocation', 'http://www.sitemaps.org/schemas/sitemap/0.9 http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd');
         $xml->appendChild($urlset);
 
-        // Add URLs
         foreach ($urls as $url_data) {
             $this->add_url_to_sitemap($xml, $urlset, $url_data['loc'], $url_data['lastmod'], $url_data['priority'], $url_data['changefreq']);
         }
 
-        // Get XML content as string
-        $xml_content = $xml->saveXML();
-
-        // Preflight check: Verify write permissions before attempting save
-        $dir = dirname($path);
-        if (!is_writable($dir) && (!file_exists($path) || !is_writable($path))) {
-            error_log('Metasync Sitemap: Cannot write sitemap file to ' . $path . ' - directory is not writable');
-            // Fallback to virtual storage
-            $this->store_virtual_sitemap_file(basename($path), $xml_content);
-            return true; // Return true since we stored it virtually
-        }
-
-        // Save the XML file
-        $saved = $xml->save($path);
-
-        if ($saved === false) {
-           error_log('Metasync Sitemap: Failed to save sitemap file: ' . basename($path));
-           // Fallback to virtual storage
-           $this->store_virtual_sitemap_file(basename($path), $xml_content);
-           return true; // Return true since we stored it virtually
-        }
-
-        return true;
+        return $xml->saveXML();
     }
 
     /**
-     * Generate the sitemap index file
+     * Build the sitemap index XML string in memory using DOMDocument.
      *
      * @param array $sitemap_files Array of sitemap file info
-     * @return bool|WP_Error True on success, WP_Error on failure
+     * @return string XML content
      */
-    private function generate_sitemap_index($sitemap_files)
+    private function build_sitemap_index_xml_string($sitemap_files)
     {
         $xml = new DOMDocument('1.0', 'UTF-8');
         $xml->formatOutput = true;
 
-        // Create sitemapindex element
         $sitemapindex = $xml->createElement('sitemapindex');
         $sitemapindex->setAttribute('xmlns', 'http://www.sitemaps.org/schemas/sitemap/0.9');
         $xml->appendChild($sitemapindex);
 
-        // Add each sitemap to the index
         foreach ($sitemap_files as $sitemap) {
             $sitemap_element = $xml->createElement('sitemap');
 
@@ -411,7 +565,7 @@ class Metasync_Sitemap_Generator
             $sitemap_element->appendChild($loc);
 
             if (!empty($sitemap['lastmod'])) {
-                $lastmod_formatted = date('Y-m-d\TH:i:s+00:00', strtotime($sitemap['lastmod']));
+                $lastmod_formatted = gmdate('Y-m-d\TH:i:s+00:00', strtotime($sitemap['lastmod']));
                 $lastmod = $xml->createElement('lastmod', $lastmod_formatted);
                 $sitemap_element->appendChild($lastmod);
             }
@@ -419,28 +573,110 @@ class Metasync_Sitemap_Generator
             $sitemapindex->appendChild($sitemap_element);
         }
 
-        // Get XML content as string
-        $xml_content = $xml->saveXML();
+        return $xml->saveXML();
+    }
 
-         // Preflight check: Verify write permissions before attempting save
+    /**
+     * Write content to a file atomically using temp file + rename.
+     *
+     * Both files must reside on the same filesystem/mount for rename() to be atomic.
+     *
+     * @param string $dir Directory for the temp file (same mount as $final_path)
+     * @param string $final_path Final destination path
+     * @param string $content File content to write
+     * @return bool True on success, false on failure
+     */
+    private function atomic_write($dir, $final_path, $content)
+    {
+        $tmp_path = tempnam($dir, 'metasync-sitemap-tmp-');
+        if ($tmp_path === false) {
+            return false;
+        }
+
+        if (file_put_contents($tmp_path, $content) === false) {
+            $this->safe_unlink($tmp_path);
+            return false;
+        }
+
+        if (rename($tmp_path, $final_path)) {
+            return true;
+        }
+
+        $this->safe_unlink($tmp_path);
+        return false;
+    }
+
+    /**
+     * Unlink a file with WP_DEBUG-gated error logging instead of @ suppression.
+     *
+     * @param string $path File path to delete
+     */
+    private function safe_unlink($path)
+    {
+        if (file_exists($path) && !unlink($path)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('MetaSync: failed to remove temp file: ' . $path);
+            }
+        }
+    }
+
+    /**
+     * Remove orphaned temp files from previous crashed/timed-out generations.
+     */
+    private function cleanup_temp_sitemap_files()
+    {
+        $dirs = array_unique([dirname($this->sitemap_index_path), ABSPATH]);
+        foreach ($dirs as $dir) {
+            $pattern = $dir . '/metasync-sitemap-tmp-*';
+            $stale_files = glob($pattern);
+            if (!is_array($stale_files)) {
+                continue;
+            }
+            foreach ($stale_files as $file) {
+                $this->safe_unlink($file);
+            }
+        }
+    }
+
+    /**
+     * Generate the sitemap index file
+     *
+     * @param array $sitemap_files Array of sitemap file info
+     * @param bool $force_memory Whether to skip streaming and use in-memory generation
+     * @return bool|WP_Error True on success, WP_Error on failure
+     */
+    private function generate_sitemap_index($sitemap_files, $force_memory = false)
+    {
         $dir = dirname($this->sitemap_index_path);
-        if (!is_writable($dir) && (!file_exists($this->sitemap_index_path) || !is_writable($this->sitemap_index_path))) {
-            error_log('Metasync Sitemap: Cannot write sitemap index file to ' . $this->sitemap_index_path . ' - directory is not writable');
-            // Fallback to virtual storage
-            $this->store_virtual_sitemap_file('sitemap_index.xml', $xml_content);
-            return true; // Return true since we stored it virtually
+        $dir_writable = is_writable($dir)
+            || (file_exists($this->sitemap_index_path) && is_writable($this->sitemap_index_path));
+
+        // Tier 1: XMLWriter streaming with atomic rename (preferred — lowest memory).
+        if (!$force_memory && $dir_writable && class_exists('XMLWriter')) {
+            $result = $this->stream_sitemap_index($dir, $this->sitemap_index_path, $sitemap_files);
+            if ($result) {
+                return true;
+            }
         }
 
-        // Save the index file
-        $saved = $xml->save($this->sitemap_index_path);
+        // Tier 2: in-memory DOMDocument fallback.
+        if (!$force_memory && defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('MetaSync: sitemap streaming unavailable, using in-memory fallback');
+        }
 
-        if ($saved === false) {
+        $xml_content = $this->build_sitemap_index_xml_string($sitemap_files);
+
+        if ($dir_writable) {
+            if ($this->atomic_write($dir, $this->sitemap_index_path, $xml_content)) {
+                return true;
+            }
             error_log('Metasync Sitemap: Failed to save sitemap index file');
-            // Fallback to virtual storage
-            $this->store_virtual_sitemap_file('sitemap_index.xml', $xml_content);
-            return true; // Return true since we stored it virtually
+        } else {
+            error_log('Metasync Sitemap: Cannot write sitemap index file to ' . $this->sitemap_index_path . ' - directory is not writable');
         }
 
+        // Tier 3: virtual storage fallback.
+        $this->store_virtual_sitemap_file('sitemap_index.xml', $xml_content);
         return true;
     }
 
@@ -576,7 +812,7 @@ class Metasync_Sitemap_Generator
         $url->appendChild($loc_element);
 
         if (!empty($lastmod)) {
-            $lastmod_formatted = date('Y-m-d\TH:i:s+00:00', strtotime($lastmod));
+            $lastmod_formatted = gmdate('Y-m-d\TH:i:s+00:00', strtotime($lastmod));
             $lastmod_element = $xml->createElement('lastmod', $lastmod_formatted);
             $url->appendChild($lastmod_element);
         }

@@ -255,20 +255,30 @@ class Metasync_Rest_Api
 
 	public function rest_authorization_middleware()
 	{
-		# $get_data = metasync_sanitize_input_array($_GET);
+		# Accept API key from header (preferred) or query string (deprecated fallback)
+		$api_key = isset($_SERVER['HTTP_X_API_KEY']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_X_API_KEY'])) : '';
 
-		# mailchamp causing fatal error if sanitize_post used
-		$get_data = array_map('sanitize_text_field', $_GET);
-		if (!isset($get_data['apikey']))
+		if (empty($api_key) && isset($_GET['apikey'])) {
+			$api_key = sanitize_text_field($_GET['apikey']);
+			if (!empty($api_key)) {
+				error_log('MetaSync: REST API key via query string is deprecated. Use X-API-Key header instead.');
+			}
+		}
+
+		if (empty($api_key)) {
 			return false;
-		# $apiKey = sanitize_text_field($get_data['apikey']) ?? null;
-		$apiKey = $get_data['apikey'] ?? null;
+		}
 
 		$getOptions = Metasync::get_option('general');
-		$getApiKeyFromSettings = $getOptions['apikey'] ?? null;
+		$stored_key = $getOptions['apikey'] ?? null;
 
-		if ($apiKey === $getApiKeyFromSettings)
+		if (empty($stored_key)) {
+			return false;
+		}
+
+		if (hash_equals($stored_key, $api_key)) {
 			return true;
+		}
 		return false;
 	}
 
@@ -3737,22 +3747,30 @@ class Metasync_Rest_Api
 		$data['key'] = $key_value;
 		
 		# Sanitize the key to ensure it's safe for filename
-		$key = sanitize_file_name($data['key']);
-		
-		# Validate key is not empty after sanitization
-		if (empty($key)) {
+		$key = basename(sanitize_file_name($data['key']));
+
+		# Validate key is not empty after sanitization and contains no path separators
+		if (empty($key) || preg_match('/[\/\\\\]/', $key) || strpos($key, '..') !== false) {
 			return rest_ensure_response(array(
 				'error' => 'Invalid key provided',
 				'code' => 'invalid_key'
 			), 400);
 		}
-		
+
 		# Get WordPress root directory
 		$wp_root = ABSPATH;
-		
-		# Construct the file path
-		$file_path = $wp_root . $key . '.txt';
-		
+
+		# Sanitize the key for use as a filename and validate path stays within ABSPATH
+		$safe_key = sanitize_file_name( $key );
+		$file_path = $wp_root . $safe_key . '.txt';
+		$real_root = realpath( $wp_root );
+		if ( false === $real_root || 0 !== strpos( realpath( dirname( $file_path ) ), $real_root ) ) {
+			return rest_ensure_response(array(
+				'error' => 'Invalid file path',
+				'code' => 'invalid_path'
+			), 400);
+		}
+
 		# Check if file already exists
 		if (file_exists($file_path)) {
 			return rest_ensure_response(array(
@@ -3761,9 +3779,9 @@ class Metasync_Rest_Api
 				'file_path' => $file_path
 			), 409);
 		}
-		
+
 		# Attempt to create the file
-		$result = file_put_contents($file_path, $key);
+		$result = file_put_contents($file_path, $safe_key);
 		
 		# Check if file creation was successful
 		if ($result === false) {

@@ -81,7 +81,8 @@ class Metasync_Otto_Cache_Manager
                         echo '<p style="color: var(--dashboard-text-secondary);">ℹ️ No cache plugins detected.</p>';
                     }
                 } catch (Exception $e) {
-                    echo '<p style="color: var(--dashboard-error);">⚠️ Error: ' . esc_html($e->getMessage()) . '</p>';
+                    error_log('MetaSync Cache Status Error: ' . $e->getMessage());
+                    echo '<p style="color: var(--dashboard-error);">⚠️ An error occurred while retrieving cache plugin status.</p>';
                 }
             } else {
                 echo '<p style="color: var(--dashboard-error);">⚠️ Cache Purge class not loaded.</p>';
@@ -105,7 +106,7 @@ class Metasync_Otto_Cache_Manager
 
                 if ($cleared > 0) {
                     echo '<div class="notice notice-success inline" style="margin-top: 15px;"><p>';
-                    echo '✅ <strong>Success!</strong> Cleared cache for ' . $cleared . ' plugin(s)';
+                    echo '✅ <strong>Success!</strong> Cleared cache for ' . intval( $cleared ) . ' plugin(s)';
                     if ($plugins) {
                         echo ': ' . esc_html($plugins);
                     }
@@ -118,7 +119,7 @@ class Metasync_Otto_Cache_Manager
 
                 if ($failed > 0) {
                     echo '<div class="notice notice-warning inline" style="margin-top: 15px;"><p>';
-                    echo '⚠️ Failed to clear ' . $failed . ' plugin(s).';
+                    echo '⚠️ Failed to clear ' . intval( $failed ) . ' plugin(s).';
                     echo '</p></div>';
                 }
             }
@@ -301,9 +302,9 @@ class Metasync_Otto_Cache_Manager
                 
                 echo '<div class="notice notice-success inline" style="margin-top: 15px;"><p>';
                 if (!empty($url)) {
-                    echo '✅ <strong>Success!</strong> Cleared cache for URL: <code>' . esc_html($url) . '</code> (' . $cleared_count . ' entries)';
+                    echo '✅ <strong>Success!</strong> Cleared cache for URL: <code>' . esc_html($url) . '</code> (' . intval( $cleared_count ) . ' entries)';
                 } else {
-                    echo '✅ <strong>Success!</strong> Cleared entire transient cache (' . $cleared_count . ' entries)';
+                    echo '✅ <strong>Success!</strong> Cleared entire transient cache (' . intval( $cleared_count ) . ' entries)';
                 }
                 echo '</p></div>';
             }
@@ -399,7 +400,7 @@ class Metasync_Otto_Cache_Manager
                 }
             } catch (Exception $e) {
                 error_log('MetaSync Cache Clear Error: ' . $e->getMessage());
-                $redirect_url .= '&cache_error=1&message=' . urlencode($e->getMessage());
+                $redirect_url .= '&cache_error=1&message=' . urlencode('An error occurred while clearing the cache. Please try again.');
             }
         } else {
             $redirect_url .= '&cache_error=1&message=' . urlencode('Cache Purge class not available');
@@ -429,7 +430,7 @@ class Metasync_Otto_Cache_Manager
                 $redirect_url .= '&otto_cache_cleared=1&count=' . $result['cleared_count'];
             } catch (Exception $e) {
                 error_log('MetaSync OTTO Cache Clear Error: ' . $e->getMessage());
-                $redirect_url .= '&otto_cache_error=1&message=' . urlencode($e->getMessage());
+                $redirect_url .= '&otto_cache_error=1&message=' . urlencode('An error occurred while clearing the OTTO cache. Please try again.');
             }
         } else {
             $redirect_url .= '&otto_cache_error=1&message=' . urlencode('Transient Cache class not found');
@@ -477,7 +478,7 @@ class Metasync_Otto_Cache_Manager
                 }
             } catch (Exception $e) {
                 error_log('MetaSync OTTO Cache Clear Error: ' . $e->getMessage());
-                $redirect_url .= '&otto_cache_error=1&message=' . urlencode($e->getMessage());
+                $redirect_url .= '&otto_cache_error=1&message=' . urlencode('An error occurred while clearing the OTTO cache for this URL. Please try again.');
             }
         } else {
             $redirect_url .= '&otto_cache_error=1&message=' . urlencode('Transient Cache class not found');
@@ -524,6 +525,19 @@ class Metasync_Otto_Cache_Manager
         }
 
         if ($pattern_type === 'regex') {
+            // Limit pattern length to prevent ReDoS via catastrophic backtracking
+            if (strlen($url_pattern) > 500) {
+                wp_send_json_error(['message' => 'Regular expression pattern is too long (max 500 characters)']);
+                return;
+            }
+
+            // Reject patterns with nested quantifiers that could cause ReDoS
+            $raw = preg_replace('/^\S(.*)\S[a-zA-Z]*$/', '$1', $url_pattern);
+            if (preg_match('/(\([^)]*[+*][^)]*\))[+*?{]|(\[[^\]]*\])[+*][+*?{]/', $raw)) {
+                wp_send_json_error(['message' => 'Pattern contains potentially unsafe nested quantifiers']);
+                return;
+            }
+
             $test_pattern = $url_pattern;
             $delimiter_chars = ['/', '#', '~', '%', '@'];
             $has_valid_delimiters = false;
@@ -542,7 +556,7 @@ class Metasync_Otto_Cache_Manager
                 $test_pattern = '/' . $test_pattern . '/';
             }
 
-            if (@preg_match($test_pattern, '') === false) {
+            if (!Metasync_Regex_Validator::is_valid($test_pattern)) {
                 wp_send_json_error(['message' => 'Invalid regular expression pattern']);
                 return;
             }

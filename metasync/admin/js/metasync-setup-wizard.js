@@ -251,20 +251,40 @@
 				nonce: metasyncWizardData.saConnectNonce
 			}, function (response) {
 				if (response.success) {
-					// Open SSO popup and store reference
-					self.ssoPopup = window.open(
-						response.data.connect_url,
-						pluginName.replace(/\s+/g, '') + 'SSO',
-						'width=600,height=700'
-					);
+					// Validate URL is a safe https:// URL from an allowed SSO domain before opening.
+					// This prevents open redirect to arbitrary hosts, javascript: or data: URIs.
+					var connectUrl = response.data.connect_url;
+					var allowedSSOHosts = ['searchatlas.com', 'app.searchatlas.com', 'auth.searchatlas.com'];
+					try {
+						var parsedUrl = new URL(connectUrl);
+						var hostname = parsedUrl.hostname.toLowerCase();
+						var hostAllowed = allowedSSOHosts.some(function (allowed) {
+							return hostname === allowed || hostname.endsWith('.' + allowed);
+						});
+						if (parsedUrl.protocol === 'https:' && hostAllowed) {
+							// Open SSO popup via validated URL
+							var ssoLink = document.createElement('a');
+							ssoLink.href = parsedUrl.href;
+							ssoLink.target = pluginName.replace(/\s+/g, '') + 'SSO';
+							ssoLink.rel = 'noopener';
+							ssoLink.click();
+							self.ssoPopup = window.open('', pluginName.replace(/\s+/g, '') + 'SSO');
 
-					if (self.ssoPopup) {
-						$button.text('Waiting for authentication...');
-						// Poll for completion
-						self.pollSSOStatus(response.data.nonce_token);
-					} else {
+							if (self.ssoPopup) {
+								$button.text('Waiting for authentication...');
+								// Poll for completion
+								self.pollSSOStatus(response.data.nonce_token);
+							} else {
+								$button.prop('disabled', false).text('Connect with ' + pluginName);
+								alert('Popup was blocked. Please allow popups for this site and try again.');
+							}
+						} else {
+							$button.prop('disabled', false).text('Connect with ' + pluginName);
+							alert('Invalid SSO URL. Please try again.');
+						}
+					} catch (e) {
 						$button.prop('disabled', false).text('Connect with ' + pluginName);
-						alert('Popup was blocked. Please allow popups for this site and try again.');
+						alert('Invalid SSO URL. Please try again.');
 					}
 				} else {
 					$button.prop('disabled', false).text('Connect with ' + pluginName);

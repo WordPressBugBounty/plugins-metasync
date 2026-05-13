@@ -38,6 +38,19 @@
     var batchActive = false;
     var fallbackPoll = null;
 
+    function sanitizeHtml(str) {
+        var div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function sanitizeTrustedHtml(html) {
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(html, 'text/html');
+        doc.querySelectorAll('script,iframe,object,embed,form,link[rel="import"]').forEach(function(el) { el.remove(); });
+        return doc.body.innerHTML;
+    }
+
     // ── Single Optimize ──
     document.addEventListener('click', function(e) {
         var btn = e.target.closest('.metasync-optimize-btn');
@@ -46,36 +59,42 @@
         var id = btn.dataset.id;
         btn.classList.add('loading');
         btn.disabled = true;
-        btn.innerHTML = '<span class="metasync-batch-spinner" style="width:14px;height:14px;display:inline-block;"></span> ' + (i18n.optimizing || 'Optimizing...');
+        btn.innerHTML = '<span class="metasync-batch-spinner" style="width:14px;height:14px;display:inline-block;"></span> ' + sanitizeHtml(i18n.optimizing || 'Optimizing...');
 
         fetch(ajaxUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'action=metasync_optimize_single_image&nonce=' + nonce + '&attachment_id=' + id
+            body: 'action=metasync_optimize_single_image&nonce=' + nonce + '&attachment_id=' + encodeURIComponent(id)
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success) {
                 var row = btn.closest('tr');
                 var statusCell = row.querySelector('.column-status');
-                statusCell.innerHTML = data.data.status_html;
+                var parser = new DOMParser();
+                var statusDoc = parser.parseFromString(data.data.status_html || '', 'text/html');
+                statusDoc.querySelectorAll('script,iframe,object,embed,form').forEach(function(el) { el.remove(); });
+                while (statusCell.firstChild) { statusCell.removeChild(statusCell.firstChild); }
+                Array.prototype.forEach.call(statusDoc.body.childNodes, function(node) {
+                    statusCell.appendChild(node.cloneNode(true));
+                });
 
                 var actionsCell = row.querySelector('.column-actions');
-                actionsCell.innerHTML = '<button type="button" class="button button-small metasync-revert-btn" data-id="' + id + '">' +
-                    '<span class="dashicons dashicons-undo" style="margin-top:3px;"></span> ' + (i18n.revert || 'Revert') + '</button>';
+                actionsCell.innerHTML = '<button type="button" class="button button-small metasync-revert-btn" data-id="' + sanitizeHtml(String(id)) + '">' +
+                    '<span class="dashicons dashicons-undo" style="margin-top:3px;"></span> ' + sanitizeHtml(i18n.revert || 'Revert') + '</button>';
 
                 updateStats();
             } else {
                 btn.classList.remove('loading');
                 btn.disabled = false;
-                btn.innerHTML = '<span class="dashicons dashicons-performance" style="margin-top:3px;"></span> ' + (i18n.optimize || 'Optimize');
+                btn.innerHTML = '<span class="dashicons dashicons-performance" style="margin-top:3px;"></span> ' + sanitizeHtml(i18n.optimize || 'Optimize');
                 alert(data.data || (i18n.optimizeFailed || 'Optimization failed.'));
             }
         })
         .catch(function() {
             btn.classList.remove('loading');
             btn.disabled = false;
-            btn.innerHTML = '<span class="dashicons dashicons-performance" style="margin-top:3px;"></span> ' + (i18n.optimize || 'Optimize');
+            btn.innerHTML = '<span class="dashicons dashicons-performance" style="margin-top:3px;"></span> ' + sanitizeHtml(i18n.optimize || 'Optimize');
         });
     });
 

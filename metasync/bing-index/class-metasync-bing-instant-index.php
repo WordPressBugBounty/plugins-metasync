@@ -518,8 +518,9 @@ class Metasync_Bing_Instant_Index
 			];
 		}
 
-		$file_path = ABSPATH . $api_key . '.txt';
-		$file_url = home_url('/' . $api_key . '.txt');
+		$safe_key = sanitize_file_name($api_key);
+		$file_path = ABSPATH . $safe_key . '.txt';
+		$file_url = home_url('/' . $safe_key . '.txt');
 
 		// Check if file exists
 		if (!file_exists($file_path)) {

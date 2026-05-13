@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.6.6
+Stable tag: 2.6.7
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,27 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.7 =
+- Fix: OTTO buffer caching empty/error pages
+  - Fix: PHP lexicographic string comparison in execution time validation
+  - Fix: Plugin causing server overload via unbounded cron accumulation
+  - Fix: Replace TRUNCATE with bounded delete in 404 monitor add()
+  - Fix: Add redirect-loop detection to edit and import paths
+  - Fix: Non-atomic OTTO cache lock allowing concurrent workers to bypass lock
+  - Fix: Remove duplicate inline JS causing double POST on excluded URL add
+  - Fix: Replace TOCTOU rate limiter with atomic wp_cache_add/incr pattern
+  - Fix: Fill empty catch blocks in OTTO render strategy with error_log and telemetry
+  - Fix: Harden JWT verification and protect sensitive wp_options in MCP server
+  - Fix: Breadcrumbs disable_schema checkbox state not persisting on save
+  - Fix: OTTO title/schema override checks live suggestions when third-party SEO plugin active
+  - Fix: Centralize cron-hook cleanup on plugin deactivation
+  - Fix: API key validation fails when WordPress Home URL uses www subdomain
+  - Fix: Add per-user transient caching to admin bar status indicator
+  - Fix: Make sitemap generation memory-safe with streaming and filesystem fallbacks
+  - Fix: Add static flag guard to eliminate redundant schema queries
+  - Fix: Create Redirect button from 404 Monitor not opening redirection form
+  - Security: Remediate 47 semgrep findings across plugin codebase
+
 = 2.6.6 =
 - Fix: Invalidate OTTO JS detection transient on settings save and cache clear
   - Fix: Harden MCP tool registration to prevent fatal error on missing class

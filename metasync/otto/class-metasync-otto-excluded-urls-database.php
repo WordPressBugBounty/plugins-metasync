@@ -11,6 +11,7 @@
 class Metasync_Otto_Excluded_URLs_Database
 {
 	public static $table_name = "metasync_otto_excluded_urls";
+	private static $structure_verified = false;
 
 	private function get_table_name()
 	{
@@ -23,6 +24,10 @@ class Metasync_Otto_Excluded_URLs_Database
 	 */
 	private function ensure_table_structure()
 	{
+		// Run schema inspection at most once per request — table schema only changes on activation/upgrade, handled by class-db-migrations.php.
+		if (self::$structure_verified) { return; }
+		self::$structure_verified = true;
+
 		global $wpdb;
 		$table_name = $this->get_table_name();
 
@@ -228,7 +233,11 @@ class Metasync_Otto_Excluded_URLs_Database
 				case 'regex':
 					// Normalize with delimiters
 					$test_pattern = Metasync_Redirection::normalize_regex_pattern($pattern);
-					if (@preg_match($test_pattern, $url)) {
+					$prev_limit = ini_get('pcre.backtrack_limit');
+					ini_set('pcre.backtrack_limit', 10000);
+					$match = @preg_match($test_pattern, $url);
+					ini_set('pcre.backtrack_limit', $prev_limit);
+					if ($match) {
 						return true;
 					}
 					break;
@@ -310,10 +319,15 @@ class Metasync_Otto_Excluded_URLs_Database
 			$args['pattern_type'] = 'exact';
 		}
 
-		// Validate regex pattern if type is regex
+		// Validate regex pattern if type is regex (structural checks only; callers must validate syntax)
 		if ($args['pattern_type'] === 'regex') {
-			if (@preg_match($args['url_pattern'], '') === false) {
-				return false; // Invalid regex pattern
+			if (mb_strlen($args['url_pattern']) > 500) {
+				return false; // Pattern too long
+			}
+			// Reject nested quantifiers that could cause ReDoS
+			$raw = preg_replace('/^\S(.*)\S[a-zA-Z]*$/', '$1', $args['url_pattern']);
+			if (preg_match('/(\([^)]*[+*][^)]*\))[+*?{]|(\[[^\]]*\])[+*][+*?{]/', $raw)) {
+				return false; // Unsafe pattern
 			}
 		}
 
@@ -354,10 +368,17 @@ class Metasync_Otto_Excluded_URLs_Database
 			}
 		}
 
-		// Validate regex pattern if type is regex
+		// Validate regex pattern if type is regex (structural checks only; callers must validate syntax)
 		if (isset($args['pattern_type']) && $args['pattern_type'] === 'regex') {
-			if (isset($args['url_pattern']) && @preg_match($args['url_pattern'], '') === false) {
-				return false; // Invalid regex pattern
+			if (isset($args['url_pattern'])) {
+				if (mb_strlen($args['url_pattern']) > 500) {
+					return false; // Pattern too long
+				}
+				// Reject nested quantifiers that could cause ReDoS
+				$raw = preg_replace('/^\S(.*)\S[a-zA-Z]*$/', '$1', $args['url_pattern']);
+				if (preg_match('/(\([^)]*[+*][^)]*\))[+*?{]|(\[[^\]]*\])[+*][+*?{]/', $raw)) {
+					return false; // Unsafe pattern
+				}
 			}
 		}
 

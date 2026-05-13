@@ -2437,6 +2437,13 @@ add_action('init', 'metasync_register_seo_meta_fields');
  * Override Astra theme's title output with OTTO optimized title
  */
 function metasync_astra_title_override($title) {
+    if (class_exists('Metasync_SEO_Conflict_Handler')) {
+        $handler = Metasync_SEO_Conflict_Handler::get_instance();
+        if ($handler->has_active_seo_plugin() && !$handler->otto_has_live_suggestions()) {
+            return $title;
+        }
+    }
+
     # Check for WooCommerce shop page
     if (function_exists('is_shop') && is_shop()) {
         $shop_page_id = function_exists('wc_get_page_id') ? wc_get_page_id('shop') : 0;
@@ -2494,6 +2501,13 @@ add_filter('astra_wp_title', 'metasync_astra_title_override', 99);
  * This ensures OTTO title appears on WooCommerce shop, category, and tag pages
  */
 function metasync_woocommerce_archive_title($title) {
+    if (class_exists('Metasync_SEO_Conflict_Handler')) {
+        $handler = Metasync_SEO_Conflict_Handler::get_instance();
+        if ($handler->has_active_seo_plugin() && !$handler->otto_has_live_suggestions()) {
+            return $title;
+        }
+    }
+
     # Shop page
     if (function_exists('is_shop') && is_shop()) {
         $shop_page_id = function_exists('wc_get_page_id') ? wc_get_page_id('shop') : 0;
@@ -2536,6 +2550,13 @@ add_filter('woocommerce_page_title', 'metasync_woocommerce_archive_title', 99);
  * Fallback for themes that use wp_title()
  */
 function metasync_wp_title_override($title, $sep = '') {
+    if (class_exists('Metasync_SEO_Conflict_Handler')) {
+        $handler = Metasync_SEO_Conflict_Handler::get_instance();
+        if ($handler->has_active_seo_plugin() && !$handler->otto_has_live_suggestions()) {
+            return $title;
+        }
+    }
+
     # Shop page
     if (function_exists('is_shop') && is_shop()) {
         $shop_page_id = function_exists('wc_get_page_id') ? wc_get_page_id('shop') : 0;
@@ -2600,6 +2621,13 @@ add_filter('wp_title', 'metasync_wp_title_override', 99, 2);
  * This is the modern way WordPress handles <title> tags
  */
 function metasync_document_title_parts($title_parts) {
+    if (class_exists('Metasync_SEO_Conflict_Handler')) {
+        $handler = Metasync_SEO_Conflict_Handler::get_instance();
+        if ($handler->has_active_seo_plugin() && !$handler->otto_has_live_suggestions()) {
+            return $title_parts;
+        }
+    }
+
     # Homepage (static front page backed by a real page)
     if (is_front_page() && !is_home()) {
         $front_id = (int) get_option('page_on_front');
@@ -2689,6 +2717,13 @@ add_filter('document_title_parts', 'metasync_document_title_parts', 99);
  * Final override before title is rendered
  */
 function metasync_pre_get_document_title($title) {
+    if (class_exists('Metasync_SEO_Conflict_Handler')) {
+        $handler = Metasync_SEO_Conflict_Handler::get_instance();
+        if ($handler->has_active_seo_plugin() && !$handler->otto_has_live_suggestions()) {
+            return $title;
+        }
+    }
+
     # Homepage (static front page backed by a real page)
     if (is_front_page() && !is_home()) {
         $front_id = (int) get_option('page_on_front');
