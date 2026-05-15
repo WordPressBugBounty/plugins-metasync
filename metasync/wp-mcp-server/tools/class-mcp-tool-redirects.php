@@ -66,6 +66,13 @@ class MCP_Tool_Create_Redirect extends MCP_Tool_Base {
         $http_code = isset($params['type']) ? $this->sanitize_integer($params['type']) : 301;
         $description = isset($params['description']) ? $this->sanitize_textarea($params['description']) : '';
 
+        if (!get_option('metasync_allow_external_redirects', 0) && !empty($destination) && wp_validate_redirect($destination, '') !== $destination) {
+            return [
+                'error' => 'external_destination',
+                'message' => 'Destination URL must be on this site. Enable "Allow External Redirects" in plugin settings to permit off-site redirects.',
+            ];
+        }
+
         // Parse source to get path
         $source_path = parse_url($source, PHP_URL_PATH) ?: $source;
 
@@ -318,7 +325,14 @@ class MCP_Tool_Update_Redirect extends MCP_Tool_Base {
         $update_args = ['updated_at' => current_time('mysql')];
 
         if (isset($params['destination'])) {
-            $update_args['url_redirect_to'] = $this->sanitize_url($params['destination']);
+            $destination = $this->sanitize_url($params['destination']);
+            if (!get_option('metasync_allow_external_redirects', 0) && !empty($destination) && wp_validate_redirect($destination, '') !== $destination) {
+                return [
+                    'error' => 'external_destination',
+                    'message' => 'Destination URL must be on this site. Enable "Allow External Redirects" in plugin settings to permit off-site redirects.',
+                ];
+            }
+            $update_args['url_redirect_to'] = $destination;
         }
 
         if (isset($params['type'])) {

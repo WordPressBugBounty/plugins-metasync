@@ -42,7 +42,7 @@ class Metasync_Admin_Navigation
     /**
      * Resolve which logo(s) to display based on whitelabel settings.
      *
-     * @return array{show_logo: bool, use_dual: bool, url: string, light_url: string, dark_url: string}
+     * @return array{show_logo: bool, use_dual: bool, url: string, light_url: string, dark_url: string, is_default: bool}
      */
     private function resolve_logo_data()
     {
@@ -56,11 +56,12 @@ class Metasync_Admin_Navigation
         $use_dual  = ($has_light && $has_dark && $light_raw !== $dark_raw);
 
         $data = [
-            'show_logo' => false,
-            'use_dual'  => false,
-            'url'       => '',
-            'light_url' => '',
-            'dark_url'  => '',
+            'show_logo'  => false,
+            'use_dual'   => false,
+            'url'        => '',
+            'light_url'  => '',
+            'dark_url'   => '',
+            'is_default' => false,
         ];
 
         if ($use_dual) {
@@ -74,8 +75,9 @@ class Metasync_Admin_Navigation
                 $data['show_logo'] = true;
                 $data['url']       = $single;
             } elseif (!$is_whitelabel) {
-                $data['show_logo'] = true;
-                $data['url']       = Metasync::HOMEPAGE_DOMAIN . '/wp-content/uploads/2023/12/white.svg';
+                $data['show_logo']  = true;
+                $data['url']        = Metasync::HOMEPAGE_DOMAIN . '/wp-content/uploads/2023/12/white.svg';
+                $data['is_default'] = true;
             }
         }
 
@@ -118,7 +120,7 @@ class Metasync_Admin_Navigation
                     </div>
                 <?php elseif ($logo['show_logo'] && !empty($logo['url'])): ?>
                     <div class="metasync-logo-container">
-                        <img src="<?php echo esc_url($logo['url']); ?>" alt="Logo" class="metasync-logo" />
+                        <img src="<?php echo esc_url($logo['url']); ?>" alt="Logo" class="metasync-logo<?php echo !empty($logo['is_default']) ? ' metasync-logo-default' : ''; ?>" />
                     </div>
                 <?php endif; ?>
             </div>
@@ -1198,11 +1200,11 @@ class Metasync_Admin_Navigation
                     </div>
                 <?php elseif ($logo['show_logo'] && !empty($logo['url'])): ?>
                     <div class="metasync-logo-container">
-                        <img src="<?php echo esc_url($logo['url']); ?>" alt="Logo" class="metasync-logo" />
+                        <img src="<?php echo esc_url($logo['url']); ?>" alt="Logo" class="metasync-logo<?php echo !empty($logo['is_default']) ? ' metasync-logo-default' : ''; ?>" />
                     </div>
                 <?php endif; ?>
             </div>
-            
+
                          <div class="metasync-header-right">
                              <!-- Theme Toggle -->
                         <div class="metasync-theme-toggle" role="group" aria-label="Theme Selector">
@@ -1550,7 +1552,7 @@ class Metasync_Admin_Navigation
                     <img src="<?php echo esc_url($logo['light_url']); ?>" alt="<?php echo esc_attr($plugin_name); ?>" class="metasync-logo metasync-logo-light" style="height:28px;width:auto;">
                     <img src="<?php echo esc_url($logo['dark_url']); ?>" alt="<?php echo esc_attr($plugin_name); ?>" class="metasync-logo metasync-logo-dark" style="height:28px;width:auto;">
                 <?php elseif ($logo['show_logo'] && $logo['url']): ?>
-                    <img src="<?php echo esc_url($logo['url']); ?>" alt="<?php echo esc_attr($plugin_name); ?>" class="metasync-logo" style="height:28px;width:auto;">
+                    <img src="<?php echo esc_url($logo['url']); ?>" alt="<?php echo esc_attr($plugin_name); ?>" class="metasync-logo<?php echo !empty($logo['is_default']) ? ' metasync-logo-default' : ''; ?>" style="height:28px;width:auto;">
                 <?php else: ?>
                     <strong style="font-size:15px;color:var(--dashboard-text-primary);"><?php echo esc_html($plugin_name); ?></strong>
                 <?php endif; ?>

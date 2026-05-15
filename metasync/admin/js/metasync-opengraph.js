@@ -413,11 +413,12 @@
 				},
 				success: function (response) {
 					if (response.success) {
-						// Server-rendered admin HTML from nonce-protected AJAX endpoint
 						$container.empty().show();
-						var range = document.createRange();
-						var frag = range.createContextualFragment(response.data.preview || '');
-						$container[0].appendChild(frag);
+						var parser = new DOMParser();
+						var doc = parser.parseFromString(response.data.preview || '', 'text/html');
+						while (doc.body.firstChild) {
+							$container[0].appendChild(doc.body.firstChild);
+						}
 					} else {
 						$container.empty().append(
 							$('<p>').addClass('metasync-error').text('Failed to generate preview: ' + (response.data || 'Unknown error'))

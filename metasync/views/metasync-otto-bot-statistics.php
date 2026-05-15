@@ -138,17 +138,17 @@ $breakdown_labels = array(
             </div>
         <?php else: ?>
             <div style="overflow-x: auto;">
-                <table class="wp-list-table widefat fixed striped" style="width: 100%; border-collapse: collapse;">
+                <table class="wp-list-table widefat striped" style="width: 100%; border-collapse: collapse; min-width: 1150px;">
                     <thead>
                         <tr>
-                            <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary); width: 80px;">Hits</th>
-                            <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary);">Bot Name</th>
-                            <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary); width: 120px;">Type</th>
-                            <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary);">User Agent</th>
-                            <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary); width: 130px;">IP Address</th>
-                            <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary); width: 150px;">First Seen</th>
-                            <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary); width: 150px;">Last Seen</th>
-                            <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary);">Last URL</th>
+                            <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary); min-width: 70px; white-space: nowrap;">Hits</th>
+                            <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary); min-width: 140px; white-space: nowrap;">Bot Name</th>
+                            <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary); min-width: 110px; white-space: nowrap;">Type</th>
+                            <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary); min-width: 220px; white-space: nowrap;">User Agent</th>
+                            <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary); min-width: 130px; white-space: nowrap;">IP Address</th>
+                            <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary); min-width: 150px; white-space: nowrap;">First Seen</th>
+                            <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary); min-width: 150px; white-space: nowrap;">Last Seen</th>
+                            <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary); min-width: 180px; white-space: nowrap;">Last URL</th>
                         </tr>
                     </thead>
                     <tbody>

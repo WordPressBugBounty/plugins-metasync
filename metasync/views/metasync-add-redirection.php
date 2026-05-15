@@ -260,7 +260,7 @@ p.description {
     <!-- Redirection Tips Section -->
     <div class="redirection-tips-container" style="margin-bottom: 20px;">
         <button type="button" id="toggle-redirection-tips" class="button button-secondary" style="margin-bottom: 10px;">
-            <span class="dashicons dashicons-info" style="margin-top: 3px;"></span> Show Redirection Tips & Examples
+            <span class="dashicons dashicons-info"></span> Show Redirection Tips & Examples
         </button>
 
         <div id="redirection-tips-content" style="display: none; background: var(--dashboard-card-bg); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; margin-top: 10px;">

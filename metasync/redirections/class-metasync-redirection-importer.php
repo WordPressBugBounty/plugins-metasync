@@ -259,6 +259,12 @@ class Metasync_Redirection_Importer
                 'updated_at' => current_time('mysql')
             ];
 
+            if (!$this->is_safe_destination($target_url, $http_code)) {
+                $skipped++;
+                continue;
+            }
+            $args['url_redirect_to'] = $target_url;
+
             if (!in_array($http_code, [410, 451]) && $this->get_redirection_helper()->validate_no_loop($redirect->url, $target_url) !== null) {
                 $loop_skipped++;
                 continue;
@@ -476,6 +482,11 @@ class Metasync_Redirection_Importer
                 'updated_at' => current_time('mysql')
             ];
 
+            if (!$this->is_safe_destination($target, intval($type))) {
+                return 'skipped';
+            }
+            $args['url_redirect_to'] = $target;
+
             if (!in_array(intval($type), [410, 451]) && $this->get_redirection_helper()->validate_no_loop($origin, $target) !== null) {
                 return 'loop_skipped';
             }
@@ -551,6 +562,11 @@ class Metasync_Redirection_Importer
                 'created_at' => current_time('mysql'),
                 'updated_at' => current_time('mysql')
             ];
+
+            if (!$this->is_safe_destination($target, intval($type))) {
+                return 'skipped';
+            }
+            $args['url_redirect_to'] = $target;
 
             if (!in_array(intval($type), [410, 451]) && $this->get_redirection_helper()->validate_no_loop($origin, $target) !== null) {
                 return 'loop_skipped';
@@ -708,6 +724,12 @@ class Metasync_Redirection_Importer
                     'updated_at' => current_time('mysql')
                 ];
 
+                if (!$this->is_safe_destination($target_url, $http_code)) {
+                    $skipped++;
+                    continue;
+                }
+                $args['url_redirect_to'] = $target_url;
+
                 if (!in_array($http_code, [410, 451]) && $this->get_redirection_helper()->validate_no_loop($source_url, $target_url) !== null) {
                     $loop_skipped++;
                     continue;
@@ -821,6 +843,12 @@ class Metasync_Redirection_Importer
                 'updated_at' => current_time('mysql')
             ];
 
+            if (!$this->is_safe_destination($target_url, $http_code)) {
+                $skipped++;
+                continue;
+            }
+            $args['url_redirect_to'] = $target_url;
+
             if (!in_array($http_code, [410, 451]) && $this->get_redirection_helper()->validate_no_loop($redirect->source_url, $target_url) !== null) {
                 $loop_skipped++;
                 continue;
@@ -897,6 +925,12 @@ class Metasync_Redirection_Importer
                 'updated_at' => current_time('mysql')
             ];
 
+            if (!$this->is_safe_destination($new_url, 301)) {
+                $skipped++;
+                continue;
+            }
+            $args['url_redirect_to'] = $new_url;
+
             if ($this->get_redirection_helper()->validate_no_loop($old_url, $new_url) !== null) {
                 $loop_skipped++;
                 continue;
@@ -919,6 +953,35 @@ class Metasync_Redirection_Importer
             'skipped' => $skipped,
             'loop_skipped' => $loop_skipped
         ];
+    }
+
+    /**
+     * Reject off-site destination URLs at import time so attacker-controlled
+     * exports cannot smuggle external redirects in via plugin migration.
+     *
+     * 410 and 451 entries have no destination, so they are always safe.
+     *
+     * @param string $url       Destination URL from the source plugin.
+     * @param int    $http_code HTTP status the redirect will serve.
+     * @return bool True when the destination is empty-by-design or resolves on-site.
+     */
+    private function is_safe_destination(&$url, $http_code)
+    {
+        if (in_array(intval($http_code), [410, 451], true)) {
+            $url = '';
+            return true;
+        }
+
+        $url = (string) $url;
+        if ($url === '') {
+            return false;
+        }
+
+        if (get_option('metasync_allow_external_redirects', 0)) {
+            return true;
+        }
+
+        return wp_validate_redirect($url, '') !== '';
     }
 
     /**

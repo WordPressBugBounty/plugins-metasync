@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.6.7
+Stable tag: 2.6.8
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,19 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.8 =
+* Security: Use hash_equals() for timing-safe API key comparison in custom pages API
+* Security: Resolve 4 Snyk Code MEDIUM findings — DOM XSS and info exposure
+* Security: Fix open-redirect vulnerability in redirection plugin with domain validation
+* Fix: Original image permanently deleted before converted file is validated — data loss on Imagick memory failure
+* Fix: Light SA logo not visible on light theme
+* Fix: Strip OTTO post meta when WordPress pages are cloned or duplicated
+* Fix: Sitemap and LLMs.txt transients not invalidated when content is updated
+* Improvement: Make bot statistics table responsive at narrow viewports
+* Improvement: Refactor sitemap collect_all_urls() to eliminate N+1 query explosion
+* Improvement: Exclude Beaver Builder templates from sitemap generation
+* Improvement: Upgrade routine flag logic and unit tests for Beaver Builder template exclusion
+
 = 2.6.7 =
 - Fix: OTTO buffer caching empty/error pages
   - Fix: PHP lexicographic string comparison in execution time validation

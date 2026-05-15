@@ -2556,7 +2556,28 @@ class Metasync_Admin
         }
 
         require_once plugin_dir_path(dirname(__FILE__)) . 'media-optimization/class-media-settings.php';
+        require_once plugin_dir_path(dirname(__FILE__)) . 'media-optimization/class-image-converter.php';
         $settings = Metasync_Media_Settings::get_settings();
+
+        $file = get_attached_file($attachment_id);
+        $mime = get_post_mime_type($attachment_id);
+
+        if (!$file || !file_exists($file)) {
+            wp_send_json_error(__('Optimization failed: file not found.', 'metasync'));
+        }
+
+        $max_bytes = 10 * 1024 * 1024;
+        if (filesize($file) > $max_bytes) {
+            $size_mb = round(filesize($file) / 1024 / 1024, 1);
+            wp_send_json_error(sprintf(
+                __('Optimization skipped: file size (%s MB) exceeds the 10 MB safety limit to prevent memory issues.', 'metasync'),
+                $size_mb
+            ));
+        }
+
+        if (!in_array($mime, ['image/jpeg', 'image/png'], true)) {
+            wp_send_json_error(__('Optimization failed: unsupported image format.', 'metasync'));
+        }
 
         $success = Metasync_Image_Converter::convert_attachment($attachment_id, $settings);
 
@@ -2567,7 +2588,7 @@ class Metasync_Admin
             ]);
         }
 
-        wp_send_json_error(__('Optimization failed.', 'metasync'));
+        wp_send_json_error(__('Optimization failed: conversion could not be completed.', 'metasync'));
     }
 
     /**
@@ -2850,7 +2871,8 @@ class Metasync_Admin
                 $result = $sitemap_generator->generate_sitemap();
 
                 if (is_wp_error($result)) {
-                    echo '<div class="notice notice-error"><p>' . esc_html($result->get_error_message()) . '</p></div>';
+                    error_log('[MetaSync] Sitemap generation failed: ' . $result->get_error_message());
+                    echo '<div class="notice notice-error"><p>' . esc_html__('Sitemap generation failed. Please try again or check the error logs.', 'metasync') . '</p></div>';
                 } else {
                     $message = esc_html__('Sitemap generated successfully!', 'metasync');
                     if (!empty($extras)) {

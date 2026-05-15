@@ -111,6 +111,22 @@ class MetaSync_DBMigration
 			$wpdb->query("UPDATE {$tableNameRedirection} SET pattern_type = 'exact' WHERE pattern_type IS NULL OR pattern_type = ''");
 		}
 
+		// One-time migration: auto-enable external redirects if the site already has any
+		if (!get_option('metasync_external_redirects_migrated')) {
+			$home_prefix = $wpdb->esc_like(trailingslashit(home_url()));
+			$external_count = $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(*) FROM {$tableNameRedirection} WHERE url_redirect_to LIKE %s AND url_redirect_to NOT LIKE %s",
+					'http%',
+					$home_prefix . '%'
+				)
+			);
+			if ($external_count > 0) {
+				update_option('metasync_allow_external_redirects', 1, true);
+			}
+			update_option('metasync_external_redirects_migrated', 1, true);
+		}
+
 		// Create HeartBeat Error Monitor Table
 		require_once dirname(__FILE__, 2) . '/heartbeat-error-monitor/class-metasync-heartbeat-error-monitor-database.php';
 		$tableNameHeartBeatErrorMonitor = esc_sql($wpdb->prefix . Metasync_HeartBeat_Error_Monitor_Database::$table_name);

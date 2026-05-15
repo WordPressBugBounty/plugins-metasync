@@ -432,7 +432,9 @@ class Metasync
 		$llms_txt_generator = new Metasync_Llms_Txt_Generator();
 
 		// One-time upgrade: regenerate sitemap to remove any Beaver Builder template entries
-		$this->loader->add_action('init', $this, 'maybe_regenerate_sitemap_after_upgrade');
+		if ( ! get_option( 'metasync_sitemap_bb_exclusion_applied' ) ) {
+			$this->loader->add_action('init', $this, 'maybe_regenerate_sitemap_after_upgrade');
+		}
 	}
 
 	/**
@@ -457,9 +459,10 @@ class Metasync
 			}
 			$sitemap = new Metasync_Sitemap_Generator();
 			$sitemap->generate_sitemap();
+			update_option( $done_key, true );
 		}
-
-		update_option( $done_key, true );
+		// If sitemap is not in use, don't set the flag — retry on next load
+		// so that enabling sitemaps later will still clean up BB templates.
 	}
 
 	/**

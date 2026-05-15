@@ -2565,6 +2565,32 @@ class Metasync_Settings_Registration
             $metasync_options['breadcrumbs']['archive_label_format'] = isset($breadcrumbs_input['archive_label_format']) ? sanitize_text_field($breadcrumbs_input['archive_label_format']) : '{name}';
         }
 
+        // Open Graph / article toggle checkboxes live under common_meta_settings.
+        // Unchecked HTML checkboxes are absent from $_POST, so we explicitly
+        // write 'false' for any missing toggle to persist opt-outs.
+        if ($general_tab_submitted) {
+            $og_toggle_fields = [
+                'open_graph_meta_tags',
+                'facebook_meta_tags',
+                'twitter_meta_tags',
+                'og_image_dimensions',
+                'article_timestamps',
+                'article_author',
+                'article_section',
+                'article_tags',
+                'twitter_image_alt',
+            ];
+            if (!isset($metasync_options['common_meta_settings']) || !is_array($metasync_options['common_meta_settings'])) {
+                $metasync_options['common_meta_settings'] = [];
+            }
+            foreach ($og_toggle_fields as $field) {
+                $posted = isset($_POST['metasync_options']['common_meta_settings'][$field])
+                    ? sanitize_text_field($_POST['metasync_options']['common_meta_settings'][$field])
+                    : '';
+                $metasync_options['common_meta_settings'][$field] = ($posted === 'true') ? 'true' : 'false';
+            }
+        }
+
         if ($general_tab_submitted && isset($_POST['metasync_options']['general']['default_page_builder'])) {
             require_once plugin_dir_path(dirname(__FILE__)) . 'custom-pages/class-metasync-html-to-builder-converter.php';
             $available_builders = Metasync_HTML_To_Builder_Converter::get_available_builders();

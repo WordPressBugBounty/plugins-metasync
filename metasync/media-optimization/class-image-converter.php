@@ -25,6 +25,7 @@ class Metasync_Image_Converter {
     private const EXT_AVIF = '.avif';
     private const EXT_WEBP = '.webp';
     private const ORIGINAL_EXT_PATTERN = '/\.(jpe?g|png)$/i';
+    private const MAX_CONVERT_BYTES = 10 * 1024 * 1024;
 
     /**
      * Get file extension for a given format.
@@ -88,10 +89,12 @@ class Metasync_Image_Converter {
                 $size_file = $upload_dir . '/' . $size_data['file'];
                 $size_converted = $this->convert_file($size_file, $format, $quality);
 
-                if ($size_converted && $strategy === 'replace') {
+                if ($size_converted && $strategy === 'replace' && file_exists($size_converted) && filesize($size_converted) > 0) {
                     @unlink($size_file);
                     $size_data['file']     = basename($size_converted);
                     $size_data['mime-type'] = "image/{$format}";
+                } elseif ($size_converted && $strategy === 'replace') {
+                    error_log('[MetaSync Media Opt] Sub-size conversion produced invalid output, original preserved: ' . $size_file);
                 }
             }
             unset($size_data);
@@ -153,10 +156,12 @@ class Metasync_Image_Converter {
                     $size_file = $upload_dir . '/' . $size_data['file'];
                     $size_converted = self::do_convert_file($size_file, $format, $quality);
 
-                    if ($size_converted && $strategy === 'replace') {
+                    if ($size_converted && $strategy === 'replace' && file_exists($size_converted) && filesize($size_converted) > 0) {
                         @unlink($size_file);
                         $size_data['file']     = basename($size_converted);
                         $size_data['mime-type'] = "image/{$format}";
+                    } elseif ($size_converted && $strategy === 'replace') {
+                        error_log('[MetaSync Media Opt] Sub-size conversion produced invalid output, original preserved: ' . $size_file);
                     }
                 }
                 unset($size_data);
@@ -225,6 +230,11 @@ class Metasync_Image_Converter {
             return null;
         }
 
+        if (filesize($source) > self::MAX_CONVERT_BYTES) {
+            error_log('[MetaSync Media Opt] Source file exceeds MAX_CONVERT_BYTES limit, skipping: ' . $source);
+            return null;
+        }
+
         $ext = self::get_format_extension($format);
         $dest = preg_replace(self::ORIGINAL_EXT_PATTERN, $ext, $source);
 
@@ -258,6 +268,12 @@ class Metasync_Image_Converter {
         $img->stripImage();
 
         if ($img->writeImage($dest)) {
+            if (!file_exists($dest) || !filesize($dest)) {
+                @unlink($dest);
+                error_log('[MetaSync Media Opt] Imagick wrote 0-byte or missing output, discarding: ' . $dest);
+                $img->destroy();
+                return null;
+            }
             $img->destroy();
             return $dest;
         }
@@ -295,13 +311,25 @@ class Metasync_Image_Converter {
         };
 
         imagedestroy($gd_img);
-        return $success ? $dest : null;
+
+        if (!$success || !file_exists($dest) || !filesize($dest)) {
+            @unlink($dest);
+            error_log('[MetaSync Media Opt] GD produced empty or missing output, discarding: ' . $dest);
+            return null;
+        }
+
+        return $dest;
     }
 
     /**
      * Replace original file with converted version.
      */
     private static function do_replace_original(int $id, string $old_path, string $new_path, array &$meta, string $fmt): void {
+        if (!file_exists($new_path) || !filesize($new_path)) {
+            error_log('[MetaSync Media Opt] Converted file is missing or empty, original preserved: ' . $old_path);
+            return;
+        }
+
         @unlink($old_path);
 
         wp_update_post([

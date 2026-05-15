@@ -108,12 +108,13 @@ jQuery(document).ready(function ($) {
 			},
 			success: function (response) {
 				if (response.success) {
-					// Server-rendered admin HTML from nonce-protected AJAX endpoint
 					var fieldsContainer = $('.schema-type-item[data-index="' + index + '"] .schema-fields-container');
 					fieldsContainer.empty();
-					var range = document.createRange();
-					var frag = range.createContextualFragment(response.data || '');
-					fieldsContainer[0].appendChild(frag);
+					var parser = new DOMParser();
+					var doc = parser.parseFromString(response.data || '', 'text/html');
+					while (doc.body.firstChild) {
+						fieldsContainer[0].appendChild(doc.body.firstChild);
+					}
 				}
 			}
 		});

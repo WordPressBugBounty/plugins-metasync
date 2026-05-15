@@ -817,6 +817,31 @@ if (!defined('ABSPATH')) {
 		Check Health
 	</button>
 
+	<!-- Allow External Redirects Setting -->
+	<?php
+	if (isset($_POST['metasync_save_external_redirects']) && current_user_can('manage_options') && wp_verify_nonce($_POST['_metasync_external_nonce'], 'metasync_external_redirects_toggle')) {
+		$allow_external = isset($_POST['metasync_allow_external_redirects']) ? 1 : 0;
+		update_option('metasync_allow_external_redirects', $allow_external, true);
+		echo '<div class="notice notice-success is-dismissible"><p>External redirects setting updated.</p></div>';
+	}
+	$allow_external_current = get_option('metasync_allow_external_redirects', 0);
+	?>
+	<div style="background: var(--dashboard-card-bg, #1a1f26); border: 1px solid var(--dashboard-border, #374151); border-radius: 8px; padding: 12px 16px; margin: 15px 0; display: flex; align-items: center; gap: 12px;">
+		<form method="post" style="display: flex; align-items: center; gap: 12px; margin: 0;">
+			<?php wp_nonce_field('metasync_external_redirects_toggle', '_metasync_external_nonce'); ?>
+			<label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--dashboard-text-primary, #fff); font-weight: 500;">
+				<input type="checkbox" name="metasync_allow_external_redirects" value="1" <?php checked($allow_external_current, 1); ?> onchange="this.form.submit();" style="width: 16px; height: 16px;">
+				Allow External Redirects
+			</label>
+			<input type="hidden" name="metasync_save_external_redirects" value="1">
+			<?php if ($allow_external_current) : ?>
+				<span style="color: var(--dashboard-warning, #f59e0b); font-size: 13px;">External redirects are enabled. Redirects can point to other websites.</span>
+			<?php else : ?>
+				<span style="color: var(--dashboard-text-secondary, #9ca3af); font-size: 13px;">External redirects are disabled. All redirects will stay on your site for security.</span>
+			<?php endif; ?>
+		</form>
+	</div>
+
 	<!-- Forms are NOT created automatically, so you need to wrap the table in one to use features like bulk actions -->
 	<form id="redirection-form" method="post" action="">
 		<?php wp_nonce_field('metasync_redirection_form', 'metasync_redirection_nonce'); ?>

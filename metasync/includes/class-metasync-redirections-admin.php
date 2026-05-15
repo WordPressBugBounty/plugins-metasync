@@ -165,6 +165,8 @@ class Metasync_Redirections_Admin
                 $validation_errors[] = 'Destination URL is required for this redirect type.';
             } elseif (!$this->is_valid_url($trimmed_dest)) {
                 $validation_errors[] = 'Invalid destination URL format. URLs should start with / for relative paths or be complete URLs.';
+            } elseif (!get_option('metasync_allow_external_redirects', 0) && wp_validate_redirect($trimmed_dest, '') !== $trimmed_dest) {
+                $validation_errors[] = 'Destination URL must point to this site. External redirect destinations are not allowed. Enable "Allow External Redirects" in the Redirections settings to permit off-site redirects.';
             }
         }
 

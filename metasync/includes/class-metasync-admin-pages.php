@@ -1532,7 +1532,8 @@ class Metasync_Admin_Pages
                 $result = $sitemap_generator->generate_sitemap();
 
                 if (is_wp_error($result)) {
-                    echo '<div class="notice notice-error"><p>' . esc_html($result->get_error_message()) . '</p></div>';
+                    error_log('[MetaSync] Sitemap generation failed: ' . $result->get_error_message());
+                    echo '<div class="notice notice-error"><p>' . esc_html__('Sitemap generation failed. Please try again or check the error logs.', 'metasync') . '</p></div>';
                 } else {
                     $message = esc_html__('Sitemap generated successfully!', 'metasync');
                     if ($disabled_plugins) {

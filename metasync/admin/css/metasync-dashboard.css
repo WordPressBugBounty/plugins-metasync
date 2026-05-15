@@ -284,6 +284,23 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     display: none;
 }
 
+/* Default (non-whitelabel) SA logo: invert on light theme so the white asset
+   stays visible against a light background. Dark theme keeps the original. */
+[data-theme="light"] .metasync-logo-default,
+.metasync-header[data-current-theme="light"] .metasync-logo-default {
+    filter: invert(1);
+}
+
+[data-theme="light"] .metasync-logo-default:hover,
+.metasync-header[data-current-theme="light"] .metasync-logo-default:hover {
+    filter: invert(1) brightness(1.1) contrast(1.1);
+}
+
+[data-theme="dark"] .metasync-logo-default,
+.metasync-header[data-current-theme="dark"] .metasync-logo-default {
+    filter: brightness(1) contrast(1);
+}
+
 /* Page Title Section - Below Header */
 .metasync-dashboard-wrap .metasync-page-title {
     margin-bottom: 2rem;

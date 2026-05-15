@@ -146,7 +146,7 @@ class Metasync_Custom_Pages_API
 		}
 
 		// Validate API key
-		if ($api_key !== $stored_api_key) {
+		if (!hash_equals($stored_api_key, $api_key)) {
 			return new WP_Error(
 				'invalid_api_key',
 				'Invalid API key provided.',

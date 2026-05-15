@@ -61,6 +61,94 @@ class Metasync_Sitemap_Generator
 
         // Register hook to serve virtual sitemap files
         add_action('template_redirect', array($this, 'serve_virtual_sitemap'), 1);
+
+        $this->register_cache_bust_hooks();
+    }
+
+    /**
+     * Register WordPress content lifecycle hooks that bust the sitemap caches.
+     *
+     * Bust callbacks are intentionally lightweight (transient deletes only) so they
+     * do not add latency to the editor's save action. Optional async warm-up can
+     * be enabled via the `metasync_sitemap_async_warmup` filter.
+     */
+    public function register_cache_bust_hooks()
+    {
+        // Post lifecycle.
+        add_action('save_post',    array($this, 'bust_sitemap_cache'));
+        add_action('delete_post',  array($this, 'bust_sitemap_cache'));
+        add_action('trashed_post', array($this, 'bust_sitemap_cache'));
+
+        // Taxonomy lifecycle.
+        add_action('created_term', array($this, 'bust_sitemap_cache'));
+        add_action('edited_term',  array($this, 'bust_sitemap_cache'));
+        add_action('delete_term',  array($this, 'bust_sitemap_cache'));
+
+        // Meta updates that affect indexability.
+        add_action('added_post_meta',   array($this, 'bust_sitemap_on_meta_update'), 10, 3);
+        add_action('updated_post_meta', array($this, 'bust_sitemap_on_meta_update'), 10, 3);
+
+        // Async warm-up listener.
+        add_action('metasync_sitemap_async_warmup_event', array($this, 'async_warmup_handler'));
+    }
+
+    /**
+     * Bust all sitemap-related transients.
+     *
+     * Coalesces multiple calls within the same request via a static guard so
+     * bulk operations (e.g. a 50-product import) only trigger one bust.
+     */
+    public function bust_sitemap_cache()
+    {
+        static $already_busted = false;
+        if ($already_busted) {
+            return;
+        }
+        $already_busted = true;
+
+        delete_transient('metasync_vsm_' . md5('news-sitemap.xml'));
+        delete_transient('metasync_vsm_' . md5('video-sitemap.xml'));
+
+        $virtual_index = get_option('metasync_sitemap_virtual_index', []);
+        if (is_array($virtual_index)) {
+            foreach ($virtual_index as $tkey) {
+                if (is_string($tkey) && $tkey !== '') {
+                    delete_transient($tkey);
+                }
+            }
+        }
+        delete_option('metasync_sitemap_virtual_index');
+
+        if (apply_filters('metasync_sitemap_async_warmup', false)
+            && !wp_next_scheduled('metasync_sitemap_async_warmup_event')) {
+            wp_schedule_single_event(time() + 30, 'metasync_sitemap_async_warmup_event');
+        }
+    }
+
+    /**
+     * Conditionally bust the sitemap cache when meta affecting indexability changes.
+     *
+     * Only `_metasync_robots_index` and `_metasync_canonical_url` trigger a bust;
+     * unrelated keys (e.g. `_edit_lock`) are ignored.
+     *
+     * @param int    $meta_id   ID of the metadata entry.
+     * @param int    $object_id Object the metadata is attached to.
+     * @param string $meta_key  The meta key being updated.
+     */
+    public function bust_sitemap_on_meta_update($meta_id, $object_id, $meta_key)
+    {
+        if ($meta_key !== '_metasync_robots_index' && $meta_key !== '_metasync_canonical_url') {
+            return;
+        }
+        $this->bust_sitemap_cache();
+    }
+
+    /**
+     * Async warm-up handler invoked by wp_schedule_single_event after a bust.
+     */
+    public function async_warmup_handler()
+    {
+        $this->generate_sitemap();
     }
 
     /**
@@ -215,6 +303,8 @@ class Metasync_Sitemap_Generator
      */
     private function collect_all_urls()
     {
+        global $wpdb;
+
         $urls = [];
 
         // Get all published posts, pages, and custom post types
@@ -249,15 +339,9 @@ class Metasync_Sitemap_Generator
         $excluded_types = apply_filters('metasync_sitemap_excluded_post_types', $excluded_types);
         $post_types = array_diff($post_types, $excluded_types);
 
-        $args = [
-            'post_type' => $post_types,
-            'post_status' => 'publish',
-            'posts_per_page' => -1,
-            'orderby' => 'modified',
-            'order' => 'DESC',
-        ];
-
-        $posts = get_posts($args);
+        if (empty($post_types)) {
+            return $urls;
+        }
 
         // Get indexation control settings
         $seo_controls = $this->get_seo_controls();
@@ -270,33 +354,83 @@ class Metasync_Sitemap_Generator
             'changefreq' => 'daily',
         ];
 
-        // Add posts, pages, and custom post types
-        foreach ($posts as $post) {
-            // Skip posts/pages marked as noindex
-            if ($this->is_post_noindex($post->ID)) {
-                continue;
+        // Process posts in chunks to bound memory and database load.
+        $chunk_size = (int) apply_filters('metasync_sitemap_chunk_size', 200);
+        if ($chunk_size < 1) {
+            $chunk_size = 200;
+        }
+        $paged = 1;
+
+        while (true) {
+            $query = new WP_Query([
+                'post_type'              => array_values($post_types),
+                'post_status'            => 'publish',
+                'posts_per_page'         => $chunk_size,
+                'paged'                  => $paged,
+                'orderby'                => 'modified',
+                'order'                  => 'DESC',
+                'no_found_rows'          => true,
+                'update_post_term_cache' => true,
+                'update_post_meta_cache' => true,
+                'cache_results'          => true,
+                'ignore_sticky_posts'    => true,
+                'suppress_filters'       => true,
+            ]);
+
+            $posts = $query->posts;
+            if (empty($posts)) {
+                wp_reset_postdata();
+                unset($query, $posts);
+                break;
             }
 
-            $priority = '0.8';
-            if ($post->post_type === 'page') {
-                $priority = '0.9';
-            } elseif ($post->post_type === 'post') {
-                $priority = '0.7';
+            // Batch-resolve noindex status for the entire chunk in a single query.
+            // Mirrors is_post_noindex(): metasync_common_robots is a serialized array
+            // and a post is noindex when it contains 'noindex' => 'noindex'.
+            $post_ids = wp_list_pluck($posts, 'ID');
+            $post_ids = array_map('intval', $post_ids);
+            $id_placeholders = implode(',', array_fill(0, count($post_ids), '%d'));
+            $noindex_pattern = '%"noindex";s:7:"noindex"%';
+            $noindex_args = array_merge($post_ids, [$noindex_pattern]);
+            $noindex_ids = (array) $wpdb->get_col(
+                $wpdb->prepare(
+                    "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = 'metasync_common_robots' AND post_id IN ({$id_placeholders}) AND meta_value LIKE %s",
+                    $noindex_args
+                )
+            );
+            $noindex_ids = array_map('intval', $noindex_ids);
+            $noindex_set = array_flip($noindex_ids);
+
+            foreach ($posts as $post) {
+                if (isset($noindex_set[(int) $post->ID])) {
+                    continue;
+                }
+
+                $priority = '0.8';
+                if ($post->post_type === 'page') {
+                    $priority = '0.9';
+                } elseif ($post->post_type === 'post') {
+                    $priority = '0.7';
+                }
+
+                $changefreq = 'weekly';
+                if ($post->post_type === 'page') {
+                    $changefreq = 'monthly';
+                }
+
+                // Note: get_permalink() respects the post_link_category filter registered
+                // in Metasync_Seo_Output, which automatically resolves the primary category.
+                $urls[] = [
+                    'loc' => get_permalink($post),
+                    'lastmod' => $post->post_modified_gmt,
+                    'priority' => $priority,
+                    'changefreq' => $changefreq,
+                ];
             }
 
-            $changefreq = 'weekly';
-            if ($post->post_type === 'page') {
-                $changefreq = 'monthly';
-            }
-
-            // Note: get_permalink() respects the post_link_category filter registered
-            // in Metasync_Seo_Output, which automatically resolves the primary category.
-            $urls[] = [
-                'loc' => get_permalink($post->ID),
-                'lastmod' => $post->post_modified_gmt,
-                'priority' => $priority,
-                'changefreq' => $changefreq,
-            ];
+            wp_reset_postdata();
+            unset($query, $posts, $noindex_ids, $noindex_set, $post_ids, $id_placeholders, $noindex_args);
+            $paged++;
         }
 
         // Add taxonomies (categories, tags, etc.)
@@ -312,19 +446,51 @@ class Metasync_Sitemap_Generator
                 'hide_empty' => true,
             ]);
 
-            if (!is_wp_error($terms) && !empty($terms)) {
-                foreach ($terms as $term) {
-                    $term_link = get_term_link($term);
-                    if (!is_wp_error($term_link)) {
-                        $urls[] = [
-                            'loc' => $term_link,
-                            'lastmod' => $this->get_term_last_modified($term->term_id, $taxonomy),
-                            'priority' => '0.6',
-                            'changefreq' => 'weekly',
-                        ];
-                    }
+            if (is_wp_error($terms) || empty($terms)) {
+                continue;
+            }
+
+            // Single aggregated query: most-recently-modified post per term in this taxonomy.
+            $type_values = array_values($post_types);
+            $type_placeholders = implode(',', array_fill(0, count($type_values), '%s'));
+            $lastmod_args = array_merge([$taxonomy], $type_values);
+            $lastmod_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT tt.term_id, MAX(p.post_modified_gmt) AS lastmod
+                     FROM {$wpdb->term_taxonomy} tt
+                     INNER JOIN {$wpdb->term_relationships} tr ON tr.term_taxonomy_id = tt.term_taxonomy_id
+                     INNER JOIN {$wpdb->posts} p ON p.ID = tr.object_id
+                     WHERE tt.taxonomy = %s AND p.post_status = 'publish' AND p.post_type IN ({$type_placeholders})
+                     GROUP BY tt.term_id",
+                    $lastmod_args
+                ),
+                ARRAY_A
+            );
+
+            $lastmod_map = [];
+            if (is_array($lastmod_rows)) {
+                foreach ($lastmod_rows as $row) {
+                    $lastmod_map[(int) $row['term_id']] = $row['lastmod'];
                 }
             }
+
+            foreach ($terms as $term) {
+                $term_link = get_term_link($term);
+                if (is_wp_error($term_link)) {
+                    continue;
+                }
+                $lastmod = isset($lastmod_map[(int) $term->term_id])
+                    ? $lastmod_map[(int) $term->term_id]
+                    : current_time('mysql', 1);
+                $urls[] = [
+                    'loc' => $term_link,
+                    'lastmod' => $lastmod,
+                    'priority' => '0.6',
+                    'changefreq' => 'weekly',
+                ];
+            }
+
+            unset($lastmod_rows, $lastmod_map, $terms);
         }
 
         return $urls;
@@ -698,38 +864,6 @@ class Metasync_Sitemap_Generator
     }
 
     /**
-     * Get the last modified date for a taxonomy term
-     *
-     * @param int $term_id The term ID
-     * @param string $taxonomy The taxonomy name
-     * @return string The last modified date in MySQL format (GMT)
-     */
-    private function get_term_last_modified($term_id, $taxonomy)
-    {
-        // Get the most recently modified post in this term
-        $recent_post = get_posts([
-            'tax_query' => [
-                [
-                    'taxonomy' => $taxonomy,
-                    'field' => 'term_id',
-                    'terms' => $term_id,
-                ],
-            ],
-            'post_status' => 'publish',
-            'posts_per_page' => 1,
-            'orderby' => 'modified',
-            'order' => 'DESC',
-        ]);
-
-        if (!empty($recent_post)) {
-            return $recent_post[0]->post_modified_gmt;
-        }
-
-        // Fallback to current time if no posts found
-        return current_time('mysql', 1);
-    }
-
-    /**
      * Get SEO controls/indexation settings
      *
      * @return array The SEO controls settings
@@ -740,27 +874,6 @@ class Metasync_Sitemap_Generator
             return Metasync::get_option('seo_controls', []);
         }
         return get_option('metasync_seo_controls', []);
-    }
-
-    /**
-     * Check if a post/page is set to noindex
-     *
-     * @param int $post_id The post ID
-     * @return bool True if the post should be excluded from sitemap
-     */
-    private function is_post_noindex($post_id)
-    {
-        // Check post-specific robots meta settings
-        $common_robots = get_post_meta($post_id, 'metasync_common_robots', true);
-        
-        if (!empty($common_robots) && is_array($common_robots)) {
-            // Check if noindex is set
-            if (isset($common_robots['noindex']) && $common_robots['noindex'] === 'noindex') {
-                return true;
-            }
-        }
-        
-        return false;
     }
 
     /**

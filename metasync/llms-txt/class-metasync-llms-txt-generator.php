@@ -30,7 +30,10 @@ class Metasync_Llms_Txt_Generator
         add_action('template_redirect', array($this, 'serve_virtual_llms_txt'), 1);
 
         // Invalidate the cache whenever a post is saved, deleted, or trashed.
-        add_action('save_post', array($this, 'invalidate_cache'));
+        // save_post is gated by post_type so unrelated CPTs do not bust the cache.
+        // deleted_post / trashed_post stay unconditional — post_type cannot always
+        // be reliably resolved after deletion.
+        add_action('save_post', array($this, 'maybe_invalidate_cache'));
         add_action('deleted_post', array($this, 'invalidate_cache'));
         add_action('trashed_post', array($this, 'invalidate_cache'));
 
@@ -231,6 +234,29 @@ class Metasync_Llms_Txt_Generator
             $robots->add_llms_txt_url($llms_url);
         } else {
             $robots->remove_llms_txt_url($llms_url);
+        }
+    }
+
+    /**
+     * Invalidate the cache only when the saved post's type is in the
+     * configured LLMs.txt post_types list.
+     *
+     * @param int $post_id
+     */
+    public function maybe_invalidate_cache($post_id)
+    {
+        $post = get_post($post_id);
+        if (!$post) {
+            return;
+        }
+
+        $saved = get_option(self::OPTION_KEY, []);
+        $post_types = (is_array($saved) && !empty($saved['post_types']) && is_array($saved['post_types']))
+            ? $saved['post_types']
+            : ['page', 'post'];
+
+        if (in_array($post->post_type, $post_types, true)) {
+            $this->invalidate_cache();
         }
     }
 

@@ -338,7 +338,16 @@ class Metasync_Redirection
                 if ($row->url_redirect_to) {
                     // Replace wildcards or $1 placeholders in destination URL
                     $destination = $this->process_destination_url($row->url_redirect_to, $captured_path);
-                    wp_redirect($destination, $row->http_code);
+                    $is_exact = isset($row->pattern_type) && $row->pattern_type === 'exact';
+                    if (get_option('metasync_allow_external_redirects', 0) && $is_exact) {
+                        $destination = esc_url_raw($destination);
+                        if (empty($destination)) {
+                            $destination = home_url();
+                        }
+                        wp_redirect($destination, $row->http_code);
+                    } else {
+                        wp_redirect(wp_validate_redirect($destination, home_url()), $row->http_code);
+                    }
                     die;
                 }
                 // Match found and processed, return true to stop checking other rules
