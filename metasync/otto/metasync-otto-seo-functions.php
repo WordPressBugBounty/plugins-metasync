@@ -910,9 +910,22 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
                                     continue;
                                 }
                                 $tag = strtolower(sanitize_text_field($heading['type']));
-                                $pattern = '/(<' . preg_quote($tag, '/') . '[^>]*>)\s*' . preg_quote($heading['current_value'], '/') . '\s*(<\/' . preg_quote($tag, '/') . '>)/i';
-                                $replacement = '$1' . sanitize_text_field($heading['recommended_value']) . '$2';
-                                $new_content = preg_replace($pattern, $replacement, $content, -1, $count);
+                                $pattern = '/(<' . preg_quote($tag, '/') . '[^>]*>)(.*?)(<\/' . preg_quote($tag, '/') . '>)/is';
+                                $normalized_current = trim(preg_replace('/\s+/', ' ', html_entity_decode($heading['current_value'], ENT_QUOTES, 'UTF-8')));
+                                $safe_recommended = sanitize_text_field($heading['recommended_value']);
+                                $count = 0;
+                                $new_content = preg_replace_callback(
+                                    $pattern,
+                                    function ($m) use ($normalized_current, $safe_recommended, &$count) {
+                                        $inner_text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($m[2]), ENT_QUOTES, 'UTF-8')));
+                                        if (strcasecmp($inner_text, $normalized_current) === 0) {
+                                            $count++;
+                                            return $m[1] . $safe_recommended . $m[3];
+                                        }
+                                        return $m[0];
+                                    },
+                                    $content
+                                );
                                 if ($count > 0 && $new_content !== null) {
                                     $content = $new_content;
                                     $fields_updated['heading_changes_persisted'] = ($fields_updated['heading_changes_persisted'] ?? 0) + $count;
@@ -2433,10 +2446,75 @@ add_action('init', 'metasync_register_seo_meta_fields');
 // add_action('admin_notices', 'metasync_otto_seo_admin_notice');
 
 /**
+ * WP-313: Suppress OTTO-synced SEO plugin output for logged-in users.
+ *
+ * When "Disable OTTO for Logged in Users" is enabled, filter Yoast SEO and
+ * Rank Math output hooks to return original (non-OTTO) values. These plugins
+ * use internal Indexable caches, so filtering get_post_metadata is insufficient.
+ */
+function metasync_is_otto_suppressed_for_current_user() {
+    static $result = null;
+    if ($result === null) {
+        $result = class_exists('Metasync_Otto_Config')
+            && Metasync_Otto_Config::is_disabled_for_loggedin()
+            && is_user_logged_in();
+    }
+    return $result;
+}
+
+# Yoast SEO filters
+add_filter('wpseo_title', 'metasync_suppress_yoast_title_for_loggedin', 99999);
+add_filter('wpseo_opengraph_title', 'metasync_suppress_yoast_title_for_loggedin', 99999);
+add_filter('wpseo_metadesc', 'metasync_suppress_yoast_desc_for_loggedin', 99999);
+add_filter('wpseo_opengraph_desc', 'metasync_suppress_yoast_desc_for_loggedin', 99999);
+add_filter('wpseo_schema_webpage', 'metasync_suppress_yoast_schema_for_loggedin', 99999);
+
+# Rank Math filters
+add_filter('rank_math/frontend/title', 'metasync_suppress_yoast_title_for_loggedin', 99999);
+add_filter('rank_math/frontend/description', 'metasync_suppress_yoast_desc_for_loggedin', 99999);
+
+function metasync_suppress_yoast_title_for_loggedin($title) {
+    if (!metasync_is_otto_suppressed_for_current_user()) {
+        return $title;
+    }
+    if (is_singular()) {
+        $original = get_the_title();
+        $sep = '-';
+        if (function_exists('YoastSEO') || class_exists('WPSEO_Utils')) {
+            $sep = apply_filters('document_title_separator', '-');
+        }
+        return $original . ' ' . $sep . ' ' . get_bloginfo('name');
+    }
+    return $title;
+}
+
+function metasync_suppress_yoast_desc_for_loggedin($desc) {
+    if (!metasync_is_otto_suppressed_for_current_user()) {
+        return $desc;
+    }
+    # Return empty so Yoast/Rank Math falls back to auto-generated excerpt
+    return '';
+}
+
+function metasync_suppress_yoast_schema_for_loggedin($data) {
+    if (!metasync_is_otto_suppressed_for_current_user()) {
+        return $data;
+    }
+    if (is_singular() && isset($data['name'])) {
+        $data['name'] = get_the_title() . ' - ' . get_bloginfo('name');
+    }
+    return $data;
+}
+
+/**
  * Astra Theme Compatibility
  * Override Astra theme's title output with OTTO optimized title
  */
 function metasync_astra_title_override($title) {
+    if (class_exists('Metasync_Otto_Config') && Metasync_Otto_Config::is_disabled_for_loggedin() && is_user_logged_in()) {
+        return $title;
+    }
+
     if (class_exists('Metasync_SEO_Conflict_Handler')) {
         $handler = Metasync_SEO_Conflict_Handler::get_instance();
         if ($handler->has_active_seo_plugin() && !$handler->otto_has_live_suggestions()) {
@@ -2501,6 +2579,10 @@ add_filter('astra_wp_title', 'metasync_astra_title_override', 99);
  * This ensures OTTO title appears on WooCommerce shop, category, and tag pages
  */
 function metasync_woocommerce_archive_title($title) {
+    if (class_exists('Metasync_Otto_Config') && Metasync_Otto_Config::is_disabled_for_loggedin() && is_user_logged_in()) {
+        return $title;
+    }
+
     if (class_exists('Metasync_SEO_Conflict_Handler')) {
         $handler = Metasync_SEO_Conflict_Handler::get_instance();
         if ($handler->has_active_seo_plugin() && !$handler->otto_has_live_suggestions()) {
@@ -2550,6 +2632,10 @@ add_filter('woocommerce_page_title', 'metasync_woocommerce_archive_title', 99);
  * Fallback for themes that use wp_title()
  */
 function metasync_wp_title_override($title, $sep = '') {
+    if (class_exists('Metasync_Otto_Config') && Metasync_Otto_Config::is_disabled_for_loggedin() && is_user_logged_in()) {
+        return $title;
+    }
+
     if (class_exists('Metasync_SEO_Conflict_Handler')) {
         $handler = Metasync_SEO_Conflict_Handler::get_instance();
         if ($handler->has_active_seo_plugin() && !$handler->otto_has_live_suggestions()) {
@@ -2621,6 +2707,10 @@ add_filter('wp_title', 'metasync_wp_title_override', 99, 2);
  * This is the modern way WordPress handles <title> tags
  */
 function metasync_document_title_parts($title_parts) {
+    if (class_exists('Metasync_Otto_Config') && Metasync_Otto_Config::is_disabled_for_loggedin() && is_user_logged_in()) {
+        return $title_parts;
+    }
+
     if (class_exists('Metasync_SEO_Conflict_Handler')) {
         $handler = Metasync_SEO_Conflict_Handler::get_instance();
         if ($handler->has_active_seo_plugin() && !$handler->otto_has_live_suggestions()) {
@@ -2717,6 +2807,13 @@ add_filter('document_title_parts', 'metasync_document_title_parts', 99);
  * Final override before title is rendered
  */
 function metasync_pre_get_document_title($title) {
+    if (class_exists('Metasync_Otto_Config') && Metasync_Otto_Config::is_disabled_for_loggedin() && is_user_logged_in()) {
+        # Return empty to neutralize any SEO plugin (Yoast/RankMath) that may have
+        # already set $title to the synced OTTO value at a lower priority.
+        # An empty string tells WordPress to rebuild the title from default parts.
+        return '';
+    }
+
     if (class_exists('Metasync_SEO_Conflict_Handler')) {
         $handler = Metasync_SEO_Conflict_Handler::get_instance();
         if ($handler->has_active_seo_plugin() && !$handler->otto_has_live_suggestions()) {
@@ -2800,6 +2897,10 @@ add_filter('pre_get_document_title', 'metasync_pre_get_document_title', 99);
  * Unlike titles, WordPress doesn't automatically output meta descriptions from meta fields
  */
 function metasync_output_otto_meta_description() {
+    if (class_exists('Metasync_Otto_Config') && Metasync_Otto_Config::is_disabled_for_loggedin() && is_user_logged_in()) {
+        return;
+    }
+
     // WP-196: When synced to an active SEO plugin, that plugin outputs the
     // description from its native storage — skip OTTO's own description tag.
     if (is_singular()) {

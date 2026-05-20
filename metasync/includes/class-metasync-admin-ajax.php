@@ -329,7 +329,7 @@ class Metasync_Admin_Ajax
 
         wp_send_json_success(array(
             'content' => $backup['content'],
-            'created_at' => $backup['created_at'],
+            'created_at' => get_date_from_gmt($backup['created_at'], get_option('date_format') . ' ' . get_option('time_format')),
             'created_by_name' => isset($backup['created_by_name']) ? $backup['created_by_name'] : ''
         ));
     }

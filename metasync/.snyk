@@ -7,3 +7,8 @@ exclude:
     - tests/**:
         reason: Test files - not shipped to production
         created: 2026-05-15T15:32:39.871Z
+    # md5() is used exclusively for cache keys, ETags, and dedup hashes
+    # (same pattern as WordPress core). Never used for password hashing.
+    # Snyk flags these as CWE-916 "Insufficient Computational Effort" — false positives.
+    - "**/*.php":
+        - php/InsecureHash

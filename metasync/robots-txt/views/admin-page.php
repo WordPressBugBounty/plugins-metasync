@@ -132,7 +132,7 @@ $robots_url = trailingslashit($site_url) . 'robots.txt';
                         <?php foreach ($backups as $backup): ?>
                             <div class="metasync-backup-item">
                                 <div class="metasync-backup-info">
-                                    <strong><?php echo esc_html(wp_date(get_option('date_format') . ' ' . get_option('time_format'), strtotime($backup['created_at']))); ?></strong>
+                                    <strong><?php echo esc_html(get_date_from_gmt($backup['created_at'], get_option('date_format') . ' ' . get_option('time_format'))); ?></strong>
                                     <?php if (!empty($backup['created_by_name'])): ?>
                                         <span class="metasync-backup-author">
                                             <?php printf(esc_html__('by %s', 'metasync'), esc_html($backup['created_by_name'])); ?>

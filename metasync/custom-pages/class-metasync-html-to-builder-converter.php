@@ -1902,9 +1902,6 @@ class Metasync_HTML_To_Builder_Converter
 	 */
 	public function convert_legacy($item, $landing_page_option = false, $otto_enable = false)
 	{
-		// Replace newlines with <br>
-		$item['post_content'] = str_replace(["\r\n", "\r", "\n"], "<br>", $item['post_content'] ?? '');
-
 		// Detect builder from user setting or auto-detect
 		$builder = $this->detect_active_builder();
 

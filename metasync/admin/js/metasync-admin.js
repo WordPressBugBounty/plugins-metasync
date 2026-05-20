@@ -2495,9 +2495,6 @@
 
 				formData += '&action=meta_sync_save_settings&active_tab=' + encodeURIComponent(currentTab);
 
-				// Capture the current API key value so we can restore it client-side if validation fails
-				var savedApiKeyValue = $('#searchatlas-api-key').val();
-
 				$.ajax({
 					url: metaSync.ajax_url,
 					type: 'POST',
@@ -2521,8 +2518,14 @@
 								noticeType    = 'notice-error';
 								noticeMessage = $('<span/>').text(response.data.warning || 'The API key could not be verified. Your other settings were saved.').html();
 								noAutoDismiss = true;
-								// Revert the input field to the value before save attempt
-								$('#searchatlas-api-key').val(savedApiKeyValue);
+								// Revert the input field to the previously saved valid key from the backend
+								var revertKey = (response.data.previous_api_key !== undefined) ? response.data.previous_api_key : '';
+								$('#searchatlas-api-key').val(revertKey);
+							} else if (response.data && response.data.api_key_removed === true) {
+								// API key was cleared — show warning, update status, page will reload
+								noticeType    = 'notice-warning';
+								noticeMessage = $('<span/>').text((response.data.warning || 'The API key has been removed.') + ' Reloading\u2026').html();
+								updateHeaderStatus(false, 'Disconnected', getPluginName() + ' disconnected');
 							} else if (response.data && response.data.warning) {
 								// Network failure — key saved but unverified
 								noticeType    = 'notice-warning';
@@ -2546,9 +2549,9 @@
 							// Scroll to the notice for better visibility
 							$('html, body').animate({ scrollTop: 0 }, 'slow');
 
-							// Reload page when API key was validated so server-rendered
+							// Reload page when API key status changed so server-rendered
 							// sections (One-Click Authentication, promo sidebar) update
-							if (response.data && response.data.api_key_validated === true) {
+							if (response.data && (response.data.api_key_validated === true || response.data.api_key_removed === true)) {
 								setTimeout(function () {
 									location.reload();
 								}, 1500);

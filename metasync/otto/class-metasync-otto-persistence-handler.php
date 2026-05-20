@@ -434,15 +434,23 @@ class Metasync_Otto_Persistence_Handler {
                 continue;
             }
 
-            # Build regex to match the heading tag with the current value
-            # Matches: <h1>current value</h1>, <h1 class="...">current value</h1>, etc.
-            $pattern = '/(<' . preg_quote($tag, '/') . '[^>]*>)\s*' . preg_quote($current_value, '/') . '\s*(<\/' . preg_quote($tag, '/') . '>)/i';
+            # Build regex to match the heading tag — use callback to strip inline HTML (e.g. <span>) for comparison
+            $pattern = '/(<' . preg_quote($tag, '/') . '[^>]*>)(.*?)(<\/' . preg_quote($tag, '/') . '>)/is';
 
-            # Escape backslashes and dollar signs to prevent back-reference injection
-            $safe_replacement = str_replace(['\\', '$'], ['\\\\', '\\$'], $recommended_value);
-            $replacement = '$1' . $safe_replacement . '$2';
-            
-            $new_content = preg_replace($pattern, $replacement, $content, -1, $count);
+            $normalized_current = trim(preg_replace('/\s+/', ' ', html_entity_decode($current_value, ENT_QUOTES, 'UTF-8')));
+            $count = 0;
+            $new_content = preg_replace_callback(
+                $pattern,
+                function ($m) use ($normalized_current, $recommended_value, &$count) {
+                    $inner_text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($m[2]), ENT_QUOTES, 'UTF-8')));
+                    if (strcasecmp($inner_text, $normalized_current) === 0) {
+                        $count++;
+                        return $m[1] . $recommended_value . $m[3];
+                    }
+                    return $m[0];
+                },
+                $content
+            );
             
             if ($count > 0 && $new_content !== null) {
                 $content = $new_content;

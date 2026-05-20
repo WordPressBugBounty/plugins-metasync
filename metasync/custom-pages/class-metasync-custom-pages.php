@@ -418,7 +418,7 @@ class Metasync_Custom_Pages
             header('Pragma: no-cache');
         } else {
             // Allow caching for published pages (CDN friendly)
-            header('Cache-Control: public, max-age=3600');
+            header('Cache-Control: private, max-age=3600');
         }
         
         // Output raw HTML and stop WordPress processing

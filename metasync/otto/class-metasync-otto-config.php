@@ -69,7 +69,7 @@ class Metasync_Otto_Config {
     public static function is_disabled_for_loggedin() {
         $options = self::get_options();
         return !empty($options['general']['otto_disable_on_loggedin']) &&
-               $options['general']['otto_disable_on_loggedin'] === 'true';
+               filter_var($options['general']['otto_disable_on_loggedin'], FILTER_VALIDATE_BOOLEAN);
     }
 
     /**

@@ -572,7 +572,7 @@ class Metasync_Otto_Render_Strategy {
         # Only set if WP Rocket is NOT active (let WP Rocket control cache headers)
         if (!is_user_logged_in() && !$wp_rocket_active) {
             $cache_duration = 3600; // 1 hour for browsers
-            header('Cache-Control: public, max-age=' . $cache_duration);
+            header('Cache-Control: private, max-age=' . $cache_duration);
             header('Vary: Accept-Encoding');
         }
 

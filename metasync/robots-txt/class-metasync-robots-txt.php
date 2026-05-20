@@ -215,7 +215,7 @@ class Metasync_Robots_Txt
         $normalized_content = preg_replace('/\s+/', ' ', strtolower($content));
 
         // Check for complete site disallow (blocking everything)
-        if (preg_match('/user-agent:\s*\*.*?disallow:\s*\/\s/i', $normalized_content)) {
+        if (preg_match('/user-agent:\s*\*.*?disallow:\s*\/(\s|$)/i', $normalized_content)) {
             // Check if it's ONLY blocking / without any other paths
             if (!preg_match('/disallow:\s*\/\w+/i', $content)) {
                 $warnings[] = esc_html__('Warning: You are blocking all crawlers from your entire site (Disallow: /). This will prevent search engines from indexing your content.', 'metasync');

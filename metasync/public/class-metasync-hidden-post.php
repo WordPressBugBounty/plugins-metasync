@@ -278,6 +278,10 @@ class MetaSyncHiddenPostManager
      */
     private function check_and_fix_post_content($post_id,$post_type='post')
     {
+        if (!class_exists('DOMDocument')) {
+            error_log('MetaSync: skipping check_and_fix_post_content — DOMDocument (php-dom extension) is not available on this server.');
+            return false;
+        }
 
         # Get the post title
         $post_title = get_the_title($post_id);

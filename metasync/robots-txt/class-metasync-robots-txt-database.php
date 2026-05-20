@@ -85,9 +85,10 @@ class Metasync_Robots_Txt_Database
             $this->table_name,
             array(
                 'content' => $content,
+                'created_at' => current_time('mysql', true),
                 'created_by' => get_current_user_id()
             ),
-            array('%s', '%d')
+            array('%s', '%s', '%d')
         );
 
         if (false === $result) {
@@ -246,7 +247,7 @@ class Metasync_Robots_Txt_Database
      */
     public function is_virtual_mode()
     {
-        return get_option('metasync_robots_txt_virtual_mode', false) === true;
+        return (bool) get_option('metasync_robots_txt_virtual_mode', false);
     }
 
     /**

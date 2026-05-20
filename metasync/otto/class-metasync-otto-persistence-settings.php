@@ -163,25 +163,33 @@ class Metasync_Otto_Persistence_Settings {
      * @return bool|WP_Error
      */
     public function authorize_request($request) {
-        # Accept X-API-Key header (same as MCP server) or ?apikey= query param for backward compat
+        # Accept Authorization: Bearer header (preferred), X-API-Key header, or ?apikey= query param for backward compat
         $api_key = '';
 
-        $header_key = $request->get_header('x-api-key');
-        if (!empty($header_key)) {
-            $api_key = sanitize_text_field($header_key);
+        $auth_header = $request->get_header('authorization');
+        if (!empty($auth_header) && preg_match('/^Bearer\s+(.+)$/i', $auth_header, $matches)) {
+            $api_key = sanitize_text_field($matches[1]);
+        }
+
+        if (empty($api_key)) {
+            $header_key = $request->get_header('x-api-key');
+            if (!empty($header_key)) {
+                $api_key = sanitize_text_field($header_key);
+            }
         }
 
         if (empty($api_key)) {
             $get_data = array_map('sanitize_text_field', $_GET);
             if (!empty($get_data['apikey'])) {
                 $api_key = $get_data['apikey'];
+                // Deprecated: ?apikey= query-param auth — switch callers to Authorization: Bearer
             }
         }
 
         if (empty($api_key)) {
             return new WP_Error(
                 'rest_forbidden',
-                'API key is required. Pass X-API-Key header or ?apikey= query parameter.',
+                'API key is required. Pass Authorization: Bearer header, X-API-Key header, or ?apikey= query parameter.',
                 ['status' => 401]
             );
         }

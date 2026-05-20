@@ -404,4 +404,42 @@
             });
         });
     }
+
+    // ── Search Clear Button ──
+    function initSearchClearBtn() {
+        var searchInput = document.querySelector('.metasync-toolbar-right .search-box input[type="search"]');
+        if (!searchInput) return;
+
+        var wrapper = document.createElement('div');
+        wrapper.className = 'metasync-search-input-wrap';
+        searchInput.parentNode.insertBefore(wrapper, searchInput);
+        wrapper.appendChild(searchInput);
+
+        var clearBtn = document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.className = 'metasync-clear-search';
+        clearBtn.innerHTML = '&times;';
+        clearBtn.setAttribute('aria-label', 'Clear search');
+        wrapper.appendChild(clearBtn);
+
+        function updateVisibility() {
+            if (searchInput.value.length > 0) {
+                clearBtn.classList.add('visible');
+            } else {
+                clearBtn.classList.remove('visible');
+            }
+        }
+
+        searchInput.addEventListener('input', updateVisibility);
+        updateVisibility();
+
+        clearBtn.addEventListener('click', function() {
+            searchInput.value = '';
+            updateVisibility();
+            var form = searchInput.closest('form');
+            if (form) { form.submit(); }
+        });
+    }
+
+    initSearchClearBtn();
 })();

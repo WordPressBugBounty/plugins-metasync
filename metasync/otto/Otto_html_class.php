@@ -810,8 +810,14 @@ Class Metasync_otto_html{
                 # check matching text
                 if(trim($heading['current_value'] ?? '') == trim($text ?? '')){
 
-                    # set the text
-                    $heading_old->innertext = $heading['recommended_value'];
+                    # replace entire tag output — preserves attributes, removes all children (elements + text nodes)
+                    $outer = $heading_old->outertext;
+                    $open_end = strpos($outer, '>');
+                    if ($open_end !== false) {
+                        $open_tag = substr($outer, 0, $open_end + 1);
+                        $close_tag = '</' . $heading['type'] . '>';
+                        $heading_old->outertext = $open_tag . $heading['recommended_value'] . $close_tag;
+                    }
 
                 }
             }

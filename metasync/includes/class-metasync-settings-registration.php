@@ -2432,7 +2432,9 @@ class Metasync_Settings_Registration
 
                 $value = trim($_POST['metasync_options']['general'][$field]);
 
-                $whitelabel_clearable_fields = [
+                // searchatlas_api_key must be clearable to support key removal (WP-334)
+                $clearable_fields = [
+                    'searchatlas_api_key',
                     'white_label_plugin_name',
                     'white_label_plugin_description',
                     'white_label_plugin_author',
@@ -2442,7 +2444,7 @@ class Metasync_Settings_Registration
                     'otto_pixel_uuid'
                 ];
 
-                if ($value === '' && !in_array($field, $whitelabel_clearable_fields)) {
+                if ($value === '' && !in_array($field, $clearable_fields)) {
                     continue;
                 }
 
@@ -2639,38 +2641,59 @@ class Metasync_Settings_Registration
         $api_key_validated     = null;  // null = not checked, true = valid, false = rejected
         $is_connected          = null;
         $api_key_warning       = null;
-        // Value from $metasync_options after the sanitize loop (sanitize_text_field applied at line ~2474)
         $proposed_new_api_key  = $metasync_options['general']['searchatlas_api_key'] ?? '';
 
-        // Only validate when the API key actually changed (new or modified)
+        // WP-308: When the API key changes, save it first, then POST heartbeat to register
+        // the WPWebsiteHeartbeat row on the backend, then GET ping to verify.
+        // The old flow (WP-239) did GET ping first, which failed because the row didn't exist yet.
         if ( $api_key_field_present && $proposed_new_api_key !== '' && $proposed_new_api_key !== $old_api_key ) {
-            $ping = Metasync_Heartbeat_Manager::instance()->validate_api_key( $proposed_new_api_key );
+            // Step 1: Save the new key so SyncCustomerParams can use it
+            Metasync::set_option($metasync_options);
 
-            if ( $ping['connected'] === true ) {
-                // Key validated — accept it and auto-populate UUID if returned
-                $api_key_validated = true;
-                $is_connected      = true;
-                if ( ! empty( $ping['otto_pixel_uuid'] ) ) {
-                    $existing_uuid = $metasync_options['general']['otto_pixel_uuid'] ?? '';
-                    if ( empty( $existing_uuid ) || $existing_uuid !== $ping['otto_pixel_uuid'] ) {
-                        $metasync_options['general']['otto_pixel_uuid'] = sanitize_text_field( $ping['otto_pixel_uuid'] );
+            // Step 2: POST heartbeat to register the site (creates WPWebsiteHeartbeat row)
+            $sync_request = new Metasync_Sync_Requests();
+            $sync_response = $sync_request->SyncCustomerParams();
+            $sync_status = wp_remote_retrieve_response_code($sync_response);
+
+            if ( $sync_status == 200 ) {
+                // Step 3: GET ping to verify registration succeeded
+                $ping = Metasync_Heartbeat_Manager::instance()->validate_api_key( $proposed_new_api_key );
+
+                if ( $ping['connected'] === true ) {
+                    $api_key_validated = true;
+                    $is_connected      = true;
+                    if ( ! empty( $ping['otto_pixel_uuid'] ) ) {
+                        $existing_uuid = $metasync_options['general']['otto_pixel_uuid'] ?? '';
+                        if ( empty( $existing_uuid ) || $existing_uuid !== $ping['otto_pixel_uuid'] ) {
+                            $metasync_options['general']['otto_pixel_uuid'] = sanitize_text_field( $ping['otto_pixel_uuid'] );
+                            Metasync::set_option($metasync_options);
+                        }
                     }
+                } else {
+                    // POST succeeded but ping didn't confirm — keep the key, warn user
+                    $api_key_validated = true;
+                    $is_connected      = true;
+                    $api_key_warning = 'API key saved and heartbeat sent. Connection verification will complete on the next heartbeat.';
                 }
-            } elseif ( isset( $ping['network_error'] ) && $ping['network_error'] === true ) {
-                // Network/timeout failure — save the key but warn the user
-                $api_key_warning = 'Could not verify API key (network error). The key was saved — it will be verified on the next heartbeat.';
+            } elseif ( is_wp_error($sync_response) ) {
+                // Network error during POST — keep the key, warn user
+                $api_key_warning = 'Could not register with the server (network error). The key was saved — it will be verified on the next heartbeat.';
             } else {
-                // Backend explicitly rejected the key — revert to old key
+                // POST returned non-200 — the key is likely invalid, revert
                 $metasync_options['general']['searchatlas_api_key'] = $old_api_key;
+                Metasync::set_option($metasync_options);
                 $api_key_validated = false;
                 $is_connected      = false;
-                $api_key_warning   = 'The API key could not be verified. Please check it and try again.';
+                $api_key_warning   = empty( $old_api_key )
+                    ? 'The API key could not be verified. Please check it and try again.'
+                    : 'The API key could not be verified. Your API key has been reverted to the previously saved key.';
             }
+        } else {
+            // Key unchanged — just save options
+            Metasync::set_option($metasync_options);
         }
 
-        Metasync::set_option($metasync_options);
-
-        // Update connection state immediately when ping confirmed
+        // Update connection state immediately when validated
         if ( $api_key_validated === true ) {
             update_option( 'metasync_last_known_connection_state', true );
             set_transient( 'metasync_heartbeat_status_cache', [
@@ -2688,8 +2711,6 @@ class Metasync_Settings_Registration
         $api_key_added = empty($old_api_key) && !empty($new_api_key);
         $api_key_removed = !empty($old_api_key) && empty($new_api_key);
 
-        // Skip heavy SyncCustomerParams when ping already validated the key — schedule
-        // an async heartbeat instead so the save response returns quickly.
         if ( $api_key_validated === true ) {
             $dt = new DateTime();
             $send_auth_token_timestamp = Metasync::get_option();
@@ -2699,7 +2720,7 @@ class Metasync_Settings_Registration
             Metasync_Heartbeat_Manager::instance()->maybe_schedule_heartbeat_cron();
             do_action('metasync_trigger_immediate_heartbeat', 'Manual API key update - validated via ping');
         } else {
-            // No ping was done (key unchanged, cleared, or network failure) — fall back to sync
+            // Key unchanged or removed — run sync as before
             $sync_request = new Metasync_Sync_Requests();
             $response = $sync_request->SyncCustomerParams();
             $responseCode = wp_remote_retrieve_response_code($response);
@@ -2887,6 +2908,12 @@ class Metasync_Settings_Registration
             if ( $api_key_warning !== null ) {
                 $response_payload['warning'] = $api_key_warning;
             }
+            if ( $api_key_validated === false ) {
+                $response_payload['previous_api_key'] = $old_api_key;
+            }
+        } elseif ( $api_key_field_present && $proposed_new_api_key === '' && $old_api_key !== '' ) {
+            $response_payload['api_key_removed'] = true;
+            $response_payload['warning'] = 'The API key has been removed. The plugin will no longer sync with the server.';
         }
 
         delete_transient('metasync_otto_js_detected');

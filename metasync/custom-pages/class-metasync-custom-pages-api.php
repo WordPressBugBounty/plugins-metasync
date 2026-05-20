@@ -118,17 +118,33 @@ class Metasync_Custom_Pages_API
 	 */
 	public function validate_api_key($request)
 	{
-		// Get API key from header or query parameter
-		$api_key = $request->get_header('x-api-key');
+		// Get API key from Authorization: Bearer header (preferred), x-api-key header, or apikey query parameter
+		$api_key = '';
+
+		$auth_header = $request->get_header('authorization');
+		if (!empty($auth_header) && preg_match('/^Bearer\s+(.+)$/i', $auth_header, $matches)) {
+			$api_key = sanitize_text_field($matches[1]);
+		}
 
 		if (empty($api_key)) {
-			$api_key = $request->get_param('apikey');
+			$header_key = $request->get_header('x-api-key');
+			if (!empty($header_key)) {
+				$api_key = sanitize_text_field($header_key);
+			}
+		}
+
+		if (empty($api_key)) {
+			$param_key = $request->get_param('apikey');
+			if (!empty($param_key)) {
+				$api_key = sanitize_text_field($param_key);
+				// Deprecated: ?apikey= query-param auth — switch callers to Authorization: Bearer
+			}
 		}
 
 		if (empty($api_key)) {
 			return new WP_Error(
 				'missing_api_key',
-				'API key is required. Provide it via x-api-key header or apikey query parameter.',
+				'API key is required. Provide it via Authorization: Bearer header, x-api-key header, or apikey query parameter.',
 				array('status' => 401)
 			);
 		}

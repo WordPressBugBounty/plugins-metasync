@@ -317,10 +317,46 @@ class Metasync_Connect_Manager
         $success_key = 'metasync_sa_connect_success_' . md5($nonce_token);
         $this_auth_completed = get_transient($success_key);
 
+        // Fallback: on sites with external object cache, the success flag written
+        // by the REST callback (SA server process) is invisible to this AJAX poll
+        // (admin user process). Read directly from wp_options as fallback.
+        if (!$this_auth_completed && wp_using_ext_object_cache()) {
+            global $wpdb;
+
+            // Check expiry first
+            $timeout = $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                    '_transient_timeout_' . $success_key
+                )
+            );
+
+            if ($timeout && (int) $timeout < time()) {
+                // Expired — clean up
+                $wpdb->delete($wpdb->options, array('option_name' => '_transient_' . $success_key));
+                $wpdb->delete($wpdb->options, array('option_name' => '_transient_timeout_' . $success_key));
+            } else {
+                $db_value = $wpdb->get_var(
+                    $wpdb->prepare(
+                        "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                        '_transient_' . $success_key
+                    )
+                );
+                if ($db_value) {
+                    $this_auth_completed = true;
+                }
+            }
+        }
 
         if ($this_auth_completed) {
             // Delete the transient (one-time use) to prevent replay
             delete_transient($success_key);
+            // Also clean up DB fallback rows
+            if (wp_using_ext_object_cache()) {
+                global $wpdb;
+                $wpdb->delete($wpdb->options, array('option_name' => '_transient_' . $success_key));
+                $wpdb->delete($wpdb->options, array('option_name' => '_transient_timeout_' . $success_key));
+            }
 
             // Get current settings to return API key
             $general_settings = Metasync::get_option('general') ?? [];
@@ -382,6 +418,24 @@ class Metasync_Connect_Manager
         set_transient($transient_key, $token_metadata, 900);
 
         set_transient('metasync_sa_connect_active_' . $sa_connect_token, $transient_key, 900);
+
+        // When external object cache (Redis/Memcached/LiteSpeed) is active,
+        // set_transient() writes to cache ONLY — never to wp_options. The REST
+        // callback from SA servers runs in a different process/cache context and
+        // cannot see the cached value. Write directly to DB as a fallback.
+        if (wp_using_ext_object_cache()) {
+            global $wpdb;
+            $active_option = '_transient_metasync_sa_connect_active_' . $sa_connect_token;
+            $metadata_option = '_transient_' . $transient_key;
+            $timeout_active = '_transient_timeout_metasync_sa_connect_active_' . $sa_connect_token;
+            $timeout_metadata = '_transient_timeout_' . $transient_key;
+            $expires = time() + 900;
+
+            $wpdb->replace($wpdb->options, array('option_name' => $active_option, 'option_value' => $transient_key, 'autoload' => 'no'));
+            $wpdb->replace($wpdb->options, array('option_name' => $timeout_active, 'option_value' => $expires, 'autoload' => 'no'));
+            $wpdb->replace($wpdb->options, array('option_name' => $metadata_option, 'option_value' => maybe_serialize($token_metadata), 'autoload' => 'no'));
+            $wpdb->replace($wpdb->options, array('option_name' => $timeout_metadata, 'option_value' => $expires, 'autoload' => 'no'));
+        }
 
         return $sa_connect_token;
     }

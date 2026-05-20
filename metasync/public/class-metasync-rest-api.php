@@ -253,16 +253,26 @@ class Metasync_Rest_Api
 	}
 	}
 
-	public function rest_authorization_middleware()
+	public function rest_authorization_middleware($request = null)
 	{
-		# Accept API key from header (preferred) or query string (deprecated fallback)
-		$api_key = isset($_SERVER['HTTP_X_API_KEY']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_X_API_KEY'])) : '';
+		$api_key = '';
 
+		// Primary: Authorization: Bearer <token>
+		if ($request instanceof \WP_REST_Request) {
+			$auth_header = $request->get_header('authorization');
+			if (!empty($auth_header) && preg_match('/^Bearer\s+(.+)$/i', $auth_header, $matches)) {
+				$api_key = sanitize_text_field($matches[1]);
+			}
+		}
+
+		// Secondary: X-API-Key header
+		if (empty($api_key) && isset($_SERVER['HTTP_X_API_KEY'])) {
+			$api_key = sanitize_text_field(wp_unslash($_SERVER['HTTP_X_API_KEY']));
+		}
+
+		// Fallback: ?apikey= query param (deprecated)
 		if (empty($api_key) && isset($_GET['apikey'])) {
 			$api_key = sanitize_text_field($_GET['apikey']);
-			if (!empty($api_key)) {
-				error_log('MetaSync: REST API key via query string is deprecated. Use X-API-Key header instead.');
-			}
 		}
 
 		if (empty($api_key)) {
@@ -276,10 +286,7 @@ class Metasync_Rest_Api
 			return false;
 		}
 
-		if (hash_equals($stored_key, $api_key)) {
-			return true;
-		}
-		return false;
+		return hash_equals($stored_key, $api_key);
 	}
 
 
@@ -2877,7 +2884,13 @@ class Metasync_Rest_Api
 			}
 
 			// Check token exists in transients (read-only - don't modify)
+			// Try transient first, then fall back to wp_options (handles object cache issues)
 			$transient_key = get_transient('metasync_sa_connect_active_' . $nonce_token);
+
+			if (empty($transient_key) && wp_using_ext_object_cache()) {
+				$transient_key = $this->get_sso_token_from_db($nonce_token);
+			}
+
 			if (empty($transient_key)) {
 				return new WP_Error(
 					'invalid_nonce_token',
@@ -2888,6 +2901,11 @@ class Metasync_Rest_Api
 
 			// Check token metadata exists (read-only)
 			$token_metadata = get_transient($transient_key);
+
+			if ((empty($token_metadata) || !is_array($token_metadata)) && wp_using_ext_object_cache()) {
+				$token_metadata = $this->get_sso_metadata_from_db($transient_key);
+			}
+
 			if (empty($token_metadata) || !is_array($token_metadata)) {
 				return new WP_Error(
 					'invalid_nonce_token',
@@ -2917,6 +2935,141 @@ class Metasync_Rest_Api
 		}
 	}
 
+	/**
+	 * Read SSO active token directly from DB, bypassing object cache.
+	 *
+	 * On sites with external object cache (Redis, Memcached, LiteSpeed), the
+	 * transient set during the admin AJAX request may not be visible to the
+	 * REST callback from SA servers (different process/cache context).
+	 *
+	 * Checks the companion _transient_timeout_ row to honor expiry.
+	 *
+	 * @param string $nonce_token The nonce token from the x-api-key header
+	 * @return string|false The metadata transient key, or false
+	 */
+	private function get_sso_token_from_db($nonce_token)
+	{
+		global $wpdb;
+
+		$option_name = '_transient_metasync_sa_connect_active_' . $nonce_token;
+		$timeout_name = '_transient_timeout_metasync_sa_connect_active_' . $nonce_token;
+
+		// Check expiry first
+		$timeout = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+				$timeout_name
+			)
+		);
+
+		if ($timeout && (int) $timeout < time()) {
+			// Expired — clean up orphan rows
+			$wpdb->delete($wpdb->options, array('option_name' => $option_name));
+			$wpdb->delete($wpdb->options, array('option_name' => $timeout_name));
+			return false;
+		}
+
+		$value = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+				$option_name
+			)
+		);
+
+		return $value ?: false;
+	}
+
+	/**
+	 * Read SSO token metadata directly from DB, bypassing object cache.
+	 *
+	 * Checks the companion _transient_timeout_ row to honor expiry.
+	 *
+	 * @param string $transient_key The transient key holding the token metadata
+	 * @return array|false The token metadata array, or false
+	 */
+	private function get_sso_metadata_from_db($transient_key)
+	{
+		global $wpdb;
+
+		$option_name = '_transient_' . $transient_key;
+		$timeout_name = '_transient_timeout_' . $transient_key;
+
+		// Check expiry first
+		$timeout = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+				$timeout_name
+			)
+		);
+
+		if ($timeout && (int) $timeout < time()) {
+			$wpdb->delete($wpdb->options, array('option_name' => $option_name));
+			$wpdb->delete($wpdb->options, array('option_name' => $timeout_name));
+			return false;
+		}
+
+		$value = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+				$option_name
+			)
+		);
+
+		if ($value) {
+			$unserialized = maybe_unserialize($value);
+			return is_array($unserialized) ? $unserialized : false;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Delete an SSO transient and its DB fallback rows.
+	 *
+	 * When external object cache is active, delete_transient() only removes
+	 * the cache entry. This also removes the wp_options rows written by the
+	 * DB fallback in create_searchatlas_nonce_token().
+	 *
+	 * @param string $transient_name Transient name (without _transient_ prefix)
+	 */
+	private function delete_sso_transient($transient_name)
+	{
+		delete_transient($transient_name);
+		if (wp_using_ext_object_cache()) {
+			global $wpdb;
+			$wpdb->delete($wpdb->options, array('option_name' => '_transient_' . $transient_name));
+			$wpdb->delete($wpdb->options, array('option_name' => '_transient_timeout_' . $transient_name));
+		}
+	}
+
+	/**
+	 * Set an SSO transient and its DB fallback rows.
+	 *
+	 * When external object cache is active, set_transient() only writes to
+	 * cache. This also writes to wp_options so cross-process reads work.
+	 *
+	 * @param string $transient_name Transient name (without _transient_ prefix)
+	 * @param mixed  $value          Value to store
+	 * @param int    $expiration     Expiration in seconds
+	 */
+	private function set_sso_transient($transient_name, $value, $expiration)
+	{
+		set_transient($transient_name, $value, $expiration);
+		if (wp_using_ext_object_cache()) {
+			global $wpdb;
+			$wpdb->replace($wpdb->options, array(
+				'option_name'  => '_transient_' . $transient_name,
+				'option_value' => maybe_serialize($value),
+				'autoload'     => 'no',
+			));
+			$wpdb->replace($wpdb->options, array(
+				'option_name'  => '_transient_timeout_' . $transient_name,
+				'option_value' => time() + $expiration,
+				'autoload'     => 'no',
+			));
+		}
+	}
+
     /**
      * Validate Search Atlas connect token for callback
      * SECURITY FIX (CVE-2025-14386): Only validates against time-limited transient tokens
@@ -2931,24 +3084,33 @@ class Metasync_Rest_Api
         // SECURITY FIX: Token MUST exist in transients (created by generate_searchatlas_connect_url)
         // We do NOT fall back to apikey - this was the vulnerability!
         $transient_key = get_transient('metasync_sa_connect_active_' . $token);
-        
+
+        // Fallback: read directly from DB when object cache misses
+        if (empty($transient_key) && wp_using_ext_object_cache()) {
+            $transient_key = $this->get_sso_token_from_db($token);
+        }
+
         if (empty($transient_key)) {
             return false;
         }
 
-        // Token found in transients - validate metadata
+        // Token found - validate metadata
         $token_metadata = get_transient($transient_key);
 
+        // Fallback: read metadata directly from DB
+        if ((empty($token_metadata) || !is_array($token_metadata)) && wp_using_ext_object_cache()) {
+            $token_metadata = $this->get_sso_metadata_from_db($transient_key);
+        }
+
         if (empty($token_metadata) || !is_array($token_metadata)) {
-            delete_transient('metasync_sa_connect_active_' . $token);
+            $this->delete_sso_transient('metasync_sa_connect_active_' . $token);
             return false;
         }
 
-
         // Check expiration
         if (isset($token_metadata['expires']) && time() > $token_metadata['expires']) {
-            delete_transient($transient_key);
-            delete_transient('metasync_sa_connect_active_' . $token);
+            $this->delete_sso_transient($transient_key);
+            $this->delete_sso_transient('metasync_sa_connect_active_' . $token);
             return false;
         }
 
@@ -2956,18 +3118,18 @@ class Metasync_Rest_Api
         if (isset($token_metadata['callback_used']) && $token_metadata['callback_used'] === true) {
             return false;
         }
-        
+
         // Mark token as used for callback (single-use)
+        // Uses set_sso_transient to propagate callback_used to DB on object cache sites
         $token_metadata['callback_used'] = true;
         $token_metadata['callback_at'] = time();
-        // BUGFIX: Keep metadata for 5 minutes to allow user login to complete
-        set_transient($transient_key, $token_metadata, 300); // Keep for 5 minutes for user login
+        $this->set_sso_transient($transient_key, $token_metadata, 300);
 
         // BUGFIX: Only delete the active token mapping if BOTH operations are complete
         // This allows user login and API callback to happen in any order without race conditions
         if (isset($token_metadata['used']) && $token_metadata['used'] === true) {
             // Both callback and login are done - safe to delete mapping
-            delete_transient('metasync_sa_connect_active_' . $token);
+            $this->delete_sso_transient('metasync_sa_connect_active_' . $token);
         }
         // Otherwise, keep the mapping so user login can still find the token
 
@@ -3457,10 +3619,11 @@ class Metasync_Rest_Api
                 // Update authentication timestamp for polling detection (legacy - keeping for compatibility)
                 $options['general']['send_auth_token_timestamp'] = current_time('mysql');
 
-                // ✅ NEW: Set nonce-specific success flag for polling detection
+                // Set nonce-specific success flag for polling detection
                 // This ensures only the specific nonce that was authenticated reports success
+                // Uses set_sso_transient to also write to DB on object cache sites
                 $success_key = 'metasync_sa_connect_success_' . md5($token);
-                set_transient($success_key, true, 300); // 5 minutes expiry
+                $this->set_sso_transient($success_key, true, 300);
 
                 // Clear JWT token cache when API key is updated to ensure fresh tokens
                 $this->clear_jwt_token_cache();

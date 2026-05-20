@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.6.8
+Stable tag: 2.6.9
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,21 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.9 =
+* Security: Move API key authentication from query parameter to Authorization Bearer header
+* Security: Fix X-Forwarded-For IP spoofing in OTTO bot detector — trust Cloudflare header first
+* Security: Cache-Control changed from public to private to prevent CDN nonce sharing
+* Fix: OTTO heading replacement corrupted when heading contains inline elements (e.g. span tags)
+* Fix: SSO one-click auth fails on sites with external object cache
+* Fix: Guard against missing DOMDocument extension in check_and_fix_post_content
+* Fix: POST heartbeat before GET ping on manual API key save to register WPWebsiteHeartbeat
+* Fix: Strict-equality bug in is_virtual_mode() causing Virtual badge not to show after first request
+* Fix: Remove newline-to-br replacement that injects whitespace into synced content
+* Improvement: API key input field now reverts to previous valid key on validation failure
+* Improvement: Deployed OTTO titles no longer show on frontend when Disable OTTO for Logged in Users is enabled
+* Improvement: Robots.txt Disallow / warning now triggers correctly with fixed regex matching
+* Improvement: Robots.txt timestamps now respect WordPress timezone setting instead of hardcoded UTC
+
 = 2.6.8 =
 * Security: Use hash_equals() for timing-safe API key comparison in custom pages API
 * Security: Resolve 4 Snyk Code MEDIUM findings — DOM XSS and info exposure

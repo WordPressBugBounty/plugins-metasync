@@ -403,36 +403,55 @@ class Metasync_Otto_Bot_Detector {
     }
 
     /**
-     * Get client IP address
-     * Handles various proxy configurations
+     * Get client IP address.
      *
-     * @return string Client IP address
+     * Resolves the visitor's IP using a Cloudflare-first priority order so that
+     * attacker-controlled headers cannot be used to spoof crawler IPs and bypass
+     * the IP-range step of bot detection:
+     *
+     *   1. HTTP_CF_CONNECTING_IP — trusted, but only when HTTP_CF_RAY confirms
+     *      the request actually traversed Cloudflare.
+     *   2. HTTP_X_FORWARDED_FOR — fallback for non-Cloudflare reverse proxies.
+     *      The chain is walked right-to-left and the first public IP is used;
+     *      the leftmost value is attacker-controlled and must not be trusted.
+     *   3. REMOTE_ADDR — TCP peer; final fallback for direct (non-proxied) hits.
+     *
+     * Non-standard, attacker-controllable headers are intentionally not
+     * consulted at any point in this resolution chain.
+     *
+     * @return string Client IP address, or '' if none could be validated.
      */
     private function get_client_ip() {
-        $ip = '';
-
-        // Check for shared internet/ISP IP
-        if (!empty($_SERVER['HTTP_CLIENT_IP'])) {
-            $ip = $_SERVER['HTTP_CLIENT_IP'];
-        }
-        // Check for IPs passing through proxies
-        elseif (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-            // HTTP_X_FORWARDED_FOR can contain multiple IPs
-            $ips = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
-            $ip = trim($ips[0]);
-        }
-        // Check for Cloudflare
-        elseif (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
-            $ip = $_SERVER['HTTP_CF_CONNECTING_IP'];
-        }
-        // Regular remote address
-        elseif (!empty($_SERVER['REMOTE_ADDR'])) {
-            $ip = $_SERVER['REMOTE_ADDR'];
+        // 1. Cloudflare-proxied request: HTTP_CF_RAY is the canonical marker
+        //    that Cloudflare actually handled the connection, which means
+        //    HTTP_CF_CONNECTING_IP was set by Cloudflare and is trustworthy.
+        if (!empty($_SERVER['HTTP_CF_RAY']) && !empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+            $cf_ip = $_SERVER['HTTP_CF_CONNECTING_IP'];
+            if (filter_var($cf_ip, FILTER_VALIDATE_IP)) {
+                return $cf_ip;
+            }
         }
 
-        // Validate IP
-        if (filter_var($ip, FILTER_VALIDATE_IP)) {
-            return $ip;
+        // 2. Non-Cloudflare reverse proxy: walk X-Forwarded-For right-to-left
+        //    and return the first public IP. The trusted proxy appends to the
+        //    right; everything to the left of that may have been supplied by
+        //    the client and cannot be relied on.
+        if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+            $ips = array_reverse(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']));
+            foreach ($ips as $candidate) {
+                $candidate = trim($candidate);
+                if ($candidate === '') {
+                    continue;
+                }
+                if (filter_var($candidate, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                    return $candidate;
+                }
+            }
+        }
+
+        // 3. Direct connection: TCP peer.
+        if (!empty($_SERVER['REMOTE_ADDR']) && filter_var($_SERVER['REMOTE_ADDR'], FILTER_VALIDATE_IP)) {
+            return $_SERVER['REMOTE_ADDR'];
         }
 
         return '';
