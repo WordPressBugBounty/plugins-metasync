@@ -86,6 +86,7 @@ if (!defined('ABSPATH')) {
                 }
             }
             $total_url_count = $url_count + $news_url_count + $video_url_count;
+            $any_sitemap_exists = $sitemap_exists || $news_sm_exists || $video_sm_exists;
             ?>
 
             <div class="metasync-sitemap-status-grid">
@@ -93,9 +94,9 @@ if (!defined('ABSPATH')) {
                     <div class="stat-icon"><span class="dashicons dashicons-media-default"></span></div>
                     <div class="stat-content">
                         <div class="stat-label">Status</div>
-                        <div class="stat-value <?php echo $sitemap_exists ? 'status-active' : 'status-inactive'; ?>">
-                            <?php 
-                            echo $sitemap_exists ? 'Generated' : 'Not Generated';
+                        <div class="stat-value <?php echo $any_sitemap_exists ? 'status-active' : 'status-inactive'; ?>">
+                            <?php
+                            echo $any_sitemap_exists ? 'Generated' : 'Not Generated';
                             if ($sitemap_exists && $sitemap_generator->is_virtual_mode()): ?>
                                 <span style="color: #2271b1; font-size: 12px; margin-left: 5px;">(Virtual)</span>
                             <?php endif; ?>
@@ -184,6 +185,140 @@ if (!defined('ABSPATH')) {
         </div>
         <?php endif; ?>
 
+        <!-- Content Settings Card -->
+        <div class="dashboard-card metasync-sitemap-content-settings-card">
+            <h2><?php esc_html_e('Content Settings', 'metasync'); ?></h2>
+            <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">
+                <?php esc_html_e('Control which content types and URLs are included in the main sitemap.', 'metasync'); ?>
+            </p>
+
+            <form method="post">
+                <?php wp_nonce_field('metasync_sitemap_settings_action', 'metasync_sitemap_settings_nonce'); ?>
+
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><?php esc_html_e('Post Types', 'metasync'); ?></th>
+                        <td>
+                            <?php
+                            $all_public_pts = get_post_types(['public' => true], 'objects');
+                            $general_filtered_pts = [];
+                            $general_excluded = ['attachment', 'revision', 'nav_menu_item', 'elementor_library', 'ct_template', 'oxy_user_library', 'brizy-template', 'fusion_template', 'fusion_tb_section', 'ae_global_templates', 'custom_css', 'customize_changeset', 'oembed_cache', 'user_request', 'wp_block', 'wp_template', 'wp_template_part', 'wp_global_styles', 'wp_navigation', 'acf-field-group', 'acf-field', 'fl-builder-template', 'fl-theme-layout'];
+                            foreach ($all_public_pts as $pt) {
+                                if (!in_array($pt->name, $general_excluded, true)) {
+                                    $general_filtered_pts[] = $pt;
+                                }
+                            }
+                            $sitemap_configured = !empty($sitemap_settings['_configured']);
+                            $selected_sitemap_pts = !empty($sitemap_settings['post_types']) ? (array) $sitemap_settings['post_types'] : [];
+                            $gen_pts_scrollable = count($general_filtered_pts) > 10;
+                            if ($gen_pts_scrollable) : ?>
+                                <input type="text" class="metasync-checkbox-search" placeholder="<?php esc_attr_e('Filter post types...', 'metasync'); ?>">
+                            <?php endif; ?>
+                            <div class="<?php echo $gen_pts_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
+                                <?php foreach ($general_filtered_pts as $pt) : ?>
+                                    <label>
+                                        <input type="checkbox" name="sitemap_post_types[]" value="<?php echo esc_attr($pt->name); ?>"
+                                            <?php checked(!$sitemap_configured || in_array($pt->name, $selected_sitemap_pts, true)); ?> />
+                                        <?php echo esc_html($pt->label); ?>
+                                    </label>
+                                <?php endforeach; ?>
+                                <p class="metasync-no-results"><?php esc_html_e('No post types match your search.', 'metasync'); ?></p>
+                            </div>
+                            <p class="description"><?php esc_html_e('Select which post types to include. All are included by default.', 'metasync'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <?php esc_html_e('Categories', 'metasync'); ?>
+                            <?php $gen_categories = get_categories(['hide_empty' => false]); ?>
+                            <span class="metasync-checkbox-count">(<?php echo count($gen_categories); ?>)</span>
+                        </th>
+                        <td>
+                            <?php
+                            $selected_gen_cats = isset($sitemap_settings['categories']) ? (array) $sitemap_settings['categories'] : [];
+                            $gen_cats_scrollable = count($gen_categories) > 10;
+                            if ($gen_cats_scrollable) : ?>
+                                <input type="text" class="metasync-checkbox-search" placeholder="<?php esc_attr_e('Filter categories...', 'metasync'); ?>">
+                            <?php endif; ?>
+                            <div class="<?php echo $gen_cats_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
+                                <?php foreach ($gen_categories as $cat) : ?>
+                                    <label>
+                                        <input type="checkbox" name="sitemap_categories[]" value="<?php echo esc_attr($cat->term_id); ?>"
+                                            <?php checked(in_array($cat->term_id, $selected_gen_cats)); ?> />
+                                        <?php echo esc_html($cat->name); ?>
+                                    </label>
+                                <?php endforeach; ?>
+                                <p class="metasync-no-results"><?php esc_html_e('No categories match your search.', 'metasync'); ?></p>
+                            </div>
+                            <p class="description"><?php esc_html_e('Leave empty to include all categories.', 'metasync'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <?php esc_html_e('Tags', 'metasync'); ?>
+                            <?php $gen_tags = get_tags(['hide_empty' => false]); ?>
+                            <span class="metasync-checkbox-count">(<?php echo count($gen_tags); ?>)</span>
+                        </th>
+                        <td>
+                            <?php
+                            $selected_gen_tags = isset($sitemap_settings['tags']) ? (array) $sitemap_settings['tags'] : [];
+                            if (!empty($gen_tags)) :
+                                $gen_tags_scrollable = count($gen_tags) > 10;
+                                if ($gen_tags_scrollable) : ?>
+                                    <input type="text" class="metasync-checkbox-search" placeholder="<?php esc_attr_e('Filter tags...', 'metasync'); ?>">
+                                <?php endif; ?>
+                                <div class="<?php echo $gen_tags_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
+                                    <?php foreach ($gen_tags as $tag) : ?>
+                                        <label>
+                                            <input type="checkbox" name="sitemap_tags[]" value="<?php echo esc_attr($tag->term_id); ?>"
+                                                <?php checked(in_array($tag->term_id, $selected_gen_tags)); ?> />
+                                            <?php echo esc_html($tag->name); ?>
+                                        </label>
+                                    <?php endforeach; ?>
+                                    <p class="metasync-no-results"><?php esc_html_e('No tags match your search.', 'metasync'); ?></p>
+                                </div>
+                            <?php else : ?>
+                                <p class="description"><?php esc_html_e('No tags found.', 'metasync'); ?></p>
+                            <?php endif; ?>
+                            <p class="description"><?php esc_html_e('Leave empty to include all tags.', 'metasync'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e('Taxonomies', 'metasync'); ?></th>
+                        <td>
+                            <?php
+                            $all_taxonomies = get_taxonomies(['public' => true], 'objects');
+                            $selected_sitemap_taxes = !empty($sitemap_settings['taxonomies']) ? (array) $sitemap_settings['taxonomies'] : [];
+                            $gen_tax_scrollable = count($all_taxonomies) > 10;
+                            if ($gen_tax_scrollable) : ?>
+                                <input type="text" class="metasync-checkbox-search" placeholder="<?php esc_attr_e('Filter taxonomies...', 'metasync'); ?>">
+                            <?php endif; ?>
+                            <div class="<?php echo $gen_tax_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
+                                <?php foreach ($all_taxonomies as $tax) : ?>
+                                    <label>
+                                        <input type="checkbox" name="sitemap_taxonomies[]" value="<?php echo esc_attr($tax->name); ?>"
+                                            <?php checked(!$sitemap_configured || in_array($tax->name, $selected_sitemap_taxes, true)); ?> />
+                                        <?php echo esc_html($tax->label); ?> <code><?php echo esc_html($tax->name); ?></code>
+                                    </label>
+                                <?php endforeach; ?>
+                                <p class="metasync-no-results"><?php esc_html_e('No taxonomies match your search.', 'metasync'); ?></p>
+                            </div>
+                            <p class="description"><?php esc_html_e('Select which taxonomy archive pages to include. All are included by default.', 'metasync'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e('Exclude URLs', 'metasync'); ?></th>
+                        <td>
+                            <textarea name="sitemap_excluded_urls" rows="5" class="large-text code" placeholder="<?php esc_attr_e("https://example.com/page-to-exclude/\nhttps://example.com/another-page/", 'metasync'); ?>"><?php echo esc_textarea($sitemap_settings['excluded_urls'] ?? ''); ?></textarea>
+                            <p class="description"><?php esc_html_e('Enter one URL per line. These URLs will be excluded from the main sitemap.', 'metasync'); ?></p>
+                        </td>
+                    </tr>
+                </table>
+
+                <?php submit_button(esc_html__('Save & Generate Sitemap', 'metasync'), 'primary', 'save_sitemap_settings'); ?>
+            </form>
+        </div>
+
         <!-- Generate Sitemap Card -->
         <div class="dashboard-card metasync-sitemap-actions-card">
             <h2>Sitemap Actions</h2>
@@ -198,7 +333,7 @@ if (!defined('ABSPATH')) {
                     <?php wp_nonce_field('metasync_sitemap_action', 'metasync_sitemap_nonce'); ?>
                     <button type="submit" name="generate_sitemap" class="button button-primary button-hero metasync-sitemap-button-large">
                         <span class="dashicons dashicons-update"></span>
-                        Generate Sitemap Now
+                        Generate Sitemaps Now
                     </button>
                     <p class="metasync-button-description">
                         <?php
@@ -232,7 +367,7 @@ if (!defined('ABSPATH')) {
                     <?php endif; ?>
                 </form>
 
-                <?php if ($sitemap_exists): ?>
+                <?php if ($any_sitemap_exists): ?>
                 <form method="post" action="" class="metasync-sitemap-action-form" onsubmit="return confirm('Are you sure you want to delete all sitemap files? This action cannot be undone.');">
                     <?php wp_nonce_field('metasync_sitemap_action', 'metasync_sitemap_nonce'); ?>
                     <button type="submit" name="delete_sitemap" class="button button-secondary button-hero metasync-sitemap-button-large" style="border-color: #dc3232; color: #dc3232;">
@@ -271,19 +406,23 @@ if (!defined('ABSPATH')) {
 
         </div>
 
-        <?php if ($sitemap_exists && !empty($sitemap_files)): ?>
+        <?php if (($sitemap_exists && !empty($sitemap_files)) || $news_sm_exists || $video_sm_exists || $news_sm_enabled || $video_sm_enabled): ?>
         <!-- Sitemap Files List Card -->
         <div class="dashboard-card metasync-sitemap-files-card">
             <h2>Sitemap Files</h2>
             <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">
+                <?php if ($total_sitemap_count > 0): ?>
                 Your sitemap has <?php echo $total_sitemap_count; ?> file<?php echo $total_sitemap_count > 1 ? 's' : ''; ?> — <?php echo $sitemap_count; ?> main (up to <?php echo number_format($sitemap_generator->get_urls_per_sitemap()); ?> URLs each)<?php
-                if ($news_sm_exists || $video_sm_exists) {
-                    $extras = [];
-                    if ($news_sm_exists) $extras[] = 'news';
-                    if ($video_sm_exists) $extras[] = 'video';
-                    echo ', plus ' . implode(' &amp; ', $extras);
-                }
-                ?>.
+                    if ($news_sm_exists || $video_sm_exists) {
+                        $extras = [];
+                        if ($news_sm_exists) $extras[] = 'news';
+                        if ($video_sm_exists) $extras[] = 'video';
+                        echo ', plus ' . implode(' &amp; ', $extras);
+                    }
+                    ?>.
+                <?php else: ?>
+                <?php esc_html_e('No sitemap files generated yet. Use "Generate Sitemaps Now" above to create them.', 'metasync'); ?>
+                <?php endif; ?>
             </p>
 
             <table class="metasync-sitemap-table">
@@ -296,7 +435,7 @@ if (!defined('ABSPATH')) {
                     </tr>
                 </thead>
                 <tbody>
-                    <?php
+                    <?php if ($sitemap_exists && !empty($sitemap_files)):
                     $urls_per_file = $sitemap_generator->get_urls_per_sitemap();
                     $total_urls = $url_count;
                     foreach ($sitemap_files as $index => $sitemap_file):
@@ -327,40 +466,71 @@ if (!defined('ABSPATH')) {
                                 <span class="dashicons dashicons-external"></span>
                                 View
                             </a>
+                            <?php if ($index === 0): ?>
+                            <form method="post" action="" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete the General sitemap? This action cannot be undone.');">
+                                <?php wp_nonce_field('metasync_sitemap_action', 'metasync_sitemap_nonce'); ?>
+                                <button type="submit" name="delete_general_sitemap" class="button-delete">
+                                    <span class="dashicons dashicons-trash"></span>
+                                    <?php esc_html_e('Delete', 'metasync'); ?>
+                                </button>
+                            </form>
+                            <?php endif; ?>
                         </td>
                     </tr>
-                    <?php endforeach; ?>
+                    <?php endforeach; endif; ?>
 
-                    <?php if ($news_sm_exists): ?>
+                    <?php if ($news_sm_enabled): ?>
                     <tr>
                         <td>
                             <div class="sitemap-filename">news-sitemap.xml</div>
                             <div class="sitemap-url-range"><?php esc_html_e('Google News Sitemap', 'metasync'); ?></div>
                         </td>
-                        <td><?php echo $news_url_count; ?></td>
-                        <td><?php echo $last_generated ? esc_html(date('M j, Y g:i A', strtotime($last_generated))) : '—'; ?></td>
+                        <td><?php echo $news_sm_exists ? $news_url_count : '<em style="color:var(--dashboard-text-secondary);">Not generated</em>'; ?></td>
+                        <td><?php echo ($news_sm_exists && $last_generated) ? esc_html(date('M j, Y g:i A', strtotime($last_generated))) : '—'; ?></td>
                         <td>
+                            <?php if ($news_sm_exists): ?>
                             <a href="<?php echo esc_url(home_url('/news-sitemap.xml')); ?>" target="_blank" class="button-view">
                                 <span class="dashicons dashicons-external"></span>
                                 View
                             </a>
+                            <form method="post" action="" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete the News sitemap? This action cannot be undone.');">
+                                <?php wp_nonce_field('metasync_sitemap_action', 'metasync_sitemap_nonce'); ?>
+                                <button type="submit" name="delete_news_sitemap" class="button-delete">
+                                    <span class="dashicons dashicons-trash"></span>
+                                    <?php esc_html_e('Delete', 'metasync'); ?>
+                                </button>
+                            </form>
+                            <?php else: ?>
+                            <span style="color:var(--dashboard-text-secondary); font-style:italic;"><?php esc_html_e('Enabled — generate to create file', 'metasync'); ?></span>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <?php endif; ?>
 
-                    <?php if ($video_sm_exists): ?>
+                    <?php if ($video_sm_enabled): ?>
                     <tr>
                         <td>
                             <div class="sitemap-filename">video-sitemap.xml</div>
                             <div class="sitemap-url-range"><?php esc_html_e('Video Sitemap', 'metasync'); ?></div>
                         </td>
-                        <td><?php echo $video_url_count; ?></td>
-                        <td><?php echo $last_generated ? esc_html(date('M j, Y g:i A', strtotime($last_generated))) : '—'; ?></td>
+                        <td><?php echo $video_sm_exists ? $video_url_count : '<em style="color:var(--dashboard-text-secondary);">Not generated</em>'; ?></td>
+                        <td><?php echo ($video_sm_exists && $last_generated) ? esc_html(date('M j, Y g:i A', strtotime($last_generated))) : '—'; ?></td>
                         <td>
+                            <?php if ($video_sm_exists): ?>
                             <a href="<?php echo esc_url(home_url('/video-sitemap.xml')); ?>" target="_blank" class="button-view">
                                 <span class="dashicons dashicons-external"></span>
                                 View
                             </a>
+                            <form method="post" action="" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete the Video sitemap? This action cannot be undone.');">
+                                <?php wp_nonce_field('metasync_sitemap_action', 'metasync_sitemap_nonce'); ?>
+                                <button type="submit" name="delete_video_sitemap" class="button-delete">
+                                    <span class="dashicons dashicons-trash"></span>
+                                    <?php esc_html_e('Delete', 'metasync'); ?>
+                                </button>
+                            </form>
+                            <?php else: ?>
+                            <span style="color:var(--dashboard-text-secondary); font-style:italic;"><?php esc_html_e('Enabled — generate to create file', 'metasync'); ?></span>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <?php endif; ?>
@@ -574,6 +744,51 @@ if (!defined('ABSPATH')) {
                             <p class="description"><?php esc_html_e('Leave empty to include all tags.', 'metasync'); ?></p>
                         </td>
                     </tr>
+                    <?php
+                    // Generic taxonomy filters for news sitemap
+                    $news_custom_taxonomies = get_taxonomies(['public' => true, '_builtin' => false], 'objects');
+                    $news_saved_taxonomies = isset($news_settings['taxonomies']) ? (array) $news_settings['taxonomies'] : [];
+                    if (!empty($news_custom_taxonomies)) :
+                        foreach ($news_custom_taxonomies as $tax) :
+                            $tax_terms = get_terms(['taxonomy' => $tax->name, 'hide_empty' => false]);
+                            if (empty($tax_terms) || is_wp_error($tax_terms)) continue;
+                            $selected_term_ids = isset($news_saved_taxonomies[$tax->name]) ? (array) $news_saved_taxonomies[$tax->name] : [];
+                    ?>
+                    <tr>
+                        <th scope="row">
+                            <?php echo esc_html($tax->label); ?>
+                            <span class="metasync-checkbox-count">(<?php echo count($tax_terms); ?>)</span>
+                        </th>
+                        <td>
+                            <?php
+                            $tax_scrollable = count($tax_terms) > 10;
+                            if ($tax_scrollable) : ?>
+                                <input type="text" class="metasync-checkbox-search" placeholder="<?php echo esc_attr(sprintf(__('Filter %s...', 'metasync'), strtolower($tax->label))); ?>">
+                            <?php endif; ?>
+                            <div class="<?php echo $tax_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
+                                <?php foreach ($tax_terms as $term) : ?>
+                                    <label>
+                                        <input type="checkbox" name="news_taxonomies[<?php echo esc_attr($tax->name); ?>][]" value="<?php echo esc_attr($term->term_id); ?>"
+                                            <?php checked(in_array($term->term_id, $selected_term_ids)); ?> />
+                                        <?php echo esc_html($term->name); ?>
+                                    </label>
+                                <?php endforeach; ?>
+                                <p class="metasync-no-results"><?php esc_html_e('No items match your search.', 'metasync'); ?></p>
+                            </div>
+                            <p class="description"><?php esc_html_e('Leave empty to include all.', 'metasync'); ?></p>
+                        </td>
+                    </tr>
+                    <?php
+                        endforeach;
+                    endif;
+                    ?>
+                    <tr>
+                        <th scope="row"><?php esc_html_e('Exclude URLs', 'metasync'); ?></th>
+                        <td>
+                            <textarea name="news_excluded_urls" rows="4" class="large-text code" placeholder="<?php esc_attr_e("https://example.com/post-to-exclude/\nhttps://example.com/another-post/", 'metasync'); ?>"><?php echo esc_textarea($news_settings['excluded_urls'] ?? ''); ?></textarea>
+                            <p class="description"><?php esc_html_e('Enter one URL per line. These URLs will be excluded from the news sitemap.', 'metasync'); ?></p>
+                        </td>
+                    </tr>
                     <tr>
                         <th scope="row"><?php esc_html_e('Publication Name', 'metasync'); ?></th>
                         <td>
@@ -592,7 +807,7 @@ if (!defined('ABSPATH')) {
                     </tr>
                 </table>
 
-                <?php submit_button(esc_html__('Save News Sitemap Settings', 'metasync'), 'primary', 'save_news_sitemap'); ?>
+                <?php submit_button(esc_html__('Save & Generate Sitemap', 'metasync'), 'primary', 'save_news_sitemap'); ?>
             </form>
         </div>
     </div>
@@ -721,9 +936,51 @@ if (!defined('ABSPATH')) {
                             <p class="description"><?php esc_html_e('Detects YouTube, Vimeo, VideoPress, and self-hosted &lt;video&gt; tags.', 'metasync'); ?></p>
                         </td>
                     </tr>
+                    <?php
+                    // Taxonomy filters for video sitemap
+                    $video_all_taxonomies = get_taxonomies(['public' => true], 'objects');
+                    $video_saved_taxonomies = isset($video_settings['taxonomies']) ? (array) $video_settings['taxonomies'] : [];
+                    // Show categories, tags, and custom taxonomies
+                    foreach ($video_all_taxonomies as $tax) :
+                        $tax_terms = get_terms(['taxonomy' => $tax->name, 'hide_empty' => false]);
+                        if (empty($tax_terms) || is_wp_error($tax_terms)) continue;
+                        $selected_term_ids = isset($video_saved_taxonomies[$tax->name]) ? (array) $video_saved_taxonomies[$tax->name] : [];
+                    ?>
+                    <tr>
+                        <th scope="row">
+                            <?php echo esc_html($tax->label); ?>
+                            <span class="metasync-checkbox-count">(<?php echo count($tax_terms); ?>)</span>
+                        </th>
+                        <td>
+                            <?php
+                            $vtax_scrollable = count($tax_terms) > 10;
+                            if ($vtax_scrollable) : ?>
+                                <input type="text" class="metasync-checkbox-search" placeholder="<?php echo esc_attr(sprintf(__('Filter %s...', 'metasync'), strtolower($tax->label))); ?>">
+                            <?php endif; ?>
+                            <div class="<?php echo $vtax_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
+                                <?php foreach ($tax_terms as $term) : ?>
+                                    <label>
+                                        <input type="checkbox" name="video_taxonomies[<?php echo esc_attr($tax->name); ?>][]" value="<?php echo esc_attr($term->term_id); ?>"
+                                            <?php checked(in_array($term->term_id, $selected_term_ids)); ?> />
+                                        <?php echo esc_html($term->name); ?>
+                                    </label>
+                                <?php endforeach; ?>
+                                <p class="metasync-no-results"><?php esc_html_e('No items match your search.', 'metasync'); ?></p>
+                            </div>
+                            <p class="description"><?php esc_html_e('Leave empty to include all.', 'metasync'); ?></p>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                    <tr>
+                        <th scope="row"><?php esc_html_e('Exclude URLs', 'metasync'); ?></th>
+                        <td>
+                            <textarea name="video_excluded_urls" rows="4" class="large-text code" placeholder="<?php esc_attr_e("https://example.com/post-to-exclude/\nhttps://example.com/another-post/", 'metasync'); ?>"><?php echo esc_textarea($video_settings['excluded_urls'] ?? ''); ?></textarea>
+                            <p class="description"><?php esc_html_e('Enter one URL per line. These URLs will be excluded from the video sitemap.', 'metasync'); ?></p>
+                        </td>
+                    </tr>
                 </table>
 
-                <?php submit_button(esc_html__('Save Video Sitemap Settings', 'metasync'), 'primary', 'save_video_sitemap'); ?>
+                <?php submit_button(esc_html__('Save & Generate Sitemap', 'metasync'), 'primary', 'save_video_sitemap'); ?>
             </form>
         </div>
     </div>

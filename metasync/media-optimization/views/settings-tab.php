@@ -32,22 +32,24 @@ if (!defined('WPINC')) {
 
                 <div class="metasync-card-body metasync-toggle-section" data-toggle="enable_conversion" <?php echo empty($settings['enable_conversion']) ? 'style="display:none;"' : ''; ?>>
                     <div class="metasync-field-row">
-                        <div class="metasync-field">
+                        <div class="metasync-field metasync-field--card">
                             <label for="conversion_format"><?php esc_html_e('Target Format', 'metasync'); ?></label>
-                            <select name="metasync_media[conversion_format]" id="conversion_format">
-                                <option value="webp" <?php selected($settings['conversion_format'], 'webp'); ?>
-                                    <?php disabled(!$capabilities['webp_support']); ?>>
-                                    WebP <?php echo !$capabilities['webp_support'] ? esc_html__('(not supported)', 'metasync') : ''; ?>
-                                </option>
-                                <option value="avif" <?php selected($settings['conversion_format'], 'avif'); ?>
-                                    <?php disabled(!$capabilities['avif_support']); ?>>
-                                    AVIF <?php echo !$capabilities['avif_support'] ? esc_html__('(not supported)', 'metasync') : ''; ?>
-                                </option>
-                            </select>
+                            <div class="metasync-select-wrap">
+                                <select name="metasync_media[conversion_format]" id="conversion_format">
+                                    <option value="webp" <?php selected($settings['conversion_format'], 'webp'); ?>
+                                        <?php disabled(!$capabilities['webp_support']); ?>>
+                                        WebP <?php echo !$capabilities['webp_support'] ? esc_html__('(not supported)', 'metasync') : ''; ?>
+                                    </option>
+                                    <option value="avif" <?php selected($settings['conversion_format'], 'avif'); ?>
+                                        <?php disabled(!$capabilities['avif_support']); ?>>
+                                        AVIF <?php echo !$capabilities['avif_support'] ? esc_html__('(not supported)', 'metasync') : ''; ?>
+                                    </option>
+                                </select>
+                            </div>
                             <p class="metasync-field-description"><?php esc_html_e('WebP has broader browser support. AVIF offers better compression but requires newer browsers.', 'metasync'); ?></p>
                         </div>
 
-                        <div class="metasync-field">
+                        <div class="metasync-field metasync-field--card">
                             <label for="conversion_quality"><?php esc_html_e('Quality', 'metasync'); ?></label>
                             <div class="metasync-range-group">
                                 <input type="range" name="metasync_media[conversion_quality]" id="conversion_quality"
@@ -60,16 +62,18 @@ if (!defined('WPINC')) {
                     </div>
 
                     <div class="metasync-field-row">
-                        <div class="metasync-field">
+                        <div class="metasync-field metasync-field--card">
                             <label for="conversion_strategy"><?php esc_html_e('Conversion Strategy', 'metasync'); ?></label>
-                            <select name="metasync_media[conversion_strategy]" id="conversion_strategy">
-                                <option value="alongside" <?php selected($settings['conversion_strategy'], 'alongside'); ?>>
-                                    <?php esc_html_e('Store alongside original (serve via <picture>)', 'metasync'); ?>
-                                </option>
-                                <option value="replace" <?php selected($settings['conversion_strategy'], 'replace'); ?>>
-                                    <?php esc_html_e('Replace original file (Not Recommended)', 'metasync'); ?>
-                                </option>
-                            </select>
+                            <div class="metasync-select-wrap">
+                                <select name="metasync_media[conversion_strategy]" id="conversion_strategy">
+                                    <option value="alongside" <?php selected($settings['conversion_strategy'], 'alongside'); ?>>
+                                        <?php esc_html_e('Store alongside original (serve via <picture>)', 'metasync'); ?>
+                                    </option>
+                                    <option value="replace" <?php selected($settings['conversion_strategy'], 'replace'); ?>>
+                                        <?php esc_html_e('Replace original file (Not Recommended)', 'metasync'); ?>
+                                    </option>
+                                </select>
+                            </div>
                             <p class="metasync-field-description"><?php esc_html_e('"Alongside" keeps the original and creates a converted copy with automatic <picture> tag wrapping.', 'metasync'); ?></p>
                             <div class="metasync-strategy-warning" id="replace-strategy-warning" <?php echo $settings['conversion_strategy'] !== 'replace' ? 'style="display:none;"' : ''; ?>>
                                 <span class="dashicons dashicons-warning"></span>
@@ -77,7 +81,8 @@ if (!defined('WPINC')) {
                             </div>
                         </div>
 
-                        <div class="metasync-field">
+                        <div class="metasync-field metasync-field--card">
+                            <label><?php esc_html_e('Thumbnail Sizes', 'metasync'); ?></label>
                             <label class="metasync-checkbox-label">
                                 <input type="checkbox" name="metasync_media[convert_existing_sizes]" value="1"
                                     <?php checked(!empty($settings['convert_existing_sizes'])); ?>>
@@ -104,7 +109,7 @@ if (!defined('WPINC')) {
 
                 <div class="metasync-card-body metasync-toggle-section" data-toggle="enable_lazy_loading" <?php echo empty($settings['enable_lazy_loading']) ? 'style="display:none;"' : ''; ?>>
                     <div class="metasync-field-row">
-                        <div class="metasync-field">
+                        <div class="metasync-field metasync-field--card">
                             <label for="lcp_skip_count"><?php esc_html_e('LCP Protection - Skip Count', 'metasync'); ?></label>
                             <div class="metasync-number-group">
                                 <input type="number" name="metasync_media[lcp_skip_count]" id="lcp_skip_count"
@@ -115,7 +120,8 @@ if (!defined('WPINC')) {
                             <p class="metasync-field-description"><?php esc_html_e('Number of leading images to exclude from lazy loading. These will get loading="eager" to protect your Largest Contentful Paint (LCP) score. Recommended: 2-3 for hero images and logos.', 'metasync'); ?></p>
                         </div>
 
-                        <div class="metasync-field">
+                        <div class="metasync-field metasync-field--card">
+                            <label><?php esc_html_e('Iframe Loading', 'metasync'); ?></label>
                             <label class="metasync-checkbox-label">
                                 <input type="checkbox" name="metasync_media[lazy_load_iframes]" value="1"
                                     <?php checked(!empty($settings['lazy_load_iframes'])); ?>>

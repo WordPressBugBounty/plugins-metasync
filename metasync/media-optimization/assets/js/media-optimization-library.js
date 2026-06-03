@@ -24,9 +24,13 @@
  *   - i18n.of:            string
  *   - i18n.images:        string  (e.g. "images...")
  *   - i18n.unoptimized:   string
- *   - i18n.selectImages:  string
- *   - i18n.bulkFailed:    string
- *   - i18n.apply:         string
+ *   - i18n.selectImages:          string
+ *   - i18n.bulkFailed:             string
+ *   - i18n.apply:                  string
+ *   - i18n.unoptimizing:           string
+ *   - i18n.unoptimizeConfirm:      string
+ *   - i18n.bulkUnoptimizeFailed:   string
+ *   - i18n.alreadyUnoptimized:     string
  */
 (function() {
     'use strict';
@@ -80,8 +84,13 @@
                 });
 
                 var actionsCell = row.querySelector('.column-actions');
-                actionsCell.innerHTML = '<button type="button" class="button button-small metasync-revert-btn" data-id="' + sanitizeHtml(String(id)) + '">' +
-                    '<span class="dashicons dashicons-undo" style="margin-top:3px;"></span> ' + sanitizeHtml(i18n.revert || 'Revert') + '</button>';
+                if (data.data.can_revert === false) {
+                    actionsCell.innerHTML = '<button type="button" class="button button-small metasync-revert-btn" data-id="' + sanitizeHtml(String(id)) + '" disabled title="' + sanitizeHtml(i18n.revertDisabled || 'Original image unavailable — revert is disabled') + '">' +
+                        '<span class="dashicons dashicons-undo" style="margin-top:3px;"></span> ' + sanitizeHtml(i18n.revert || 'Revert') + '</button>';
+                } else {
+                    actionsCell.innerHTML = '<button type="button" class="button button-small metasync-revert-btn" data-id="' + sanitizeHtml(String(id)) + '">' +
+                        '<span class="dashicons dashicons-undo" style="margin-top:3px;"></span> ' + sanitizeHtml(i18n.revert || 'Revert') + '</button>';
+                }
 
                 updateStats();
             } else {
@@ -101,7 +110,7 @@
     // ── Single Revert ──
     document.addEventListener('click', function(e) {
         var btn = e.target.closest('.metasync-revert-btn');
-        if (!btn) return;
+        if (!btn || btn.disabled) return;
 
         if (!confirm(i18n.revertConfirm || 'Revert this image to its original format?')) {
             return;
@@ -327,6 +336,26 @@
         if (pctEl) pctEl.textContent = stats.percentage + '%';
         var fillEl = document.querySelector('.metasync-stat-progress-fill');
         if (fillEl) fillEl.style.width = stats.percentage + '%';
+
+        // Update "Optimize All" button state based on unoptimized count
+        if (optimizeAllBtn && !batchActive) {
+            var unoptimized = parseInt(stats.unoptimized, 10) || 0;
+            optimizeAllBtn.disabled = unoptimized === 0;
+
+            var badge = optimizeAllBtn.querySelector('.metasync-count-badge');
+            if (unoptimized > 0) {
+                if (badge) {
+                    badge.textContent = stats.unoptimized;
+                } else {
+                    badge = document.createElement('span');
+                    badge.className = 'metasync-count-badge';
+                    badge.textContent = stats.unoptimized;
+                    optimizeAllBtn.appendChild(badge);
+                }
+            } else if (badge) {
+                badge.remove();
+            }
+        }
     }
 
     function updateStats() {
@@ -366,7 +395,7 @@
 
             var actionName = isTopApply ? 'action' : 'action2';
             var action = bulkForm.querySelector('[name="' + actionName + '"]');
-            if (!action || action.value !== 'bulk_optimize') return;
+            if (!action || (action.value !== 'bulk_optimize' && action.value !== 'bulk_unoptimize')) return;
 
             e.preventDefault();
 
@@ -379,23 +408,46 @@
             var ids = [];
             checked.forEach(function(cb) { ids.push(cb.value); });
 
+            var isBulkUnoptimize = action.value === 'bulk_unoptimize';
+
+            if (isBulkUnoptimize && !confirm(i18n.unoptimizeConfirm || 'Revert selected images to their original format?')) {
+                return;
+            }
+
             var clickedBtn = isTopApply ? applyBtnTop : applyBtnBottom;
             clickedBtn.disabled = true;
-            clickedBtn.value = i18n.optimizing || 'Optimizing...';
+
+            var ajaxAction = isBulkUnoptimize ? 'metasync_bulk_unoptimize_selected' : 'metasync_bulk_optimize_selected';
+            clickedBtn.value = isBulkUnoptimize
+                ? (i18n.unoptimizing || 'Unoptimizing...')
+                : (i18n.optimizing || 'Optimizing...');
 
             fetch(ajaxUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: 'action=metasync_bulk_optimize_selected&nonce=' + nonce + '&ids=' + ids.join(',')
+                body: 'action=' + ajaxAction + '&nonce=' + nonce + '&ids=' + ids.join(',')
             })
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.success) {
+                    var result = data.data;
+                    if (isBulkUnoptimize && result.errors && result.errors.length > 0) {
+                        alert(result.errors.join('\n'));
+                    }
+                    if (isBulkUnoptimize && result.success === 0 && result.skipped > 0) {
+                        clickedBtn.disabled = false;
+                        clickedBtn.value = i18n.apply || 'Apply';
+                        alert(i18n.alreadyUnoptimized || 'All selected images are already unoptimized.');
+                        return;
+                    }
                     location.reload();
                 } else {
                     clickedBtn.disabled = false;
                     clickedBtn.value = i18n.apply || 'Apply';
-                    alert(data.data || (i18n.bulkFailed || 'Bulk optimization failed.'));
+                    var failMsg = isBulkUnoptimize
+                        ? (i18n.bulkUnoptimizeFailed || 'Bulk unoptimize failed.')
+                        : (i18n.bulkFailed || 'Bulk optimization failed.');
+                    alert(data.data || failMsg);
                 }
             })
             .catch(function() {

@@ -189,6 +189,10 @@ class Metasync_Otto_Transient_Cache {
                 # API responded 200 OK but genuinely no OTTO suggestions for this URL.
                 # Cache the negative result for a short time to prevent hammering the API.
                 set_transient($keys['transient'], false, self::NO_SUGGESTIONS_TTL);
+                # WP-361: Wipe the stale fallback too. Without this, a rate-limit
+                # event within the next 60 min serves the previously-deployed (now
+                # undeployed) suggestion, keeping the wrong title alive on the page.
+                delete_transient($keys['stale']);
                 self::$cache_status[$cache_status_key] = 'NO_SUGGESTIONS';
             } else {
                 # fetch_from_api() returned false — network error, timeout, or non-200 response.
@@ -395,13 +399,43 @@ class Metasync_Otto_Transient_Cache {
         if (empty($data) || !is_array($data)) {
             return false;
         }
-        
-        return !empty($data['header_replacements']) ||
-               !empty($data['header_html_insertion']) ||
-               !empty($data['body_substitutions']) ||
-               !empty($data['body_top_html_insertion']) ||
-               !empty($data['body_bottom_html_insertion']) ||
-               !empty($data['footer_html_insertion']);
+
+        # WP-361: Undeployed OTTO responses ship harmless whitespace ("\n") and
+        # empty wrappers ({"images": {}}) that PHP's empty() reads as non-empty.
+        # Without these guards, has_payload() flagged undeployed pages as "live"
+        # and downstream code (otto_has_live_suggestions(), title filter) kept
+        # applying the stale _metasync_otto_title meta from the previous deploy.
+
+        $has_string = static function ($value) {
+            return is_string($value) && trim($value) !== '';
+        };
+
+        $has_container = static function ($value) {
+            if (!is_array($value) || empty($value)) {
+                return false;
+            }
+            foreach ($value as $child) {
+                if (!empty($child)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        if (!empty($data['header_replacements']) && is_array($data['header_replacements'])) {
+            foreach ($data['header_replacements'] as $replacement) {
+                if (is_array($replacement) && !empty($replacement['recommended_value'])) {
+                    return true;
+                }
+            }
+        }
+
+        return $has_string($data['header_html_insertion'] ?? '')
+            || $has_container($data['body_substitutions'] ?? [])
+            || $has_string($data['body_top_html_insertion'] ?? '')
+            || $has_string($data['body_bottom_html_insertion'] ?? '')
+            || $has_string($data['footer_html_insertion'] ?? '')
+            || $has_container($data['image_missing_alt'] ?? []);
     }
     
     /**
@@ -427,8 +461,13 @@ class Metasync_Otto_Transient_Cache {
      *       Without one, falls back to transients (minor TOCTOU race under concurrency, but the counter persists across requests).
      */
     private function can_make_api_call(): bool {
-        # Create rate limit key (per minute)
-        $rate_key = self::RATE_LIMIT_PREFIX . date('Y-m-d-H-i');
+        # Scope rate-limit key per site so each multisite subsite has its own
+        # 10 req/min budget. Without this, one subsite's traffic spike
+        # exhausts the network-wide bucket and silently rate-limits every
+        # other subsite for the rest of the minute. WP-293.
+        $site_id = is_multisite() ? get_current_blog_id() : 0;
+        # Create rate limit key (per site, per minute)
+        $rate_key = self::RATE_LIMIT_PREFIX . $site_id . '_' . date('Y-m-d-H-i');
 
         # Get rate limit from execution settings
         $rate_limit = $this->get_rate_limit();
@@ -552,11 +591,13 @@ class Metasync_Otto_Transient_Cache {
         # Get site ID once
         $site_id = is_multisite() ? get_current_blog_id() : 0;
 
+        # All keys scoped by $site_id so multisite subsites don't collide on a
+        # shared Redis/Memcached object cache. WP-293.
         return [
             'transient' => self::TRANSIENT_PREFIX . $site_id . '_' . $hash,
-            'lock'      => self::LOCK_PREFIX . $hash,
-            'stale'     => self::STALE_PREFIX . $hash,
-            'track'     => 'otto_' . $hash,
+            'lock'      => self::LOCK_PREFIX . $site_id . '_' . $hash,
+            'stale'     => self::STALE_PREFIX . $site_id . '_' . $hash,
+            'track'     => 'otto_' . $site_id . '_' . $hash,
         ];
     }
 
@@ -602,16 +643,20 @@ class Metasync_Otto_Transient_Cache {
     public function get_stats($url) {
         $transient_key = $this->get_transient_key($url);
         $cached = get_transient($transient_key);
-        
+
+        # Match the scoped rate-limit key produced by can_make_api_call(). WP-293.
+        $site_id = is_multisite() ? get_current_blog_id() : 0;
+        $rate_limit_key = self::RATE_LIMIT_PREFIX . $site_id . '_' . date('Y-m-d-H-i');
+
         return [
             'url' => $url,
             'has_cache' => $cached !== false,
             'has_suggestions' => $cached !== false && $this->has_payload($cached),
             'cache_key' => $transient_key,
-            'rate_limit_key' => self::RATE_LIMIT_PREFIX . date('Y-m-d-H-i'),
+            'rate_limit_key' => $rate_limit_key,
             'current_rate_count' => wp_using_ext_object_cache()
-                ? (int) wp_cache_get(self::RATE_LIMIT_PREFIX . date('Y-m-d-H-i'), 'otto_rate')
-                : (int) get_transient(self::RATE_LIMIT_PREFIX . date('Y-m-d-H-i')),
+                ? (int) wp_cache_get($rate_limit_key, 'otto_rate')
+                : (int) get_transient($rate_limit_key),
         ];
     }
     
@@ -685,9 +730,10 @@ class Metasync_Otto_Transient_Cache {
         # Previously lock/stale used raw $url (no normalization), which generated
         # different hashes than the actual keys — they were never actually deleted.
         $hash = md5($normalized);
+        # All three keys must include $site_id to match get_cache_keys(). WP-293.
         $transient_key = self::TRANSIENT_PREFIX . $site_id . '_' . $hash;
-        $lock_key      = self::LOCK_PREFIX . $hash;
-        $stale_key     = self::STALE_PREFIX . $hash;
+        $lock_key      = self::LOCK_PREFIX . $site_id . '_' . $hash;
+        $stale_key     = self::STALE_PREFIX . $site_id . '_' . $hash;
         
         $keys_to_clear = [$transient_key, $lock_key, $stale_key];
         

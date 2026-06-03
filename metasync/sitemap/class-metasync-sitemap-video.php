@@ -35,9 +35,11 @@ class Metasync_Sitemap_Video
     public function __construct()
     {
         $defaults = [
-            'enabled'     => false,
-            'post_types'  => ['post', 'page'],
-            'auto_detect' => true,
+            'enabled'       => false,
+            'post_types'    => ['post', 'page'],
+            'auto_detect'   => true,
+            'taxonomies'    => [],
+            'excluded_urls' => '',
         ];
 
         $this->settings = wp_parse_args(
@@ -71,19 +73,51 @@ class Metasync_Sitemap_Video
         $urlset->setAttribute('xmlns:video', 'http://www.google.com/schemas/sitemap-video/1.1');
         $xml->appendChild($urlset);
 
+        // Build taxonomy query if configured
+        $tax_query = [];
+        if (!empty($this->settings['taxonomies']) && is_array($this->settings['taxonomies'])) {
+            foreach ($this->settings['taxonomies'] as $taxonomy => $term_ids) {
+                if (!empty($term_ids) && is_array($term_ids)) {
+                    $tax_query[] = [
+                        'taxonomy' => sanitize_key($taxonomy),
+                        'field'    => 'term_id',
+                        'terms'    => array_map('absint', $term_ids),
+                    ];
+                }
+            }
+        }
+
+        // Build excluded URLs set
+        $excluded_urls = [];
+        if (!empty($this->settings['excluded_urls'])) {
+            $raw_lines = explode("\n", $this->settings['excluded_urls']);
+            foreach ($raw_lines as $line) {
+                $line = trim($line);
+                if ($line !== '') {
+                    $excluded_urls[$line] = true;
+                }
+            }
+        }
+
         $total_video_entries = 0;
         $page = 1;
         $posts_per_page = 500;
 
         while ($total_video_entries < $this->max_video_entries) {
-            $posts = get_posts([
+            $query_args = [
                 'post_type'      => $post_types,
                 'post_status'    => 'publish',
                 'posts_per_page' => $posts_per_page,
                 'paged'          => $page,
                 'orderby'        => 'date',
                 'order'          => 'DESC',
-            ]);
+            ];
+
+            if (!empty($tax_query)) {
+                $query_args['tax_query'] = $tax_query;
+            }
+
+            $posts = get_posts($query_args);
 
             if (empty($posts)) {
                 break;
@@ -94,6 +128,13 @@ class Metasync_Sitemap_Video
                     break 2;
                 }
 
+                $permalink = get_permalink($post->ID);
+
+                // Skip excluded URLs
+                if (!empty($excluded_urls) && isset($excluded_urls[$permalink])) {
+                    continue;
+                }
+
                 $videos = $this->get_videos_for_post($post);
 
                 if (empty($videos)) {
@@ -101,7 +142,7 @@ class Metasync_Sitemap_Video
                 }
 
                 $url_element = $xml->createElement('url');
-                $loc = $xml->createElement('loc', esc_url(get_permalink($post->ID)));
+                $loc = $xml->createElement('loc', esc_url($permalink));
                 $url_element->appendChild($loc);
 
                 $has_valid_video = false;

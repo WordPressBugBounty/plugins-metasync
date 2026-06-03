@@ -1366,7 +1366,8 @@ class Metasync_Settings_Registration
                     $links[] = ['label' => '', 'url' => '', 'external' => false];
                 }
                 echo '<p class="description" style="margin-bottom:8px;">Add up to 5 links to show in the sidebar Quick Links widget. Leave blank to hide the widget when whitelabeling is active.</p>';
-                echo '<table class="widefat" style="max-width:560px;">';
+                echo '<style>.metasync-quick-links-table.widefat, .metasync-quick-links-table.widefat th, .metasync-quick-links-table.widefat td { background:transparent; border-color:var(--dashboard-border, #374151); }</style>';
+                echo '<table class="widefat metasync-quick-links-table" style="max-width:560px;">';
                 echo '<thead><tr><th>Label</th><th>URL</th><th>Open in new tab</th></tr></thead><tbody>';
                 foreach (array_slice($links, 0, 5) as $i => $link) {
                     $label    = esc_attr($link['label'] ?? '');
@@ -1900,6 +1901,9 @@ class Metasync_Settings_Registration
                 } else {
                     $new_input['general'][$field] = false;
                 }
+                // Remove the raw value so the sanitized boolean in $new_input
+                // survives the shallow array_merge($new_input, $input) below.
+                unset($input['general'][$field]);
             }
         }
 
@@ -2014,6 +2018,9 @@ class Metasync_Settings_Registration
             if (isset($input['breadcrumbs']['archive_label_format'])) {
                 $new_input['breadcrumbs']['archive_label_format'] = sanitize_text_field($input['breadcrumbs']['archive_label_format']);
             }
+            // Remove raw breadcrumbs so sanitized values (especially checkbox
+            // booleans) survive the shallow array_merge($new_input, $input).
+            unset($input['breadcrumbs']);
         }
 
         // Code Snippets Settings
@@ -2138,6 +2145,9 @@ class Metasync_Settings_Registration
             foreach ($og_toggle_fields as $field) {
                 $new_input['common_meta_settings'][$field] = (isset($input['common_meta_settings'][$field]) && $input['common_meta_settings'][$field] === 'true') ? 'true' : 'false';
             }
+            // Remove raw common_meta_settings so sanitized toggle values
+            // survive the shallow array_merge($new_input, $input).
+            unset($input['common_meta_settings']);
         }
 
         # Handle whitelabel URL fields with improved empty value handling
@@ -2712,9 +2722,10 @@ class Metasync_Settings_Registration
         $api_key_removed = !empty($old_api_key) && empty($new_api_key);
 
         if ( $api_key_validated === true ) {
-            $dt = new DateTime();
+            # Use current_time('mysql') so the value is consistent with the
+            # cron heartbeat writer and renders correctly via time_elapsed_string.
             $send_auth_token_timestamp = Metasync::get_option();
-            $send_auth_token_timestamp['general']['send_auth_token_timestamp'] = $dt->format('M d, Y  h:i:s A');
+            $send_auth_token_timestamp['general']['send_auth_token_timestamp'] = current_time('mysql');
             Metasync::set_option($send_auth_token_timestamp);
 
             Metasync_Heartbeat_Manager::instance()->maybe_schedule_heartbeat_cron();
@@ -2726,9 +2737,9 @@ class Metasync_Settings_Registration
             $responseCode = wp_remote_retrieve_response_code($response);
 
             if ($responseCode == 200) {
-                $dt = new DateTime();
+                # Use current_time('mysql') for consistency with cron heartbeat.
                 $send_auth_token_timestamp = Metasync::get_option();
-                $send_auth_token_timestamp['general']['send_auth_token_timestamp'] = $dt->format('M d, Y  h:i:s A');
+                $send_auth_token_timestamp['general']['send_auth_token_timestamp'] = current_time('mysql');
                 Metasync::set_option($send_auth_token_timestamp);
 
                 if ($api_key_added) {

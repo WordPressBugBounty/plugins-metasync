@@ -1486,8 +1486,10 @@
     border: none;
     border-radius: 6px;
     font-size: 13px;
+    line-height: 1.4;
     text-decoration: none;
     transition: background 0.2s ease;
+    vertical-align: middle;
 }
 
 .metasync-sitemap-table .button-view:hover {
@@ -1499,6 +1501,40 @@
     font-size: 14px;
     width: 14px;
     height: 14px;
+    color: #fff;
+}
+
+.metasync-sitemap-table .button-delete {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    background: #dc3232;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    vertical-align: middle;
+}
+
+.metasync-sitemap-table td form {
+    display: inline;
+    vertical-align: middle;
+}
+
+.metasync-sitemap-table .button-delete:hover {
+    background: #b52727;
+    color: #fff;
+}
+
+.metasync-sitemap-table .button-delete .dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    color: #fff;
 }
 
 @media (max-width: 768px) {

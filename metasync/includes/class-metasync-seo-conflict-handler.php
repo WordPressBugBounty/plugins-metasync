@@ -541,12 +541,7 @@ class Metasync_SEO_Conflict_Handler {
         }
 
         if ($this->metasync_breadcrumb_enabled() && is_array($output)) {
-            foreach ($output as $key => $entry) {
-                if (is_array($entry) && isset($entry['@type']) && $entry['@type'] === 'BreadcrumbList') {
-                    unset($output[$key]);
-                }
-            }
-            $output = array_values($output);
+            $output = $this->strip_breadcrumb_from_graph($output);
         }
 
         return $output;
@@ -959,12 +954,7 @@ class Metasync_SEO_Conflict_Handler {
         }
 
         if ($this->metasync_breadcrumb_enabled() && is_array($data)) {
-            foreach ($data as $key => $entry) {
-                if (is_array($entry) && isset($entry['@type']) && $entry['@type'] === 'BreadcrumbList') {
-                    unset($data[$key]);
-                }
-            }
-            $data = array_values($data);
+            $data = $this->strip_breadcrumb_from_graph($data);
         }
 
         return $data;
@@ -1097,12 +1087,7 @@ class Metasync_SEO_Conflict_Handler {
         }
 
         if ($this->metasync_breadcrumb_enabled() && is_array($data)) {
-            foreach ($data as $key => $entry) {
-                if (is_array($entry) && isset($entry['@type']) && $entry['@type'] === 'BreadcrumbList') {
-                    unset($data[$key]);
-                }
-            }
-            $data = array_values($data);
+            $data = $this->strip_breadcrumb_from_graph($data);
         }
 
         return $data;
@@ -1202,6 +1187,55 @@ class Metasync_SEO_Conflict_Handler {
     // ------------------------------------------------------------------
 
     /**
+     * Strip BreadcrumbList nodes from a JSON-LD @graph array and remove
+     * dangling breadcrumb references from WebPage-type nodes.
+     *
+     * WP-369: Previously we only removed the BreadcrumbList entry but left
+     * the WebPage's `breadcrumb: { @id: "...#breadcrumb" }` property intact.
+     * Google follows that dangling @id, finds no matching node, and reports
+     * "Missing field itemListElement".
+     *
+     * @param  array $graph The @graph array from a third-party SEO plugin.
+     * @return array
+     */
+    private function strip_breadcrumb_from_graph($graph) {
+        // Collect @ids of BreadcrumbList nodes being removed.
+        $removed_ids = [];
+
+        foreach ($graph as $key => $entry) {
+            if (is_array($entry) && isset($entry['@type']) && $entry['@type'] === 'BreadcrumbList') {
+                if (!empty($entry['@id'])) {
+                    $removed_ids[] = $entry['@id'];
+                }
+                unset($graph[$key]);
+            }
+        }
+
+        // Remove dangling breadcrumb references from WebPage-type nodes.
+        foreach ($graph as $key => &$entry) {
+            if (!is_array($entry) || !isset($entry['@type'])) {
+                continue;
+            }
+
+            $type = $entry['@type'];
+            $is_page_type = $type === 'WebPage'
+                || (is_array($type) && in_array('WebPage', $type, true));
+
+            if ($is_page_type && isset($entry['breadcrumb'])) {
+                // Remove if the reference points to a stripped node, or if
+                // no BreadcrumbList remains in this graph at all.
+                $ref_id = is_array($entry['breadcrumb']) ? ($entry['breadcrumb']['@id'] ?? '') : '';
+                if (empty($removed_ids) || empty($ref_id) || in_array($ref_id, $removed_ids, true)) {
+                    unset($entry['breadcrumb']);
+                }
+            }
+        }
+        unset($entry);
+
+        return array_values($graph);
+    }
+
+    /**
      * Determine whether MetaSync's own BreadcrumbList output is enabled.
      *
      * Mirrors the gate logic in Metasync_Breadcrumbs_Schema::output_breadcrumb_schema():
@@ -1218,6 +1252,12 @@ class Metasync_SEO_Conflict_Handler {
         }
 
         if (array_key_exists('enabled', $settings) && empty($settings['enabled'])) {
+            return false;
+        }
+
+        // WP-369: When schema output is explicitly disabled, don't strip
+        // third-party breadcrumbs — MetaSync won't emit its own.
+        if (!empty($settings['disable_schema'])) {
             return false;
         }
 

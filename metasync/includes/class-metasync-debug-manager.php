@@ -822,6 +822,13 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     'wp_debug_enabled',
                     'wp_debug_log_enabled',
                     'wp_debug_display_enabled',
+                    // Media Optimization settings & cache
+                    'metasync_media_optimization',
+                    'metasync_batch_optimize_queue',
+                    'metasync_batch_optimize_progress',
+                    'metasync_batch_optimize_settings',
+                    // Code Minification settings
+                    'metasync_code_minification',
                 ];
 
                 $cleared_count = 0;
@@ -840,9 +847,16 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     delete_transient($transient_name);
                 }
 
-                $timestamp = wp_next_scheduled('metasync_heartbeat_cron_check');
-                if ($timestamp) {
-                    wp_unschedule_event($timestamp, 'metasync_heartbeat_cron_check');
+                $cron_hooks_to_clear = [
+                    'metasync_heartbeat_cron_check',
+                    'metasync_media_batch_optimize_cron',
+                ];
+
+                foreach ($cron_hooks_to_clear as $cron_hook) {
+                    $timestamp = wp_next_scheduled($cron_hook);
+                    if ($timestamp) {
+                        wp_unschedule_event($timestamp, $cron_hook);
+                    }
                 }
 
                 $new_plugin_auth_token = wp_generate_password(32, false, false);

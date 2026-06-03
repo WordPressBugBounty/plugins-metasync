@@ -1015,11 +1015,58 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     font-size: 14px;
 }
 
-.metasync-dashboard-wrap .button:hover,
-.metasync-dashboard-wrap .button-primary:hover {
+.metasync-dashboard-wrap .button .dashicons,
+.metasync-dashboard-wrap .button-primary .dashicons,
+.metasync-dashboard-wrap .button-secondary .dashicons {
+    font-size: 15px !important;
+    width: 15px !important;
+    height: 15px !important;
+    line-height: 15px !important;
+    margin: 0 !important;
+    vertical-align: middle;
+}
+
+.metasync-dashboard-wrap .button:hover:not(:disabled):not([disabled]),
+.metasync-dashboard-wrap .button-primary:hover:not(:disabled):not([disabled]) {
     background: var(--dashboard-gradient-accent);
     transform: translateY(-1px);
     box-shadow: var(--dashboard-shadow);
+}
+
+/* Disabled state — needed because the base .button-primary rule keeps the
+   full gradient even when prop('disabled', true) is set. Without this,
+   the Sync Now button stays blue/purple while the cooldown countdown is
+   active (WP-350 QA report).
+
+   The .is-throttled class is the primary driver for the Sync Now cooldown
+   visual because earlier code in the AJAX callback chain calls
+   .prop('disabled', false) before our refresh runs, and in some browsers
+   that ordering can leave the disabled attribute off even though we set
+   it again afterwards. The class-based path doesn't depend on the
+   disabled attribute reaching the DOM and survives any prop juggling. */
+.metasync-dashboard-wrap .button:disabled,
+.metasync-dashboard-wrap .button-primary:disabled,
+.metasync-dashboard-wrap .button-secondary:disabled,
+.metasync-dashboard-wrap .button[disabled],
+.metasync-dashboard-wrap .button-primary[disabled],
+.metasync-dashboard-wrap .button-secondary[disabled],
+.metasync-dashboard-wrap .button.is-throttled,
+.metasync-dashboard-wrap .button-primary.is-throttled,
+.metasync-dashboard-wrap .button-secondary.is-throttled {
+    /* Replace the blue/purple gradient with a solid grey. The base rule sets
+       `background: var(--dashboard-gradient-primary)`, so opacity + grayscale
+       alone left the button a dimmed blue (WP-350 QA: "still blue on Elementor").
+       background/filter/pointer-events carry !important so a page-builder's
+       admin stylesheet (Elementor ships more than Divi) can't override them. */
+    background: #d5d7da !important;
+    background-image: none !important;
+    color: #6b7280 !important;
+    opacity: 0.7 !important;
+    cursor: not-allowed !important;
+    transform: none !important;
+    box-shadow: none !important;
+    filter: grayscale(100%) !important;
+    pointer-events: none !important;
 }
 
 .metasync-dashboard-wrap .button-secondary {
@@ -2510,6 +2557,37 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     background: var(--dashboard-card-bg);
     color: var(--dashboard-text-primary);
     padding: 8px;
+}
+
+/* Type field dropdown arrow — Local Business Configuration */
+.metasync-type-select-wrap {
+    position: relative;
+    display: inline-block;
+    width: 100%;
+    max-width: 400px;
+}
+
+.metasync-type-select-wrap select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    padding-right: 36px;
+    width: 100%;
+    cursor: pointer;
+}
+
+.metasync-type-select-wrap::after {
+    content: '';
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-size: contain;
+    pointer-events: none;
 }
 
 /* Sync Log List */

@@ -140,7 +140,14 @@ class Metasync_Common
 		$extension = pathinfo($url, PATHINFO_EXTENSION);
 
 		if (!$extension || strlen($extension) > 4) {
-			$mime = mime_content_type($tmp);
+			// fileinfo extension is not always enabled on shared hosts — guard the call
+			// and fall back to WordPress's extension-based detection.
+			if (function_exists('mime_content_type')) {
+				$mime = mime_content_type($tmp);
+			} else {
+				$filetype = wp_check_filetype(basename($url));
+				$mime = $filetype['type'] ?? false;
+			}
 			$mime = is_string($mime) ? sanitize_mime_type($mime) : false;
 
 			$mime_extensions = array(

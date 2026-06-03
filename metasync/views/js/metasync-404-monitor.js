@@ -1,17 +1,9 @@
 /**
- * MetaSync 404 monitor — filter auto-submit and bulk action confirm.
+ * MetaSync 404 monitor — bulk action confirm and pagination tab parameter.
  *
  * Extracted from views/metasync-404-monitor.php (Phase 5, #887).
  */
 document.addEventListener('DOMContentLoaded', function() {
-    // Auto-submit filters when changed
-    var filterInputs = document.querySelectorAll('#date-from-filter, #date-to-filter, #min-hits-filter');
-    filterInputs.forEach(function(input) {
-        input.addEventListener('change', function() {
-            document.getElementById('404-monitor-form').submit();
-        });
-    });
-
     // Add confirmation for bulk actions
     var bulkActionForm = document.getElementById('404-monitor-form');
     if (bulkActionForm) {

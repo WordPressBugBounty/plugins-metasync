@@ -557,6 +557,15 @@ class Metasync_Admin_Navigation
             'group' => 'plugin'
         ];
 
+        // Media Optimization
+        $menu_items['media_optimization'] = [
+            'title' => 'Media Optimization',
+            'slug_suffix' => '-media-optimization',
+            'callback' => 'create_admin_media_optimization_page',
+            'internal_nav' => 'Media Optimization',
+            'group' => 'plugin'
+        ];
+
         // Custom HTML Pages (check access control)
         if (Metasync_Access_Control::user_can_access('hide_custom_pages')) {
             $menu_items['custom_pages'] = [
@@ -731,6 +740,11 @@ class Metasync_Admin_Navigation
             add_submenu_page($menu_slug, 'Settings', 'Settings', $menu_capability, $menu_slug, array($admin, 'create_admin_settings_page'));
         }
 
+        // Optimal Settings (conditional)
+        if ($general_options['enable_optimal_settings'] ?? false) {
+            add_submenu_page($menu_slug, 'Optimal Settings', 'Optimal Settings', $menu_capability, $menu_slug . '-optimal-settings', array($admin, 'create_admin_optimal_settings_page'));
+        }
+
         // Local Business
         add_submenu_page($menu_slug, 'Local Business', 'Local Business', $menu_capability, $menu_slug . '-local-business', array($admin, 'create_admin_local_business_page'));
 
@@ -742,6 +756,9 @@ class Metasync_Admin_Navigation
 
         // Code Minification
         add_submenu_page($menu_slug, 'Code Minification', 'Code Minification', $menu_capability, $menu_slug . '-code-minification', array($admin, 'create_admin_code_minification_page'));
+
+        // Media Optimization
+        add_submenu_page($menu_slug, 'Media Optimization', 'Media Optimization', $menu_capability, $menu_slug . '-media-optimization', array($admin, 'create_admin_media_optimization_page'));
 
         // Custom Pages
         if (Metasync_Access_Control::user_can_access('hide_custom_pages')) {

@@ -56,7 +56,7 @@ class Metasync_Compatibility_Checker
                         <p style="margin-bottom: 16px; color: var(--dashboard-text-secondary);">Test connectivity by running both GET and POST requests. Results appear below.</p>
                         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                             <button type="button" id="test-both-requests" class="button button-primary">
-                                <span class="dashicons dashicons-controls-repeat" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Test Both Requests
+                                <span class="dashicons dashicons-controls-repeat"></span> Test Both Requests
                             </button>
                         </div>
                     </div>

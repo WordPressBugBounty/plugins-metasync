@@ -307,7 +307,7 @@ jQuery(document).ready(function($) {
         // Show loading state
         const $button = $(this);
         const originalText = $button.html();
-        $button.prop('disabled', true).html('<span class="dashicons dashicons-update dashicons-spin" style="margin-top: 3px;"></span> <?php esc_html_e('Loading...', 'metasync'); ?>');
+        $button.prop('disabled', true).html('<span class="dashicons dashicons-update dashicons-spin"></span> <?php esc_html_e('Loading...', 'metasync'); ?>');
         
         $.ajax({
             url: ajaxurl,
@@ -353,7 +353,7 @@ jQuery(document).ready(function($) {
                     $('#modal-body').html(previewContent);
                     
                     // Configure restore button (on the left)
-                    $confirmBtn.html('<span class="dashicons dashicons-backup" style="margin-top: 3px;"></span> <?php esc_html_e('Restore', 'metasync'); ?>')
+                    $confirmBtn.html('<span class="dashicons dashicons-backup"></span> <?php esc_html_e('Restore', 'metasync'); ?>')
                         .removeClass('button-primary')
                         .addClass('button-restore')
                         .data('backup-id', backupId)
@@ -394,7 +394,7 @@ jQuery(document).ready(function($) {
         
         // Show loading state
         const originalHtml = $button.html();
-        $button.prop('disabled', true).html('<span class="dashicons dashicons-update dashicons-spin" style="margin-top: 3px;"></span> <?php esc_html_e('Restoring...', 'metasync'); ?>');
+        $button.prop('disabled', true).html('<span class="dashicons dashicons-update dashicons-spin"></span> <?php esc_html_e('Restoring...', 'metasync'); ?>');
         
         $.ajax({
             url: ajaxurl,

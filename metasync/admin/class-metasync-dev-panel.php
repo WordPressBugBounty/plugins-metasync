@@ -468,7 +468,7 @@ class Metasync_Dev_Panel {
 					</div>
 
 					<button type="submit" name="switch_endpoints_submit" value="1" class="button button-primary">
-						<span class="dashicons dashicons-controls-repeat" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Switch Endpoints
+						<span class="dashicons dashicons-controls-repeat"></span> Switch Endpoints
 					</button>
 				</form>
 			</div>

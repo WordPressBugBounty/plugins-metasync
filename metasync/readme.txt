@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.6.9
+Stable tag: 2.6.10
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,36 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.10 =
+* New Feature: Media Optimization — compress images and serve next-gen WebP/AVIF formats to improve page load speed
+* New Feature: Added post type, taxonomy, and URL exclusion controls across all sitemaps
+* New Feature: Added per-file Delete buttons for individual XML sitemaps (General, News, Video)
+* Improvement: Switched sitemap generation to virtual-only mode with regenerate-on-miss to resolve nginx 403 errors
+* Improvement: Renamed sitemap Save buttons to "Save & Generate Sitemap" across the General, News, and Video tabs
+* Improvement: Throttled bot crawl-log requests to reduce server load on high-traffic sites
+* Fix: Resolved a case where the plugin caused site outages on cart/checkout and non-GET requests
+* Fix: Restored meta boxes and SEO fields on custom post types
+* Fix: OTTO no longer reports as installed on projects with non-matching UUIDs
+* Fix: Preserved Divi's late-injected CSS during OTTO server-side rendering and fixed Divi blog/portfolio AJAX pagination
+* Fix: Respected Yoast SEO titles and descriptions when OTTO is undeployed
+* Fix: Scoped OTTO cache keys and rate limits per site on Multisite installs
+* Fix: Skipped OTTO rendering on XML endpoints to prevent invalid output
+* Fix: Sanitized malformed self-closing tags during OTTO rendering that could expand site navigation
+* Fix: Prevented duplicate H1 headings when content already contains the post title
+* Fix: Guarded the mime_content_type() call to prevent fatal errors on hosts without the fileinfo extension
+* Fix: Deduplicated URLs and filtered junk entries from the XML sitemap
+* Fix: The XML Sitemap sidebar now stays fixed instead of scrolling with the page
+* Fix: 404 Monitor date filters now persist across pagination and sorting and apply only when the filter button is clicked
+* Fix: Connection status no longer flips to "Not Connected" on idle plugin pages
+* Fix: Corrected WP Rocket compatibility render-mode detection
+* Fix: Suppressed admin notices from rendering inside the setup wizard header
+* Fix: Removed dangling breadcrumb references when stripping third-party BreadcrumbList schema
+* Fix: Breadcrumbs checkbox values now persist correctly when unchecked
+* Fix: Fixed the Quick Links table background and borders in dark mode
+* Fix: Fixed dashicon button icon misalignment on some sites
+* Fix: Tightened REST API auth callbacks and fixed primary category cleanup on custom post types
+* Fix: Fixed the perpetual Sync Now throttle message by separating the manual-sync cooldown from the heartbeat
+
 = 2.6.9 =
 * Security: Move API key authentication from query parameter to Authorization Bearer header
 * Security: Fix X-Forwarded-For IP spoofing in OTTO bot detector — trust Cloudflare header first

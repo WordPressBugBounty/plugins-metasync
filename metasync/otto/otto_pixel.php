@@ -308,6 +308,51 @@ function metasync_start_otto(){
     # SSR is SKIPPED for: cart, checkout
     # Note: title/description filters (pre_get_document_title, wp_head meta desc)
     # run on ALL pages regardless — they are hooked unconditionally in seo-functions.php
+
+    # ── WooCommerce-independent cart/checkout protection (WP-374) ──────────
+    # The is_cart()/is_checkout() guards below only recognize WooCommerce. Carts
+    # from other systems — e.g. the Point of Rental "Catalog" plugin on
+    # venturarental.com — are invisible to them, so OTTO would process those
+    # pages and let caching layers store them. A cached cart page corrupts the
+    # live cart (added items vanish because a stale page is served). The checks
+    # here do not depend on WooCommerce being active.
+
+    # Never run OTTO on non-GET requests. SSR exists for crawlers, which only
+    # issue GET; POST/PUT/etc. are form or cart submissions that must pass
+    # through untouched. (OTTO's own internal fetches use GET.)
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+        return;
+    }
+
+    # Skip OTTO on cart/checkout-type paths regardless of the cart plugin, and
+    # signal caching plugins (WP Rocket/Kinsta/etc.) to never cache them — a
+    # cached cart/checkout page is precisely what corrupts cart state.
+    # Matched against the FIRST path segment (relative to the WP home path) so
+    # subdirectory installs (/shop/cart) still work, while unrelated content pages
+    # like /blog/cart or /features/checkout do NOT false-match.
+    # Drop the query string with explode() (no shared internal pointer like strtok),
+    # then lower-case and strip surrounding slashes.
+    $otto_req_path = explode('?', (string) wp_unslash($_SERVER['REQUEST_URI'] ?? ''), 2)[0];
+    $otto_req_path = strtolower(trim($otto_req_path, '/'));
+    # Strip the site's base path so first-segment matching works on subdir installs.
+    $otto_home_path = trim((string) parse_url(home_url(), PHP_URL_PATH), '/');
+    if ($otto_home_path !== '' && strpos($otto_req_path, $otto_home_path . '/') === 0) {
+        $otto_req_path = substr($otto_req_path, strlen($otto_home_path) + 1);
+    }
+    $otto_first_segment = explode('/', $otto_req_path, 2)[0];
+    # Filterable so sites can add/remove transactional slugs without code changes.
+    $otto_cart_segments = apply_filters('metasync_otto_cart_paths', array(
+        'cart', 'checkout', 'basket', 'request-a-quote', 'quote-request',
+    ));
+    $otto_cart_segments = array_map('strtolower', (array) $otto_cart_segments);
+    if ($otto_first_segment !== '' && in_array($otto_first_segment, $otto_cart_segments, true)) {
+        if (!defined('DONOTCACHEPAGE')) {
+            define('DONOTCACHEPAGE', true);
+        }
+        return;
+    }
+    # ──────────────────────────────────────────────────────────────────────
+
     if (
         # disable ajax calls
         isset($_GET['ucfrontajaxaction']) ||
@@ -380,6 +425,17 @@ function metasync_start_otto(){
         return;
     }
 
+    # Skip OTTO for XML endpoints (sitemaps, RSS-as-xml, etc.). OTTO has no
+    # suggestions for machine-readable XML, and the upstream API returns
+    # API_ERROR for these URLs — which then stamps misleading
+    # X-MetaSync-OTTO-Cache: API_ERROR / X-MetaSync-OTTO-Method: NONE headers
+    # onto otherwise-healthy sitemap responses and causes false-alarm bug
+    # reports from customers. See WP-353.
+    $request_path = strtok($request_uri, '?');
+    if ($request_path && preg_match('#\.xml$#i', $request_path)) {
+        return;
+    }
+
     # BOT DETECTION: Always detect bots so crawl data reaches the SA backend.
     # Real bots don't execute JS, so otto-tracker.js never fires for them.
     # push_crawl_log_to_sa() fires a non-blocking wp_remote_post here instead.
@@ -387,6 +443,33 @@ function metasync_start_otto(){
     $detection    = $bot_detector->detect();
     if ( $detection['is_bot'] ) {
         $bot_detector->push_crawl_log_to_sa( $detection, $current_url );
+    }
+
+    # Throttle OTTO rendering for non-search-engine bots: at most one render
+    # per URL+bot every 5 minutes. Humans and verified search engines
+    # (Googlebot, Bingbot, etc.) are never throttled — their hits always get
+    # full OTTO content so indexing remains current. SEO tools, AI scrapers,
+    # uptime monitors, and unverified crawlers are de-duplicated so repeat
+    # hits don't re-trigger the expensive DOM-rewriting path.
+    if ( $detection['is_bot'] && $detection['bot_type'] !== 'search_engine' ) {
+        $normalized_url = strtok( $current_url, '?' );
+        if ( $normalized_url === false ) {
+            $normalized_url = $current_url;
+        }
+        // Lowercase + length cap so attacker-controlled bot_name variations
+        // (EvilBota, EvilBotB, EvilBotc, ...) collapse to a bounded key space
+        // and cannot flood wp_options with unique transient rows.
+        $bot_name            = substr( strtolower( $detection['bot_name'] ?? 'unknown' ), 0, 32 );
+        $render_throttle_key = 'metasync_otto_rendered_' . md5( $normalized_url . '|' . $bot_name );
+        if ( get_transient( $render_throttle_key ) ) {
+            // Prevent page caches (WP Rocket, W3TC, etc.) from saving the
+            // un-OTTO'd response and serving it to subsequent human visitors.
+            if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+                define( 'DONOTCACHEPAGE', true );
+            }
+            return;
+        }
+        set_transient( $render_throttle_key, 1, 5 * MINUTE_IN_SECONDS );
     }
 
     # Optionally skip OTTO processing for bot traffic (when the setting is enabled)
@@ -407,6 +490,15 @@ function metasync_start_otto(){
         if ($wp_rocket_compat_mode === 'disable_otto') {
             return; # Exit early, Otto is disabled when WP Rocket is active
         }
+    }
+
+    # Skip OTTO for Divi AJAX pagination and paginated archive requests (WP-315).
+    # ?et_blog = Divi AJAX pagination callback
+    # /page/N/ = paginated blog/archive pages — OTTO's buffer/HTTP render causes
+    # module numbering mismatch between page 1 (with TB template) and page N
+    # (without TB template), breaking Divi's JS pagination selector matching.
+    if (isset($_GET['et_blog']) || (is_paged() && !is_singular())) {
+        return;
     }
 
     # Handle cache plugin compatibility early - before any caching happens
@@ -751,17 +843,17 @@ function metasync_show_otto_ssr_notice() {
 
 add_action('admin_notices', 'metasync_show_otto_ssr_notice');
 
+
 # staging dummy change
-# load otto in the wp hook 
+# load otto in the wp hook
 add_action('wp', 'metasync_start_otto');
 
-  
   # ENHANCED OTTO SEO INTEGRATION
   # Register async SEO processing hook
   add_action('metasync_process_seo_job', 'metasync_process_otto_seo_data', 10, 3);
   add_action('metasync_process_otto_crawl_url_job', 'metasync_handle_otto_crawl_url_job', 10, 2);
   add_action('metasync_process_otto_batch_cache_job', 'metasync_handle_otto_batch_cache_job');
-  
+
   # Process OTTO SEO data and update WordPress meta fields for SEO plugins
   # This function now runs asynchronously via WordPress cron system
   #

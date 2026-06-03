@@ -509,6 +509,28 @@ class Metasync_Otto_Bot_Detector {
             return;
         }
 
+        // Throttle outbound POSTs to at most one per URL+bot every 30 minutes.
+        // Bot bursts can otherwise produce thousands of redundant requests to
+        // the crawl-log endpoint. Key includes bot_name so different crawlers
+        // hitting the same URL are each recorded once per window.
+        //
+        // Query string is stripped before hashing so a spoofed-bot scanner
+        // hitting /page?x=1, /page?x=2, ... cannot generate unbounded unique
+        // throttle keys (which would flood wp_options or evict legitimate
+        // entries from a persistent object cache).
+        $normalized_url = strtok( $url, '?' );
+        if ( $normalized_url === false ) {
+            $normalized_url = $url;
+        }
+        // Lowercase + length cap so attacker-controlled bot_name variations
+        // collapse to a bounded key space and cannot flood wp_options.
+        $bot_name     = substr( strtolower( $detection['bot_name'] ?? 'unknown' ), 0, 32 );
+        $throttle_key = 'metasync_crawl_log_' . md5( $normalized_url . '|' . $bot_name );
+        if ( get_transient( $throttle_key ) ) {
+            return;
+        }
+        set_transient( $throttle_key, 1, 30 * MINUTE_IN_SECONDS );
+
         // Resolve endpoint — respects production/staging mode toggle
         if ( class_exists( 'Metasync_Endpoint_Manager' ) ) {
             $endpoint = Metasync_Endpoint_Manager::get_endpoint( 'OTTO_CRAWL_LOGS' );

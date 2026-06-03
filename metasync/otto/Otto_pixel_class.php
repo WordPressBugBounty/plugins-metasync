@@ -516,6 +516,23 @@ Class Metasync_otto_pixel{
         # Set method indicator
         Metasync_Otto_Render_Strategy::set_current_method(Metasync_Otto_Render_Strategy::METHOD_HTTP);
 
+        # WP-315: On Divi sites, skip OTTO for the first HTTP render per page
+        # per 24h. OTTO's internal wp_remote_get creates corrupted CSS cache
+        # files in et-cache/{post_id}/ (wrong server context). By returning
+        # false once, WordPress renders the page normally — building correct
+        # Divi CSS caches. Subsequent OTTO renders within 24h use those caches.
+        # The transient stores the activation timestamp so it auto-invalidates
+        # when the plugin is deactivated/reactivated.
+        if (defined('ET_CORE_VERSION')) {
+            $cache_key = 'otto_divi_css_fix_' . md5($route);
+            $activated = get_option('metasync_activated_at', '');
+            $cached = get_transient($cache_key);
+            if ($cached === false || $cached !== $activated) {
+                set_transient($cache_key, $activated, DAY_IN_SECONDS);
+                return false;
+            }
+        }
+
         # check if we have the route html (pass suggestions to avoid duplicate API call)
         $route_html = $this->get_route_html($route, $cache_track_key, $suggestions);
 
@@ -525,7 +542,37 @@ Class Metasync_otto_pixel{
         }
 
         $route_html_string = is_string($route_html) ? $route_html : $route_html->__toString();
-        
+
+        # WP-315: Detect incomplete Divi rendering in OTTO's HTTP render output.
+        # OTTO's internal wp_remote_get runs in a different server context than the
+        # normal page load. This can cause Divi to produce incomplete output:
+        #
+        # 1. Cold CSS cache: Divi outputs inline <style> blocks instead of external
+        #    <link> tags (TB CSS files not yet generated)
+        # 2. Missing Google Fonts: Divi's font enqueue depends on request context
+        #    (cookies, headers) that differ in the internal fetch
+        #
+        # If OTTO serves this incomplete HTML via exit(), SG Optimizer caches it —
+        # breaking CSS for all visitors until manual cache purge.
+        #
+        # Fix: skip OTTO for this request (return false), letting WordPress render
+        # normally. This builds Divi's caches so the next OTTO request works correctly.
+        if (defined('ET_CORE_VERSION')) {
+            # Check 1: Cold TB CSS cache (inline styles instead of external link)
+            if (preg_match('/<style\s[^>]*id=["\']et-core-unified-tb-[^"\']*-cached-inline-styles["\']/', $route_html_string)) {
+                return false;
+            }
+            # Check 2: Missing Google Fonts CSS (Divi enqueues this on every page)
+            # Normal render has: <link ... id='et-builder-googlefonts-cached-css' ...>
+            # or <link ... id='et-builder-googlefonts-css' ...>
+            # If neither is present, the internal fetch didn't load fonts properly.
+            if (strpos($route_html_string, 'et-builder-googlefonts') === false
+                && strpos($route_html_string, 'fonts.googleapis.com') === false
+            ) {
+                return false;
+            }
+        }
+
         if (strpos($route_html_string, 'pix-sliding-headline-2') !== false || strpos($route_html_string, 'pix-intro-sliding-text') !== false) {
             # Only apply fix within sliding text contexts to avoid breaking other layouts
             $route_html_string = preg_replace('#(</span></span>)(<span\s+class=["\'][^"\']*slide-in-container[^"\']*["\'][^>]*>)#i', '$1 $2', $route_html_string);
@@ -567,6 +614,28 @@ Class Metasync_otto_pixel{
            
         }
         
+        # WP-315: If Divi's module-design CSS is missing from OTTO output,
+        # fetch it directly and inject it. This handles the case where the
+        # internal wp_remote_get response was truncated by SG Optimizer's parser.
+        if (strpos($route_html_string, 'et-builder-module-design') === false
+            && function_exists('et_core_page_resource_get')
+        ) {
+            # Try to get Divi's inline CSS from its page resource manager
+            $post_id = get_the_ID();
+            if ($post_id) {
+                $resource_slug = et_theme_builder_decorate_page_resource_slug($post_id, 'module-design');
+                $manager = et_core_page_resource_get('builder', $resource_slug, $post_id, 40);
+                if ($manager && method_exists($manager, 'get_data')) {
+                    $css_data = $manager->get_data('inline');
+                    if (!empty($css_data)) {
+                        $style_tag = '<style id="et-builder-' . esc_attr($resource_slug) . '-cached-inline-styles">'
+                            . wp_strip_all_tags($css_data) . '</style>';
+                        $route_html_string = str_replace('</body>', $style_tag . "\n" . '</body>', $route_html_string);
+                    }
+                }
+            }
+        }
+
         # Send response headers
         Metasync_Otto_Render_Strategy::send_headers($cache_status);
 

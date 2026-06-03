@@ -155,9 +155,12 @@ class Metasync_Admin_Ajax
         $responseCode = wp_remote_retrieve_response_code($response);
 
         if ($responseCode == 200) {
-            $dt = new DateTime();
+            # Standardize on current_time('mysql') (WP local timezone) so the
+            # value matches what the cron heartbeat writes — otherwise the
+            # displayed timestamp flickers between two formats depending on
+            # which path wrote last.
             $send_auth_token_timestamp = Metasync::get_option();
-            $send_auth_token_timestamp['general']['send_auth_token_timestamp'] = $dt->format('M d, Y  h:i:s A');;
+            $send_auth_token_timestamp['general']['send_auth_token_timestamp'] = current_time('mysql');
             Metasync::set_option($send_auth_token_timestamp);
             
             Metasync_Heartbeat_Manager::instance()->update_heartbeat_cache_after_sync(true, 'Sync Now - successful data sync');

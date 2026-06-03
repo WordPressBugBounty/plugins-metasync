@@ -24,6 +24,25 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
     private const ORDER_PARAM    = 'order_media';
 
     /**
+     * All image MIME types displayed in the library (includes next-gen formats
+     * so that images converted with the "replace" strategy remain visible).
+     */
+    private const IMAGE_MIME_TYPES = [
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'image/avif',
+    ];
+
+    /**
+     * MIME types eligible for optimization (source formats only).
+     */
+    private const OPTIMIZABLE_MIME_TYPES = [
+        'image/jpeg',
+        'image/png',
+    ];
+
+    /**
      * Resolved attachment-to-post relationships for the current page.
      * Keys are attachment IDs, values are arrays of post IDs.
      *
@@ -244,13 +263,31 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
         $format = get_post_meta($item->ID, '_metasync_converted_format', true);
 
         if ($format) {
+            if (Metasync_Image_Converter::can_revert($item->ID)) {
+                return sprintf(
+                    '<button type="button" class="button button-small metasync-revert-btn" data-id="%d">
+                        <span class="dashicons dashicons-undo" style="margin-top:3px;"></span> %s
+                    </button>',
+                    $item->ID,
+                    esc_html__('Revert', 'metasync')
+                );
+            }
+
             return sprintf(
-                '<button type="button" class="button button-small metasync-revert-btn" data-id="%d">
+                '<button type="button" class="button button-small metasync-revert-btn" data-id="%d" disabled title="%s">
                     <span class="dashicons dashicons-undo" style="margin-top:3px;"></span> %s
                 </button>',
                 $item->ID,
+                esc_attr__('Original image unavailable — revert is disabled', 'metasync'),
                 esc_html__('Revert', 'metasync')
             );
+        }
+
+        // Only show Optimize for source formats (JPEG/PNG), not for natively
+        // uploaded WebP/AVIF images that were never converted by us.
+        $mime = get_post_mime_type($item->ID);
+        if (!in_array($mime, self::OPTIMIZABLE_MIME_TYPES, true)) {
+            return '<span class="metasync-text-muted">' . esc_html__('N/A', 'metasync') . '</span>';
         }
 
         return sprintf(
@@ -274,7 +311,8 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
      */
     protected function get_bulk_actions(): array {
         return [
-            'bulk_optimize' => __('Optimize Selected', 'metasync'),
+            'bulk_optimize'   => __('Optimize Selected', 'metasync'),
+            'bulk_unoptimize' => __('Unoptimize Selected', 'metasync'),
         ];
     }
 
@@ -319,15 +357,47 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
         $query_args = [
             'post_type'      => 'attachment',
             'post_status'    => 'inherit',
-            'post_mime_type' => ['image/jpeg', 'image/png'],
+            'post_mime_type' => self::IMAGE_MIME_TYPES,
             'posts_per_page' => self::PER_PAGE,
             'paged'          => $current_page,
             'orderby'        => $filters['orderby'],
             'order'          => $filters['order'],
         ];
 
+        // Use custom WHERE/JOIN filters instead of WP_Query's 's' parameter,
+        // which doesn't search _wp_attached_file meta and has quirks with
+        // post_status 'inherit' (attachments).
+        $join_cb     = null;
+        $where_cb    = null;
+        $distinct_cb = null;
+
         if (!empty($filters['search'])) {
-            $query_args['s'] = $filters['search'];
+            $search_term = $filters['search'];
+
+            $join_cb = function ($join) {
+                global $wpdb;
+                $join .= " LEFT JOIN {$wpdb->postmeta} AS mtsearch ON ({$wpdb->posts}.ID = mtsearch.post_id AND mtsearch.meta_key = '_wp_attached_file')";
+                return $join;
+            };
+
+            $where_cb = function ($where) use ($search_term) {
+                global $wpdb;
+                $like = '%' . $wpdb->esc_like($search_term) . '%';
+                $where .= $wpdb->prepare(
+                    " AND ({$wpdb->posts}.post_title LIKE %s OR mtsearch.meta_value LIKE %s)",
+                    $like,
+                    $like
+                );
+                return $where;
+            };
+
+            $distinct_cb = function () {
+                return 'DISTINCT';
+            };
+
+            add_filter('posts_join', $join_cb);
+            add_filter('posts_where', $where_cb);
+            add_filter('posts_distinct', $distinct_cb);
         }
 
         if ($filters['status'] === 'optimized') {
@@ -340,7 +410,19 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
             ];
         }
 
-        $query = new WP_Query($query_args);
+        try {
+            $query = new WP_Query($query_args);
+        } finally {
+            if ($join_cb) {
+                remove_filter('posts_join', $join_cb);
+            }
+            if ($where_cb) {
+                remove_filter('posts_where', $where_cb);
+            }
+            if ($distinct_cb) {
+                remove_filter('posts_distinct', $distinct_cb);
+            }
+        }
 
         $this->items = $query->posts;
         $this->resolve_attachment_posts();
@@ -654,7 +736,7 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
         $total = (new WP_Query([
             'post_type'      => 'attachment',
             'post_status'    => 'inherit',
-            'post_mime_type' => ['image/jpeg', 'image/png'],
+            'post_mime_type' => self::IMAGE_MIME_TYPES,
             'posts_per_page' => -1,
             'fields'         => 'ids',
         ]))->found_posts;
@@ -662,7 +744,7 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
         $optimized = (new WP_Query([
             'post_type'      => 'attachment',
             'post_status'    => 'inherit',
-            'post_mime_type' => ['image/jpeg', 'image/png'],
+            'post_mime_type' => self::IMAGE_MIME_TYPES,
             'posts_per_page' => -1,
             'fields'         => 'ids',
             'meta_query'     => [

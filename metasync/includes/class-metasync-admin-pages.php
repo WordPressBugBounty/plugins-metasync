@@ -2159,8 +2159,13 @@ echo $breadcrumbs-&gt;render_breadcrumb_html();</pre>
         if(empty($datetime)){
             return "";
         }
-        $now = new DateTime;
-        $ago = new DateTime($datetime);
+        # Stored timestamps use current_time('mysql') which is WP local time
+        # with no timezone marker. Defaulting DateTime to UTC produces a diff
+        # equal to the WP timezone offset (WP-350 QA: "4 hours ago" after a
+        # 4-minute sync on non-UTC sites).
+        $wp_tz = function_exists('wp_timezone') ? wp_timezone() : new DateTimeZone('UTC');
+        $now = new DateTime('now', $wp_tz);
+        $ago = new DateTime($datetime, $wp_tz);
 
         $diff = $now->diff($ago);
 

@@ -162,10 +162,29 @@
     grid-template-columns: 1fr 1fr;
     gap: 24px;
     margin-bottom: 20px;
+    align-items: stretch;
 }
 
 .metasync-field-row:last-child {
     margin-bottom: 0;
+}
+
+.metasync-field-row > .metasync-field {
+    display: flex;
+    flex-direction: column;
+}
+
+.metasync-field--card {
+    padding: 12px 16px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--dashboard-border, #374151);
+    border-radius: 8px;
+    transition: background 0.3s ease, border-color 0.3s ease;
+}
+
+.metasync-field--card:hover {
+    background: rgba(102, 126, 234, 0.05);
+    border-color: rgba(102, 126, 234, 0.3);
 }
 
 @media (max-width: 768px) {
@@ -185,7 +204,8 @@
 .metasync-field select,
 .metasync-field .metasync-text-input {
     width: 100%;
-    padding: 10px 14px;
+    padding: 8px 14px;
+    line-height: 1.2;
     background: rgba(0, 0, 0, 0.3);
     border: 1px solid var(--dashboard-border, #374151);
     border-radius: 8px;
@@ -195,7 +215,47 @@
     box-sizing: border-box;
 }
 
-.metasync-field select:focus,
+/* ── Select wrapper: provides the custom dropdown chevron via ::after ── */
+.metasync-select-wrap {
+    position: relative;
+    display: block;
+}
+
+.metasync-select-wrap::after {
+    content: '';
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid var(--dashboard-text-secondary, #9ca3af);
+    pointer-events: none;
+    transition: border-top-color 0.2s ease;
+}
+
+.metasync-select-wrap:hover::after,
+.metasync-select-wrap:focus-within::after {
+    border-top-color: var(--dashboard-text-primary, #ffffff);
+}
+
+.metasync-field .metasync-select-wrap select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    padding-right: 36px;
+    cursor: pointer;
+}
+
+.metasync-field select:focus {
+    border-color: var(--dashboard-accent, #3b82f6);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    outline: none;
+    background-color: rgba(0, 0, 0, 0.4);
+}
+
 .metasync-field .metasync-text-input:focus {
     border-color: var(--dashboard-accent, #3b82f6);
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
@@ -308,7 +368,8 @@
 
 .metasync-number-group input[type="number"] {
     width: 80px;
-    padding: 10px 14px;
+    padding: 8px 14px;
+    line-height: 1.2;
     background: rgba(0, 0, 0, 0.3);
     border: 1px solid var(--dashboard-border, #374151);
     border-radius: 8px;
@@ -335,11 +396,11 @@
     align-items: center;
     gap: 10px;
     cursor: pointer;
-    padding: 12px 16px;
+    padding: 8px 14px;
     background: rgba(0, 0, 0, 0.2);
     border: 1px solid var(--dashboard-border, #374151);
     border-radius: 8px;
-    transition: all 0.3s ease;
+    transition: background 0.3s ease, border-color 0.3s ease;
 }
 
 .metasync-checkbox-label:hover {

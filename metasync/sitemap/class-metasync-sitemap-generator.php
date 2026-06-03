@@ -62,7 +62,91 @@ class Metasync_Sitemap_Generator
         // Register hook to serve virtual sitemap files
         add_action('template_redirect', array($this, 'serve_virtual_sitemap'), 1);
 
+        // Route sitemap URLs through WordPress rewrites so requests always reach PHP,
+        // even on nginx setups that 403 direct .xml access.
+        static $rewrite_hooks_registered = false;
+        if (!$rewrite_hooks_registered) {
+            $rewrite_hooks_registered = true;
+            add_filter('query_vars', array($this, 'add_sitemap_query_var'));
+            add_filter('option_rewrite_rules', array($this, 'inject_rewrite_rules'));
+            add_filter('sanitize_option_rewrite_rules', array($this, 'strip_dynamic_rewrite_rules'));
+            add_filter('redirect_canonical', array($this, 'disable_canonical_redirect_for_sitemaps'));
+        }
+
         $this->register_cache_bust_hooks();
+    }
+
+    /**
+     * Register `metasync_sitemap` as a public WordPress query var.
+     *
+     * @param array $vars Registered query vars.
+     * @return array
+     */
+    public function add_sitemap_query_var($vars)
+    {
+        $vars[] = 'metasync_sitemap';
+        return $vars;
+    }
+
+    /**
+     * Dynamically inject sitemap rewrite rules at the top of the rules array so
+     * they take effect without requiring a manual flush_rewrite_rules() call
+     * (mirrors Yoast's class-yoast-dynamic-rewrites.php pattern).
+     *
+     * @param mixed $rules Existing rewrite rules array (or empty value before flush).
+     * @return array
+     */
+    public function inject_rewrite_rules($rules)
+    {
+        $sitemap_rules = [
+            '^sitemap_index\.xml$'   => 'index.php?metasync_sitemap=sitemap_index.xml',
+            '^sitemap(\d*)\.xml$'    => 'index.php?metasync_sitemap=sitemap$matches[1].xml',
+            '^news-sitemap\.xml$'    => 'index.php?metasync_sitemap=news-sitemap.xml',
+            '^video-sitemap\.xml$'   => 'index.php?metasync_sitemap=video-sitemap.xml',
+        ];
+
+        if (!is_array($rules)) {
+            $rules = [];
+        }
+
+        return $sitemap_rules + $rules;
+    }
+
+    /**
+     * Strip dynamically-injected sitemap rules before they are persisted to the
+     * rewrite_rules option in the database.
+     *
+     * @param mixed $rules Rewrite rules about to be saved.
+     * @return array|string Filtered rules without the dynamic sitemap entries.
+     */
+    public function strip_dynamic_rewrite_rules($rules)
+    {
+        if (empty($rules) || !is_array($rules)) {
+            return $rules;
+        }
+
+        $dynamic_keys = [
+            '^sitemap_index\.xml$',
+            '^sitemap(\d*)\.xml$',
+            '^news-sitemap\.xml$',
+            '^video-sitemap\.xml$',
+        ];
+
+        return array_diff_key($rules, array_flip($dynamic_keys));
+    }
+
+    /**
+     * Suppress WordPress's canonical redirect when a sitemap is being served.
+     *
+     * @param string $redirect_url The proposed canonical URL.
+     * @return string|false The unmodified URL, or false to cancel the redirect.
+     */
+    public function disable_canonical_redirect_for_sitemaps($redirect_url)
+    {
+        if (get_query_var('metasync_sitemap')) {
+            return false;
+        }
+        return $redirect_url;
     }
 
     /**
@@ -159,8 +243,8 @@ class Metasync_Sitemap_Generator
     public function generate_sitemap()
     {
         try {
-            // Delete existing sitemap files first
-            $this->delete_sitemap();
+            // Delete existing general sitemap files first (preserve news/video)
+            $this->delete_sitemap('general');
 
             // Clean up any orphaned temp files from previous crashed generations
             $this->cleanup_temp_sitemap_files();
@@ -208,12 +292,7 @@ class Metasync_Sitemap_Generator
             $news_settings = get_option('metasync_news_sitemap_settings', []);
             $video_settings = get_option('metasync_video_sitemap_settings', []);
 
-            $news_exists = false !== get_transient('metasync_vsm_' . md5('news-sitemap.xml'))
-                || file_exists(ABSPATH . 'news-sitemap.xml');
-            $video_exists = false !== get_transient('metasync_vsm_' . md5('video-sitemap.xml'))
-                || file_exists(ABSPATH . 'video-sitemap.xml');
-
-            if (!empty($news_settings['enabled']) && $news_exists) {
+            if (!empty($news_settings['enabled'])) {
                 $index_entries[] = [
                     'filename' => 'news-sitemap.xml',
                     'url'      => home_url('/news-sitemap.xml'),
@@ -221,7 +300,7 @@ class Metasync_Sitemap_Generator
                 ];
             }
 
-            if (!empty($video_settings['enabled']) && $video_exists) {
+            if (!empty($video_settings['enabled'])) {
                 $index_entries[] = [
                     'filename' => 'video-sitemap.xml',
                     'url'      => home_url('/video-sitemap.xml'),
@@ -238,43 +317,6 @@ class Metasync_Sitemap_Generator
 
             if (is_wp_error($index_result)) {
                 return $index_result;
-            }
-
-            // Check if all files were written successfully (not virtual)
-            $all_physical = true;
-            foreach ($sitemap_files as $sitemap) {
-                $path = ABSPATH . $sitemap['filename'];
-                if (!file_exists($path)) {
-                    $all_physical = false;
-                    break;
-                }
-            }
-            if (!file_exists($this->sitemap_index_path)) {
-                $all_physical = false;
-            }
-
-            // Clear virtual mode for main sitemaps if all written physically
-            // Preserve news/video sitemap transients (they are always virtual)
-            if ($all_physical) {
-                $index = get_option('metasync_sitemap_virtual_index', []);
-                $preserve_files = ['news-sitemap.xml', 'video-sitemap.xml'];
-                $remaining_index = [];
-                foreach ($index as $fname => $tkey) {
-                    if (in_array($fname, $preserve_files, true)) {
-                        $remaining_index[$fname] = $tkey;
-                    } else {
-                        delete_transient($tkey);
-                    }
-                }
-                if (!empty($remaining_index)) {
-                    update_option('metasync_sitemap_virtual_index', $remaining_index, false);
-                    // Keep virtual mode on since news/video still need it
-                } else {
-                    delete_option('metasync_sitemap_virtual_index');
-                    delete_option('metasync_sitemap_virtual_mode');
-                }
-                // Clear legacy option storage
-                delete_option('metasync_sitemap_virtual');
             }
 
             // Store sitemap info for admin display
@@ -307,6 +349,9 @@ class Metasync_Sitemap_Generator
 
         $urls = [];
 
+        // Load user-configured sitemap settings
+        $sitemap_settings = get_option('metasync_sitemap_settings', []);
+
         // Get all published posts, pages, and custom post types
         $post_types = get_post_types(['public' => true], 'names');
 
@@ -316,6 +361,7 @@ class Metasync_Sitemap_Generator
             'revision',
             'nav_menu_item',
             'elementor_library',
+            'elementor-hf',
             'ct_template',
             'oxy_user_library',
             'brizy-template',
@@ -335,24 +381,71 @@ class Metasync_Sitemap_Generator
             'acf-field',
             'fl-builder-template',
             'fl-theme-layout',
+            'wpr_mega_menu',
+            'wpr_templates',
         ];
         $excluded_types = apply_filters('metasync_sitemap_excluded_post_types', $excluded_types);
         $post_types = array_diff($post_types, $excluded_types);
 
+        // Apply user-configured post type selection (only when settings have been explicitly saved)
+        if (!empty($sitemap_settings['_configured'])) {
+            if (!empty($sitemap_settings['post_types'])) {
+                $post_types = array_intersect($post_types, (array) $sitemap_settings['post_types']);
+            } else {
+                // Configured but empty = user unchecked all post types
+                $post_types = [];
+            }
+        }
+
         if (empty($post_types)) {
             return $urls;
+        }
+
+        // Build excluded URLs set for fast lookup
+        $excluded_urls = [];
+        if (!empty($sitemap_settings['excluded_urls'])) {
+            $raw_lines = explode("\n", $sitemap_settings['excluded_urls']);
+            foreach ($raw_lines as $line) {
+                $line = trim($line);
+                if ($line !== '') {
+                    $excluded_urls[$line] = true;
+                }
+            }
         }
 
         // Get indexation control settings
         $seo_controls = $this->get_seo_controls();
 
         // Add homepage first
+        $home_url = home_url('/');
         $urls[] = [
-            'loc' => home_url('/'),
+            'loc' => $home_url,
             'lastmod' => get_lastpostmodified('gmt'),
             'priority' => '1.0',
             'changefreq' => 'daily',
         ];
+
+        // Track seen URLs to prevent duplicates (e.g. front page appearing again from posts query).
+        // Normalize with untrailingslashit() to avoid trailing-slash mismatches between
+        // home_url('/') and get_permalink() for static front pages.
+        $seen_urls = [untrailingslashit($home_url) => true];
+
+        // Build taxonomy query for category/tag filtering (only when explicitly configured)
+        $sitemap_tax_query = [];
+        if (!empty($sitemap_settings['_configured']) && !empty($sitemap_settings['categories'])) {
+            $sitemap_tax_query[] = [
+                'taxonomy' => 'category',
+                'field'    => 'term_id',
+                'terms'    => array_map('absint', (array) $sitemap_settings['categories']),
+            ];
+        }
+        if (!empty($sitemap_settings['_configured']) && !empty($sitemap_settings['tags'])) {
+            $sitemap_tax_query[] = [
+                'taxonomy' => 'post_tag',
+                'field'    => 'term_id',
+                'terms'    => array_map('absint', (array) $sitemap_settings['tags']),
+            ];
+        }
 
         // Process posts in chunks to bound memory and database load.
         $chunk_size = (int) apply_filters('metasync_sitemap_chunk_size', 200);
@@ -362,7 +455,7 @@ class Metasync_Sitemap_Generator
         $paged = 1;
 
         while (true) {
-            $query = new WP_Query([
+            $query_args = [
                 'post_type'              => array_values($post_types),
                 'post_status'            => 'publish',
                 'posts_per_page'         => $chunk_size,
@@ -375,7 +468,13 @@ class Metasync_Sitemap_Generator
                 'cache_results'          => true,
                 'ignore_sticky_posts'    => true,
                 'suppress_filters'       => true,
-            ]);
+            ];
+
+            if (!empty($sitemap_tax_query)) {
+                $query_args['tax_query'] = $sitemap_tax_query;
+            }
+
+            $query = new WP_Query($query_args);
 
             $posts = $query->posts;
             if (empty($posts)) {
@@ -420,8 +519,31 @@ class Metasync_Sitemap_Generator
 
                 // Note: get_permalink() respects the post_link_category filter registered
                 // in Metasync_Seo_Output, which automatically resolves the primary category.
+                $permalink = get_permalink($post);
+
+                // Skip URLs with query strings (e.g. ?wpr_mega_menu=... internal items).
+                // Only when the site uses pretty permalinks — under the plain permalink
+                // structure (?p=123) every legitimate URL contains '?', so applying this
+                // unconditionally would empty the sitemap down to the homepage.
+                if (get_option('permalink_structure') && strpos($permalink, '?') !== false) {
+                    continue;
+                }
+
+                // Skip duplicate URLs (e.g. front page appearing again from posts query)
+                $normalized_permalink = untrailingslashit($permalink);
+                if (isset($seen_urls[$normalized_permalink])) {
+                    continue;
+                }
+
+                // Skip URLs that are in the exclusion list
+                if (!empty($excluded_urls) && isset($excluded_urls[$permalink])) {
+                    continue;
+                }
+
+                $seen_urls[$normalized_permalink] = true;
+
                 $urls[] = [
-                    'loc' => get_permalink($post),
+                    'loc' => $permalink,
                     'lastmod' => $post->post_modified_gmt,
                     'priority' => $priority,
                     'changefreq' => $changefreq,
@@ -435,6 +557,17 @@ class Metasync_Sitemap_Generator
 
         // Add taxonomies (categories, tags, etc.)
         $taxonomies = get_taxonomies(['public' => true], 'names');
+
+        // Apply user-configured taxonomy selection (only when settings have been explicitly saved)
+        if (!empty($sitemap_settings['_configured'])) {
+            if (!empty($sitemap_settings['taxonomies'])) {
+                $taxonomies = array_intersect($taxonomies, (array) $sitemap_settings['taxonomies']);
+            } else {
+                // Configured but empty = user unchecked all taxonomies
+                $taxonomies = [];
+            }
+        }
+
         foreach ($taxonomies as $taxonomy) {
             // Skip taxonomies that are set to noindex
             if ($this->is_taxonomy_noindex($taxonomy, $seo_controls)) {
@@ -479,6 +612,20 @@ class Metasync_Sitemap_Generator
                 if (is_wp_error($term_link)) {
                     continue;
                 }
+
+                // Skip URLs that are in the exclusion list
+                if (!empty($excluded_urls) && isset($excluded_urls[$term_link])) {
+                    continue;
+                }
+
+                // Skip duplicate URLs
+                $normalized_term_link = untrailingslashit($term_link);
+                if (isset($seen_urls[$normalized_term_link])) {
+                    continue;
+                }
+
+                $seen_urls[$normalized_term_link] = true;
+
                 $lastmod = isset($lastmod_map[(int) $term->term_id])
                     ? $lastmod_map[(int) $term->term_id]
                     : current_time('mysql', 1);
@@ -520,35 +667,7 @@ class Metasync_Sitemap_Generator
      */
     private function generate_sitemap_file($path, $urls, $force_memory = false)
     {
-        $dir = dirname($path);
-        $dir_writable = is_writable($dir) || (file_exists($path) && is_writable($path));
-
-        // Tier 1: XMLWriter streaming with atomic rename (preferred — lowest memory).
-        if (!$force_memory && $dir_writable && class_exists('XMLWriter')) {
-            $result = $this->stream_sitemap_urls($dir, $path, $urls);
-            if ($result) {
-                return true;
-            }
-            // Streaming failed — fall through to in-memory path.
-        }
-
-        // Tier 2: in-memory DOMDocument fallback.
-        if (!$force_memory && defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('MetaSync: sitemap streaming unavailable, using in-memory fallback');
-        }
-
         $xml_content = $this->build_sitemap_xml_string($urls);
-
-        if ($dir_writable) {
-            if ($this->atomic_write($dir, $path, $xml_content)) {
-                return true;
-            }
-            error_log('Metasync Sitemap: Failed to save sitemap file: ' . basename($path));
-        } else {
-            error_log('Metasync Sitemap: Cannot write sitemap file to ' . $path . ' - directory is not writable');
-        }
-
-        // Tier 3: virtual storage fallback.
         $this->store_virtual_sitemap_file(basename($path), $xml_content);
         return true;
     }
@@ -813,35 +932,7 @@ class Metasync_Sitemap_Generator
      */
     private function generate_sitemap_index($sitemap_files, $force_memory = false)
     {
-        $dir = dirname($this->sitemap_index_path);
-        $dir_writable = is_writable($dir)
-            || (file_exists($this->sitemap_index_path) && is_writable($this->sitemap_index_path));
-
-        // Tier 1: XMLWriter streaming with atomic rename (preferred — lowest memory).
-        if (!$force_memory && $dir_writable && class_exists('XMLWriter')) {
-            $result = $this->stream_sitemap_index($dir, $this->sitemap_index_path, $sitemap_files);
-            if ($result) {
-                return true;
-            }
-        }
-
-        // Tier 2: in-memory DOMDocument fallback.
-        if (!$force_memory && defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('MetaSync: sitemap streaming unavailable, using in-memory fallback');
-        }
-
         $xml_content = $this->build_sitemap_index_xml_string($sitemap_files);
-
-        if ($dir_writable) {
-            if ($this->atomic_write($dir, $this->sitemap_index_path, $xml_content)) {
-                return true;
-            }
-            error_log('Metasync Sitemap: Failed to save sitemap index file');
-        } else {
-            error_log('Metasync Sitemap: Cannot write sitemap index file to ' . $this->sitemap_index_path . ' - directory is not writable');
-        }
-
-        // Tier 3: virtual storage fallback.
         $this->store_virtual_sitemap_file('sitemap_index.xml', $xml_content);
         return true;
     }
@@ -946,14 +1037,20 @@ class Metasync_Sitemap_Generator
      */
     public function sitemap_exists()
     {
-        // Check physical file
-        if (file_exists($this->sitemap_index_path)) {
+        // Check virtual content first (now the primary storage path).
+        $virtual_content = $this->get_virtual_sitemap_file('sitemap_index.xml');
+        if (false !== $virtual_content) {
             return true;
         }
-        
-        // Check virtual content
-        $virtual_content = $this->get_virtual_sitemap_file('sitemap_index.xml');
-        return false !== $virtual_content;
+
+        // Check tracked sitemap files option (survives transient eviction).
+        $tracked = get_option('metasync_sitemap_files', []);
+        if (!empty($tracked)) {
+            return true;
+        }
+
+        // Fall back to physical file for legacy installs that haven't migrated yet.
+        return file_exists($this->sitemap_index_path);
     }
 
     /**
@@ -963,17 +1060,17 @@ class Metasync_Sitemap_Generator
      */
     public function get_sitemap_content()
     {
-        // Check physical file first
-        if ($this->sitemap_exists()) {
-            return file_get_contents($this->sitemap_index_path);
-        }
-        
-        // Check virtual content
+        // Check virtual content first (now the primary storage path).
         $virtual_content = $this->get_virtual_sitemap_file('sitemap_index.xml');
         if (false !== $virtual_content) {
             return $virtual_content;
         }
-        
+
+        // Fall back to physical file for legacy installs that haven't migrated yet.
+        if (file_exists($this->sitemap_index_path)) {
+            return file_get_contents($this->sitemap_index_path);
+        }
+
         return false;
     }
 
@@ -1069,70 +1166,119 @@ class Metasync_Sitemap_Generator
     }
 
     /**
-     * Delete all sitemap files (physical and virtual)
+     * Delete sitemap files (physical and virtual)
      *
+     * @param string $type One of 'all', 'general', 'news', 'video'. Defaults to 'all'.
      * @return bool
      */
-    public function delete_sitemap()
+    public function delete_sitemap($type = 'all')
     {
+        if (!in_array($type, ['all', 'general', 'news', 'video'], true)) {
+            return false;
+        }
+
         $deleted = false;
 
-        // Delete physical sitemap index
-        if (file_exists($this->sitemap_index_path)) {
-            @unlink($this->sitemap_index_path);
-            $deleted = true;
-        }
-
-        // Delete all physical sitemap files (sitemap.xml, sitemap2.xml, etc.)
-        $sitemap_files = get_option('metasync_sitemap_files', []);
-        foreach ($sitemap_files as $sitemap) {
-            $path = ABSPATH . $sitemap['filename'];
-            if (file_exists($path)) {
-                @unlink($path);
+        if ('general' === $type || 'all' === $type) {
+            // Delete physical sitemap index
+            if (file_exists($this->sitemap_index_path)) {
+                @unlink($this->sitemap_index_path);
                 $deleted = true;
             }
-        }
 
-        // Also check for any sitemap*.xml files that might exist
-        $files = glob(ABSPATH . 'sitemap*.xml');
-        if ($files) {
-            foreach ($files as $file) {
-                // Only delete sitemap files that match our pattern
-                if (preg_match('/sitemap\d*\.xml$/', basename($file))) {
-                    @unlink($file);
+            // Delete all physical sitemap files (sitemap.xml, sitemap2.xml, etc.)
+            $sitemap_files = get_option('metasync_sitemap_files', []);
+            foreach ($sitemap_files as $sitemap) {
+                $path = ABSPATH . $sitemap['filename'];
+                if (file_exists($path)) {
+                    @unlink($path);
                     $deleted = true;
+                }
+            }
+
+            // Also check for any sitemap*.xml files that might exist
+            $files = glob(ABSPATH . 'sitemap*.xml');
+            if ($files) {
+                foreach ($files as $file) {
+                    // Only delete sitemap files that match our pattern
+                    if (preg_match('/sitemap\d*\.xml$/', basename($file))) {
+                        @unlink($file);
+                        $deleted = true;
+                    }
                 }
             }
         }
 
-        // Delete news/video sitemap files and transients
-        foreach (['news-sitemap.xml', 'video-sitemap.xml'] as $extra_file) {
-            $tkey = 'metasync_vsm_' . md5($extra_file);
+        if ('news' === $type || 'all' === $type) {
+            $news_file = 'news-sitemap.xml';
+            $tkey = 'metasync_vsm_' . md5($news_file);
             if (false !== get_transient($tkey)) {
                 delete_transient($tkey);
                 $deleted = true;
             }
-            $physical = ABSPATH . $extra_file;
+            $physical = ABSPATH . $news_file;
             if (file_exists($physical)) {
                 @unlink($physical);
                 $deleted = true;
             }
         }
 
-        // Clear virtual content if it exists
-        $virtual_mode = get_option('metasync_sitemap_virtual_mode', false);
-        $virtual_files = get_option('metasync_sitemap_virtual', array());
-        if ($virtual_mode || !empty($virtual_files)) {
-            delete_option('metasync_sitemap_virtual');
-            delete_option('metasync_sitemap_virtual_mode');
-            $deleted = true;
+        if ('video' === $type || 'all' === $type) {
+            $video_file = 'video-sitemap.xml';
+            $tkey = 'metasync_vsm_' . md5($video_file);
+            if (false !== get_transient($tkey)) {
+                delete_transient($tkey);
+                $deleted = true;
+            }
+            $physical = ABSPATH . $video_file;
+            if (file_exists($physical)) {
+                @unlink($physical);
+                $deleted = true;
+            }
         }
 
-        // Clear virtual index and stored options
-        delete_option('metasync_sitemap_virtual_index');
-        delete_option('metasync_sitemap_files');
-        delete_option('metasync_sitemap_total_urls');
-        delete_option('metasync_sitemap_last_generated');
+        if ('general' === $type || 'all' === $type) {
+            // Clear tracked virtual sitemap transients, preserving news/video
+            // when deleting only the general sitemap.
+            $preserved_filenames = ['news-sitemap.xml', 'video-sitemap.xml'];
+            $virtual_index = get_option('metasync_sitemap_virtual_index', []);
+            if (is_array($virtual_index)) {
+                $remaining_index = [];
+                foreach ($virtual_index as $filename => $tkey) {
+                    if ('general' === $type && in_array($filename, $preserved_filenames, true)) {
+                        $remaining_index[$filename] = $tkey;
+                        continue;
+                    }
+                    if (is_string($tkey) && $tkey !== '') {
+                        delete_transient($tkey);
+                        $deleted = true;
+                    }
+                }
+                if (!empty($remaining_index)) {
+                    update_option('metasync_sitemap_virtual_index', $remaining_index, false);
+                } else {
+                    delete_option('metasync_sitemap_virtual_index');
+                }
+            }
+
+            // Clear virtual content if it exists.
+            // Only fully disable virtual mode when deleting all — news/video
+            // still need it when only the general sitemap is removed.
+            if ('all' === $type) {
+                $virtual_mode = get_option('metasync_sitemap_virtual_mode', false);
+                $virtual_files = get_option('metasync_sitemap_virtual', array());
+                if ($virtual_mode || !empty($virtual_files)) {
+                    delete_option('metasync_sitemap_virtual');
+                    delete_option('metasync_sitemap_virtual_mode');
+                    $deleted = true;
+                }
+            }
+
+            // Clear stored options
+            delete_option('metasync_sitemap_files');
+            delete_option('metasync_sitemap_total_urls');
+            delete_option('metasync_sitemap_last_generated');
+        }
 
         return $deleted;
     }
@@ -1549,7 +1695,7 @@ class Metasync_Sitemap_Generator
      * @param string $content The XML content
      * @return bool True on success
      */
-    private function store_virtual_sitemap_file($filename, $content)
+    public function store_virtual_sitemap_file($filename, $content)
     {
         $cache_key = 'metasync_vsm_' . md5($filename);
         set_transient($cache_key, $content, 30 * DAY_IN_SECONDS);
@@ -1605,42 +1751,86 @@ class Metasync_Sitemap_Generator
     }
 
     /**
-     * Serve virtual sitemap files via template_redirect
+     * Serve sitemap files via template_redirect.
+     *
+     * Resolves the requested sitemap filename in two ways: first via the
+     * `metasync_sitemap` query var populated by our rewrite rules (the primary
+     * path), and second via REQUEST_URI parsing (kept as a fallback for sites
+     * with rewrites disabled). When a physical file exists it is streamed
+     * directly by PHP — letting the web server serve it is unsafe because some
+     * nginx configurations 403 static .xml files.
      */
     public function serve_virtual_sitemap()
     {
-        // Only process on frontend
         if (is_admin()) {
             return;
         }
 
-        // Get requested URI
-        $request_uri = isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
-        $request_uri = strtok($request_uri, '?'); // Remove query string
+        $filename = '';
 
-        // Check if this is a sitemap request
-        $sitemap_pattern = '/\/((news-|video-)?sitemap(_index)?\d*\.xml)$/';
-        if (!preg_match($sitemap_pattern, $request_uri, $matches)) {
+        // Primary path: query var set by our rewrite rule.
+        $qv = get_query_var('metasync_sitemap');
+        if (!empty($qv)) {
+            $filename = sanitize_file_name($qv);
+            if (!preg_match('/^(news-|video-)?sitemap(_index)?\d*\.xml$/', $filename)) {
+                return;
+            }
+        } else {
+            // Fallback path: REQUEST_URI regex for sites where rewrite rules are
+            // not engaged (e.g. pretty permalinks disabled or pre-flush state).
+            $request_uri = isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
+            $request_uri = strtok($request_uri, '?');
+
+            $sitemap_pattern = '/\/((news-|video-)?sitemap(_index)?\d*\.xml)$/';
+            if (!preg_match($sitemap_pattern, $request_uri, $matches)) {
+                return;
+            }
+
+            $filename = $matches[1];
+        }
+
+        if (empty($filename)) {
             return;
         }
 
-        $filename = $matches[1];
-
-        // First check if physical file exists
+        // If a physical file exists, stream it ourselves. We cannot rely on the
+        // web server to serve it: on some nginx configurations direct .xml
+        // requests are 403'd before PHP is involved.
         $physical_path = ABSPATH . $filename;
-        if (file_exists($physical_path)) {
-            // Physical file exists, let WordPress handle it normally
-            return;
+        if (file_exists($physical_path) && is_readable($physical_path)) {
+            header('Content-Type: application/xml; charset=utf-8');
+            header('X-Robots-Tag: noindex');
+            status_header(200);
+            readfile($physical_path);
+            exit;
         }
 
         // Check if we have virtual content
         $virtual_content = $this->get_virtual_sitemap_file($filename);
+
+        // Regenerate-on-miss: if the transient expired, rebuild on the spot
+        // instead of returning 404. Only regenerate for known sitemaps to
+        // prevent DoS via requests to non-existent sitemap numbers.
         if (false === $virtual_content) {
-            // No virtual content either, let WordPress handle 404
+            if ($filename === 'news-sitemap.xml') {
+                $this->generate_news_sitemap();
+            } elseif ($filename === 'video-sitemap.xml') {
+                $this->generate_video_sitemap();
+            } else {
+                $known_files = get_option('metasync_sitemap_files', []);
+                $known_names = array_column($known_files, 'filename');
+                $known_names[] = 'sitemap_index.xml';
+                if (empty($known_files) || in_array($filename, $known_names, true)) {
+                    $this->generate_sitemap();
+                }
+            }
+            $virtual_content = $this->get_virtual_sitemap_file($filename);
+        }
+
+        if (false === $virtual_content) {
             return;
         }
 
-        // Serve virtual sitemap content
         header('Content-Type: application/xml; charset=utf-8');
         header('X-Robots-Tag: noindex');
         status_header(200);

@@ -244,6 +244,7 @@ class Metasync_Admin
 
         add_action('admin_head', array($this,'metasync_admin_icon_style'));
         add_action('admin_head', array($this, 'metasync_fouc_prevention_style'));
+        add_action('admin_head', array($this, 'suppress_notices_on_wizard_page'), 1);
 
         // Always add admin bar styles - the method will check the setting internally
         add_action('wp_head', array($this,'metasync_admin_bar_style')); // For frontend admin bar
@@ -360,6 +361,7 @@ class Metasync_Admin
         add_action('wp_ajax_metasync_cancel_batch_optimize', array($this, 'ajax_cancel_batch_optimize'));
         add_action('wp_ajax_metasync_batch_progress', array($this, 'ajax_batch_progress'));
         add_action('wp_ajax_metasync_bulk_optimize_selected', array($this, 'ajax_bulk_optimize_selected'));
+        add_action('wp_ajax_metasync_bulk_unoptimize_selected', array($this, 'ajax_bulk_unoptimize_selected'));
         add_action('wp_ajax_metasync_process_batch_tick', array($this, 'ajax_process_batch_tick'));
         add_action('metasync_media_batch_optimize_cron', array($this, 'handle_media_batch_cron'));
 
@@ -482,6 +484,13 @@ class Metasync_Admin
         ?>
         <style>.metasync-dashboard-wrap { opacity: 0; transition: opacity 0.15s ease-in; }</style>
         <?php
+    }
+
+    public function suppress_notices_on_wizard_page() {
+        if ( isset( $_GET['page'] ) && strpos( $_GET['page'], '-setup-wizard' ) !== false ) {
+            remove_all_actions( 'admin_notices' );
+            remove_all_actions( 'all_admin_notices' );
+        }
     }
 
     #---------fixes issue : #95 ----------
@@ -1530,7 +1539,7 @@ class Metasync_Admin
                 <input type="hidden" name="action" value="metasync_clear_all_cache_plugins" />
                 <?php wp_nonce_field('metasync_clear_cache_nonce', 'clear_cache_nonce'); ?>
                 <button type="submit" class="metasync-btn-primary" style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); display: inline-block; width: auto; min-width: 240px; max-width: fit-content;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0, 0, 0, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0, 0, 0, 0.1)';">
-                    <span class="dashicons dashicons-controls-repeat" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Clear All Cache Plugins
+                    <span class="dashicons dashicons-controls-repeat"></span> Clear All Cache Plugins
                 </button>
                 <p class="description" style="margin-top: 10px; color: var(--dashboard-text-secondary);">This will clear cache from WP Rocket, LiteSpeed, W3 Total Cache, and all other detected cache plugins.</p>
             </form>
@@ -2585,6 +2594,7 @@ class Metasync_Admin
             require_once plugin_dir_path(dirname(__FILE__)) . 'media-optimization/class-media-library-list-table.php';
             wp_send_json_success([
                 'status_html' => Metasync_Media_Library_List_Table::render_status_html($attachment_id),
+                'can_revert'  => Metasync_Image_Converter::can_revert($attachment_id),
             ]);
         }
 
@@ -2708,6 +2718,63 @@ class Metasync_Admin
     }
 
     /**
+     * AJAX: Bulk unoptimize (revert) selected images.
+     */
+    public function ajax_bulk_unoptimize_selected()
+    {
+        check_ajax_referer('metasync_media_opt_nonce', 'nonce');
+
+        if (!current_user_can('upload_files')) {
+            wp_send_json_error(__('Permission denied.', 'metasync'));
+        }
+
+        $ids = isset($_POST['ids']) ? array_map('absint', explode(',', sanitize_text_field(wp_unslash($_POST['ids'])))) : [];
+        $ids = array_filter($ids);
+
+        if (empty($ids)) {
+            wp_send_json_error(__('No images selected.', 'metasync'));
+        }
+
+        $success = 0;
+        $failed  = 0;
+        $skipped = 0;
+        $errors  = [];
+
+        foreach ($ids as $id) {
+            $format = get_post_meta($id, '_metasync_converted_format', true);
+
+            if (!$format) {
+                $skipped++;
+                continue;
+            }
+
+            if (!Metasync_Image_Converter::can_revert($id)) {
+                $skipped++;
+                $file = get_attached_file($id);
+                $name = $file ? basename($file) : "ID {$id}";
+                $errors[] = sprintf(__('%s: skipped — original image unavailable.', 'metasync'), $name);
+                continue;
+            }
+
+            if (Metasync_Image_Converter::revert_attachment($id)) {
+                $success++;
+            } else {
+                $failed++;
+                $file = get_attached_file($id);
+                $name = $file ? basename($file) : "ID {$id}";
+                $errors[] = sprintf(__('%s: revert failed (original file may not exist).', 'metasync'), $name);
+            }
+        }
+
+        wp_send_json_success([
+            'success' => $success,
+            'failed'  => $failed,
+            'skipped' => $skipped,
+            'errors'  => $errors,
+        ]);
+    }
+
+    /**
      * AJAX: Process one batch tick (browser-driven chaining).
      */
     public function ajax_process_batch_tick()
@@ -2765,15 +2832,51 @@ class Metasync_Admin
             $active_tab = sanitize_text_field(wp_unslash($_POST['redirect_tab']));
         }
 
+        // Handle Main Sitemap settings form submission
+        if (isset($_POST['metasync_sitemap_settings_nonce']) && isset($_POST['save_sitemap_settings'])) {
+            check_admin_referer('metasync_sitemap_settings_action', 'metasync_sitemap_settings_nonce');
+
+            $sitemap_settings = [
+                '_configured'   => true,
+                'post_types'    => array_map('sanitize_key', (array) ($_POST['sitemap_post_types'] ?? [])),
+                'categories'    => array_map('absint', (array) ($_POST['sitemap_categories'] ?? [])),
+                'tags'          => array_map('absint', (array) ($_POST['sitemap_tags'] ?? [])),
+                'taxonomies'    => array_map('sanitize_key', (array) ($_POST['sitemap_taxonomies'] ?? [])),
+                'excluded_urls' => sanitize_textarea_field(wp_unslash($_POST['sitemap_excluded_urls'] ?? '')),
+            ];
+
+            update_option('metasync_sitemap_settings', $sitemap_settings);
+
+            // Regenerate sitemap with new content settings
+            $result = $sitemap_generator->generate_sitemap();
+            if (is_wp_error($result)) {
+                echo '<div class="notice notice-error"><p>' . esc_html(
+                    sprintf(__('Settings saved but sitemap generation failed: %s', 'metasync'), $result->get_error_message())
+                ) . '</p></div>';
+            } else {
+                echo '<div class="notice notice-success"><p>' . esc_html__('Sitemap content settings saved and sitemap regenerated!', 'metasync') . '</p></div>';
+            }
+        }
+
         // Handle News Sitemap settings form submission
         if (isset($_POST['metasync_news_sitemap_nonce']) && isset($_POST['save_news_sitemap'])) {
             check_admin_referer('metasync_news_sitemap_action', 'metasync_news_sitemap_nonce');
+
+            // Build generic taxonomy filters
+            $news_taxonomies = [];
+            if (!empty($_POST['news_taxonomies']) && is_array($_POST['news_taxonomies'])) {
+                foreach ($_POST['news_taxonomies'] as $tax_name => $term_ids) {
+                    $news_taxonomies[sanitize_key($tax_name)] = array_map('absint', (array) $term_ids);
+                }
+            }
 
             $news_settings = [
                 'enabled'              => isset($_POST['news_enabled']),
                 'post_types'           => array_map('sanitize_key', (array) ($_POST['news_post_types'] ?? ['post'])),
                 'categories'           => array_map('absint', (array) ($_POST['news_categories'] ?? [])),
                 'tags'                 => array_map('absint', (array) ($_POST['news_tags'] ?? [])),
+                'taxonomies'           => $news_taxonomies,
+                'excluded_urls'        => sanitize_textarea_field(wp_unslash($_POST['news_excluded_urls'] ?? '')),
                 'publication_name'     => sanitize_text_field(wp_unslash($_POST['publication_name'] ?? '')),
                 'publication_language' => sanitize_text_field(wp_unslash($_POST['publication_language'] ?? '')),
             ];
@@ -2785,6 +2888,7 @@ class Metasync_Admin
 
             if ($news_settings['enabled']) {
                 $sitemap_generator->generate_news_sitemap();
+                update_option('metasync_sitemap_last_generated', current_time('mysql'));
                 echo '<div class="notice notice-success"><p>' . esc_html__('News sitemap settings saved and sitemap regenerated!', 'metasync') . '</p></div>';
             } else {
                 // Also remove physical file if it exists
@@ -2799,10 +2903,20 @@ class Metasync_Admin
         if (isset($_POST['metasync_video_sitemap_nonce']) && isset($_POST['save_video_sitemap'])) {
             check_admin_referer('metasync_video_sitemap_action', 'metasync_video_sitemap_nonce');
 
+            // Build generic taxonomy filters
+            $video_taxonomies = [];
+            if (!empty($_POST['video_taxonomies']) && is_array($_POST['video_taxonomies'])) {
+                foreach ($_POST['video_taxonomies'] as $tax_name => $term_ids) {
+                    $video_taxonomies[sanitize_key($tax_name)] = array_map('absint', (array) $term_ids);
+                }
+            }
+
             $video_settings = [
-                'enabled'     => isset($_POST['video_enabled']),
-                'post_types'  => array_map('sanitize_key', (array) ($_POST['video_post_types'] ?? ['post', 'page'])),
-                'auto_detect' => isset($_POST['auto_detect']),
+                'enabled'       => isset($_POST['video_enabled']),
+                'post_types'    => array_map('sanitize_key', (array) ($_POST['video_post_types'] ?? ['post', 'page'])),
+                'auto_detect'   => isset($_POST['auto_detect']),
+                'taxonomies'    => $video_taxonomies,
+                'excluded_urls' => sanitize_textarea_field(wp_unslash($_POST['video_excluded_urls'] ?? '')),
             ];
 
             // Always invalidate old cache before saving new settings
@@ -2812,6 +2926,7 @@ class Metasync_Admin
 
             if ($video_settings['enabled']) {
                 $sitemap_generator->generate_video_sitemap();
+                update_option('metasync_sitemap_last_generated', current_time('mysql'));
                 echo '<div class="notice notice-success"><p>' . esc_html__('Video sitemap settings saved and sitemap regenerated!', 'metasync') . '</p></div>';
             } else {
                 // Also remove physical file if it exists
@@ -2871,8 +2986,11 @@ class Metasync_Admin
                 $result = $sitemap_generator->generate_sitemap();
 
                 if (is_wp_error($result)) {
-                    error_log('[MetaSync] Sitemap generation failed: ' . $result->get_error_message());
-                    echo '<div class="notice notice-error"><p>' . esc_html__('Sitemap generation failed. Please try again or check the error logs.', 'metasync') . '</p></div>';
+                    $error_msg = $result->get_error_message();
+                    error_log('[MetaSync] Sitemap generation failed: ' . $error_msg);
+                    echo '<div class="notice notice-error"><p>' . esc_html(
+                        sprintf(__('Sitemap generation failed: %s', 'metasync'), $error_msg)
+                    ) . '</p></div>';
                 } else {
                     $message = esc_html__('Sitemap generated successfully!', 'metasync');
                     if (!empty($extras)) {
@@ -2907,6 +3025,32 @@ class Metasync_Admin
             } elseif (isset($_POST['disable_auto_update'])) {
                 update_option('metasync_sitemap_auto_update', false);
                 echo '<div class="notice notice-success"><p>' . esc_html__('Auto-update disabled!', 'metasync') . '</p></div>';
+            } elseif (isset($_POST['delete_general_sitemap'])) {
+                $deleted = $sitemap_generator->delete_sitemap('general');
+
+                if ($deleted) {
+                    // Disable auto-update only when the general sitemap is removed
+                    update_option('metasync_sitemap_auto_update', false);
+                    echo '<div class="notice notice-success"><p>' . esc_html__('General sitemap deleted successfully!', 'metasync') . '</p></div>';
+                } else {
+                    echo '<div class="notice notice-error"><p>' . esc_html__('Failed to delete general sitemap. The files may not exist or are not writable.', 'metasync') . '</p></div>';
+                }
+            } elseif (isset($_POST['delete_news_sitemap'])) {
+                $deleted = $sitemap_generator->delete_sitemap('news');
+
+                if ($deleted) {
+                    echo '<div class="notice notice-success"><p>' . esc_html__('News sitemap deleted successfully!', 'metasync') . '</p></div>';
+                } else {
+                    echo '<div class="notice notice-error"><p>' . esc_html__('Failed to delete news sitemap. The file may not exist or is not writable.', 'metasync') . '</p></div>';
+                }
+            } elseif (isset($_POST['delete_video_sitemap'])) {
+                $deleted = $sitemap_generator->delete_sitemap('video');
+
+                if ($deleted) {
+                    echo '<div class="notice notice-success"><p>' . esc_html__('Video sitemap deleted successfully!', 'metasync') . '</p></div>';
+                } else {
+                    echo '<div class="notice notice-error"><p>' . esc_html__('Failed to delete video sitemap. The file may not exist or is not writable.', 'metasync') . '</p></div>';
+                }
             } elseif (isset($_POST['delete_sitemap'])) {
                 // Delete all sitemaps: main + news + video (handled by delete_sitemap)
                 $deleted = $sitemap_generator->delete_sitemap();
@@ -2937,19 +3081,32 @@ class Metasync_Admin
         $auto_update_enabled = get_option('metasync_sitemap_auto_update', false);
         $active_sitemap_plugins = $sitemap_generator->check_active_sitemap_plugins();
 
+        // Main sitemap content settings
+        $sitemap_settings = get_option('metasync_sitemap_settings', [
+            'post_types'    => [],
+            'categories'    => [],
+            'tags'          => [],
+            'taxonomies'    => [],
+            'excluded_urls' => '',
+        ]);
+
         // News and video sitemap settings for tabs
         $news_settings = get_option('metasync_news_sitemap_settings', [
             'enabled'              => false,
             'post_types'           => ['post'],
             'categories'           => [],
             'tags'                 => [],
+            'taxonomies'           => [],
+            'excluded_urls'        => '',
             'publication_name'     => '',
             'publication_language' => '',
         ]);
         $video_settings = get_option('metasync_video_sitemap_settings', [
-            'enabled'     => false,
-            'post_types'  => ['post', 'page'],
-            'auto_detect' => true,
+            'enabled'       => false,
+            'post_types'    => ['post', 'page'],
+            'auto_detect'   => true,
+            'taxonomies'    => [],
+            'excluded_urls' => '',
         ]);
 
         // Load view
@@ -4694,11 +4851,9 @@ class Metasync_Admin
 
         # Get the plugin name using centralized method
         $plugin_name = Metasync::get_effective_plugin_name();
-        $current_rewrite_rules = get_option('rewrite_rules');
+
         # Check if the current permalink structure is set to "Plain"
-        if (($current_permalink_structure == '/%post_id%/' || $current_permalink_structure == '') && $current_rewrite_rules == '') {      
-            
-           # Show admin notice with plugin name included in the message  
+        if ($current_permalink_structure === '/%post_id%/' || $current_permalink_structure === '') {
            printf(
             '<div class="notice notice-error is-dismissible">
                 <p>
@@ -4710,7 +4865,6 @@ class Metasync_Admin
             esc_html($plugin_name)
         );
         }
-        flush_rewrite_rules();
     }
 
     /**

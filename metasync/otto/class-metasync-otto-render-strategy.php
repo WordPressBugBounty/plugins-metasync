@@ -145,6 +145,12 @@ class Metasync_Otto_Render_Strategy {
             'W3TC' => defined('W3TC'),
             'LiteSpeed_Cache' => defined('LSCWP_V'),
 
+            # SiteGround Optimizer — its Parser starts a nested ob_start() with callback
+            # that flushes before wp_footer completes, causing Divi's late-injected
+            # module-design CSS (<style id="et-builder-module-design-*">) to be lost.
+            # Affects all themes that defer inline CSS output to wp_footer (Divi 5, etc.).
+            'SG_CachePress' => defined('SiteGround_Optimizer\VERSION') || class_exists('SiteGround_Optimizer\Parser\Parser'),
+
             # Page builders with aggressive buffering
             'Brizy_Editor' => class_exists('Brizy_Editor'),
             'Oxygen_Builder' => defined('CT_VERSION'), # Oxygen manipulates wp_current_filter causing CSS loading issues in PHP 8.3+
@@ -162,6 +168,14 @@ class Metasync_Otto_Render_Strategy {
                     return true;
                 }
 
+                # SITEGROUND OPTIMIZER: Use HTTP method — buffer method + SimpleHtmlDom
+                # corrupts Divi module numbering (et_pb_blog_0 → et_pb_blog_1), breaking
+                # AJAX pagination. HTTP method preserves numbering; Divi CSS re-injection
+                # is handled in render_via_http() via et_core_page_resource_get API (WP-315).
+                if ($name === 'SG_CachePress') {
+                    return true;
+                }
+
                 # For logged-in users, buffer is usually safe even with these plugins
                 if (is_user_logged_in()) {
                     continue;
@@ -170,7 +184,7 @@ class Metasync_Otto_Render_Strategy {
                 # For non-logged-in users with caching plugins, check if page caching is active
                 if ($name === 'WP_Rocket') {
                     # Get WP Rocket compatibility configuration
-                    global $metasync_options;
+                    $metasync_options = get_option('metasync_options', []);
                     $wp_rocket_compat_mode = $metasync_options['general']['otto_wp_rocket_compat'] ?? 'auto';
 
                     # Force HTTP if user selected it
@@ -183,21 +197,10 @@ class Metasync_Otto_Render_Strategy {
                         continue; # Use buffer method for speed
                     }
 
-                    # For auto mode, use buffer if DONOTCACHEPAGE is not set
-                    # This allows WP Rocket to continue optimizing the page
+                    # For auto mode, use buffer so WP Rocket can continue optimizing the page
                     if ($wp_rocket_compat_mode === 'auto') {
-                        # If DONOTCACHEPAGE is not set, WP Rocket can optimize freely
-                        # Buffer is safe in this case
                         continue;
                     }
-
-                    # If DONOTCACHEPAGE is set (Brizy/SG Optimizer), buffer is also safe
-                    if (defined('DONOTCACHEPAGE') && DONOTCACHEPAGE) {
-                        continue; # Cache disabled for this page, buffer is safe
-                    }
-
-                    # Default fallback: continue to use buffer
-                    continue;
                 }
 
                 # Default: use HTTP method for safety with caching plugins
@@ -487,6 +490,29 @@ class Metasync_Otto_Render_Strategy {
                 $html,
                 1
             );
+        }
+
+        # WP-315: Re-inject Divi's module-design CSS if missing from buffer output.
+        # SG Optimizer's parser strips late-injected CSS from the buffer. We read it
+        # from Divi's page resource manager (available in the current WP context) and
+        # inject it before </body>. This preserves correct module numbering (buffer
+        # approach) while ensuring the CSS is present.
+        if (strpos($html, 'et-builder-module-design') === false
+            && function_exists('et_core_page_resource_get')
+        ) {
+            $post_id = get_the_ID();
+            if ($post_id) {
+                $resource_slug = et_theme_builder_decorate_page_resource_slug($post_id, 'module-design');
+                $manager = et_core_page_resource_get('builder', $resource_slug, $post_id, 40);
+                if ($manager && method_exists($manager, 'get_data')) {
+                    $css_data = $manager->get_data('inline');
+                    if (!empty($css_data)) {
+                        $style_tag = '<style id="et-builder-' . esc_attr($resource_slug) . '-cached-inline-styles">'
+                            . wp_strip_all_tags($css_data) . '</style>';
+                        $html = str_replace('</body>', $style_tag . "\n" . '</body>', $html);
+                    }
+                }
+            }
         }
 
         return $html;

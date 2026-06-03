@@ -63,6 +63,55 @@ Class Metasync_otto_html{
     }
 
     /**
+     * WP-355: Fix malformed self-closing non-void HTML tags before DOM parsing.
+     *
+     * Some themes (e.g. Bootstrap Component Blox) output malformed tags like:
+     *   <ul/ class="sub-menu dropdown-menu" />
+     * SimpleHtmlDom interprets <ul/ as a void element, strips all attributes,
+     * and re-serializes as bare <ul> — breaking Bootstrap dropdown menus.
+     *
+     * This normalizes such tags into proper opening tags:
+     *   <ul class="sub-menu dropdown-menu">
+     *
+     * @param string $html Raw HTML before DOM parsing.
+     * @return string HTML with malformed self-closing non-void tags fixed.
+     */
+    private function fix_malformed_self_closing_tags($html) {
+        # Non-void elements that must never be self-closing
+        $tags = 'ul|ol|li|div|span|a|p|h[1-6]|section|header|footer|nav|main|article|aside'
+              . '|table|thead|tbody|tfoot|tr|td|th|caption|colgroup'
+              . '|form|fieldset|legend|label|select|option|optgroup|textarea|button'
+              . '|figure|figcaption|details|summary|blockquote|pre|code|dl|dt|dd'
+              . '|video|audio|canvas|iframe|object|embed|map|picture|source';
+
+        # Pattern 1: <tag/ attr...> or <tag/ attr... /> — slash after tag name
+        # e.g. <ul/ class="sub-menu dropdown-menu" />
+        $html = preg_replace(
+            '#<(' . $tags . ')/(\s[^>]*?)\s*/>#si',
+            '<$1$2>',
+            $html
+        );
+
+        # Pattern 2: <tag/ attr...> without trailing slash
+        # e.g. <ul/ class="sub-menu">
+        $html = preg_replace(
+            '#<(' . $tags . ')/(\s)#si',
+            '<$1$2',
+            $html
+        );
+
+        # Pattern 3: <tag attr... /> — proper self-closing syntax on non-void element
+        # e.g. <ul class="sub-menu" />
+        $html = preg_replace(
+            '#<(' . $tags . ')(\s[^>]*?)\s*/>#si',
+            '<$1$2>',
+            $html
+        );
+
+        return $html;
+    }
+
+    /**
      * Restore case-sensitive SVG and HTML5 attributes that SimpleHtmlDom lowercases.
      * The DOM parser's $lowercase=true flag (required for find() queries) lowercases
      * all attribute names, breaking case-sensitive attributes like viewBox.
@@ -75,6 +124,65 @@ Class Metasync_otto_html{
             ' controlslist='       => ' controlsList=',
         ];
         return str_ireplace(array_keys($map), array_values($map), $html);
+    }
+
+    /**
+     * WP-355 / WP-315: Capture ALL <style> blocks before DOM processing.
+     *
+     * SimpleHtmlDom can lose or corrupt <style> blocks during parse/serialize,
+     * especially those without an id attribute (common in custom themes).
+     * This captures every <style> block so we can re-inject any that are lost.
+     *
+     * @param string $html Raw HTML before DOM parsing.
+     * @return array Keyed by id (or content hash for anonymous styles) → full <style> tag.
+     */
+    private function capture_style_blocks($html) {
+        $blocks = [];
+        if (preg_match_all('/<style[^>]*>.*?<\/style>/si', $html, $matches)) {
+            foreach ($matches[0] as $style_tag) {
+                if (preg_match('/id=["\']([^"\']+)["\']/', $style_tag, $id_match)) {
+                    $key = $id_match[1];
+                } else {
+                    $key = 'anon_' . md5($style_tag);
+                }
+                $blocks[$key] = $style_tag;
+            }
+        }
+        return $blocks;
+    }
+
+    /**
+     * WP-355 / WP-315: Re-inject any <style> blocks lost during DOM processing.
+     *
+     * Compares the captured blocks against the final HTML and re-injects any
+     * that disappeared. Named blocks (with id) are checked by id; anonymous
+     * blocks are checked by exact content match.
+     *
+     * @param string $html  Processed HTML after DOM modifications.
+     * @param array  $original_blocks Blocks returned by capture_style_blocks().
+     * @return string HTML with lost style blocks restored.
+     */
+    private function restore_lost_style_blocks($html, $original_blocks) {
+        if (empty($original_blocks)) {
+            return $html;
+        }
+
+        foreach ($original_blocks as $key => $style_tag) {
+            if (strpos($key, 'anon_') === 0) {
+                # Anonymous block — check if exact content is still present
+                if (strpos($html, $style_tag) === false) {
+                    $html = str_replace('</head>', $style_tag . "\n" . '</head>', $html);
+                }
+            } else {
+                # Named block — check if its id is still in the document
+                if (strpos($html, 'id="' . $key . '"') === false
+                    && strpos($html, "id='" . $key . "'") === false) {
+                    $html = str_replace('</head>', $style_tag . "\n" . '</head>', $html);
+                }
+            }
+        }
+
+        return $html;
     }
 
     #
@@ -350,8 +458,18 @@ Class Metasync_otto_html{
         # Remove XML declaration
         $html_body = preg_replace('/<\?xml[^?]*\?>\s*/i', '', $html_body);
 
+        # WP-355 / WP-315: Save ALL original <style> blocks before DOM processing.
+        # SimpleHtmlDom can lose or corrupt style blocks during parse/serialize —
+        # not only Divi's id-tagged ones but also anonymous <style> blocks used by
+        # custom themes for nav collapse CSS, responsive breakpoints, etc.
+        $original_style_blocks = $this->capture_style_blocks($html_body);
+
         # Escape bare < in text content (e.g. "<4 microns") before DOM parsing
         $html_body = $this->sanitize_text_less_than($html_body);
+
+        # WP-355: Fix malformed self-closing non-void tags (e.g. <ul/ class="...">)
+        # before DOM parsing — SimpleHtmlDom strips attributes from these.
+        $html_body = $this->fix_malformed_self_closing_tags($html_body);
 
         # now that the html is not empty
         # load it into the simple html dom
@@ -542,6 +660,17 @@ Class Metasync_otto_html{
         }
 
         $result_html = $this->restore_case_sensitive_attributes($result_html);
+
+        # WP-355 / WP-315: Re-inject any <style> blocks lost during processing.
+        $result_html = $this->restore_lost_style_blocks($result_html, $original_style_blocks);
+
+        # WP-315: Fix Divi 5 shortcode framework class renumbering (HTTP path)
+        $result_html = $this->fix_divi_class_renumbering($result_html);
+
+        # WP-315: Clean OTTO internal fetch params from HTML output.
+        # The HTTP render uses wp_remote_get with ?is_otto_page_fetch=1&otto_block_title=1&otto_block_desc=1
+        # These leak into form action URLs, canonical links, etc. in the rendered HTML.
+        $result_html = $this->clean_otto_fetch_params($result_html);
 
         return $result_html;
     }
@@ -1796,8 +1925,14 @@ Class Metasync_otto_html{
             # Remove XML declaration if present
             $html = preg_replace('/<\?xml[^?]*\?>\s*/i', '', $html);
 
+            # WP-355 / WP-315: Save ALL original <style> blocks before DOM processing.
+            $original_style_blocks = $this->capture_style_blocks($html);
+
             # Escape bare < in text content before DOM parsing
             $html = $this->sanitize_text_less_than($html);
+
+            # WP-355: Fix malformed self-closing non-void tags (e.g. <ul/ class="...">)
+            $html = $this->fix_malformed_self_closing_tags($html);
 
             # Load HTML into DOM
             $this->dom->load($html, true, false);
@@ -2136,6 +2271,15 @@ Class Metasync_otto_html{
 
             $result_html = $this->restore_case_sensitive_attributes($result_html);
 
+            # WP-355 / WP-315: Re-inject any <style> blocks lost during processing.
+            $result_html = $this->restore_lost_style_blocks($result_html, $original_style_blocks);
+
+            # WP-315: Fix Divi 5 shortcode framework class renumbering
+            $result_html = $this->fix_divi_class_renumbering($result_html);
+
+            # WP-315: Clean OTTO internal fetch params from HTML output
+            $result_html = $this->clean_otto_fetch_params($result_html);
+
             return $result_html;
 
         } catch (Exception $e) {
@@ -2210,6 +2354,173 @@ Class Metasync_otto_html{
 
         # Save changes
         $this->save_reload();
+    }
+
+    /**
+     * Clean OTTO internal fetch query parameters from rendered HTML (WP-315).
+     *
+     * @param string $html The rendered HTML
+     * @return string HTML with OTTO fetch params removed
+     */
+    private function clean_otto_fetch_params($html) {
+        $patterns = [
+            '/[?&]is_otto_page_fetch=1/',
+            '/[?&]otto_block_title=1/',
+            '/[?&]otto_block_desc=1/',
+            '/[?&]amp;is_otto_page_fetch=1/',
+            '/[?&]amp;otto_block_title=1/',
+            '/[?&]amp;otto_block_desc=1/',
+        ];
+        $html = preg_replace($patterns, '', $html);
+        $html = str_replace(['??', '?&', '?#'], ['?', '?', '#'], $html);
+        return $html;
+    }
+
+    /**
+     * Fix Divi 5 shortcode framework class renumbering (WP-315)
+     *
+     * When Divi 5's shortcode framework loads during the internal HTTP fetch,
+     * it uses shared counters across all template parts (header + page + footer),
+     * causing page content element classes to be offset (et_pb_section_0 becomes
+     * et_pb_section_4, etc.). The cached CSS references 0-based numbering.
+     *
+     * Detects the offset per element type and remaps back to 0-based.
+     *
+     * @param string $html The processed HTML string
+     * @return string HTML with corrected Divi class numbering
+     */
+    private function fix_divi_class_renumbering($html) {
+        # Only run on Divi sites
+        if (!defined('ET_CORE_VERSION')) {
+            return $html;
+        }
+
+        # Only apply to Divi pages with template builder
+        if (strpos($html, 'et-l et-l--post') === false) {
+            return $html;
+        }
+
+        # Locate the page content area (between et-l--post and et-l--footer)
+        $page_start = strpos($html, 'et-l et-l--post');
+        if ($page_start === false) {
+            return $html;
+        }
+
+        $footer_start = strpos($html, 'et-l et-l--footer', $page_start);
+        if ($footer_start === false) {
+            $footer_start = strlen($html);
+        }
+
+        $page_content = substr($html, $page_start, $footer_start - $page_start);
+
+
+        # Divi element types that get renumbered by the shortcode framework.
+        # IMPORTANT: 'blog' and 'portfolio' MUST be included — OTTO's HTTP render
+        # shifts their numbering (et_pb_blog_0 → et_pb_blog_1) because the internal
+        # wp_remote_get includes the Theme Builder header template in Divi's counter.
+        # If the blog module class doesn't match between page 1 (OTTO-processed) and
+        # page 2 (AJAX, no OTTO), Divi's pagination JS can't find the container → empty results (WP-315).
+        $types = [
+            'section', 'row', 'column', 'text', 'blurb', 'toggle',
+            'button', 'image', 'group_carousel',
+            'blog', 'portfolio', 'filterable_portfolio', 'shop',
+            'heading', 'divider', 'code', 'icon', 'contact_form_7',
+        ];
+
+        $offsets = [];
+
+        foreach ($types as $type) {
+            # Find the FIRST numbered instance in page content (not _tb_ suffixed)
+            if (preg_match('/et_pb_' . preg_quote($type, '/') . '_(\d+)(?!_tb_)/', $page_content, $m)) {
+                $first_num = (int) $m[1];
+                if ($first_num > 0) {
+                    $offsets[$type] = $first_num;
+                }
+            }
+        }
+
+        if (empty($offsets)) {
+            return $html;
+        }
+
+        # Remap each element type back to 0-based numbering
+        foreach ($offsets as $etype => $offset) {
+            $escaped = preg_quote($etype, '/');
+            $html = preg_replace_callback(
+                '/et_pb_' . $escaped . '_(\d+)(?!_tb_)/',
+                function ($m) use ($etype, $offset) {
+                    $num = (int) $m[1];
+                    if ($num >= $offset) {
+                        return 'et_pb_' . $etype . '_' . ($num - $offset);
+                    }
+                    return $m[0];
+                },
+                $html
+            );
+        }
+
+        # Remove duplicate JS variable declarations from the shortcode framework
+        foreach (['et_pb_custom', 'et_frontend_scripts', 'et_builder_utils_params'] as $var_name) {
+            $needle = 'var ' . $var_name . ' = ';
+            $first = strpos($html, $needle);
+            if ($first !== false) {
+                $second = strpos($html, $needle, $first + strlen($needle));
+                if ($second !== false) {
+                    $end = strpos($html, ";\n", $second);
+                    if ($end !== false) {
+                        $html = substr($html, 0, $second) . substr($html, $end + 2);
+                    }
+                }
+            }
+        }
+
+        # Deduplicate animation data (shortcode framework creates duplicate entries)
+        if (preg_match('/var diviElementAnimationData = (\[.*?\]);/s', $html, $am)) {
+            $data = json_decode($am[1], true);
+            if (is_array($data)) {
+                $seen = [];
+                $unique = [];
+                foreach (array_reverse($data) as $e) {
+                    $k = $e['class'] ?? '';
+                    if ($k !== '' && !isset($seen[$k])) {
+                        $seen[$k] = true;
+                        array_unshift($unique, $e);
+                    }
+                }
+                if (count($unique) < count($data)) {
+                    $html = str_replace(
+                        $am[0],
+                        'var diviElementAnimationData = ' . json_encode($unique, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ';',
+                        $html
+                    );
+                }
+            }
+        }
+
+        # Deduplicate multiview data
+        if (preg_match('/var diviElementMultiViewData = (\[.*?\]);/s', $html, $mv)) {
+            $data = json_decode($mv[1], true);
+            if (is_array($data)) {
+                $seen = [];
+                $unique = [];
+                foreach (array_reverse($data) as $e) {
+                    $k = ($e['selector'] ?? '') . '|' . ($e['action'] ?? '');
+                    if ($k !== '|' && !isset($seen[$k])) {
+                        $seen[$k] = true;
+                        array_unshift($unique, $e);
+                    }
+                }
+                if (count($unique) < count($data)) {
+                    $html = str_replace(
+                        $mv[0],
+                        'var diviElementMultiViewData = ' . json_encode($unique, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ';',
+                        $html
+                    );
+                }
+            }
+        }
+
+        return $html;
     }
 
 

@@ -41,22 +41,24 @@ class Metasync_Post_Meta_Settings
 
 		$plugin_name = Metasync::get_effective_plugin_name();
 		$general_settings = Metasync::get_option('general', []);
+		$post_types = array_values(get_post_types(['public' => true], 'names'));
+		$post_types = array_diff($post_types, ['attachment']);
 
 		// Only add meta boxes if not disabled in settings
 		if (empty($general_settings['disable_common_robots_metabox'])) {
-			add_meta_box('common-robots-meta', "Common Robots Meta by $plugin_name", [$this, 'common_robots_meta_box_display'], ['page', 'post'], 'normal', 'default');
+			add_meta_box('common-robots-meta', "Common Robots Meta by $plugin_name", [$this, 'common_robots_meta_box_display'], $post_types, 'normal', 'default');
 		}
 
 		if (empty($general_settings['disable_advance_robots_metabox'])) {
-			add_meta_box('advance-robots-meta', "Advance Robots Meta by $plugin_name", [$this, 'advance_robots_meta_box_display'], ['page', 'post'], 'normal', 'default');
+			add_meta_box('advance-robots-meta', "Advance Robots Meta by $plugin_name", [$this, 'advance_robots_meta_box_display'], $post_types, 'normal', 'default');
 		}
 
 		if (empty($general_settings['disable_redirection_metabox'])) {
-			add_meta_box('post-redirection-meta', "Redirection by $plugin_name", [$this, 'post_redirection_display'], ['page', 'post'], 'normal', 'default');
+			add_meta_box('post-redirection-meta', "Redirection by $plugin_name", [$this, 'post_redirection_display'], $post_types, 'normal', 'default');
 		}
 
 		if (empty($general_settings['disable_canonical_metabox'])) {
-			add_meta_box('post-canonical-meta', "Canonical by $plugin_name", [$this, 'post_canonical_display'], ['page', 'post'], 'normal', 'default');
+			add_meta_box('post-canonical-meta', "Canonical by $plugin_name", [$this, 'post_canonical_display'], $post_types, 'normal', 'default');
 		}
 
 		// Video Sitemap meta box — only if video sitemap is enabled

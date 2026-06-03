@@ -1997,68 +1997,62 @@
 				}
 
 				if ($('#searchatlas-api-key') && $('#searchatlas-api-key').val() === '') {
-					$('#sendAuthTokenTimestamp').html('Please save your ' + getPluginName() + ' API key');
-					$('#sendAuthTokenTimestamp').css({ color: 'red' });
+					if (!is_hb) {
+						$('#sendAuthTokenTimestamp').html('Please save your ' + getPluginName() + ' API key');
+						$('#sendAuthTokenTimestamp').css({ color: 'red' });
 
-					// Remove stale PHP-rendered "✓ Synced" label.
-					$('label[for="searchatlas-api-key"]').find('span:contains("Synced")').remove();
+						// Remove stale PHP-rendered "✓ Synced" label.
+						$('label[for="searchatlas-api-key"]').find('span:contains("Synced")').remove();
 
-					// Update header status to "Not Synced" for missing API key
-					updateHeaderStatus(false, 'Not Synced', 'Not Synced - API key required');
+						updateHeaderStatus(false, 'Not Synced', 'Not Synced - API key required');
+					}
 
 					if (showAlerts) {
 						showSyncError('⚠️ API Key Required', 'Please save your ' + getPluginName() + ' API key in the settings above before syncing.');
 					}
 
 				} else if (response && response.throttled) {
-					// Handle throttling response
-					var remainingMinutes = response.remaining_minutes || 5;
-					//$('#sendAuthTokenTimestamp').html('Please wait ' + remainingMinutes + ' minutes before syncing again');
-					//$('#sendAuthTokenTimestamp').css({ color: 'orange' });
-					
-					// Disable sync button and show countdown
-					if (showAlerts) {
-						$('#sendAuthToken').prop('disabled', true).text('⏰ Throttled (' + remainingMinutes + 'm)');
+					// Compute expiry locally from a duration (remaining_seconds) so server/client
+					// clock drift cannot lock the user out or let them bypass the throttle.
+					var remainingSeconds = (typeof response.remaining_seconds === 'number')
+						? response.remaining_seconds
+						: ((response.remaining_minutes || 5) * 60);
+					var expiryMs = Date.now() + (remainingSeconds * 1000);
+					var remainingMinutes = Math.max(1, Math.ceil(remainingSeconds / 60));
 
-						// Start countdown timer
-						var countdownInterval = setInterval(function () {
-							remainingMinutes--;
-							if (remainingMinutes <= 0) {
-								clearInterval(countdownInterval);
-								$('#sendAuthToken').prop('disabled', false).text('🔄 Sync Now');
-								$('#sendAuthTokenTimestamp').text('Ready to sync');
-								$('#sendAuthTokenTimestamp').css({ color: 'green' });
-							} else {
-								$('#sendAuthToken').text('⏰ Throttled (' + remainingMinutes + 'm)');
-								//$('#sendAuthTokenTimestamp').html('Please wait ' + remainingMinutes + ' minutes before syncing again');
-							}
-						}, 60000); // Update every minute
+					if (showAlerts) {
+						localStorage.setItem('metasync_manual_sync_throttle_expires', String(expiryMs));
+						refreshManualSyncCooldownUI();
 					}
 					
-					// Update header status to show throttling
-					updateHeaderStatus(false, 'Throttled', 'Throttled - Please wait ' + remainingMinutes + ' minutes');
+					// Throttle is transient — don't change the connection badge.
+					// The toast notification already informs the user.
 					
 					if (showAlerts) {
 						showSyncError('⏰ Request Throttled', response.message || 'Please wait ' + remainingMinutes + ' minutes before making another sync request.');
 					}
 
 				} else if (response && response.detail) {
-					$('#sendAuthTokenTimestamp').html('Please provide a valid ' + getPluginName() + ' API key');
-					$('#sendAuthTokenTimestamp').css({ color: 'red' });
+					if (!is_hb) {
+						$('#sendAuthTokenTimestamp').html('Please provide a valid ' + getPluginName() + ' API key');
+						$('#sendAuthTokenTimestamp').css({ color: 'red' });
 
-					// Remove stale PHP-rendered "✓ Synced" label — key is invalid on the server.
-					$('label[for="searchatlas-api-key"]').find('span:contains("Synced")').remove();
+						// Remove stale PHP-rendered "✓ Synced" label — key is invalid on the server.
+						$('label[for="searchatlas-api-key"]').find('span:contains("Synced")').remove();
+					}
 
-					// Update header status to "Not Synced" for invalid API key
+					// No is_hb guard here — genuinely invalid keys should always flip the badge
 					updateHeaderStatus(false, 'Not Synced', 'Not Synced - Invalid API key');
-					
+
 					if (showAlerts) {
 						showSyncError('❌ Invalid API Key', 'Please provide a valid ' + getPluginName() + ' API key.');
 					}
 
 				} else if (response === null || !response.id) {
 					// Update header status to "Not Synced" after failed sync
-					updateHeaderStatus(false, 'Not Synced', 'Not Synced - Data synchronization failed');
+					if (!is_hb) {
+						updateHeaderStatus(false, 'Not Synced', 'Not Synced - Data synchronization failed');
+					}
 					
 					if (showAlerts) {
 						showSyncError('❌ Sync Failed', 'Something went wrong during synchronization. Please check your connection and try again.');
@@ -2069,6 +2063,14 @@
 					var dateString = dateFormat();
 					 $('#sendAuthTokenTimestamp').html(dateString);
 					$('#sendAuthTokenTimestamp').css({ color: 'green' });
+					// Server starts a 5-minute manual-sync cooldown after a successful sync.
+					// Reflect that on the client so the button shows the cooldown across refreshes
+					// instead of misleadingly saying "Sync Now" only to be rejected on next click.
+					if (!is_hb) {
+						var successCooldownMs = 5 * 60 * 1000;
+						localStorage.setItem('metasync_manual_sync_throttle_expires', String(Date.now() + successCooldownMs));
+						refreshManualSyncCooldownUI();
+					}
 					
 					// Update header status — check if UUID is present before declaring fully synced
 					var hasOttoUuid = metaSync.otto_pixel_uuid && metaSync.otto_pixel_uuid.trim() !== '';
@@ -2085,7 +2087,9 @@
 			},
 			error: function (xhr, status, error) {
 				// Update header status to "Not Synced" for network errors
-				updateHeaderStatus(false, 'Not Synced', 'Not Synced - Network error during sync');
+				if (!is_hb) {
+					updateHeaderStatus(false, 'Not Synced', 'Not Synced - Network error during sync');
+				}
 				
 				// Reset button state
 				if (showAlerts) {
@@ -2126,14 +2130,74 @@
 		});
 	}
 
+	// Holds the active manual-sync countdown interval so we can replace it
+	// instead of stacking multiple timers if refreshManualSyncCooldownUI()
+	// is called more than once (e.g. throttled response then refresh).
+	var _manualSyncCountdownInterval = null;
+
+	/**
+	 * Read the manual-sync throttle expiry (client-time ms) from localStorage
+	 * and apply UI state: disable the button, show "Throttled (Nm)", and tick
+	 * every 15s. Idempotent — safe to call repeatedly.
+	 */
+	function refreshManualSyncCooldownUI() {
+		var $btn = $('#sendAuthToken');
+		if ($btn.length === 0) {
+			return;
+		}
+		if (_manualSyncCountdownInterval) {
+			clearInterval(_manualSyncCountdownInterval);
+			_manualSyncCountdownInterval = null;
+		}
+		var stored = localStorage.getItem('metasync_manual_sync_throttle_expires');
+		if (!stored) {
+			return;
+		}
+		var storedExpiry = parseInt(stored, 10);
+		if (!storedExpiry || isNaN(storedExpiry)) {
+			localStorage.removeItem('metasync_manual_sync_throttle_expires');
+			return;
+		}
+		var nowMs = Date.now();
+		if (storedExpiry <= nowMs) {
+			localStorage.removeItem('metasync_manual_sync_throttle_expires');
+			return;
+		}
+		var remainingMinutes = Math.max(1, Math.ceil((storedExpiry - nowMs) / 60000));
+		// addClass('is-throttled') drives the visual state via CSS so it
+		// doesn't depend on the disabled attribute being preserved by other
+		// code paths in the AJAX callback chain (which strip it on success).
+		$btn.prop('disabled', true).addClass('is-throttled').text('⏰ Throttled (' + remainingMinutes + 'm)');
+		_manualSyncCountdownInterval = setInterval(function () {
+			var currentNowMs = Date.now();
+			if (storedExpiry <= currentNowMs) {
+				clearInterval(_manualSyncCountdownInterval);
+				_manualSyncCountdownInterval = null;
+				localStorage.removeItem('metasync_manual_sync_throttle_expires');
+				$btn.prop('disabled', false).removeClass('is-throttled').text('🔄 Sync Now');
+				$('#sendAuthTokenTimestamp').text('Ready to sync').css({ color: 'green' });
+				// Cooldown is over — clear the lingering "Request Throttled" admin
+				// notice at the top of the page. Without this the button resets to
+				// "Sync Now" but the red throttled bar stays visible (WP-350 QA).
+				$('.metasync-sync-notice, .metasync-sync-error').remove();
+				return;
+			}
+			remainingMinutes = Math.max(1, Math.ceil((storedExpiry - currentNowMs) / 60000));
+			$btn.text('⏰ Throttled (' + remainingMinutes + 'm)');
+		}, 15000);
+	}
+
 	jQuery(document).ready(function () {
 
 		// sendCustomerParams();
 		$('#sendAuthToken').on('click', function (e) {
 			e.preventDefault();
 			sendCustomerParams();
-			
+
 		});
+
+		// Restore manual-sync throttle countdown state across page refreshes.
+		refreshManualSyncCooldownUI();
 
 		// handle otto clear cache button
 		$('#clear_otto_caches').on('click', function (e){

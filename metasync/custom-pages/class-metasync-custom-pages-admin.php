@@ -281,7 +281,7 @@ class Metasync_Custom_Pages_Admin
                     <p>Create your first custom HTML page to get started!</p>
                     <a href="<?php echo esc_url(admin_url('post-new.php?post_type=page&metasync_html_page=1')); ?>" 
                        class="button button-primary button-large">
-                        <span class="dashicons dashicons-plus-alt" style="margin-top: 3px;"></span>
+                        <span class="dashicons dashicons-plus-alt"></span>
                         Create Your First Custom HTML Page
                     </a>
                     <p style="margin-top: 15px; color: #666; font-size: 13px;">
@@ -334,21 +334,21 @@ class Metasync_Custom_Pages_Admin
                                 </td>
                                 <td class="metasync-page-actions">
                                     <a href="<?php echo esc_url($edit_url); ?>" class="button button-small">
-                                        <span class="dashicons dashicons-edit" style="font-size: 14px; margin-top: 3px;"></span>
+                                        <span class="dashicons dashicons-edit"></span>
                                         Edit
                                     </a>
                                     <?php if ($page->post_status === 'publish'): ?>
                                         <a href="<?php echo esc_url($page_url); ?>"
                                            target="_blank"
                                            class="button button-small button-primary">
-                                            <span class="dashicons dashicons-external" style="font-size: 14px; margin-top: 3px;"></span>
+                                            <span class="dashicons dashicons-external"></span>
                                             View
                                         </a>
                                     <?php else: ?>
                                         <a href="<?php echo esc_url(add_query_arg('preview', 'true', $page_url)); ?>" 
                                            target="_blank" 
                                            class="button button-small">
-                                            <span class="dashicons dashicons-visibility" style="font-size: 14px; margin-top: 3px;"></span>
+                                            <span class="dashicons dashicons-visibility"></span>
                                             Preview
                                         </a>
                                     <?php endif; ?>

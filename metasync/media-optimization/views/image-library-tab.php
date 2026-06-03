@@ -103,7 +103,7 @@ if (!defined('WPINC')) {
         <div class="metasync-toolbar-left">
             <button type="button" class="button button-primary" id="metasync-optimize-all"
                     <?php disabled($batch_progress['status'] === 'running' || $stats['unoptimized'] === 0); ?>>
-                <span class="dashicons dashicons-performance" style="margin-top: 3px;"></span>
+                <span class="dashicons dashicons-performance"></span>
                 <?php esc_html_e('Optimize All', 'metasync'); ?>
                 <?php if ($stats['unoptimized'] > 0): ?>
                     <span class="metasync-count-badge"><?php echo esc_html(number_format_i18n($stats['unoptimized'])); ?></span>

@@ -62,9 +62,6 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 			$this->screen->render_screen_reader_content('heading_pagination');
 		}
 
-		// Add tab parameter to pagination links
-		add_filter('removable_query_args', array($this, 'preserve_tab_in_pagination'));
-
 		$output = '<span class="displaying-num">' . sprintf(
 			/* translators: %s: Number of items */
 			_n('%s item', '%s items', $total_items, 'metasync'),
@@ -72,15 +69,20 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		) . '</span>';
 
 		$current = $this->get_pagenum();
-		$removable_query_args = wp_removable_query_args();
-
 		$current_url = set_url_scheme('http://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']);
 
+		// Register filter to keep `tab`/`paged_404` out of the removable args.
+		add_filter('removable_query_args', array($this, 'preserve_tab_in_pagination'));
+		$removable_query_args = wp_removable_query_args();
 		$current_url = remove_query_arg($removable_query_args, $current_url);
-
-		// Preserve the tab parameter
 		if (isset($_GET['tab'])) {
 			$current_url = add_query_arg('tab', sanitize_text_field($_GET['tab']), $current_url);
+		}
+		// Preserve filter params (s, date_from, date_to, min_hits) on pagination URLs.
+		foreach (['s', 'date_from', 'date_to', 'min_hits'] as $param) {
+			if (!empty($_REQUEST[$param])) {
+				$current_url = add_query_arg($param, sanitize_text_field($_REQUEST[$param]), $current_url);
+			}
 		}
 
 		$page_links = array();
@@ -330,6 +332,13 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		$current_url = admin_url('admin.php');
 		$current_url = add_query_arg('page', $current_page, $current_url);
 		$current_url = add_query_arg('tab', '404-monitor', $current_url);
+
+		// Preserve filter params so they persist when sorting via column headers
+		foreach (['s', 'date_from', 'date_to', 'min_hits'] as $param) {
+			if (!empty($_REQUEST[$param])) {
+				$current_url = add_query_arg($param, sanitize_text_field($_REQUEST[$param]), $current_url);
+			}
+		}
 
 		$current_orderby = $this->get_orderby();
 		$current_order = $this->get_order();

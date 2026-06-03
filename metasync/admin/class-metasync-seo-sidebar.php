@@ -78,11 +78,8 @@ class Metasync_SEO_Sidebar {
         // Enqueue block editor assets
         add_action('enqueue_block_editor_assets', array($this, 'enqueue_block_editor_assets'));
 
-        // Track meta state before REST API save, then clean up after
-        add_filter('rest_pre_insert_post', array($this, 'track_meta_before_save'), 10, 2);
-        add_filter('rest_pre_insert_page', array($this, 'track_meta_before_save'), 10, 2);
-        add_action('rest_after_insert_post', array($this, 'cleanup_empty_seo_meta'), 10, 3);
-        add_action('rest_after_insert_page', array($this, 'cleanup_empty_seo_meta'), 10, 3);
+        // Track meta state before REST API save, then clean up after (all public post types)
+        add_action('rest_api_init', array($this, 'register_rest_save_hooks'));
 
         // Clean up primary category meta when category is unchecked (all post types)
         add_action('save_post', array($this, 'cleanup_primary_category_meta'), 10, 1);
@@ -92,6 +89,18 @@ class Metasync_SEO_Sidebar {
         add_action('wp_head', array($this, 'output_seo_meta_description'), 2);
         add_filter('pre_get_document_title', array($this, 'filter_document_title'), 100);
         add_filter('document_title_parts', array($this, 'filter_document_title_parts'), 100);
+    }
+
+    /**
+     * Register REST API save/cleanup hooks for all public post types
+     */
+    public function register_rest_save_hooks() {
+        $post_types = get_post_types(array('public' => true), 'names');
+        unset($post_types['attachment']);
+        foreach ($post_types as $post_type) {
+            add_filter("rest_pre_insert_{$post_type}", array($this, 'track_meta_before_save'), 10, 2);
+            add_action("rest_after_insert_{$post_type}", array($this, 'cleanup_empty_seo_meta'), 10, 3);
+        }
     }
 
     /**
@@ -298,8 +307,12 @@ class Metasync_SEO_Sidebar {
                 'single' => true,
                 'type' => 'string',
                 'sanitize_callback' => 'sanitize_text_field',
-                'auth_callback' => function() {
-                    return current_user_can('edit_posts');
+                'auth_callback' => function($allowed, $meta_key, $object_id) use ($post_type) {
+                    if (empty($object_id)) {
+                        $pt_obj = get_post_type_object($post_type);
+                        return $pt_obj ? current_user_can($pt_obj->cap->edit_posts) : current_user_can('edit_posts');
+                    }
+                    return current_user_can('edit_post', $object_id);
                 },
             ));
 
@@ -309,8 +322,12 @@ class Metasync_SEO_Sidebar {
                 'single' => true,
                 'type' => 'string',
                 'sanitize_callback' => 'sanitize_textarea_field',
-                'auth_callback' => function() {
-                    return current_user_can('edit_posts');
+                'auth_callback' => function($allowed, $meta_key, $object_id) use ($post_type) {
+                    if (empty($object_id)) {
+                        $pt_obj = get_post_type_object($post_type);
+                        return $pt_obj ? current_user_can($pt_obj->cap->edit_posts) : current_user_can('edit_posts');
+                    }
+                    return current_user_can('edit_post', $object_id);
                 },
             ));
 
@@ -320,8 +337,12 @@ class Metasync_SEO_Sidebar {
                 'single' => true,
                 'type' => 'string',
                 'sanitize_callback' => 'sanitize_text_field',
-                'auth_callback' => function() {
-                    return current_user_can('edit_posts');
+                'auth_callback' => function($allowed, $meta_key, $object_id) use ($post_type) {
+                    if (empty($object_id)) {
+                        $pt_obj = get_post_type_object($post_type);
+                        return $pt_obj ? current_user_can($pt_obj->cap->edit_posts) : current_user_can('edit_posts');
+                    }
+                    return current_user_can('edit_post', $object_id);
                 },
             ));
 
@@ -331,8 +352,12 @@ class Metasync_SEO_Sidebar {
                 'single' => true,
                 'type' => 'integer',
                 'sanitize_callback' => 'absint',
-                'auth_callback' => function() {
-                    return current_user_can('edit_posts');
+                'auth_callback' => function($allowed, $meta_key, $object_id) use ($post_type) {
+                    if (empty($object_id)) {
+                        $pt_obj = get_post_type_object($post_type);
+                        return $pt_obj ? current_user_can($pt_obj->cap->edit_posts) : current_user_can('edit_posts');
+                    }
+                    return current_user_can('edit_post', $object_id);
                 },
             ));
 
@@ -342,8 +367,12 @@ class Metasync_SEO_Sidebar {
                 'single' => true,
                 'type' => 'integer',
                 'sanitize_callback' => 'absint',
-                'auth_callback' => function() {
-                    return current_user_can('edit_posts');
+                'auth_callback' => function($allowed, $meta_key, $object_id) use ($post_type) {
+                    if (empty($object_id)) {
+                        $pt_obj = get_post_type_object($post_type);
+                        return $pt_obj ? current_user_can($pt_obj->cap->edit_posts) : current_user_can('edit_posts');
+                    }
+                    return current_user_can('edit_post', $object_id);
                 },
             ));
 
@@ -352,8 +381,12 @@ class Metasync_SEO_Sidebar {
                 'show_in_rest' => true,
                 'single' => true,
                 'type' => 'string',
-                'auth_callback' => function() {
-                    return current_user_can('edit_posts');
+                'auth_callback' => function($allowed, $meta_key, $object_id) use ($post_type) {
+                    if (empty($object_id)) {
+                        $pt_obj = get_post_type_object($post_type);
+                        return $pt_obj ? current_user_can($pt_obj->cap->edit_posts) : current_user_can('edit_posts');
+                    }
+                    return current_user_can('edit_post', $object_id);
                 },
             ));
 
@@ -361,8 +394,12 @@ class Metasync_SEO_Sidebar {
                 'show_in_rest' => true,
                 'single' => true,
                 'type' => 'string',
-                'auth_callback' => function() {
-                    return current_user_can('edit_posts');
+                'auth_callback' => function($allowed, $meta_key, $object_id) use ($post_type) {
+                    if (empty($object_id)) {
+                        $pt_obj = get_post_type_object($post_type);
+                        return $pt_obj ? current_user_can($pt_obj->cap->edit_posts) : current_user_can('edit_posts');
+                    }
+                    return current_user_can('edit_post', $object_id);
                 },
             ));
 
@@ -371,8 +408,12 @@ class Metasync_SEO_Sidebar {
                 'show_in_rest' => true,
                 'single' => true,
                 'type' => 'string',
-                'auth_callback' => function() {
-                    return current_user_can('edit_posts');
+                'auth_callback' => function($allowed, $meta_key, $object_id) use ($post_type) {
+                    if (empty($object_id)) {
+                        $pt_obj = get_post_type_object($post_type);
+                        return $pt_obj ? current_user_can($pt_obj->cap->edit_posts) : current_user_can('edit_posts');
+                    }
+                    return current_user_can('edit_post', $object_id);
                 },
             ));
 
@@ -388,8 +429,12 @@ class Metasync_SEO_Sidebar {
                     }
                     return wp_json_encode($decoded);
                 },
-                'auth_callback' => function() {
-                    return current_user_can('edit_posts');
+                'auth_callback' => function($allowed, $meta_key, $object_id) use ($post_type) {
+                    if (empty($object_id)) {
+                        $pt_obj = get_post_type_object($post_type);
+                        return $pt_obj ? current_user_can($pt_obj->cap->edit_posts) : current_user_can('edit_posts');
+                    }
+                    return current_user_can('edit_post', $object_id);
                 },
             ));
 
@@ -398,8 +443,12 @@ class Metasync_SEO_Sidebar {
                 'show_in_rest' => true,
                 'single' => true,
                 'type' => 'string',
-                'auth_callback' => function() {
-                    return current_user_can('edit_posts');
+                'auth_callback' => function($allowed, $meta_key, $object_id) use ($post_type) {
+                    if (empty($object_id)) {
+                        $pt_obj = get_post_type_object($post_type);
+                        return $pt_obj ? current_user_can($pt_obj->cap->edit_posts) : current_user_can('edit_posts');
+                    }
+                    return current_user_can('edit_post', $object_id);
                 },
             ));
 
@@ -433,8 +482,12 @@ class Metasync_SEO_Sidebar {
                     }
                     return wp_json_encode($sanitized);
                 },
-                'auth_callback' => function() {
-                    return current_user_can('edit_posts');
+                'auth_callback' => function($allowed, $meta_key, $object_id) use ($post_type) {
+                    if (empty($object_id)) {
+                        $pt_obj = get_post_type_object($post_type);
+                        return $pt_obj ? current_user_can($pt_obj->cap->edit_posts) : current_user_can('edit_posts');
+                    }
+                    return current_user_can('edit_post', $object_id);
                 },
             ));
         }
@@ -743,11 +796,20 @@ class Metasync_SEO_Sidebar {
      * @param int $post_id Post ID
      */
     public function cleanup_primary_category_meta($post_id) {
+        if (wp_is_post_autosave($post_id) || wp_is_post_revision($post_id)) {
+            return;
+        }
+
         // Clean up primary category
         $primary_cat = (int) get_post_meta($post_id, self::META_PRIMARY_CATEGORY, true);
         if ($primary_cat > 0) {
-            $post_categories = wp_get_post_categories($post_id);
-            if (!in_array($primary_cat, $post_categories)) {
+            $taxonomies = get_object_taxonomies(get_post_type($post_id), 'names');
+            if (empty($taxonomies)) {
+                delete_post_meta($post_id, self::META_PRIMARY_CATEGORY);
+                return;
+            }
+            $term_ids = wp_get_object_terms($post_id, $taxonomies, array('fields' => 'ids'));
+            if (!is_wp_error($term_ids) && !in_array($primary_cat, $term_ids)) {
                 delete_post_meta($post_id, self::META_PRIMARY_CATEGORY);
             }
         }

@@ -53,7 +53,7 @@ class Metasync_Sync_Requests
         $last_hb_request_time = $metasync_options['general']['last_heart_beat'] ?? 0;
 
         # PR3: Throttle depends on state — burst (KEY_PENDING within 30 min) allows 30s; else 5 min
-        $is_heartbeat = isset($_POST['is_heart_beat']) && $_POST['is_heart_beat'] == true;
+        $is_heartbeat = filter_var($_POST['is_heart_beat'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $is_burst = !empty($_POST['is_burst']);
         $heartbeat_state = $metasync_options['general']['heartbeat_state'] ?? '';
         $state_changed_at = (int) ($metasync_options['general']['heartbeat_state_changed_at'] ?? 0);
@@ -74,6 +74,32 @@ class Metasync_Sync_Requests
                 ];
             }
             $metasync_options['general']['last_heart_beat'] = time();
+        } else {
+            # Manual "Sync Now" path: track throttle via a dedicated option key so
+            # heartbeat ticks (which update last_heart_beat every ~15s) cannot keep
+            # the manual cooldown alive indefinitely.
+            $last_manual_sync_time = (int) ($metasync_options['general']['last_manual_sync'] ?? 0);
+            $manual_min_interval_sec = 60 * 5; // 5 minutes
+            if (($last_manual_sync_time + $manual_min_interval_sec) > time()) {
+                $remaining_time = ($last_manual_sync_time + $manual_min_interval_sec) - time();
+                $remaining_minutes = max(1, ceil($remaining_time / 60));
+                # Return remaining_seconds (a duration) instead of an absolute expires_at
+                # so the client computes its own expiry from Date.now() — avoids
+                # server/client clock drift locking the user out (or in).
+                return (object) [
+                    'error' => 'throttled',
+                    'message' => 'Please make another request after ' . $remaining_minutes . ' minute(s)',
+                    'remaining_minutes' => $remaining_minutes,
+                    'remaining_seconds' => $remaining_time,
+                    'manual_cooldown_seconds' => $manual_min_interval_sec,
+                    'last_request_time' => $last_manual_sync_time,
+                    'throttled' => true
+                ];
+            }
+            # Persist immediately so the cooldown is enforced even if the remote
+            # request below fails or times out.
+            $metasync_options['general']['last_manual_sync'] = time();
+            Metasync::set_option($metasync_options);
         }
 
 

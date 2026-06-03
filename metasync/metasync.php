@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.6.9 
+ * Version:           2.6.10 
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
  * License:           GPL v3
@@ -36,7 +36,7 @@ require_once __DIR__ . '/vendor/autoload.php';
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.6.9';
+$metasync_version = '2.6.10';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -256,9 +256,16 @@ function activate_metasync()
 	
 	// Set initial version
 	update_option('metasync_version', METASYNC_VERSION);
-	
+
+	// WP-315: Record activation timestamp so Divi CSS fix transients
+	// auto-invalidate after plugin deactivate/reactivate cycles.
+	update_option('metasync_activated_at', (string) time());
+
 	// Clear all cache plugins to ensure fresh start
 	Metasync_Cache_Purge::purge_all('plugin_activation');
+
+	// WP-332: Migrate physical sitemap files on activation.
+	metasync_migrate_physical_sitemaps();
 }
 
 // Log-sync removed - error monitoring now handled by Sentry
@@ -292,6 +299,69 @@ function deactivate_metasync()
 
 register_activation_hook(__FILE__, 'activate_metasync');
 register_deactivation_hook(__FILE__, 'deactivate_metasync');
+
+/**
+ * WP-332: Migrate physical sitemap .xml files into transients and delete them.
+ *
+ * Physical files in ABSPATH cause nginx/Plesk to 403 before WordPress can
+ * serve them. Called from both the activation hook and the version-gate
+ * migration so it covers fresh activations and auto-updates.
+ */
+function metasync_migrate_physical_sitemaps()
+{
+    update_option('metasync_sitemap_virtual_mode', true, false);
+
+    $candidates = [];
+    $globbed = glob(ABSPATH . 'sitemap*.xml');
+    if (is_array($globbed)) {
+        foreach ($globbed as $file) {
+            $basename = basename($file);
+            if ($basename === 'sitemap_index.xml' || preg_match('/^sitemap\d*\.xml$/', $basename)) {
+                $candidates[] = $file;
+            }
+        }
+    }
+    foreach (['news-sitemap.xml', 'video-sitemap.xml'] as $extra) {
+        $path = ABSPATH . $extra;
+        if (file_exists($path)) {
+            $candidates[] = $path;
+        }
+    }
+
+    if (empty($candidates)) {
+        return;
+    }
+
+    $virtual_index = get_option('metasync_sitemap_virtual_index', []);
+    $migrated_files = [];
+
+    foreach ($candidates as $file) {
+        $bn = basename($file);
+        $content = @file_get_contents($file);
+        if (false !== $content) {
+            $tkey = 'metasync_vsm_' . md5($bn);
+            set_transient($tkey, $content, 30 * DAY_IN_SECONDS);
+            if (false !== get_transient($tkey)) {
+                @unlink($file);
+                $virtual_index[$bn] = $tkey;
+                if ($bn !== 'sitemap_index.xml' && $bn !== 'news-sitemap.xml' && $bn !== 'video-sitemap.xml') {
+                    $migrated_files[] = [
+                        'filename' => $bn,
+                        'url'      => home_url('/' . $bn),
+                        'lastmod'  => current_time('mysql', true),
+                    ];
+                }
+            }
+        }
+    }
+
+    update_option('metasync_sitemap_virtual_index', $virtual_index, false);
+
+    if (!empty($migrated_files)) {
+        update_option('metasync_sitemap_files', $migrated_files);
+        update_option('metasync_sitemap_last_generated', current_time('mysql'));
+    }
+}
 
 /**
  * Check for plugin updates and run migrations if needed
@@ -345,6 +415,9 @@ function check_metasync_updates()
             wp_unschedule_hook('metasync_process_otto_batch_cache_job');
             update_option('metasync_wp299_cron_cleanup_done', true, false);
         }
+
+        // WP-332: Migrate physical sitemap files on version update.
+        metasync_migrate_physical_sitemaps();
 
         // Run full migration to ensure all tables are up to date
         MetaSync_DBMigration::run_migrations();

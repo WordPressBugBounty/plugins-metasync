@@ -80,6 +80,7 @@ class Metasync_Image_Converter {
 
         if ($converted && $strategy === 'replace') {
             $this->replace_original($attachment_id, $file, $converted, $metadata, $format);
+            update_post_meta($attachment_id, '_metasync_replaced_original', '1');
         }
 
         // Convert sub-sizes (thumbnails, medium, large, etc.)
@@ -171,8 +172,32 @@ class Metasync_Image_Converter {
             }
         }
 
+        if ($strategy === 'replace') {
+            update_post_meta($attachment_id, '_metasync_replaced_original', '1');
+        }
+
         update_post_meta($attachment_id, '_metasync_converted_format', $format);
         return true;
+    }
+
+    /**
+     * Check whether an optimized attachment can be reverted.
+     * Returns false when the original was replaced (no backup exists).
+     */
+    public static function can_revert(int $attachment_id): bool {
+        $format = get_post_meta($attachment_id, '_metasync_converted_format', true);
+        if (!$format) {
+            return false; // Not optimized
+        }
+
+        // If the original was replaced, revert is impossible
+        if (get_post_meta($attachment_id, '_metasync_replaced_original', true)) {
+            return false;
+        }
+
+        // Verify original file still exists on disk (alongside strategy)
+        $file = get_attached_file($attachment_id);
+        return $file && file_exists($file);
     }
 
     /**
@@ -217,6 +242,7 @@ class Metasync_Image_Converter {
 
         delete_post_meta($attachment_id, '_metasync_converted_format');
         delete_post_meta($attachment_id, '_metasync_original_filesize');
+        delete_post_meta($attachment_id, '_metasync_replaced_original');
         return true;
     }
 
@@ -330,6 +356,9 @@ class Metasync_Image_Converter {
             return;
         }
 
+        // Capture old URL before deleting so we can rewrite post content references
+        $old_url = wp_get_attachment_url($id);
+
         @unlink($old_path);
 
         wp_update_post([
@@ -339,6 +368,36 @@ class Metasync_Image_Converter {
 
         update_attached_file($id, $new_path);
         $meta['file'] = _wp_relative_upload_path($new_path);
+
+        // Rewrite hardcoded image URLs in post content to point to the new file
+        $new_url = wp_get_attachment_url($id);
+        if ($old_url && $new_url && $old_url !== $new_url) {
+            self::rewrite_content_urls($old_url, $new_url);
+        }
+    }
+
+    /**
+     * Rewrite image URLs in all post content that references the old file path.
+     * Uses the path portion (e.g. /wp-content/uploads/…) so it works regardless
+     * of hostname changes (e.g. Cloudflare tunnel rotations).
+     */
+    private static function rewrite_content_urls(string $old_url, string $new_url): void {
+        global $wpdb;
+
+        // Extract path portions to be hostname-agnostic
+        $old_path = wp_parse_url($old_url, PHP_URL_PATH);
+        $new_path = wp_parse_url($new_url, PHP_URL_PATH);
+
+        if (!$old_path || !$new_path || $old_path === $new_path) {
+            return;
+        }
+
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->posts} SET post_content = REPLACE(post_content, %s, %s) WHERE post_content LIKE %s",
+            $old_path,
+            $new_path,
+            '%' . $wpdb->esc_like($old_path) . '%'
+        ));
     }
 
     // ── Instance Wrappers (Upload Hook) ──

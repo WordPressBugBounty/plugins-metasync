@@ -2901,6 +2901,17 @@ function metasync_output_otto_meta_description() {
         return;
     }
 
+    // WP-361: Mirror the conflict guard used in metasync_pre_get_document_title()
+    // (around line 2817). When a third-party SEO plugin is active AND OTTO has no
+    // live suggestions for this URL, defer to the SEO plugin's description instead
+    // of rendering a stale _metasync_otto_description from a previous deployment.
+    if (class_exists('Metasync_SEO_Conflict_Handler')) {
+        $handler = Metasync_SEO_Conflict_Handler::get_instance();
+        if ($handler->has_active_seo_plugin() && !$handler->otto_has_live_suggestions()) {
+            return;
+        }
+    }
+
     // WP-196: When synced to an active SEO plugin, that plugin outputs the
     // description from its native storage — skip OTTO's own description tag.
     if (is_singular()) {

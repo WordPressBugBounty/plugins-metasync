@@ -144,7 +144,7 @@ $robots_url = trailingslashit($site_url) . 'robots.txt';
                                             class="button button-small metasync-preview-backup" 
                                             data-backup-id="<?php echo esc_attr($backup['id']); ?>"
                                             title="<?php esc_html_e('Preview', 'metasync'); ?>">
-                                        <span class="dashicons dashicons-visibility" style="margin-top: 3px;"></span>
+                                        <span class="dashicons dashicons-visibility"></span>
                                         <?php esc_html_e('Preview', 'metasync'); ?>
                                     </button>
                                     <button type="button"
@@ -152,7 +152,7 @@ $robots_url = trailingslashit($site_url) . 'robots.txt';
                                             data-backup-id="<?php echo esc_attr($backup['id']); ?>"
                                             data-nonce="<?php echo wp_create_nonce('metasync_restore_robots_backup'); ?>"
                                             title="<?php esc_html_e('Restore', 'metasync'); ?>">
-                                        <span class="dashicons dashicons-backup" style="margin-top: 3px;"></span>
+                                        <span class="dashicons dashicons-backup"></span>
                                         <?php esc_html_e('Restore', 'metasync'); ?>
                                     </button>
                                     <button type="button"

@@ -315,6 +315,8 @@ class Metasync_Settings_Fields {
                     <li>White label branding settings</li>
                     <li>Plugin configuration and preferences</li>
                     <li>Instant indexing settings</li>
+                    <li>Media optimization settings and cache</li>
+                    <li>Code minification settings</li>
                     <li>All cached data and crawl information</li>
                 </ul>
                 <p style="color: var(--dashboard-warning, #f59e0b); margin: 0; font-weight: 600;">You will need to reconfigure the plugin completely after this reset.</p>
@@ -336,7 +338,7 @@ class Metasync_Settings_Fields {
                 return false;
             }
 
-            var secondConfirm = confirm("🚨 FINAL WARNING 🚨\n\nThis will delete:\n• All API keys and authentication tokens\n• White label branding settings\n• Plugin configuration and preferences\n• Instant indexing settings\n• All cached data\n\nYou will need to reconfigure the entire plugin from scratch.\n\nType 'DELETE' in the next prompt to confirm.");
+            var secondConfirm = confirm("🚨 FINAL WARNING 🚨\n\nThis will delete:\n• All API keys and authentication tokens\n• White label branding settings\n• Plugin configuration and preferences\n• Instant indexing settings\n• Media optimization settings and cache\n• Code minification settings\n• All cached data\n\nYou will need to reconfigure the entire plugin from scratch.\n\nType 'DELETE' in the next prompt to confirm.");
             if (!secondConfirm) {
                 return false;
             }
@@ -1467,7 +1469,7 @@ class Metasync_Settings_Fields {
             esc_attr($display_value)
         );
         
-        printf('<button type="button" id="refresh-plugin-auth-token" class="button button-secondary" style="margin-left: 10px;"><span class="dashicons dashicons-controls-repeat" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Refresh Token</button>');
+        printf('<button type="button" id="refresh-plugin-auth-token" class="button button-secondary" style="margin-left: 10px;"><span class="dashicons dashicons-controls-repeat"></span> Refresh Token</button>');
         printf('<p class="description">%s %s</p>', $status_message, $refresh_help);
     }
 
@@ -1497,8 +1499,14 @@ class Metasync_Settings_Fields {
         if(empty($datetime)){
             return "";
         }
-        $now = new DateTime;
-        $ago = new DateTime($datetime);
+        # Stored timestamps use current_time('mysql') which is the WP site's
+        # local timezone (no offset marker on the string). Constructing
+        # DateTime without a timezone would default to UTC and produce a
+        # bogus diff equal to the WP timezone offset (WP-350 QA: "4 hours ago"
+        # after a 4-minute sync on non-UTC sites).
+        $wp_tz = function_exists('wp_timezone') ? wp_timezone() : new DateTimeZone('UTC');
+        $now = new DateTime('now', $wp_tz);
+        $ago = new DateTime($datetime, $wp_tz);
 
         $diff = $now->diff($ago);
 
@@ -1686,12 +1694,14 @@ class Metasync_Settings_Fields {
     {
         $person_organization = Metasync::get_option('localseo')['local_seo_person_organization'] ?? '';
     ?>
-        <select id="local_seo_person_organization" name="<?php echo esc_attr(Metasync_Admin::option_key . '[localseo][local_seo_person_organization]') ?>">
-            <?php
-            printf('<option value="Person" %s >Person</option>', selected('Person', esc_attr($person_organization)));
-            printf('<option value="Organization" %s >Organization</option>', selected('Organization', esc_attr($person_organization)));
-            ?>
-        </select>
+        <div class="metasync-type-select-wrap">
+            <select id="local_seo_person_organization" name="<?php echo esc_attr(Metasync_Admin::option_key . '[localseo][local_seo_person_organization]') ?>">
+                <?php
+                printf('<option value="Person" %s >Person</option>', selected('Person', esc_attr($person_organization)));
+                printf('<option value="Organization" %s >Organization</option>', selected('Organization', esc_attr($person_organization)));
+                ?>
+            </select>
+        </div>
     <?php
         printf(' <br> <span class="description"> Choose whether the site represents a person or an organization. </span>');
     }

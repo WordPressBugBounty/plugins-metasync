@@ -877,6 +877,7 @@ class Metasync_Rest_Api
 			'otto_active' => $is_otto_active,
 			'has_api_key' => $has_api_key,
 			'has_uuid' => $has_uuid,
+			'otto_uuid' => $has_uuid ? $otto_uuid : null,
 			'plugin_version' => $plugin_version,
 			'last_heartbeat_at' => $last_heartbeat_at,
 			'sso_completed_at' => $sso_completed_at,
@@ -1607,8 +1608,18 @@ class Metasync_Rest_Api
 					# Check if the post title is there in the template or not
 					if(!$title_and_feature_image['title_in_headings']){
 
-						# Prepend the post title
-						$item['post_content'] = '<h1>'.$item['post_title'].'</h1>'.$item['post_content'] ;
+						# WP-337: Only prepend H1 if content doesn't already start with an H1 containing the same text
+						$skip_prepend = false;
+						$content_trimmed = trim($item['post_content']);
+						if (preg_match('/^<h1[^>]*>(.*?)<\/h1>/is', $content_trimmed, $h1_match)) {
+							$existing_h1_text = trim(strip_tags($h1_match[1]));
+							if (strcasecmp($existing_h1_text, trim($item['post_title'])) === 0) {
+								$skip_prepend = true;
+							}
+						}
+						if (!$skip_prepend) {
+							$item['post_content'] = '<h1>'.$item['post_title'].'</h1>'.$item['post_content'] ;
+						}
 					}
 
 				}
@@ -2336,8 +2347,18 @@ class Metasync_Rest_Api
 					# Check if the post title is there in the template or not
 					if(!$title_and_feature_image['title_in_headings']){
 
-						# Prepend the post title
-						$post['post_content'] = '<h1>'.$post['post_title'].'</h1>'.$post['post_content'] ;
+						# WP-337: Only prepend H1 if content doesn't already start with an H1 containing the same text
+						$skip_prepend = false;
+						$content_trimmed = trim($post['post_content']);
+						if (preg_match('/^<h1[^>]*>(.*?)<\/h1>/is', $content_trimmed, $h1_match)) {
+							$existing_h1_text = trim(strip_tags($h1_match[1]));
+							if (strcasecmp($existing_h1_text, trim($post['post_title'])) === 0) {
+								$skip_prepend = true;
+							}
+						}
+						if (!$skip_prepend) {
+							$post['post_content'] = '<h1>'.$post['post_title'].'</h1>'.$post['post_content'] ;
+						}
 					}
 				}
 				// This will be used by update_page function
@@ -2792,9 +2813,9 @@ class Metasync_Rest_Api
 
 		$responseCode = wp_remote_retrieve_response_code($response);
 		if ($responseCode == 200) {
-			$dt = new DateTime();
+			# Use current_time('mysql') for consistency with cron heartbeat.
 			$send_auth_token_timestamp = Metasync::get_option();
-			$send_auth_token_timestamp['general']['send_auth_token_timestamp'] = $dt->format('M d, Y  h:i:s A');
+			$send_auth_token_timestamp['general']['send_auth_token_timestamp'] = current_time('mysql');
 			Metasync::set_option($send_auth_token_timestamp);
 		}
 	}

@@ -32,6 +32,8 @@ class Metasync_Sitemap_News
             'post_types'           => ['post'],
             'categories'           => [],
             'tags'                 => [],
+            'taxonomies'           => [],
+            'excluded_urls'        => '',
             'publication_name'     => '',
             'publication_language' => '',
         ];
@@ -91,11 +93,36 @@ class Metasync_Sitemap_News
             ];
         }
 
+        // Generic taxonomy filters (custom taxonomies)
+        if (!empty($this->settings['taxonomies']) && is_array($this->settings['taxonomies'])) {
+            foreach ($this->settings['taxonomies'] as $taxonomy => $term_ids) {
+                if (!empty($term_ids) && is_array($term_ids)) {
+                    $tax_query[] = [
+                        'taxonomy' => sanitize_key($taxonomy),
+                        'field'    => 'term_id',
+                        'terms'    => array_map('absint', $term_ids),
+                    ];
+                }
+            }
+        }
+
         if (!empty($tax_query)) {
             $args['tax_query'] = $tax_query;
         }
 
         $posts = get_posts($args);
+
+        // Build excluded URLs set
+        $excluded_urls = [];
+        if (!empty($this->settings['excluded_urls'])) {
+            $raw_lines = explode("\n", $this->settings['excluded_urls']);
+            foreach ($raw_lines as $line) {
+                $line = trim($line);
+                if ($line !== '') {
+                    $excluded_urls[$line] = true;
+                }
+            }
+        }
 
         if (empty($posts)) {
             // Return a valid but empty sitemap
@@ -127,9 +154,16 @@ class Metasync_Sitemap_News
         $xml->appendChild($urlset);
 
         foreach ($posts as $post) {
+            $permalink = get_permalink($post->ID);
+
+            // Skip excluded URLs
+            if (!empty($excluded_urls) && isset($excluded_urls[$permalink])) {
+                continue;
+            }
+
             $url_element = $xml->createElement('url');
 
-            $loc = $xml->createElement('loc', esc_url(get_permalink($post->ID)));
+            $loc = $xml->createElement('loc', esc_url($permalink));
             $url_element->appendChild($loc);
 
             $news = $xml->createElement('news:news');

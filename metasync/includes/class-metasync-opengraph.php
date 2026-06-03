@@ -37,11 +37,6 @@ class Metasync_OpenGraph {
     const META_BOX_ID = 'metasync_opengraph_meta_box';
 
     /**
-     * Supported post types
-     */
-    private $supported_post_types = ['post', 'page'];
-
-    /**
      * Initialize the class and set its properties.
      */
     public function __construct($plugin_name, $version) {
@@ -285,7 +280,7 @@ class Metasync_OpenGraph {
 
         # Only load on post edit screens for supported post types
         if (!in_array($hook, ['post.php', 'post-new.php']) || 
-            !in_array($post_type, $this->supported_post_types)) {
+            !in_array($post_type, $this->get_supported_post_types())) {
             return;
         }
 
@@ -332,7 +327,7 @@ class Metasync_OpenGraph {
     public function force_enqueue_scripts() {
         global $post_type;
         
-        if (!in_array($post_type, $this->supported_post_types)) {
+        if (!in_array($post_type, $this->get_supported_post_types())) {
             return;
         }
         
@@ -380,7 +375,7 @@ class Metasync_OpenGraph {
      * Output Open Graph and Twitter Card tags in wp_head
      */
     public function output_opengraph_tags() {
-        if (!is_singular($this->supported_post_types)) {
+        if (!is_singular($this->get_supported_post_types())) {
             return;
         }
 
@@ -1041,7 +1036,9 @@ class Metasync_OpenGraph {
      * Get supported post types
      */
     public function get_supported_post_types() {
-        return apply_filters('metasync_opengraph_post_types', $this->supported_post_types);
+        $post_types = array_values(get_post_types(['public' => true], 'names'));
+        $post_types = array_diff($post_types, ['attachment']);
+        return apply_filters('metasync_opengraph_post_types', $post_types);
     }
 
     /**

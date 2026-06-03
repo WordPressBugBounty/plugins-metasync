@@ -91,7 +91,7 @@ class Metasync_Breadcrumbs_Schema {
             $list_item = array(
                 '@type'    => 'ListItem',
                 'position' => $position,
-                'name'     => $item['label'],
+                'name'     => html_entity_decode($item['label'], ENT_QUOTES | ENT_HTML5, 'UTF-8'),
             );
 
             if (!empty($item['url'])) {

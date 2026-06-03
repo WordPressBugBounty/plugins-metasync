@@ -525,6 +525,25 @@ class Metasync_Otto_Frontend_Toolbar {
 			$this->set_otto_status( $post_id, false );
 		} elseif ( $action === 'disable' ) {
 			$this->set_otto_status( $post_id, true );
+			// WP-315: Clear Divi's per-page CSS cache when OTTO is disabled.
+			// OTTO's HTTP render can corrupt the CSS cache file; clearing it
+			// forces Divi to rebuild it on the next normal render.
+			// Also delete the 24h transient so the fix re-runs when OTTO is re-enabled.
+			$et_cache_dir = WP_CONTENT_DIR . '/et-cache/' . $post_id;
+			if ( is_dir( $et_cache_dir ) ) {
+				$files = glob( $et_cache_dir . '/*' );
+				if ( $files ) {
+					foreach ( $files as $file ) {
+						if ( is_file( $file ) ) {
+							@unlink( $file );
+						}
+					}
+				}
+			}
+			$permalink = get_permalink( $post_id );
+			if ( $permalink ) {
+				delete_transient( 'otto_divi_css_fix_' . md5( $permalink ) );
+			}
 		}
 
 		// Redirect back to the post without query parameters
