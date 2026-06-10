@@ -636,6 +636,22 @@ if (!array_key_exists($active_tab, $sections)) {
                 </label>
 
                 <label class="metasync-checkbox-item">
+                    <input type="checkbox" id="import-social-text" checked>
+                    <div class="metasync-checkbox-label">
+                        <strong>Import Social Text</strong>
+                        <span>Copy OG and Twitter title/description metadata to MetaSync custom fields</span>
+                    </div>
+                </label>
+
+                <label class="metasync-checkbox-item">
+                    <input type="checkbox" id="import-social-images" checked>
+                    <div class="metasync-checkbox-label">
+                        <strong>Import Social Images</strong>
+                        <span>Copy OG and Twitter social sharing images to MetaSync custom fields</span>
+                    </div>
+                </label>
+
+                <label class="metasync-checkbox-item">
                     <input type="checkbox" id="overwrite-existing">
                     <div class="metasync-checkbox-label">
                         <strong>Overwrite Existing Data</strong>

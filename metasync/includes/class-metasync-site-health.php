@@ -1039,7 +1039,7 @@ class Metasync_Site_Health
 			: $flush_interval;
 
 		// OTTO suggestions cache TTL (stored in seconds, display as minutes)
-		$otto_cache_ttl_sec = Metasync_Otto_Transient_Cache::SUGGESTIONS_TTL;
+		$otto_cache_ttl_sec = Metasync_Otto_Config::get_otto_cache_ttl_seconds();
 		$otto_cache_ttl_val = ( $otto_cache_ttl_sec / MINUTE_IN_SECONDS ) . ' ' . __( 'minutes' );
 
 		return [

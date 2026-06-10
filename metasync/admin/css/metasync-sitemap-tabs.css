@@ -111,6 +111,18 @@
     margin-bottom: 0;
 }
 
+/* Base checkbox-list spacing (applies to scrollable and non-scrollable lists) */
+.metasync-checkbox-list label {
+    display: block;
+    margin-bottom: 8px;
+    padding: 4px 0;
+    cursor: pointer;
+}
+
+.metasync-checkbox-list label:last-of-type {
+    margin-bottom: 0;
+}
+
 /* Scrollbar styling */
 .metasync-checkbox-scroll::-webkit-scrollbar {
     width: 6px;

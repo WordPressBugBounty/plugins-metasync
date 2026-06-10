@@ -485,3 +485,146 @@ class MCP_Tool_Delete_Custom_Page extends MCP_Tool_Base {
         ]);
     }
 }
+
+/**
+ * Import LPS Page Tool
+ *
+ * Imports an LPS (Landing Page Studio) ZIP export into WordPress as a custom
+ * HTML page, extracting bundled assets to wp-content/uploads/metasync-pages/{slug}/.
+ * Re-importing with the same slug overwrites the previous page and assets.
+ */
+class MCP_Tool_Import_LPS_Page extends MCP_Tool_Base {
+
+    public function get_name() {
+        return 'wordpress_import_lps_page';
+    }
+
+    public function get_description() {
+        return 'Import an LPS (Landing Page Studio) ZIP export into WordPress as a custom HTML page, extracting assets to uploads/metasync-pages/{slug}/';
+    }
+
+    public function get_input_schema() {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'download_url' => [
+                    'type' => 'string',
+                    'description' => 'URL to download the LPS ZIP from.',
+                ],
+                'title' => [
+                    'type' => 'string',
+                    'description' => 'Page title (single-page imports only). Ignored for multi-page bundles, which take titles from pages.manifest.json.',
+                ],
+                'slug' => [
+                    'type' => 'string',
+                    'description' => 'URL slug (single-page imports only). Required when the ZIP has no pages.manifest.json; ignored for multi-page bundles. Re-importing with the same slug overwrites the previous LPS page.',
+                ],
+                'assets_folder' => [
+                    'type' => 'string',
+                    'description' => 'On-disk folder name the bundle is extracted to (under uploads/metasync-pages/). This is the path LPS bakes into the asset URLs at build time and is intentionally separate from the slug. Defaults to the slug when omitted.',
+                ],
+                'overwrite' => [
+                    'type' => 'boolean',
+                    'description' => 'When true (default), an existing page with the same slug is overwritten.',
+                ],
+                'status' => [
+                    'type' => 'string',
+                    'enum' => ['publish', 'draft', 'pending'],
+                    'description' => 'Page status (default: publish)',
+                ],
+            ],
+            'required' => ['download_url'],
+        ];
+    }
+
+    public function execute($params) {
+        $this->validate_params($params);
+        $this->require_capability('edit_pages');
+
+        if (empty($params['download_url'])) {
+            throw new Exception('download_url is required.');
+        }
+
+        $raw_slug = isset($params['slug']) ? $params['slug'] : '';
+        if (is_string($raw_slug) && (strpos($raw_slug, '..') !== false || strpos($raw_slug, '/') !== false || strpos($raw_slug, '\\') !== false)) {
+            throw new Exception('Slug must not contain path separators or parent references.');
+        }
+
+        $tmp_file = null;
+        $max_zip_bytes = 50 * 1024 * 1024;
+
+        try {
+            $tmp_file = wp_tempnam('lps_import_');
+            if (!$tmp_file) {
+                throw new Exception('Failed to allocate a temporary file for the ZIP.');
+            }
+
+            $response = wp_safe_remote_get($params['download_url'], [
+                'timeout' => 60,
+                'stream' => true,
+                'filename' => $tmp_file,
+            ]);
+            if (is_wp_error($response)) {
+                throw new Exception('Failed to download ZIP: ' . $response->get_error_message());
+            }
+            $code = wp_remote_retrieve_response_code($response);
+            if ((int) $code !== 200) {
+                throw new Exception('ZIP download returned HTTP ' . intval($code));
+            }
+            $content_type = strtolower((string) wp_remote_retrieve_header($response, 'content-type'));
+            if ($content_type !== '' && strpos($content_type, 'zip') === false && strpos($content_type, 'octet-stream') === false) {
+                throw new Exception('Downloaded ZIP has unexpected Content-Type: ' . $content_type);
+            }
+            $downloaded_size = file_exists($tmp_file) ? filesize($tmp_file) : 0;
+            if ($downloaded_size === 0) {
+                throw new Exception('Downloaded ZIP file is empty.');
+            }
+            if ($downloaded_size > $max_zip_bytes) {
+                throw new Exception('Downloaded ZIP exceeds the maximum allowed size (' . intval($max_zip_bytes / 1024 / 1024) . ' MB).');
+            }
+
+            require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'custom-pages/class-metasync-custom-pages.php';
+            require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'custom-pages/class-metasync-custom-pages-api.php';
+
+            $slug = isset($params['slug']) ? sanitize_title($params['slug']) : '';
+            $title = isset($params['title']) ? sanitize_text_field($params['title']) : '';
+            $status = isset($params['status']) ? sanitize_text_field($params['status']) : 'publish';
+            $overwrite = isset($params['overwrite']) ? (bool) $params['overwrite'] : true;
+            $assets_folder = isset($params['assets_folder']) ? $params['assets_folder'] : '';
+
+            $api = new Metasync_Custom_Pages_API();
+            $result = $api->extract_and_create_lps_page($tmp_file, $slug, $title, $status, $overwrite, $assets_folder);
+
+            if (is_wp_error($result)) {
+                throw new Exception($result->get_error_message());
+            }
+
+            // Surface the helper's full data payload — the shape differs for single
+            // (page_id/url/status) vs multi (created/updated/failed) imports.
+            $data = isset($result['data']) && is_array($result['data']) ? $result['data'] : [];
+            $data['message'] = isset($result['message']) ? $result['message'] : 'LPS ZIP imported successfully';
+
+            // For a multi-page import where EVERY page failed, the helper still
+            // returns a non-WP_Error array. Surface that as a failure to the agent
+            // (mirrors the REST endpoint's 422) instead of reporting false success.
+            if (isset($data['mode']) && $data['mode'] === 'multi') {
+                $succeeded = count(isset($data['created']) ? $data['created'] : [])
+                    + count(isset($data['updated']) ? $data['updated'] : []);
+                $failed = isset($data['failed']) ? $data['failed'] : [];
+                if ($succeeded === 0 && count($failed) > 0) {
+                    $reasons = array();
+                    foreach ($failed as $f) {
+                        $reasons[] = (isset($f['slug']) ? $f['slug'] : '?') . ': ' . (isset($f['code']) ? $f['code'] : 'failed');
+                    }
+                    throw new Exception('LPS import failed for all pages — ' . implode('; ', $reasons));
+                }
+            }
+
+            return $this->success($data);
+        } finally {
+            if (!empty($tmp_file) && file_exists($tmp_file)) {
+                @unlink($tmp_file);
+            }
+        }
+    }
+}

@@ -732,6 +732,11 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
     /**
      * Get image optimization statistics.
      */
+    /**
+     * Mime types that are already in an optimized format and do not need conversion.
+     */
+    private const OPTIMIZED_MIME_TYPES = ['image/webp', 'image/avif'];
+
     public static function get_stats(): array {
         $total = (new WP_Query([
             'post_type'      => 'attachment',
@@ -741,7 +746,7 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
             'fields'         => 'ids',
         ]))->found_posts;
 
-        $optimized = (new WP_Query([
+        $converted = (new WP_Query([
             'post_type'      => 'attachment',
             'post_status'    => 'inherit',
             'post_mime_type' => self::IMAGE_MIME_TYPES,
@@ -751,6 +756,21 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
                 ['key' => '_metasync_converted_format', 'compare' => 'EXISTS'],
             ],
         ]))->found_posts;
+
+        // WebP/AVIF images without the conversion meta are natively optimized
+        // and should not appear as "unoptimized" since they cannot be converted.
+        $natively_optimized = (new WP_Query([
+            'post_type'      => 'attachment',
+            'post_status'    => 'inherit',
+            'post_mime_type' => self::OPTIMIZED_MIME_TYPES,
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'meta_query'     => [
+                ['key' => '_metasync_converted_format', 'compare' => 'NOT EXISTS'],
+            ],
+        ]))->found_posts;
+
+        $optimized = $converted + $natively_optimized;
 
         return [
             'total'       => $total,

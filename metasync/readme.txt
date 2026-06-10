@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.6.10
+Stable tag: 2.6.11
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,35 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.11 =
+* New Feature: Added SEO Title & Meta Description fields to the Classic editor, matching the Gutenberg sidebar
+* New Feature: Added a configurable OTTO cache TTL setting under Advanced Settings → Cache Management
+* New Feature: Added a ZIP upload endpoint and MCP tool for importing landing pages
+* New Feature: Import Open Graph and Twitter social titles and descriptions from Yoast, Rank Math, and AIOSEO
+* New Feature: Import Open Graph and Twitter social images from Yoast, Rank Math, and AIOSEO
+* Improvement: Added a pre-flight memory check before image conversion to avoid exhausting PHP memory
+* Improvement: Batch optimizer batch size now adapts to available server memory
+* Improvement: Replaced unbounded media queries with paginated queries in the batch optimizer
+* Improvement: Sub-size image conversion is now split across requests to reduce peak memory usage
+* Improvement: Cron batch processing now respects the server's max_execution_time limit
+* Improvement: WordPress core sitemap is automatically disabled while the MetaSync sitemap is active
+* Improvement: Redirect saves now warn when the destination URL does not resolve
+* Improvement: The MCP sitemap check now uses the plugin's virtual sitemap tracking instead of physical files
+* Improvement: 404 Monitor no longer logs WordPress system paths as broken links
+* Improvement: Added a magnifier icon to the Media Optimization search field
+* Fix: OTTO no longer corrupts inline JavaScript by collapsing modern operators during rendering
+* Fix: Resolved fatal errors on Divi sites during OTTO HTTP rendering and from a missing admin navigation class
+* Fix: Prevented fatal errors from missing dependencies — telemetry autoload, the 404 Monitor database class, the DOMDocument extension, and a removed Yoast SEO title separator method
+* Fix: OTTO titles, descriptions, and schema now persist reliably — saved even when unchanged, back-filled to SEO plugin fields, kept after un-deploy, and output when OTTO is off
+* Fix: Stopped duplicate Open Graph/Twitter tags and cleared social meta when duplicating a post
+* Fix: Archive pages now output their own canonical URL and og:url instead of the first post's
+* Fix: WebP picture tag rewriting now applies to Divi featured images
+* Fix: Sitemap now includes pages and custom post types when category/tag filters are set
+* Fix: Resolved a schema markup settings key inconsistency in the settings API
+* Fix: Settings saves no longer show a false error notice, meta-box checkboxes persist, and a race condition that could wipe settings was resolved
+* Fix: OTTO image alt text now applies when pages use relative image URLs
+* Fix: Polished admin UI — Optimization Rate stats card alignment, tab icon centering, and XML Sitemap checkbox spacing
+
 = 2.6.10 =
 * New Feature: Media Optimization — compress images and serve next-gen WebP/AVIF formats to improve page load speed
 * New Feature: Added post type, taxonomy, and URL exclusion controls across all sitemaps

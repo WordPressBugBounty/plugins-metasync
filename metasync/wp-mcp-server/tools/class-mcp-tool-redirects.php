@@ -102,13 +102,21 @@ class MCP_Tool_Create_Redirect extends MCP_Tool_Base {
             throw new Exception('Failed to create redirect');
         }
 
-        return $this->success([
+        // Non-blocking destination reachability check — surface a warning, never block creation.
+        $dest_warning = $redirection_helper->destination_resolves_warning($destination, $http_code);
+
+        $response_data = [
             'redirect_id' => $result,
             'source' => $source_path,
             'destination' => $destination,
             'type' => $http_code,
             'status' => 'active'
-        ], 'Redirect created successfully');
+        ];
+        if ($dest_warning !== null) {
+            $response_data['warning'] = $dest_warning;
+        }
+
+        return $this->success($response_data, 'Redirect created successfully');
     }
 }
 
@@ -350,6 +358,16 @@ class MCP_Tool_Update_Redirect extends MCP_Tool_Base {
             throw new Exception('Failed to update redirect');
         }
 
+        // Non-blocking destination reachability check — surface a warning, never block the update.
+        $dest_warning = null;
+        if (isset($params['destination'])) {
+            require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'redirections/class-metasync-redirection.php';
+            $db_ref = $db;
+            $effective_code = isset($update_args['http_code']) ? (int) $update_args['http_code'] : (int) $redirect->http_code;
+            $effective_pattern = isset($redirect->pattern_type) ? $redirect->pattern_type : 'exact';
+            $dest_warning = (new Metasync_Redirection($db_ref))->destination_resolves_warning($destination, $effective_code, $effective_pattern);
+        }
+
         // Get updated redirect (sources_from may be JSON or legacy serialized in DB)
         $updated = $db->find($redirect_id);
         $source = null;
@@ -365,12 +383,17 @@ class MCP_Tool_Update_Redirect extends MCP_Tool_Base {
             }
         }
 
-        return $this->success([
+        $success_data = [
             'redirect_id' => $redirect_id,
             'source' => $source,
             'destination' => $updated->url_redirect_to,
             'type' => $updated->http_code,
             'status' => $updated->status
-        ], 'Redirect updated successfully');
+        ];
+        if ($dest_warning !== null) {
+            $success_data['warning'] = $dest_warning;
+        }
+
+        return $this->success($success_data, 'Redirect updated successfully');
     }
 }

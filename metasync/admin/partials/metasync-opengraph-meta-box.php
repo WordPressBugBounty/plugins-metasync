@@ -418,14 +418,17 @@ if (!defined('ABSPATH')) {
                 </div>
                 
                 <div class="metasync-preview-content-wrapper">
-                    <?php 
+                    <?php
                     // Show initial preview with current values
                     $initial_title = !empty($og_title) ? $og_title : $post->post_title;
                     $initial_description = !empty($og_description) ? $og_description : $this->get_post_excerpt($post);
                     $initial_image = !empty($og_image) ? $og_image : $this->get_featured_image_url($post->ID);
                     $initial_url = !empty($og_url) ? $og_url : get_permalink($post->ID);
-                    
-                    echo $this->generate_preview_html($initial_title, $initial_description, $initial_image, $initial_url);
+                    $initial_twitter_title = !empty($twitter_title) ? $twitter_title : '';
+                    $initial_twitter_description = !empty($twitter_description) ? $twitter_description : '';
+                    $initial_twitter_image = !empty($twitter_image) ? $twitter_image : '';
+
+                    echo $this->generate_preview_html($initial_title, $initial_description, $initial_image, $initial_url, $initial_twitter_title, $initial_twitter_description, $initial_twitter_image);
                     ?>
                 </div>
             </div>

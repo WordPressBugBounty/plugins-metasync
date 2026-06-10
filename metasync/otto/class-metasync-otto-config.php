@@ -83,6 +83,30 @@ class Metasync_Otto_Config {
     }
 
     /**
+     * Get the configured OTTO suggestions cache TTL, in seconds.
+     *
+     * Reads the admin-configurable value (in minutes) from execution settings,
+     * defaults to 30 minutes when unset, and clamps to [30, 1440] minutes so a
+     * bad stored value can never produce a runaway or zero TTL.
+     *
+     * @return int TTL in seconds
+     */
+    public static function get_otto_cache_ttl_seconds() {
+        $execution_settings = get_option('metasync_execution_settings', array());
+        $minutes = isset($execution_settings['otto_cache_ttl'])
+            ? (int) $execution_settings['otto_cache_ttl']
+            : 30;
+
+        if ($minutes < 30) {
+            $minutes = 30;
+        } elseif ($minutes > 1440) {
+            $minutes = 1440;
+        }
+
+        return $minutes * MINUTE_IN_SECONDS;
+    }
+
+    /**
      * Check if meta descriptions are enabled
      *
      * @return bool True if meta descriptions are enabled

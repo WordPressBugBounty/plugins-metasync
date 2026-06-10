@@ -38,11 +38,6 @@ class Metasync_Otto_Transient_Cache {
     private const STALE_PREFIX = 'otto_stale_';
     
     /**
-     * Default TTL for suggestions (30 minutes)
-     */
-    public const SUGGESTIONS_TTL = 30 * MINUTE_IN_SECONDS;
-    
-    /**
      * TTL for "no suggestions" cache (5 minutes)
      */
     private const NO_SUGGESTIONS_TTL = 5 * MINUTE_IN_SECONDS;
@@ -180,10 +175,11 @@ class Metasync_Otto_Transient_Cache {
 
             # Step 5: Store result in transient
             if ($suggestions && $this->has_payload($suggestions)) {
-                # Has suggestions - cache for 30 minutes
-                set_transient($keys['transient'], $suggestions, self::SUGGESTIONS_TTL);
-                # Also store as stale cache for fallback
-                set_transient($keys['stale'], $suggestions, self::SUGGESTIONS_TTL * 2);
+                # Has suggestions - cache for the admin-configured TTL (default 30 min)
+                $ttl = Metasync_Otto_Config::get_otto_cache_ttl_seconds();
+                set_transient($keys['transient'], $suggestions, $ttl);
+                # Also store as stale cache for fallback (2x the primary TTL)
+                set_transient($keys['stale'], $suggestions, $ttl * 2);
                 self::$cache_status[$cache_status_key] = 'MISS'; // Cache miss, fetched from API
             } elseif ($suggestions !== false) {
                 # API responded 200 OK but genuinely no OTTO suggestions for this URL.

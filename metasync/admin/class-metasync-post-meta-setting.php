@@ -30,6 +30,7 @@ class Metasync_Post_Meta_Settings
 		add_action('save_post', [$this, 'redirection_meta_box_save']);
 		add_action('save_post', [$this, 'canonical_meta_box_save']);
 		add_action('save_post', [$this, 'video_sitemap_meta_box_save']);
+		add_action('save_post', [$this, 'seo_meta_box_save']);
 	}
 
 	public function add_post_meta_data()
@@ -59,6 +60,10 @@ class Metasync_Post_Meta_Settings
 
 		if (empty($general_settings['disable_canonical_metabox'])) {
 			add_meta_box('post-canonical-meta', "Canonical by $plugin_name", [$this, 'post_canonical_display'], $post_types, 'normal', 'default');
+		}
+
+		if (empty($general_settings['disable_seo_metabox'])) {
+			add_meta_box('metasync-seo-meta', "SEO by $plugin_name", [$this, 'seo_meta_box_display'], $post_types, 'normal', 'default', ['__back_compat_meta_box' => true]);
 		}
 
 		// Video Sitemap meta box — only if video sitemap is enabled
@@ -456,6 +461,82 @@ class Metasync_Post_Meta_Settings
 				update_post_meta($post_id, $meta_key, $value);
 			} else {
 				delete_post_meta($post_id, $meta_key);
+			}
+		}
+	}
+
+	/**
+	 * Display the SEO meta box (SEO Title & Meta Description) in the Classic editor.
+	 *
+	 * Reads/writes the same _metasync_seo_title / _metasync_seo_desc keys used by the
+	 * Gutenberg sidebar. OTTO values are used only as placeholder hints so the
+	 * custom-value > OTTO priority is preserved.
+	 */
+	public function seo_meta_box_display()
+	{
+		global $post;
+		$seo_title = get_post_meta($post->ID, '_metasync_seo_title', true);
+		$seo_desc  = get_post_meta($post->ID, '_metasync_seo_desc', true);
+		$otto_title = get_post_meta($post->ID, '_metasync_otto_title', true);
+		$otto_desc  = get_post_meta($post->ID, '_metasync_otto_description', true);
+
+		wp_nonce_field('metasync_seo_meta_nonce', 'metasync_seo_meta_nonce');
+		?>
+		<p style="color: #666; margin-bottom: 12px;">
+			<?php esc_html_e('Set the SEO Title and Meta Description for this post. Leave the field blank to use OTTO suggestion.', 'metasync'); ?>
+		</p>
+		<table class="form-table" style="margin: 0;">
+			<tr>
+				<th scope="row"><label for="metasync_seo_title"><?php esc_html_e('SEO Title', 'metasync'); ?></label></th>
+				<td><input type="text" id="metasync_seo_title" name="metasync_seo_title" value="<?php echo esc_attr($seo_title); ?>" class="large-text" placeholder="<?php echo esc_attr($otto_title); ?>" /></td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="metasync_seo_desc"><?php esc_html_e('Meta Description', 'metasync'); ?></label></th>
+				<td><textarea id="metasync_seo_desc" name="metasync_seo_desc" class="large-text" rows="3" placeholder="<?php echo esc_attr($otto_desc); ?>"><?php echo esc_textarea($seo_desc); ?></textarea></td>
+			</tr>
+		</table>
+		<?php
+	}
+
+	/**
+	 * Save the SEO meta box data.
+	 *
+	 * The nonce field is never present in Gutenberg REST saves, so the nonce check
+	 * alone prevents this handler from running in that context — leaving the sidebar
+	 * as the source of truth there.
+	 *
+	 * @param int $post_id The post ID.
+	 */
+	public function seo_meta_box_save($post_id)
+	{
+		if (!isset($_POST['metasync_seo_meta_nonce']) ||
+			!wp_verify_nonce($_POST['metasync_seo_meta_nonce'], 'metasync_seo_meta_nonce')) {
+			return;
+		}
+
+		if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+			return;
+		}
+
+		if (!current_user_can('edit_post', $post_id)) {
+			return;
+		}
+
+		if (isset($_POST['metasync_seo_title'])) {
+			$seo_title = sanitize_text_field($_POST['metasync_seo_title']);
+			if (!empty($seo_title)) {
+				update_post_meta($post_id, '_metasync_seo_title', $seo_title);
+			} else {
+				delete_post_meta($post_id, '_metasync_seo_title');
+			}
+		}
+
+		if (isset($_POST['metasync_seo_desc'])) {
+			$seo_desc = sanitize_textarea_field($_POST['metasync_seo_desc']);
+			if (!empty($seo_desc)) {
+				update_post_meta($post_id, '_metasync_seo_desc', $seo_desc);
+			} else {
+				delete_post_meta($post_id, '_metasync_seo_desc');
 			}
 		}
 	}

@@ -173,15 +173,33 @@ class Metasync_Seo_Output
 
 	public function hook_metasync_metatags()
 	{
-		// Remove WordPress core's canonical — MetaSync handles its own.
-		remove_action('wp_head', 'rel_canonical');
+		$conflict_handler = Metasync_SEO_Conflict_Handler::get_instance();
+
+		// On archive pages (category, tag, author, date, blog home) get_the_ID()
+		// returns the first post in the loop — not the archive itself. Guard here so
+		// we never use that first-post ID for canonical / og:url on archives.
+		// Instead, emit the correct archive URL and return early.
+		if (!is_singular()) {
+			if (!$conflict_handler->has_active_seo_plugin()) {
+				$archive_url = $this->get_archive_canonical_url();
+				if (!empty($archive_url)) {
+					printf("\t<link rel=\"canonical\" href=\"%s\" />\n", esc_url($archive_url));
+					printf("\t<meta property=\"og:url\" content=\"%s\" />\n", esc_url($archive_url));
+				}
+			}
+			return;
+		}
+
+		// Singular post/page: suppress WP core's canonical and let MetaSync handle it.
+		if (!$conflict_handler->has_active_seo_plugin()) {
+			remove_action('wp_head', 'rel_canonical');
+		}
 
 		$get_page_meta = get_post_meta(get_the_ID());
 
 		// When a third-party SEO plugin is active, only output our description
 		// if MetaSync has an intentional value (OTTO or sidebar). Otherwise let
 		// the other plugin handle it to avoid duplicates.
-		$conflict_handler = Metasync_SEO_Conflict_Handler::get_instance();
 		$include_description = $conflict_handler->should_output_legacy_description();
 
 		$list_page_meta = array();
@@ -442,20 +460,33 @@ class Metasync_Seo_Output
 					|| !empty(get_post_meta($post->ID, '_metasync_otto_twitter_description', true));
 			}
 
+			// When the canonical emitter (Metasync_OpenGraph::output_opengraph_tags, wp_head
+			// priority 5) will emit for this post, suppress these legacy og:*/twitter:* blocks
+			// so a MetaSync-only page outputs exactly one OG set and one Twitter set, preferring
+			// the persisted/OTTO values that emitter resolves (WP-411). The Facebook block
+			// (article:publisher / article:author / fb:admins) is NOT gated on it — the canonical
+			// emitter never outputs those tags, so they never duplicate.
+			$og2_will_emit = apply_filters('metasync_opengraph_will_emit', false);
+
+			// When a third-party SEO plugin (Yoast / Rank Math / AIOSEO) is active it owns the
+			// social tags — suppress ALL legacy Facebook/OG/Twitter output so MetaSync never
+			// duplicates the other plugin's og:*/twitter:*/article:* tags (WP-411).
+			$has_seo_plugin = $conflict_handler->has_active_seo_plugin();
+
 			$common_meta_settings = Metasync::get_option('common_meta_settings') ?? [];
 
-			if (!$otto_has_og && isset($common_meta_settings['facebook_meta_tags'])) {
+			if (!$otto_has_og && !$has_seo_plugin && isset($common_meta_settings['facebook_meta_tags'])) {
 				foreach ($facebookMetaKeys as $metaKey => $metaValue) {
 					$this->print_metatag($metaKey, $metaValue, 'content', 'property');
 				}
 			}
 
-			if (!$otto_has_og && isset($common_meta_settings['open_graph_meta_tags'])) {
+			if (!$otto_has_og && !$og2_will_emit && !$has_seo_plugin && isset($common_meta_settings['open_graph_meta_tags'])) {
 				foreach ($ogMetaKeys as $metaKey => $metaValue) {
 					$this->print_metatag($metaKey, $metaValue, 'content', 'property');
 				}
 			}
-			if (!$otto_has_twitter && isset($common_meta_settings['twitter_meta_tags'])) {
+			if (!$otto_has_twitter && !$og2_will_emit && !$has_seo_plugin && isset($common_meta_settings['twitter_meta_tags'])) {
 				foreach ($twitterMetaKeys as $metaKey => $metaValue) {
 					$this->print_metatag($metaKey, $metaValue, 'content', 'name');
 				}
@@ -659,6 +690,56 @@ class Metasync_Seo_Output
 		}
 
 		return !empty($directives) ? implode(', ', array_unique($directives)) : '';
+	}
+
+	/**
+	 * Get the correct canonical URL for archive pages.
+	 *
+	 * Handles: Posts page (is_home), category, tag, custom taxonomy,
+	 * author, year/month/day date archives.
+	 *
+	 * @return string Archive URL or empty string if not determinable.
+	 */
+	private function get_archive_canonical_url() {
+		if (is_home()) {
+			$blog_page_id = (int) get_option('page_for_posts');
+			if ($blog_page_id > 0) {
+				// Honour a manual MetaSync canonical override on the Posts page.
+				$override = get_post_meta($blog_page_id, '_metasync_canonical_url', true);
+				if (!empty($override)) {
+					return esc_url($override);
+				}
+				return get_permalink($blog_page_id);
+			}
+			return home_url('/');
+		}
+
+		if (is_category() || is_tag() || is_tax()) {
+			$term = get_queried_object();
+			if ($term instanceof WP_Term) {
+				$link = get_term_link($term);
+				return is_wp_error($link) ? '' : $link;
+			}
+			return '';
+		}
+
+		if (is_author()) {
+			return get_author_posts_url(get_queried_object_id());
+		}
+
+		if (is_day()) {
+			return get_day_link(get_query_var('year'), get_query_var('monthnum'), get_query_var('day'));
+		}
+
+		if (is_month()) {
+			return get_month_link(get_query_var('year'), get_query_var('monthnum'));
+		}
+
+		if (is_year()) {
+			return get_year_link(get_query_var('year'));
+		}
+
+		return '';
 	}
 
 	/**

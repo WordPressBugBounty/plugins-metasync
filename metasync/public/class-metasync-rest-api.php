@@ -867,7 +867,8 @@ class Metasync_Rest_Api
 		
 		# Plugin version and timestamps (ISO 8601 UTC where set)
 		$plugin_version = defined('METASYNC_VERSION') ? METASYNC_VERSION : 'unknown';
-		$last_heartbeat_at = $general_options['last_heartbeat_at'] ?? null;
+		$_throttle = Metasync::get_heartbeat_throttle();
+		$last_heartbeat_at = $_throttle['last_heartbeat_at'] ?? ($general_options['last_heartbeat_at'] ?? null);
 		$sso_completed_at = $general_options['sso_completed_at'] ?? null;
 		
 		# Prepare response (backward compatible + new fields)
@@ -2811,7 +2812,7 @@ class Metasync_Rest_Api
 		$sync_request = new Metasync_Sync_Requests();
 		$response = $sync_request->SyncCustomerParams();
 
-		$responseCode = wp_remote_retrieve_response_code($response);
+		$responseCode = Metasync_Sync_Requests::get_response_code($response);
 		if ($responseCode == 200) {
 			# Use current_time('mysql') for consistency with cron heartbeat.
 			$send_auth_token_timestamp = Metasync::get_option();
@@ -2857,7 +2858,7 @@ class Metasync_Rest_Api
 		$sync_heartbeat_data = new Metasync_Sync_Requests();
 		$response = $sync_heartbeat_data->SyncCustomerParams();
 
-		$responseCode = wp_remote_retrieve_response_code($response);
+		$responseCode = Metasync_Sync_Requests::get_response_code($response);
 		if ($responseCode == 200) {
 			return rest_ensure_response($response);
 		}

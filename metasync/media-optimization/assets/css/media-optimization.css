@@ -670,7 +670,9 @@
 }
 
 .metasync-media-optimization-page .metasync-tab-nav a {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 4px;
     padding: 12px 20px;
     text-decoration: none;
     color: var(--dashboard-text-secondary);
@@ -682,6 +684,14 @@
     background: transparent;
     position: relative;
     overflow: hidden;
+}
+
+.metasync-media-optimization-page .metasync-tab-nav a .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 1;
+    flex-shrink: 0;
 }
 
 .metasync-media-optimization-page .metasync-tab-nav a:hover {
@@ -737,6 +747,10 @@
     gap: 4px;
 }
 
+.metasync-stat-rate {
+    margin-left: auto;
+}
+
 .metasync-stat-number {
     font-size: 28px;
     font-weight: 700;
@@ -765,8 +779,13 @@
     gap: 10px;
 }
 
+.metasync-stat-rate .metasync-stat-progress-wrap {
+    min-height: 28px;
+    align-items: center;
+}
+
 .metasync-stat-progress-bar {
-    width: 120px;
+    width: 200px;
     height: 8px;
     background: var(--dashboard-border);
     border-radius: 4px;
@@ -918,13 +937,28 @@
     align-items: center;
 }
 
+.metasync-toolbar-right .search-box .metasync-search-input-wrap::before {
+    content: '';
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 15px;
+    height: 15px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-size: contain;
+    pointer-events: none;
+    z-index: 1;
+}
+
 .metasync-toolbar-right .search-box input[type="search"],
 .metasync-toolbar-right .search-box input[type="text"] {
     background: var(--dashboard-card-bg);
     color: var(--dashboard-text-primary);
     border: 1px solid var(--dashboard-border);
     border-radius: 6px;
-    padding: 6px 30px 6px 12px;
+    padding: 6px 30px 6px 34px;
     height: 32px;
     line-height: 32px;
     font-size: 13px;
@@ -1438,6 +1472,10 @@
 
     .metasync-stat-item {
         min-width: 80px;
+    }
+
+    .metasync-stat-rate {
+        margin-left: 0;
     }
 
     .metasync-table-toolbar {

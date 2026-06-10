@@ -72,7 +72,16 @@ class Metasync
 
 
 	public const option_name = "metasync_options";
-	
+
+	/**
+	 * Dedicated option key for heartbeat throttle timestamps.
+	 *
+	 * Stored separately from the main options blob so writes to last_heart_beat
+	 * and last_heartbeat_at do not race with concurrent settings writes during
+	 * the 15-second wp_remote_post window in SyncCustomerParams.
+	 */
+	public const heartbeat_throttle_option = "metasync_heartbeat_throttle";
+
 	/**
 	 * Search Atlas Domain Constants
 	 * Centralized constants for all Search Atlas service endpoints
@@ -135,6 +144,13 @@ class Metasync
 			require_once plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php';
 		} else {
 			error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php');
+		}
+
+		// Admin navigation is referenced statically from frontend-reachable
+		// includes (heartbeat/connect managers). Require it explicitly here so
+		// the static call never fatals when wp_head fires before autoload.
+		if (!class_exists('Metasync_Admin_Navigation')) {
+			require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-admin-navigation.php';
 		}
 
 		$this->loader = new Metasync_Loader();
@@ -672,6 +688,50 @@ class Metasync
 	}
 
 	/**
+	 * Read the heartbeat throttle state from its dedicated option.
+	 *
+	 * Backfills from the legacy location (`metasync_options['general']`) the
+	 * first time the dedicated option is empty, so existing installs keep
+	 * their throttle history across the migration.
+	 */
+	public static function get_heartbeat_throttle(): array
+	{
+		$value = get_option(self::heartbeat_throttle_option, []);
+		if (is_array($value) && !empty($value)) {
+			return $value;
+		}
+
+		$general = self::get_option('general');
+		if (is_array($general) && (array_key_exists('last_heart_beat', $general) || array_key_exists('last_heartbeat_at', $general))) {
+			$throttle = [
+				'last_heart_beat' => $general['last_heart_beat'] ?? 0,
+				'last_heartbeat_at' => $general['last_heartbeat_at'] ?? null,
+			];
+			update_option(self::heartbeat_throttle_option, $throttle);
+			return $throttle;
+		}
+
+		return [];
+	}
+
+	/**
+	 * Merge fields into the dedicated heartbeat throttle option.
+	 *
+	 * Writes via update_option directly so the main metasync_options blob is
+	 * never read or rewritten — avoiding the read-modify-write race with
+	 * concurrent settings saves.
+	 */
+	public static function set_heartbeat_throttle(array $fields): void
+	{
+		$existing = get_option(self::heartbeat_throttle_option, []);
+		if (!is_array($existing)) {
+			$existing = [];
+		}
+		$merged = array_merge($existing, $fields);
+		update_option(self::heartbeat_throttle_option, $merged);
+	}
+
+	/**
 	 * Get whitelabel settings
 	 * Helper method to retrieve whitelabel configuration
 	 */
@@ -962,8 +1022,23 @@ class Metasync
 			return;
 		}
 
-		// PROTECTION 1: Exclude static assets to reduce noise
+		// PROTECTION 0: Skip WordPress system paths — these are not "broken links"
 		$request_uri = $_SERVER['REQUEST_URI'] ?? '';
+		$skip_prefixes = [
+			'/wp-json/',
+			'/wp-admin/',
+			'/feed/',
+			'/xmlrpc.php',
+			'/wp-login.php',
+			'/wp-cron.php',
+		];
+		foreach ($skip_prefixes as $prefix) {
+			if (stripos($request_uri, $prefix) === 0) {
+				return;
+			}
+		}
+
+		// PROTECTION 1: Exclude static assets to reduce noise
 		$static_extensions = ['.css', '.js', '.jpg', '.jpeg', '.png', '.gif', '.ico', '.svg', '.woff', '.woff2', '.ttf', '.eot', '.map','.webp'];
 		foreach ($static_extensions as $ext) {
 			if (stripos($request_uri, $ext) !== false) {
@@ -1017,6 +1092,7 @@ class Metasync
 		}
 
 		// Initialize 404 monitor database
+		require_once plugin_dir_path(dirname(__FILE__)) . '404-monitor/class-metasync-404-monitor-database.php';
 		$db_404 = new Metasync_Error_Monitor_Database();
 
 		// Get user agent (sanitized)

@@ -129,6 +129,7 @@ class Metasync_Settings_Fields {
                     'disable_canonical_metabox',
                     'disable_social_opengraph_metabox',
                     'disable_schema_markup_metabox',
+                    'disable_seo_metabox',
                     'open_external_links'
                 )
             ),
@@ -740,6 +741,7 @@ class Metasync_Settings_Fields {
             'log_batch_size' => 1000,
             'action_scheduler_batches' => 1,
             'otto_rate_limit' => 10,
+            'otto_cache_ttl' => 30,
             'queue_cleanup_days' => 31
         );
     }
@@ -1014,7 +1016,7 @@ class Metasync_Settings_Fields {
                         </div>
                     </div>
                 </div>
-                
+
                 <!-- Save Button -->
                 <div style="margin-top: 20px;">
                     <button type="submit" 
@@ -1278,6 +1280,7 @@ class Metasync_Settings_Fields {
             'disable_canonical_metabox' => 'Hide the Canonical URL meta box from post and page edit screens. This removes the canonical URL override field from the editor interface.',
             'disable_social_opengraph_metabox' => 'Hide the Social Media & Open Graph meta box from post and page edit screens. This removes Facebook, Twitter, and other social media meta tag controls from the editor.',
             'disable_schema_markup_metabox' => 'Hide the Schema Markup meta box from post and page edit screens. This removes the structured data (Article, FAQ, Product, Recipe, etc.) configuration from the editor interface.',
+            'disable_seo_metabox' => 'Hide the SEO Title & Meta Description meta box from post and page edit screens. This removes the Classic editor SEO fields (the Gutenberg sidebar is unaffected).',
             'open_external_links' => 'Automatically add target="_blank" attribute to external links appearing in your posts, pages, and other post types when rendered by Otto.',
             'content_genius_sync_roles' => 'Select which WordPress user roles should be synchronized with Content Genius. This determines which users will have their profiles and permissions synced for content collaboration.',
             'permalink_structure' => sprintf('Displays your current WordPress permalink structure. %s works best with pretty permalinks (not "Plain"). If you see a warning, visit Settings > Permalinks to change your structure.', $plugin_name),

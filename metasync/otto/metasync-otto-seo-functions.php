@@ -1327,6 +1327,12 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
 
         # ENHANCED LOGIC: Handle clearing data when OTTO returns null (undeployed changes)
         # If OTTO returns null for title/description, we should clear existing OTTO data
+        # Capture whether each field is an un-deploy "clear" (OTTO null) vs a real value.
+        # On a clear we still wipe MetaSync's own staging/permanent fields, but must NOT
+        # blank the SEO-plugin fields (empty meta is worse for SEO than a stale value).
+        $title_is_clear = ($meta_title === null);
+        $description_is_clear = ($meta_description === null);
+
         $should_update_title = false;
         $should_update_description = false;
 
@@ -1358,6 +1364,36 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
             $persist_description = Metasync_Otto_Persistence_Settings::should_persist('meta_description');
         }
 
+        # Decouple the permanent/SEO-plugin write from the staging-key write.
+        # The staging key gates on (incoming != staging); the permanent native /
+        # SEO-plugin field must update whenever persistence is ON and the native
+        # field is missing or differs from the incoming value. This back-fills
+        # _metasync_metatitle / _metasync_metadesc (and SEO-plugin equivalents)
+        # when a persistence flag is enabled after OTTO has already synced.
+        $current_native_title = $all_meta['_metasync_metatitle'][0] ?? '';
+        $current_native_description = $all_meta['_metasync_metadesc'][0] ?? '';
+
+        $should_persist_title = $persist_title && ($meta_title !== $current_native_title);
+        $should_persist_description = $persist_description && ($meta_description !== $current_native_description);
+
+        # Per-plugin back-fill: gate each SEO-plugin write on that plugin's OWN
+        # stored value, not on MetaSync's native field. Once the native field
+        # matches the incoming value, $should_persist_* go false — but an active
+        # plugin whose own column is empty/stale must still be back-filled. Read
+        # each plugin's current value from the already-loaded $all_meta and write
+        # only when persistence for that field is ON, it is not a "clear", and the
+        # plugin's stored value differs from the incoming value. (AIOSEO lives in
+        # the aioseo_posts table, so its current values are read inside its block.)
+        $current_rm_title         = $all_meta['rank_math_title'][0] ?? '';
+        $current_rm_description   = $all_meta['rank_math_description'][0] ?? '';
+        $current_yoast_title      = $all_meta['_yoast_wpseo_title'][0] ?? '';
+        $current_yoast_description = $all_meta['_yoast_wpseo_metadesc'][0] ?? '';
+
+        $should_persist_rm_title         = $persist_title && !$title_is_clear && ($meta_title !== $current_rm_title);
+        $should_persist_rm_description   = $persist_description && !$description_is_clear && ($meta_description !== $current_rm_description);
+        $should_persist_yoast_title      = $persist_title && !$title_is_clear && ($meta_title !== $current_yoast_title);
+        $should_persist_yoast_description = $persist_description && !$description_is_clear && ($meta_description !== $current_yoast_description);
+
         # Always write staging keys — these are read by OTTO's own render filters
         # regardless of whether persistence to native WP/3rd-party fields is enabled.
         if ($should_update_title) {
@@ -1371,36 +1407,51 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
         }
 
         # Write to plugin's own meta fields only when persistence is enabled
-        if ($should_update_title && $persist_title) {
+        if ($should_persist_title) {
             update_post_meta($post_id, '_metasync_metatitle', $meta_title);
         }
 
-        if ($should_update_description && $persist_description) {
+        if ($should_persist_description) {
             update_post_meta($post_id, '_metasync_metadesc', $meta_description);
         }
 
-        # Sync to SEO plugins only if persistence is enabled via API
+        # Track whether any SEO-plugin field was actually back-filled, so the
+        # timestamp / updated roll-up below also covers plugin-only writes (the
+        # native field may already match the incoming value while a plugin's own
+        # column is empty or stale).
+        $plugin_title_written = false;
+        $plugin_description_written = false;
+
+        # Sync to SEO plugins whenever persistence is enabled — not only when the
+        # native field changed. Each plugin's write is gated on that plugin's own
+        # stored value (the $should_persist_*_* flags computed above), so an active
+        # plugin whose column is empty/stale is back-filled even though MetaSync's
+        # native field already matches the incoming value.
         if ($persist_title || $persist_description) {
             $effective_title = $meta_title;
             $effective_description = $meta_description;
 
             # Update RankMath SEO plugin meta fields
             if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
-                if ($should_update_title && $persist_title) {
+                if ($should_persist_rm_title) {
                     update_post_meta($post_id, 'rank_math_title', $effective_title);
+                    $plugin_title_written = true;
                 }
-                if ($should_update_description && $persist_description) {
+                if ($should_persist_rm_description) {
                     update_post_meta($post_id, 'rank_math_description', $effective_description);
+                    $plugin_description_written = true;
                 }
             }
 
             # Update Yoast SEO plugin meta fields
             if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
-                if ($should_update_title && $persist_title) {
+                if ($should_persist_yoast_title) {
                     update_post_meta($post_id, '_yoast_wpseo_title', $effective_title);
+                    $plugin_title_written = true;
                 }
-                if ($should_update_description && $persist_description) {
+                if ($should_persist_yoast_description) {
                     update_post_meta($post_id, '_yoast_wpseo_metadesc', $effective_description);
+                    $plugin_description_written = true;
                 }
             }
 
@@ -1409,22 +1460,28 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
                 metasync_is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
                 global $wpdb;
                 $aioseo_table = $wpdb->prefix . 'aioseo_posts';
-                $aioseo_updates = [];
 
-                if ($should_update_title && $persist_title) {
+                # Read the plugin's own current values so the back-fill is gated on
+                # the aioseo_posts row, not on MetaSync's native field.
+                $current_aioseo = $wpdb->get_row($wpdb->prepare("SELECT title, description FROM {$aioseo_table} WHERE post_id = %d", $post_id));
+
+                $should_persist_aioseo_title       = $persist_title && !$title_is_clear && ($meta_title !== ($current_aioseo->title ?? ''));
+                $should_persist_aioseo_description = $persist_description && !$description_is_clear && ($meta_description !== ($current_aioseo->description ?? ''));
+
+                $aioseo_updates = [];
+                if ($should_persist_aioseo_title) {
                     $aioseo_updates['title'] = $effective_title;
+                    $plugin_title_written = true;
                 }
-                if ($should_update_description && $persist_description) {
+                if ($should_persist_aioseo_description) {
                     $aioseo_updates['description'] = $effective_description;
+                    $plugin_description_written = true;
                 }
 
                 if (!empty($aioseo_updates)) {
                     $aioseo_updates['updated'] = current_time('mysql');
-                    $row_exists = $wpdb->get_var($wpdb->prepare(
-                        "SELECT id FROM {$aioseo_table} WHERE post_id = %d", $post_id
-                    ));
 
-                    if ($row_exists) {
+                    if ($current_aioseo) {
                         $wpdb->update($aioseo_table, $aioseo_updates, ['post_id' => $post_id]);
                     } else {
                         $aioseo_updates['post_id'] = $post_id;
@@ -1433,12 +1490,21 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
                     }
                 }
             }
-
-            # Store timestamp if any persistence occurred
-            if (($should_update_title && $persist_title) || ($should_update_description && $persist_description)) {
-                update_post_meta($post_id, '_metasync_otto_last_update', current_time('timestamp'));
-            }
         }
+
+        # Store timestamp if any persistence occurred — native back-fill OR a
+        # plugin-only back-fill. Kept outside the native-field gate so a write
+        # that only touched a SEO plugin still records the sync timestamp.
+        if ($should_persist_title || $should_persist_description || $plugin_title_written || $plugin_description_written) {
+            update_post_meta($post_id, '_metasync_otto_last_update', current_time('timestamp')); # also covers $plugin_title_written / $plugin_description_written back-fills
+        }
+
+        # A persistence-only back-fill (staging key already current, but the permanent
+        # / SEO-plugin fields were just written) must still mark the post as updated so
+        # the caller runs cache purge and the WP-196 plugin sync. Without this, a
+        # back-fill silently returns updated=false and the downstream refresh is skipped.
+        $title_updated = $title_updated || $should_persist_title || $plugin_title_written;
+        $description_updated = $description_updated || $should_persist_description || $plugin_description_written;
 
         return array(
             'updated' => $title_updated || $description_updated,

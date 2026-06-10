@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.6.10 
+ * Version:           2.6.11 
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
  * License:           GPL v3
@@ -36,7 +36,7 @@ require_once __DIR__ . '/vendor/autoload.php';
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.6.10';
+$metasync_version = '2.6.11';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -688,12 +688,13 @@ function metasync_init_mcp_server() {
 	$safe_register('MCP_Tool_Get_Instant_Index_Settings');
 	$safe_register('MCP_Tool_Update_Instant_Index_Settings');
 
-	// Custom HTML Pages (5 tools)
+	// Custom HTML Pages (6 tools)
 	$safe_register('MCP_Tool_Create_Custom_Page');
 	$safe_register('MCP_Tool_Get_Custom_Page');
 	$safe_register('MCP_Tool_List_Custom_Pages');
 	$safe_register('MCP_Tool_Update_Custom_Page');
 	$safe_register('MCP_Tool_Delete_Custom_Page');
+	$safe_register('MCP_Tool_Import_LPS_Page');
 
 	// HTML to Builder Converter (3 tools)
 	$safe_register('MCP_Tool_Convert_HTML_To_Builder');

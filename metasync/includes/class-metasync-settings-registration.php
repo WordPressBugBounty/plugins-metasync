@@ -881,6 +881,21 @@ class Metasync_Settings_Registration
         );
 
         add_settings_field(
+            'disable_seo_metabox',
+            'Disable SEO Meta Box',
+            function() use ($option_key) {
+                $disabled = Metasync::get_option('general')['disable_seo_metabox'] ?? false;
+                printf(
+                    '<input type="checkbox" id="disable_seo_metabox" name="' . $option_key . '[general][disable_seo_metabox]" value="1" %s />',
+                    $disabled ? 'checked' : ''
+                );
+                printf('<span class="description"> Hide the SEO Title & Meta Description meta box on post/page edit screens</span>');
+            },
+            $page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        add_settings_field(
             'open_external_links',
             'Open External Links in New Tab/Window',
             function() use ($option_key) {
@@ -1901,9 +1916,10 @@ class Metasync_Settings_Registration
                 } else {
                     $new_input['general'][$field] = false;
                 }
-                // Remove the raw value so the sanitized boolean in $new_input
-                // survives the shallow array_merge($new_input, $input) below.
-                unset($input['general'][$field]);
+                // The final array_merge($new_input, $input) is shallow, so
+                // $input['general'] replaces $new_input['general'] wholesale.
+                // Write the sanitized boolean back into $input so it survives.
+                $input['general'][$field] = $new_input['general'][$field];
             }
         }
 
@@ -2663,7 +2679,7 @@ class Metasync_Settings_Registration
             // Step 2: POST heartbeat to register the site (creates WPWebsiteHeartbeat row)
             $sync_request = new Metasync_Sync_Requests();
             $sync_response = $sync_request->SyncCustomerParams();
-            $sync_status = wp_remote_retrieve_response_code($sync_response);
+            $sync_status = Metasync_Sync_Requests::get_response_code($sync_response);
 
             if ( $sync_status == 200 ) {
                 // Step 3: GET ping to verify registration succeeded
@@ -2734,7 +2750,7 @@ class Metasync_Settings_Registration
             // Key unchanged or removed — run sync as before
             $sync_request = new Metasync_Sync_Requests();
             $response = $sync_request->SyncCustomerParams();
-            $responseCode = wp_remote_retrieve_response_code($response);
+            $responseCode = Metasync_Sync_Requests::get_response_code($response);
 
             if ($responseCode == 200) {
                 # Use current_time('mysql') for consistency with cron heartbeat.
@@ -2949,12 +2965,15 @@ class Metasync_Settings_Registration
             return;
         }
 
+        $existing_settings = get_option('metasync_execution_settings', array());
+
         $settings = array(
             'max_execution_time' => isset($_POST['max_execution_time']) ? absint($_POST['max_execution_time']) : 30,
             'max_memory_limit' => isset($_POST['max_memory_limit']) ? absint($_POST['max_memory_limit']) : 256,
             'log_batch_size' => isset($_POST['log_batch_size']) ? absint($_POST['log_batch_size']) : 1000,
             'action_scheduler_batches' => isset($_POST['action_scheduler_batches']) ? absint($_POST['action_scheduler_batches']) : 1,
             'otto_rate_limit' => isset($_POST['otto_rate_limit']) ? absint($_POST['otto_rate_limit']) : 10,
+            'otto_cache_ttl' => isset($existing_settings['otto_cache_ttl']) ? absint($existing_settings['otto_cache_ttl']) : 30,
             'queue_cleanup_days' => isset($_POST['queue_cleanup_days']) ? absint($_POST['queue_cleanup_days']) : 31
         );
 
@@ -2982,7 +3001,6 @@ class Metasync_Settings_Registration
         }
 
         if (!$can_change_memory) {
-            $existing_settings = get_option('metasync_execution_settings', array());
             $settings['max_memory_limit'] = isset($existing_settings['max_memory_limit'])
                 ? $existing_settings['max_memory_limit']
                 : 256;

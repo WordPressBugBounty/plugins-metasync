@@ -19,6 +19,26 @@ if (!defined('ABSPATH')) {
 class Metasync_Sync_Requests
 {
     /**
+     * Safe wrapper around wp_remote_retrieve_response_code() for
+     * SyncCustomerParams() return values.
+     *
+     * SyncCustomerParams() returns a plain stdClass object when the request
+     * is throttled. Passing that object into wp_remote_retrieve_response_code()
+     * is a fatal on PHP 8 ("Cannot use object of type stdClass as array"),
+     * which kills AJAX/REST requests mid-flight with an empty response.
+     *
+     * @param array|WP_Error|object|false $response SyncCustomerParams() return value.
+     * @return int|string HTTP status code, or '' when not an HTTP response.
+     */
+    public static function get_response_code($response)
+    {
+        if (is_array($response) || is_wp_error($response)) {
+            return wp_remote_retrieve_response_code($response);
+        }
+        return '';
+    }
+
+    /**
      * Data or Response received from HeartBeat API for admin area.
      */
     public function SyncCustomerParams($token = null)
@@ -49,8 +69,10 @@ class Metasync_Sync_Requests
             return false;
         }
 
-        # last hb request
-        $last_hb_request_time = $metasync_options['general']['last_heart_beat'] ?? 0;
+        # last hb request — read from dedicated throttle option so we are not
+        # consulting a stale copy of the main options blob.
+        $_throttle = Metasync::get_heartbeat_throttle();
+        $last_hb_request_time = $_throttle['last_heart_beat'] ?? 0;
 
         # PR3: Throttle depends on state — burst (KEY_PENDING within 30 min) allows 30s; else 5 min
         $is_heartbeat = filter_var($_POST['is_heart_beat'] ?? false, FILTER_VALIDATE_BOOLEAN);
@@ -73,7 +95,7 @@ class Metasync_Sync_Requests
                     'throttled' => true
                 ];
             }
-            $metasync_options['general']['last_heart_beat'] = time();
+            Metasync::set_heartbeat_throttle(['last_heart_beat' => time()]);
         } else {
             # Manual "Sync Now" path: track throttle via a dedicated option key so
             # heartbeat ticks (which update last_heart_beat every ~15s) cannot keep
@@ -248,6 +270,10 @@ class Metasync_Sync_Requests
             $this->saveHeartBeatError('heartbeat', $response_code . ': Unknown error occurred', array(1), 0);
             return; //new WP_Error( $response_code, 'Unknown error occurred' );
         } else {
+            # Track only the fields this sync owns so we can re-read the
+            # current blob and merge just our updates — preserving any
+            # concurrent settings writes that happened during the HTTP window.
+            $_sync_updates = [];
 
             # PR2: Parse heartbeat response for UUID self-healing and clone detection
             $response_body = json_decode(wp_remote_retrieve_body($response), true);
@@ -256,24 +282,35 @@ class Metasync_Sync_Requests
                 $response_uuid = sanitize_text_field($response_body['otto_pixel_uuid']);
                 if (!empty($response_body['uuid_mismatch'])) {
                     # Domain clone: backend says local UUID is wrong for this domain
-                    $metasync_options['general']['otto_pixel_uuid'] = $response_uuid;
+                    $_sync_updates['otto_pixel_uuid'] = $response_uuid;
                     error_log('MetaSync: UUID corrected from ' . $current_uuid . ' to ' . $response_uuid . ' (domain clone detected)');
                 } elseif (empty($current_uuid)) {
                     # Self-heal: SSO callback failed but API key was saved; recover UUID from heartbeat
-                    $metasync_options['general']['otto_pixel_uuid'] = $response_uuid;
+                    $_sync_updates['otto_pixel_uuid'] = $response_uuid;
                     error_log('MetaSync: UUID set from heartbeat response (self-heal after SSO callback missed)');
                 }
             }
 
             # PR3: Server confirmation → transition to CONNECTED (backend sends registered: true; accept both for compatibility)
             if (is_array($response_body) && (!empty($response_body['registered']) || !empty($response_body['heartbeat_confirmed']))) {
-                $metasync_options['general']['heartbeat_state'] = 'CONNECTED';
-                $metasync_options['general']['heartbeat_state_changed_at'] = time();
+                $_sync_updates['heartbeat_state'] = 'CONNECTED';
+                $_sync_updates['heartbeat_state_changed_at'] = time();
             }
 
-            # Granular otto_config_status: record last successful heartbeat (ISO 8601 UTC)
-            $metasync_options['general']['last_heartbeat_at'] = gmdate('Y-m-d\TH:i:s\Z');
-            Metasync::set_option($metasync_options);
+            # Granular otto_config_status: record last successful heartbeat (ISO 8601 UTC).
+            # Throttle timestamp lives in a dedicated option key, written atomically
+            # so it never round-trips the main options blob.
+            Metasync::set_heartbeat_throttle(['last_heartbeat_at' => gmdate('Y-m-d\TH:i:s\Z')]);
+
+            # Re-read the latest options blob immediately before the final write so
+            # any concurrent settings writes during the wp_remote_post window are
+            # preserved; only the fields owned by the sync are overlaid.
+            $_fresh = Metasync::get_option();
+            if (!isset($_fresh['general'])) {
+                $_fresh['general'] = [];
+            }
+            $_fresh['general'] = array_merge($_fresh['general'], $_sync_updates);
+            Metasync::set_option($_fresh);
 
             return $response;
         }

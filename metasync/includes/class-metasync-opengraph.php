@@ -78,6 +78,55 @@ class Metasync_OpenGraph {
 
         # Register cross-plugin dedup filters (Yoast / Rank Math) when their plugins are active
         $this->register_dedup_filters();
+
+        # Shared predicate so the legacy emitter (Metasync_Seo_Output::hook_metasync_metatags)
+        # can suppress its own OG/Twitter blocks whenever this class will emit for the post
+        add_filter('metasync_opengraph_will_emit', [$this, 'will_emit']);
+    }
+
+    /**
+     * Shared predicate: returns true when output_opengraph_tags() will emit
+     * the consolidated OG/Twitter block for the current request.
+     *
+     * Mirrors the early-return guards in output_opengraph_tags() so this
+     * canonical emitter and the legacy emitter stay mutually exclusive —
+     * exactly one fires per page, and neither stays silent on a
+     * MetaSync-only site (WP-411).
+     *
+     * @param bool $default Filter default (ignored; the real answer is computed).
+     * @return bool
+     */
+    public function will_emit($default = false) {
+        if (!is_singular($this->get_supported_post_types())) {
+            return false;
+        }
+
+        global $post;
+        if (!$post instanceof WP_Post) {
+            return false;
+        }
+
+        # Only an explicit '0' opt-out disables output; unset/empty counts as enabled
+        $og_enabled = get_post_meta($post->ID, '_metasync_og_enabled', true);
+        if ($og_enabled === '0') {
+            return false;
+        }
+
+        # OTTO active with persisted OG data owns the page (legacy emitter suppresses too)
+        if (class_exists('Metasync_Otto_Config') && Metasync_Otto_Config::is_otto_enabled()) {
+            $otto_og_title = get_post_meta($post->ID, '_metasync_otto_og_title', true);
+            $otto_og_desc  = get_post_meta($post->ID, '_metasync_otto_og_description', true);
+            if (!empty($otto_og_title) || !empty($otto_og_desc)) {
+                return false;
+            }
+        }
+
+        # Third-party SEO plugin active: yield entirely, legacy emitter keeps its original behavior
+        if (apply_filters('metasync_opengraph_check_conflicts', true) && $this->has_seo_plugin_conflicts()) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -386,9 +435,12 @@ class Metasync_OpenGraph {
             return;
         }
 
-        # Check if Open Graph is enabled for this post
+        # Check if Open Graph is enabled for this post.
+        # Only an explicit '0' opt-out suppresses output; unset/empty counts as enabled
+        # so a MetaSync-only site gets one consolidated set whether or not the meta
+        # box was ever saved (WP-411). Must stay in sync with will_emit().
         $og_enabled = get_post_meta($post->ID, '_metasync_og_enabled', true);
-        if (empty($og_enabled) || $og_enabled !== '1') {
+        if ($og_enabled === '0') {
             return;
         }
 
@@ -423,6 +475,15 @@ class Metasync_OpenGraph {
         # Get Twitter Card data — check persisted key first, fall back to OTTO staging key
         $twitter_card = get_post_meta($post->ID, '_metasync_twitter_card', true) ?: 'summary_large_image';
         $twitter_site = get_post_meta($post->ID, '_metasync_twitter_site', true);
+
+        # Fall back to the site-wide Twitter username (Social Meta settings) so the
+        # twitter:site / twitter:creator tags the legacy emitter produced are not lost
+        # now that this emitter is the single canonical OG/Twitter source (WP-411)
+        $twitter_username = Metasync::get_option('social_meta')['twitter_username'] ?? '';
+        if (empty($twitter_site) && !empty($twitter_username)) {
+            $twitter_site = '@' . $twitter_username;
+        }
+        $twitter_creator = !empty($twitter_username) ? '@' . $twitter_username : '';
         $twitter_title = get_post_meta($post->ID, '_metasync_twitter_title', true)
             ?: get_post_meta($post->ID, '_metasync_otto_twitter_title', true)
             ?: $og_title;
@@ -470,6 +531,7 @@ class Metasync_OpenGraph {
 
         # Output Open Graph tags
         echo "\n<!-- MetaSync Open Graph Tags -->\n";
+        echo '<meta property="og:locale" content="' . esc_attr(get_locale()) . '">' . "\n";
         if ($og_title) {
             echo '<meta property="og:title" content="' . esc_attr($og_title) . '">' . "\n";
         }
@@ -500,6 +562,13 @@ class Metasync_OpenGraph {
         if ($og_type) {
             echo '<meta property="og:type" content="' . esc_attr($og_type) . '">' . "\n";
         }
+        $site_name = get_bloginfo('name');
+        if ($site_name) {
+            echo '<meta property="og:site_name" content="' . esc_attr($site_name) . '">' . "\n";
+        }
+        if (!empty($post->post_modified)) {
+            echo '<meta property="og:updated_time" content="' . esc_attr($post->post_modified) . '">' . "\n";
+        }
 
         # Output Twitter Card tags
         echo "<!-- MetaSync Twitter Card Tags -->\n";
@@ -508,6 +577,9 @@ class Metasync_OpenGraph {
         }
         if ($twitter_site) {
             echo '<meta name="twitter:site" content="' . esc_attr($twitter_site) . '">' . "\n";
+        }
+        if ($twitter_creator) {
+            echo '<meta name="twitter:creator" content="' . esc_attr($twitter_creator) . '">' . "\n";
         }
         if ($twitter_title) {
             echo '<meta name="twitter:title" content="' . esc_attr($twitter_title) . '">' . "\n";

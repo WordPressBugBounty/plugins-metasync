@@ -130,7 +130,9 @@ class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
                 'permalink_structure',
                 'hide_dashboard_framework',
                 'show_admin_bar_status',
-                'enable_auto_updates'
+                'enable_auto_updates',
+                'enable_schema_markup',
+                'default_schema_type'
             ],
             'whitelabel' => [
                 'white_label_plugin_name',
@@ -169,7 +171,8 @@ class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
                 'disable_redirection_metabox',
                 'disable_canonical_metabox',
                 'disable_social_opengraph_metabox',
-                'disable_schema_markup_metabox'
+                'disable_schema_markup_metabox',
+                'disable_seo_metabox'
             ],
             'features' => [
                 'enabled_elementor_plugin_css',
@@ -231,15 +234,18 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
 
         $merge = isset($params['merge']) ? (bool)$params['merge'] : true;
 
+        // Resolve any aliased or misnamed keys to their canonical nested paths
+        $settings = $this->resolve_setting_aliases($params['settings']);
+
         // Get current options
         $current_options = get_option(Metasync::option_name, []);
 
         if ($merge) {
-            // Merge with existing settings
-            $new_options = array_merge($current_options, $params['settings']);
+            // Deep merge to preserve nested sub-arrays (e.g. general, seo_controls)
+            $new_options = $this->array_merge_deep($current_options, $settings);
         } else {
             // Replace all settings
-            $new_options = $params['settings'];
+            $new_options = $settings;
         }
 
         // Sanitize sensitive fields
@@ -261,6 +267,51 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
             'merge_mode' => $merge,
             'total_settings' => count($new_options)
         ]);
+    }
+
+    /**
+     * Resolve aliased or flat keys to their canonical nested location.
+     *
+     * When an MCP consumer sends a flat key like "enable_schema_markup", this
+     * method routes it into the correct nested sub-array ("general") so it
+     * updates the same option the admin UI uses.
+     */
+    private function resolve_setting_aliases($settings) {
+        // Map of flat keys → [section, canonical_key]
+        $nested_key_map = [
+            'enable_schema_markup' => ['general', 'enable_schema_markup'],
+            'enable_schema'        => ['general', 'enable_schema_markup'],
+            'default_schema_type'  => ['general', 'default_schema_type'],
+        ];
+
+        $resolved = [];
+        foreach ($settings as $key => $value) {
+            if (isset($nested_key_map[$key])) {
+                list($section, $canonical) = $nested_key_map[$key];
+                if (!isset($resolved[$section])) {
+                    $resolved[$section] = [];
+                }
+                $resolved[$section][$canonical] = $value;
+            } else {
+                $resolved[$key] = $value;
+            }
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * Recursively merge two arrays, preserving nested sub-arrays.
+     */
+    private function array_merge_deep($base, $override) {
+        foreach ($override as $key => $value) {
+            if (is_array($value) && isset($base[$key]) && is_array($base[$key])) {
+                $base[$key] = $this->array_merge_deep($base[$key], $value);
+            } else {
+                $base[$key] = $value;
+            }
+        }
+        return $base;
     }
 
     /**
@@ -301,6 +352,10 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
             $key = sanitize_key($key);
             if (is_array($value)) {
                 $sanitized[$key] = $this->sanitize_array($value);
+            } elseif (is_bool($value)) {
+                $sanitized[$key] = $value;
+            } elseif (is_numeric($value)) {
+                $sanitized[$key] = $value;
             } else {
                 $sanitized[$key] = sanitize_text_field($value);
             }
@@ -385,6 +440,14 @@ class MCP_Tool_List_Plugin_Settings_Schema extends MCP_Tool_Base {
                     'enable_auto_updates' => [
                         'type' => 'boolean',
                         'description' => 'Enable automatic plugin updates'
+                    ],
+                    'enable_schema_markup' => [
+                        'type' => 'boolean',
+                        'description' => 'Enable automatic schema markup generation. Canonical key — do NOT use "enable_schema".'
+                    ],
+                    'default_schema_type' => [
+                        'type' => 'string',
+                        'description' => 'Default schema type for new posts (e.g., "article", "WebSite")'
                     ]
                 ]
             ],
@@ -501,6 +564,10 @@ class MCP_Tool_List_Plugin_Settings_Schema extends MCP_Tool_Base {
                     'disable_schema_markup_metabox' => [
                         'type' => 'boolean',
                         'description' => 'Disable schema markup meta box in post editor'
+                    ],
+                    'disable_seo_metabox' => [
+                        'type' => 'boolean',
+                        'description' => 'Disable SEO Title & Meta Description meta box in Classic editor'
                     ]
                 ]
             ],

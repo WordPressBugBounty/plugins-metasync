@@ -109,14 +109,29 @@ function init_metasync_telemetry() {
             return;
         }
 
-        Metasync_Telemetry_Manager::get_instance();
+        // Defensive load: this class is normally provided by the Composer
+        // autoloader, but on some installs that can miss it at runtime (stale
+        // OPcache after an update, or an autoloader collision with another
+        // plugin). Load it explicitly so telemetry never fatals the page.
+        if (!class_exists('Metasync_Telemetry_Manager')) {
+            $manager_file = plugin_dir_path(__FILE__) . 'class-telemetry-manager.php';
+            if (is_readable($manager_file)) {
+                require_once $manager_file;
+            }
+        }
+
+        if (class_exists('Metasync_Telemetry_Manager')) {
+            Metasync_Telemetry_Manager::get_instance();
+        }
 
         // API request monitoring removed - creates excessive overhead
         // Class kept for backward compatibility but not instantiated
         // Already handled by log-sync.php
-        
-    } catch (Exception $e) {
-        // Fail silently to prevent site crashes
+
+    } catch (\Throwable $e) {
+        // Fail silently to prevent site crashes. Catch \Throwable (not just
+        // Exception) so PHP 7+ Errors — e.g. a "class not found" from a missed
+        // autoload — are swallowed here instead of fataling the request.
         // error_log('MetaSync Telemetry: Initialization failed: ' . $e->getMessage());
     }
 }
@@ -130,9 +145,20 @@ if (!defined('METASYNC_DISABLE_TELEMETRY') || !constant('METASYNC_DISABLE_TELEME
 /**
  * Helper function to get telemetry manager instance
  * 
- * @return Metasync_Telemetry_Manager
+ * @return Metasync_Telemetry_Manager|null Null when the class cannot be loaded.
  */
 function metasync_telemetry() {
+    if (!class_exists('Metasync_Telemetry_Manager')) {
+        $manager_file = plugin_dir_path(__FILE__) . 'class-telemetry-manager.php';
+        if (is_readable($manager_file)) {
+            require_once $manager_file;
+        }
+    }
+
+    if (!class_exists('Metasync_Telemetry_Manager')) {
+        return null;
+    }
+
     return Metasync_Telemetry_Manager::get_instance();
 }
 

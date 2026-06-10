@@ -1708,6 +1708,10 @@ class Metasync_Schema_Markup
     {
         $all_json_ld = [];
 
+        // Holds the DB-persisted OTTO JSON-LD string when OTTO is off (output as its
+        // own tag below). Stays null while OTTO is live to avoid the WP-168 duplicate.
+        $otto_persisted_jsonld = null;
+
         // ---- Global schema: WebSite on front page, Organization on all pages ----
         $metasync_options = get_option('metasync_options', []);
         $schema_settings = isset($metasync_options['schema']) ? $metasync_options['schema'] : [];
@@ -1832,12 +1836,24 @@ class Metasync_Schema_Markup
                     }
                 }
 
-                // OTTO-persisted JSON-LD is intentionally NOT merged here.
-                // OTTO schema is delivered live via `header_html_insertion` and injected by
-                // Otto_html_class with a `data-otto="true"` marker. Merging the DB-persisted
-                // copy into this @graph produced duplicate JSON-LD on every page (WP-168)
-                // and also exposed a Unicode-corruption bug from the update_post_meta round-trip.
-                // API-delivered wins — same pattern used for <title>/og:*/twitter:* tags.
+                // OTTO-persisted JSON-LD: skip only while OTTO is live — avoid WP-168
+                // duplicate; the persisted copy is output below when OTTO is off.
+                //
+                // While OTTO is enabled, schema is delivered live via `header_html_insertion`
+                // and injected by Otto_html_class with a `data-otto="true"` marker, so merging
+                // the DB-persisted copy into this @graph would produce duplicate JSON-LD on
+                // every page (WP-168). When OTTO is OFF there is no live injection and therefore
+                // no duplicate risk, yet the schema is still saved in the DB — so we surface the
+                // persisted copy as its own standalone tag after the @graph block (WP-388).
+                if (
+                    isset($schema_data['otto_jsonld']['data'])
+                    && is_string($schema_data['otto_jsonld']['data'])
+                    && $schema_data['otto_jsonld']['data'] !== ''
+                    && (!class_exists('Metasync_Otto_Config') || !Metasync_Otto_Config::is_otto_enabled())
+                    && !$this->active_seo_plugin_emits_schema()
+                ) {
+                    $otto_persisted_jsonld = $schema_data['otto_jsonld']['data'];
+                }
             }
         }
 
@@ -1852,6 +1868,48 @@ class Metasync_Schema_Markup
             echo wp_json_encode($final_json_ld, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
             echo "\n" . '</script>' . "\n";
         }
+
+        // OTTO is off: output the DB-persisted OTTO JSON-LD as its own standalone tag.
+        // Echoed without a json_decode/encode round-trip to match how OTTO injects it live
+        // and to avoid the Unicode-corruption noted in WP-168. The only transform applied is
+        // escaping `</` to `<\/` so a literal `</script>` inside a string value cannot break
+        // out of the tag (page corruption / XSS). `\/` is a valid JSON escape for `/`, so the
+        // consumer reads identical content and the persisted bytes are otherwise preserved.
+        // The data field is a full JSON-LD document or node, so it is emitted as a separate
+        // script rather than merged into the @graph above. Stays null while OTTO is live.
+        //
+        // NOTE (per-page scope): the OTTO gate above uses Metasync_Otto_Config::is_otto_enabled(),
+        // which is global (UUID configured) rather than per-request. On a site where OTTO is
+        // enabled globally but did not inject on this specific page (e.g. excluded/uncrawled URL),
+        // the persisted copy is intentionally still skipped — OTTO owns schema delivery while it
+        // is enabled, and emitting here cannot reliably know whether OTTO injected this request
+        // without risking the WP-168 duplicate. Tracked as a known limitation.
+        if (!empty($otto_persisted_jsonld)) {
+            echo '<script type="application/ld+json" class="metasync-schema metasync-otto-schema">' . "\n";
+            // Escape `</` -> `<\/` to prevent `</script>` breakout; valid JSON, content unchanged.
+            echo str_replace('</', '<\/', $otto_persisted_jsonld); // phpcs:ignore WordPress.Security.EscapeOutput -- persisted JSON-LD string, only `</` escaped for safe embedding
+            echo "\n" . '</script>' . "\n";
+        }
+    }
+
+    /**
+     * WP-388 (AC#3): Whether an active third-party SEO plugin will already emit the schema.
+     *
+     * When OTTO syncs, it cross-writes the structured data into the active SEO plugin
+     * (Yoast / Rank Math / AIOSEO), which then renders it from its own storage. If such a
+     * plugin is active, also emitting our persisted copy would duplicate the JSON-LD — so the
+     * caller suppresses the standalone OTTO tag and lets the SEO plugin own the output.
+     *
+     * Returns false when the conflict handler is unavailable (no third-party integration in
+     * play), preserving the OTTO-off / no-SEO-plugin path that this feature exists for.
+     *
+     * @return bool
+     */
+    protected function active_seo_plugin_emits_schema() {
+        if (!class_exists('Metasync_Seo_Conflict_Handler')) {
+            return false;
+        }
+        return Metasync_Seo_Conflict_Handler::get_instance()->has_active_seo_plugin();
     }
 
     /**

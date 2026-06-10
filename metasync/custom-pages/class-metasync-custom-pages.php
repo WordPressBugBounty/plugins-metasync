@@ -49,6 +49,23 @@ class Metasync_Custom_Pages
     const META_CREATED_VIA_API = '_metasync_created_via_api';
 
     /**
+     * Meta key to mark a page as an LPS (Landing Page Studio) ZIP import.
+     * This is the unique marker the importer checks before overwriting: only
+     * pages carrying this flag may be replaced by a re-import. Manual custom
+     * HTML pages and other API-created pages never carry it, so they are never
+     * touched by the LPS importer.
+     */
+    const META_LPS_IMPORT = '_metasync_lps_import';
+
+    /**
+     * Meta key storing the on-disk assets folder name a page's bundle was
+     * extracted to (under wp-content/uploads/metasync-pages/). Lets delete and
+     * future multi-page cleanup target the correct folder even when it differs
+     * from the page slug.
+     */
+    const META_ASSETS_FOLDER = '_metasync_lps_assets_folder';
+
+    /**
      * Initialize the custom pages functionality
      */
     public function __construct()

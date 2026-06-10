@@ -1735,13 +1735,15 @@ class Metasync_External_Importer
         $sep = '-';
         if (defined('WPSEO_VERSION') && class_exists('WPSEO_Options')) {
             try {
-                $raw = WPSEO_Options::get('separator', '-');
+                $raw = WPSEO_Options::get('separator', 'sc-dash');
                 // Yoast stores separator keys like 'sc-dash'; convert to glyph
-                $sep = html_entity_decode(
-                    WPSEO_Option_Titles::get_instance()->get_title_separator(),
-                    ENT_QUOTES,
-                    'UTF-8'
-                );
+                // via the public get_separator_options() lookup table.
+                if (class_exists('WPSEO_Option_Titles')) {
+                    $options = WPSEO_Option_Titles::get_instance()->get_separator_options();
+                    if (isset($options[$raw])) {
+                        $sep = html_entity_decode($options[$raw], ENT_QUOTES, 'UTF-8');
+                    }
+                }
             } catch (Exception $e) {
                 $sep = '-';
             }
@@ -1860,6 +1862,8 @@ class Metasync_External_Importer
         $offset = intval($options['offset']);
         $import_titles = (bool) $options['import_titles'];
         $import_descriptions = (bool) $options['import_descriptions'];
+        $import_social_text = !empty($options['import_social_text']);
+        $import_social_images = !empty($options['import_social_images']);
         $overwrite = (bool) $options['overwrite_existing'];
 
         // Build WHERE clause for meta keys
@@ -1870,8 +1874,18 @@ class Metasync_External_Importer
         if ($import_descriptions) {
             $meta_keys[] = '_yoast_wpseo_metadesc';
         }
+        if ($import_social_text) {
+            $meta_keys[] = '_yoast_wpseo_opengraph-title';
+            $meta_keys[] = '_yoast_wpseo_opengraph-description';
+            $meta_keys[] = '_yoast_wpseo_twitter-title';
+            $meta_keys[] = '_yoast_wpseo_twitter-description';
+        }
+        if ($import_social_images) {
+            $meta_keys[] = '_yoast_wpseo_opengraph-image';
+            $meta_keys[] = '_yoast_wpseo_twitter-image';
+        }
 
-        if (empty($meta_keys)) {
+        if (!$import_titles && !$import_descriptions && !$import_social_text && !$import_social_images) {
             return [
                 'success' => false,
                 'message' => 'No import options selected.'
@@ -1934,6 +1948,70 @@ class Metasync_External_Importer
                 }
             }
 
+            // Import social text
+            if ($import_social_text) {
+                $yoast_og_title = get_post_meta($post_id, '_yoast_wpseo_opengraph-title', true);
+                if (!empty($yoast_og_title)) {
+                    $existing = get_post_meta($post_id, '_metasync_og_title', true);
+                    if (empty($existing) || $overwrite) {
+                        $yoast_og_title = $this->resolve_seo_placeholders($yoast_og_title, $post_id, 'yoast');
+                        update_post_meta($post_id, '_metasync_og_title', sanitize_text_field($yoast_og_title));
+                        $updated = true;
+                    }
+                }
+
+                $yoast_og_desc = get_post_meta($post_id, '_yoast_wpseo_opengraph-description', true);
+                if (!empty($yoast_og_desc)) {
+                    $existing = get_post_meta($post_id, '_metasync_og_description', true);
+                    if (empty($existing) || $overwrite) {
+                        $yoast_og_desc = $this->resolve_seo_placeholders($yoast_og_desc, $post_id, 'yoast');
+                        update_post_meta($post_id, '_metasync_og_description', sanitize_textarea_field($yoast_og_desc));
+                        $updated = true;
+                    }
+                }
+
+                $yoast_tw_title = get_post_meta($post_id, '_yoast_wpseo_twitter-title', true);
+                if (!empty($yoast_tw_title)) {
+                    $existing = get_post_meta($post_id, '_metasync_twitter_title', true);
+                    if (empty($existing) || $overwrite) {
+                        $yoast_tw_title = $this->resolve_seo_placeholders($yoast_tw_title, $post_id, 'yoast');
+                        update_post_meta($post_id, '_metasync_twitter_title', sanitize_text_field($yoast_tw_title));
+                        $updated = true;
+                    }
+                }
+
+                $yoast_tw_desc = get_post_meta($post_id, '_yoast_wpseo_twitter-description', true);
+                if (!empty($yoast_tw_desc)) {
+                    $existing = get_post_meta($post_id, '_metasync_twitter_description', true);
+                    if (empty($existing) || $overwrite) {
+                        $yoast_tw_desc = $this->resolve_seo_placeholders($yoast_tw_desc, $post_id, 'yoast');
+                        update_post_meta($post_id, '_metasync_twitter_description', sanitize_textarea_field($yoast_tw_desc));
+                        $updated = true;
+                    }
+                }
+            }
+
+            // Import social images
+            if ($import_social_images) {
+                $yoast_og_image = get_post_meta($post_id, '_yoast_wpseo_opengraph-image', true);
+                if (!empty($yoast_og_image)) {
+                    $existing_og = get_post_meta($post_id, '_metasync_og_image', true);
+                    if (empty($existing_og) || $overwrite) {
+                        update_post_meta($post_id, '_metasync_og_image', esc_url_raw($yoast_og_image));
+                        $updated = true;
+                    }
+                }
+
+                $yoast_twitter_image = get_post_meta($post_id, '_yoast_wpseo_twitter-image', true);
+                if (!empty($yoast_twitter_image)) {
+                    $existing_twitter = get_post_meta($post_id, '_metasync_twitter_image', true);
+                    if (empty($existing_twitter) || $overwrite) {
+                        update_post_meta($post_id, '_metasync_twitter_image', esc_url_raw($yoast_twitter_image));
+                        $updated = true;
+                    }
+                }
+            }
+
             if ($updated) {
                 $imported_count++;
             } else {
@@ -1969,6 +2047,8 @@ class Metasync_External_Importer
         $offset = intval($options['offset']);
         $import_titles = (bool) $options['import_titles'];
         $import_descriptions = (bool) $options['import_descriptions'];
+        $import_social_text = !empty($options['import_social_text']);
+        $import_social_images = !empty($options['import_social_images']);
         $overwrite = (bool) $options['overwrite_existing'];
 
         // Build WHERE clause for meta keys
@@ -1979,8 +2059,18 @@ class Metasync_External_Importer
         if ($import_descriptions) {
             $meta_keys[] = 'rank_math_description';
         }
+        if ($import_social_text) {
+            $meta_keys[] = 'rank_math_facebook_title';
+            $meta_keys[] = 'rank_math_facebook_description';
+            $meta_keys[] = 'rank_math_twitter_title';
+            $meta_keys[] = 'rank_math_twitter_description';
+        }
+        if ($import_social_images) {
+            $meta_keys[] = 'rank_math_facebook_image';
+            $meta_keys[] = 'rank_math_twitter_image';
+        }
 
-        if (empty($meta_keys)) {
+        if (!$import_titles && !$import_descriptions && !$import_social_text && !$import_social_images) {
             return [
                 'success' => false,
                 'message' => 'No import options selected.'
@@ -2043,6 +2133,70 @@ class Metasync_External_Importer
                 }
             }
 
+            // Import social text
+            if ($import_social_text) {
+                $rm_og_title = get_post_meta($post_id, 'rank_math_facebook_title', true);
+                if (!empty($rm_og_title)) {
+                    $existing = get_post_meta($post_id, '_metasync_og_title', true);
+                    if (empty($existing) || $overwrite) {
+                        $rm_og_title = $this->resolve_seo_placeholders($rm_og_title, $post_id, 'rankmath');
+                        update_post_meta($post_id, '_metasync_og_title', sanitize_text_field($rm_og_title));
+                        $updated = true;
+                    }
+                }
+
+                $rm_og_desc = get_post_meta($post_id, 'rank_math_facebook_description', true);
+                if (!empty($rm_og_desc)) {
+                    $existing = get_post_meta($post_id, '_metasync_og_description', true);
+                    if (empty($existing) || $overwrite) {
+                        $rm_og_desc = $this->resolve_seo_placeholders($rm_og_desc, $post_id, 'rankmath');
+                        update_post_meta($post_id, '_metasync_og_description', sanitize_textarea_field($rm_og_desc));
+                        $updated = true;
+                    }
+                }
+
+                $rm_tw_title = get_post_meta($post_id, 'rank_math_twitter_title', true);
+                if (!empty($rm_tw_title)) {
+                    $existing = get_post_meta($post_id, '_metasync_twitter_title', true);
+                    if (empty($existing) || $overwrite) {
+                        $rm_tw_title = $this->resolve_seo_placeholders($rm_tw_title, $post_id, 'rankmath');
+                        update_post_meta($post_id, '_metasync_twitter_title', sanitize_text_field($rm_tw_title));
+                        $updated = true;
+                    }
+                }
+
+                $rm_tw_desc = get_post_meta($post_id, 'rank_math_twitter_description', true);
+                if (!empty($rm_tw_desc)) {
+                    $existing = get_post_meta($post_id, '_metasync_twitter_description', true);
+                    if (empty($existing) || $overwrite) {
+                        $rm_tw_desc = $this->resolve_seo_placeholders($rm_tw_desc, $post_id, 'rankmath');
+                        update_post_meta($post_id, '_metasync_twitter_description', sanitize_textarea_field($rm_tw_desc));
+                        $updated = true;
+                    }
+                }
+            }
+
+            // Import social images
+            if ($import_social_images) {
+                $rm_og_image = get_post_meta($post_id, 'rank_math_facebook_image', true);
+                if (!empty($rm_og_image)) {
+                    $existing_og = get_post_meta($post_id, '_metasync_og_image', true);
+                    if (empty($existing_og) || $overwrite) {
+                        update_post_meta($post_id, '_metasync_og_image', esc_url_raw($rm_og_image));
+                        $updated = true;
+                    }
+                }
+
+                $rm_twitter_image = get_post_meta($post_id, 'rank_math_twitter_image', true);
+                if (!empty($rm_twitter_image)) {
+                    $existing_twitter = get_post_meta($post_id, '_metasync_twitter_image', true);
+                    if (empty($existing_twitter) || $overwrite) {
+                        update_post_meta($post_id, '_metasync_twitter_image', esc_url_raw($rm_twitter_image));
+                        $updated = true;
+                    }
+                }
+            }
+
             if ($updated) {
                 $imported_count++;
             } else {
@@ -2078,6 +2232,8 @@ class Metasync_External_Importer
         $offset = intval($options['offset']);
         $import_titles = (bool) $options['import_titles'];
         $import_descriptions = (bool) $options['import_descriptions'];
+        $import_social_text = !empty($options['import_social_text']);
+        $import_social_images = !empty($options['import_social_images']);
         $overwrite = (bool) $options['overwrite_existing'];
 
         // Check if AIOSEO table exists
@@ -2089,7 +2245,7 @@ class Metasync_External_Importer
             ];
         }
 
-        if (!$import_titles && !$import_descriptions) {
+        if (!$import_titles && !$import_descriptions && !$import_social_text && !$import_social_images) {
             return [
                 'success' => false,
                 'message' => 'No import options selected.'
@@ -2104,7 +2260,37 @@ class Metasync_External_Importer
         if ($import_descriptions) {
             $where_conditions[] = '(description IS NOT NULL AND description != \'\')';
         }
+        if ($import_social_text) {
+            $where_conditions[] = '(og_title IS NOT NULL AND og_title != \'\')';
+            $where_conditions[] = '(og_description IS NOT NULL AND og_description != \'\')';
+            $where_conditions[] = '(twitter_title IS NOT NULL AND twitter_title != \'\')';
+            $where_conditions[] = '(twitter_description IS NOT NULL AND twitter_description != \'\')';
+        }
+        if ($import_social_images) {
+            $where_conditions[] = '(og_image_custom_url IS NOT NULL AND og_image_custom_url != \'\')';
+            $where_conditions[] = '(twitter_image_custom_url IS NOT NULL AND twitter_image_custom_url != \'\')';
+        }
         $where_clause = implode(' OR ', $where_conditions);
+
+        // Build SELECT columns
+        $select_columns = ['post_id'];
+        if ($import_titles) {
+            $select_columns[] = 'title';
+        }
+        if ($import_descriptions) {
+            $select_columns[] = 'description';
+        }
+        if ($import_social_text) {
+            $select_columns[] = 'og_title';
+            $select_columns[] = 'og_description';
+            $select_columns[] = 'twitter_title';
+            $select_columns[] = 'twitter_description';
+        }
+        if ($import_social_images) {
+            $select_columns[] = 'og_image_custom_url';
+            $select_columns[] = 'twitter_image_custom_url';
+        }
+        $select_clause = implode(', ', $select_columns);
 
         // Get total count
         $total_posts = (int) $wpdb->get_var("
@@ -2116,7 +2302,7 @@ class Metasync_External_Importer
 
         // Get batch of posts
         $posts = $wpdb->get_results($wpdb->prepare("
-            SELECT post_id, title, description
+            SELECT {$select_clause}
             FROM {$table}
             WHERE ({$where_clause})
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
@@ -2150,6 +2336,70 @@ class Metasync_External_Importer
                     $aioseo_desc = $this->resolve_seo_placeholders($aioseo_data->description, $post_id, 'aioseo');
                     update_post_meta($post_id, '_metasync_seo_desc', sanitize_textarea_field($aioseo_desc));
                     $updated = true;
+                }
+            }
+
+            // Import social text
+            if ($import_social_text) {
+                $aioseo_og_title = isset($aioseo_data->og_title) ? $aioseo_data->og_title : '';
+                if (!empty($aioseo_og_title)) {
+                    $existing = get_post_meta($post_id, '_metasync_og_title', true);
+                    if (empty($existing) || $overwrite) {
+                        $aioseo_og_title = $this->resolve_seo_placeholders($aioseo_og_title, $post_id, 'aioseo');
+                        update_post_meta($post_id, '_metasync_og_title', sanitize_text_field($aioseo_og_title));
+                        $updated = true;
+                    }
+                }
+
+                $aioseo_og_desc = isset($aioseo_data->og_description) ? $aioseo_data->og_description : '';
+                if (!empty($aioseo_og_desc)) {
+                    $existing = get_post_meta($post_id, '_metasync_og_description', true);
+                    if (empty($existing) || $overwrite) {
+                        $aioseo_og_desc = $this->resolve_seo_placeholders($aioseo_og_desc, $post_id, 'aioseo');
+                        update_post_meta($post_id, '_metasync_og_description', sanitize_textarea_field($aioseo_og_desc));
+                        $updated = true;
+                    }
+                }
+
+                $aioseo_tw_title = isset($aioseo_data->twitter_title) ? $aioseo_data->twitter_title : '';
+                if (!empty($aioseo_tw_title)) {
+                    $existing = get_post_meta($post_id, '_metasync_twitter_title', true);
+                    if (empty($existing) || $overwrite) {
+                        $aioseo_tw_title = $this->resolve_seo_placeholders($aioseo_tw_title, $post_id, 'aioseo');
+                        update_post_meta($post_id, '_metasync_twitter_title', sanitize_text_field($aioseo_tw_title));
+                        $updated = true;
+                    }
+                }
+
+                $aioseo_tw_desc = isset($aioseo_data->twitter_description) ? $aioseo_data->twitter_description : '';
+                if (!empty($aioseo_tw_desc)) {
+                    $existing = get_post_meta($post_id, '_metasync_twitter_description', true);
+                    if (empty($existing) || $overwrite) {
+                        $aioseo_tw_desc = $this->resolve_seo_placeholders($aioseo_tw_desc, $post_id, 'aioseo');
+                        update_post_meta($post_id, '_metasync_twitter_description', sanitize_textarea_field($aioseo_tw_desc));
+                        $updated = true;
+                    }
+                }
+            }
+
+            // Import social images
+            if ($import_social_images) {
+                $aioseo_og_image = isset($aioseo_data->og_image_custom_url) ? $aioseo_data->og_image_custom_url : '';
+                if (!empty($aioseo_og_image)) {
+                    $existing_og = get_post_meta($post_id, '_metasync_og_image', true);
+                    if (empty($existing_og) || $overwrite) {
+                        update_post_meta($post_id, '_metasync_og_image', esc_url_raw($aioseo_og_image));
+                        $updated = true;
+                    }
+                }
+
+                $aioseo_twitter_image = isset($aioseo_data->twitter_image_custom_url) ? $aioseo_data->twitter_image_custom_url : '';
+                if (!empty($aioseo_twitter_image)) {
+                    $existing_twitter = get_post_meta($post_id, '_metasync_twitter_image', true);
+                    if (empty($existing_twitter) || $overwrite) {
+                        update_post_meta($post_id, '_metasync_twitter_image', esc_url_raw($aioseo_twitter_image));
+                        $updated = true;
+                    }
                 }
             }
 

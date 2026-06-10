@@ -63,14 +63,21 @@ class Metasync_Redirections_Admin
 
     public function display_redirection_messages()
     {
-        if ($error = get_transient('metasync_redirection_error')) {
+        $uid = get_current_user_id();
+
+        if ($error = get_transient('metasync_redirection_error_' . $uid)) {
             echo '<div class="notice notice-error is-dismissible"><p>' . esc_html($error) . '</p></div>';
-            delete_transient('metasync_redirection_error');
+            delete_transient('metasync_redirection_error_' . $uid);
         }
 
-        if ($success = get_transient('metasync_redirection_success')) {
+        if ($success = get_transient('metasync_redirection_success_' . $uid)) {
             echo '<div class="notice notice-success is-dismissible"><p>' . esc_html($success) . '</p></div>';
-            delete_transient('metasync_redirection_success');
+            delete_transient('metasync_redirection_success_' . $uid);
+        }
+
+        if ($warning = get_transient('metasync_redirection_warning_' . $uid)) {
+            echo '<div class="notice notice-warning is-dismissible"><p>' . esc_html($warning) . '</p></div>';
+            delete_transient('metasync_redirection_warning_' . $uid);
         }
     }
 
@@ -95,6 +102,8 @@ class Metasync_Redirections_Admin
         if (!isset($_POST['submit'])) {
             return;
         }
+
+        $uid = get_current_user_id();
 
         $nonce_valid = false;
         
@@ -177,7 +186,7 @@ class Metasync_Redirections_Admin
 
         if (!empty($validation_errors)) {
             $error_message = implode(' ', $validation_errors);
-            set_transient('metasync_redirection_error', $error_message, 45);
+            set_transient('metasync_redirection_error_' . $uid, $error_message, 45);
             $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
         }
 
@@ -200,14 +209,14 @@ class Metasync_Redirections_Admin
 
         if ($pattern_type === 'regex') {
             if (empty($regex_pattern)) {
-                set_transient('metasync_redirection_error', 'Please enter a regex pattern when using "Regex Pattern" as the pattern type.', 45);
+                set_transient('metasync_redirection_error_' . $uid, 'Please enter a regex pattern when using "Regex Pattern" as the pattern type.', 45);
                 $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
                 return;
             }
 
             // Limit pattern length to prevent ReDoS via catastrophic backtracking
             if (strlen($regex_pattern) > 500) {
-                set_transient('metasync_redirection_error', 'Regex pattern is too long (max 500 characters).', 45);
+                set_transient('metasync_redirection_error_' . $uid, 'Regex pattern is too long (max 500 characters).', 45);
                 $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
                 return;
             }
@@ -215,7 +224,7 @@ class Metasync_Redirections_Admin
             // Reject patterns with nested quantifiers that could cause ReDoS
             $raw_check = preg_replace('/^\S(.*)\S[a-zA-Z]*$/', '$1', $regex_pattern);
             if (preg_match('/(\([^)]*[+*][^)]*\))[+*?{]|(\[[^\]]*\])[+*][+*?{]/', $raw_check)) {
-                set_transient('metasync_redirection_error', 'Regex pattern contains potentially unsafe nested quantifiers.', 45);
+                set_transient('metasync_redirection_error_' . $uid, 'Regex pattern contains potentially unsafe nested quantifiers.', 45);
                 $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
                 return;
             }
@@ -241,7 +250,7 @@ class Metasync_Redirections_Admin
             if ($is_valid === false) {
                 $error_message = error_get_last();
                 $error_text = isset($error_message['message']) ? $error_message['message'] : 'Unknown regex error';
-                set_transient('metasync_redirection_error', 'Invalid Regex Pattern: ' . $error_text . ' Please fix the regex pattern and try again.', 45);
+                set_transient('metasync_redirection_error_' . $uid, 'Invalid Regex Pattern: ' . $error_text . ' Please fix the regex pattern and try again.', 45);
                 $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
                 return;
             }
@@ -254,10 +263,16 @@ class Metasync_Redirections_Admin
             foreach (array_keys($sources_from) as $source_url) {
                 $loop_error = $redirection_helper->validate_no_loop($source_url, $destination_url);
                 if ($loop_error !== null) {
-                    set_transient('metasync_redirection_error', $loop_error, 45);
+                    set_transient('metasync_redirection_error_' . $uid, $loop_error, 45);
                     $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
                     return;
                 }
+            }
+
+            // Non-blocking destination reachability check — surface a warning, never block the save.
+            $dest_warning = $redirection_helper->destination_resolves_warning($destination_url, $redirect_type, $pattern_type);
+            if ($dest_warning !== null) {
+                set_transient('metasync_redirection_warning_' . $uid, $dest_warning, 45);
             }
         }
 
@@ -288,11 +303,11 @@ class Metasync_Redirections_Admin
             
         } catch (Exception $e) {
             error_log('MetaSync error: ' . $e->getMessage());
-            set_transient('metasync_redirection_error', 'An error occurred while saving the redirection. Please try again.', 45);
+            set_transient('metasync_redirection_error_' . $uid, 'An error occurred while saving the redirection. Please try again.', 45);
             $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
         }
 
-        set_transient('metasync_redirection_success', $message, 45);
+        set_transient('metasync_redirection_success_' . $uid, $message, 45);
 
         $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
     }

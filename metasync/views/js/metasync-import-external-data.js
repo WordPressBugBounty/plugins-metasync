@@ -66,11 +66,13 @@ jQuery(document).ready(function ($) {
 		var options = {
 			import_titles: $('#import-titles').is(':checked'),
 			import_descriptions: $('#import-descriptions').is(':checked'),
+			import_social_text: $('#import-social-text').is(':checked'),
+			import_social_images: $('#import-social-images').is(':checked'),
 			overwrite_existing: $('#overwrite-existing').is(':checked')
 		};
 
 		// Disable form elements
-		$('#modal-start-import, #modal-cancel, #import-titles, #import-descriptions, #overwrite-existing')
+		$('#modal-start-import, #modal-cancel, #import-titles, #import-descriptions, #import-social-text, #import-social-images, #overwrite-existing')
 			.prop('disabled', true);
 
 		// Show progress
@@ -128,6 +130,8 @@ jQuery(document).ready(function ($) {
 					plugin: importData.plugin,
 					import_titles: options.import_titles ? 1 : 0,
 					import_descriptions: options.import_descriptions ? 1 : 0,
+					import_social_text: options.import_social_text ? 1 : 0,
+					import_social_images: options.import_social_images ? 1 : 0,
 					overwrite_existing: options.overwrite_existing ? 1 : 0,
 					offset: offset
 				},
@@ -157,7 +161,7 @@ jQuery(document).ready(function ($) {
 							setTimeout(function () {
 								$('#metasync-seo-options-modal .metasync-modal-close').click();
 								// Re-enable button for future imports
-								$('#modal-start-import, #modal-cancel, #import-titles, #import-descriptions, #overwrite-existing')
+								$('#modal-start-import, #modal-cancel, #import-titles, #import-descriptions, #import-social-text, #import-social-images, #overwrite-existing')
 									.prop('disabled', false);
 							}, 2000);
 						} else {
@@ -171,7 +175,7 @@ jQuery(document).ready(function ($) {
 						var $importStatus = $('.metasync-progress-status').empty();
 						$importStatus.append($('<strong>').css('color', 'var(--dashboard-error)').text('\u2717 Import Failed'));
 						$importStatus[0].appendChild(document.createTextNode(' ' + importErrMsg));
-						$('#modal-start-import, #modal-cancel, #import-titles, #import-descriptions, #overwrite-existing')
+						$('#modal-start-import, #modal-cancel, #import-titles, #import-descriptions, #import-social-text, #import-social-images, #overwrite-existing')
 							.prop('disabled', false);
 					}
 				},
@@ -179,7 +183,7 @@ jQuery(document).ready(function ($) {
 					$('.metasync-progress-status').empty()
 						.append($('<strong>').css('color', 'var(--dashboard-error)').text('\u2717 Network Error'))
 						.append(document.createTextNode(' Please try again'));
-					$('#modal-start-import, #modal-cancel, #import-titles, #import-descriptions, #overwrite-existing')
+					$('#modal-start-import, #modal-cancel, #import-titles, #import-descriptions, #import-social-text, #import-social-images, #overwrite-existing')
 						.prop('disabled', false);
 				}
 			});

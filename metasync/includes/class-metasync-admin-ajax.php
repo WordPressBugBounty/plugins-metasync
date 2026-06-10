@@ -96,6 +96,8 @@ class Metasync_Admin_Ajax
         $plugin = isset($_POST['plugin']) ? sanitize_text_field($_POST['plugin']) : '';
         $import_titles = isset($_POST['import_titles']) ? (bool) intval($_POST['import_titles']) : true;
         $import_descriptions = isset($_POST['import_descriptions']) ? (bool) intval($_POST['import_descriptions']) : true;
+        $import_social_text = isset($_POST['import_social_text']) ? (bool) intval($_POST['import_social_text']) : true;
+        $import_social_images = isset($_POST['import_social_images']) ? (bool) intval($_POST['import_social_images']) : true;
         $overwrite_existing = isset($_POST['overwrite_existing']) ? (bool) intval($_POST['overwrite_existing']) : false;
         $offset = isset($_POST['offset']) ? intval($_POST['offset']) : 0;
 
@@ -109,6 +111,8 @@ class Metasync_Admin_Ajax
         $options = [
             'import_titles' => $import_titles,
             'import_descriptions' => $import_descriptions,
+            'import_social_text' => $import_social_text,
+            'import_social_images' => $import_social_images,
             'overwrite_existing' => $overwrite_existing,
             'batch_size' => 50,
             'offset' => $offset

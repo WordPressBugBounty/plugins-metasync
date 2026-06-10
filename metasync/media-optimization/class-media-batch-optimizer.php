@@ -18,8 +18,100 @@ class Metasync_Media_Batch_Optimizer {
     private const QUEUE_OPTION    = 'metasync_batch_optimize_queue';
     private const PROGRESS_OPTION = 'metasync_batch_optimize_progress';
     private const CRON_HOOK       = 'metasync_media_batch_optimize_cron';
-    private const BATCH_SIZE      = 10;
-    private const CRON_TIME_LIMIT = 30; // seconds per cron tick
+    private const DEFAULT_BATCH_SIZE    = 10;
+    private const MIN_BATCH_SIZE       = 2;
+    private const MAX_FILTER_BATCH_SIZE = 50;
+    private const CRON_TIME_LIMIT      = 30; // seconds per cron tick
+    private const TIME_SAFETY_MARGIN   = 5;  // seconds reserved for saving progress
+    private const QUERY_PAGE_SIZE      = 1000;
+
+    /**
+     * Memory per image estimate in bytes (30 MB).
+     * Used to calculate how many images can be processed safely.
+     */
+    private const MEMORY_PER_IMAGE = 30 * 1024 * 1024;
+
+    /**
+     * Calculate adaptive batch size based on available memory.
+     *
+     * Uses PHP memory_limit and current usage to determine a safe batch size.
+     * Filterable via 'metasync_batch_optimize_size' for manual override.
+     *
+     * @return int Batch size (clamped between MIN_BATCH_SIZE and DEFAULT_BATCH_SIZE).
+     */
+    public static function get_batch_size(): int {
+        $filtered = apply_filters('metasync_batch_optimize_size', 0);
+        if ($filtered > 0) {
+            return max(self::MIN_BATCH_SIZE, min(self::MAX_FILTER_BATCH_SIZE, (int) $filtered));
+        }
+
+        return static::calculate_batch_size(
+            (string) ini_get('memory_limit'),
+            memory_get_usage(true)
+        );
+    }
+
+    /**
+     * Calculate a safe time limit for cron processing.
+     *
+     * Respects PHP's max_execution_time so the process can save progress
+     * before being killed. Leaves TIME_SAFETY_MARGIN seconds for cleanup.
+     *
+     * @param int $max_execution_time PHP max_execution_time (0 = unlimited). Accepts parameter for testability.
+     * @return int Safe time limit in seconds (minimum 1).
+     */
+    protected static function get_safe_time_limit(int $max_execution_time = -1): int {
+        if ($max_execution_time < 0) {
+            $max_execution_time = (int) ini_get('max_execution_time');
+        }
+
+        // 0 means no limit — use the configured constant.
+        if ($max_execution_time === 0) {
+            return self::CRON_TIME_LIMIT;
+        }
+
+        $safe = $max_execution_time - self::TIME_SAFETY_MARGIN;
+
+        return max(1, min(self::CRON_TIME_LIMIT, $safe));
+    }
+
+    /**
+     * Pure calculation of batch size from memory parameters.
+     *
+     * @param string $memory_limit PHP memory_limit value (e.g. '128M', '-1').
+     * @param int    $memory_usage Current memory usage in bytes.
+     * @return int Batch size (clamped between MIN_BATCH_SIZE and DEFAULT_BATCH_SIZE).
+     */
+    protected static function calculate_batch_size(string $memory_limit, int $memory_usage): int {
+        // Unlimited or unreadable memory — use default.
+        if ($memory_limit === '-1' || $memory_limit === '') {
+            return self::DEFAULT_BATCH_SIZE;
+        }
+
+        $memory_limit = trim($memory_limit);
+        if ($memory_limit === '0') {
+            return self::MIN_BATCH_SIZE;
+        }
+
+        $limit_bytes = (int) $memory_limit;
+        $unit = strtolower(substr($memory_limit, -1));
+        $limit_bytes = match ($unit) {
+            'g' => $limit_bytes * 1024 * 1024 * 1024,
+            'm' => $limit_bytes * 1024 * 1024,
+            'k' => $limit_bytes * 1024,
+            default => $limit_bytes,
+        };
+
+        $available = $limit_bytes - $memory_usage;
+
+        if ($available <= 0) {
+            return self::MIN_BATCH_SIZE;
+        }
+
+        $safe_count = (int) floor($available / self::MEMORY_PER_IMAGE);
+
+        return max(self::MIN_BATCH_SIZE, min(self::DEFAULT_BATCH_SIZE, $safe_count));
+    }
 
     /**
      * Start a new batch optimization run.
@@ -105,7 +197,7 @@ class Metasync_Media_Batch_Optimizer {
 
     /**
      * Process one batch via AJAX (browser-driven chaining).
-     * Processes BATCH_SIZE images and returns updated progress immediately.
+     * Processes one adaptive batch of images and returns updated progress immediately.
      *
      * @return array Updated progress data.
      */
@@ -124,7 +216,7 @@ class Metasync_Media_Batch_Optimizer {
         }
 
         $settings = get_option('metasync_batch_optimize_settings', []);
-        $batch = array_splice($queue, 0, self::BATCH_SIZE);
+        $batch = array_splice($queue, 0, self::get_batch_size());
 
         foreach ($batch as $attachment_id) {
             // Re-check status in case cancel was triggered mid-batch
@@ -166,12 +258,14 @@ class Metasync_Media_Batch_Optimizer {
             return;
         }
 
-        $settings  = get_option('metasync_batch_optimize_settings', []);
-        $start     = time();
+        $settings   = get_option('metasync_batch_optimize_settings', []);
+        $start      = time();
+        $time_limit = self::get_safe_time_limit();
 
-        // Process images until time limit or queue empty
-        while (!empty($queue) && (time() - $start) < self::CRON_TIME_LIMIT) {
-            $batch = array_splice($queue, 0, self::BATCH_SIZE);
+        // Process images until time limit or queue empty.
+        // Batch size is re-computed each iteration so it adapts as memory fills up.
+        while (!empty($queue) && (time() - $start) < $time_limit) {
+            $batch = array_splice($queue, 0, self::get_batch_size());
 
             foreach ($batch as $attachment_id) {
                 self::convert_single($attachment_id, $settings, $progress);
@@ -224,23 +318,48 @@ class Metasync_Media_Batch_Optimizer {
     /**
      * Query all JPEG/PNG attachment IDs that have not been converted.
      *
+     * Uses $wpdb->get_col() with keyset (cursor) pagination instead of
+     * WP_Query/get_posts with posts_per_page=-1, avoiding memory spikes
+     * on sites with large media libraries (50k+ images).
+     *
+     * Keyset pagination (WHERE p.ID > last_id) is used instead of
+     * LIMIT/OFFSET to maintain constant query performance regardless
+     * of page depth and immunity to concurrent inserts/deletes.
+     *
      * @return int[] Attachment IDs.
      */
     private static function query_unoptimized_ids(): array {
-        $args = [
-            'post_type'      => 'attachment',
-            'post_status'    => 'inherit',
-            'post_mime_type' => ['image/jpeg', 'image/png'],
-            'posts_per_page' => -1,
-            'fields'         => 'ids',
-            'meta_query'     => [
-                [
-                    'key'     => '_metasync_converted_format',
-                    'compare' => 'NOT EXISTS',
-                ],
-            ],
-        ];
+        global $wpdb;
 
-        return get_posts($args);
+        $ids     = [];
+        $last_id = 0;
+
+        do {
+            $batch = $wpdb->get_col(
+                $wpdb->prepare(
+                    "SELECT p.ID
+                     FROM {$wpdb->posts} p
+                     LEFT JOIN {$wpdb->postmeta} pm
+                       ON pm.post_id = p.ID AND pm.meta_key = '_metasync_converted_format'
+                     WHERE p.post_type = 'attachment'
+                       AND p.post_status = 'inherit'
+                       AND p.post_mime_type IN ('image/jpeg', 'image/png')
+                       AND pm.meta_id IS NULL
+                       AND p.ID > %d
+                     ORDER BY p.ID ASC
+                     LIMIT %d",
+                    $last_id,
+                    self::QUERY_PAGE_SIZE
+                )
+            );
+
+            if (!empty($batch)) {
+                $int_batch = array_map('intval', $batch);
+                array_push($ids, ...$int_batch);
+                $last_id = end($int_batch);
+            }
+        } while (!empty($batch) && count($batch) === self::QUERY_PAGE_SIZE);
+
+        return $ids;
     }
 }

@@ -44,13 +44,13 @@ $capabilities = Metasync_Media_Settings::get_server_capabilities();
         <ul class="metasync-tab-nav">
             <li>
                 <a href="#" data-tab="settings" class="<?php echo $current_tab === 'settings' ? 'active' : ''; ?>">
-                    <span class="dashicons dashicons-admin-generic" style="font-size: 16px; margin-right: 4px; vertical-align: text-bottom;"></span>
+                    <span class="dashicons dashicons-admin-generic"></span>
                     <?php esc_html_e('Settings', 'metasync'); ?>
                 </a>
             </li>
             <li>
                 <a href="#" data-tab="image-library" class="<?php echo $current_tab === 'image-library' ? 'active' : ''; ?>">
-                    <span class="dashicons dashicons-format-gallery" style="font-size: 16px; margin-right: 4px; vertical-align: text-bottom;"></span>
+                    <span class="dashicons dashicons-format-gallery"></span>
                     <?php esc_html_e('Image Library', 'metasync'); ?>
                 </a>
             </li>

@@ -1565,6 +1565,8 @@ class Metasync_Admin_Pages
                 $deleted = $sitemap_generator->delete_sitemap();
                 if ($deleted) {
                     update_option('metasync_sitemap_auto_update', false);
+                    // Re-enable WP core sitemap so the site isn't left with zero sitemaps (WP-396)
+                    delete_option('metasync_disable_wp_sitemap');
                     echo '<div class="notice notice-success"><p>' . esc_html__('Sitemap deleted successfully!', 'metasync') . '</p></div>';
                 } else {
                     echo '<div class="notice notice-error"><p>' . esc_html__('Failed to delete sitemap. The file may not exist or is not writable.', 'metasync') . '</p></div>';

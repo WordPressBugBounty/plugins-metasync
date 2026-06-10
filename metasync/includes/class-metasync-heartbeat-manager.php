@@ -648,11 +648,16 @@ class Metasync_Heartbeat_Manager
             return false;
         }
 
-        $options = Metasync::get_option();
-        if (!isset($options['general'])) { $options['general'] = []; }
-        $options['general']['send_auth_token_timestamp'] = current_time('mysql');
-        $options['general']['last_heartbeat_at'] = gmdate('Y-m-d\TH:i:s\Z');
-        Metasync::set_option($options);
+        # Throttle timestamp lives in a dedicated option key so it never
+        # round-trips the main blob.
+        Metasync::set_heartbeat_throttle(['last_heartbeat_at' => gmdate('Y-m-d\TH:i:s\Z')]);
+
+        # Re-read the fresh blob immediately before writing send_auth_token_timestamp
+        # so a concurrent settings save during this code path is not clobbered.
+        $_fresh = Metasync::get_option();
+        if (!isset($_fresh['general'])) { $_fresh['general'] = []; }
+        $_fresh['general']['send_auth_token_timestamp'] = current_time('mysql');
+        Metasync::set_option($_fresh);
 
         return true;
     }

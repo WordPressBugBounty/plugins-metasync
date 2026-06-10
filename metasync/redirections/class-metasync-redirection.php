@@ -518,6 +518,78 @@ class Metasync_Redirection
     }
 
     /**
+     * Lightweight, non-blocking check that a redirect destination appears to resolve.
+     *
+     * Reuses the terminal dead-end logic from check_redirect_health(): internal
+     * destinations are matched against url_to_postid(); external destinations are
+     * only probed (wp_remote_head) when off-site redirects are explicitly allowed.
+     * Returns a human-readable warning string when the destination looks
+     * unreachable, or null when it resolves (or cannot be meaningfully checked).
+     *
+     * @param string $destination  Destination URL or path.
+     * @param int    $http_code    Redirect HTTP code (410/451 are skipped).
+     * @param string $pattern_type Source pattern type ('regex' is skipped).
+     * @return string|null Warning message, or null if the destination resolves / is unchecked.
+     */
+    public function destination_resolves_warning($destination, $http_code = 301, $pattern_type = 'exact')
+    {
+        // 410/451 redirects intentionally have no live destination.
+        if (in_array((int) $http_code, array(410, 451), true)) {
+            return null;
+        }
+
+        // Regex sources have no single concrete destination path to resolve.
+        if ($pattern_type === 'regex') {
+            return null;
+        }
+
+        if (!is_string($destination) || trim($destination) === '') {
+            return null;
+        }
+
+        // Determine if the destination is external by checking for a host component
+        // that differs from the local site. Relative paths (e.g. /about) have no host
+        // and are always internal.
+        $is_external = false;
+        $parsed_dest = parse_url($destination);
+        if (!empty($parsed_dest['host'])) {
+            $site_host = parse_url(site_url(), PHP_URL_HOST);
+            $is_external = (strcasecmp($parsed_dest['host'], $site_host) !== 0);
+        }
+
+        if ($is_external) {
+            // Only probe external targets when off-site redirects are explicitly enabled,
+            // and only with a short, single-hop HEAD request to keep the save lightweight.
+            // 3xx responses are intentionally not flagged — the destination itself is
+            // reachable even if it redirects further.
+            if (get_option('metasync_allow_external_redirects')) {
+                $response = wp_remote_head($destination, array('timeout' => 5, 'redirection' => 0));
+                if (is_wp_error($response)) {
+                    return 'Destination URL appears unreachable — the redirect may lead to an error.';
+                }
+                $code = (int) wp_remote_retrieve_response_code($response);
+                if ($code >= 400) {
+                    return 'Destination URL returned an error status (' . $code . ') — the redirect may lead to a broken page.';
+                }
+            }
+            return null;
+        }
+
+        // Internal destination: confirm it maps to a known page on this site.
+        $path = $this->normalize_uri_path($destination);
+        $post_id = url_to_postid(site_url($path));
+        if ($post_id === 0) {
+            $post_id = url_to_postid(site_url($path . '/'));
+        }
+
+        if ($post_id === 0) {
+            return 'Destination URL does not match a known page on this site — the redirect may lead to a 404.';
+        }
+
+        return null;
+    }
+
+    /**
      * Normalise a URL or path to a leading-slash URI path used for chain comparison.
      *
      * @param string $url

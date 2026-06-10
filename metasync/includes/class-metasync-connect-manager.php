@@ -784,6 +784,11 @@ class Metasync_Connect_Manager
                 unset($options['general']['last_heart_beat']);
             }
 
+            # Clear the dedicated heartbeat throttle option (WP-351 moved
+            # throttle timestamps out of the main blob).
+            delete_option(Metasync::heartbeat_throttle_option);
+            $cleared_data['heartbeat_throttle'] = 'removed';
+
             $save_result = Metasync::set_option($options);
 
             if (!$save_result) {

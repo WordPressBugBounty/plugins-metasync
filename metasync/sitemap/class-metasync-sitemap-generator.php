@@ -54,9 +54,18 @@ class Metasync_Sitemap_Generator
         $this->sitemap_index_path = ABSPATH . 'sitemap_index.xml';
         $this->sitemap_index_url = home_url('/sitemap_index.xml');
 
-        // Disable WordPress core sitemap if option is set
-        if (get_option('metasync_disable_wp_sitemap', false)) {
+        // Disable WordPress core sitemap when a MetaSync sitemap exists or auto-update
+        // is enabled, to prevent duplicate sitemaps being served to search engines (WP-396).
+        // Only suppress when the MetaSync sitemap is actually in use — otherwise a fresh
+        // install that never generated a sitemap would have NO sitemap at all.
+        if (get_option('metasync_disable_wp_sitemap', false)
+            || get_option('metasync_sitemap_auto_update', false)
+            || $this->sitemap_exists()
+        ) {
             add_filter('wp_sitemaps_enabled', '__return_false', 10);
+            if (!get_option('metasync_disable_wp_sitemap', false)) {
+                update_option('metasync_disable_wp_sitemap', true);
+            }
         }
 
         // Register hook to serve virtual sitemap files
@@ -430,21 +439,42 @@ class Metasync_Sitemap_Generator
         // home_url('/') and get_permalink() for static front pages.
         $seen_urls = [untrailingslashit($home_url) => true];
 
-        // Build taxonomy query for category/tag filtering (only when explicitly configured)
+        // Build taxonomy query for category/tag filtering (only when explicitly configured).
+        // Each term filter is OR-ed with a NOT EXISTS clause: the query runs across all
+        // selected post types in one WP_Query, and content with no terms in the taxonomy
+        // (pages, custom post types, untagged posts) must not be excluded by a term
+        // selection that cannot apply to it (WP-420).
         $sitemap_tax_query = [];
         if (!empty($sitemap_settings['_configured']) && !empty($sitemap_settings['categories'])) {
             $sitemap_tax_query[] = [
-                'taxonomy' => 'category',
-                'field'    => 'term_id',
-                'terms'    => array_map('absint', (array) $sitemap_settings['categories']),
+                'relation' => 'OR',
+                [
+                    'taxonomy' => 'category',
+                    'field'    => 'term_id',
+                    'terms'    => array_map('absint', (array) $sitemap_settings['categories']),
+                ],
+                [
+                    'taxonomy' => 'category',
+                    'operator' => 'NOT EXISTS',
+                ],
             ];
         }
         if (!empty($sitemap_settings['_configured']) && !empty($sitemap_settings['tags'])) {
             $sitemap_tax_query[] = [
-                'taxonomy' => 'post_tag',
-                'field'    => 'term_id',
-                'terms'    => array_map('absint', (array) $sitemap_settings['tags']),
+                'relation' => 'OR',
+                [
+                    'taxonomy' => 'post_tag',
+                    'field'    => 'term_id',
+                    'terms'    => array_map('absint', (array) $sitemap_settings['tags']),
+                ],
+                [
+                    'taxonomy' => 'post_tag',
+                    'operator' => 'NOT EXISTS',
+                ],
             ];
+        }
+        if (count($sitemap_tax_query) > 1) {
+            $sitemap_tax_query['relation'] = 'AND';
         }
 
         // Process posts in chunks to bound memory and database load.
@@ -574,6 +604,17 @@ class Metasync_Sitemap_Generator
                 continue;
             }
 
+            // Respect per-term category/tag selections for archive URLs too, so an
+            // unchecked term's archive page does not appear in the sitemap (WP-420).
+            $selected_term_ids = null;
+            if (!empty($sitemap_settings['_configured'])) {
+                if ($taxonomy === 'category' && !empty($sitemap_settings['categories'])) {
+                    $selected_term_ids = array_map('absint', (array) $sitemap_settings['categories']);
+                } elseif ($taxonomy === 'post_tag' && !empty($sitemap_settings['tags'])) {
+                    $selected_term_ids = array_map('absint', (array) $sitemap_settings['tags']);
+                }
+            }
+
             $terms = get_terms([
                 'taxonomy' => $taxonomy,
                 'hide_empty' => true,
@@ -608,6 +649,10 @@ class Metasync_Sitemap_Generator
             }
 
             foreach ($terms as $term) {
+                if ($selected_term_ids !== null && !in_array((int) $term->term_id, $selected_term_ids, true)) {
+                    continue;
+                }
+
                 $term_link = get_term_link($term);
                 if (is_wp_error($term_link)) {
                     continue;
@@ -812,6 +857,11 @@ class Metasync_Sitemap_Generator
      */
     private function build_sitemap_xml_string($urls)
     {
+        if (!class_exists('DOMDocument')) {
+            error_log('MetaSync: sitemap generation skipped — DOMDocument (php-dom extension) is not available on this server.');
+            return '';
+        }
+
         $xml = new DOMDocument('1.0', 'UTF-8');
         $xml->formatOutput = true;
 
@@ -836,6 +886,11 @@ class Metasync_Sitemap_Generator
      */
     private function build_sitemap_index_xml_string($sitemap_files)
     {
+        if (!class_exists('DOMDocument')) {
+            error_log('MetaSync: sitemap index generation skipped — DOMDocument (php-dom extension) is not available on this server.');
+            return '';
+        }
+
         $xml = new DOMDocument('1.0', 'UTF-8');
         $xml->formatOutput = true;
 

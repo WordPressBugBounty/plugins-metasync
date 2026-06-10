@@ -32,7 +32,7 @@ if (!defined('WPINC')) {
             <span class="metasync-stat-number"><?php echo esc_html(number_format_i18n($stats['unoptimized'])); ?></span>
             <span class="metasync-stat-label"><?php esc_html_e('Unoptimized', 'metasync'); ?></span>
         </div>
-        <div class="metasync-stat-item">
+        <div class="metasync-stat-item metasync-stat-rate">
             <div class="metasync-stat-progress-wrap">
                 <div class="metasync-stat-progress-bar">
                     <div class="metasync-stat-progress-fill" style="width: <?php echo esc_attr($stats['percentage']); ?>%;"></div>

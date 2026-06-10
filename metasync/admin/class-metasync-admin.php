@@ -282,6 +282,9 @@ class Metasync_Admin
 
         // Add AJAX for saving hosting cache settings
         add_action( 'wp_ajax_metasync_save_hosting_cache_settings', array($this, 'ajax_save_hosting_cache_settings') );
+
+        // Add AJAX for saving OTTO Cache TTL
+        add_action('wp_ajax_metasync_save_otto_cache_ttl', array($this, 'ajax_save_otto_cache_ttl'));
         add_action( 'wp_ajax_metasync_save_object_cache_settings',  array($this, 'ajax_save_object_cache_settings') );
 
         // Add AJAX for saving edge cache / CDN settings
@@ -1504,6 +1507,44 @@ class Metasync_Admin
         $cache_count = Metasync_Otto_Transient_Cache::get_cache_count();
         
         ?>
+        <!-- OTTO Cache TTL Setting -->
+        <div style="margin-bottom: 30px;">
+            <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">OTTO Cache TTL</h4>
+            <p style="margin-bottom: 15px; color: var(--dashboard-text-secondary);">
+                Configure how long <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> API suggestions are cached before a fresh API call. Stale cache expires at 2× this value.
+            </p>
+
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                    <label for="metasync-otto-cache-ttl" style="color: var(--dashboard-text-primary); font-weight: 500;">
+                        Cache TTL (minutes):
+                    </label>
+                    <input type="number"
+                           id="metasync-otto-cache-ttl"
+                           value="<?php echo esc_attr($this->get_otto_cache_ttl_minutes()); ?>"
+                           min="30"
+                           max="1440"
+                           step="1"
+                           style="width: 100px; padding: 8px; border: 1px solid var(--dashboard-border); border-radius: 6px; background: var(--dashboard-card-bg, rgba(255,255,255,0.05)); color: var(--dashboard-text-primary);" />
+                    <span style="color: var(--dashboard-text-secondary); font-size: 13px;">min 30 · max 1440</span>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <button type="button"
+                            id="metasync-otto-ttl-save-btn"
+                            class="metasync-btn-primary"
+                            style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 9px 18px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease;"
+                            onmouseover="this.style.transform='translateY(-1px)';"
+                            onmouseout="this.style.transform='translateY(0)';">
+                        Save TTL
+                    </button>
+                    <span id="metasync-otto-ttl-save-msg" style="display: none; font-size: 13px;"></span>
+                </div>
+
+                <input type="hidden" id="metasync-otto-ttl-nonce" value="<?php echo wp_create_nonce('metasync_otto_cache_ttl_nonce'); ?>" />
+            </div>
+        </div>
+
         <!-- Cache Plugin Management -->
         <div style="margin-bottom: 30px;">
             <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">Clear All Cache Plugins</h4>
@@ -1721,6 +1762,44 @@ class Metasync_Admin
                         },
                         complete: function() {
                             $btn.prop('disabled', false).text('💾 Save Settings');
+                            setTimeout(function() { $msg.fadeOut(); }, 4000);
+                        }
+                    });
+                });
+
+                // OTTO Cache TTL save
+                $('#metasync-otto-ttl-save-btn').on('click', function() {
+                    var $btn = $(this);
+                    var $msg = $('#metasync-otto-ttl-save-msg');
+                    var ttl = parseInt($('#metasync-otto-cache-ttl').val(), 10);
+
+                    if (isNaN(ttl) || ttl < 30 || ttl > 1440) {
+                        $msg.text('❌ TTL must be between 30 and 1440 minutes.').css('color', '#ef4444').show();
+                        return;
+                    }
+
+                    $btn.prop('disabled', true).text('Saving…');
+
+                    $.ajax({
+                        url: ajaxurl,
+                        type: 'POST',
+                        data: {
+                            action: 'metasync_save_otto_cache_ttl',
+                            otto_cache_ttl_nonce: $('#metasync-otto-ttl-nonce').val(),
+                            otto_cache_ttl: ttl,
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                $msg.text('✅ Saved').css('color', '#22c55e').show();
+                            } else {
+                                $msg.text('❌ ' + (response.data && response.data.message ? response.data.message : 'Save failed')).css('color', '#ef4444').show();
+                            }
+                        },
+                        error: function() {
+                            $msg.text('❌ Request failed').css('color', '#ef4444').show();
+                        },
+                        complete: function() {
+                            $btn.prop('disabled', false).text('Save TTL');
                             setTimeout(function() { $msg.fadeOut(); }, 4000);
                         }
                     });
@@ -1981,6 +2060,44 @@ class Metasync_Admin
         $targeted = (!empty($_POST['targeted_object_cache']) && $_POST['targeted_object_cache'] === '1') ? '1' : '0';
         update_option('metasync_targeted_object_cache', $targeted);
         wp_send_json_success(array('message' => 'Object cache settings saved'));
+    }
+
+    /**
+     * Get OTTO Cache TTL value in minutes from execution settings.
+     *
+     * @return int
+     */
+    private function get_otto_cache_ttl_minutes() {
+        $execution_settings = get_option('metasync_execution_settings', array());
+        return isset($execution_settings['otto_cache_ttl']) ? absint($execution_settings['otto_cache_ttl']) : 30;
+    }
+
+    /**
+     * AJAX handler for saving OTTO Cache TTL
+     */
+    public function ajax_save_otto_cache_ttl() {
+        if (!isset($_POST['otto_cache_ttl_nonce']) || !wp_verify_nonce($_POST['otto_cache_ttl_nonce'], 'metasync_otto_cache_ttl_nonce')) {
+            wp_send_json_error(array('message' => 'Security check failed.'));
+            return;
+        }
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions.'));
+            return;
+        }
+
+        $ttl = isset($_POST['otto_cache_ttl']) ? absint($_POST['otto_cache_ttl']) : 30;
+
+        if ($ttl < 30 || $ttl > 1440) {
+            wp_send_json_error(array('message' => 'OTTO Cache TTL must be between 30 and 1440 minutes.'));
+            return;
+        }
+
+        $settings = get_option('metasync_execution_settings', array());
+        $settings['otto_cache_ttl'] = $ttl;
+        update_option('metasync_execution_settings', $settings);
+
+        wp_send_json_success(array('message' => 'OTTO Cache TTL saved.'));
     }
 
     /**
@@ -3031,6 +3148,10 @@ class Metasync_Admin
                 if ($deleted) {
                     // Disable auto-update only when the general sitemap is removed
                     update_option('metasync_sitemap_auto_update', false);
+                    // Re-enable WP core sitemap only if no other MetaSync sitemaps remain (WP-396)
+                    if (!$sitemap_generator->sitemap_exists()) {
+                        delete_option('metasync_disable_wp_sitemap');
+                    }
                     echo '<div class="notice notice-success"><p>' . esc_html__('General sitemap deleted successfully!', 'metasync') . '</p></div>';
                 } else {
                     echo '<div class="notice notice-error"><p>' . esc_html__('Failed to delete general sitemap. The files may not exist or are not writable.', 'metasync') . '</p></div>';
@@ -3058,6 +3179,8 @@ class Metasync_Admin
                 if ($deleted) {
                     // Also disable auto-update when deleting
                     update_option('metasync_sitemap_auto_update', false);
+                    // Re-enable WP core sitemap so the site isn't left with zero sitemaps (WP-396)
+                    delete_option('metasync_disable_wp_sitemap');
                     echo '<div class="notice notice-success"><p>' . esc_html__('All sitemaps deleted successfully!', 'metasync') . '</p></div>';
                 } else {
                     echo '<div class="notice notice-error"><p>' . esc_html__('Failed to delete sitemaps. The files may not exist or are not writable.', 'metasync') . '</p></div>';

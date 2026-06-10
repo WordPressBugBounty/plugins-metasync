@@ -618,6 +618,7 @@ Class Metasync_otto_pixel{
         # fetch it directly and inject it. This handles the case where the
         # internal wp_remote_get response was truncated by SG Optimizer's parser.
         if (strpos($route_html_string, 'et-builder-module-design') === false
+            && function_exists('et_theme_builder_decorate_page_resource_slug')
             && function_exists('et_core_page_resource_get')
         ) {
             # Try to get Divi's inline CSS from its page resource manager

@@ -141,11 +141,18 @@ class MCP_Tool_Get_Sitemap_Status extends MCP_Tool_Base {
         $this->validate_params($params);
         $this->require_capability('read');
 
+        // Load MetaSync sitemap generator for authoritative existence check
+        require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'sitemap/class-metasync-sitemap-generator.php';
+
         // Get MetaSync sitemap info
         $sitemap_files = get_option('metasync_sitemap_files', []);
         $total_urls = get_option('metasync_sitemap_total_urls', 0);
         $last_generated = get_option('metasync_sitemap_last_generated', false);
         $auto_update = get_option('metasync_sitemap_auto_update', false);
+
+        // Use the plugin's three-step check (virtual → tracked → physical)
+        // instead of raw file_exists() which misses virtual/tracked sitemaps
+        $sitemap_generator = new Metasync_Sitemap_Generator();
 
         $sitemap_info = [
             'sitemap_index_url' => home_url('/sitemap_index.xml'),
@@ -153,7 +160,7 @@ class MCP_Tool_Get_Sitemap_Status extends MCP_Tool_Base {
             'total_urls' => $total_urls,
             'last_generated' => $last_generated,
             'auto_update_enabled' => $auto_update,
-            'sitemap_exists' => file_exists(ABSPATH . 'sitemap_index.xml')
+            'sitemap_exists' => $sitemap_generator->sitemap_exists()
         ];
 
         // Check if WordPress XML sitemaps are enabled (WP 5.5+)

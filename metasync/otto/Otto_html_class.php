@@ -777,6 +777,10 @@ Class Metasync_otto_html{
             return;
         }
 
+        # WP-425: index suggestions by URL path as well, so images authored with
+        # relative srcs still match OTTO's absolute-URL keys (and vice versa).
+        $alt_lookup = $this->build_image_alt_lookup($image_data);
+
         # PERFORMANCE OPTIMIZATION: O(n²) reduced to O(n)
         # Single pass with hash map lookup instead of nested loop
         foreach($images AS $key => $image){
@@ -788,10 +792,11 @@ Class Metasync_otto_html{
             }
 
             # Hash map lookup O(1) instead of loop O(n)
-            if (isset($image_data[$image_src])) {
+            $alt_text = $this->lookup_image_alt($alt_lookup, $image_src);
+            if ($alt_text !== null) {
                 # Set alt text - Note: This may not persist in all cases
                 # Manual string replacement in process_html_directly() ensures it's applied
-                $new_alt = htmlspecialchars($image_data[$image_src], ENT_QUOTES, 'UTF-8');
+                $new_alt = htmlspecialchars($alt_text, ENT_QUOTES, 'UTF-8');
 
                 # Get current img tag HTML and update alt attribute
                 $current_html = $image->outertext;
@@ -807,10 +812,99 @@ Class Metasync_otto_html{
 
                 $multi_view_attr = $image->getAttribute('data-et-multi-view');
                 if (!empty($multi_view_attr)) {
-                    $this->update_divi_multi_view_alt($image, $image_data[$image_src]);
+                    $this->update_divi_multi_view_alt($image, $alt_text);
                 }
             }
         }
+    }
+
+    # WP-425: memoized site host — home_url() runs its filter chain on every
+    # call and these helpers run per suggestion and per img.
+    private ?string $site_host_cache = null;
+
+    /**
+     * Get this site's host (lowercase) for same-host URL comparisons.
+     *
+     * @return string
+     */
+    private function get_site_host() {
+        if ($this->site_host_cache === null) {
+            $host = wp_parse_url(home_url(), PHP_URL_HOST);
+            $this->site_host_cache = is_string($host) ? strtolower($host) : '';
+        }
+        return $this->site_host_cache;
+    }
+
+    /**
+     * WP-425: Candidate lookup keys for an image URL — the URL itself plus,
+     * for relative URLs or absolute/protocol-relative URLs on this site's
+     * host, the bare URL path. URLs on a different host only ever match
+     * exactly, so a same path on a foreign host cannot produce a false match.
+     *
+     * @param string $url Image URL (absolute, protocol-relative, or relative)
+     * @return array Candidate keys, original URL first
+     */
+    private function get_image_url_variants($url) {
+        $variants = [$url];
+
+        if (!is_string($url) || $url === '') {
+            return $variants;
+        }
+
+        $host = wp_parse_url($url, PHP_URL_HOST);
+        if (!empty($host) && strtolower($host) !== $this->get_site_host()) {
+            # Foreign host: exact match only
+            return $variants;
+        }
+
+        $path = wp_parse_url($url, PHP_URL_PATH);
+        if (is_string($path) && $path !== '' && $path !== $url) {
+            $variants[] = $path;
+        }
+
+        return $variants;
+    }
+
+    /**
+     * WP-425: Build the image alt lookup keyed by every URL variant of each
+     * OTTO suggestion, so relative img srcs match absolute suggestion URLs.
+     *
+     * @param array $image_data OTTO body_substitutions.images map (url => alt)
+     * @return array Expanded lookup (url-or-path => alt)
+     */
+    private function build_image_alt_lookup($image_data) {
+        $lookup = [];
+
+        foreach ($image_data as $image_url => $alt_text) {
+            foreach ($this->get_image_url_variants($image_url) as $variant) {
+                # First suggestion wins when two keys collapse to the same
+                # path (e.g. a relative and an absolute key for one image);
+                # exact-src matches still take priority in lookup_image_alt().
+                if (!isset($lookup[$variant])) {
+                    $lookup[$variant] = $alt_text;
+                }
+            }
+        }
+
+        return $lookup;
+    }
+
+    /**
+     * WP-425: Resolve the OTTO alt text for an img src, trying the exact src
+     * first and then its same-host path variant.
+     *
+     * @param array  $lookup Expanded lookup from build_image_alt_lookup()
+     * @param string $image_src The img element's src attribute
+     * @return string|null Alt text, or null when no suggestion matches
+     */
+    private function lookup_image_alt($lookup, $image_src) {
+        foreach ($this->get_image_url_variants($image_src) as $variant) {
+            if (isset($lookup[$variant])) {
+                return $lookup[$variant];
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -858,6 +952,11 @@ Class Metasync_otto_html{
      * Apply image alt text via string replacement on raw HTML.
      * Used as a fallback when DOM changes don't persist (Oxygen, Divi, page-builder sites).
      *
+     * Known limitation (pre-existing): the `<img[^>]*src=` pattern can match a
+     * `data-src`/`data-lazy-src` attribute that ends with the target URL before
+     * the real `src`, mis-attributing the alt on lazy-loaded markup. Tracked as
+     * a follow-up to WP-425.
+     *
      * @param string $html The HTML to process
      * @param array  $replacement_data The replacement data containing body_substitutions.images
      * @return string Modified HTML with alt text applied
@@ -868,13 +967,16 @@ Class Metasync_otto_html{
         }
 
         foreach ($replacement_data['body_substitutions']['images'] as $image_url => $alt_text) {
-            if (empty($alt_text) || strpos($html, $image_url) === false) {
+            # WP-425: prefilter and match on the same-host path variant too, so
+            # relative img srcs match OTTO's absolute suggestion URLs.
+            $src_pattern = $this->get_image_src_pattern($image_url);
+
+            if (empty($alt_text) || $src_pattern === null || strpos($html, $src_pattern['needle']) === false) {
                 continue;
             }
 
             $escaped_alt = htmlspecialchars($alt_text, ENT_QUOTES, 'UTF-8');
-            $escaped_url = preg_quote($image_url, '/');
-            $img_pattern = '/<img[^>]*src=["\']' . $escaped_url . '["\'][^>]*>/i';
+            $img_pattern = '/<img[^>]*src=["\']' . $src_pattern['pattern'] . '["\'][^>]*>/i';
 
             if (preg_match_all($img_pattern, $html, $img_matches)) {
                 foreach ($img_matches[0] as $original_img) {
@@ -919,6 +1021,44 @@ Class Metasync_otto_html{
         }
 
         return $html;
+    }
+
+    /**
+     * WP-425: Build the src match for an OTTO image suggestion URL.
+     *
+     * For relative URLs or absolute/protocol-relative URLs on this site's
+     * host, the regex matches the URL path with an optional scheme+host
+     * prefix — so a relative img src matches an absolute suggestion URL and
+     * vice versa. URLs on a foreign host keep the original exact match, so a
+     * same path on a different host cannot produce a false positive.
+     *
+     * @param string $image_url OTTO suggestion URL
+     * @return array|null ['needle' => strpos prefilter string,
+     *                     'pattern' => regex fragment ('/' delimiter)] or null
+     */
+    private function get_image_src_pattern($image_url) {
+        if (!is_string($image_url) || $image_url === '') {
+            return null;
+        }
+
+        $host = wp_parse_url($image_url, PHP_URL_HOST);
+        $site_host = $this->get_site_host();
+
+        # Foreign host: exact match only
+        if (!empty($host) && strtolower($host) !== $site_host) {
+            return ['needle' => $image_url, 'pattern' => preg_quote($image_url, '/')];
+        }
+
+        $path = wp_parse_url($image_url, PHP_URL_PATH);
+        if (!is_string($path) || $path === '') {
+            return ['needle' => $image_url, 'pattern' => preg_quote($image_url, '/')];
+        }
+
+        $prefix = $site_host !== '' ? '(?:(?:https?:)?\/\/' . preg_quote($site_host, '/') . ')?' : '';
+
+        # Allow an optional query/fragment after the path (e.g. WordPress
+        # `?ver=` cache-busters) so src="/up/a.jpg?ver=2" still matches.
+        return ['needle' => $path, 'pattern' => $prefix . preg_quote($path, '/') . '(?:[?#][^"\']*)?'];
     }
 
     # heading substitutions
@@ -2372,7 +2512,42 @@ Class Metasync_otto_html{
             '/[?&]amp;otto_block_desc=1/',
         ];
         $html = preg_replace($patterns, '', $html);
-        $html = str_replace(['??', '?&', '?#'], ['?', '?', '#'], $html);
+
+        # WP-398: Protect <script>/<style> bodies before the URL cleanup below.
+        # The href/src/action matcher can otherwise match JS that looks like an
+        # attribute (e.g. location.href="/x??y", el.src="a??b") and collapse the
+        # ?? inside it. Swap each block for a placeholder comment, run the cleanup,
+        # then restore byte-for-byte.
+        $protected = [];
+        $html = preg_replace_callback(
+            '/<(script|style)(\b[^>]*)>([\s\S]*?)<\/\1>/i',
+            function ($m) use (&$protected) {
+                $key = '<!--METASYNC_FETCHCLEAN_' . count($protected) . '-->';
+                $protected[$key] = $m[0];
+                return $key;
+            },
+            $html
+        );
+
+        # WP-398: Normalize leftover query-string separators (?? / ?& / ?#) created
+        # by the param removal above — but ONLY inside URL attributes (href/src/action).
+        # The previous implementation ran str_replace('??','?') over the ENTIRE document,
+        # which corrupted inline JavaScript nullish operators (?? / ??=) and any literal
+        # "??" in page text — breaking Slider Revolution and other modern inline scripts.
+        $html = preg_replace_callback(
+            '/\b(href|src|action)(\s*=\s*)(["\'])(.*?)\3/is',
+            function ($m) {
+                $url = str_replace(['??', '?&', '?#'], ['?', '?', '#'], $m[4]);
+                return $m[1] . $m[2] . $m[3] . $url . $m[3];
+            },
+            $html
+        );
+
+        # Restore protected <script>/<style> blocks byte-for-byte.
+        if (!empty($protected)) {
+            $html = str_replace(array_keys($protected), array_values($protected), $html);
+        }
+
         return $html;
     }
 

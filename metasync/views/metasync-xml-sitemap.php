@@ -214,7 +214,7 @@ if (!defined('ABSPATH')) {
                             if ($gen_pts_scrollable) : ?>
                                 <input type="text" class="metasync-checkbox-search" placeholder="<?php esc_attr_e('Filter post types...', 'metasync'); ?>">
                             <?php endif; ?>
-                            <div class="<?php echo $gen_pts_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
+                            <div class="metasync-checkbox-list <?php echo $gen_pts_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
                                 <?php foreach ($general_filtered_pts as $pt) : ?>
                                     <label>
                                         <input type="checkbox" name="sitemap_post_types[]" value="<?php echo esc_attr($pt->name); ?>"
@@ -240,7 +240,7 @@ if (!defined('ABSPATH')) {
                             if ($gen_cats_scrollable) : ?>
                                 <input type="text" class="metasync-checkbox-search" placeholder="<?php esc_attr_e('Filter categories...', 'metasync'); ?>">
                             <?php endif; ?>
-                            <div class="<?php echo $gen_cats_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
+                            <div class="metasync-checkbox-list <?php echo $gen_cats_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
                                 <?php foreach ($gen_categories as $cat) : ?>
                                     <label>
                                         <input type="checkbox" name="sitemap_categories[]" value="<?php echo esc_attr($cat->term_id); ?>"
@@ -267,7 +267,7 @@ if (!defined('ABSPATH')) {
                                 if ($gen_tags_scrollable) : ?>
                                     <input type="text" class="metasync-checkbox-search" placeholder="<?php esc_attr_e('Filter tags...', 'metasync'); ?>">
                                 <?php endif; ?>
-                                <div class="<?php echo $gen_tags_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
+                                <div class="metasync-checkbox-list <?php echo $gen_tags_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
                                     <?php foreach ($gen_tags as $tag) : ?>
                                         <label>
                                             <input type="checkbox" name="sitemap_tags[]" value="<?php echo esc_attr($tag->term_id); ?>"
@@ -293,7 +293,7 @@ if (!defined('ABSPATH')) {
                             if ($gen_tax_scrollable) : ?>
                                 <input type="text" class="metasync-checkbox-search" placeholder="<?php esc_attr_e('Filter taxonomies...', 'metasync'); ?>">
                             <?php endif; ?>
-                            <div class="<?php echo $gen_tax_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
+                            <div class="metasync-checkbox-list <?php echo $gen_tax_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
                                 <?php foreach ($all_taxonomies as $tax) : ?>
                                     <label>
                                         <input type="checkbox" name="sitemap_taxonomies[]" value="<?php echo esc_attr($tax->name); ?>"
@@ -676,7 +676,7 @@ if (!defined('ABSPATH')) {
                             if ($pts_scrollable) : ?>
                                 <input type="text" class="metasync-checkbox-search" placeholder="<?php esc_attr_e('Filter post types...', 'metasync'); ?>">
                             <?php endif; ?>
-                            <div class="<?php echo $pts_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
+                            <div class="metasync-checkbox-list <?php echo $pts_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
                                 <?php foreach ($filtered_pts as $pt) : ?>
                                     <label>
                                         <input type="checkbox" name="news_post_types[]" value="<?php echo esc_attr($pt->name); ?>"
@@ -701,7 +701,7 @@ if (!defined('ABSPATH')) {
                             if ($cats_scrollable) : ?>
                                 <input type="text" class="metasync-checkbox-search" placeholder="<?php esc_attr_e('Filter categories...', 'metasync'); ?>">
                             <?php endif; ?>
-                            <div class="<?php echo $cats_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
+                            <div class="metasync-checkbox-list <?php echo $cats_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
                                 <?php foreach ($categories as $cat) : ?>
                                     <label>
                                         <input type="checkbox" name="news_categories[]" value="<?php echo esc_attr($cat->term_id); ?>"
@@ -728,7 +728,7 @@ if (!defined('ABSPATH')) {
                                 if ($tags_scrollable) : ?>
                                     <input type="text" class="metasync-checkbox-search" placeholder="<?php esc_attr_e('Filter tags...', 'metasync'); ?>">
                                 <?php endif; ?>
-                                <div class="<?php echo $tags_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
+                                <div class="metasync-checkbox-list <?php echo $tags_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
                                     <?php foreach ($tags as $tag) : ?>
                                         <label>
                                             <input type="checkbox" name="news_tags[]" value="<?php echo esc_attr($tag->term_id); ?>"
@@ -765,7 +765,7 @@ if (!defined('ABSPATH')) {
                             if ($tax_scrollable) : ?>
                                 <input type="text" class="metasync-checkbox-search" placeholder="<?php echo esc_attr(sprintf(__('Filter %s...', 'metasync'), strtolower($tax->label))); ?>">
                             <?php endif; ?>
-                            <div class="<?php echo $tax_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
+                            <div class="metasync-checkbox-list <?php echo $tax_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
                                 <?php foreach ($tax_terms as $term) : ?>
                                     <label>
                                         <input type="checkbox" name="news_taxonomies[<?php echo esc_attr($tax->name); ?>][]" value="<?php echo esc_attr($term->term_id); ?>"
@@ -914,7 +914,7 @@ if (!defined('ABSPATH')) {
                             if ($vid_pts_scrollable) : ?>
                                 <input type="text" class="metasync-checkbox-search" placeholder="<?php esc_attr_e('Filter post types...', 'metasync'); ?>">
                             <?php endif; ?>
-                            <div class="<?php echo $vid_pts_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
+                            <div class="metasync-checkbox-list <?php echo $vid_pts_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
                                 <?php foreach ($vid_filtered_pts as $pt) : ?>
                                     <label>
                                         <input type="checkbox" name="video_post_types[]" value="<?php echo esc_attr($pt->name); ?>"
@@ -957,7 +957,7 @@ if (!defined('ABSPATH')) {
                             if ($vtax_scrollable) : ?>
                                 <input type="text" class="metasync-checkbox-search" placeholder="<?php echo esc_attr(sprintf(__('Filter %s...', 'metasync'), strtolower($tax->label))); ?>">
                             <?php endif; ?>
-                            <div class="<?php echo $vtax_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
+                            <div class="metasync-checkbox-list <?php echo $vtax_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
                                 <?php foreach ($tax_terms as $term) : ?>
                                     <label>
                                         <input type="checkbox" name="video_taxonomies[<?php echo esc_attr($tax->name); ?>][]" value="<?php echo esc_attr($term->term_id); ?>"

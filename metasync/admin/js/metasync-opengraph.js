@@ -229,11 +229,13 @@
 				$(previewSelector).show();
 				$(removeButtonSelector).show();
                 
-				// Update preview instantly if it's the main OG image
+				// Update preview instantly
 				if (inputSelector === '#metasync_og_image') {
 					self.updatePreviewImages(imageUrl);
+				} else if (inputSelector === '#metasync_twitter_image') {
+					self.updateTwitterPreviewImage(imageUrl);
 				}
-                
+
 				self.debouncePreview();
 			});
 
@@ -249,9 +251,11 @@
 			$(previewSelector).hide();
 			$(removeButtonSelector).hide();
             
-			// Update preview instantly if it's the main OG image
+			// Update preview instantly
 			if (inputSelector === '#metasync_og_image') {
 				this.updatePreviewImages('');
+			} else if (inputSelector === '#metasync_twitter_image') {
+				this.updateTwitterPreviewImage($('#metasync_og_image').val() || '');
 			}
             
 			this.debouncePreview();
@@ -289,10 +293,18 @@
 			// Update preview content immediately based on input
 			switch(inputId) {
 				case 'metasync_og_title':
-					$('.facebook-preview-title, .twitter-card-title, .linkedin-preview-title').text(value || 'Your Post Title');
+					$('.facebook-preview-title, .linkedin-preview-title').text(value || 'Your Post Title');
+					// Only update Twitter title if it's auto-synced
+					if (!$('#metasync_twitter_title').val() || $('#metasync_twitter_title').data('auto-synced')) {
+						$('.twitter-card-title').text(value || 'Your Post Title');
+					}
 					break;
 				case 'metasync_og_description':
-					$('.facebook-preview-description, .twitter-card-description, .linkedin-preview-description').text(value || 'Your post description will appear here when shared on social media platforms.');
+					$('.facebook-preview-description, .linkedin-preview-description').text(value || 'Your post description will appear here when shared on social media platforms.');
+					// Only update Twitter description if it's auto-synced
+					if (!$('#metasync_twitter_description').val() || $('#metasync_twitter_description').data('auto-synced')) {
+						$('.twitter-card-description').text(value || 'Your post description will appear here when shared on social media platforms.');
+					}
 					break;
 				case 'metasync_og_image':
 					this.updatePreviewImages(value);
@@ -301,6 +313,15 @@
 					var domain = this.extractDomain(value);
 					$('.facebook-preview-domain').text(domain.toUpperCase());
 					$('.twitter-card-domain, .linkedin-preview-domain').text(domain);
+					break;
+				case 'metasync_twitter_title':
+					$('.twitter-card-title').text(value || $('#metasync_og_title').val() || 'Your Post Title');
+					break;
+				case 'metasync_twitter_description':
+					$('.twitter-card-description').text(value || $('#metasync_og_description').val() || 'Your post description will appear here when shared on social media platforms.');
+					break;
+				case 'metasync_twitter_image':
+					this.updateTwitterPreviewImage(value || $('#metasync_og_image').val());
 					break;
 			}
             
@@ -329,20 +350,35 @@
          * Update preview images instantly
          */
 		updatePreviewImages: function (imageUrl) {
-			var $images = $('.facebook-preview-image, .twitter-card-image, .linkedin-preview-image');
-            
+			var $fbLinkedin = $('.facebook-preview-image, .linkedin-preview-image');
+			var imgHtml = imageUrl
+				? '<img src="' + imageUrl + '" alt="Preview" onerror="this.parentElement.classList.add(\'preview-no-image\'); this.style.display=\'none\'; this.parentElement.innerHTML=\'<div class=\\\"preview-placeholder\\\"><span>📷</span><p>Image failed to load</p></div>\';">'
+				: '<div class="preview-placeholder"><span>📷</span><p>No image selected</p></div>';
+
+			$fbLinkedin.each(function () {
+				$(this).toggleClass('preview-no-image', !imageUrl).html(imgHtml);
+			});
+
+			// Only update Twitter if it has no dedicated image
+			var twitterImage = $('#metasync_twitter_image').val();
+			if (!twitterImage || $('#metasync_twitter_image').data('auto-synced')) {
+				this.updateTwitterPreviewImage(imageUrl);
+			}
+		},
+
+		/**
+         * Update Twitter preview image independently
+         */
+		updateTwitterPreviewImage: function (imageUrl) {
+			var $twitter = $('.twitter-card-image');
 			if (imageUrl) {
-				$images.each(function () {
-					var $container = $(this);
-					$container.removeClass('preview-no-image');
-					$container.html('<img src="' + imageUrl + '" alt="Preview" onerror="this.parentElement.classList.add(\'preview-no-image\'); this.style.display=\'none\'; this.parentElement.innerHTML=\'<div class=\\\"preview-placeholder\\\"><span>📷</span><p>Image failed to load</p></div>\';">');
-				});
+				$twitter.removeClass('preview-no-image').html(
+					'<img src="' + imageUrl + '" alt="Preview" onerror="this.parentElement.classList.add(\'preview-no-image\'); this.style.display=\'none\'; this.parentElement.innerHTML=\'<div class=\\\"preview-placeholder\\\"><span>📷</span><p>Image failed to load</p></div>\';">'
+				);
 			} else {
-				$images.each(function () {
-					var $container = $(this);
-					$container.addClass('preview-no-image');
-					$container.html('<div class="preview-placeholder"><span>📷</span><p>No image selected</p></div>');
-				});
+				$twitter.addClass('preview-no-image').html(
+					'<div class="preview-placeholder"><span>📷</span><p>No image selected</p></div>'
+				);
 			}
 		},
 

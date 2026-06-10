@@ -85,6 +85,16 @@ class Metasync_Activator
 			update_option('metasync_show_wizard', true);
 		}
 
+		// Auto-disable WP core sitemap if a MetaSync sitemap already exists (WP-396).
+		// Skip on fresh installs where no sitemap has been generated yet so the site
+		// doesn't end up with zero sitemaps.
+		if (get_option('metasync_sitemap_auto_update', false)
+			|| !empty(get_option('metasync_sitemap_files', []))
+			|| file_exists(ABSPATH . 'sitemap_index.xml')
+		) {
+			update_option('metasync_disable_wp_sitemap', true);
+		}
+
 		flush_rewrite_rules();
 	}
 

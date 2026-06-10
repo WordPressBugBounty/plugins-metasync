@@ -28,6 +28,12 @@ class Metasync_Image_Converter {
     private const MAX_CONVERT_BYTES = 10 * 1024 * 1024;
 
     /**
+     * Minimum available memory (bytes) required before attempting a sub-size conversion.
+     * Remaining sub-sizes are skipped when available memory drops below this threshold.
+     */
+    private const MIN_MEMORY_FOR_SUBSIZE = 8 * 1024 * 1024;
+
+    /**
      * Get file extension for a given format.
      */
     private static function get_format_extension(string $format): string {
@@ -52,6 +58,9 @@ class Metasync_Image_Converter {
             add_filter('woocommerce_product_get_image', [$this, 'rewrite_to_picture_tags'], 20);
             add_filter('woocommerce_cart_item_thumbnail', [$this, 'rewrite_to_picture_tags'], 20);
             add_filter('woocommerce_placeholder_img', [$this, 'rewrite_to_picture_tags'], 20);
+
+            // Output buffer catch-all for themes/builders bypassing WP filters (Divi, Elementor, etc.)
+            add_action('template_redirect', [$this, 'start_output_buffer'], 1);
         }
     }
 
@@ -83,22 +92,9 @@ class Metasync_Image_Converter {
             update_post_meta($attachment_id, '_metasync_replaced_original', '1');
         }
 
-        // Convert sub-sizes (thumbnails, medium, large, etc.)
+        // Convert sub-sizes (thumbnails, medium, large, etc.) with memory management
         if (!empty($this->settings['convert_existing_sizes']) && !empty($metadata['sizes'])) {
-            $upload_dir = dirname($file);
-            foreach ($metadata['sizes'] as $size_name => &$size_data) {
-                $size_file = $upload_dir . '/' . $size_data['file'];
-                $size_converted = $this->convert_file($size_file, $format, $quality);
-
-                if ($size_converted && $strategy === 'replace' && file_exists($size_converted) && filesize($size_converted) > 0) {
-                    @unlink($size_file);
-                    $size_data['file']     = basename($size_converted);
-                    $size_data['mime-type'] = "image/{$format}";
-                } elseif ($size_converted && $strategy === 'replace') {
-                    error_log('[MetaSync Media Opt] Sub-size conversion produced invalid output, original preserved: ' . $size_file);
-                }
-            }
-            unset($size_data);
+            static::convert_subsizes($metadata['sizes'], dirname($file), $format, $quality, $strategy);
         }
 
         // Store converted format in meta for later use by picture tag rewriter
@@ -148,24 +144,11 @@ class Metasync_Image_Converter {
             }
         }
 
-        // Convert sub-sizes
+        // Convert sub-sizes with memory management
         if (!empty($settings['convert_existing_sizes'])) {
             $metadata = wp_get_attachment_metadata($attachment_id);
             if ($metadata && !empty($metadata['sizes'])) {
-                $upload_dir = dirname($file);
-                foreach ($metadata['sizes'] as $size_name => &$size_data) {
-                    $size_file = $upload_dir . '/' . $size_data['file'];
-                    $size_converted = self::do_convert_file($size_file, $format, $quality);
-
-                    if ($size_converted && $strategy === 'replace' && file_exists($size_converted) && filesize($size_converted) > 0) {
-                        @unlink($size_file);
-                        $size_data['file']     = basename($size_converted);
-                        $size_data['mime-type'] = "image/{$format}";
-                    } elseif ($size_converted && $strategy === 'replace') {
-                        error_log('[MetaSync Media Opt] Sub-size conversion produced invalid output, original preserved: ' . $size_file);
-                    }
-                }
-                unset($size_data);
+                static::convert_subsizes($metadata['sizes'], dirname($file), $format, $quality, $strategy);
                 if ($strategy === 'replace') {
                     wp_update_attachment_metadata($attachment_id, $metadata);
                 }
@@ -249,6 +232,75 @@ class Metasync_Image_Converter {
     // ── Core Conversion (static, reusable) ──
 
     /**
+     * Get available PHP memory in bytes.
+     * Returns PHP_INT_MAX when no limit is set (-1) or unreadable.
+     * Returns 0 when memory_limit is "0" or empty.
+     */
+    protected static function get_available_memory(): int {
+        $limit = ini_get('memory_limit');
+
+        if ($limit === false || $limit === '-1') {
+            return PHP_INT_MAX;
+        }
+
+        $limit = trim($limit);
+        if ($limit === '' || $limit === '0') {
+            return 0;
+        }
+
+        $value = (int) $limit;
+        $unit  = strtolower(substr($limit, -1));
+
+        $value = match ($unit) {
+            'g' => $value * 1024 * 1024 * 1024,
+            'm' => $value * 1024 * 1024,
+            'k' => $value * 1024,
+            default => $value,
+        };
+
+        return max(0, $value - memory_get_usage(true));
+    }
+
+    /**
+     * Convert sub-sizes with memory management.
+     *
+     * Runs gc_collect_cycles() between each sub-size to release memory and
+     * checks available memory before each iteration, skipping remaining
+     * sub-sizes when memory drops below MIN_MEMORY_FOR_SUBSIZE.
+     *
+     * @param array  $sizes      Reference to $metadata['sizes'].
+     * @param string $upload_dir Directory containing the sub-size files.
+     * @param string $format     Target format (webp|avif).
+     * @param int    $quality    Compression quality.
+     * @param string $strategy   Conversion strategy (replace|alongside).
+     */
+    protected static function convert_subsizes(array &$sizes, string $upload_dir, string $format, int $quality, string $strategy): void {
+        foreach ($sizes as $size_name => &$size_data) {
+            // Check available memory before each sub-size conversion
+            $available = static::get_available_memory();
+            if ($available < self::MIN_MEMORY_FOR_SUBSIZE) {
+                error_log('[MetaSync Media Opt] Low memory (' . size_format($available) . '), skipping remaining sub-sizes from: ' . $size_name);
+                break;
+            }
+
+            $size_file = $upload_dir . '/' . $size_data['file'];
+            $size_converted = static::do_convert_file($size_file, $format, $quality);
+
+            if ($size_converted && $strategy === 'replace' && file_exists($size_converted) && filesize($size_converted) > 0) {
+                @unlink($size_file);
+                $size_data['file']     = basename($size_converted);
+                $size_data['mime-type'] = "image/{$format}";
+            } elseif ($size_converted && $strategy === 'replace') {
+                error_log('[MetaSync Media Opt] Sub-size conversion produced invalid output, original preserved: ' . $size_file);
+            }
+
+            // Release cyclic references between sub-size conversions
+            gc_collect_cycles();
+        }
+        unset($size_data);
+    }
+
+    /**
      * Convert a single image file. Returns path to converted file or null on failure.
      */
     protected static function do_convert_file(string $source, string $format, int $quality): ?string {
@@ -258,6 +310,23 @@ class Metasync_Image_Converter {
 
         if (filesize($source) > self::MAX_CONVERT_BYTES) {
             error_log('[MetaSync Media Opt] Source file exceeds MAX_CONVERT_BYTES limit, skipping: ' . $source);
+            return null;
+        }
+
+        // Request WordPress's image processing memory limit
+        wp_raise_memory_limit('image');
+
+        // Pre-flight memory check using pixel dimensions when available
+        $info = getimagesize($source);
+        if ($info && $info[0] > 0 && $info[1] > 0) {
+            $bpp = ($info['mime'] === 'image/png') ? 4 : 3;
+            $estimated = (int) ($info[0] * $info[1] * $bpp * 1.8);
+        } else {
+            $estimated = filesize($source) * 3;
+        }
+        $available = self::get_available_memory();
+        if ($estimated > $available * 0.8) {
+            error_log('[MetaSync Media Opt] Skipping ' . basename($source) . ': estimated memory (' . size_format($estimated) . ') exceeds 80% of available (' . size_format($available) . ')');
             return null;
         }
 
@@ -417,7 +486,75 @@ class Metasync_Image_Converter {
     }
 
     /**
+     * Start output buffering on frontend to catch images from themes/builders
+     * that bypass standard WordPress image filters (e.g. Divi, Elementor).
+     */
+    public function start_output_buffer(): void {
+        if (is_admin() || wp_doing_ajax() || wp_doing_cron()) {
+            return;
+        }
+
+        if (defined('REST_REQUEST') && REST_REQUEST) {
+            return;
+        }
+
+        if (is_feed() || is_robots() || is_trackback()) {
+            return;
+        }
+
+        ob_start([$this, 'rewrite_full_html']);
+    }
+
+    /**
+     * Output buffer callback: rewrite remaining <img> tags to <picture>.
+     * Protects existing <picture>, <script>, and <noscript> blocks from rewriting.
+     */
+    public function rewrite_full_html(string $html): string {
+        if (empty($html) || stripos($html, '</html>') === false) {
+            return $html;
+        }
+
+        // Protect blocks that must not be rewritten
+        $protected = [];
+        $counter = 0;
+
+        // Existing <picture> blocks (already wrapped by filter hooks)
+        $html = preg_replace_callback('/<picture\b[^>]*>.*?<\/picture>/is', function ($m) use (&$protected, &$counter) {
+            $key = '<!--METASYNC_PROTECTED_' . $counter++ . '-->';
+            $protected[$key] = $m[0];
+            return $key;
+        }, $html);
+
+        // <script> blocks (JSON-LD contains image URLs)
+        $html = preg_replace_callback('/<script\b[^>]*>.*?<\/script>/is', function ($m) use (&$protected, &$counter) {
+            $key = '<!--METASYNC_PROTECTED_' . $counter++ . '-->';
+            $protected[$key] = $m[0];
+            return $key;
+        }, $html);
+
+        // <noscript> blocks (lazy-loading fallbacks)
+        $html = preg_replace_callback('/<noscript\b[^>]*>.*?<\/noscript>/is', function ($m) use (&$protected, &$counter) {
+            $key = '<!--METASYNC_PROTECTED_' . $counter++ . '-->';
+            $protected[$key] = $m[0];
+            return $key;
+        }, $html);
+
+        // Rewrite remaining <img> tags
+        $html = preg_replace_callback('/<img\s[^>]+>/i', function ($matches) {
+            return $this->maybe_wrap_img_tag($matches[0]);
+        }, $html);
+
+        // Restore protected blocks
+        if (!empty($protected)) {
+            $html = strtr($html, $protected);
+        }
+
+        return $html;
+    }
+
+    /**
      * Rewrite <img> tags to <picture> with next-gen source.
+     * Used by WordPress filter hooks for content fragments.
      */
     public function rewrite_to_picture_tags(string $content): string {
         if (empty($content)) {
@@ -430,71 +567,81 @@ class Metasync_Image_Converter {
         }
 
         return preg_replace_callback('/<img\s[^>]+>/i', function ($matches) {
-            $img_tag = $matches[0];
-
-            // Check if this image should be excluded
-            if ($this->is_tag_excluded($img_tag)) {
-                return $img_tag;
-            }
-
-            // Extract src
-            if (!preg_match('/src=["\']([^"\']+)["\']/i', $img_tag, $src_match)) {
-                return $img_tag;
-            }
-
-            $original_src = $src_match[1];
-            $format = $this->settings['conversion_format'];
-            $ext    = self::get_format_extension($format);
-
-            // Build the converted file URL
-            $converted_url = preg_replace(self::ORIGINAL_EXT_PATTERN, $ext, $original_src);
-
-            // Only wrap if the converted URL is different
-            if ($converted_url === $original_src) {
-                return $img_tag;
-            }
-
-            // Verify the converted file actually exists on disk before rewriting
-            $converted_path = $this->url_to_path($converted_url);
-            if (!$converted_path || !file_exists($converted_path)) {
-                return $img_tag;
-            }
-
-            $mime = $format === 'avif' ? 'image/avif' : 'image/webp';
-
-            // Also handle srcset if present
-            $source_srcset = '';
-            if (preg_match('/srcset=["\']([^"\']+)["\']/i', $img_tag, $srcset_match)) {
-                $converted_srcset = preg_replace('/\.(jpe?g|png)/i', $ext, $srcset_match[1]);
-                $source_srcset = sprintf(' srcset="%s"', esc_attr($converted_srcset));
-            }
-
-            // Extract sizes attribute to pass to <source>
-            $sizes_attr = '';
-            if (preg_match('/sizes=["\']([^"\']+)["\']/i', $img_tag, $sizes_match)) {
-                $sizes_attr = sprintf(' sizes="%s"', esc_attr($sizes_match[1]));
-            }
-
-            return sprintf(
-                '<picture><source type="%s"%s%s>%s</picture>',
-                esc_attr($mime),
-                $source_srcset ?: sprintf(' srcset="%s"', esc_attr($converted_url)),
-                $sizes_attr,
-                $img_tag
-            );
+            return $this->maybe_wrap_img_tag($matches[0]);
         }, $content);
     }
 
     /**
+     * Wrap a single <img> tag in <picture> with next-gen <source>.
+     * Returns the original tag unchanged if conversion is not applicable.
+     */
+    private function maybe_wrap_img_tag(string $img_tag): string {
+        if ($this->is_tag_excluded($img_tag)) {
+            return $img_tag;
+        }
+
+        if (!preg_match('/src=["\']([^"\']+)["\']/i', $img_tag, $src_match)) {
+            return $img_tag;
+        }
+
+        $original_src = $src_match[1];
+        $format = $this->settings['conversion_format'];
+        $ext    = self::get_format_extension($format);
+
+        $converted_url = preg_replace(self::ORIGINAL_EXT_PATTERN, $ext, $original_src);
+
+        if ($converted_url === $original_src) {
+            return $img_tag;
+        }
+
+        $converted_path = $this->url_to_path($converted_url);
+        if (!$converted_path || !file_exists($converted_path)) {
+            return $img_tag;
+        }
+
+        $mime = $format === 'avif' ? 'image/avif' : 'image/webp';
+
+        $source_srcset = '';
+        if (preg_match('/srcset=["\']([^"\']+)["\']/i', $img_tag, $srcset_match)) {
+            $converted_srcset = preg_replace('/\.(jpe?g|png)/i', $ext, $srcset_match[1]);
+            $source_srcset = sprintf(' srcset="%s"', esc_attr($converted_srcset));
+        }
+
+        $sizes_attr = '';
+        if (preg_match('/sizes=["\']([^"\']+)["\']/i', $img_tag, $sizes_match)) {
+            $sizes_attr = sprintf(' sizes="%s"', esc_attr($sizes_match[1]));
+        }
+
+        return sprintf(
+            '<picture><source type="%s"%s%s>%s</picture>',
+            esc_attr($mime),
+            $source_srcset ?: sprintf(' srcset="%s"', esc_attr($converted_url)),
+            $sizes_attr,
+            $img_tag
+        );
+    }
+
+    /**
      * Convert a URL to a local file path. Returns null if URL is external.
+     * Falls back to path-portion matching when hostnames differ (e.g. Cloudflare tunnel rotation).
      */
     private function url_to_path(string $url): ?string {
         $upload_dir = wp_get_upload_dir();
         $base_url   = $upload_dir['baseurl'];
         $base_path  = $upload_dir['basedir'];
 
+        // Direct match (same hostname)
         if (strpos($url, $base_url) === 0) {
             return str_replace($base_url, $base_path, $url);
+        }
+
+        // Path-based fallback: match uploads path regardless of hostname
+        $base_url_path = wp_parse_url($base_url, PHP_URL_PATH);
+        $url_path      = wp_parse_url($url, PHP_URL_PATH);
+
+        if ($base_url_path && $url_path && strpos($url_path, $base_url_path) === 0) {
+            $relative = substr($url_path, strlen($base_url_path));
+            return $base_path . $relative;
         }
 
         return null;
