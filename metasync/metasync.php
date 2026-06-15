@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.6.11 
+ * Version:           2.6.12 
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
  * License:           GPL v3
@@ -36,7 +36,7 @@ require_once __DIR__ . '/vendor/autoload.php';
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.6.11';
+$metasync_version = '2.6.12';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -448,6 +448,21 @@ function metasync_handle_plugin_upgrade($upgrader, $hook_extra)
     // Only process plugin updates/installs
     if (!isset($hook_extra['type']) || $hook_extra['type'] !== 'plugin') {
         return;
+    }
+
+    // WP-427: By the time upgrader_process_complete fires, the upgrader may have
+    // deleted the directory this (old, still-in-memory) copy of the plugin was
+    // loaded from — e.g. when the installed dir name differs from the package's
+    // root dir ('metasync-develop' vs 'metasync'). The Composer classmap then
+    // points at files that no longer exist, so autoloading Metasync_Activator
+    // below would fatal. Bail instead; the whitelabel re-import runs on the next
+    // request via check_metasync_updates() once the new copy is active.
+    if (!class_exists('Metasync_Activator', false)) {
+        $activator = __DIR__ . '/includes/class-metasync-activator.php';
+        if (!is_file($activator)) {
+            return;
+        }
+        require_once $activator;
     }
 
     // Only process install and update actions

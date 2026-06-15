@@ -505,21 +505,21 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 
 			$actions['activate'] = sprintf(
 				'<a href="%1$s">%2$s</a>',
-				esc_url(add_query_arg($activate_query_args, 'admin.php')),
+				esc_url(wp_nonce_url(add_query_arg($activate_query_args, 'admin.php'), 'metasync_redirection_row_action')),
 				_x('Activate', 'List table row action', 'metasync')
 			);
 		} else {
 
 			$actions['deactivate'] = sprintf(
 				'<a href="%1$s">%2$s</a>',
-				esc_url(add_query_arg($deactivate_query_args, 'admin.php')),
+				esc_url(wp_nonce_url(add_query_arg($deactivate_query_args, 'admin.php'), 'metasync_redirection_row_action')),
 				_x('Deactivate', 'List table row action', 'metasync')
 			);
 		}
 
 		$actions['delete'] = sprintf(
 			'<a href="%1$s">%2$s</a>',
-			esc_url(add_query_arg($delete_query_args, 'admin.php')),
+			esc_url(wp_nonce_url(add_query_arg($delete_query_args, 'admin.php'), 'metasync_redirection_row_action')),
 			_x('Delete', 'List table row action', 'metasync')
 		);
 
@@ -613,6 +613,18 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 
 		if (empty($post_data['items'])) return;
 
+		if (!$this->current_action()) {
+			return;
+		}
+
+		// Verify the bulk-action nonce emitted by WP_List_Table::display_tablenav()
+		// (plural === 'items' → 'bulk-items') and confirm plugin access before any
+		// state change. Guards against CSRF on the bulk delete/activate/deactivate path.
+		check_admin_referer('bulk-items');
+
+		if (!Metasync::current_user_has_plugin_access()) {
+			return;
+		}
 
 		// Detect when bulk delete action is being triggered.
 		if ('delete_bulk' === $this->current_action()) {
@@ -632,6 +644,21 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 
 	protected function process_row_action()
 	{
+		$state_actions = ['delete', 'activate', 'deactivate'];
+
+		if (!in_array($this->current_action(), $state_actions, true)) {
+			return;
+		}
+
+		// Verify the row-action nonce (added to the row-action links in column_sources_from())
+		// and confirm plugin access before any state change. The row actions run via GET
+		// links, so without this they are open to CSRF.
+		check_admin_referer('metasync_redirection_row_action');
+
+		if (!Metasync::current_user_has_plugin_access()) {
+			return;
+		}
+
 		$get_data = metasync_sanitize_input_array($_GET);
 		$item = isset($get_data['id']) ? sanitize_text_field($get_data['id']) : '';
 

@@ -531,11 +531,19 @@ class Metasync_Custom_Pages_API
 	}
 
 	/**
-	 * Delete a custom HTML page
+	 * Delete a custom HTML page and clean up its on-disk assets.
+	 *
+	 * Shared implementation behind both the REST endpoint and the MCP delete tool
+	 * so the two paths cannot drift. Performs: page validation, front-page reset
+	 * (when the page is the static front page), permanent deletion, and
+	 * reference-counted removal of the LPS asset folder.
+	 *
+	 * @param int $page_id
+	 * @return array|WP_Error Result payload on success, WP_Error (with status) on failure.
 	 */
-	public function delete_custom_html_page($request)
+	public function delete_custom_page_with_cleanup($page_id)
 	{
-		$page_id = intval($request->get_param('page_id'));
+		$page_id = intval($page_id);
 
 		// Verify page exists
 		$page = get_post($page_id);
@@ -565,6 +573,11 @@ class Metasync_Custom_Pages_API
 			$assets_folder = $page->post_name;
 		}
 
+		// Capture whether this page is the static front page BEFORE deleting it -
+		// WordPress/plugins may clear page_on_front during wp_delete_post(), so a
+		// post-delete read could miss it (WP-443).
+		$was_front_page = ((int) get_option('page_on_front') === $page_id);
+
 		// Delete the page permanently
 		$result = wp_delete_post($page_id, true);
 
@@ -574,6 +587,16 @@ class Metasync_Custom_Pages_API
 				'Failed to delete page.',
 				array('status' => 500)
 			);
+		}
+
+		// Reset the WordPress static front page when this page WAS it (captured
+		// before the delete; some setups clear page_on_front during wp_delete_post(),
+		// so reading it afterwards would miss the match). Idempotent + only on success.
+		$front_page_reset = false;
+		if ($was_front_page) {
+			update_option('show_on_front', 'posts');
+			delete_option('page_on_front');
+			$front_page_reset = true;
 		}
 
 		// Remove the LPS asset folder associated with this page — but only if no
@@ -617,15 +640,35 @@ class Metasync_Custom_Pages_API
 			}
 		}
 
+		return array(
+			'page_id' => $page_id,
+			'title' => $page->post_title,
+			'assets_removed' => $assets_removed,
+			'assets_folder_still_referenced' => $assets_still_referenced,
+			'front_page_reset' => $front_page_reset,
+		);
+	}
+
+	/**
+	 * Delete a custom HTML page (REST endpoint).
+	 *
+	 * Delegates to the shared delete_custom_page_with_cleanup() implementation.
+	 */
+	public function delete_custom_html_page($request)
+	{
+		$page_id = intval($request->get_param('page_id'));
+
+		$result = $this->delete_custom_page_with_cleanup($page_id);
+		if (is_wp_error($result)) {
+			// Return the WP_Error directly so the REST framework maps its embedded
+			// status (404/400/500) to the HTTP status code.
+			return $result;
+		}
+
 		return rest_ensure_response(array(
 			'success' => true,
 			'message' => 'Custom HTML page deleted successfully',
-			'data' => array(
-				'page_id' => $page_id,
-				'title' => $page->post_title,
-				'assets_removed' => $assets_removed,
-				'assets_folder_still_referenced' => $assets_still_referenced
-			)
+			'data' => $result
 		));
 	}
 
@@ -669,6 +712,12 @@ class Metasync_Custom_Pages_API
 				'required' => false,
 				'type' => 'string',
 				'description' => 'On-disk folder name the bundle is extracted to (under uploads/metasync-pages/). This is the path LPS bakes into the asset URLs at build time and is intentionally separate from the page slug. Defaults to the slug when omitted.'
+			),
+			'external_ref' => array(
+				'required' => false,
+				'type' => 'string',
+				'description' => 'LPS project UUID used as the stable per-project home dedup key.',
+				'sanitize_callback' => 'sanitize_text_field'
 			)
 		);
 	}
@@ -680,125 +729,219 @@ class Metasync_Custom_Pages_API
 	 */
 	public function import_lps_page($request)
 	{
-		$raw_slug = $request->get_param('slug');
-		if (is_string($raw_slug) && (strpos($raw_slug, '..') !== false || strpos($raw_slug, '/') !== false || strpos($raw_slug, '\\') !== false)) {
-			return new WP_Error(
-				'invalid_slug_path',
-				'Slug must not contain path separators or parent references.',
-				array('status' => 400)
-			);
+		// --- Audit tracking (one persistent record is written on every exit path) ---
+		$_lps_start_ms = (int) round(microtime(true) * 1000);
+		$_lps_result   = null;   // WP_Error|array — set before each return
+		$_lps_http_st  = 500;    // updated before each return
+		$_lps_input    = array(
+			'source_type'       => 'unknown',
+			'zip_size_bytes'    => 0,
+			'assets_folder'     => '',
+			'pages_in_manifest' => null,
+		);
+
+		// Re-derive the auth method + masked key prefix using the same precedence as
+		// validate_api_key() (Bearer header, then x-api-key header, then apikey param).
+		$_lps_auth_method    = '';
+		$_lps_api_key_prefix = '';
+		$_lps_matched_key    = '';
+		$_lps_auth_header    = $request->get_header('authorization');
+		if (!empty($_lps_auth_header) && preg_match('/^Bearer\s+(.+)$/i', $_lps_auth_header, $_lps_m)) {
+			$_lps_auth_method = 'bearer';
+			$_lps_matched_key = sanitize_text_field($_lps_m[1]);
+		}
+		if ($_lps_matched_key === '') {
+			$_lps_hk = $request->get_header('x-api-key');
+			if (!empty($_lps_hk)) {
+				$_lps_auth_method = 'x-api-key';
+				$_lps_matched_key = sanitize_text_field($_lps_hk);
+			}
+		}
+		if ($_lps_matched_key === '') {
+			$_lps_pk = $request->get_param('apikey');
+			if (!empty($_lps_pk)) {
+				$_lps_auth_method = 'apikey-query';
+				$_lps_matched_key = sanitize_text_field($_lps_pk);
+			}
+		}
+		if (strlen($_lps_matched_key) >= 8) {
+			$_lps_api_key_prefix = substr($_lps_matched_key, 0, 8) . '...';
 		}
 
-		$params = $request->get_params();
-		$slug = isset($params['slug']) ? sanitize_title($params['slug']) : '';
-		$title = isset($params['title']) ? sanitize_text_field($params['title']) : '';
-		$status = isset($params['status']) ? sanitize_text_field($params['status']) : 'publish';
-		$overwrite = isset($params['overwrite']) ? (bool) $params['overwrite'] : true;
-		$download_url = isset($params['download_url']) ? $params['download_url'] : '';
-		$assets_folder = isset($params['assets_folder']) ? $params['assets_folder'] : '';
-
-		$zip_path = '';
-		$tmp_file = null;
-
-		$max_zip_bytes = 50 * 1024 * 1024;
-
 		try {
-			if (!empty($download_url)) {
-				$tmp_file = wp_tempnam('lps_import_');
-				if (!$tmp_file) {
-					return new WP_Error('tmp_file_failed', 'Failed to create temporary file.', array('status' => 500));
-				}
-
-				$response = wp_safe_remote_get($download_url, array(
-					'timeout' => 60,
-					'stream' => true,
-					'filename' => $tmp_file,
-				));
-
-				if (is_wp_error($response)) {
-					return new WP_Error('zip_download_failed', 'Failed to download ZIP: ' . $response->get_error_message(), array('status' => 400));
-				}
-
-				$code = wp_remote_retrieve_response_code($response);
-				if ((int) $code !== 200) {
-					return new WP_Error('zip_download_http_error', 'ZIP download returned HTTP ' . intval($code), array('status' => 400));
-				}
-
-				$content_type = strtolower((string) wp_remote_retrieve_header($response, 'content-type'));
-				if ($content_type !== '' && strpos($content_type, 'zip') === false && strpos($content_type, 'octet-stream') === false) {
-					return new WP_Error('invalid_zip_content_type', 'Downloaded file is not a ZIP (Content-Type: ' . sanitize_text_field($content_type) . ').', array('status' => 400));
-				}
-
-				$downloaded_size = file_exists($tmp_file) ? filesize($tmp_file) : 0;
-				if ($downloaded_size === 0) {
-					return new WP_Error('zip_download_empty', 'Downloaded ZIP file is empty.', array('status' => 400));
-				}
-				if ($downloaded_size > $max_zip_bytes) {
-					return new WP_Error('zip_too_large', 'Downloaded ZIP exceeds the maximum allowed size (' . intval($max_zip_bytes / 1024 / 1024) . ' MB).', array('status' => 413));
-				}
-
-				$zip_path = $tmp_file;
-
-			} elseif (!empty($_FILES['zip_file']) && is_array($_FILES['zip_file'])) {
-				$file = $_FILES['zip_file'];
-
-				if (!isset($file['error']) || $file['error'] !== UPLOAD_ERR_OK) {
-					return new WP_Error('zip_upload_error', 'Uploaded ZIP file has an error code: ' . (isset($file['error']) ? intval($file['error']) : 'unknown'), array('status' => 400));
-				}
-
-				if (empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
-					return new WP_Error('invalid_zip_upload', 'Invalid ZIP upload.', array('status' => 400));
-				}
-
-				$allowed_mime_types = array('application/zip', 'application/octet-stream', 'application/x-zip-compressed', 'multipart/x-zip');
-				if (!empty($file['type']) && !in_array($file['type'], $allowed_mime_types, true)) {
-					return new WP_Error('invalid_zip_mime', 'Uploaded file is not a ZIP archive (type: ' . sanitize_text_field($file['type']) . ').', array('status' => 400));
-				}
-
-				$uploaded_size = isset($file['size']) ? (int) $file['size'] : 0;
-				if ($uploaded_size > $max_zip_bytes) {
-					return new WP_Error('zip_too_large', 'Uploaded ZIP exceeds the maximum allowed size (' . intval($max_zip_bytes / 1024 / 1024) . ' MB).', array('status' => 413));
-				}
-
-				$zip_path = $file['tmp_name'];
-
-			} else {
-				return new WP_Error('missing_zip_source', 'Provide either a download_url or a multipart zip_file upload.', array('status' => 400));
+			$raw_slug = $request->get_param('slug');
+			if (is_string($raw_slug) && (strpos($raw_slug, '..') !== false || strpos($raw_slug, '/') !== false || strpos($raw_slug, '\\') !== false)) {
+				$_lps_http_st = 400;
+				$_lps_result  = new WP_Error(
+					'invalid_slug_path',
+					'Slug must not contain path separators or parent references.',
+					array('status' => 400)
+				);
+				return $_lps_result;
 			}
 
-			$result = $this->extract_and_create_lps_page($zip_path, $slug, $title, $status, $overwrite, $assets_folder);
+			$params = $request->get_params();
+			$slug = isset($params['slug']) ? sanitize_title($params['slug']) : '';
+			$title = isset($params['title']) ? sanitize_text_field($params['title']) : '';
+			$status = isset($params['status']) ? sanitize_text_field($params['status']) : 'publish';
+			$overwrite = isset($params['overwrite']) ? (bool) $params['overwrite'] : true;
+			$download_url = isset($params['download_url']) ? $params['download_url'] : '';
+			$assets_folder = isset($params['assets_folder']) ? $params['assets_folder'] : '';
+			$_lps_input['assets_folder'] = $assets_folder;
+			$external_ref = isset($params['external_ref']) ? sanitize_text_field($params['external_ref']) : '';
+			$_lps_input['external_ref'] = $external_ref;
 
-			if (is_wp_error($result)) {
-				return $result;
-			}
+			$zip_path = '';
+			$tmp_file = null;
 
-			// Map the import outcome to an HTTP status:
-			//   200 — all pages created/updated
-			//   207 — partial success (some pages failed)
-			//   422 — every page failed
-			// (Single-page slug conflicts already return 409 as a WP_Error above.)
-			$status_code = 200;
-			$data = (isset($result['data']) && is_array($result['data'])) ? $result['data'] : array();
-			if (isset($data['mode']) && $data['mode'] === 'multi') {
-				$succeeded = count(isset($data['created']) ? $data['created'] : array())
-					+ count(isset($data['updated']) ? $data['updated'] : array());
-				$failed = count(isset($data['failed']) ? $data['failed'] : array());
-				if ($failed > 0 && $succeeded > 0) {
-					$status_code = 207;
-				} elseif ($failed > 0 && $succeeded === 0) {
-					$status_code = 422;
-					$result['success'] = false;
+			$max_zip_bytes = 50 * 1024 * 1024;
+
+			try {
+				if (!empty($download_url)) {
+					$_lps_input['source_type'] = 'download_url';
+					// wp_tempnam() lives in wp-admin/includes/file.php, which is NOT loaded
+					// during a normal REST request — load it so this works in any context.
+					if (!function_exists('wp_tempnam')) {
+						require_once ABSPATH . 'wp-admin/includes/file.php';
+					}
+					$tmp_file = wp_tempnam('lps_import_');
+					if (!$tmp_file) {
+						$_lps_http_st = 500;
+						$_lps_result  = new WP_Error('tmp_file_failed', 'Failed to create temporary file.', array('status' => 500));
+						return $_lps_result;
+					}
+
+					$response = wp_safe_remote_get($download_url, array(
+						'timeout' => 60,
+						'stream' => true,
+						'filename' => $tmp_file,
+					));
+
+					if (is_wp_error($response)) {
+						$_lps_http_st = 400;
+						$_lps_result  = new WP_Error('zip_download_failed', 'Failed to download ZIP: ' . $response->get_error_message(), array('status' => 400));
+						return $_lps_result;
+					}
+
+					$code = wp_remote_retrieve_response_code($response);
+					if ((int) $code !== 200) {
+						$_lps_http_st = 400;
+						$_lps_result  = new WP_Error('zip_download_http_error', 'ZIP download returned HTTP ' . intval($code), array('status' => 400));
+						return $_lps_result;
+					}
+
+					$content_type = strtolower((string) wp_remote_retrieve_header($response, 'content-type'));
+					if ($content_type !== '' && strpos($content_type, 'zip') === false && strpos($content_type, 'octet-stream') === false) {
+						$_lps_http_st = 400;
+						$_lps_result  = new WP_Error('invalid_zip_content_type', 'Downloaded file is not a ZIP (Content-Type: ' . sanitize_text_field($content_type) . ').', array('status' => 400));
+						return $_lps_result;
+					}
+
+					$downloaded_size = file_exists($tmp_file) ? filesize($tmp_file) : 0;
+					$_lps_input['zip_size_bytes'] = $downloaded_size;
+					if ($downloaded_size === 0) {
+						$_lps_http_st = 400;
+						$_lps_result  = new WP_Error('zip_download_empty', 'Downloaded ZIP file is empty.', array('status' => 400));
+						return $_lps_result;
+					}
+					if ($downloaded_size > $max_zip_bytes) {
+						$_lps_http_st = 413;
+						$_lps_result  = new WP_Error('zip_too_large', 'Downloaded ZIP exceeds the maximum allowed size (' . intval($max_zip_bytes / 1024 / 1024) . ' MB).', array('status' => 413));
+						return $_lps_result;
+					}
+
+					$zip_path = $tmp_file;
+
+				} elseif (!empty($_FILES['zip_file']) && is_array($_FILES['zip_file'])) {
+					$file = $_FILES['zip_file'];
+					$_lps_input['source_type'] = 'upload';
+
+					if (!isset($file['error']) || $file['error'] !== UPLOAD_ERR_OK) {
+						$_lps_http_st = 400;
+						$_lps_result  = new WP_Error('zip_upload_error', 'Uploaded ZIP file has an error code: ' . (isset($file['error']) ? intval($file['error']) : 'unknown'), array('status' => 400));
+						return $_lps_result;
+					}
+
+					if (empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+						$_lps_http_st = 400;
+						$_lps_result  = new WP_Error('invalid_zip_upload', 'Invalid ZIP upload.', array('status' => 400));
+						return $_lps_result;
+					}
+
+					$allowed_mime_types = array('application/zip', 'application/octet-stream', 'application/x-zip-compressed', 'multipart/x-zip');
+					if (!empty($file['type']) && !in_array($file['type'], $allowed_mime_types, true)) {
+						$_lps_http_st = 400;
+						$_lps_result  = new WP_Error('invalid_zip_mime', 'Uploaded file is not a ZIP archive (type: ' . sanitize_text_field($file['type']) . ').', array('status' => 400));
+						return $_lps_result;
+					}
+
+					$uploaded_size = isset($file['size']) ? (int) $file['size'] : 0;
+					$_lps_input['zip_size_bytes'] = $uploaded_size;
+					if ($uploaded_size > $max_zip_bytes) {
+						$_lps_http_st = 413;
+						$_lps_result  = new WP_Error('zip_too_large', 'Uploaded ZIP exceeds the maximum allowed size (' . intval($max_zip_bytes / 1024 / 1024) . ' MB).', array('status' => 413));
+						return $_lps_result;
+					}
+
+					$zip_path = $file['tmp_name'];
+
+				} else {
+					$_lps_http_st = 400;
+					$_lps_result  = new WP_Error('missing_zip_source', 'Provide either a download_url or a multipart zip_file upload.', array('status' => 400));
+					return $_lps_result;
+				}
+
+				$result = $this->extract_and_create_lps_page($zip_path, $slug, $title, $status, $overwrite, $assets_folder, $external_ref);
+				$_lps_result = $result;
+
+				if (is_wp_error($result)) {
+					$_err_data    = $result->get_error_data();
+					$_lps_http_st = (int) ((is_array($_err_data) && isset($_err_data['status'])) ? $_err_data['status'] : 500);
+					return $result;
+				}
+
+				// Map the import outcome to an HTTP status:
+				//   200 — all pages created/updated
+				//   207 — partial success (some pages failed)
+				//   422 — every page failed
+				// (Single-page slug conflicts already return 409 as a WP_Error above.)
+				$status_code = 200;
+				$data = (isset($result['data']) && is_array($result['data'])) ? $result['data'] : array();
+				if (isset($data['mode']) && $data['mode'] === 'multi') {
+					$_lps_input['pages_in_manifest'] = isset($data['pages_total']) ? (int) $data['pages_total'] : null;
+					$succeeded = count(isset($data['created']) ? $data['created'] : array())
+						+ count(isset($data['updated']) ? $data['updated'] : array());
+					$failed = count(isset($data['failed']) ? $data['failed'] : array());
+					if ($failed > 0 && $succeeded > 0) {
+						$status_code = 207;
+					} elseif ($failed > 0 && $succeeded === 0) {
+						$status_code = 422;
+						$result['success'] = false;
+						$_lps_result = $result;
+					}
+				} elseif (isset($data['mode']) && $data['mode'] === 'single') {
+					$_lps_input['pages_in_manifest'] = 1;
+				}
+
+				$_lps_http_st = $status_code;
+				$response = rest_ensure_response($result);
+				$response->set_status($status_code);
+				return $response;
+
+			} finally {
+				if (!empty($tmp_file) && file_exists($tmp_file)) {
+					@unlink($tmp_file);
 				}
 			}
-
-			$response = rest_ensure_response($result);
-			$response->set_status($status_code);
-			return $response;
-
 		} finally {
-			if (!empty($tmp_file) && file_exists($tmp_file)) {
-				@unlink($tmp_file);
-			}
+			self::write_lps_import_audit(array(
+				'result'         => $_lps_result,
+				'http_status'    => $_lps_http_st,
+				'input'          => $_lps_input,
+				'start_ms'       => $_lps_start_ms,
+				'auth_method'    => $_lps_auth_method,
+				'api_key_prefix' => $_lps_api_key_prefix,
+			));
 		}
 	}
 
@@ -815,9 +958,11 @@ class Metasync_Custom_Pages_API
 	 * @param string $assets_folder On-disk folder name to extract into (under metasync-pages/).
 	 *                              Defaults to the slug when empty. Must match the path LPS baked
 	 *                              into the bundle's asset URLs at build time.
+	 * @param string $external_ref Stable per-project LPS UUID. When non-empty it is stored as
+	 *                              post meta and used as the primary home-page dedup key.
 	 * @return array|WP_Error   Response array on success, WP_Error on failure.
 	 */
-	public function extract_and_create_lps_page($zip_path, $slug, $title, $status = 'publish', $overwrite = true, $assets_folder = '')
+	public function extract_and_create_lps_page($zip_path, $slug, $title, $status = 'publish', $overwrite = true, $assets_folder = '', $external_ref = '')
 	{
 		if (!class_exists('ZipArchive')) {
 			return new WP_Error(
@@ -1023,7 +1168,7 @@ class Metasync_Custom_Pages_API
 			if (is_wp_error($swap)) {
 				return $swap;
 			}
-			return $this->create_pages_from_manifest($manifest['pages'], $target_dir, $assets_folder, $assets_dir_url, $status, $overwrite);
+			return $this->create_pages_from_manifest($manifest['pages'], $target_dir, $assets_folder, $assets_dir_url, $status, $overwrite, $external_ref);
 		}
 
 		// ---- Single-page import -------------------------------------------------
@@ -1113,6 +1258,9 @@ class Metasync_Custom_Pages_API
 		update_post_meta($page_id, Metasync_Custom_Pages::META_CREATED_VIA_API, '1');
 		update_post_meta($page_id, Metasync_Custom_Pages::META_LPS_IMPORT, '1');
 		update_post_meta($page_id, Metasync_Custom_Pages::META_ASSETS_FOLDER, $assets_folder);
+		if ($external_ref !== '') {
+			update_post_meta($page_id, Metasync_Custom_Pages::META_LPS_PROJECT_REF, $external_ref);
+		}
 		update_post_meta($page_id, Metasync_Custom_Pages::META_HTML_ENABLED, '1');
 		update_post_meta($page_id, Metasync_Custom_Pages::META_HTML_CONTENT, wp_unslash($html));
 		update_post_meta($page_id, Metasync_Custom_Pages::META_HTML_FILENAME, 'index.html');
@@ -1125,6 +1273,7 @@ class Metasync_Custom_Pages_API
 			'message' => 'LPS ZIP imported successfully',
 			'data' => array(
 				'mode' => 'single',
+				'was_update' => (bool) $existing_page,
 				'page_id' => $page_id,
 				'slug' => get_post_field('post_name', $page_id),
 				'url' => get_permalink($page_id),
@@ -1213,6 +1362,57 @@ class Metasync_Custom_Pages_API
 	}
 
 	/**
+	 * Find this project's existing LPS home page by a stable per-project marker,
+	 * independent of its slug, so a re-publish updates the same home instead of
+	 * creating a duplicate.
+	 *
+	 * When $external_ref (the LPS project UUID) is supplied it is the primary key:
+	 * matched on META_LPS_PROJECT_REF, robust to assets_folder/slug changes between
+	 * publishes. When absent (i.e. before CA forwards external_ref) it falls back to
+	 * the legacy META_LPS_HOME == assets_folder lookup — no regression.
+	 *
+	 * @param string $assets_folder Legacy per-project key (fallback).
+	 * @param string $external_ref  LPS project UUID (preferred key when present).
+	 * @return int Page ID, or 0 if none.
+	 */
+	private function find_lps_home_page($assets_folder, $external_ref = '')
+	{
+		if ($external_ref !== '') {
+			// Match the project's HOME specifically: the page carrying this project's
+			// UUID (written on every page) AND flagged as a home (META_LPS_HOME is
+			// written only on the home). Without the home clause this matched any page.
+			$ref_ids = get_posts(array(
+				'post_type'        => 'page',
+				'post_status'      => array('publish', 'future', 'draft', 'pending', 'private'),
+				'numberposts'      => 1,
+				'fields'           => 'ids',
+				'no_found_rows'    => true,
+				'suppress_filters' => true,
+				'meta_query'       => array(
+					'relation' => 'AND',
+					array('key' => Metasync_Custom_Pages::META_LPS_PROJECT_REF, 'value' => $external_ref),
+					array('key' => Metasync_Custom_Pages::META_LPS_HOME, 'compare' => 'EXISTS'),
+				),
+			));
+			if (!empty($ref_ids)) {
+				return (int) $ref_ids[0];
+			}
+		}
+
+		$ids = get_posts(array(
+			'post_type'        => 'page',
+			'post_status'      => array('publish', 'future', 'draft', 'pending', 'private'),
+			'numberposts'      => 1,
+			'fields'           => 'ids',
+			'no_found_rows'    => true,
+			'suppress_filters' => true,
+			'meta_key'         => Metasync_Custom_Pages::META_LPS_HOME,
+			'meta_value'       => $assets_folder,
+		));
+		return !empty($ids) ? (int) $ids[0] : 0;
+	}
+
+	/**
 	 * Create or update one WordPress page per entry in pages.manifest.json.
 	 *
 	 * All pages share the single $assets_folder. Slugs are created shallowest-first
@@ -1225,7 +1425,7 @@ class Metasync_Custom_Pages_API
 	 *                     before the staging→live swap).
 	 * @return array Response with created/updated/failed arrays.
 	 */
-	private function create_pages_from_manifest($pages, $target_dir, $assets_folder, $assets_dir_url, $status, $overwrite)
+	private function create_pages_from_manifest($pages, $target_dir, $assets_folder, $assets_dir_url, $status, $overwrite, $external_ref = '')
 	{
 		// Shallowest slugs first so parents are created before their children.
 		usort($pages, function ($a, $b) {
@@ -1250,8 +1450,8 @@ class Metasync_Custom_Pages_API
 			$is_home  = !empty($entry['isHome']);
 			$raw_slug = isset($entry['slug']) ? trim((string) $entry['slug'], '/') : '';
 
-			// Home page (empty slug) maps to a dedicated 'home' slug. We deliberately
-			// do NOT change the site's front page — that stays a manual decision.
+			// Home page (isHome / empty slug) is handled specially below: it is
+			// created and set as the WordPress static front page so it serves at "/".
 			$effective_slug = ($is_home && $raw_slug === '') ? 'home' : $raw_slug;
 
 			// Normalize each segment exactly as WordPress will persist it, so the
@@ -1287,6 +1487,70 @@ class Metasync_Custom_Pages_API
 			$html = file_get_contents($html_file);
 			if ($html === false) {
 				$failed[] = array('slug' => $effective_slug, 'code' => 'html_unreadable', 'message' => 'Could not read this page\'s index.html.');
+				continue;
+			}
+
+			// --- Home page: create it and set it as the WordPress static front page
+			// so it serves at "/" (the LPS app's router expects home at the root).
+			// The page is identified per-project via the META_LPS_HOME marker (value =
+			// assets_folder), so re-publishing the SAME project updates its own home
+			// instead of creating duplicates — even if its slug was renamed. A DIFFERENT
+			// project gets its own new home and takes over the front page; the previous
+			// project's home is left in place (non-destructive). Home conflicts are NOT
+			// reported to LPS — a taken 'home' slug just falls back to 'home-2'.
+			// Home dedup keys on external_ref (the LPS project UUID) when present,
+			// falling back to assets_folder for pre-external_ref imports (WP-449).
+			if ($is_home) {
+				$home_id = $this->find_lps_home_page($assets_folder, $external_ref);
+				$home_existing = $home_id > 0;
+				if ($home_existing) {
+					$res = wp_update_post(array('ID' => $home_id, 'post_title' => $title, 'post_status' => 'publish'), true);
+					if (is_wp_error($res)) {
+						$failed[] = array('slug' => 'home', 'code' => 'home_update_failed', 'message' => $res->get_error_message());
+						continue;
+					}
+				} else {
+					// 'home' if free; otherwise next available (home-2, ...). Front-page
+					// makes the slug invisible, so any free slug is fine.
+					$home_slug = get_page_by_path('home', OBJECT, 'page') ? $this->suggest_available_slug('home') : 'home';
+					$home_id = wp_insert_post(array(
+						'post_title'   => $title,
+						'post_name'    => $home_slug,
+						'post_type'    => 'page',
+						'post_status'  => 'publish',
+						'post_content' => ''
+					), true);
+					if (is_wp_error($home_id)) {
+						$failed[] = array('slug' => 'home', 'code' => 'home_insert_failed', 'message' => $home_id->get_error_message());
+						continue;
+					}
+				}
+
+				update_post_meta($home_id, Metasync_Custom_Pages::META_IS_CUSTOM_HTML_PAGE, '1');
+				update_post_meta($home_id, Metasync_Custom_Pages::META_CREATED_VIA_API, '1');
+				update_post_meta($home_id, Metasync_Custom_Pages::META_LPS_IMPORT, '1');
+				update_post_meta($home_id, Metasync_Custom_Pages::META_ASSETS_FOLDER, $assets_folder);
+				update_post_meta($home_id, Metasync_Custom_Pages::META_LPS_HOME, $assets_folder);
+				if ($external_ref !== '') {
+					update_post_meta($home_id, Metasync_Custom_Pages::META_LPS_PROJECT_REF, $external_ref);
+				}
+				update_post_meta($home_id, Metasync_Custom_Pages::META_HTML_ENABLED, '1');
+				update_post_meta($home_id, Metasync_Custom_Pages::META_HTML_CONTENT, wp_unslash($html));
+				update_post_meta($home_id, Metasync_Custom_Pages::META_HTML_FILENAME, $rel);
+
+				// Make it the site's static front page (serves at "/").
+				update_option('show_on_front', 'page');
+				update_option('page_on_front', $home_id);
+
+				wp_cache_delete($home_id, 'posts');
+				wp_cache_delete($home_id, 'post_meta');
+
+				$rec = array('slug' => get_post_field('post_name', $home_id), 'page_id' => $home_id, 'url' => get_permalink($home_id), 'is_front_page' => true);
+				if ($home_existing) {
+					$updated[] = $rec;
+				} else {
+					$created[] = $rec;
+				}
 				continue;
 			}
 
@@ -1331,6 +1595,9 @@ class Metasync_Custom_Pages_API
 					}
 					update_post_meta($new_parent, Metasync_Custom_Pages::META_LPS_IMPORT, '1');
 					update_post_meta($new_parent, Metasync_Custom_Pages::META_ASSETS_FOLDER, $assets_folder);
+					if ($external_ref !== '') {
+						update_post_meta($new_parent, Metasync_Custom_Pages::META_LPS_PROJECT_REF, $external_ref);
+					}
 					$parent_id = $new_parent;
 				}
 				$slug_to_id[$ancestor_path] = $parent_id;
@@ -1393,6 +1660,9 @@ class Metasync_Custom_Pages_API
 			update_post_meta($page_id, Metasync_Custom_Pages::META_CREATED_VIA_API, '1');
 			update_post_meta($page_id, Metasync_Custom_Pages::META_LPS_IMPORT, '1');
 			update_post_meta($page_id, Metasync_Custom_Pages::META_ASSETS_FOLDER, $assets_folder);
+			if ($external_ref !== '') {
+				update_post_meta($page_id, Metasync_Custom_Pages::META_LPS_PROJECT_REF, $external_ref);
+			}
 			update_post_meta($page_id, Metasync_Custom_Pages::META_HTML_ENABLED, '1');
 			update_post_meta($page_id, Metasync_Custom_Pages::META_HTML_CONTENT, wp_unslash($html));
 			update_post_meta($page_id, Metasync_Custom_Pages::META_HTML_FILENAME, $rel);
@@ -1483,5 +1753,180 @@ class Metasync_Custom_Pages_API
 		}
 
 		return @rmdir($dir);
+	}
+
+	/**
+	 * Write exactly one persistent audit record for an LPS ZIP import.
+	 *
+	 * Called from both the REST handler (import_lps_page) and the MCP tool on
+	 * every exit path — success or failure. The record always lands in the
+	 * existing metasync_sync_history table (covered by its bounded cleanup),
+	 * independent of WP_DEBUG. Neither the ZIP bytes nor the page HTML are
+	 * stored: only sizes, counts, slugs and short reasons.
+	 *
+	 * @param array $ctx {
+	 *     @type WP_Error|array|null $result         Helper result (or WP_Error on failure).
+	 *     @type int                 $http_status    Mapped HTTP status (200/207/422/409/423/...).
+	 *     @type array               $input          source_type, zip_size_bytes, assets_folder, pages_in_manifest.
+	 *     @type int                 $start_ms       Start time in ms for duration (0 to skip).
+	 *     @type string              $auth_method    bearer|x-api-key|apikey-query|mcp-capability.
+	 *     @type string              $api_key_prefix Masked key prefix (NEVER the full key).
+	 *     @type string              $error_message  Optional externally-supplied error message.
+	 * }
+	 * @return void
+	 */
+	public static function write_lps_import_audit(array $ctx)
+	{
+		try {
+			require_once dirname(__FILE__, 2) . '/sync-history/class-metasync-sync-history-database.php';
+
+			$result         = isset($ctx['result']) ? $ctx['result'] : null;
+			$http_status    = isset($ctx['http_status']) ? (int) $ctx['http_status'] : 500;
+			$input          = (isset($ctx['input']) && is_array($ctx['input'])) ? $ctx['input'] : array();
+			$start_ms       = isset($ctx['start_ms']) ? (int) $ctx['start_ms'] : 0;
+			$auth_method    = isset($ctx['auth_method']) ? (string) $ctx['auth_method'] : '';
+			$api_key_prefix = isset($ctx['api_key_prefix']) ? (string) $ctx['api_key_prefix'] : '';
+			$ext_error      = isset($ctx['error_message']) ? (string) $ctx['error_message'] : '';
+			$duration_ms    = $start_ms > 0 ? max(0, (int) round(microtime(true) * 1000) - $start_ms) : null;
+
+			$per_page   = array();
+			$counts     = array('created' => 0, 'updated' => 0, 'failed' => 0, 'skipped' => 0);
+			$front_page = array('set' => false, 'page_id' => null);
+			$error_msg  = $ext_error;
+
+			if ($result instanceof WP_Error) {
+				$error_msg = $result->get_error_message();
+				$counts['failed'] = 1;
+			} elseif (is_array($result) && isset($result['data']) && is_array($result['data'])) {
+				$data = $result['data'];
+				$mode = isset($data['mode']) ? $data['mode'] : '';
+
+				if ($mode === 'multi') {
+					foreach ((isset($data['created']) && is_array($data['created'])) ? $data['created'] : array() as $p) {
+						$per_page[] = array(
+							'slug'    => isset($p['slug']) ? $p['slug'] : '',
+							'action'  => 'created',
+							'page_id' => isset($p['page_id']) ? $p['page_id'] : null,
+							'reason'  => null,
+						);
+						$counts['created']++;
+						if (!empty($p['is_front_page'])) {
+							$front_page = array('set' => true, 'page_id' => isset($p['page_id']) ? $p['page_id'] : null);
+						}
+					}
+					foreach ((isset($data['updated']) && is_array($data['updated'])) ? $data['updated'] : array() as $p) {
+						$per_page[] = array(
+							'slug'    => isset($p['slug']) ? $p['slug'] : '',
+							'action'  => 'updated',
+							'page_id' => isset($p['page_id']) ? $p['page_id'] : null,
+							'reason'  => null,
+						);
+						$counts['updated']++;
+						if (!empty($p['is_front_page'])) {
+							$front_page = array('set' => true, 'page_id' => isset($p['page_id']) ? $p['page_id'] : null);
+						}
+					}
+					foreach ((isset($data['failed']) && is_array($data['failed'])) ? $data['failed'] : array() as $p) {
+						$reason = isset($p['code']) ? $p['code'] : '';
+						if (isset($p['message'])) {
+							$reason .= ($reason !== '' ? ': ' : '') . $p['message'];
+						}
+						$per_page[] = array(
+							'slug'    => isset($p['slug']) ? $p['slug'] : '',
+							'action'  => 'failed',
+							'page_id' => null,
+							'reason'  => $reason !== '' ? $reason : 'failed',
+						);
+						$counts['failed']++;
+					}
+				} elseif ($mode === 'single') {
+					$single_action = !empty($data['was_update']) ? 'updated' : 'created';
+					$counts[$single_action] = 1;
+					$per_page[] = array(
+						'slug'    => isset($data['slug']) ? $data['slug'] : '',
+						'action'  => $single_action,
+						'page_id' => isset($data['page_id']) ? $data['page_id'] : null,
+						'reason'  => null,
+					);
+				}
+			} elseif ($result === null) {
+				// Never reached the extraction helper (early validation failure).
+				$counts['failed'] = 1;
+			}
+
+			if ($http_status === 200) {
+				$overall_status = 'success';
+			} elseif ($http_status === 207) {
+				$overall_status = 'partial';
+			} elseif ($http_status === 409) {
+				$overall_status = 'conflict';
+			} elseif ($http_status === 423) {
+				$overall_status = 'locked';
+			} else {
+				$overall_status = 'failed';
+			}
+
+			$assets_folder = isset($input['assets_folder']) ? $input['assets_folder'] : '';
+			$title_slug    = $assets_folder !== '' ? $assets_folder : (isset($per_page[0]['slug']) && $per_page[0]['slug'] !== '' ? $per_page[0]['slug'] : 'unknown');
+
+			$site_url = function_exists('get_site_url') ? get_site_url() : '';
+
+			$meta_payload = array(
+				'timestamp'         => function_exists('current_time') ? current_time('mysql') : date('Y-m-d H:i:s'),
+				'site_url'          => $site_url,
+				'api_key_prefix'    => $api_key_prefix,
+				'plugin_version'    => defined('METASYNC_VERSION') ? METASYNC_VERSION : '',
+				'auth_method'       => $auth_method,
+				'source_type'       => isset($input['source_type']) ? $input['source_type'] : 'unknown',
+				'assets_folder'     => $assets_folder,
+				'external_ref'      => isset($input['external_ref']) ? (string) $input['external_ref'] : '',
+				'zip_size_bytes'    => isset($input['zip_size_bytes']) ? (int) $input['zip_size_bytes'] : 0,
+				'pages_in_manifest' => isset($input['pages_in_manifest']) ? $input['pages_in_manifest'] : null,
+				'counts'            => $counts,
+				'front_page'        => $front_page,
+				'per_page'          => $per_page,
+				'http_status'       => $http_status,
+				'overall_status'    => $overall_status,
+				'error_message'     => $error_msg !== '' ? substr($error_msg, 0, 500) : '',
+				'duration_ms'       => $duration_ms,
+			);
+
+			// User-facing badge status: first import -> Published, re-sync -> Updated,
+			// nothing imported -> failed. Per-page conflicts are intentionally NOT
+			// surfaced here (Website Studio notifies the customer to republish).
+			if ($counts['created'] > 0) {
+			    $db_status = 'published';
+			} elseif ($counts['updated'] > 0) {
+			    $db_status = 'updated';
+			} else {
+			    $db_status = 'failed';
+			}
+			$db = new Metasync_Sync_History_Database();
+			$db->add(array(
+				'title'        => 'Website Studio (LPS) import: ' . $title_slug,
+				'source'       => 'Website Studio (LPS)',
+				'status'       => $db_status,
+				'content_type' => 'lps_import',
+				'url'          => $site_url,
+				'meta_data'    => json_encode($meta_payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+			));
+
+			// Optional deep-debug breadcrumb — the DB write above always happens
+			// regardless of WP_DEBUG; this line is purely supplementary.
+			if (defined('WP_DEBUG') && WP_DEBUG) {
+				error_log(sprintf(
+					'Metasync LPS import audit: status=%s http=%d created=%d updated=%d failed=%d',
+					$overall_status,
+					$http_status,
+					$counts['created'],
+					$counts['updated'],
+					$counts['failed']
+				));
+			}
+		} catch (\Throwable $e) {
+			if (defined('WP_DEBUG') && WP_DEBUG) {
+				error_log('Metasync LPS audit log failed: ' . $e->getMessage());
+			}
+		}
 	}
 }

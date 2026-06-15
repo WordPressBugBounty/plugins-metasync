@@ -1541,6 +1541,188 @@ class Metasync_Rest_Api
 		}
 	}
 
+	/**
+	 * WP-429: Remove a leading <h1> from post content when it duplicates the post title.
+	 *
+	 * Themes that render post_title as an H1 produce a duplicate heading when the
+	 * synced body also opens with the title. Counterpart of the WP-337 guard, which
+	 * only prevents prepending a second H1 but never removes one supplied in the body.
+	 *
+	 * @param string $content Post body HTML
+	 * @param string $title   Post title
+	 * @return string Content without the duplicated leading H1
+	 */
+	private function strip_leading_title_h1($content, $title)
+	{
+		if (!is_string($content) || trim($content) === '' || trim((string) $title) === '') {
+			return $content;
+		}
+
+		$trimmed = ltrim($content);
+		if (!preg_match('/^<h1[^>]*>(.*?)<\/h1>\s*/is', $trimmed, $h1_match)) {
+			return $content;
+		}
+
+		# Entity-decode both sides so "Mobility &amp; Recovery" matches "Mobility & Recovery"
+		$h1_text = trim(html_entity_decode(strip_tags($h1_match[1]), ENT_QUOTES | ENT_HTML5));
+		$title_text = trim(html_entity_decode((string) $title, ENT_QUOTES | ENT_HTML5));
+		if ($h1_text === '' || strcasecmp($h1_text, $title_text) !== 0) {
+			return $content;
+		}
+
+		return substr($trimmed, strlen($h1_match[0]));
+	}
+
+	/**
+	 * WP-429: Decide whether the synced body should carry a prepended <h1> title.
+	 *
+	 * Replaces the unreliable 7-day hidden-post probe (title_in_headings) as the
+	 * source of truth for the prepend decision. We only prepend when we have a
+	 * POSITIVE, render-verified verdict that the active theme does NOT render the
+	 * post title itself. When the verdict is unknown we default to NOT prepending,
+	 * because a duplicate H1 (theme title + body title) is a worse, more visible
+	 * defect than a one-time missing body title on the rare no-title theme. The
+	 * verdict is learned per post-type by record_theme_title_verdict() after the
+	 * first sync renders the real post.
+	 *
+	 * @param string $post_type Post type being synced
+	 * @return bool True only when the theme is known to omit the title
+	 */
+	private function should_prepend_title($post_type)
+	{
+		$general = Metasync::get_option('general');
+		if (isset($general['theme_renders_title'][$post_type])) {
+			# Verdict known: prepend only when the theme does NOT render the title.
+			return $general['theme_renders_title'][$post_type] === false;
+		}
+		# Unknown verdict: do not prepend (avoid duplicate H1).
+		return false;
+	}
+
+	/**
+	 * WP-429: After a post is saved, render its live URL once and record whether
+	 * the active theme outputs the post title in a heading. The verdict is cached
+	 * per post-type so subsequent syncs skip the round-trip. Best-effort: any
+	 * inconclusive fetch (non-200, cache/challenge page, wrong post) records
+	 * nothing and is retried on the next sync.
+	 *
+	 * @param int    $post_id    Saved post ID
+	 * @param string $permalink  Public permalink of the saved post
+	 * @param string $post_title Post title to look for
+	 * @param string $post_type  Post type (verdict cache key)
+	 */
+	private function record_theme_title_verdict($post_id, $permalink, $post_title, $post_type)
+	{
+		if (empty($permalink) || trim((string) $post_title) === '' || empty($post_type)) {
+			return;
+		}
+
+		$general = Metasync::get_option('general');
+		# Already learned for this post type — nothing to do.
+		if (isset($general['theme_renders_title'][$post_type])) {
+			return;
+		}
+
+		$verdict = $this->detect_theme_renders_title($permalink, (int) $post_id, $post_title);
+		if ($verdict === null) {
+			# Inconclusive fetch: do not poison the cache, retry next sync.
+			return;
+		}
+
+		# Re-read to avoid clobbering concurrent option writes, then persist.
+		$options = Metasync::get_option();
+		if (!isset($options['general']) || !is_array($options['general'])) {
+			$options['general'] = [];
+		}
+		if (!isset($options['general']['theme_renders_title']) || !is_array($options['general']['theme_renders_title'])) {
+			$options['general']['theme_renders_title'] = [];
+		}
+		$options['general']['theme_renders_title'][$post_type] = $verdict;
+		Metasync::set_option($options);
+	}
+
+	/**
+	 * WP-429: Fetch the rendered post and detect whether the theme outputs the
+	 * title in a heading.
+	 *
+	 * @param string $permalink  Public permalink
+	 * @param int    $post_id    Saved post ID (used to confirm we fetched the right page)
+	 * @param string $post_title Title to look for
+	 * @return bool|null True = theme renders the title; false = it does not;
+	 *                   null = inconclusive (do not cache).
+	 */
+	private function detect_theme_renders_title($permalink, $post_id, $post_title)
+	{
+		# Cache-bust so a full-page cache (LiteSpeed, etc.) returns a fresh render
+		# rather than a stale 404/challenge — the original cause of the bad verdict.
+		$url = add_query_arg('metasync_nocache', (string) time(), $permalink);
+
+		$response = wp_remote_get($url, array(
+			'timeout'     => 10,
+			'redirection' => 3,
+			'sslverify'   => false,
+			'headers'     => array(
+				'Cache-Control' => 'no-cache',
+				'Pragma'        => 'no-cache',
+			),
+		));
+
+		if (is_wp_error($response)) {
+			return null;
+		}
+
+		$code = (int) wp_remote_retrieve_response_code($response);
+		$html = wp_remote_retrieve_body($response);
+		if ($code !== 200 || empty($html)) {
+			return null;
+		}
+
+		# Confirm we actually rendered THIS post (WordPress emits these on body/article).
+		# Without this a cached 404 or bot challenge would falsely record "omits".
+		$is_our_post = (stripos($html, 'postid-' . $post_id) !== false)
+			|| (stripos($html, 'page-id-' . $post_id) !== false)
+			|| (stripos($html, 'id="post-' . $post_id . '"') !== false);
+		if (!$is_our_post) {
+			return null;
+		}
+
+		return $this->title_present_in_headings($html, $post_title);
+	}
+
+	/**
+	 * WP-429: Return true if $title appears within any heading (h1–h6) of $html.
+	 *
+	 * @param string $html  Rendered page HTML
+	 * @param string $title Title text to match
+	 * @return bool
+	 */
+	private function title_present_in_headings($html, $title)
+	{
+		$title = trim(html_entity_decode((string) $title, ENT_QUOTES | ENT_HTML5));
+		if ($title === '' || !class_exists('DOMDocument')) {
+			return false;
+		}
+
+		$dom = new DOMDocument();
+		libxml_use_internal_errors(true);
+		$dom->loadHTML($html);
+		libxml_clear_errors();
+
+		$xpath = new DOMXPath($dom);
+		$headings = $xpath->query('//h1 | //h2 | //h3 | //h4 | //h5 | //h6');
+		if ($headings === false) {
+			return false;
+		}
+
+		foreach ($headings as $heading) {
+			$heading_text = trim($heading->textContent);
+			if ($heading_text !== '' && stripos($heading_text, $title) !== false) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public function create_item($request)
 	{
 		// Checking for type of object for response type
@@ -1594,35 +1776,29 @@ class Metasync_Rest_Api
 					$is_flatsome_theme = true;
 				}
 
+				# WP-429: Always strip a leading H1 that duplicates the title. The
+				# theme renders post_title in its header on virtually every theme, so a
+				# title H1 at the top of the body is a duplicate. Whether we then put one
+				# back is decided by should_prepend_title() below.
+				if (isset($item['post_title'])) {
+					$item['post_content'] = $this->strip_leading_title_h1($item['post_content'], $item['post_title']);
+				}
+
 				# Skip title/image prepending for Flatsome (it displays them by default)
 				if (!$is_flatsome_theme) {
-					# Get the setting for the post template
+					# Get the setting for the post template (feature-image detection)
 					$title_and_feature_image = $this->append_content_if_missing_elements($current_post_type);
 
-					# Check if the post title is there in the template or not
+					# Prepend the feature image when the template does not already show it
 					if(!$title_and_feature_image['image_in_content'] && !empty($item['hero_image_url'])){
-
-						# Prepend the feature image
-						$item['post_content'] = '<img src="'.$item['hero_image_url'].'" />'.$item['post_content'] ;
+						$item['post_content'] = '<img src="' . esc_url_raw($item['hero_image_url']) . '" />'.$item['post_content'] ;
 					}
 
-					# Check if the post title is there in the template or not
-					if(!$title_and_feature_image['title_in_headings']){
-
-						# WP-337: Only prepend H1 if content doesn't already start with an H1 containing the same text
-						$skip_prepend = false;
-						$content_trimmed = trim($item['post_content']);
-						if (preg_match('/^<h1[^>]*>(.*?)<\/h1>/is', $content_trimmed, $h1_match)) {
-							$existing_h1_text = trim(strip_tags($h1_match[1]));
-							if (strcasecmp($existing_h1_text, trim($item['post_title'])) === 0) {
-								$skip_prepend = true;
-							}
-						}
-						if (!$skip_prepend) {
-							$item['post_content'] = '<h1>'.$item['post_title'].'</h1>'.$item['post_content'] ;
-						}
+					# WP-429: Only prepend the title H1 when the theme is render-verified to
+					# omit it. Unknown verdict defaults to NOT prepending (see should_prepend_title).
+					if(isset($item['post_title']) && $this->should_prepend_title($current_post_type)){
+						$item['post_content'] = '<h1>'.$item['post_title'].'</h1>'.$item['post_content'] ;
 					}
-
 				}
 				#  This will be used by create_page function
 				$content = $this->metasync_upload_post_content($item,false,false);
@@ -1871,6 +2047,18 @@ class Metasync_Rest_Api
 
 			// Google Indexing Integration
 			$this->metasync_google_index_post($post_id, $new_post['post_type'], $new_post['post_status']);
+			}
+
+			# WP-429: For standard synced posts, learn (once per post-type) whether the
+			# theme renders the title, so future syncs prepend only when genuinely needed.
+			if (!is_wp_error($post_id) && $post_id > 0
+				&& !isset($item['is_landing_page']) && empty($isOttoAiPage) && empty($item['style_data'])
+				&& $new_post['post_status'] === 'publish') {
+				try {
+					$this->record_theme_title_verdict($post_id, $permalink, $new_post['post_title'], $new_post['post_type']);
+				} catch (Exception $e) {
+					error_log('MetaSync WP-429 title verdict failed: ' . $e->getMessage());
+				}
 			}
 
 			$respCreatePosts[$index] = array_merge($new_post, $post_meta);
@@ -2333,33 +2521,27 @@ class Metasync_Rest_Api
 					$is_flatsome_theme = true;
 				}
 
+				# Title to compare against — payload may omit post_title on update
+				$compare_title = isset($post['post_title']) && !empty($post['post_title']) ? $post['post_title'] : $post_fresh_data->post_title;
+
+				# WP-429: Always strip a leading H1 that duplicates the title; the theme
+				# renders post_title in its header, so a body title H1 is a duplicate.
+				$post['post_content'] = $this->strip_leading_title_h1($post['post_content'], $compare_title);
+
 				# Skip title/image prepending for Flatsome (it displays them by default)
 				if (!$is_flatsome_theme) {
-					# Get the setting for the post template
+					# Get the setting for the post template (feature-image detection)
 					$title_and_feature_image = $this->append_content_if_missing_elements($post_fresh_data->post_type);
 
-					# Check if the post title is there in the template or not
+					# Prepend the feature image when the template does not already show it
 					if(!$title_and_feature_image['image_in_content'] && !empty($post['hero_image_url'])){
-
-						# Prepend the feature image
-						$post['post_content'] = '<img src="'.$post['hero_image_url'].'" />'.$post['post_content'] ;
+						$post['post_content'] = '<img src="' . esc_url_raw($post['hero_image_url']) . '" />'.$post['post_content'] ;
 					}
 
-					# Check if the post title is there in the template or not
-					if(!$title_and_feature_image['title_in_headings']){
-
-						# WP-337: Only prepend H1 if content doesn't already start with an H1 containing the same text
-						$skip_prepend = false;
-						$content_trimmed = trim($post['post_content']);
-						if (preg_match('/^<h1[^>]*>(.*?)<\/h1>/is', $content_trimmed, $h1_match)) {
-							$existing_h1_text = trim(strip_tags($h1_match[1]));
-							if (strcasecmp($existing_h1_text, trim($post['post_title'])) === 0) {
-								$skip_prepend = true;
-							}
-						}
-						if (!$skip_prepend) {
-							$post['post_content'] = '<h1>'.$post['post_title'].'</h1>'.$post['post_content'] ;
-						}
+					# WP-429: Only prepend the title H1 when the theme is render-verified to
+					# omit it. Unknown verdict defaults to NOT prepending (see should_prepend_title).
+					if($this->should_prepend_title($post_fresh_data->post_type)){
+						$post['post_content'] = '<h1>'.$compare_title.'</h1>'.$post['post_content'] ;
 					}
 				}
 				// This will be used by update_page function
@@ -2594,6 +2776,17 @@ class Metasync_Rest_Api
 					Metasync_GA4::get_instance()->track_content_genius_event($post_id, 'updated');
 				} catch (Exception $e) {
 					error_log('MetaSync: Analytics tracking failed for Content Genius - ' . $e->getMessage());
+				}
+
+				# WP-429: Learn (once per post-type) whether the theme renders the title,
+				# so future syncs prepend only when the theme genuinely omits it.
+				if ($post_id > 0 && empty($post['is_landing_page']) && empty($isOttoAiPage)
+					&& $sync_status === 'published') {
+					try {
+						$this->record_theme_title_verdict($post_id, ($permalink ?? get_permalink($post_id)), $post_title, $post_type);
+					} catch (Exception $e) {
+						error_log('MetaSync WP-429 title verdict failed: ' . $e->getMessage());
+					}
 				}
 			}
 

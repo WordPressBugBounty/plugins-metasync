@@ -199,11 +199,16 @@ class Metasync_Admin
         
         // Set menu title using the effective title (includes whitelabel company name if available)
         $this->menu_title = $this->get_effective_menu_title();      
-        if(!isset( $data['white_label_plugin_menu_slug'])){
-            self::$page_slug = "searchatlas";   
-        }else{
-            self::$page_slug = $data['white_label_plugin_menu_slug']==""  ? "searchatlas":$data['white_label_plugin_menu_slug'];
-        } 
+        $raw_slug = isset($data['white_label_plugin_menu_slug']) ? $data['white_label_plugin_menu_slug'] : '';
+        $clean_slug = sanitize_title($raw_slug);
+        # Self-heal a legacy URL-shaped slug (WP-413): persist the sanitized value so every
+        # reader that builds admin links from the stored option gets a valid WP menu slug.
+        if ($raw_slug !== '' && $clean_slug !== $raw_slug) {
+            $options = Metasync::get_option();
+            $options['general']['white_label_plugin_menu_slug'] = $clean_slug;
+            Metasync::set_option($options);
+        }
+        self::$page_slug = $clean_slug === '' ? 'searchatlas' : $clean_slug;
        
         add_action('admin_menu', array($this, 'add_plugin_settings_page'));
         add_action('admin_menu', array($this, 'add_import_external_data_page'));
@@ -462,7 +467,9 @@ class Metasync_Admin
         $data= Metasync::get_option('general');
 
         # Get white label menu slug
-        $menu_slug = empty($data['white_label_plugin_menu_slug']) ?  self::$page_slug : $data['white_label_plugin_menu_slug'];
+        # Sanitize so a URL-shaped legacy value still yields a valid WP menu slug (WP-413)
+        $menu_slug = empty($data['white_label_plugin_menu_slug']) ?  self::$page_slug : sanitize_title($data['white_label_plugin_menu_slug']);
+        $menu_slug = $menu_slug === '' ? self::$page_slug : $menu_slug;
         
             ?>
             <style>
@@ -1135,6 +1142,9 @@ class Metasync_Admin
                 $this->version,
                 true
             );
+            wp_localize_script($this->plugin_name . '-bing-console', 'metasyncBingConsoleData', array(
+                'nonce' => wp_create_nonce('metasync_nonce'),
+            ));
         }
 
         // Add redirection form
@@ -3780,17 +3790,18 @@ class Metasync_Admin
                                 </div>
 
                                 <div class="sync-log-status" style="display:flex;align-items:center;gap:8px;">
-                                    <?php if ($record->status === 'published' || $record->status === 'publish'): ?>
-                                        <span class="sync-status-badge sync-status-published">
-                                            <span class="sync-status-icon">✓</span>
-                                            Published
-                                        </span>
-                                    <?php else: ?>
-                                        <span class="sync-status-badge sync-status-draft">
-                                            <span class="sync-status-icon">i</span>
-                                            Draft
-                                        </span>
-                                    <?php endif; ?>
+                                    <?php
+                                        $st = (string) $record->status;
+                                        $b_label = ucfirst($st); $b_bg = '#6b7280'; $b_icon = 'dashicons-info-outline';
+                                        if ($st === 'published' || $st === 'publish' || $st === 'success' || $st === 'partial') { $b_label = 'Published'; $b_bg = '#16a34a'; $b_icon = 'dashicons-yes'; }
+                                        elseif ($st === 'updated') { $b_label = 'Updated'; $b_bg = '#0d9488'; $b_icon = 'dashicons-update'; }
+                                        elseif ($st === 'failed' || $st === 'conflict' || $st === 'locked') { $b_label = 'Not imported'; $b_bg = '#64748b'; $b_icon = 'dashicons-minus'; }
+                                        elseif ($st === 'draft') { $b_label = 'Draft'; $b_bg = '#6b7280'; $b_icon = 'dashicons-info-outline'; }
+                                    ?>
+                                    <span class="sync-status-badge" style="display:inline-flex;align-items:center;gap:4px;background:<?php echo esc_attr($b_bg); ?>;color:#fff;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;line-height:1;">
+                                        <span class="dashicons <?php echo esc_attr($b_icon); ?>" style="font-size:14px;width:14px;height:14px;line-height:14px;"></span>
+                                        <?php echo esc_html($b_label); ?>
+                                    </span>
                                     <?php if ($record->source === 'MCP Client'): ?>
                                         <button type="button"
                                                 class="metasync-rollback-btn"
@@ -6081,6 +6092,12 @@ class Metasync_Admin
      */
     public function ajax_send_giapi()
     {
+        check_ajax_referer('metasync_nonce', 'nonce');
+
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(['message' => 'Insufficient permissions.'], 403);
+        }
+
         $post_data = metasync_sanitize_input_array($_POST);
         if (!isset($post_data['metasync_giapi_url'])) {
             return;
@@ -6148,6 +6165,12 @@ class Metasync_Admin
      */
     public function ajax_send_bing_indexnow()
     {
+        check_ajax_referer('metasync_nonce', 'nonce');
+
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(['message' => 'Insufficient permissions.'], 403);
+        }
+
         require_once plugin_dir_path(dirname(__FILE__)) . 'bing-index/class-metasync-bing-instant-index.php';
         $bing_instant_index = new Metasync_Bing_Instant_Index();
         $bing_instant_index->send();

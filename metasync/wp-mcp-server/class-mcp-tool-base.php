@@ -227,6 +227,29 @@ abstract class MCP_Tool_Base {
     }
 
     /**
+     * Check if the current actor has plugin access
+     *
+     * API-key-aware gate. Under API-key auth there is no WordPress user, so
+     * Metasync::current_user_has_plugin_access() would return false; in that
+     * case access has already been verified at the REST API level.
+     *
+     * @return bool
+     * @throws Exception If the user lacks plugin access
+     */
+    protected function require_plugin_access() {
+        // Skip check if authenticated via API key (already verified at REST API level)
+        if (defined('METASYNC_MCP_API_KEY_AUTH') && METASYNC_MCP_API_KEY_AUTH) {
+            return true;
+        }
+
+        // For WordPress user sessions, check plugin access
+        if (!Metasync::current_user_has_plugin_access()) {
+            throw new Exception('Insufficient permissions');
+        }
+        return true;
+    }
+
+    /**
      * Verify a post exists by ID
      *
      * @param int $post_id Post ID to verify

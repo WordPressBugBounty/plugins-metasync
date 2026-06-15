@@ -784,6 +784,14 @@ class Metasync_Connect_Manager
                 unset($options['general']['last_heart_beat']);
             }
 
+            # WP-426: drop the manual "Sync Now" cooldown stamp too — a stale
+            # cooldown surviving disconnect blocks the first sync after the
+            # user reconnects or saves a new API key.
+            if (isset($options['general']['last_manual_sync'])) {
+                $cleared_data['last_manual_sync'] = $options['general']['last_manual_sync'];
+                unset($options['general']['last_manual_sync']);
+            }
+
             # Clear the dedicated heartbeat throttle option (WP-351 moved
             # throttle timestamps out of the main blob).
             delete_option(Metasync::heartbeat_throttle_option);
@@ -824,8 +832,14 @@ class Metasync_Connect_Manager
             $cleared_data['public_hash_cache'] = 'cleared';
 
             delete_transient('metasync_heartbeat_status_cache');
+            # WP-426: also drop the last-known-state fallback. With it left at
+            # `true`, the header badge flips between "Not Connected" and
+            # "Warning" across refreshes depending on whether the status cache
+            # transient is alive once an API key exists again.
+            delete_option('metasync_last_known_connection_state');
             Metasync_Admin_Navigation::invalidate_admin_bar_status_cache();
             $cleared_data['heartbeat_cache'] = 'cleared';
+            $cleared_data['last_known_connection_state'] = 'cleared';
 
             Metasync_Heartbeat_Manager::instance()->unschedule_heartbeat_cron();
 

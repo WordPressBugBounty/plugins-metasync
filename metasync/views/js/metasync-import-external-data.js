@@ -36,6 +36,12 @@ jQuery(document).ready(function ($) {
 			return;
 		}
 
+		// Indexation imports are batched to avoid PHP memory exhaustion on large sites
+		if (type === 'indexation') {
+			performIndexationImport(btn, type, plugin, card);
+			return;
+		}
+
 		// For other import types, proceed directly
 		performImport(btn, type, plugin, card);
 	});
@@ -112,6 +118,74 @@ jQuery(document).ready(function ($) {
 				resultDiv.addClass('error').text('Network error. Please try again.').slideDown();
 			}
 		});
+	}
+
+	// Perform batched indexation import with progress tracking
+	function performIndexationImport(btn, type, plugin, card) {
+		var resultDiv = card.find('.metasync-import-result');
+		var progressContainer = card.find('.metasync-progress-container');
+		var progressFill = card.find('.metasync-progress-fill');
+		var progressText = card.find('.metasync-progress-text');
+		var offset = 0;
+		var totalImported = 0;
+		var totalSkipped = 0;
+
+		btn.prop('disabled', true).text('Importing...');
+		resultDiv.removeClass('success error').hide();
+		progressFill.css('width', '0%');
+		progressText.text('0%');
+		progressContainer.addClass('active');
+
+		function processBatch() {
+			$.ajax({
+				url: ajaxurl,
+				type: 'POST',
+				data: {
+					action: 'metasync_import_external_data',
+					nonce: importNonce,
+					type: type,
+					plugin: plugin,
+					offset: offset
+				},
+				success: function (response) {
+					if (response.success && response.data) {
+						var data = response.data;
+						totalImported += data.imported || 0;
+						totalSkipped += data.skipped || 0;
+
+						var percent = data.progress_percent || 0;
+						progressFill.css('width', percent + '%');
+						progressText.text(percent + '%');
+
+						resultDiv.removeClass('error').addClass('success')
+							.text('Processing... ' + (data.processed || 0).toLocaleString() + ' of ' + (data.total || 0).toLocaleString() + ' posts')
+							.show();
+
+						if (data.is_complete) {
+							progressFill.css('width', '100%');
+							progressText.text('100%');
+							btn.addClass('success').text('✓ Imported');
+							resultDiv.text('✓ Import Complete! Imported: ' + totalImported.toLocaleString() + ' | Skipped: ' + totalSkipped.toLocaleString());
+						} else {
+							offset = data.processed || 0;
+							processBatch();
+						}
+					} else {
+						btn.prop('disabled', false).text('Retry Import');
+						progressContainer.removeClass('active');
+						var errMsg = (response.data && response.data.message) ? response.data.message : 'Import failed.';
+						resultDiv.removeClass('success').addClass('error').text(errMsg).show();
+					}
+				},
+				error: function () {
+					btn.prop('disabled', false).text('Retry Import');
+					progressContainer.removeClass('active');
+					resultDiv.removeClass('success').addClass('error').text('Network error. Please try again.').show();
+				}
+			});
+		}
+
+		processBatch();
 	}
 
 	// Perform batch import with progress tracking (for SEO metadata)

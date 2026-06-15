@@ -1444,6 +1444,9 @@ class Metasync_Schema_Markup
     public function display_schema_validation_notices()
     {
         // Only show on post edit screens
+        if ( ! function_exists( 'get_current_screen' ) ) {
+            return;
+        }
         $screen = get_current_screen();
         if (!$screen || ($screen->base !== 'post' && $screen->base !== 'post-new')) {
             return;

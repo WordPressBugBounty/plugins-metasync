@@ -40,8 +40,16 @@ class Metasync_Sync_Requests
 
     /**
      * Data or Response received from HeartBeat API for admin area.
+     *
+     * @param string|null $token   Legacy auth token (unused by the request itself).
+     * @param string      $context 'manual' for the Settings "Sync Now" button,
+     *                             'heartbeat' for JS heartbeat ticks, '' for
+     *                             system callers (settings-save verification,
+     *                             cron connectivity test, category CRUD, REST).
+     *                             Only 'manual' consumes/stamps the manual
+     *                             cooldown (WP-426).
      */
-    public function SyncCustomerParams($token = null)
+    public function SyncCustomerParams($token = null, $context = '')
     {
         $categories_sync_limit = 1000;
         $users_sync_limit = 1000;
@@ -75,7 +83,7 @@ class Metasync_Sync_Requests
         $last_hb_request_time = $_throttle['last_heart_beat'] ?? 0;
 
         # PR3: Throttle depends on state — burst (KEY_PENDING within 30 min) allows 30s; else 5 min
-        $is_heartbeat = filter_var($_POST['is_heart_beat'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $is_heartbeat = ($context === 'heartbeat') || filter_var($_POST['is_heart_beat'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $is_burst = !empty($_POST['is_burst']);
         $heartbeat_state = $metasync_options['general']['heartbeat_state'] ?? '';
         $state_changed_at = (int) ($metasync_options['general']['heartbeat_state_changed_at'] ?? 0);
@@ -96,10 +104,16 @@ class Metasync_Sync_Requests
                 ];
             }
             Metasync::set_heartbeat_throttle(['last_heart_beat' => time()]);
-        } else {
+        } elseif ($context === 'manual') {
             # Manual "Sync Now" path: track throttle via a dedicated option key so
             # heartbeat ticks (which update last_heart_beat every ~15s) cannot keep
             # the manual cooldown alive indefinitely.
+            # WP-426: only the Settings "Sync Now" button takes this branch. System
+            # callers (API-key save verification, cron connectivity test, category
+            # CRUD, REST sync) must neither be rejected by the manual cooldown —
+            # a throttled object reads as a failed verification and reverts a
+            # freshly saved API key — nor stamp it, which would lock the button
+            # for 5 minutes after every settings save.
             $last_manual_sync_time = (int) ($metasync_options['general']['last_manual_sync'] ?? 0);
             $manual_min_interval_sec = 60 * 5; // 5 minutes
             if (($last_manual_sync_time + $manual_min_interval_sec) > time()) {

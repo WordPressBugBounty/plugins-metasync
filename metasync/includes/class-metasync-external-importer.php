@@ -704,49 +704,54 @@ class Metasync_External_Importer
     /**
      * Import Indexation Options (Per-Post Robots Meta)
      */
-    public function import_indexation($plugin)
+    public function import_indexation($plugin, $options = [])
     {
-        $imported_count = 0;
+        $defaults = ['batch_size' => 50, 'offset' => 0];
+        $options = array_merge($defaults, $options);
 
         switch ($plugin) {
             case 'yoast':
-                $imported_count = $this->import_yoast_indexation();
-                break;
+                return $this->import_yoast_indexation($options);
 
             case 'rankmath':
-                $imported_count = $this->import_rankmath_indexation();
-                break;
+                return $this->import_rankmath_indexation($options);
 
             case 'aioseo':
-                $imported_count = $this->import_aioseo_indexation();
-                break;
+                return $this->import_aioseo_indexation($options);
 
             default:
                 return ['success' => false, 'message' => 'Invalid plugin specified.'];
         }
-
-        if ($imported_count > 0) {
-            return ['success' => true, 'message' => "Successfully imported indexation settings for $imported_count posts."];
-        }
-
-        return ['success' => false, 'message' => 'No post-level indexation settings found to import.'];
     }
 
     /**
      * Import per-post indexation settings from Yoast SEO
      */
-    private function import_yoast_indexation()
+    private function import_yoast_indexation($options = [])
     {
         global $wpdb;
         $imported_count = 0;
 
-        // Get all posts with Yoast robots meta
-        $posts = $wpdb->get_results("
-            SELECT DISTINCT post_id
+        $batch_size = intval($options['batch_size']);
+        $offset = intval($options['offset']);
+
+        // Get total count (for progress tracking)
+        $total = (int) $wpdb->get_var("
+            SELECT COUNT(DISTINCT post_id)
             FROM {$wpdb->postmeta}
             WHERE meta_key LIKE '_yoast_wpseo_%'
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
         ");
+
+        // Get batch of posts with Yoast robots meta
+        $posts = $wpdb->get_results($wpdb->prepare("
+            SELECT DISTINCT post_id
+            FROM {$wpdb->postmeta}
+            WHERE meta_key LIKE '_yoast_wpseo_%'
+            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+            ORDER BY post_id ASC
+            LIMIT %d OFFSET %d
+        ", $batch_size, $offset));
 
         foreach ($posts as $post_obj) {
             $post_id = $post_obj->post_id;
@@ -824,26 +829,56 @@ class Metasync_External_Importer
                 }
                 $imported_count++;
             }
+
+            // Flush per-post object cache to prevent unbounded memory growth across batches
+            clean_post_cache($post_id);
         }
 
-        return $imported_count;
+        $processed = $offset + count($posts);
+        $is_complete = $processed >= $total;
+
+        return [
+            'success' => true,
+            'imported' => $imported_count,
+            'skipped' => count($posts) - $imported_count,
+            'total' => $total,
+            'processed' => $processed,
+            'is_complete' => $is_complete,
+            'progress_percent' => $total > 0 ? round(($processed / $total) * 100) : 100,
+            'message' => $is_complete
+                ? "Import complete! Imported {$imported_count} posts."
+                : "Processing... {$imported_count} imported."
+        ];
     }
 
     /**
      * Import per-post indexation settings from Rank Math
      */
-    private function import_rankmath_indexation()
+    private function import_rankmath_indexation($options = [])
     {
         global $wpdb;
         $imported_count = 0;
 
-        // Get all posts with Rank Math robots meta
-        $posts = $wpdb->get_results("
-            SELECT DISTINCT post_id
+        $batch_size = intval($options['batch_size']);
+        $offset = intval($options['offset']);
+
+        // Get total count (for progress tracking)
+        $total = (int) $wpdb->get_var("
+            SELECT COUNT(DISTINCT post_id)
             FROM {$wpdb->postmeta}
             WHERE meta_key LIKE 'rank_math_%'
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
         ");
+
+        // Get batch of posts with Rank Math robots meta
+        $posts = $wpdb->get_results($wpdb->prepare("
+            SELECT DISTINCT post_id
+            FROM {$wpdb->postmeta}
+            WHERE meta_key LIKE 'rank_math_%'
+            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+            ORDER BY post_id ASC
+            LIMIT %d OFFSET %d
+        ", $batch_size, $offset));
 
         foreach ($posts as $post_obj) {
             $post_id = $post_obj->post_id;
@@ -926,18 +961,38 @@ class Metasync_External_Importer
                 }
                 $imported_count++;
             }
+
+            // Flush per-post object cache to prevent unbounded memory growth across batches
+            clean_post_cache($post_id);
         }
 
-        return $imported_count;
+        $processed = $offset + count($posts);
+        $is_complete = $processed >= $total;
+
+        return [
+            'success' => true,
+            'imported' => $imported_count,
+            'skipped' => count($posts) - $imported_count,
+            'total' => $total,
+            'processed' => $processed,
+            'is_complete' => $is_complete,
+            'progress_percent' => $total > 0 ? round(($processed / $total) * 100) : 100,
+            'message' => $is_complete
+                ? "Import complete! Imported {$imported_count} posts."
+                : "Processing... {$imported_count} imported."
+        ];
     }
 
     /**
      * Import per-post indexation settings from AIOSEO
      */
-    private function import_aioseo_indexation()
+    private function import_aioseo_indexation($options = [])
     {
         global $wpdb;
         $imported_count = 0;
+
+        $batch_size = intval($options['batch_size']);
+        $offset = intval($options['offset']);
 
         // AIOSEO stores data in a custom table
         $aioseo_table = $wpdb->prefix . 'aioseo_posts';
@@ -946,18 +1001,27 @@ class Metasync_External_Importer
         $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$aioseo_table'") === $aioseo_table;
 
         if (!$table_exists) {
-            return 0;
+            return ['success' => false, 'message' => 'AIOSEO table not found.'];
         }
 
-        // Get all posts with AIOSEO settings
-        $posts = $wpdb->get_results("
+        // Get total count (for progress tracking)
+        $total = (int) $wpdb->get_var("
+            SELECT COUNT(*)
+            FROM {$aioseo_table}
+            WHERE post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+        ");
+
+        // Get batch of posts with AIOSEO settings
+        $posts = $wpdb->get_results($wpdb->prepare("
             SELECT post_id, robots_default, robots_noindex, robots_nofollow,
                    robots_noarchive, robots_nosnippet, robots_noimageindex,
                    robots_max_snippet, robots_max_imagepreview, robots_max_videopreview,
                    canonical_url
             FROM {$aioseo_table}
             WHERE post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-        ");
+            ORDER BY post_id ASC
+            LIMIT %d OFFSET %d
+        ", $batch_size, $offset));
 
         foreach ($posts as $aioseo_data) {
             $post_id = $aioseo_data->post_id;
@@ -1040,9 +1104,26 @@ class Metasync_External_Importer
                 }
                 $imported_count++;
             }
+
+            // Flush per-post object cache to prevent unbounded memory growth across batches
+            clean_post_cache($post_id);
         }
 
-        return $imported_count;
+        $processed = $offset + count($posts);
+        $is_complete = $processed >= $total;
+
+        return [
+            'success' => true,
+            'imported' => $imported_count,
+            'skipped' => count($posts) - $imported_count,
+            'total' => $total,
+            'processed' => $processed,
+            'is_complete' => $is_complete,
+            'progress_percent' => $total > 0 ? round(($processed / $total) * 100) : 100,
+            'message' => $is_complete
+                ? "Import complete! Imported {$imported_count} posts."
+                : "Processing... {$imported_count} imported."
+        ];
     }
 
     /**

@@ -452,37 +452,23 @@ class MCP_Tool_Delete_Custom_Page extends MCP_Tool_Base {
         $this->validate_params($params);
         $this->require_capability('delete_pages');
 
-        // Load custom pages class constants
+        // Delegate to the shared REST/MCP delete implementation so both paths
+        // perform identical asset cleanup and front-page reset.
         require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'custom-pages/class-metasync-custom-pages.php';
+        require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'custom-pages/class-metasync-custom-pages-api.php';
 
         $page_id = intval($params['page_id']);
 
-        // Verify page exists
-        $page = get_post($page_id);
-        if (!$page || $page->post_type !== 'page') {
-            throw new Exception(sprintf("Page not found with ID: %d", absint($page_id)));
+        $api = new Metasync_Custom_Pages_API();
+        $result = $api->delete_custom_page_with_cleanup($page_id);
+
+        if (is_wp_error($result)) {
+            throw new Exception($result->get_error_message());
         }
 
-        // Verify it's a custom HTML page
-        $is_custom_html_page = get_post_meta($page_id, Metasync_Custom_Pages::META_IS_CUSTOM_HTML_PAGE, true);
-        if ($is_custom_html_page !== '1') {
-            throw new Exception('This page is not a custom HTML page');
-        }
-
-        $title = $page->post_title;
-
-        // Delete the page permanently
-        $result = wp_delete_post($page_id, true);
-
-        if (!$result) {
-            throw new Exception('Failed to delete page');
-        }
-
-        return $this->success([
-            'page_id' => $page_id,
-            'title' => $title,
+        return $this->success(array_merge($result, [
             'message' => 'Custom HTML page deleted successfully',
-        ]);
+        ]));
     }
 }
 
@@ -523,6 +509,10 @@ class MCP_Tool_Import_LPS_Page extends MCP_Tool_Base {
                     'type' => 'string',
                     'description' => 'On-disk folder name the bundle is extracted to (under uploads/metasync-pages/). This is the path LPS bakes into the asset URLs at build time and is intentionally separate from the slug. Defaults to the slug when omitted.',
                 ],
+                'external_ref' => [
+                    'type' => 'string',
+                    'description' => 'LPS project UUID (stable per-project identifier). When provided, used as the primary home-page dedup key instead of assets_folder.',
+                ],
                 'overwrite' => [
                     'type' => 'boolean',
                     'description' => 'When true (default), an existing page with the same slug is overwritten.',
@@ -553,7 +543,22 @@ class MCP_Tool_Import_LPS_Page extends MCP_Tool_Base {
         $tmp_file = null;
         $max_zip_bytes = 50 * 1024 * 1024;
 
+        // --- Audit tracking (one persistent record on success and failure paths) ---
+        $_lps_start_ms    = (int) round(microtime(true) * 1000);
+        $_lps_success     = false;
+        $_lps_result_data = null;
+        $_lps_exc         = null;
+        $_lps_err_status  = 0;
+        $_lps_downloaded  = 0;
+        $_lps_af          = isset($params['assets_folder']) ? $params['assets_folder'] : (isset($params['slug']) ? $params['slug'] : '');
+        $_lps_external_ref = isset($params['external_ref']) ? sanitize_text_field($params['external_ref']) : '';
+
         try {
+            // wp_tempnam() lives in wp-admin/includes/file.php, which is NOT loaded
+            // during a normal REST/MCP request — load it so this works in any context.
+            if (!function_exists('wp_tempnam')) {
+                require_once ABSPATH . 'wp-admin/includes/file.php';
+            }
             $tmp_file = wp_tempnam('lps_import_');
             if (!$tmp_file) {
                 throw new Exception('Failed to allocate a temporary file for the ZIP.');
@@ -576,6 +581,7 @@ class MCP_Tool_Import_LPS_Page extends MCP_Tool_Base {
                 throw new Exception('Downloaded ZIP has unexpected Content-Type: ' . $content_type);
             }
             $downloaded_size = file_exists($tmp_file) ? filesize($tmp_file) : 0;
+            $_lps_downloaded = $downloaded_size;
             if ($downloaded_size === 0) {
                 throw new Exception('Downloaded ZIP file is empty.');
             }
@@ -591,11 +597,14 @@ class MCP_Tool_Import_LPS_Page extends MCP_Tool_Base {
             $status = isset($params['status']) ? sanitize_text_field($params['status']) : 'publish';
             $overwrite = isset($params['overwrite']) ? (bool) $params['overwrite'] : true;
             $assets_folder = isset($params['assets_folder']) ? $params['assets_folder'] : '';
+            $external_ref = isset($params['external_ref']) ? sanitize_text_field($params['external_ref']) : '';
 
             $api = new Metasync_Custom_Pages_API();
-            $result = $api->extract_and_create_lps_page($tmp_file, $slug, $title, $status, $overwrite, $assets_folder);
+            $result = $api->extract_and_create_lps_page($tmp_file, $slug, $title, $status, $overwrite, $assets_folder, $external_ref);
 
             if (is_wp_error($result)) {
+                $_lps_err_data   = $result->get_error_data();
+                $_lps_err_status = (is_array($_lps_err_data) && isset($_lps_err_data['status'])) ? (int) $_lps_err_data['status'] : 0;
                 throw new Exception($result->get_error_message());
             }
 
@@ -603,6 +612,10 @@ class MCP_Tool_Import_LPS_Page extends MCP_Tool_Base {
             // (page_id/url/status) vs multi (created/updated/failed) imports.
             $data = isset($result['data']) && is_array($result['data']) ? $result['data'] : [];
             $data['message'] = isset($result['message']) ? $result['message'] : 'LPS ZIP imported successfully';
+
+            // Capture for the audit record now so the per-page breakdown survives
+            // even when the all-failed multi-page case throws below.
+            $_lps_result_data = $data;
 
             // For a multi-page import where EVERY page failed, the helper still
             // returns a non-WP_Error array. Surface that as a failure to the agent
@@ -620,10 +633,53 @@ class MCP_Tool_Import_LPS_Page extends MCP_Tool_Base {
                 }
             }
 
+            $_lps_success     = true;
             return $this->success($data);
+        } catch (Exception $e) {
+            $_lps_exc = $e;
+            throw $e;
         } finally {
             if (!empty($tmp_file) && file_exists($tmp_file)) {
                 @unlink($tmp_file);
+            }
+
+            // Write exactly one persistent audit record (success or failure),
+            // regardless of WP_DEBUG. Load the API class if an early exception
+            // fired before the require_once above ran.
+            if (!class_exists('Metasync_Custom_Pages_API')) {
+                $api_class_path = plugin_dir_path(dirname(dirname(__FILE__))) . 'custom-pages/class-metasync-custom-pages-api.php';
+                if (file_exists($api_class_path)) {
+                    require_once $api_class_path;
+                }
+            }
+            if (class_exists('Metasync_Custom_Pages_API')) {
+                // Derive HTTP status from the captured data when available (covers the
+                // success path AND the all-failed multi-page case that throws → 422).
+                // A null payload means an early exception (download/extract) → 500.
+                if (is_array($_lps_result_data)) {
+                    $_s = count(isset($_lps_result_data['created']) ? $_lps_result_data['created'] : array())
+                        + count(isset($_lps_result_data['updated']) ? $_lps_result_data['updated'] : array());
+                    $_f = count(isset($_lps_result_data['failed']) ? $_lps_result_data['failed'] : array());
+                    $_lps_http = ($_f > 0 && $_s > 0) ? 207 : (($_f > 0 && $_s === 0) ? 422 : 200);
+                } else {
+                    $_lps_http = $_lps_err_status > 0 ? $_lps_err_status : 500;
+                }
+
+                Metasync_Custom_Pages_API::write_lps_import_audit(array(
+                    'result'         => is_array($_lps_result_data) ? array('success' => $_lps_success, 'data' => $_lps_result_data) : null,
+                    'http_status'    => $_lps_http,
+                    'input'          => array(
+                        'source_type'       => 'download_url',
+                        'zip_size_bytes'    => $_lps_downloaded,
+                        'assets_folder'     => $_lps_af,
+                        'external_ref'      => $_lps_external_ref,
+                        'pages_in_manifest' => ($_lps_success && isset($_lps_result_data['pages_total'])) ? (int) $_lps_result_data['pages_total'] : null,
+                    ),
+                    'start_ms'       => $_lps_start_ms,
+                    'auth_method'    => 'mcp-capability',
+                    'api_key_prefix' => '',
+                    'error_message'  => $_lps_exc ? $_lps_exc->getMessage() : '',
+                ));
             }
         }
     }

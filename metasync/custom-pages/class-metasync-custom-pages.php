@@ -66,6 +66,17 @@ class Metasync_Custom_Pages
     const META_ASSETS_FOLDER = '_metasync_lps_assets_folder';
 
     /**
+     * Meta key marking a page as the LPS home page that is set as the site's
+     * static front page. Its value is the project's assets_folder, so a
+     * re-publish of the same project finds and updates its own home (instead of
+     * creating a duplicate), regardless of the page's slug.
+     */
+    const META_LPS_HOME = '_metasync_lps_home';
+
+    // Stable per-project LPS UUID; primary key for home-page dedup when external_ref is present.
+    const META_LPS_PROJECT_REF = '_metasync_lps_project_ref';
+
+    /**
      * Initialize the custom pages functionality
      */
     public function __construct()

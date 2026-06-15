@@ -307,7 +307,7 @@ class MCP_Tool_Update_Post_Snippets extends MCP_Tool_Base {
 
     public function execute($params) {
         $this->validate_params($params);
-        $this->require_capability('edit_posts');
+        $this->require_plugin_access();
 
         $post_id = intval($params['post_id']);
 

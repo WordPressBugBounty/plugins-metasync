@@ -107,16 +107,27 @@ class Metasync_Sitemap_Generator
      */
     public function inject_rewrite_rules($rules)
     {
+        // CRITICAL (WP-446): never inject into an empty/non-array rules value.
+        //
+        // WordPress self-heals broken routing in WP_Rewrite::wp_rewrite_rules():
+        // "if ( empty( get_option('rewrite_rules') ) ) { regenerate + save; }".
+        // Because this filter runs on `option_rewrite_rules`, returning a
+        // non-empty array when the stored option is empty makes WordPress think
+        // rules already exist, so it NEVER regenerates. The site is then left
+        // with only these sitemap rules, and every URL except the home page
+        // 404s (pages, posts, WooCommerce products) until the plugin is
+        // deactivated (filter removed → WP regenerates) or permalinks are
+        // re-saved. Returning the empty value unchanged preserves the self-heal.
+        if (empty($rules) || !is_array($rules)) {
+            return $rules;
+        }
+
         $sitemap_rules = [
             '^sitemap_index\.xml$'   => 'index.php?metasync_sitemap=sitemap_index.xml',
             '^sitemap(\d*)\.xml$'    => 'index.php?metasync_sitemap=sitemap$matches[1].xml',
             '^news-sitemap\.xml$'    => 'index.php?metasync_sitemap=news-sitemap.xml',
             '^video-sitemap\.xml$'   => 'index.php?metasync_sitemap=video-sitemap.xml',
         ];
-
-        if (!is_array($rules)) {
-            $rules = [];
-        }
 
         return $sitemap_rules + $rules;
     }

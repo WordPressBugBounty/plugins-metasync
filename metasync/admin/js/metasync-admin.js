@@ -1390,6 +1390,13 @@
 	 * Update UI elements when account is disconnected
 	 */
 	function updateUIForDisconnectedState() {
+		// WP-426: a cached manual-sync cooldown must not survive disconnect —
+		// it keeps the Sync Now button locked after the user reconnects even
+		// though the server-side cooldown stamp was cleared with the auth data.
+		localStorage.removeItem('metasync_manual_sync_throttle_expires');
+		refreshManualSyncCooldownUI();
+		$('#sendAuthToken').prop('disabled', false).removeClass('is-throttled').text('🔄 Sync Now');
+
 		// Update API key field placeholder
 		$('#searchatlas-api-key').attr('placeholder', 'Your API key will appear here after authentication');
 		
@@ -1854,6 +1861,7 @@
 				url: 'admin-ajax.php',
 				data: {
 					action: 'metasync_send_giapi',
+					nonce: metaSync.nonce,
 					metasync_giapi_url: url.val(),
 					metasync_giapi_action: action.val()
 				}
@@ -2255,16 +2263,37 @@
 				success: function (response) {
 					// Handle success response
 					if(response.success){
+						// Per-field whitelabel validation issues (WP-413): the save succeeded for
+						// other fields, so show a warning notice and stay on the page so the
+						// user can see which values were rejected.
+						const wlErrors = response.data && response.data.whitelabel_errors;
+						if (wlErrors && Object.keys(wlErrors).length > 0) {
+							var $warnNotice = $('<div>').addClass('notice notice-warning metasync-error-wrap');
+							var $warnList = $('<ul>');
+							Object.keys(wlErrors).forEach(function (fieldKey) {
+								$warnList.append($('<li>').text(wlErrors[fieldKey]));
+							});
+							$warnNotice.append($('<p>').text('Settings saved, but some values were not applied:'));
+							$warnNotice.append($warnList);
+							$('.metasync-error-wrap').remove();
+							$('#metaSyncGeneralSetting').before($warnNotice);
+							$('html, body').animate({ scrollTop: 0 }, 'slow');
+							return;
+						}
+
 					// get value of input field white_label_plugin_menu_slug
 						const whiteLableUrl = $('#metaSyncGeneralSetting input[name="metasync_options[general][white_label_plugin_menu_slug]"]').val();
 						// check condition if it is empty or not and redirect it
-					
+
 						// add the tag query to the window location
 						let tabParam = new URLSearchParams(window.location.search).get('tab');
 						let tabQuery = tabParam ? '&tab=' + encodeURIComponent(tabParam) : '';
-					
-						// Handle undefined or empty white label URL — sanitize to valid slug characters only
-						const rawSlug = (whiteLableUrl && whiteLableUrl !== '') ? whiteLableUrl : 'searchatlas';
+
+						// Prefer the server-sanitized slug (WP-413) so the redirect matches the page
+						// WordPress actually registered; fall back to the raw input field value.
+						const savedSlug = response.data && typeof response.data.saved_menu_slug === 'string' ? response.data.saved_menu_slug : null;
+						const inputSlug = (whiteLableUrl && whiteLableUrl !== '') ? whiteLableUrl : 'searchatlas';
+						const rawSlug = (savedSlug !== null) ? (savedSlug || 'searchatlas') : inputSlug;
 						const pageSlug = encodeURIComponent(rawSlug.replace(/[^a-zA-Z0-9_\-]/g, '')) || 'searchatlas';
 						var redirectUrl = metaSync.admin_url + '?page=' + pageSlug + tabQuery;
 						try {

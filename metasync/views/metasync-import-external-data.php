@@ -594,13 +594,22 @@ if (!array_key_exists($active_tab, $sections)) {
                                 <?php endif; ?>
                             </div>
 
-                            <button class="metasync-import-btn" 
+                            <button class="metasync-import-btn"
                                     data-type="<?php echo esc_attr($active_tab); ?>"
                                     data-plugin="<?php echo esc_attr($plugin['key']); ?>"
                                     <?php echo !$plugin['has_data'] ? 'disabled' : ''; ?>>
                                 <?php echo $plugin['has_data'] ? 'Import ' . esc_html($current_section['title']) : 'Unavailable'; ?>
                             </button>
-                            
+
+                            <?php if ($active_tab === 'indexation'): ?>
+                                <div class="metasync-progress-container">
+                                    <div class="metasync-progress-bar">
+                                        <div class="metasync-progress-fill"></div>
+                                    </div>
+                                    <div class="metasync-progress-text">0%</div>
+                                </div>
+                            <?php endif; ?>
+
                             <div class="metasync-import-result"></div>
                         </div>
                     <?php endforeach; ?>

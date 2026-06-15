@@ -1,4 +1,4 @@
-/* global jQuery, ajaxurl */
+/* global jQuery, ajaxurl, metasyncBingConsoleData */
 /**
  * MetaSync Bing IndexNow console.
  *
@@ -28,6 +28,7 @@ jQuery(document).ready(function ($) {
 			url: ajaxurl,
 			data: {
 				action: 'metasync_send_bing_indexnow',
+				nonce: metasyncBingConsoleData.nonce,
 				metasync_bing_url: $url.val()
 			}
 		})

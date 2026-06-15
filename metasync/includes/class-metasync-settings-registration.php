@@ -1269,8 +1269,9 @@ class Metasync_Settings_Registration
                 'white_label_plugin_menu_slug',
                 'Menu Slug',
                 function() use ($option_key) {
-                    $value = Metasync::get_option('general')['white_label_plugin_menu_slug'] ?? '';   
-                    printf('<input type="text" name="' . $option_key . '[general][white_label_plugin_menu_slug]" value="' . esc_attr($value) . '" />');        
+                    $value = Metasync::get_option('general')['white_label_plugin_menu_slug'] ?? '';
+                    printf('<input type="text" name="' . $option_key . '[general][white_label_plugin_menu_slug]" value="' . esc_attr($value) . '" placeholder="hip-advanced-seo" />');
+                    printf('<p class="description">Short identifier for the plugin\'s admin URL &mdash; lowercase letters, numbers, and dashes only (e.g. <code>hip-advanced-seo</code>). Don\'t paste a full web address.</p>');
                 },
                 $page_slug . '_branding',
                 $SECTION_METASYNC
@@ -1907,6 +1908,7 @@ class Metasync_Settings_Registration
                 'disable_canonical_metabox',
                 'disable_social_opengraph_metabox',
                 'disable_schema_markup_metabox',
+                'disable_seo_metabox',
                 'open_external_links'
             ];
 
@@ -2434,7 +2436,7 @@ class Metasync_Settings_Registration
             'white_label_plugin_author_uri', 'white_label_plugin_uri'
         ];
 
-        $bool_fields = ['otto_disable_on_loggedin', 'otto_disable_preview_button', 'otto_disable_for_bots' , 'hide_dashboard_framework', 'show_admin_bar_status', 'enable_auto_updates', 'disable_common_robots_metabox', 'disable_advance_robots_metabox', 'disable_redirection_metabox', 'disable_canonical_metabox', 'disable_social_opengraph_metabox', 'disable_schema_markup_metabox', 'open_external_links'];
+        $bool_fields = ['otto_disable_on_loggedin', 'otto_disable_preview_button', 'otto_disable_for_bots' , 'hide_dashboard_framework', 'show_admin_bar_status', 'enable_auto_updates', 'disable_common_robots_metabox', 'disable_advance_robots_metabox', 'disable_redirection_metabox', 'disable_canonical_metabox', 'disable_social_opengraph_metabox', 'disable_schema_markup_metabox', 'disable_seo_metabox', 'open_external_links'];
 
         $url_fields = ['white_label_plugin_author_uri', 'white_label_plugin_uri'];
 
@@ -2451,6 +2453,10 @@ class Metasync_Settings_Registration
         $active_tab = isset($_POST['active_tab']) ? sanitize_text_field($_POST['active_tab']) : 'general';
         $general_tab_submitted = ($active_tab === 'general');
         $whitelabel_tab_submitted = ($active_tab === 'whitelabel');
+
+        // Whitelabel field validation issues are collected per-field and reported back
+        // without blocking the rest of the settings save (WP-413).
+        $whitelabel_errors = [];
 
         foreach ($text_fields as $field) {
 
@@ -2475,8 +2481,11 @@ class Metasync_Settings_Registration
                 }
 
                 if ($field === 'white_label_plugin_name') {
-                    if (strlen($value) > 16) {
-                        $validation_errors[$field] = 'Plugin name must not exceed 16 characters';
+                    $stored_name = (string) ($metasync_options['general']['white_label_plugin_name'] ?? '');
+                    // Only enforce the 16-char limit when the value actually changes so an
+                    // already-saved longer legacy name can be re-saved without an error (WP-413).
+                    if (strlen($value) > 16 && $value !== $stored_name && wp_unslash($value) !== $stored_name) {
+                        $whitelabel_errors[$field] = 'Plugin name must not exceed 16 characters';
                         continue;
                     }
                 }
@@ -2485,6 +2494,9 @@ class Metasync_Settings_Registration
 
                     if ($value === '') {
                         $metasync_options['general'][$field] = '';
+                    } elseif (preg_match('/^dashicons-[a-z0-9-]+$/', $value)) {
+                        // Accept dashicon names (e.g. dashicons-location) in addition to image URLs (WP-413)
+                        $metasync_options['general'][$field] = sanitize_text_field($value);
                     } elseif (filter_var($value, FILTER_VALIDATE_URL)) {
 
                         $image_extensions = ['png', 'svg'];
@@ -2495,11 +2507,15 @@ class Metasync_Settings_Registration
                         if (in_array($extension, $image_extensions, true)) {
                             $metasync_options['general'][$field] = esc_url_raw($value);
                         } else {
-                            $validation_errors[] = 'Invalid Menu icon format. Only PNG and SVG are allowed.';
+                            $whitelabel_errors[$field] = 'Invalid Menu icon format. Only PNG, SVG, or a dashicon name (e.g. dashicons-location) are allowed.';
                         }
                     } else {
-                        $validation_errors[] = 'Invalid Menu icon URL format.';
+                        $whitelabel_errors[$field] = 'Invalid Menu icon URL format.';
                     }
+                } elseif ($field === 'white_label_plugin_menu_slug') {
+                    // Self-correcting slug (WP-413): a URL-shaped value is reduced to a valid WP
+                    // menu slug so it can never break sidebar link generation.
+                    $metasync_options['general'][$field] = sanitize_title($value);
                 } else {
                     $metasync_options['general'][$field] = sanitize_text_field($_POST['metasync_options']['general'][$field]);
                 }
@@ -2927,6 +2943,18 @@ class Metasync_Settings_Registration
             'redirect_url' => $redirect_url,
         );
 
+        // Per-field whitelabel validation issues (non-blocking): the save succeeded for all
+        // other fields, but the user must be told which values were rejected (WP-413).
+        if (!empty($whitelabel_errors)) {
+            $response_payload['whitelabel_errors'] = $whitelabel_errors;
+        }
+
+        // Final slug after sanitization so the client redirects to the page WP actually
+        // registered, even when the submitted value was cleaned up (WP-413).
+        if (isset($_POST['metasync_options']['general']['white_label_plugin_menu_slug'])) {
+            $response_payload['saved_menu_slug'] = $metasync_options['general']['white_label_plugin_menu_slug'] ?? '';
+        }
+
         if ( $api_key_field_present && $proposed_new_api_key !== '' && $proposed_new_api_key !== $old_api_key ) {
             if ( $api_key_validated !== null ) {
                 $response_payload['api_key_validated'] = $api_key_validated;
@@ -2990,13 +3018,14 @@ class Metasync_Settings_Registration
         }
 
         $can_change_memory = Metasync_Settings_Fields::instance()->can_change_memory_limit();
-        if ($can_change_memory && ($settings['max_memory_limit'] < 64 || $settings['max_memory_limit'] > 512)) {
-            wp_send_json_error(array('message' => 'Max Memory Limit must be between 64 and 512 MB.'));
+        $memory_range = Metasync_Settings_Fields::instance()->get_memory_limit_allowed_range();
+        if ($can_change_memory && $settings['max_memory_limit'] < $memory_range['min']) {
+            wp_send_json_error(array('message' => sprintf('Max Memory Limit must be at least %d MB.', $memory_range['min'])));
             return;
         }
 
-        if ($can_change_memory && $server_limits['memory_limit_raw'] != -1 && $settings['max_memory_limit'] > $server_limits['memory_limit_raw']) {
-            wp_send_json_error(array('message' => sprintf('Max Memory Limit exceeds server limit of %d MB. Please reduce the value.', $server_limits['memory_limit_raw'])));
+        if ($can_change_memory && $memory_range['max'] !== null && $settings['max_memory_limit'] > $memory_range['max']) {
+            wp_send_json_error(array('message' => sprintf('Max Memory Limit must be between %d and %d MB.', $memory_range['min'], $memory_range['max'])));
             return;
         }
 
@@ -3023,6 +3052,19 @@ class Metasync_Settings_Registration
 
         if ($settings['queue_cleanup_days'] < 7 || $settings['queue_cleanup_days'] > 90) {
             wp_send_json_error(array('message' => 'Queue Auto-Cleanup Days must be between 7 and 90 days.'));
+            return;
+        }
+
+        // update_option() returns false both on real failure AND when the
+        // submitted values are identical to what's already stored (a no-op
+        // write). An unchanged save is not an error, so short-circuit to
+        // success when nothing actually changed. This also covers the case
+        // where the form fires twice in quick succession: the second request
+        // sees no change and would otherwise report a spurious failure.
+        if ($settings == $existing_settings) {
+            wp_send_json_success(array(
+                'message' => 'Execution settings saved successfully!'
+            ));
             return;
         }
 
@@ -3067,7 +3109,8 @@ class Metasync_Settings_Registration
             'override_robots_tags',
             'add_nofollow_to_external_links',
             'enable_googleinstantindex',
-            'enable_binginstantindex'
+            'enable_binginstantindex',
+            'noindex_empty_archives'
             ];
 
         foreach ($seo_control_fields as $field) {

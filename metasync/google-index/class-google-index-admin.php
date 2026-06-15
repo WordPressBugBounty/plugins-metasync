@@ -253,6 +253,9 @@ class Google_Index_Admin
     {
         // Only show notices on MetaSync settings pages
         $page_slug = $this->get_metasync_page_slug();
+        if ( ! function_exists( 'get_current_screen' ) ) {
+            return;
+        }
         $current_screen = get_current_screen();
         
         if (!$current_screen || strpos($current_screen->id, $page_slug) === false) {

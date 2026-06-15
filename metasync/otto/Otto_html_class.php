@@ -1385,6 +1385,12 @@ Class Metasync_otto_html{
         # Skip if OTTO has no value to set - prevents overwriting existing tags (e.g. Yoast)
         # with empty content when OTTO has no recommendation for this meta field
         $recommended_value = $data['recommended_value'] ?? $data['value'] ?? '';
+        if (is_object($recommended_value) || is_array($recommended_value)) {
+            return;
+        }
+        if (!is_string($recommended_value)) {
+            $recommended_value = (string) $recommended_value;
+        }
         if (empty(trim($recommended_value))) {
             return;
         }
@@ -1481,7 +1487,7 @@ Class Metasync_otto_html{
 
         if ($meta_tag_fresh) {
             # Use outertext for replacement
-            $new_value = htmlspecialchars($data['recommended_value'] ?? '', ENT_QUOTES, 'UTF-8');
+            $new_value = htmlspecialchars($recommended_value, ENT_QUOTES, 'UTF-8');
 
             # Determine attribute name
             $attr_name = !empty($data['name']) ? 'name' : 'property';

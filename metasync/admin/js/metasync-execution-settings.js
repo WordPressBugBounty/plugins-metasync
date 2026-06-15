@@ -22,13 +22,12 @@ jQuery(document).ready(function ($) {
 	var serverMaxMemory = metasyncExecSettingsData.serverMaxMemory;
 	var canChangeMemory = metasyncExecSettingsData.canChangeMemory;
 
-	// Normalize string 'Infinity' to JS Infinity
-	if (serverMaxExecTime === 'Infinity') {
-		serverMaxExecTime = Infinity;
-	}
-	if (serverMaxMemory === 'Infinity') {
-		serverMaxMemory = Infinity;
-	}
+	// Normalize to numbers ('Infinity' marker -> JS Infinity). wp_localize_script
+	// casts every scalar to a string, so these arrive as e.g. "2048"; comparing a
+	// string field value against a string limit ("256" > "2048") would be
+	// lexicographic and wrong, so coerce to numbers here.
+	serverMaxExecTime = (serverMaxExecTime === 'Infinity') ? Infinity : parseInt(serverMaxExecTime, 10);
+	serverMaxMemory = (serverMaxMemory === 'Infinity') ? Infinity : parseInt(serverMaxMemory, 10);
 
 	// Real-time validation for server limits
 	function checkServerLimits() {
@@ -84,7 +83,7 @@ jQuery(document).ready(function ($) {
 			return;
 		}
 		var value = parseInt($(this).val()) || 0;
-		var isValid = value >= 64 && value <= 512 && (serverMaxMemory === Infinity || value <= serverMaxMemory);
+		var isValid = value >= 64 && (serverMaxMemory === Infinity || value <= serverMaxMemory);
 		highlightInvalidField($(this), isValid);
 	});
 
@@ -130,15 +129,15 @@ jQuery(document).ready(function ($) {
 
 		// Only validate memory limit if server allows changing it
 		if (canChangeMemory) {
-			if (formData.max_memory_limit < 64 || formData.max_memory_limit > 512) {
-				showMessage('Max Memory Limit must be between 64 and 512 MB.', 'error');
+			if (formData.max_memory_limit < 64) {
+				showMessage('Max Memory Limit must be at least 64 MB.', 'error');
 				highlightInvalidField($('#max_memory_limit'), false);
 				if (!hasError) {
 					errorField = $('#max_memory_limit');
 					hasError = true;
 				}
 			} else if (serverMaxMemory !== Infinity && formData.max_memory_limit > serverMaxMemory) {
-				showMessage('Max Memory Limit exceeds server limit of ' + serverMaxMemory + ' MB. Please reduce the value.', 'error');
+				showMessage('Max Memory Limit must be between 64 and ' + serverMaxMemory + ' MB.', 'error');
 				highlightInvalidField($('#max_memory_limit'), false);
 				if (!hasError) {
 					errorField = $('#max_memory_limit');

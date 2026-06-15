@@ -44,6 +44,7 @@ class Metasync_Admin_Ajax
 
         $type = isset($_POST['type']) ? sanitize_text_field($_POST['type']) : '';
         $plugin = isset($_POST['plugin']) ? sanitize_text_field($_POST['plugin']) : '';
+        $offset = isset($_POST['offset']) ? intval($_POST['offset']) : 0;
 
         if (empty($type) || empty($plugin)) {
             wp_send_json_error(['message' => 'Missing required parameters.']);
@@ -64,7 +65,7 @@ class Metasync_Admin_Ajax
                 $result = $importer->import_robots($plugin);
                 break;
             case 'indexation':
-                $result = $importer->import_indexation($plugin);
+                $result = $importer->import_indexation($plugin, ['batch_size' => 50, 'offset' => $offset]);
                 break;
             case 'schema':
                 $result = $importer->import_schema($plugin);
@@ -140,8 +141,12 @@ class Metasync_Admin_Ajax
         $general_options = Metasync::get_option('general') ?? [];
         $token = $general_options['apikey'] ?? null;
 
+        # WP-426: declare the call context explicitly so only the Settings
+        # "Sync Now" button consumes/stamps the 5-minute manual cooldown.
+        $is_heartbeat_tick = filter_var($_POST['is_heart_beat'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
         # get the response
-        $response = $sync_request->SyncCustomerParams($token);
+        $response = $sync_request->SyncCustomerParams($token, $is_heartbeat_tick ? 'heartbeat' : 'manual');
 
         // Check if response is a throttling error object
         if (is_object($response) && isset($response->throttled) && $response->throttled === true) {

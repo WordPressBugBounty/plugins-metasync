@@ -362,7 +362,6 @@
 				}).fail(function () {
 					// Continue polling even if individual request fails
 					// Don't show error for temporary network issues
-					console.log('SSO polling request failed, continuing...');
 				});
 
 				// Stop polling after max attempts (timeout)
@@ -450,23 +449,40 @@
 
 				var type = selectedTypes[index];
 
-				$.post(ajaxurl, {
-					action: 'metasync_import_external_data',
-					nonce: metasyncWizardData.importNonce,
-					type: type,
-					plugin: plugin
-				}, function (response) {
-					completedImports++;
-					var progress = (completedImports / totalImports) * 100;
-					$progressBar.css('width', progress + '%');
+				// Indexation imports are batched server-side; loop until complete
+				var offset = 0;
 
-					// Import next type
-					importNext(index + 1);
-				}).fail(function () {
-					$button.prop('disabled', false).text('Import Failed');
-					$progress.hide();
-					alert('Import failed for ' + type + '. Please try again.');
-				});
+				function postImport() {
+					$.post(ajaxurl, {
+						action: 'metasync_import_external_data',
+						nonce: metasyncWizardData.importNonce,
+						type: type,
+						plugin: plugin,
+						offset: offset
+					}, function (response) {
+						var data = response && response.data ? response.data : {};
+
+						// Continue batching until the server reports completion
+						if (type === 'indexation' && response.success && data.is_complete === false) {
+							offset = data.processed || (offset + 1);
+							postImport();
+							return;
+						}
+
+						completedImports++;
+						var progress = (completedImports / totalImports) * 100;
+						$progressBar.css('width', progress + '%');
+
+						// Import next type
+						importNext(index + 1);
+					}).fail(function () {
+						$button.prop('disabled', false).text('Import Failed');
+						$progress.hide();
+						alert('Import failed for ' + type + '. Please try again.');
+					});
+				}
+
+				postImport();
 			}
 
 			importNext(0);

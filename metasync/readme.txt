@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.6.11
+Stable tag: 2.6.12
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,30 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.12 =
+* New Feature: The imported Webstudio(LPS) home page is now set as the WordPress front page
+* New Feature: Added persistent audit logging for Webstudio(LPS) ZIP imports
+* Improvement: Execution Settings fields now display side-by-side in a responsive two-column layout
+* Improvement: Hardened the White Label menu slug and fixed settings-save validation
+* Improvement: OTTO rendering is now skipped on custom and Webstudio(LPS)-imported pages
+* Improvement: Deleting a custom or Webstudio(LPS) page now cleans up shared assets and resets the front page when needed
+* Improvement: Webstudio(LPS) home imports now use the project UUID as the per-project deduplication key
+* Security: Added nonce and capability checks to the Instant Indexing AJAX handlers (Google GIAPI and Bing IndexNow)
+* Security: Added nonce and capability checks to the redirections list-table actions
+* Security: Added nonce and capability checks to the 404 Monitor list-table actions
+* Security: Hardened input sanitization for per-post snippets and the hero image URL
+* Fix: Prevented duplicate H1 headings on Content Genius synced posts
+* Fix: Resolved a fatal error during ZIP import caused by an undefined temporary-file helper in REST/MCP context
+* Fix: Prevented a fatal "class not found" error on plugin update when the installed directory name differs from the package slug
+* Fix: Batched SEO indexation option imports to prevent PHP memory exhaustion on large sites
+* Fix: Corrected connection status to show "Not Connected" after manual API key entry and Sync Now
+* Fix: Guarded get_current_screen() calls to prevent fatal errors in REST context
+* Fix: Execution Settings now reports the real server upload limit instead of a hardcoded 128 MB
+* Fix: Fixed a case where activating the plugin caused 404s on all pages except the home page
+* Fix: Prevented a TypeError when a non-string value was passed to meta element handling
+* Fix: The "Disable SEO Meta Box" setting now correctly hides the SEO meta box in the Classic editor
+* Fix: The "Disallow Empty Archives" toggle is now saved correctly on SEO Controls
+
 = 2.6.11 =
 * New Feature: Added SEO Title & Meta Description fields to the Classic editor, matching the Gutenberg sidebar
 * New Feature: Added a configurable OTTO cache TTL setting under Advanced Settings → Cache Management

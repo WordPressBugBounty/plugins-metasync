@@ -308,10 +308,20 @@ class MetaSyncHiddenPostManager
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); # Return the response as a string
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); # Follow redirects if any
         $html = curl_exec($ch); # Execute the request and store the HTML response
+        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE); # Capture the HTTP status code
         curl_close($ch); # Close the cURL session
 
-        # check that the html object is not empty
-        if(empty($html)){
+        # WP-429: Only trust the probe when we verifiably fetched the test post.
+        # A cache 404, bot challenge, or security-plugin block used to parse as
+        # "title not found" and flip title_in_headings to false, which made every
+        # synced post get an extra <h1> prepended (duplicate H1 on the live page).
+        # "please do not delete" appears in both the test post title and body.
+        if (empty($html) || $http_code !== 200 || stripos($html, 'please do not delete') === false) {
+
+            # Inconclusive fetch: keep the previously detected values and record
+            # the run so the probe is not retried on every request.
+            $metasyncData['general']['last_run_time'] = time();
+            Metasync::set_option($metasyncData);
             return false;
         }
 

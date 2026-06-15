@@ -544,24 +544,54 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 
 		if (empty($post_data['item'])) return;
 
+		$action = $this->current_action();
+
+		// Only the state-changing bulk actions need (and emit) a nonce. Returning
+		// early for anything else keeps normal page loads from tripping the check.
+		if (!in_array($action, ['delete_bulk', 'empty'], true)) {
+			return;
+		}
+
+		// Verify the bulk-action nonce emitted by WP_List_Table::display_tablenav()
+		// (plural === 'items' → 'bulk-items') and confirm plugin access before any
+		// delete / clear-logs. Guards against CSRF on the bulk path.
+		check_admin_referer('bulk-items');
+
+		if (!Metasync::current_user_has_plugin_access()) {
+			return;
+		}
+
 		// Detect when bulk delete action is being triggered.
-		if ('delete_bulk' === $this->current_action()) {
+		if ('delete_bulk' === $action) {
 			$this->database->delete($items);
 		}
-		if ('empty' === $this->current_action()) {
+		if ('empty' === $action) {
 			$this->database->clear_logs();
 		}
 	}
 
 	protected function process_row_action()
 	{
+		// Only the delete row action changes state; bail on anything else so a
+		// normal page load never triggers a nonce failure.
+		if ('delete' !== $this->current_action()) {
+			return;
+		}
+
 		$get_data = metasync_sanitize_input_array($_GET);
 		$item = isset($get_data['id']) ? sanitize_text_field($get_data['id']) : '';
 
-		// Detect when row action is being triggered.
-		if ('delete' === $this->current_action()) {
-			$this->database->delete([$item]);
+		// Verify the per-item nonce already attached to the Delete link in
+		// column_uri() (wp_nonce_url(..., 'deleteid_' . $item['id'])) and confirm
+		// plugin access before deleting. The link runs via GET, so without this it
+		// is open to CSRF.
+		check_admin_referer('deleteid_' . $item);
+
+		if (!Metasync::current_user_has_plugin_access()) {
+			return;
 		}
+
+		$this->database->delete([$item]);
 	}
 
 	function prepare_items()

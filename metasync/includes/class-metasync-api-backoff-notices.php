@@ -143,6 +143,9 @@ class Metasync_API_Backoff_Notices {
      * @return bool True if on MetaSync admin page.
      */
     private function is_metasync_admin_page() {
+        if ( ! function_exists( 'get_current_screen' ) ) {
+            return false;
+        }
         $screen = get_current_screen();
 
         if (!$screen) {
