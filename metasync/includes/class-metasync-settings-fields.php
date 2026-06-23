@@ -1272,7 +1272,7 @@ class Metasync_Settings_Fields {
             esc_attr($display_value)
         );
         
-        printf('<button type="button" id="refresh-plugin-auth-token" class="button button-secondary" style="margin-left: 10px;"><span class="dashicons dashicons-controls-repeat"></span> Refresh Token</button>');
+        printf('<button type="button" id="refresh-plugin-auth-token" class="button button-secondary" style="margin-left: 10px; margin-top: 8px;"><span class="dashicons dashicons-controls-repeat"></span> Refresh Token</button>');
         printf('<p class="description">%s %s</p>', $status_message, $refresh_help);
     }
 

@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 6.8.1
 Requires PHP: 7.1
-Stable tag: 2.6.12
+Stable tag: 2.6.13
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,19 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.13 =
+* Improvement: Made the Media Optimization "Optimize" and "Revert" buttons equal in size
+* Improvement: Fixed stacked filter dropdowns in the Changes Log filter bar
+* Improvement: Fixed the cache directory path overflowing its container on the Cache tab
+* Improvement: Improved breadcrumb code-box contrast in light mode and added click-to-copy on snippet boxes
+* Improvement: Added vertical spacing between the Auth Token field and Refresh Token button on the Settings page
+* Improvement: Added vertical spacing between settings form rows so blocks no longer merge together
+* Security: Wrapped admin nonce outputs in esc_attr() to prevent XSS in HTML attributes
+* Fix: Prevented lazy-load video iframe CSS from breaking page layout and hiding homepage content
+* Fix: Prevented a fatal "undefined constant" error during OTTO rendering on pre-2.6.11 installs
+* Fix: Corrected OTTO double-encoding of "&" in HTML attributes that broke theme icon fonts
+* Fix: Stopped OTTO from renumbering Divi column width classes and collapsing page layouts
+
 = 2.6.12 =
 * New Feature: The imported Webstudio(LPS) home page is now set as the WordPress front page
 * New Feature: Added persistent audit logging for Webstudio(LPS) ZIP imports

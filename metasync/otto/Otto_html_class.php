@@ -185,6 +185,118 @@ Class Metasync_otto_html{
         return $html;
     }
 
+    /**
+     * WP-465: Protect entity-encoded `srcdoc` attribute values before DOM parsing.
+     *
+     * Lazy-loaded YouTube/video facades embed a full HTML document inside an
+     * iframe's `srcdoc` attribute, entity-encoded:
+     *   <iframe srcdoc="&lt;style&gt;*{overflow:hidden}...&lt;/style&gt;&lt;a&gt;..."></iframe>
+     * SimpleHtmlDom decodes that value and re-emits the inner <style>/<a>/<img>
+     * as REAL nodes hoisted into the document <head>. The facade's global CSS
+     * (`*{overflow:hidden}`, `img,span{position:absolute;width:100%;...}`) then
+     * nukes the entire page layout — the page renders blank below the header even
+     * though all body content is still present (so the element-loss guard can't
+     * see it). We swap each srcdoc value for an opaque token before parsing and
+     * restore it verbatim afterward, so SimpleHtmlDom never touches it.
+     *
+     * @param string $html        Raw HTML before DOM parsing.
+     * @param array  $store        (out) token => original encoded value.
+     * @return string HTML with srcdoc values tokenized.
+     */
+    private function protect_srcdoc_attributes($html, &$store) {
+        $store = array();
+        $index = 0;
+        return preg_replace_callback(
+            '/\bsrcdoc\s*=\s*(["\'])(.*?)\1/is',
+            function ($m) use (&$store, &$index) {
+                $token = '__METASYNC_SRCDOC_' . ($index++) . '__';
+                $store[$token] = $m[2];
+                return 'srcdoc="' . $token . '"';
+            },
+            $html
+        );
+    }
+
+    /**
+     * WP-465: Restore srcdoc values tokenized by protect_srcdoc_attributes().
+     * Tokens are unique and never altered by SimpleHtmlDom, so a plain
+     * str_replace on the final output is safe.
+     *
+     * @param string $html  Processed HTML.
+     * @param array  $store Token map from protect_srcdoc_attributes().
+     * @return string
+     */
+    private function restore_srcdoc_attributes($html, $store) {
+        if (empty($store)) {
+            return $html;
+        }
+        return str_replace(array_keys($store), array_values($store), $html);
+    }
+
+    /**
+     * WP-465: Safety net — strip any lazy-video FACADE <style> that leaked into the
+     * document as a real stylesheet.
+     *
+     * Lazy YouTube/video facades carry this exact CSS reset inside their iframe
+     * srcdoc:  *{...overflow:hidden}  html,body{height:100%}  img,span{position:absolute;width:100%;...}
+     * If anything (SimpleHtmlDom attribute-decode, capture/restore_lost_style_blocks)
+     * hoists it out of the srcdoc into a real <style>, it absolutely-positions every
+     * image and span on the page and clips all overflow — rendering the page blank
+     * below the header. No legitimate global stylesheet ever does this to img,span,
+     * so removing such a block is safe.
+     *
+     * Must run AFTER srcdoc values are tokenized (protect_srcdoc_attributes) so the
+     * encoded copy still living inside the iframe attribute is never matched.
+     *
+     * @param string $html
+     * @return string
+     */
+    private function strip_hoisted_facade_styles($html) {
+        return preg_replace(
+            '#<style\b[^>]*>(?:(?!</style>).)*?\bimg\s*,\s*span\s*\{[^}]*position\s*:\s*absolute[^}]*\}(?:(?!</style>).)*?</style>#is',
+            '',
+            $html
+        );
+    }
+
+    /**
+     * WP-465: Keep the charset declaration within the first 1024 bytes of <head>.
+     *
+     * OTTO injects meta tags + JSON-LD schema at the top of <head>, which can push
+     * the theme's <meta charset="utf-8"> past the 1024-byte limit that browsers
+     * enforce for in-document charset detection (HTML spec). When that happens —
+     * and a cached/CDN response is served without an HTTP charset header — the
+     * document falls back to the locale encoding (Windows-1252). External
+     * stylesheets that declare no @charset of their own (e.g. a theme rule like
+     * `content:"\2713"` written as a raw UTF-8 ✓) then inherit that wrong encoding
+     * and render as mojibake ("âœ"" instead of "✓").
+     *
+     * We guarantee a <meta charset="UTF-8"> as the first child of <head> whenever
+     * one isn't already present within the first 1024 bytes. Harmless when a valid
+     * early charset already exists (we skip), and a duplicate later declaration is
+     * ignored by the browser (first one wins).
+     *
+     * @param string $html
+     * @return string
+     */
+    private function ensure_early_charset_meta($html) {
+        if (!preg_match('/<head\b[^>]*>/i', $html, $m, PREG_OFFSET_CAPTURE)) {
+            return $html;
+        }
+        $inner_start = $m[0][1] + strlen($m[0][0]);
+
+        # Already declared early enough? Leave it alone (also covers AMP, which
+        # requires charset as the first child).
+        $window = substr($html, $inner_start, 1024);
+        if (preg_match('/<meta[^>]*charset/i', $window)) {
+            return $html;
+        }
+
+        return substr($html, 0, $inner_start)
+            . '<meta charset="UTF-8">'
+            . substr($html, $inner_start);
+    }
+
     #
     function __construct($otto_uuid){
 
@@ -464,6 +576,11 @@ Class Metasync_otto_html{
         # custom themes for nav collapse CSS, responsive breakpoints, etc.
         $original_style_blocks = $this->capture_style_blocks($html_body);
 
+        # WP-465: Shield entity-encoded srcdoc values (lazy YouTube/video facades)
+        # so SimpleHtmlDom can't decode them and hoist their global <style> into <head>.
+        $srcdoc_store = array();
+        $html_body = $this->protect_srcdoc_attributes($html_body, $srcdoc_store);
+
         # Escape bare < in text content (e.g. "<4 microns") before DOM parsing
         $html_body = $this->sanitize_text_less_than($html_body);
 
@@ -672,7 +789,47 @@ Class Metasync_otto_html{
         # These leak into form action URLs, canonical links, etc. in the rendered HTML.
         $result_html = $this->clean_otto_fetch_params($result_html);
 
+        # WP-465: Remove any lazy-video facade <style> hoisted into the page
+        # (runs while srcdoc is still tokenized, so the iframe's own copy is safe).
+        $result_html = $this->strip_hoisted_facade_styles($result_html);
+
+        # WP-465: Restore the original encoded srcdoc values (undo tokenization).
+        $result_html = $this->restore_srcdoc_attributes($result_html, $srcdoc_store);
+
+        # WP-465: Keep <meta charset> within the first 1024 bytes so external CSS
+        # (e.g. checkmark content:"✓") doesn't mojibake on cached responses.
+        $result_html = $this->ensure_early_charset_meta($result_html);
+
+        # WP-471: undo double-encoded numeric/hex character references produced by the
+        # bundled simplehtmldom serializer from attributes like data-x-icon-s="&#xf3c5".
+        $result_html = $this->repair_double_encoded_entities($result_html);
+
         return $result_html;
+    }
+
+    /**
+     * WP-471: Repair double-encoded character references in serialized HTML.
+     *
+     * The bundled simplehtmldom serializer (HtmlNode::makeup(), reached via
+     * $this->dom->save() and $root->outertext) runs every attribute value through
+     * htmlentities(), which escapes the leading '&' of numeric/hex character
+     * references. Theme icon attributes such as data-x-icon-s="&#xf3c5"
+     * (Themeco X/Cornerstone) therefore become "&amp;#xf3c5", so the browser
+     * prints the literal text instead of drawing the icon glyph.
+     *
+     * Restores only NUMERIC and HEX character references (&#NNN; / &#xHHHH;).
+     * Bare ampersands in query strings (?a=1&b=2 -> ?a=1&amp;b=2) and named
+     * entities are intentionally left escaped.
+     *
+     * @param string $html Serialized HTML from save()/outertext.
+     * @return string
+     */
+    private function repair_double_encoded_entities($html) {
+        # strpos guard: skip the regex entirely when there is nothing to repair
+        if (!is_string($html) || strpos($html, '&amp;#') === false) {
+            return $html;
+        }
+        return preg_replace('/&amp;(#x[0-9a-fA-F]+;?|#[0-9]+;?)/', '&$1', $html);
     }
 
     # do the footer html insertion
@@ -2074,6 +2231,11 @@ Class Metasync_otto_html{
             # WP-355 / WP-315: Save ALL original <style> blocks before DOM processing.
             $original_style_blocks = $this->capture_style_blocks($html);
 
+            # WP-465: Shield entity-encoded srcdoc values (lazy YouTube/video facades)
+            # so SimpleHtmlDom can't decode them and hoist their global <style> into <head>.
+            $srcdoc_store = array();
+            $html = $this->protect_srcdoc_attributes($html, $srcdoc_store);
+
             # Escape bare < in text content before DOM parsing
             $html = $this->sanitize_text_less_than($html);
 
@@ -2420,11 +2582,35 @@ Class Metasync_otto_html{
             # WP-355 / WP-315: Re-inject any <style> blocks lost during processing.
             $result_html = $this->restore_lost_style_blocks($result_html, $original_style_blocks);
 
-            # WP-315: Fix Divi 5 shortcode framework class renumbering
-            $result_html = $this->fix_divi_class_renumbering($result_html);
+            # WP-480: Do NOT renumber Divi classes on the buffer/in-place path.
+            # fix_divi_class_renumbering() exists to undo the index offset that
+            # Divi's shortcode framework introduces ONLY during the internal
+            # wp_remote_get fetch (handle_route_html), where the Theme Builder
+            # header is counted twice. process_html_directly() processes the
+            # page Divi already rendered normally — its module numbering and
+            # Divi's own CSS are already in sync. Renumbering here desynced every
+            # section/row/column/text/button index (e.g. et_pb_section_10 → _0),
+            # colliding page modules with header/global modules of the same
+            # number and collapsing layouts (Divi hero/slider) on Divi sites.
+            # The renumber stays only on the HTTP-fetch path (handle_route_html).
 
             # WP-315: Clean OTTO internal fetch params from HTML output
             $result_html = $this->clean_otto_fetch_params($result_html);
+
+            # WP-465: Remove any lazy-video facade <style> hoisted into the page
+            # (runs while srcdoc is still tokenized, so the iframe's own copy is safe).
+            $result_html = $this->strip_hoisted_facade_styles($result_html);
+
+            # WP-465: Restore the original encoded srcdoc values (undo tokenization).
+            $result_html = $this->restore_srcdoc_attributes($result_html, $srcdoc_store);
+
+            # WP-465: Keep <meta charset> within the first 1024 bytes so external CSS
+            # (e.g. checkmark content:"✓") doesn't mojibake on cached responses.
+            $result_html = $this->ensure_early_charset_meta($result_html);
+
+            # WP-471: undo double-encoded numeric/hex character references produced by the
+            # bundled simplehtmldom serializer from attributes like data-x-icon-s="&#xf3c5".
+            $result_html = $this->repair_double_encoded_entities($result_html);
 
             return $result_html;
 
@@ -2610,9 +2796,19 @@ Class Metasync_otto_html{
 
         $offsets = [];
 
+        # Lookahead excludes two non-instance class shapes so we never rewrite them:
+        #   _tb_  → Theme Builder index suffix (et_pb_column_0_tb_header)
+        #   _\d   → Divi column WIDTH fractions (et_pb_column_4_4, _1_2, _1_3, …).
+        # The width fraction is NOT an instance counter; rewriting it (e.g.
+        # et_pb_column_4_4 → et_pb_column_0_4) strips the column's width rule from
+        # Divi's static stylesheet (.et_pb_column_4_4{width:100%}) and collapses the
+        # layout. Bare instance indices (et_pb_column_16, followed by space/quote)
+        # still match and renumber as intended (WP-470 / WP-315).
+        $instance_lookahead = '(?!_(?:tb_|\d))';
+
         foreach ($types as $type) {
-            # Find the FIRST numbered instance in page content (not _tb_ suffixed)
-            if (preg_match('/et_pb_' . preg_quote($type, '/') . '_(\d+)(?!_tb_)/', $page_content, $m)) {
+            # Find the FIRST numbered instance in page content (not _tb_ or width-fraction)
+            if (preg_match('/et_pb_' . preg_quote($type, '/') . '_(\d+)' . $instance_lookahead . '/', $page_content, $m)) {
                 $first_num = (int) $m[1];
                 if ($first_num > 0) {
                     $offsets[$type] = $first_num;
@@ -2628,7 +2824,7 @@ Class Metasync_otto_html{
         foreach ($offsets as $etype => $offset) {
             $escaped = preg_quote($etype, '/');
             $html = preg_replace_callback(
-                '/et_pb_' . $escaped . '_(\d+)(?!_tb_)/',
+                '/et_pb_' . $escaped . '_(\d+)' . $instance_lookahead . '/',
                 function ($m) use ($etype, $offset) {
                     $num = (int) $m[1];
                     if ($num >= $offset) {

@@ -643,9 +643,39 @@ class Metasync_Debug_Manager
                 
                 <?php if (!$wp_debug): ?>
                 <p style="color: var(--dashboard-accent);">💡 To enable error logging, add these lines to your wp-config.php file:</p>
-                <pre style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--dashboard-border); padding: 10px; border-radius: 4px; color: var(--dashboard-text-primary);">define('WP_DEBUG', true);
+                <div class="metasync-copy-wrap"><pre class="metasync-copy-snippet" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--dashboard-border); padding: 10px; border-radius: 4px; color: var(--dashboard-text-primary);">define('WP_DEBUG', true);
 define('WP_DEBUG_LOG', true);
-define('WP_DEBUG_DISPLAY', false);</pre>
+define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</span></div>
+                <?php /* WP-492: click-to-copy for the wp-config snippet above */ ?>
+                <style>
+                .metasync-copy-wrap { position: relative; }
+                .metasync-copy-snippet { cursor: pointer; outline: 1px solid transparent; transition: outline-color .15s ease; }
+                .metasync-copy-wrap:hover .metasync-copy-snippet { outline-color: var(--dashboard-border, #374151); }
+                .metasync-copy-badge { position: absolute; top: 8px; right: 10px; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; pointer-events: none; opacity: 0; transition: opacity .15s ease; background: var(--dashboard-border, #374151); color: var(--dashboard-text-primary, #fff); }
+                .metasync-copy-wrap:hover .metasync-copy-badge { opacity: .85; }
+                .metasync-copy-badge.metasync-copy-done { opacity: 1; background: var(--dashboard-gradient-primary, linear-gradient(135deg, #667eea 0%, #764ba2 100%)); color: #fff; }
+                </style>
+                <script>
+                (function(){
+                    if (window.__metasyncCopyInit) return; window.__metasyncCopyInit = true;
+                    function fallback(text){ var ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.focus(); ta.select(); try{document.execCommand('copy');}catch(e){} document.body.removeChild(ta); }
+                    function attach(){
+                        document.querySelectorAll('.metasync-copy-snippet').forEach(function(pre){
+                            if (pre.dataset.copyBound) return; pre.dataset.copyBound='1';
+                            pre.setAttribute('title','Click to copy');
+                            pre.addEventListener('click', function(){
+                                var text = pre.textContent.trim();
+                                var wrap = pre.closest('.metasync-copy-wrap') || pre.parentNode;
+                                var badge = wrap.querySelector('.metasync-copy-badge');
+                                var done = function(){ if(!badge) return; badge.textContent='Copied!'; badge.classList.add('metasync-copy-done'); clearTimeout(badge._t); badge._t=setTimeout(function(){ badge.textContent='Copy'; badge.classList.remove('metasync-copy-done'); },1500); };
+                                if (navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(done).catch(function(){ fallback(text); done(); }); }
+                                else { fallback(text); done(); }
+                            });
+                        });
+                    }
+                    if (document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', attach); } else { attach(); }
+                })();
+                </script>
                 <?php endif; ?>
             </form>
         </div>

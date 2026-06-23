@@ -1551,7 +1551,7 @@ class Metasync_Admin
                     <span id="metasync-otto-ttl-save-msg" style="display: none; font-size: 13px;"></span>
                 </div>
 
-                <input type="hidden" id="metasync-otto-ttl-nonce" value="<?php echo wp_create_nonce('metasync_otto_cache_ttl_nonce'); ?>" />
+                <input type="hidden" id="metasync-otto-ttl-nonce" value="<?php echo esc_attr(wp_create_nonce('metasync_otto_cache_ttl_nonce')); ?>" />
             </div>
         </div>
 
@@ -1699,7 +1699,7 @@ class Metasync_Admin
                     <span id="metasync-hc-save-msg" style="display: none; font-size: 13px;"></span>
                 </div>
 
-                <input type="hidden" id="metasync-hc-nonce" value="<?php echo wp_create_nonce('metasync_hosting_cache_nonce'); ?>" />
+                <input type="hidden" id="metasync-hc-nonce" value="<?php echo esc_attr(wp_create_nonce('metasync_hosting_cache_nonce')); ?>" />
             </div>
 
             <!-- Purge button -->
@@ -3738,7 +3738,7 @@ class Metasync_Admin
                                 data-nonce="<?php echo esc_attr(wp_create_nonce('metasync_clear_sync_log')); ?>">
                             🗑 Clear Log
                         </button>
-                        <form method="get" class="sync-filters-form" onchange="this.submit()">
+                        <form method="get" class="sync-filters-form" onchange="this.submit()" style="display:flex;flex-direction:row;align-items:center;gap:12px;flex-wrap:nowrap;">
                             <input type="hidden" name="page" value="<?php echo esc_attr($_GET['page']); ?>">
 
                             <select name="date_range" class="sync-filter-select">

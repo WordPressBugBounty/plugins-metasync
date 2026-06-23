@@ -1418,7 +1418,11 @@
 .metasync-revert-btn {
     display: inline-flex !important;
     align-items: center;
+    justify-content: center;
     gap: 4px;
+    min-width: 96px;
+    white-space: nowrap;
+    box-sizing: border-box;
 }
 
 .metasync-optimize-btn .dashicons,

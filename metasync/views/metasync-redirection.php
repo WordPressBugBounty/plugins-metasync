@@ -747,6 +747,7 @@ if (!defined('ABSPATH')) {
 	.wrap .wp-list-table + .wp-list-table { display: none !important; }
 	.wrap .tablenav + .tablenav { display: none !important; }
 	.wrap .wp-list-table thead:not(:first-of-type) { display: none !important; }
+	.wrap .wp-list-table tfoot { display: none !important; }
 
 	/* ── Responsive ── */
 	@media (max-width: 1200px) {

@@ -285,6 +285,13 @@
     line-height: 1.5;
 }
 
+.metasync-code-minification-page .metasync-field-description code {
+    display: inline-block;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+}
+
 /* ── Toggle (matches media-optimization) ── */
 .metasync-code-minification-page .metasync-toggle {
     position: relative;

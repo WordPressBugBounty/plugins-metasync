@@ -310,7 +310,7 @@ function metasync_invalidate_all_caches($folder = ''){
  */
 function metasync_is_custom_or_lps_page($post_id){
     $post_id = (int) $post_id;
-    if ($post_id <= 0 || !class_exists('Metasync_Custom_Pages')) {
+    if ($post_id <= 0 || !class_exists('Metasync_Custom_Pages') || !defined('Metasync_Custom_Pages::META_LPS_IMPORT') || !defined('Metasync_Custom_Pages::META_IS_CUSTOM_HTML_PAGE') || !defined('Metasync_Custom_Pages::META_CREATED_VIA_API')) {
         return false;
     }
 

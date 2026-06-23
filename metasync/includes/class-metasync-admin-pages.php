@@ -1665,21 +1665,51 @@ class Metasync_Admin_Pages
 
                 <h3 style="margin-top: 0;">Option 1 — Shortcode</h3>
                 <p style="color: var(--dashboard-text-secondary);">Paste the shortcode inside any page, post, or widget:</p>
-                <pre style="background: var(--dashboard-bg, #1e1e1e); color: var(--dashboard-text, #e0e0e0); padding: 12px 16px; border-radius: 6px; font-size: 13px; overflow-x: auto;">[metasync_breadcrumb]</pre>
+                <div class="metasync-copy-wrap"><pre class="metasync-copy-snippet" style="background: var(--dashboard-bg, #1e1e1e); color: var(--dashboard-text-primary); padding: 12px 16px; border-radius: 6px; font-size: 13px; overflow-x: auto;">[metasync_breadcrumb]</pre><span class="metasync-copy-badge">Copy</span></div>
 
                 <h3>Option 2 — PHP Template Function</h3>
                 <p style="color: var(--dashboard-text-secondary);">Call the helper function directly inside your theme template files (e.g. <code>single.php</code>, <code>page.php</code>, <code>header.php</code>):</p>
-                <pre style="background: var(--dashboard-bg, #1e1e1e); color: var(--dashboard-text, #e0e0e0); padding: 12px 16px; border-radius: 6px; font-size: 13px; overflow-x: auto;">&lt;?php metasync_breadcrumb(); ?&gt;</pre>
+                <div class="metasync-copy-wrap"><pre class="metasync-copy-snippet" style="background: var(--dashboard-bg, #1e1e1e); color: var(--dashboard-text-primary); padding: 12px 16px; border-radius: 6px; font-size: 13px; overflow-x: auto;">&lt;?php metasync_breadcrumb(); ?&gt;</pre><span class="metasync-copy-badge">Copy</span></div>
 
                 <h3>Option 3 — PHP Return Value</h3>
                 <p style="color: var(--dashboard-text-secondary);">Get the breadcrumb HTML as a string to manipulate before output:</p>
-                <pre style="background: var(--dashboard-bg, #1e1e1e); color: var(--dashboard-text, #e0e0e0); padding: 12px 16px; border-radius: 6px; font-size: 13px; overflow-x: auto;">$breadcrumbs = new Metasync_Breadcrumbs();
-echo $breadcrumbs-&gt;render_breadcrumb_html();</pre>
+                <div class="metasync-copy-wrap"><pre class="metasync-copy-snippet" style="background: var(--dashboard-bg, #1e1e1e); color: var(--dashboard-text-primary); padding: 12px 16px; border-radius: 6px; font-size: 13px; overflow-x: auto;">$breadcrumbs = new Metasync_Breadcrumbs();
+echo $breadcrumbs-&gt;render_breadcrumb_html();</pre><span class="metasync-copy-badge">Copy</span></div>
 
                 <p style="color: var(--dashboard-text-secondary); margin-top: 16px; font-size: 12px;">
                     <strong>Tip:</strong> You can also pass a <code>post_id</code> argument to generate breadcrumbs for a specific post outside of a template context:<br>
                     <code>echo $breadcrumbs-&gt;render_breadcrumb_html(['post_id' =&gt; 123]);</code>
                 </p>
+                <?php /* WP-492: click-to-copy for the code snippets above */ ?>
+                <style>
+                .metasync-copy-wrap { position: relative; }
+                .metasync-copy-snippet { cursor: pointer; outline: 1px solid transparent; transition: outline-color .15s ease; }
+                .metasync-copy-wrap:hover .metasync-copy-snippet { outline-color: var(--dashboard-border, #374151); }
+                .metasync-copy-badge { position: absolute; top: 8px; right: 10px; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; pointer-events: none; opacity: 0; transition: opacity .15s ease; background: var(--dashboard-border, #374151); color: var(--dashboard-text-primary, #fff); }
+                .metasync-copy-wrap:hover .metasync-copy-badge { opacity: .85; }
+                .metasync-copy-badge.metasync-copy-done { opacity: 1; background: var(--dashboard-gradient-primary, linear-gradient(135deg, #667eea 0%, #764ba2 100%)); color: #fff; }
+                </style>
+                <script>
+                (function(){
+                    if (window.__metasyncCopyInit) return; window.__metasyncCopyInit = true;
+                    function fallback(text){ var ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.focus(); ta.select(); try{document.execCommand('copy');}catch(e){} document.body.removeChild(ta); }
+                    function attach(){
+                        document.querySelectorAll('.metasync-copy-snippet').forEach(function(pre){
+                            if (pre.dataset.copyBound) return; pre.dataset.copyBound='1';
+                            pre.setAttribute('title','Click to copy');
+                            pre.addEventListener('click', function(){
+                                var text = pre.textContent.trim();
+                                var wrap = pre.closest('.metasync-copy-wrap') || pre.parentNode;
+                                var badge = wrap.querySelector('.metasync-copy-badge');
+                                var done = function(){ if(!badge) return; badge.textContent='Copied!'; badge.classList.add('metasync-copy-done'); clearTimeout(badge._t); badge._t=setTimeout(function(){ badge.textContent='Copy'; badge.classList.remove('metasync-copy-done'); },1500); };
+                                if (navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(done).catch(function(){ fallback(text); done(); }); }
+                                else { fallback(text); done(); }
+                            });
+                        });
+                    }
+                    if (document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', attach); } else { attach(); }
+                })();
+                </script>
             </div>
         <?php $this->admin->render_layout_close(); ?>
         <?php
@@ -2029,7 +2059,7 @@ echo $breadcrumbs-&gt;render_breadcrumb_html();</pre>
                     
                     <!-- Filters - Right aligned -->
                     <div class="sync-log-filters">
-                        <form method="get" class="sync-filters-form" onchange="this.submit()">
+                        <form method="get" class="sync-filters-form" onchange="this.submit()" style="display:flex;flex-direction:row;align-items:center;gap:12px;flex-wrap:nowrap;">
                             <input type="hidden" name="page" value="<?php echo esc_attr($_GET['page']); ?>">
                             
                             <select name="date_range" class="sync-filter-select">
