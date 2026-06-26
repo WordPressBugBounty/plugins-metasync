@@ -598,7 +598,21 @@ class Metasync_Otto_Render_Strategy {
         # Only set if WP Rocket is NOT active (let WP Rocket control cache headers)
         if (!is_user_logged_in() && !$wp_rocket_active) {
             $cache_duration = 3600; // 1 hour for browsers
-            header('Cache-Control: private, max-age=' . $cache_duration);
+
+            # WP-507: only the HTTP fallback path must force `private`. That path serves an
+            # internally-fetched copy of the page (handle_route_html) and keeps ONLY the body —
+            # the response `Set-Cookie` (e.g. PHPSESSID from Formidable etc.) is discarded — so the
+            # host/CDN cannot auto-skip caching form/session pages, and a shared copy would re-leak
+            # nonces across visitors (the WP-329 regression).
+            #
+            # On the BUFFER path the visitor's own request renders the page, so its real `Set-Cookie`
+            # IS on the response; the host/CDN already auto-skips caching any response that sets a
+            # cookie, so form/session pages stay protected without us forcing `private`. Forcing it
+            # there blocked host/CDN caching site-wide → uncached PHP render on every hit → CPU spikes
+            # and slow first-load. So we let those pages be cached normally (no `private`).
+            if (self::get_current_method() === self::METHOD_HTTP) {
+                header('Cache-Control: private, max-age=' . $cache_duration);
+            }
             header('Vary: Accept-Encoding');
         }
 

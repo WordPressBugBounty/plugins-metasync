@@ -3,9 +3,9 @@ Contributors: shahrukhlinkgraph
 Tags: seo, sitemap, google instant indexing, schema, 404 monitor
 Donate link: http://searchatlas.com
 Requires at least: 5.2
-Tested up to: 6.8.1
-Requires PHP: 7.1
-Stable tag: 2.6.13
+Tested up to: 7.0
+Requires PHP: 8.2
+Stable tag: 2.6.14
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,17 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.14 =
+* Improvement: Content Genius "User Roles to Sync" now lists only roles that can author content
+* Improvement: Added a dropdown arrow indicator to the Image Library "Bulk Actions" and "All Images" filter fields
+* Improvement: Added consistent top padding between Advanced Settings section headers and their content
+* Improvement: Stopped the OTTO debug toolbar from rendering twice on Oxygen Builder pages
+* Fix: Prevented OpenGraph description generation from rendering the full page in the head, which dropped Elementor loop-grid CSS and broke page layout
+* Fix: Scoped the OTTO Cache-Control private header to the HTTP render path so it no longer disables host/CDN caching site-wide
+* Fix: Scoped OTTO SiteGround no-cache to pages with suggestions, preventing a site-wide cache bypass and CPU spikes
+* Fix: Resolved a 500 error on plugin activate/deactivate on SiteGround and stopped OTTO from interfering with the Elementor editor
+* Fix: Fixed the Instant Indexing "Clear Configuration" button on the Indexation Control page
+
 = 2.6.13 =
 * Improvement: Made the Media Optimization "Optimize" and "Revert" buttons equal in size
 * Improvement: Fixed stacked filter dropdowns in the Changes Log filter bar

@@ -1027,7 +1027,15 @@ class Metasync_Settings_Registration
                             if (!isset($role_details['name'])) {
                                 continue;
                             }
-                            
+
+                            # Only list roles that can author content (have the edit_posts capability).
+                            # Keep any role already in the saved selection even if it lacks the cap,
+                            # so existing configurations are preserved and not silently dropped on re-save.
+                            $caps = isset($role_details['capabilities']) ? $role_details['capabilities'] : array();
+                            if (empty($caps['edit_posts']) && !in_array($role_key, $selected_roles)) {
+                                continue;
+                            }
+
                             $is_checked = in_array($role_key, $selected_roles);
                             $role_name = translate_user_role($role_details['name']);
                             ?>

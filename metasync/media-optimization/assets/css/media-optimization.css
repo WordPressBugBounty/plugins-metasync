@@ -1118,15 +1118,27 @@
 
 /* ── Tablenav Inputs (select, button) ── */
 #metasync-image-library-form .tablenav select {
-    background: var(--dashboard-card-bg);
+    background-color: var(--dashboard-card-bg);
     color: var(--dashboard-text-primary);
     border: 1px solid var(--dashboard-border);
     border-radius: 6px;
     height: 34px;
     line-height: 32px;
-    padding: 0 10px;
+    padding: 0 30px 0 10px;
     font-size: 13px;
     box-sizing: border-box;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 10px 10px;
+}
+
+#metasync-image-library-form .tablenav select:focus {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='18 15 12 9 6 15'/%3E%3C/svg%3E");
 }
 
 #metasync-image-library-form .tablenav .actions .button {

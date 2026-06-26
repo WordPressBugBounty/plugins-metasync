@@ -475,11 +475,14 @@ class Google_Index_Admin
                     .attr('name', 'google_index_clear_config')
                     .attr('value', '1');
                 
-                // Append to form
-                $('#metaSyncGeneralSetting').append(input);
-                
-                // Trigger the form's existing AJAX submission handler
-                $('#metaSyncGeneralSetting').trigger('submit');
+                // Append to the correct form (Indexation Control vs General Settings) and submit via AJAX
+                var clrForm = $('#metaSyncSeoControlsForm').length ? $('#metaSyncSeoControlsForm') : $('#metaSyncGeneralSetting');
+                var clrAction = $('#metaSyncSeoControlsForm').length ? 'meta_sync_save_seo_controls' : 'meta_sync_save_settings';
+                clrForm.append(input);
+                var clrData = clrForm.serialize() + '&action=' + clrAction;
+
+                // Submit the clear request directly via AJAX, then reload
+                $.ajax({ url: ajaxurl || metaSync.ajax_url, type: 'POST', data: clrData, complete: function() { window.location.reload(); } });
             });
             
         });

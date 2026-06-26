@@ -1066,13 +1066,17 @@ class Metasync_OpenGraph {
         # Generate excerpt from content
         $content = $post->post_content;
 
-        # Process shortcodes to get the actual rendered content (what users see on frontend)
-        # This converts page builder shortcodes into their actual HTML output
-        $content = do_shortcode($content);
-
-        # Apply WordPress content filters (same filters used on the frontend)
-        # This ensures we get the exact same content as displayed on the page
-        $content = apply_filters('the_content', $content);
+        # WP-510: Do NOT run do_shortcode()/apply_filters('the_content') here.
+        # This method runs on wp_head (priority 5, before the body renders) to build
+        # og:description. On page-builder pages (Elementor, etc.) the_content fully
+        # renders the page — including widgets like Elementor Loop Grid — which makes
+        # the builder mark those widgets' per-request inline CSS as "already printed".
+        # When the real widget renders later in the body, the builder's dedup then
+        # OMITS its inline <style> (e.g. <style id="loop-NNNN"> carrying the loop
+        # card's flex/width vars), collapsing the layout (stacked cards, full-width
+        # images). We only need plain text for a meta description, so strip instead of
+        # render — matching how Metasync_Seo_Output builds its description safely.
+        $content = strip_shortcodes($content);
 
         # Remove HTML tags to get clean text
         $content = wp_strip_all_tags($content);

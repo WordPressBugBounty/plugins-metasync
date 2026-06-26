@@ -95,7 +95,14 @@ class Metasync_Activator
 			update_option('metasync_disable_wp_sitemap', true);
 		}
 
-		flush_rewrite_rules();
+		// Soft flush only (no .htaccess rewrite). A hard flush calls
+		// save_mod_rewrite_rules(), which takes an exclusive flock() on the site's
+		// root .htaccess. On hosts whose cache/optimizer also holds that lock (e.g.
+		// SiteGround + SG Optimizer), the activation request blocks until
+		// max_execution_time and the host returns a 500. MetaSync's rewrite rules are
+		// registered via add_rewrite_rule (stored in the `rewrite_rules` option, NOT
+		// in .htaccess), so a soft flush is sufficient and never touches the file.
+		flush_rewrite_rules(false);
 	}
 
 	/**

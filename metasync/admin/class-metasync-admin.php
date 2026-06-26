@@ -1518,7 +1518,7 @@ class Metasync_Admin
         
         ?>
         <!-- OTTO Cache TTL Setting -->
-        <div style="margin-bottom: 30px;">
+        <div style="margin-bottom: 30px; padding-top: 20px;">
             <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">OTTO Cache TTL</h4>
             <p style="margin-bottom: 15px; color: var(--dashboard-text-secondary);">
                 Configure how long <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> API suggestions are cached before a fresh API call. Stale cache expires at 2× this value.

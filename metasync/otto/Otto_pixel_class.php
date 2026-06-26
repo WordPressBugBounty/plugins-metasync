@@ -260,7 +260,15 @@ Class Metasync_otto_pixel{
 
         # comment out for fixing pagination issues
         # $route = rtrim($route, '/');
-        
+
+        # WP-498: Now that OTTO has confirmed suggestions to apply to this URL,
+        # disable SiteGround SG Optimizer page caching for THIS request only.
+        # Doing it here (instead of unconditionally on the `wp` hook) ensures
+        # pages without OTTO suggestions keep being served from SG's page cache.
+        if (function_exists('metasync_otto_disable_sg_page_cache')) {
+            metasync_otto_disable_sg_page_cache();
+        }
+
         # Analyze what OTTO is providing for SEO plugin blocking
         $blocking_flags = $this->analyze_otto_blocking($suggestions);
 

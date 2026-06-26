@@ -248,6 +248,17 @@ class Metasync_Otto_Frontend_Toolbar {
 			return;
 		}
 
+		// each emit it, appearing duplicated over the editing canvas.
+		if ( isset( $_GET['ct_builder'] ) || ( defined( 'SHOW_CT_BUILDER' ) && SHOW_CT_BUILDER ) ) {
+			return;
+		}
+
+		// Guard against duplicate output when wp_footer fires more than once
+		// per request (e.g. Oxygen Builder re-invokes the footer hook).
+		static $rendered = false;
+		if ( $rendered ) { return; }
+		$rendered = true;
+
 		$post_id = get_the_ID();
 		$is_disabled = self::is_otto_disabled( $post_id );
 		$status_class = $is_disabled ? 'otto-disabled' : 'otto-enabled';

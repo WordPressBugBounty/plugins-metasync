@@ -327,6 +327,51 @@ function metasync_is_custom_or_lps_page($post_id){
     return false;
 }
 
+/**
+ * Detect an Elementor editor / preview request that OTTO must never process.
+ *
+ * Elementor renders its editing canvas in a front-end <iframe> — a logged-in
+ * GET request that is NOT is_admin(), so the admin/ajax/REST guards in
+ * metasync_start_otto() do not catch it. If OTTO output-buffers and rewrites
+ * that response (SimpleHtmlDom in Otto_html_class), the markup the editor's
+ * JavaScript expects is altered and the canvas stays stuck on "loading" —
+ * the editor never finishes initialising. The editor surface is for authoring
+ * only; it is never crawled, so there is nothing for OTTO to optimise there.
+ *
+ * Locally this is masked because the OTTO API is unreachable (API_ERROR ⇒ no
+ * suggestions ⇒ no rewrite); on a live site with real suggestions the rewrite
+ * happens and the editor breaks. See the "Elementor editor fails to load while
+ * the plugin is active" report.
+ *
+ * @return bool True when the current request is an Elementor editor/preview.
+ */
+function metasync_is_elementor_editor_request() {
+    # The preview iframe loads the front end with ?elementor-preview=POST_ID.
+    # This is the request OTTO would otherwise buffer and corrupt.
+    if (isset($_GET['elementor-preview'])) {
+        return true;
+    }
+
+    # Elementor editor / app entry points carried as an action on the front end.
+    if (isset($_REQUEST['action'])
+        && in_array($_REQUEST['action'], array('elementor', 'elementor_ajax'), true)
+    ) {
+        return true;
+    }
+
+    # Authoritative check when Elementor is loaded: its own preview-mode flag.
+    if (class_exists('\Elementor\Plugin')
+        && isset(\Elementor\Plugin::$instance->preview)
+        && is_object(\Elementor\Plugin::$instance->preview)
+        && method_exists(\Elementor\Plugin::$instance->preview, 'is_preview_mode')
+        && \Elementor\Plugin::$instance->preview->is_preview_mode()
+    ) {
+        return true;
+    }
+
+    return false;
+}
+
 function metasync_start_otto(){
 
     # PERFORMANCE FIX: Cache is now enabled for speed
@@ -352,6 +397,13 @@ function metasync_start_otto(){
     # issue GET; POST/PUT/etc. are form or cart submissions that must pass
     # through untouched. (OTTO's own internal fetches use GET.)
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+        return;
+    }
+
+    # Never run OTTO on the Elementor editor/preview iframe. It is a logged-in
+    # front-end GET (not is_admin()), so it slips past the admin guard below;
+    # buffering and rewriting it breaks the editor canvas ("fails to load").
+    if (metasync_is_elementor_editor_request()) {
         return;
     }
 
@@ -619,10 +671,11 @@ function metasync_start_otto(){
  * This function is called early in the WordPress lifecycle
  */
 function metasync_otto_handle_cache_compatibility() {
-    # Detect active plugins
+    # Detect active plugins. SG Optimizer detection now lives in
+    # metasync_otto_disable_sg_page_cache() (WP-498), which is invoked later
+    # once OTTO confirms suggestions for the URL.
     $brizy_active = class_exists('Brizy_Editor') || defined('BRIZY_VERSION');
     $wp_rocket_active = class_exists('WP_Rocket');
-    $sg_optimizer_active = is_plugin_active('sg-cachepress/sg-cachepress.php');
 
     # OPTIMIZED: Get configuration option using cached config
     $wp_rocket_compat_mode = Metasync_Otto_Config::get_wp_rocket_compat_mode();
@@ -654,45 +707,71 @@ function metasync_otto_handle_cache_compatibility() {
     # Determine if DONOTCACHEPAGE should be set
     $should_set_donotcachepage = false;
 
-    # Case 1: Brizy is active with posts - always needed
+    # Case 1: Brizy is active with posts - always needed. Brizy pages are
+    # dynamically rendered regardless of OTTO, so caching must be disabled
+    # whenever Brizy posts exist.
     if ($brizy_active && !empty($has_brizy_posts)) {
         $should_set_donotcachepage = true;
     }
 
-    # Case 2: SG Optimizer without WP Rocket - prevent conflicts
-    elseif ($sg_optimizer_active && !$wp_rocket_active) {
-        $should_set_donotcachepage = true;
-    }
-
-    # Case 3: User explicitly disabled Otto for WP Rocket compatibility
+    # Case 2: User explicitly disabled Otto for WP Rocket compatibility
     elseif ($wp_rocket_active && $wp_rocket_compat_mode === 'disable_otto') {
         $should_set_donotcachepage = true;
         return; # Exit early, Otto won't run
     }
 
-    # Case 4: WP Rocket active with auto/buffer mode - DON'T set DONOTCACHEPAGE
+    # Case 3: WP Rocket active with auto/buffer mode - DON'T set DONOTCACHEPAGE
     # This allows WP Rocket optimizations to continue working
+
+    # NOTE (WP-498): SiteGround SG Optimizer cache bypass is intentionally NOT
+    # handled here. Emitting no-cache headers / disabling SG cache on this hook
+    # fired on EVERY front-end page — including pages OTTO never modifies —
+    # forcing SG to bypass its page cache site-wide and spiking CPU. The SG
+    # bypass is now deferred to metasync_otto_disable_sg_page_cache(), called
+    # from render_route_html() only after OTTO confirms it has suggestions for
+    # the current URL.
 
     # Only set DONOTCACHEPAGE if needed
     if ($should_set_donotcachepage && !defined('DONOTCACHEPAGE')) {
         define('DONOTCACHEPAGE', true);
     }
+}
 
-    # Apply SG Optimizer specific filters only if SG is active and no WP Rocket
-    if ($sg_optimizer_active && !$wp_rocket_active && $should_set_donotcachepage) {
-        if (!defined('SG_CachePress_SUPERCACHER')) {
-            define('SG_CachePress_SUPERCACHER', false);
-        }
+/**
+ * Disable SiteGround SG Optimizer page caching for the CURRENT request only.
+ *
+ * Called from Metasync_otto_pixel::render_route_html() once OTTO has confirmed
+ * it has suggestions to apply to the requested URL. Scoping the no-cache
+ * override to pages OTTO actually modifies — rather than emitting it on every
+ * front-end page via the unconditional `wp` hook — keeps SG's page cache
+ * working site-wide and avoids the CPU spike reported in WP-498.
+ *
+ * Only meaningful on SiteGround sites without WP Rocket; a no-op otherwise.
+ */
+function metasync_otto_disable_sg_page_cache() {
+    # Only relevant when SG Optimizer is active and WP Rocket is not present.
+    if (class_exists('WP_Rocket')) {
+        return;
+    }
+    if (!is_plugin_active('sg-cachepress/sg-cachepress.php')) {
+        return;
+    }
 
-        add_filter('sgo_html_cache_disable', '__return_true', 999);
-        add_filter('sgo_css_combine_exclude', '__return_true', 999);
-        add_filter('sgo_js_combine_exclude', '__return_true', 999);
-        add_filter('sgo_cache_this_page', '__return_false', 999);
+    if (!defined('DONOTCACHEPAGE')) {
+        define('DONOTCACHEPAGE', true);
+    }
+    if (!defined('SG_CachePress_SUPERCACHER')) {
+        define('SG_CachePress_SUPERCACHER', false);
+    }
 
-        if (!headers_sent()) {
-            header('Cache-Control: no-cache, must-revalidate, max-age=0');
-            header('X-Accel-Expires: 0');
-        }
+    add_filter('sgo_html_cache_disable', '__return_true', 999);
+    add_filter('sgo_css_combine_exclude', '__return_true', 999);
+    add_filter('sgo_js_combine_exclude', '__return_true', 999);
+    add_filter('sgo_cache_this_page', '__return_false', 999);
+
+    if (!headers_sent()) {
+        header('Cache-Control: no-cache, must-revalidate, max-age=0');
+        header('X-Accel-Expires: 0');
     }
 }
 
@@ -811,11 +890,19 @@ function metasync_otto_block_seo_plugins($block_title = false, $block_descriptio
         }
     }
 }
-# check that otto is not added via js to the site
+# Check whether OTTO is ALSO injected via JavaScript on the site (a misconfiguration
+# we warn admins about).
+#
+# The actual detection makes a loopback HTTP request to the site's OWN url. On hosts
+# that disallow same-server loopback (e.g. SiteGround), that request blocks for the
+# full timeout and then fails — and when it runs inline on admin_notices it makes
+# every wp-admin page hang. It must therefore NEVER run inline on an admin request.
+#
+# metasync_check_otto_js() is now read-only: it returns the cached result and, on a
+# cache miss, schedules a one-off BACKGROUND job (WP-Cron) to compute it. The notice
+# simply shows nothing until the background result is available.
 function metasync_check_otto_js(){
 
-    # Cache result to avoid a blocking HTTP self-request (~2.4s)
-    # on every single admin page load.
     $cache_key = 'metasync_otto_js_detected';
     $cached = get_transient($cache_key);
 
@@ -823,41 +910,58 @@ function metasync_check_otto_js(){
         return $cached === 'yes';
     }
 
-    # get the site url
+    # No cached result yet — compute it off the request so we never block admin
+    # with a loopback call. Show nothing this load.
+    metasync_schedule_otto_js_check();
+    return false;
+};
+
+# Queue the background loopback detection if it isn't already scheduled.
+function metasync_schedule_otto_js_check(){
+    if (!wp_next_scheduled('metasync_otto_js_check_event')) {
+        wp_schedule_single_event(time() + 5, 'metasync_otto_js_check_event');
+    }
+}
+
+# Background worker (runs in WP-Cron context, NOT on the admin request): performs the
+# blocking loopback request and caches the result. Hooked to metasync_otto_js_check_event.
+function metasync_run_otto_js_check(){
+    $cache_key = 'metasync_otto_js_detected';
+
+    # the site url with the internal-fetch marker so OTTO does not re-process it
     $site_url = site_url() . '?is_otto_page_fetch=1';
 
-    # get the html — short timeout so admin doesn't hang
     $page_data = wp_remote_get($site_url, array('timeout' => 5, 'sslverify' => false));
 
     if (is_wp_error($page_data)) {
+        # Loopback failed (host likely blocks same-server requests). Cache "no" so we
+        # don't keep re-queuing the check on every admin page load.
         set_transient($cache_key, 'no', HOUR_IN_SECONDS);
-        return false;
+        return;
     }
 
-    # now get the html body
-    $body = wp_remote_retrieve_body($page_data);
-
-    # now load the body into html
-    $dom = new HtmlDocument($body);
-
-    # now check the dom for a meta tag with
+    $body   = wp_remote_retrieve_body($page_data);
+    $dom    = new HtmlDocument($body);
     $script = $dom->find('script#sa-dynamic-optimization', 0);
 
-    # check script
-    if($script AND !empty($script->getAttribute('data-uuid'))){
+    if ($script AND !empty($script->getAttribute('data-uuid'))) {
         set_transient($cache_key, 'yes', 12 * HOUR_IN_SECONDS);
-        return true;
+        return;
     }
 
     set_transient($cache_key, 'no', 12 * HOUR_IN_SECONDS);
-    return false;
-};
+}
+
+# Register the background worker hook.
+add_action('metasync_otto_js_check_event', 'metasync_run_otto_js_check');
 
 # Handle AJAX Clear Cache request
 # NOTE: Cache system removed - this is now a no-op
 function metasync_clear_otto_cache_handler() {
     if (!empty($_GET['clear_otto_cache'])) {
         delete_transient('metasync_otto_js_detected');
+        # Re-run the JS detection in the background so the notice refreshes.
+        metasync_schedule_otto_js_check();
         # Cache system has been removed - no cache to clear
         wp_send_json_success(['message' => 'Cache system removed - all pages processed in real-time']);
     }

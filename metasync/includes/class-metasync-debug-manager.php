@@ -311,7 +311,7 @@ class Metasync_Debug_Manager
         ?>
 
         <!-- Debug Mode Status Overview -->
-        <div style="margin-bottom: 30px;">
+        <div style="margin-bottom: 30px; padding-top: 20px;">
             <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">Current Status</h4>
             <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--dashboard-border); padding: 20px; border-radius: 8px;">
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
@@ -524,7 +524,7 @@ class Metasync_Debug_Manager
     {
         ?>
         <!-- Error Summary Section -->
-        <div style="margin-bottom: 30px;">
+        <div style="margin-bottom: 30px; padding-top: 20px;">
             <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">Error Summary</h4>
             <p style="margin-bottom: 15px; color: var(--dashboard-text-secondary);">View categorized error statistics with counts and last occurrence times.</p>
             
