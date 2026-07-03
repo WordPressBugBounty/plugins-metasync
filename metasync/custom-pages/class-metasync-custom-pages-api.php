@@ -1564,6 +1564,8 @@ class Metasync_Custom_Pages_API
 
 			$parent_id = 0;
 			$parent_ok = true;
+			$parent_fail_code = 'parent_failed';
+			$parent_fail_extra = array();
 			$ancestor_path = '';
 			foreach ($segments as $seg) {
 				$seg = sanitize_title($seg);
@@ -1578,6 +1580,24 @@ class Metasync_Custom_Pages_API
 				}
 				$ancestor_page = get_page_by_path($ancestor_path, OBJECT, 'page');
 				if ($ancestor_page) {
+					// WP-462: only nest under ancestors we own. If an existing page on this
+					// path was NOT created by LPS, refuse to graft LPS content under the
+					// user's content — consistent with the leaf ownership gate below.
+					if (get_post_meta($ancestor_page->ID, Metasync_Custom_Pages::META_LPS_IMPORT, true) !== '1') {
+						$parent_ok = false;
+						$parent_fail_code = 'parent_not_owned';
+						$parent_fail_extra = array(
+							'conflict_with'  => array(
+								'post_id'   => (int) $ancestor_page->ID,
+								'post_type' => $ancestor_page->post_type,
+								'title'     => $ancestor_page->post_title,
+							),
+							// Suggest an alternate for the CONFLICTING ANCESTOR (the actual blocker),
+							// not the leaf — renaming the leaf wouldn't resolve an owned-ancestor clash.
+							'suggested_slug' => $this->suggest_available_slug($ancestor_path),
+						);
+						break;
+					}
 					$parent_id = $ancestor_page->ID;
 				} else {
 					// Auto-create a minimal LPS-owned placeholder so the URL nests.
@@ -1603,7 +1623,16 @@ class Metasync_Custom_Pages_API
 				$slug_to_id[$ancestor_path] = $parent_id;
 			}
 			if (!$parent_ok) {
-				$failed[] = array('slug' => $effective_slug, 'code' => 'parent_failed', 'message' => 'Could not resolve the parent page hierarchy.');
+				$failed[] = array_merge(
+					array(
+						'slug'    => $effective_slug,
+						'code'    => $parent_fail_code,
+						'message' => ($parent_fail_code === 'parent_not_owned')
+							? 'A parent page on this path is owned by existing non-LPS content; LPS will not nest under it.'
+							: 'Could not resolve the parent page hierarchy.',
+					),
+					$parent_fail_extra
+				);
 				continue;
 			}
 

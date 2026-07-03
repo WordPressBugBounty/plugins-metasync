@@ -131,6 +131,14 @@
 	color: var(--dashboard-accent) !important;
 }
 
+/* Keep the sort arrows inline with the header label on every column —
+   narrow columns otherwise wrap two-word labels (e.g. "Post Type") onto
+   a second line before the sorting-indicator. */
+.wrap .wp-list-table th.sortable a,
+.wrap .wp-list-table th.sorted a {
+	white-space: nowrap !important;
+}
+
 /* Check column */
 .wrap .wp-list-table th.check-column,
 .wrap .wp-list-table td.check-column {
@@ -168,6 +176,9 @@
 	flex-wrap: nowrap !important;
 	flex-shrink: 0 !important;
 	min-width: 0 !important;
+	margin: 0 !important;
+	padding: 0 !important;
+	float: none !important;
 }
 
 .wrap .tablenav .alignleft {
@@ -177,6 +188,9 @@
 	flex-wrap: nowrap !important;
 	flex-shrink: 0 !important;
 	min-width: 0 !important;
+	margin: 0 !important;
+	padding: 0 !important;
+	float: none !important;
 }
 
 .wrap .tablenav .alignright {
@@ -186,6 +200,10 @@
 	margin-left: auto !important;
 	flex-shrink: 0 !important;
 	min-width: 0 !important;
+	margin-top: 0 !important;
+	margin-bottom: 0 !important;
+	padding: 0 !important;
+	float: none !important;
 }
 
 /* Force inline alignment for all tablenav children */
@@ -255,16 +273,30 @@
 .wrap .search-box input[type="text"],
 .wrap .tablenav #seo-health-search-search-input {
 	background: var(--dashboard-card-bg) !important;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E") !important;
+	background-repeat: no-repeat !important;
+	background-position: 10px center !important;
+	background-size: 14px 14px !important;
 	border: 1px solid var(--dashboard-border) !important;
 	color: var(--dashboard-text-primary) !important;
 	border-radius: 6px !important;
-	padding: 8px 12px !important;
+	padding: 8px 12px 8px 32px !important;
 	height: 36px !important;
 	font-size: 13px !important;
 	box-sizing: border-box !important;
 	margin: 0 !important;
 	vertical-align: middle !important;
 	line-height: 1 !important;
+}
+
+[data-theme="light"] .wrap .search-box input[type="search"],
+[data-theme="light"] .wrap .search-box input[type="text"],
+[data-theme="light"] .wrap .tablenav #seo-health-search-search-input {
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E") !important;
+}
+
+.wrap .search-box input[type="search"]::-webkit-search-cancel-button {
+	margin-right: 0 !important;
 }
 
 .wrap .search-box input[type="search"]:focus,
@@ -310,10 +342,10 @@
 
 .wrap .tablenav input[type="submit"],
 .wrap .tablenav .button {
-	height: 40px !important;
+	height: 36px !important;
 	vertical-align: middle !important;
 	line-height: 1 !important;
-	padding: 10px 20px !important;
+	padding: 0 20px !important;
 	flex-shrink: 0 !important;
 	white-space: nowrap !important;
 	width: auto !important;
@@ -347,7 +379,9 @@
 	display: flex !important;
 	align-items: center !important;
 	gap: 8px !important;
-	margin-left: auto !important;
+	margin: 0 0 0 auto !important;
+	padding: 0 !important;
+	float: none !important;
 	justify-content: flex-end !important;
 	white-space: nowrap !important;
 }
@@ -357,14 +391,15 @@
 	font-size: 13px !important;
 	font-weight: 500 !important;
 	background: var(--dashboard-card-hover) !important;
-	padding: 6px 12px !important;
+	padding: 0 12px !important;
 	border-radius: 6px !important;
 	border: 1px solid var(--dashboard-border) !important;
 	margin-right: 12px !important;
 	white-space: nowrap !important;
-	height: 32px !important;
+	height: 36px !important;
 	box-sizing: border-box !important;
-	display: inline-block !important;
+	display: inline-flex !important;
+	align-items: center !important;
 	vertical-align: middle !important;
 	line-height: 1.4 !important;
 }
@@ -381,9 +416,9 @@
 	border: 1px solid var(--dashboard-border) !important;
 	color: var(--dashboard-text-secondary) !important;
 	border-radius: 6px !important;
-	min-width: 30px !important;
-	height: 30px !important;
-	line-height: 28px !important;
+	min-width: 36px !important;
+	height: 36px !important;
+	line-height: 34px !important;
 	text-align: center !important;
 	padding: 0 8px !important;
 	display: inline-flex !important;
@@ -413,9 +448,10 @@
 	color: var(--dashboard-text-primary) !important;
 	border-radius: 6px !important;
 	width: 50px !important;
-	height: 30px !important;
+	height: 36px !important;
 	text-align: center !important;
 	padding: 0 4px !important;
+	box-sizing: border-box !important;
 }
 
 .wrap .tablenav-pages .current-page:focus {

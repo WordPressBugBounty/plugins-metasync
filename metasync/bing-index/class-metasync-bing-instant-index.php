@@ -19,6 +19,12 @@ if (!defined('ABSPATH')) {
 
 class Metasync_Bing_Instant_Index
 {
+	/**
+	 * Option storing IndexNow key-file names registered for virtual serving.
+	 *
+	 * @var string
+	 */
+	const KEY_FILES_OPTION = 'metasync_indexnow_key_files';
 
 	/**
 	 * Holds the default settings.
@@ -62,6 +68,140 @@ class Metasync_Bing_Instant_Index
 
 		// Hook to disable other IndexNow plugins if setting is enabled
 		$this->maybe_disable_other_plugins();
+	}
+
+	/**
+	 * Register an IndexNow key so it can be served virtually at /{key}.txt.
+	 *
+	 * Keys are stored in a capped option and served from PHP via
+	 * template_redirect, so ownership verification works even when the web root
+	 * is not writable or the host 403s direct static .txt access (WP-511).
+	 *
+	 * @param string $key The IndexNow key (also the filename stem).
+	 * @return bool True when the key is stored or already present.
+	 */
+	public static function register_virtual_key($key)
+	{
+		$key = sanitize_file_name($key);
+		if ($key === '') {
+			return false;
+		}
+
+		$keys = get_option(self::KEY_FILES_OPTION, []);
+		if (!is_array($keys)) {
+			$keys = [];
+		}
+
+		if (!in_array($key, $keys, true)) {
+			$keys[] = $key;
+			// Cap growth from rotated keys; keep the most recent entries.
+			if (count($keys) > 20) {
+				$keys = array_slice($keys, -20);
+			}
+			update_option(self::KEY_FILES_OPTION, $keys, false);
+		}
+
+		return true;
+	}
+
+	/**
+	 * All keys eligible for virtual serving: the configured api_key plus any
+	 * keys explicitly registered via register_virtual_key().
+	 *
+	 * @return string[] Sanitized, de-duplicated key list.
+	 */
+	public static function get_virtual_keys()
+	{
+		$keys = get_option(self::KEY_FILES_OPTION, []);
+		if (!is_array($keys)) {
+			$keys = [];
+		}
+
+		$settings = get_option('metasync_options_bing_instant_indexing', []);
+		if (is_array($settings) && !empty($settings['api_key'])) {
+			$keys[] = sanitize_file_name($settings['api_key']);
+		}
+
+		return array_values(array_unique(array_filter($keys)));
+	}
+
+	/**
+	 * Serve the IndexNow key file virtually at /{key}.txt.
+	 *
+	 * Registered on template_redirect from the public bootstrap so it runs for
+	 * every front-end request. Serving the key from PHP (rather than a physical
+	 * file) avoids the 403 some nginx setups return for direct static .txt
+	 * access, and works on read-only web roots (WP-511).
+	 *
+	 * The handler only responds when the requested basename exactly matches a
+	 * configured/registered key, so it never shadows robots.txt, llms.txt, or
+	 * any unrelated .txt request.
+	 *
+	 * @return void
+	 */
+	public static function serve_virtual_key_file()
+	{
+		if (is_admin()) {
+			return;
+		}
+
+		$request_uri = isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
+		$key = self::match_virtual_key_request($request_uri);
+		if ($key === null) {
+			return;
+		}
+
+		status_header(200);
+		header('Content-Type: text/plain; charset=utf-8');
+		header('X-Robots-Tag: noindex');
+		echo $key;
+		exit;
+	}
+
+	/**
+	 * Resolve the IndexNow key a request should be served, or null if none.
+	 *
+	 * Extracted from serve_virtual_key_file() so the matching rules (extension,
+	 * charset, key membership, physical-file shadowing) are unit-testable
+	 * without the header/echo/exit side effects (WP-513).
+	 *
+	 * @param string $request_uri Raw REQUEST_URI, possibly with a query string.
+	 * @return string|null The key stem to serve, or null when the request is not
+	 *                     a servable virtual key file.
+	 */
+	public static function match_virtual_key_request($request_uri)
+	{
+		$request_uri = strtok((string) $request_uri, '?');
+		$path = parse_url($request_uri, PHP_URL_PATH);
+		if (!is_string($path) || substr($path, -4) !== '.txt') {
+			return null;
+		}
+
+		// Filename stem without the .txt extension. basename() keeps this correct
+		// for subdirectory installs, where the path carries the subdir prefix.
+		$requested = basename(substr($path, 0, -4));
+		// Allow hyphens and underscores, not just bare alphanumerics: SearchAtlas
+		// registers IndexNow keys in the form "index-now-<uuid>" (WP-513), which
+		// the previous alnum-only guard rejected, causing /index-now-<uuid>.txt to
+		// 404 even though the key was registered. This is only a cheap pre-filter;
+		// the in_array() membership check below is the real security boundary, and
+		// the candidate keys are already sanitized via sanitize_file_name().
+		if ($requested === '' || !preg_match('/^[A-Za-z0-9_-]+$/', $requested)) {
+			return null;
+		}
+
+		// Only serve when the request matches one of our keys. IndexNow keys are
+		// public by design, so a strict membership check is the security boundary.
+		if (!in_array($requested, self::get_virtual_keys(), true)) {
+			return null;
+		}
+
+		// Never shadow a physical file (served directly by the web server where allowed).
+		if (file_exists(ABSPATH . $requested . '.txt')) {
+			return null;
+		}
+
+		return $requested;
 	}
 
 	/**
@@ -522,42 +662,54 @@ class Metasync_Bing_Instant_Index
 		$file_path = ABSPATH . $safe_key . '.txt';
 		$file_url = home_url('/' . $safe_key . '.txt');
 
-		// Check if file exists
-		if (!file_exists($file_path)) {
+		// Physical file present — verify it is readable and its content matches.
+		if (file_exists($file_path)) {
+			if (!is_readable($file_path)) {
+				return [
+					'success' => false,
+					'message' => 'API key file exists but is not readable.',
+					'file_path' => $file_path,
+					'file_url' => $file_url,
+				];
+			}
+
+			$file_content = file_get_contents($file_path);
+			if (trim($file_content) !== $api_key) {
+				return [
+					'success' => false,
+					'message' => 'API key file content does not match configured API key.',
+					'file_path' => $file_path,
+					'file_url' => $file_url,
+					'expected' => $api_key,
+					'actual' => trim($file_content),
+				];
+			}
+
 			return [
-				'success' => false,
-				'message' => 'API key file does not exist.',
+				'success' => true,
+				'message' => 'API key file is valid and accessible.',
 				'file_path' => $file_path,
 				'file_url' => $file_url,
+				'serving' => 'physical',
 			];
 		}
 
-		// Check if file is readable
-		if (!is_readable($file_path)) {
+		// No physical file: the key is served virtually via template_redirect as
+		// long as it is registered. The configured api_key is always part of the
+		// virtual key set, so this confirms the virtual route is active (WP-511).
+		if (in_array($safe_key, self::get_virtual_keys(), true)) {
 			return [
-				'success' => false,
-				'message' => 'API key file exists but is not readable.',
+				'success' => true,
+				'message' => 'API key is served virtually (no physical file required).',
 				'file_path' => $file_path,
 				'file_url' => $file_url,
-			];
-		}
-
-		// Verify file content matches API key
-		$file_content = file_get_contents($file_path);
-		if (trim($file_content) !== $api_key) {
-			return [
-				'success' => false,
-				'message' => 'API key file content does not match configured API key.',
-				'file_path' => $file_path,
-				'file_url' => $file_url,
-				'expected' => $api_key,
-				'actual' => trim($file_content),
+				'serving' => 'virtual',
 			];
 		}
 
 		return [
-			'success' => true,
-			'message' => 'API key file is valid and accessible.',
+			'success' => false,
+			'message' => 'API key file does not exist.',
 			'file_path' => $file_path,
 			'file_url' => $file_url,
 		];

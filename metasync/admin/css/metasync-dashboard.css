@@ -284,6 +284,13 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     display: none;
 }
 
+/* Light theme must explicitly show the light logo: its base state is
+   display:none, and hiding the dark logo alone would leave no logo visible. */
+[data-theme="light"] .metasync-logo-light,
+.metasync-header[data-current-theme="light"] .metasync-logo-light {
+    display: block;
+}
+
 /* Default (non-whitelabel) SA logo: invert on light theme so the white asset
    stays visible against a light background. Dark theme keeps the original. */
 [data-theme="light"] .metasync-logo-default,

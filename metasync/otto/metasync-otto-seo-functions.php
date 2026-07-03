@@ -132,6 +132,14 @@ function metasync_clean_seo_variables($text) {
     # Remove Yoast/RankMath template variables (%%variable%%)
     $text = preg_replace('/%%[^%]+%%/i', '', $text);
 
+    # WP-499: SEO text values (og/meta/twitter descriptions and titles) must never
+    # contain page-builder shortcodes. OTTO can derive these from raw page content,
+    # so strip registered shortcodes plus any leftover shortcode-style tags (e.g.
+    # unregistered Divi [et_pb_*]). The pattern is anchored to a leading letter so
+    # legitimate bracketed prose like "[2026 Guide]" is preserved.
+    $text = strip_shortcodes($text);
+    $text = preg_replace('/\[\/?[a-zA-Z][^\]]*\]/', '', $text);
+
     # Remove multiple spaces created by removal
     $text = preg_replace('/\s+/', ' ', $text);
 

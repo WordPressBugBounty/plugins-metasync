@@ -1078,6 +1078,14 @@ class Metasync_OpenGraph {
         # render — matching how Metasync_Seo_Output builds its description safely.
         $content = strip_shortcodes($content);
 
+        # WP-499: Page builders (Divi, Elementor, WPBakery) store content as shortcodes.
+        # do_shortcode() only renders shortcodes whose handlers are registered, and when
+        # this runs server-side (REST/cron/CLI) or before the builder loads the [et_pb_*]
+        # tags are never expanded. strip_shortcodes() only removes *registered* shortcodes
+        # too, so any leftover shortcode-style tags are removed by pattern below — otherwise
+        # raw builder markup leaks into the og:description.
+        $content = $this->strip_shortcode_markup($content);
+
         # Remove HTML tags to get clean text
         $content = wp_strip_all_tags($content);
 
@@ -1094,6 +1102,29 @@ class Metasync_OpenGraph {
         $excerpt = wp_trim_words($content, 30, '...');
 
         return $excerpt;
+    }
+
+    /**
+     * Strip shortcode markup from a string.
+     *
+     * Removes registered shortcodes via strip_shortcodes(), then strips any
+     * leftover shortcode-style tags (e.g. unregistered page-builder tags such
+     * as [et_pb_section ...] / [/et_pb_section]) by pattern. The pattern is
+     * anchored to a leading letter so legitimate bracketed prose like
+     * "[2026 Guide]" is preserved. (WP-499)
+     *
+     * @param string $content
+     * @return string
+     */
+    private function strip_shortcode_markup($content) {
+        if (empty($content) || !is_string($content)) {
+            return (string) $content;
+        }
+
+        $content = strip_shortcodes($content);
+        $content = preg_replace('/\[\/?[a-zA-Z][^\]]*\]/', '', $content);
+
+        return $content;
     }
 
     /**

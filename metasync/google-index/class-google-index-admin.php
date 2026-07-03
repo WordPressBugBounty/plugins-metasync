@@ -361,7 +361,7 @@ class Google_Index_Admin
                     var file = e.target.files[0];
                     var textarea = $('#google_index_service_account_json');
                     
-                    if (file && file.type === 'application/json') {
+                    if (file && file.name.toLowerCase().endsWith('.json')) {
                         var reader = new FileReader();
                         reader.onload = function(e) {
                             try {

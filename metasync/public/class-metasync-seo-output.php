@@ -307,88 +307,30 @@ class Metasync_Seo_Output
 		$image = [];
 		$image_mime_type = '';
 
-		// SAFE IMAGE HANDLING: Prevents timeout when images are deleted from filesystem
-		// Constructs URLs directly from metadata without triggering WordPress HTTP validation
+		// Resolve the Open Graph image from attachment metadata only — no disk
+		// reads, no HTTP calls. This path is READ-ONLY: it must never mutate post
+		// meta while rendering wp_head. Media-offload plugins (WP Stateless, WP
+		// Offload Media / S3) store the actual files in remote object storage, so
+		// the local file is legitimately absent. A missing local file is NOT proof
+		// of an orphaned attachment and must never trigger deletion of the featured
+		// image association (WP-522).
 		if ($post) {
 			$image_id = get_post_thumbnail_id($post->ID);
-
 			if ($image_id) {
-				// Verify attachment exists in database
-				$attachment = get_post($image_id);
-
-				if ($attachment && $attachment->post_type === 'attachment') {
-					// Check if physical file exists before constructing URL
-					$file_path = get_attached_file($image_id);
-
-					if ($file_path && file_exists($file_path)) {
-						// Get metadata to construct URL directly
-						$metadata = wp_get_attachment_metadata($image_id);
-
-						if ($metadata && !empty($metadata['file'])) {
-							$upload_dir = wp_upload_dir();
-							$image_url = $upload_dir['baseurl'] . '/' . $metadata['file'];
-
-							// Get image dimensions from metadata (not from file)
-							$width = $metadata['width'] ?? 0;
-							$height = $metadata['height'] ?? 0;
-
-							// Determine MIME type from file extension (safe, no HTTP calls)
-							$file_ext = strtolower(pathinfo($metadata['file'], PATHINFO_EXTENSION));
-							$mime_types = [
-								'jpg' => 'image/jpeg',
-								'jpeg' => 'image/jpeg',
-								'png' => 'image/png',
-								'gif' => 'image/gif',
-								'webp' => 'image/webp',
-								'svg' => 'image/svg+xml'
-							];
-							$image_mime_type = $mime_types[$file_ext] ?? 'image/jpeg';
-
-							// Build image array in same format as wp_get_attachment_image_src
-							$image = [$image_url, $width, $height];
-						}
-					} else {
-						// File doesn't exist - clean up orphaned thumbnail reference
-						delete_post_meta($post->ID, '_thumbnail_id');
-					}
-				} else {
-					// Attachment doesn't exist - clean up orphaned reference
-					delete_post_meta($post->ID, '_thumbnail_id');
+				$og_image = $this->build_og_image_from_attachment($image_id);
+				if ($og_image) {
+					$image           = [$og_image['url'], $og_image['width'], $og_image['height']];
+					$image_mime_type = $og_image['mime'];
 				}
 			}
 		}
 
-		// Fallback to site default image if post has no featured image
-		if (empty($image) && $site_info && isset($site_info['social_share_image'])) {
-			$fallback_id = $site_info['social_share_image'];
-			$attachment = get_post($fallback_id);
-
-			if ($attachment && $attachment->post_type === 'attachment') {
-				$file_path = get_attached_file($fallback_id);
-
-				if ($file_path && file_exists($file_path)) {
-					$metadata = wp_get_attachment_metadata($fallback_id);
-
-					if ($metadata && !empty($metadata['file'])) {
-						$upload_dir = wp_upload_dir();
-						$image_url = $upload_dir['baseurl'] . '/' . $metadata['file'];
-						$width = $metadata['width'] ?? 0;
-						$height = $metadata['height'] ?? 0;
-
-						$file_ext = strtolower(pathinfo($metadata['file'], PATHINFO_EXTENSION));
-						$mime_types = [
-							'jpg' => 'image/jpeg',
-							'jpeg' => 'image/jpeg',
-							'png' => 'image/png',
-							'gif' => 'image/gif',
-							'webp' => 'image/webp',
-							'svg' => 'image/svg+xml'
-						];
-						$image_mime_type = $mime_types[$file_ext] ?? 'image/jpeg';
-
-						$image = [$image_url, $width, $height];
-					}
-				}
+		// Fallback to site default image if post has no featured image.
+		if (empty($image) && $site_info && !empty($site_info['social_share_image'])) {
+			$og_image = $this->build_og_image_from_attachment($site_info['social_share_image']);
+			if ($og_image) {
+				$image           = [$og_image['url'], $og_image['width'], $og_image['height']];
+				$image_mime_type = $og_image['mime'];
 			}
 		}
 
@@ -492,6 +434,72 @@ class Metasync_Seo_Output
 				}
 			}
 		}
+	}
+
+	/**
+	 * Build Open Graph image data for an attachment using database metadata only.
+	 *
+	 * Intentionally avoids `file_exists()`/disk access and any HTTP validation so
+	 * it works for media-offload setups (WP Stateless, WP Offload Media / S3) where
+	 * the file lives in remote object storage rather than on the local filesystem.
+	 * It is strictly read-only and never mutates post or attachment meta (WP-522).
+	 *
+	 * The image URL is resolved via `wp_get_attachment_url()`, which offload plugins
+	 * filter to the correct remote URL; it falls back to building the URL from the
+	 * upload directory and stored metadata when needed.
+	 *
+	 * @param int|string $attachment_id Attachment ID.
+	 * @return array|null ['url' => string, 'width' => int, 'height' => int, 'mime' => string] or null.
+	 */
+	private function build_og_image_from_attachment($attachment_id)
+	{
+		$attachment_id = (int) $attachment_id;
+		if ($attachment_id <= 0) {
+			return null;
+		}
+
+		$attachment = get_post($attachment_id);
+		if (!$attachment || $attachment->post_type !== 'attachment') {
+			return null;
+		}
+
+		// Read dimensions from stored metadata — no disk or network access.
+		$metadata = wp_get_attachment_metadata($attachment_id);
+		$width    = (is_array($metadata) && !empty($metadata['width'])) ? (int) $metadata['width'] : 0;
+		$height   = (is_array($metadata) && !empty($metadata['height'])) ? (int) $metadata['height'] : 0;
+
+		// Prefer wp_get_attachment_url() so offload plugins (WP Stateless / S3)
+		// return the correct remote URL; fall back to upload dir + metadata file.
+		$image_url = wp_get_attachment_url($attachment_id);
+		if (!$image_url && is_array($metadata) && !empty($metadata['file'])) {
+			$upload_dir = wp_upload_dir();
+			if (empty($upload_dir['error'])) {
+				$image_url = trailingslashit($upload_dir['baseurl']) . ltrim($metadata['file'], '/');
+			}
+		}
+
+		if (!$image_url) {
+			return null;
+		}
+
+		// Determine MIME type from the file extension (safe, no HTTP calls).
+		$mime_types = [
+			'jpg'  => 'image/jpeg',
+			'jpeg' => 'image/jpeg',
+			'png'  => 'image/png',
+			'gif'  => 'image/gif',
+			'webp' => 'image/webp',
+			'svg'  => 'image/svg+xml',
+		];
+		$file_ext        = strtolower(pathinfo(parse_url($image_url, PHP_URL_PATH) ?: $image_url, PATHINFO_EXTENSION));
+		$image_mime_type = $mime_types[$file_ext] ?? 'image/jpeg';
+
+		return [
+			'url'    => $image_url,
+			'width'  => $width,
+			'height' => $height,
+			'mime'   => $image_mime_type,
+		];
 	}
 
 	public function add_ld_json()

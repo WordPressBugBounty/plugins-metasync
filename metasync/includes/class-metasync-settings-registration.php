@@ -3214,11 +3214,19 @@ class Metasync_Settings_Registration
                 error_log( 'Bing IndexNow: Refusing to write outside ABSPATH' );
                 return false;
             }
-            $file_result = file_put_contents( $file_path, $safe_key );
+            // WP-511: serve the key virtually via template_redirect instead of
+            // writing a physical {key}.txt. An on-disk file is served statically
+            // by the web server and 403'd before PHP on some nginx setups, and
+            // cannot be written on read-only roots. Register the key (the saved
+            // api_key is also always part of the served set) and remove any stale
+            // physical file so the PHP route governs.
+            if (!class_exists('Metasync_Bing_Instant_Index')) {
+                require_once plugin_dir_path(dirname(__FILE__)) . 'bing-index/class-metasync-bing-instant-index.php';
+            }
+            Metasync_Bing_Instant_Index::register_virtual_key($safe_key);
 
-            if ($file_result === false) {
-                error_log('Bing IndexNow: Failed to create API key verification file at ' . $file_path);
-                return false;
+            if (file_exists($file_path)) {
+                @unlink($file_path);
             }
 
             $current_options = Metasync::get_option();

@@ -447,6 +447,11 @@ class Metasync
 		require_once plugin_dir_path(dirname(__FILE__)) . 'llms-txt/class-metasync-llms-txt-generator.php';
 		$llms_txt_generator = new Metasync_Llms_Txt_Generator();
 
+		// Serve the IndexNow key file virtually at /{key}.txt (WP-511) so it works
+		// on read-only web roots and nginx hosts that 403 direct static .txt access.
+		require_once plugin_dir_path(dirname(__FILE__)) . 'bing-index/class-metasync-bing-instant-index.php';
+		add_action('template_redirect', array('Metasync_Bing_Instant_Index', 'serve_virtual_key_file'), 0);
+
 		// One-time upgrade: regenerate sitemap to remove any Beaver Builder template entries
 		if ( ! get_option( 'metasync_sitemap_bb_exclusion_applied' ) ) {
 			$this->loader->add_action('init', $this, 'maybe_regenerate_sitemap_after_upgrade');

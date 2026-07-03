@@ -134,7 +134,14 @@ class Metasync_SEO_Inventory_Builder {
         $post_id = $post->ID;
 
         // Basic info
-        $content_text = wp_strip_all_tags($post->post_content);
+        // WP-499: Page-builder content (Divi [et_pb_*], Elementor, WPBakery) is stored
+        // as shortcodes whose handlers are not registered during a REST inventory request.
+        // Render what we can, then strip registered + leftover shortcode-style tags so raw
+        // builder markup does not leak into the content/word-count sent to SearchAtlas.
+        $content_text = do_shortcode($post->post_content);
+        $content_text = strip_shortcodes($content_text);
+        $content_text = preg_replace('/\[\/?[a-zA-Z][^\]]*\]/', '', $content_text);
+        $content_text = wp_strip_all_tags($content_text);
         $word_count   = str_word_count($content_text);
 
         $item = [

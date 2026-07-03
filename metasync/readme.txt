@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 2.6.14
+Stable tag: 2.6.15
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,17 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.15 =
+* Improvement: Added a search icon to the SEO Health search field
+* Improvement: Fixed the sort-arrow placement in the SEO Health table column headers
+* Improvement: Prevented multi-page imports from nesting imported pages under existing unrelated (non-imported) parent pages
+* Fix: Stopped the plugin from removing featured images on sites that offload media with WP Stateless
+* Fix: Prevented og:description from auto-filling with raw page-builder shortcodes on Divi and Elementor pages, so social and link previews show clean text
+* Fix: Served the IndexNow key file dynamically instead of writing it to disk, so key verification works on read-only web roots and on nginx hosts that block direct access to static .txt files
+* Fix: Resolved the "IndexNow key not found" (400) error when configuring Bing IndexNow, so setup completes successfully
+* Fix: Made the Instant Indexing service-account JSON upload accept the file by its extension, so it saves reliably across all browsers and operating systems
+* Fix: Restored the white-label light logo in the admin header on light theme
+
 = 2.6.14 =
 * Improvement: Content Genius "User Roles to Sync" now lists only roles that can author content
 * Improvement: Added a dropdown arrow indicator to the Image Library "Bulk Actions" and "All Images" filter fields

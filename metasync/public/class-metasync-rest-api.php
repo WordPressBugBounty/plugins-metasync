@@ -4149,34 +4149,41 @@ class Metasync_Rest_Api
 			), 400);
 		}
 
-		# Check if file already exists
-		if (file_exists($file_path)) {
-			return rest_ensure_response(array(
-				'error' => 'File already exists',
-				'code' => 'file_exists',
-				'file_path' => $file_path
-			), 409);
+		# Register the key for virtual serving via template_redirect (WP-511).
+		# We deliberately do NOT write a physical {key}.txt: on nginx hosts that
+		# 403 direct static .txt access, an on-disk file is served statically and
+		# blocked before WordPress runs. Serving the key from PHP avoids that and
+		# also works on read-only web roots.
+		if (!class_exists('Metasync_Bing_Instant_Index')) {
+			$bing_file = plugin_dir_path(dirname(__FILE__)) . 'bing-index/class-metasync-bing-instant-index.php';
+			if (file_exists($bing_file)) {
+				require_once $bing_file;
+			}
+		}
+		if (class_exists('Metasync_Bing_Instant_Index')) {
+			Metasync_Bing_Instant_Index::register_virtual_key($safe_key);
 		}
 
-		# Attempt to create the file
-		$result = file_put_contents($file_path, $safe_key);
-		
-		# Check if file creation was successful
-		if ($result === false) {
-			return rest_ensure_response(array(
-				'error' => 'Failed to create file',
-				'code' => 'file_creation_failed',
-				'file_path' => $file_path
-			), 500);
+		# Best-effort removal of any stale physical key file so the virtual route
+		# governs — this is what fixes installs previously broken by a host that
+		# 403s static .txt (the on-disk file shadows the PHP handler). Safe: the
+		# path was validated to stay within ABSPATH above.
+		if (file_exists($file_path)) {
+			@unlink($file_path);
 		}
-		
+
+		# 'physical' only if the file still exists (e.g. read-only root prevented
+		# removal); otherwise the key is served virtually by WordPress.
+		$serving = file_exists($file_path) ? 'physical' : 'virtual';
+
 		# Return success response
-		return rest_ensure_response(array(
-			'success' => true,
-			'message' => 'Key file created successfully',
+		return new WP_REST_Response(array(
+			'success'   => true,
+			'message'   => 'Key file created successfully',
 			'file_path' => $file_path,
-			'key' => $key,
-			'file_size' => $result
+			'file_url'  => home_url('/' . $safe_key . '.txt'),
+			'key'       => $key,
+			'serving'   => $serving, // 'virtual' = served by WordPress, 'physical' = on-disk file remains
 		), 200);
 	}
 
