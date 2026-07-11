@@ -329,7 +329,7 @@
 		let html = '<table class="otto-comparison-table">';
 		html += '<thead><tr>';
 		html += '<th class="original-col">Original</th>';
-		html += '<th class="otto-col">Otto Suggested</th>';
+		html += '<th class="otto-col">' + (metasyncOttoDebug.ottoName || 'OTTO') + ' Suggested</th>';
 		html += '</tr></thead>';
 		html += '<tbody>';
 		

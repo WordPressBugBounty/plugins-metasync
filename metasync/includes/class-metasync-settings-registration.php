@@ -414,7 +414,7 @@ class Metasync_Settings_Registration
                     '<input type="checkbox" id="add_nofollow_to_external_links" name="' . $option_key . '[seo_controls][add_nofollow_to_external_links]" value="true" %s />',
                     isset($add_nofollow_to_external_links) && $add_nofollow_to_external_links == 'true' ? 'checked' : ''
                 );
-                printf('<span class="description"><strong>No-follow External Links:</strong> When checked, automatically adds <code>rel="nofollow"</code> attribute to all external links appearing in posts, pages, and other post types when rendered by Otto. This tells search engines not to follow these links, which can help preserve your site\'s SEO value and prevent passing link juice to external sites.</span>');
+                printf('<span class="description"><strong>No-follow External Links:</strong> When checked, automatically adds <code>rel="nofollow"</code> attribute to all external links appearing in posts, pages, and other post types when rendered by %s. This tells search engines not to follow these links, which can help preserve your site\'s SEO value and prevent passing link juice to external sites.</span>', esc_html(Metasync::get_whitelabel_otto_name()));
             },
             $page_slug . '_seo-controls',
             $SECTION_SEO_CONTROLS
@@ -904,7 +904,7 @@ class Metasync_Settings_Registration
                     '<input type="checkbox" id="open_external_links" name="' . $option_key . '[general][open_external_links]" value="1" %s />',
                     $enabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Automatically add <code>target="_blank"</code> attribute to external links appearing in your posts, pages, and other post types when rendered by Otto. The attribute is applied when the url is displayed.</span>');
+                printf('<span class="description"> Automatically add <code>target="_blank"</code> attribute to external links appearing in your posts, pages, and other post types when rendered by %s. The attribute is applied when the url is displayed.</span>', esc_html(Metasync::get_whitelabel_otto_name()));
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1354,8 +1354,9 @@ class Metasync_Settings_Registration
             'whitelabel_settings_password',
             'Settings Password',
             function() use ($option_key) {
-                $whitelabel_settings = Metasync::get_whitelabel_settings();
-                $value = $whitelabel_settings['settings_password'] ?? '';
+                // Decrypted for display — this field only renders after the
+                // whitelabel password gate has been passed.
+                $value = Metasync::get_whitelabel_password();
                 printf('<input type="password" name="' . $option_key . '[whitelabel][settings_password]" value="' . esc_attr($value) . '" size="30" autocomplete="new-password" />');
                 printf('<p class="description">Set a custom password to protect the branding settings section.</p>');
             },
@@ -2255,7 +2256,7 @@ class Metasync_Settings_Registration
             
             if (isset($input['whitelabel']['settings_password'])) {
                 $password_value = trim($input['whitelabel']['settings_password']);
-                $new_input['whitelabel']['settings_password'] = sanitize_text_field($password_value);
+                $new_input['whitelabel']['settings_password'] = Metasync::encrypt_secret(sanitize_text_field($password_value));
             } else {
                 if (isset($existing_whitelabel['settings_password'])) {
                     $new_input['whitelabel']['settings_password'] = $existing_whitelabel['settings_password'];
@@ -2848,7 +2849,7 @@ class Metasync_Settings_Registration
                         $metasync_options['whitelabel']['settings_password'] = $existing_whitelabel['settings_password'];
                     }
                 } else {
-                    $metasync_options['whitelabel']['settings_password'] = sanitize_text_field($password_value);
+                    $metasync_options['whitelabel']['settings_password'] = Metasync::encrypt_secret(sanitize_text_field($password_value));
                 }
             } else {
                 if (isset($existing_whitelabel['settings_password'])) {

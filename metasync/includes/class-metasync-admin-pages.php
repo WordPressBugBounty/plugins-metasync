@@ -888,8 +888,6 @@ class Metasync_Admin_Pages
                             }, 0);
                         });
 
-                        var storedPassword = '<?php echo esc_js($whitelabel_settings['settings_password'] ?? ''); ?>';
-
                         passwordField.on('keydown', function(e) {
                             var currentValue = $(this).val();
 
@@ -1783,14 +1781,16 @@ echo $breadcrumbs-&gt;render_breadcrumb_html();</pre><span class="metasync-copy-
 
     public function create_admin_google_console_page()
     {
-        ?>
-        <?php $this->admin->render_layout_open('Google Console', 'google_console', ''); ?>
-
-        <?php
-        google_index_direct()->show_google_instant_indexing_console();
-        ?>
-        <?php $this->admin->render_layout_close(); ?>
-        <?php
+        $this->admin->render_layout_open('Google Console', 'google_console', 'View Google Search Console data and manage indexing requests.');
+        $google = function_exists('google_index_direct') ? google_index_direct() : null;
+        if (is_null($google)) {
+            $service_info = ['error' => 'Module not loaded'];
+        } else {
+            $service_info = $google->get_service_account_info();
+        }
+        $is_configured = !isset($service_info['error']);
+        include_once plugin_dir_path(dirname(__FILE__)) . 'views/metasync-google-console.php';
+        $this->admin->render_layout_close();
     }
 
     public function create_admin_bing_console_page()

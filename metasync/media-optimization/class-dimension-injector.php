@@ -18,6 +18,12 @@ class Metasync_Dimension_Injector {
     /** In-memory cache to avoid repeated file lookups within a request. */
     private array $cache = [];
 
+    /** Transient key prefix for persisted image dimensions. */
+    private const CACHE_PREFIX = 'ms_dim_';
+
+    /** How long resolved dimensions stay cached, in seconds (7 days). */
+    private const CACHE_TTL = 604800;
+
     public function __construct() {
         add_filter('the_content', [$this, 'inject_dimensions'], 30);
         add_filter('post_thumbnail_html', [$this, 'inject_dimensions'], 30);
@@ -68,8 +74,16 @@ class Metasync_Dimension_Injector {
         }
         $src = $m[1];
 
+        // Request-scoped cache: avoids repeated work within a single render.
         if (isset($this->cache[$src])) {
             return $this->cache[$src];
+        }
+
+        // Persistent cache: skips disk I/O for images resolved on a prior request.
+        $cached = $this->get_cached_dimensions($src);
+        if ($cached !== null) {
+            $this->cache[$src] = $cached;
+            return $cached;
         }
 
         $dims = null;
@@ -89,9 +103,119 @@ class Metasync_Dimension_Injector {
 
         if ($dims) {
             $this->cache[$src] = $dims;
+            $this->set_cached_dimensions($src, $dims);
         }
 
         return $dims;
+    }
+
+    /**
+     * Build the transient key for a given image src.
+     */
+    private static function cache_key(string $src): string {
+        return self::CACHE_PREFIX . md5($src);
+    }
+
+    /**
+     * Read previously resolved dimensions from the persistent transient cache.
+     * Returns null on a cache miss or a malformed/partial cached value.
+     */
+    private function get_cached_dimensions(string $src): ?array {
+        $cached = get_transient(self::cache_key($src));
+
+        if (is_array($cached)
+            && isset($cached['width'], $cached['height'])
+            && (int) $cached['width'] > 0
+            && (int) $cached['height'] > 0
+        ) {
+            return [
+                'width'  => (int) $cached['width'],
+                'height' => (int) $cached['height'],
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Persist resolved dimensions so subsequent requests avoid file I/O.
+     */
+    private function set_cached_dimensions(string $src, array $dims): void {
+        set_transient(
+            self::cache_key($src),
+            [
+                'width'  => (int) $dims['width'],
+                'height' => (int) $dims['height'],
+            ],
+            self::CACHE_TTL
+        );
+    }
+
+    /**
+     * Purge cached dimensions for every size URL of an attachment.
+     *
+     * Hooked on `delete_attachment` and `wp_update_attachment_metadata` so the
+     * cache can never outlive (or contradict) the image: deleting an image and
+     * re-uploading a different one under the same filename, or regenerating
+     * thumbnails to new dimensions, would otherwise serve stale width/height
+     * for up to CACHE_TTL. Registered unconditionally (even when dimension
+     * injection is disabled) so stale entries are always cleaned up.
+     *
+     * @param int $attachment_id Attachment whose cached dimensions to clear.
+     */
+    public static function purge_attachment_cache($attachment_id): void {
+        $attachment_id = (int) $attachment_id;
+        if ($attachment_id <= 0) {
+            return;
+        }
+
+        foreach (self::collect_attachment_urls($attachment_id) as $url) {
+            delete_transient(self::cache_key($url));
+        }
+    }
+
+    /**
+     * `wp_update_attachment_metadata` filter wrapper: purge the cache, then
+     * return the metadata untouched so the filter chain is unaffected.
+     *
+     * @param mixed $data          Attachment metadata being saved.
+     * @param int   $attachment_id Attachment ID.
+     * @return mixed The unmodified $data.
+     */
+    public static function purge_on_metadata_update($data, $attachment_id) {
+        self::purge_attachment_cache($attachment_id);
+        return $data;
+    }
+
+    /**
+     * Collect the full-size URL plus every registered sub-size URL for an
+     * attachment. Sub-size files live in the same directory as the full-size
+     * file, so each is the full URL with its basename swapped for the size
+     * filename.
+     *
+     * @param int $attachment_id Attachment ID.
+     * @return string[] Image URLs (possibly empty).
+     */
+    private static function collect_attachment_urls(int $attachment_id): array {
+        $full = wp_get_attachment_url($attachment_id);
+        if (!is_string($full) || $full === '') {
+            return [];
+        }
+
+        $urls = [$full];
+
+        $meta = wp_get_attachment_metadata($attachment_id);
+        if (is_array($meta) && !empty($meta['sizes'])) {
+            $slash = strrpos($full, '/');
+            $base  = $slash === false ? '' : substr($full, 0, $slash + 1);
+            foreach ($meta['sizes'] as $size_data) {
+                if (!empty($size_data['file'])) {
+                    $urls[] = $base . $size_data['file'];
+                }
+            }
+        }
+
+        return $urls;
     }
 
     /**

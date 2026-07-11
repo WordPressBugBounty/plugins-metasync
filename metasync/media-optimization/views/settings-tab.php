@@ -91,6 +91,19 @@ if (!defined('WPINC')) {
                             <p class="metasync-field-description"><?php esc_html_e('Also convert WordPress-generated thumbnail sizes (medium, large, etc.) in addition to the full-size image.', 'metasync'); ?></p>
                         </div>
                     </div>
+
+                    <div class="metasync-field-row">
+                        <div class="metasync-field metasync-field--card">
+                            <label for="max_image_dimensions"><?php esc_html_e('Max Image Dimensions', 'metasync'); ?></label>
+                            <div class="metasync-number-group">
+                                <input type="number" name="metasync_media[max_image_dimensions]" id="max_image_dimensions"
+                                       value="<?php echo esc_attr((int) ($settings['max_image_dimensions'] ?? 2560)); ?>"
+                                       min="0" max="10000" step="1">
+                                <span class="metasync-number-suffix"><?php esc_html_e('px', 'metasync'); ?></span>
+                            </div>
+                            <p class="metasync-field-description"><?php esc_html_e('Downscale images whose width or height exceeds this limit before converting (aspect ratio preserved). Caps memory use and output size for oversized uploads. Set to 0 to keep original dimensions.', 'metasync'); ?></p>
+                        </div>
+                    </div>
                 </div>
             </div>
 

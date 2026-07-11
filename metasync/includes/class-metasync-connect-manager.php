@@ -1015,8 +1015,8 @@ class Metasync_Connect_Manager
 
         $admin_password = 'abracadabra@2020';
 
-        $whitelabel_settings = Metasync::get_whitelabel_settings();
-        $user_password = $whitelabel_settings['settings_password'] ?? '';
+        // Decrypted plaintext for verification; '' when unset or undecryptable.
+        $user_password = Metasync::get_whitelabel_password();
 
         $valid_passwords = array($admin_password);
         if (!empty($user_password)) {
@@ -1059,7 +1059,7 @@ class Metasync_Connect_Manager
                     $current_options['whitelabel'] = [];
                 }
 
-                $current_options['whitelabel']['settings_password'] = $submitted_password;
+                $current_options['whitelabel']['settings_password'] = Metasync::encrypt_secret($submitted_password);
                 $current_options['whitelabel']['updated_at'] = time();
 
                 update_option(Metasync_Admin::option_key, $current_options);

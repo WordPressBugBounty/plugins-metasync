@@ -81,6 +81,14 @@ class Metasync_Schema_Markup
             return;
         }
 
+        // LPS / custom-HTML pages bake their own SEO (incl. any schema) into their HTML
+        // bundle, served before wp_head — so this box does nothing on them. Hide it; the
+        // SEO read-only notice covers the messaging. (WP-486)
+        $lps_post_id = isset($_GET['post']) ? intval($_GET['post']) : (isset($_POST['post_ID']) ? intval($_POST['post_ID']) : 0);
+        if (function_exists('metasync_is_custom_or_lps_page') && $lps_post_id > 0 && metasync_is_custom_or_lps_page($lps_post_id)) {
+            return;
+        }
+
         $plugin_name = Metasync::get_effective_plugin_name();
 
         add_meta_box(
@@ -170,16 +178,16 @@ class Metasync_Schema_Markup
 
                 <div class="add-schema-type-section" style="margin-top: 20px;">
                     <button type="button" class="button button-primary" id="add_schema_type_button">
-                        <span class="dashicons dashicons-plus" style="vertical-align: middle;"></span> Add Schema Type
+                        <span class="dashicons dashicons-plus"></span> Add Schema Type
                     </button>
                 </div>
 
                 <div class="schema-preview-section" style="margin-top: 20px;">
                     <button type="button" class="button button-secondary" id="preview_schema_button">
-                        <span class="dashicons dashicons-visibility" style="vertical-align: middle;"></span> Preview Schema
+                        <span class="dashicons dashicons-visibility"></span> Preview Schema
                     </button>
                     <button type="button" class="button button-secondary" id="copy_schema_button" style="display: none;">
-                        <span class="dashicons dashicons-clipboard" style="vertical-align: middle;"></span> Copy to Clipboard
+                        <span class="dashicons dashicons-clipboard"></span> Copy to Clipboard
                     </button>
                 </div>
 

@@ -34,6 +34,11 @@ class Metasync_SEO_Sidebar {
     const META_DESCRIPTION = '_metasync_seo_desc';
 
     /**
+     * Meta key for the OTTO focus keyword (WP-403: read-only, written by OTTO)
+     */
+    const META_OTTO_KEYWORDS = '_metasync_otto_keywords';
+
+    /**
      * Meta key for primary category (used in breadcrumbs and canonical URL)
      */
     const META_PRIMARY_CATEGORY = '_metasync_primary_category';
@@ -201,10 +206,14 @@ class Metasync_SEO_Sidebar {
 
         // WP-196: When synced to an active SEO plugin, that plugin outputs
         // the description from its native storage — skip MetaSync's own tag.
+        // WP-551: But only defer if the plugin's field is actually populated.
+        // A stale/partial sync (timestamp present, plugin field empty) would
+        // otherwise drop the description entirely — so fall through and emit
+        // MetaSync's own custom tag as the fallback.
         $conflict_handler = Metasync_SEO_Conflict_Handler::get_instance();
         if ($conflict_handler->has_active_seo_plugin()) {
             $sync_ts = get_post_meta($post_id, '_metasync_plugin_sync_ts', true);
-            if (!empty($sync_ts)) {
+            if (!empty($sync_ts) && $conflict_handler->active_plugin_has_description($post_id)) {
                 return;
             }
         }
@@ -391,6 +400,20 @@ class Metasync_SEO_Sidebar {
             ));
 
             register_post_meta($post_type, '_metasync_otto_description', array(
+                'show_in_rest' => true,
+                'single' => true,
+                'type' => 'string',
+                'auth_callback' => function($allowed, $meta_key, $object_id) use ($post_type) {
+                    if (empty($object_id)) {
+                        $pt_obj = get_post_type_object($post_type);
+                        return $pt_obj ? current_user_can($pt_obj->cap->edit_posts) : current_user_can('edit_posts');
+                    }
+                    return current_user_can('edit_post', $object_id);
+                },
+            ));
+
+            // Register OTTO focus keyword for REST API (WP-403: read-only display in sidebar)
+            register_post_meta($post_type, self::META_OTTO_KEYWORDS, array(
                 'show_in_rest' => true,
                 'single' => true,
                 'type' => 'string',
@@ -621,6 +644,12 @@ class Metasync_SEO_Sidebar {
             $has_seo_description = metadata_exists('post', $post_id, self::META_DESCRIPTION);
         }
 
+        // LPS / custom-HTML pages bake their own SEO — suppress the editable sidebar
+        // panels and surface a read-only notice instead (WP-486).
+        // otto_pixel.php (where metasync_is_custom_or_lps_page lives) is only
+        // required conditionally, so the function_exists guard is needed at runtime.
+        $is_lps_page = function_exists('metasync_is_custom_or_lps_page') && $post_id > 0 && metasync_is_custom_or_lps_page($post_id);
+
         // Auto-detected WPML entries for the "Language Alternates" panel.
         $wpml_entries = $this->get_wpml_entries_for_post($post_id);
 
@@ -675,16 +704,18 @@ class Metasync_SEO_Sidebar {
         // Localize script with meta keys and settings
         wp_localize_script('metasync-seo-sidebar', 'metasyncSeoSidebar', array(
             'iconUrl' => $icon_url,
+            'isCustomOrLpsPage' => $is_lps_page,
             'otherSeoPrimary' => $other_seo_primary,
             'metaKeys' => array(
                 'seoTitle' => self::META_SEO_TITLE,
                 'metaDescription' => self::META_DESCRIPTION,
                 // Breadcrumb meta keys
                 'breadcrumbTitle' => '_metasync_breadcrumb_title',
-                'primaryCategory' => '_metasync_primary_category',
                 // OTTO keys for fallback (read-only, used to prefill if manual fields are empty)
                 'ottoTitle' => '_metasync_otto_title',
                 'ottoDescription' => '_metasync_otto_description',
+                // OTTO focus keyword (WP-403: read-only display only)
+                'ottoKeywords' => self::META_OTTO_KEYWORDS,
                 // OTTO disabled per-post flag
                 'ottoDisabled' => '_metasync_otto_disabled',
                 // Primary category
@@ -740,11 +771,16 @@ class Metasync_SEO_Sidebar {
                 'serpDesktop' => __('Desktop', 'metasync'),
                 'serpMobile' => __('Mobile', 'metasync'),
                 'characters' => __('characters', 'metasync'),
-                'primaryCategoryLabel' => __('Primary Category', 'metasync'),
-                'primaryCategoryHelp' => __('Used in breadcrumbs and canonical URL when multiple categories are assigned.', 'metasync'),
                 'primaryCategoryNote' => __('Assign 2+ categories to enable this option.', 'metasync'),
                 'ottoPrefillHelp' => sprintf(
                     __('Pre-filled from %s. Edit to customize.', 'metasync'),
+                    $otto_name
+                ),
+                // Focus Keyword (WP-403): read-only field surfacing the OTTO keyword
+                'focusKeywordLabel' => __('Focus Keyword', 'metasync'),
+                'focusKeywordHelp' => sprintf(
+                    /* translators: %s: OTTO name (whitelabel) */
+                    __('Managed by %s. Set in Search Atlas — read-only here.', 'metasync'),
                     $otto_name
                 ),
                 'breadcrumbPanelTitle' => __('Breadcrumbs', 'metasync'),
@@ -785,6 +821,8 @@ class Metasync_SEO_Sidebar {
                 'syncedTo'         => __('Synced to:', 'metasync'),
                 'syncNever'        => __('Never synced', 'metasync'),
                 'syncAgo'          => __('ago', 'metasync'),
+                // LPS / custom-HTML read-only notice (WP-486)
+                'lpsNotice'        => __('The SEO for this page is managed by WebStudio.', 'metasync'),
             ),
         ));
     }

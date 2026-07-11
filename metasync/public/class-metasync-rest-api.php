@@ -289,6 +289,58 @@ class Metasync_Rest_Api
 		return hash_equals($stored_key, $api_key);
 	}
 
+	/**
+	 * Coexist with third-party JWT authentication plugins.
+	 *
+	 * A global JWT auth plugin (e.g. Tmeister's "JWT Authentication for WP-API")
+	 * validates any "Authorization: Bearer ..." header as a JWT. MetaSync sends
+	 * its plugin API key as a Bearer token, so the JWT plugin rejects it with a
+	 * 403 (jwt_auth_invalid_token). That plugin surfaces the error from its
+	 * rest_pre_dispatch callback (priority 10), short-circuiting the request
+	 * before MetaSync's own permission_callback ever runs.
+	 *
+	 * This filter is registered on rest_pre_dispatch at a later priority (11) so
+	 * it runs after the JWT plugin. When a prior error exists for a metasync/v1
+	 * request and our own API key validates, it clears the error (returns null)
+	 * so dispatch continues to the route and rest_authorization_middleware can
+	 * authorize it. Every other route — and every request without a valid
+	 * MetaSync key — is left untouched, preserving the JWT plugin's behaviour.
+	 *
+	 * @param mixed                 $result  Prior dispatch result (WP_Error to short-circuit, otherwise null).
+	 * @param WP_REST_Server|null   $server  REST server instance (unused).
+	 * @param WP_REST_Request|null  $request Current request.
+	 * @return mixed Cleared (null) only when our key validates on a metasync/v1
+	 *               route; otherwise the input $result unchanged.
+	 */
+	public function allow_metasync_rest_auth($result, $server = null, $request = null)
+	{
+		// No prior error means normal flow — never alter it.
+		if (!is_wp_error($result)) {
+			return $result;
+		}
+
+		// We need the request to know which route is being dispatched.
+		if (!($request instanceof \WP_REST_Request)) {
+			return $result;
+		}
+
+		// Only intervene for our own namespace; preserve the JWT plugin's
+		// behaviour for every other (core/third-party) route.
+		$route = $request->get_route();
+		$prefix = '/' . self::namespace;
+		if (strpos($route, $prefix . '/') !== 0 && $route !== $prefix) {
+			return $result;
+		}
+
+		// Clear the error only when our own API key validates, so MetaSync's
+		// permission_callback gets to authorize the request normally.
+		if ($this->rest_authorization_middleware($request) === true) {
+			return null;
+		}
+
+		return $result;
+	}
+
 
 	public function metasync_register_rest_routes()
 	{
@@ -730,12 +782,12 @@ class Metasync_Rest_Api
 
 		# Check if post exists
 		if (!$post || $post_id <= 0) {
-			return rest_ensure_response(array('error' => 'no blog post found'), 404);
+			return new WP_REST_Response(array('error' => 'no blog post found'), 404);
 		}
 
 		# Check if post type is 'post', return error if not
 		if ($post->post_type !== 'post') {
-			return rest_ensure_response(array('error' => 'only post type is supported'), 400);
+			return new WP_REST_Response(array('error' => 'only post type is supported'), 400);
 		}
 
 		# Render content
@@ -1757,6 +1809,7 @@ class Metasync_Rest_Api
 			by doing this we will prevent html from going into builder page option
 			*/
 			$isOttoAiPage = !empty($item['otto_ai_page']) && filter_var($item['otto_ai_page'], FILTER_VALIDATE_BOOLEAN);
+			$content = [];
 			if(!isset($item['is_landing_page']) && !$isOttoAiPage && empty($item['style_data']) ){
 
 				# Get Current Post type
@@ -2501,6 +2554,8 @@ class Metasync_Rest_Api
 			}
 
 			$isOttoAiPage = !empty($post['otto_ai_page']) && filter_var($post['otto_ai_page'], FILTER_VALIDATE_BOOLEAN);
+			$content = [];
+			$permalink = '';
 			if (isset($post['post_content']) && !empty($post['post_content']) && !$isOttoAiPage) {
 
 				# Above we are updating the post_type so we have to get latest value that has been change on the server
@@ -4115,7 +4170,7 @@ class Metasync_Rest_Api
 		
 		# Validate that key is provided
 		if (empty($key_value)) {
-			return rest_ensure_response(array(
+			return new WP_REST_Response(array(
 				'error' => 'Key parameter is required',
 				'code' => 'missing_key'
 			), 400);
@@ -4129,7 +4184,7 @@ class Metasync_Rest_Api
 
 		# Validate key is not empty after sanitization and contains no path separators
 		if (empty($key) || preg_match('/[\/\\\\]/', $key) || strpos($key, '..') !== false) {
-			return rest_ensure_response(array(
+			return new WP_REST_Response(array(
 				'error' => 'Invalid key provided',
 				'code' => 'invalid_key'
 			), 400);
@@ -4143,7 +4198,7 @@ class Metasync_Rest_Api
 		$file_path = $wp_root . $safe_key . '.txt';
 		$real_root = realpath( $wp_root );
 		if ( false === $real_root || 0 !== strpos( realpath( dirname( $file_path ) ), $real_root ) ) {
-			return rest_ensure_response(array(
+			return new WP_REST_Response(array(
 				'error' => 'Invalid file path',
 				'code' => 'invalid_path'
 			), 400);

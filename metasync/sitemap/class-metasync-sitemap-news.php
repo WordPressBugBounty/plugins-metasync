@@ -289,4 +289,30 @@ class Metasync_Sitemap_News
 
         return $notices;
     }
+
+    /**
+     * Display name of the third-party plugin currently owning the news sitemap,
+     * or an empty string when there is no blocking conflict.
+     *
+     * Mirrors has_conflicts() so the UI can name the specific plugin. Google XML
+     * Sitemaps is intentionally excluded here because it coexists (separate files).
+     *
+     * @return string
+     */
+    public function get_conflict_plugin_name()
+    {
+        if (class_exists('WPSEO_News')) {
+            return 'Yoast News SEO';
+        }
+
+        if (class_exists('RankMath\\Sitemap\\News\\News')) {
+            return 'Rank Math';
+        }
+
+        if ($this->is_aioseo_news_active()) {
+            return 'All in One SEO';
+        }
+
+        return '';
+    }
 }

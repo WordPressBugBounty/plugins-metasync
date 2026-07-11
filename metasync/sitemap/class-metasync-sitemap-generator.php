@@ -54,35 +54,95 @@ class Metasync_Sitemap_Generator
         $this->sitemap_index_path = ABSPATH . 'sitemap_index.xml';
         $this->sitemap_index_url = home_url('/sitemap_index.xml');
 
-        // Disable WordPress core sitemap when a MetaSync sitemap exists or auto-update
-        // is enabled, to prevent duplicate sitemaps being served to search engines (WP-396).
-        // Only suppress when the MetaSync sitemap is actually in use — otherwise a fresh
-        // install that never generated a sitemap would have NO sitemap at all.
-        if (get_option('metasync_disable_wp_sitemap', false)
-            || get_option('metasync_sitemap_auto_update', false)
-            || $this->sitemap_exists()
-        ) {
+        // WP-548: MetaSync must only take over the sitemap URLs (/sitemap*.xml)
+        // when its own sitemap feature is actually in use. When it is not, the
+        // URLs are left untouched so a third-party provider (RankMath, Yoast,
+        // AIOSEO, or WordPress core) can serve them. Previously the interception
+        // below was registered unconditionally on every front-end request, which
+        // silently shadowed another sitemap plugin, could not be turned off from
+        // the UI, and even regenerated our sitemap on access after a delete.
+        if ($this->is_sitemap_enabled()) {
+            // Disable WordPress core sitemap so we don't serve duplicate sitemaps
+            // to search engines (WP-396).
             add_filter('wp_sitemaps_enabled', '__return_false', 10);
             if (!get_option('metasync_disable_wp_sitemap', false)) {
                 update_option('metasync_disable_wp_sitemap', true);
             }
-        }
 
-        // Register hook to serve virtual sitemap files
-        add_action('template_redirect', array($this, 'serve_virtual_sitemap'), 1);
+            // Register hook to serve virtual sitemap files.
+            add_action('template_redirect', array($this, 'serve_virtual_sitemap'), 1);
 
-        // Route sitemap URLs through WordPress rewrites so requests always reach PHP,
-        // even on nginx setups that 403 direct .xml access.
-        static $rewrite_hooks_registered = false;
-        if (!$rewrite_hooks_registered) {
-            $rewrite_hooks_registered = true;
-            add_filter('query_vars', array($this, 'add_sitemap_query_var'));
-            add_filter('option_rewrite_rules', array($this, 'inject_rewrite_rules'));
-            add_filter('sanitize_option_rewrite_rules', array($this, 'strip_dynamic_rewrite_rules'));
-            add_filter('redirect_canonical', array($this, 'disable_canonical_redirect_for_sitemaps'));
+            // Route sitemap URLs through WordPress rewrites so requests always reach PHP,
+            // even on nginx setups that 403 direct .xml access.
+            static $rewrite_hooks_registered = false;
+            if (!$rewrite_hooks_registered) {
+                $rewrite_hooks_registered = true;
+                add_filter('query_vars', array($this, 'add_sitemap_query_var'));
+                add_filter('option_rewrite_rules', array($this, 'inject_rewrite_rules'));
+                add_filter('sanitize_option_rewrite_rules', array($this, 'strip_dynamic_rewrite_rules'));
+                add_filter('redirect_canonical', array($this, 'disable_canonical_redirect_for_sitemaps'));
+            }
         }
 
         $this->register_cache_bust_hooks();
+    }
+
+    /**
+     * Whether MetaSync should own the XML sitemap URLs (/sitemap*.xml).
+     *
+     * MetaSync only intercepts and serves the sitemap URLs when its own sitemap
+     * feature is actually in use. When it is not, the URLs are left untouched so
+     * a third-party provider (RankMath, Yoast, AIOSEO, or WordPress core) can
+     * serve them — this prevents MetaSync from silently shadowing another
+     * sitemap plugin (WP-548).
+     *
+     * Resolution order:
+     *   1. Explicit `metasync_sitemap_enabled` option when set to a real boolean.
+     *      Store it as the string '1' or '0' — never boolean false, which
+     *      WordPress persists as an empty string and which we (correctly) read
+     *      back as "not configured". An unset option or empty string falls
+     *      through to auto-detect.
+     *   2. Auto-detect: the general sitemap is tracked, auto-update is on, or the
+     *      news/video sitemaps are enabled.
+     * The result is passed through the `metasync_sitemap_enabled` filter so a
+     * host or site owner can force it on or off in code.
+     *
+     * @return bool
+     */
+    public function is_sitemap_enabled()
+    {
+        // Only a value that parses to a real boolean counts as an explicit
+        // choice; unset, '' or unparseable values fall through to auto-detect
+        // (so garbage never silently forces the feature off).
+        $explicit = get_option('metasync_sitemap_enabled', null);
+        $explicit = (null === $explicit || '' === $explicit)
+            ? null
+            : filter_var($explicit, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+
+        if (null !== $explicit) {
+            $enabled = $explicit;
+        } else {
+            // Auto-detect: is any MetaSync sitemap feature actually in use?
+            $news_settings  = get_option('metasync_news_sitemap_settings', []);
+            $video_settings = get_option('metasync_video_sitemap_settings', []);
+
+            $enabled = (bool) get_option('metasync_sitemap_auto_update', false)
+                || !empty(get_option('metasync_sitemap_files', []))
+                || (is_array($news_settings) && !empty($news_settings['enabled']))
+                || (is_array($video_settings) && !empty($video_settings['enabled']))
+                || $this->sitemap_exists();
+        }
+
+        /**
+         * Filter whether MetaSync manages the XML sitemap URLs.
+         *
+         * Return false to hand /sitemap*.xml back to another sitemap provider
+         * (e.g. RankMath, Yoast, AIOSEO, or WordPress core) while keeping the
+         * rest of MetaSync active.
+         *
+         * @param bool $enabled Whether MetaSync currently owns the sitemap URLs.
+         */
+        return (bool) apply_filters('metasync_sitemap_enabled', $enabled);
     }
 
     /**
@@ -1882,11 +1942,16 @@ class Metasync_Sitemap_Generator
                 $this->generate_news_sitemap();
             } elseif ($filename === 'video-sitemap.xml') {
                 $this->generate_video_sitemap();
-            } else {
+            } elseif ($this->is_sitemap_enabled()) {
+                // WP-548: only rebuild the general sitemap when the feature is
+                // actually in use. Never fabricate a sitemap the site has not
+                // opted into — the previous `empty($known_files)` fallback
+                // regenerated our sitemap on ANY request, which silently undid
+                // "Delete All Sitemaps" and shadowed a third-party sitemap.
                 $known_files = get_option('metasync_sitemap_files', []);
                 $known_names = array_column($known_files, 'filename');
                 $known_names[] = 'sitemap_index.xml';
-                if (empty($known_files) || in_array($filename, $known_names, true)) {
+                if (in_array($filename, $known_names, true)) {
                     $this->generate_sitemap();
                 }
             }

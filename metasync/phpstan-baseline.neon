@@ -1,0 +1,2905 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Left side of && is always true\.$#'
+			identifier: booleanAnd.leftAlwaysTrue
+			count: 1
+			path: '404-monitor/class-metasync-404-monitor-database.php'
+
+		-
+			message: '#^Method Metasync_Error_Monitor_Database\:\:delete\(\) should return int but empty return statement found\.$#'
+			identifier: return.empty
+			count: 1
+			path: '404-monitor/class-metasync-404-monitor-database.php'
+
+		-
+			message: '#^Method Metasync_Error_Monitor_Database\:\:delete\(\) should return int but return statement is missing\.$#'
+			identifier: return.missing
+			count: 1
+			path: '404-monitor/class-metasync-404-monitor-database.php'
+
+		-
+			message: '#^PHPDoc tag @param references unknown parameter\: \$itemsArray$#'
+			identifier: parameter.notFound
+			count: 1
+			path: '404-monitor/class-metasync-404-monitor-database.php'
+
+		-
+			message: '#^Access to an undefined property Metasync_Error_Monitor_List_Table\:\:\$_pagination\.$#'
+			identifier: property.notFound
+			count: 1
+			path: '404-monitor/class-metasync-404-monitor-list-table.php'
+
+		-
+			message: '#^Method Metasync_Error_Monitor_List_Table\:\:loadRecords\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: '404-monitor/class-metasync-404-monitor-list-table.php'
+
+		-
+			message: '#^Parameter \#1 \$args of method WP_List_Table\:\:set_pagination_args\(\) expects array\{total_items\?\: int, total_pages\?\: int, per_page\?\: int\}, array\{total_items\: mixed, per_page\: 10, total_pages\: float\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: '404-monitor/class-metasync-404-monitor-list-table.php'
+
+		-
+			message: '#^Property Metasync_Error_Monitor_List_Table\:\:\$records is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: '404-monitor/class-metasync-404-monitor-list-table.php'
+
+		-
+			message: '#^Variable \$class in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: '404-monitor/class-metasync-404-monitor-list-table.php'
+
+		-
+			message: '#^Variable \$clean_uri on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 2
+			path: '404-monitor/class-metasync-404-monitor.php'
+
+		-
+			message: '#^Call to function is_bool\(\) with bool will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: MetaSyncDebug.php
+
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: MetaSyncDebug.php
+
+		-
+			message: '#^Negated boolean expression is always false\.$#'
+			identifier: booleanNot.alwaysFalse
+			count: 1
+			path: MetaSyncDebug.php
+
+		-
+			message: '#^Result of \|\| is always false\.$#'
+			identifier: booleanOr.alwaysFalse
+			count: 1
+			path: MetaSyncDebug.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between \*NEVER\* and ''true'' will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: MetaSyncDebug.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between \*NEVER\* and true will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: MetaSyncDebug.php
+
+		-
+			message: '#^Variable \$key in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: MetaSyncDebug.php
+
+		-
+			message: '#^Call to function is_object\(\) with object will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Constant COOKIEPATH not found\.$#'
+			identifier: constant.notFound
+			count: 3
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:can_change_memory_limit\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:format_duration_label\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:get_accordion_sections_config\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:get_advanced_accordion_config\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:get_available_menu_items\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:get_default_execution_settings\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:get_error_log_content\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:get_field_section\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:get_field_tooltips\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:get_log_tail\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:handle_clear_all_settings\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:handle_debug_mode_operations\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:handle_error_log_operations\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:handle_plugin_access_roles_save\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:parse_memory_limit_to_mb\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:render_execution_settings_section\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:render_plugin_access_roles_section\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:render_reset_settings_section\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:safe_session_start\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Method Metasync_Admin\:\:save_bing_inline_settings_ajax\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Negated boolean expression is always false\.$#'
+			identifier: booleanNot.alwaysFalse
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Parameter \#1 \$text of function esc_attr expects string, float given\.$#'
+			identifier: argument.type
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Parameter \#1 \$text of function esc_attr expects string, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Parameter \#1 \$text of function esc_html expects string, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Property Metasync_Admin\:\:\$database is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Property Metasync_Admin\:\:\$options is never written, only read\.$#'
+			identifier: property.onlyRead
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Result of \|\| is always false\.$#'
+			identifier: booleanOr.alwaysFalse
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 14
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^Variable \$transient in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: admin/class-metasync-admin.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 2
+			path: admin/class-metasync-dev-panel.php
+
+		-
+			message: '#^Left side of && is always true\.$#'
+			identifier: booleanAnd.leftAlwaysTrue
+			count: 1
+			path: admin/class-metasync-dev-panel.php
+
+		-
+			message: '#^Negated boolean expression is always false\.$#'
+			identifier: booleanNot.alwaysFalse
+			count: 3
+			path: admin/class-metasync-dev-panel.php
+
+		-
+			message: '#^Parameter \#1 \$parent_slug of function add_submenu_page expects string, null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: admin/class-metasync-dev-panel.php
+
+		-
+			message: '#^Property Metasync_Dev_Panel\:\:\$plugin_name is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: admin/class-metasync-dev-panel.php
+
+		-
+			message: '#^Property Metasync_Dev_Panel\:\:\$version is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: admin/class-metasync-dev-panel.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 7
+			path: admin/class-metasync-dev-panel.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 2
+			path: admin/class-metasync-edge-cache-settings.php
+
+		-
+			message: '#^Parameter \#2 \$gmt of function current_time expects bool, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: admin/class-metasync-html-visual-editor.php
+
+		-
+			message: '#^Property Metasync_HTML_Visual_Editor\:\:\$plugin_name is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: admin/class-metasync-html-visual-editor.php
+
+		-
+			message: '#^Call to function is_wp_error\(\) with array\|false will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: admin/class-metasync-otto-debug.php
+
+		-
+			message: '#^Found usage of constant DOING_AJAX\. Use wp_doing_ajax\(\) instead\.$#'
+			identifier: phpstanWP.wpConstant.fetch
+			count: 1
+			path: admin/class-metasync-otto-debug.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 1
+			path: admin/class-metasync-otto-debug.php
+
+		-
+			message: '#^Left side of && is always true\.$#'
+			identifier: booleanAnd.leftAlwaysTrue
+			count: 5
+			path: admin/class-metasync-otto-debug.php
+
+		-
+			message: '#^Method Metasync_Otto_Debug\:\:is_developer_user\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: admin/class-metasync-otto-debug.php
+
+		-
+			message: '#^Parameter \#2 \$gmt of function current_time expects bool, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: admin/class-metasync-otto-debug.php
+
+		-
+			message: '#^Parameter \#3 \$args of function wp_schedule_single_event expects list\<mixed\>, array\{test\: ''data''\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: admin/class-metasync-otto-debug.php
+
+		-
+			message: '#^Property Metasync_Otto_Debug\:\:\$plugin_name is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: admin/class-metasync-otto-debug.php
+
+		-
+			message: '#^Property Metasync_Otto_Debug\:\:\$version is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: admin/class-metasync-otto-debug.php
+
+		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
+			count: 2
+			path: admin/class-metasync-otto-debug.php
+
+		-
+			message: '#^Variable \$data on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 2
+			path: admin/class-metasync-otto-debug.php
+
+		-
+			message: '#^Cannot access property \$ID on array\|object\.$#'
+			identifier: property.nonObject
+			count: 6
+			path: admin/class-metasync-seo-health-list-table.php
+
+		-
+			message: '#^Cannot access property \$post_status on array\|object\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: admin/class-metasync-seo-health-list-table.php
+
+		-
+			message: '#^Cannot access property \$post_title on array\|object\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: admin/class-metasync-seo-health-list-table.php
+
+		-
+			message: '#^Cannot access property \$post_type on array\|object\.$#'
+			identifier: property.nonObject
+			count: 2
+			path: admin/class-metasync-seo-health-list-table.php
+
+		-
+			message: '#^Parameter \#1 \$args of method WP_List_Table\:\:set_pagination_args\(\) expects array\{total_items\?\: int, total_pages\?\: int, per_page\?\: int\}, array\{total_items\: int, per_page\: 20, total_pages\: float\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: admin/class-metasync-seo-health-list-table.php
+
+		-
+			message: '#^Variable \$schema in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: admin/class-metasync-seo-health.php
+
+		-
+			message: '#^Call to function method_exists\(\) with ''Metasync'' and ''get_effective…'' will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: admin/class-metasync-seo-sidebar.php
+
+		-
+			message: '#^Call to function method_exists\(\) with ''Metasync'' and ''get_whitelabel_otto…'' will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: admin/class-metasync-seo-sidebar.php
+
+		-
+			message: '#^Function get_woocommerce_currency not found\.$#'
+			identifier: function.notFound
+			count: 1
+			path: admin/class-metasync-seo-sidebar.php
+
+		-
+			message: '#^Function wc_get_product not found\.$#'
+			identifier: function.notFound
+			count: 1
+			path: admin/class-metasync-seo-sidebar.php
+
+		-
+			message: '#^Variable \$html_content might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-html-editor-page.php
+
+		-
+			message: '#^Variable \$label might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-html-editor-page.php
+
+		-
+			message: '#^Variable \$post might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-html-editor-page.php
+
+		-
+			message: '#^Variable \$og_description might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$og_enabled might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$og_image might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$og_title might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$og_type might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$og_url might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$post might not be defined\.$#'
+			identifier: variable.undefined
+			count: 9
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$this might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$twitter_app_country might not be defined\.$#'
+			identifier: variable.undefined
+			count: 9
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$twitter_app_id_googleplay might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$twitter_app_id_ipad might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$twitter_app_id_iphone might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$twitter_app_url_googleplay might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$twitter_app_url_ipad might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$twitter_app_url_iphone might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$twitter_card might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$twitter_description might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$twitter_image might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$twitter_image_alt might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$twitter_player might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$twitter_player_height might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$twitter_player_width might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$twitter_site might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Variable \$twitter_title might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: admin/partials/metasync-opengraph-meta-box.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 3
+			path: bing-index/class-metasync-bing-instant-index.php
+
+		-
+			message: '#^Property Metasync_Breadcrumbs_Schema\:\:\$plugin_name is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: breadcrumbs/class-metasync-breadcrumbs-schema.php
+
+		-
+			message: '#^Property Metasync_Breadcrumbs_Schema\:\:\$version is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: breadcrumbs/class-metasync-breadcrumbs-schema.php
+
+		-
+			message: '#^Function is_shop not found\.$#'
+			identifier: function.notFound
+			count: 1
+			path: breadcrumbs/class-metasync-breadcrumbs.php
+
+		-
+			message: '#^Property Metasync_Breadcrumbs\:\:\$plugin_name is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: breadcrumbs/class-metasync-breadcrumbs.php
+
+		-
+			message: '#^Property Metasync_CSS_Minifier\:\:\$settings is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: code-minification/class-css-minifier.php
+
+		-
+			message: '#^Property Metasync_JS_Minifier\:\:\$settings is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: code-minification/class-js-minifier.php
+
+		-
+			message: '#^Call to method PHPUnit\\Framework\\Assert\:\:assertIsArray\(\) with array will always evaluate to true\.$#'
+			identifier: method.alreadyNarrowedType
+			count: 1
+			path: code-minification/tests/Test_Compatibility_Guard.php
+
+		-
+			message: '#^Parameter \#1 \$text of function esc_attr expects string, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: code-minification/views/settings-tab.php
+
+		-
+			message: '#^Variable \$settings might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: code-minification/views/settings-tab.php
+
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 3
+			path: custom-pages/class-metasync-custom-pages-api.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between 0 and 0 will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: custom-pages/class-metasync-custom-pages-api.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between non\-falsy\-string and '''' will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: custom-pages/class-metasync-custom-pages-api.php
+
+		-
+			message: '#^Anonymous function has an unused use \$file\.$#'
+			identifier: closure.unusedUse
+			count: 1
+			path: custom-pages/class-metasync-custom-pages.php
+
+		-
+			message: '#^Call to an undefined method DOMNameSpaceNode\|DOMNode\:\:getAttribute\(\)\.$#'
+			identifier: method.notFound
+			count: 3
+			path: custom-pages/class-metasync-html-to-builder-converter.php
+
+		-
+			message: '#^Call to an undefined method DOMNameSpaceNode\|DOMNode\:\:removeAttribute\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: custom-pages/class-metasync-html-to-builder-converter.php
+
+		-
+			message: '#^Call to an undefined method DOMNameSpaceNode\|DOMNode\:\:setAttribute\(\)\.$#'
+			identifier: method.notFound
+			count: 3
+			path: custom-pages/class-metasync-html-to-builder-converter.php
+
+		-
+			message: '#^Call to an undefined method DOMNode\:\:getAttribute\(\)\.$#'
+			identifier: method.notFound
+			count: 14
+			path: custom-pages/class-metasync-html-to-builder-converter.php
+
+		-
+			message: '#^Call to an undefined method DOMNode\:\:hasAttribute\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: custom-pages/class-metasync-html-to-builder-converter.php
+
+		-
+			message: '#^Call to an undefined method DOMNode\:\:setAttribute\(\)\.$#'
+			identifier: method.notFound
+			count: 10
+			path: custom-pages/class-metasync-html-to-builder-converter.php
+
+		-
+			message: '#^Call to function is_string\(\) with non\-falsy\-string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: custom-pages/class-metasync-html-to-builder-converter.php
+
+		-
+			message: '#^Method Metasync_HTML_To_Builder_Converter\:\:convert_element_to_divi\(\) never returns array so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: custom-pages/class-metasync-html-to-builder-converter.php
+
+		-
+			message: '#^Method Metasync_HTML_To_Builder_Converter\:\:convert_element_to_gutenberg\(\) should return array\|null but returns string\|null\.$#'
+			identifier: return.type
+			count: 1
+			path: custom-pages/class-metasync-html-to-builder-converter.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between non\-empty\-string and null will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: custom-pages/class-metasync-html-to-builder-converter.php
+
+		-
+			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: customer-sync-requests/class-metasync-sync-requests.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: customer-sync-requests/class-metasync-sync-requests.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: customer-sync-requests/class-metasync-sync-requests.php
+
+		-
+			message: '#^Call to function is_object\(\) with WP_User will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: customer-sync-requests/class-metasync-sync-requests.php
+
+		-
+			message: '#^Variable \$selected_roles in empty\(\) is never defined\.$#'
+			identifier: empty.variable
+			count: 1
+			path: customer-sync-requests/class-metasync-sync-requests.php
+
+		-
+			message: '#^Call to function is_numeric\(\) with int will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: google-index/class-google-index-direct.php
+
+		-
+			message: '#^Call to function is_wp_error\(\) with non\-falsy\-string will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: google-index/class-google-index-direct.php
+
+		-
+			message: '#^Offset ''project_id'' on non\-empty\-array on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: google-index/class-google-index-direct.php
+
+		-
+			message: '#^Function google_index_direct\(\) should return Google_Index_Direct but returns null\.$#'
+			identifier: return.type
+			count: 1
+			path: google-index/google-index-init.php
+
+		-
+			message: '#^Left side of && is always true\.$#'
+			identifier: booleanAnd.leftAlwaysTrue
+			count: 1
+			path: heartbeat-error-monitor/class-metasync-heartbeat-error-monitor-database.php
+
+		-
+			message: '#^Method Metasync_HeartBeat_Error_Monitor_Database\:\:delete\(\) should return int but empty return statement found\.$#'
+			identifier: return.empty
+			count: 1
+			path: heartbeat-error-monitor/class-metasync-heartbeat-error-monitor-database.php
+
+		-
+			message: '#^Method Metasync_HeartBeat_Error_Monitor_Database\:\:delete\(\) should return int but return statement is missing\.$#'
+			identifier: return.missing
+			count: 1
+			path: heartbeat-error-monitor/class-metasync-heartbeat-error-monitor-database.php
+
+		-
+			message: '#^PHPDoc tag @param references unknown parameter\: \$itemsArray$#'
+			identifier: parameter.notFound
+			count: 1
+			path: heartbeat-error-monitor/class-metasync-heartbeat-error-monitor-database.php
+
+		-
+			message: '#^Parameter \#1 \$args of method WP_List_Table\:\:set_pagination_args\(\) expects array\{total_items\?\: int, total_pages\?\: int, per_page\?\: int\}, array\{total_items\: int\<0, max\>, per_page\: 20, total_pages\: float\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: heartbeat-error-monitor/class-metasync-heartbeat-error-monitor-list-table.php
+
+		-
+			message: '#^Property Metasync_HeartBeat_Error_Monitor_List_Table\:\:\$records is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: heartbeat-error-monitor/class-metasync-heartbeat-error-monitor-list-table.php
+
+		-
+			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: includes/class-metasync-access-control.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: includes/class-metasync-admin-ajax.php
+
+		-
+			message: '#^Call to function is_object\(\) with WP_Theme will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: includes/class-metasync-admin-ajax.php
+
+		-
+			message: '#^Left side of && is always true\.$#'
+			identifier: booleanAnd.leftAlwaysTrue
+			count: 2
+			path: includes/class-metasync-admin-ajax.php
+
+		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
+			count: 1
+			path: includes/class-metasync-admin-ajax.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 32
+			path: includes/class-metasync-admin-ajax.php
+
+		-
+			message: '#^Negated boolean expression is always false\.$#'
+			identifier: booleanNot.alwaysFalse
+			count: 2
+			path: includes/class-metasync-admin-navigation.php
+
+		-
+			message: '#^Offset ''compatibility''\|''dashboard''\|''google_console''\|''instant_index''\|''optimal_settings''\|''redirections''\|''robots_txt''\|''seo_controls''\|''sync_log''\|''xml_sitemap'' on array\{dashboard\: ''dashboard'', seo_controls\: ''search'', optimal_settings\: ''superhero\-alt'', instant_index\: ''performance'', google_console\: ''chart\-area'', compatibility\: ''admin\-tools'', sync_log\: ''list\-view'', redirections\: ''undo'', \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: includes/class-metasync-admin-navigation.php
+
+		-
+			message: '#^Offset ''dashboard'' on array\{general\: ''admin\-settings'', dashboard\: ''dashboard'', compatibility\: ''admin\-tools'', sync_log\: ''list\-view'', seo_controls\: ''search'', optimal_settings\: ''superhero\-alt'', instant_index\: ''performance'', google_console\: ''chart\-area'', \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: includes/class-metasync-admin-navigation.php
+
+		-
+			message: '#^Parameter \#7 \$position of function add_menu_page expects float\|int\|null, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: includes/class-metasync-admin-navigation.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 2
+			path: includes/class-metasync-admin-navigation.php
+
+		-
+			message: '#^Variable \$otto_pixel_uuid in empty\(\) always exists and is always falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: includes/class-metasync-admin-navigation.php
+
+		-
+			message: '#^Access to an undefined property DateInterval&object\{days\: int\}\:\:\$w\.$#'
+			identifier: property.notFound
+			count: 1
+			path: includes/class-metasync-admin-pages.php
+
+		-
+			message: '#^Call to method Metasync_Error_Logs\:\:show_copy_button\(\) on a separate line has no effect\.$#'
+			identifier: method.resultUnused
+			count: 1
+			path: includes/class-metasync-admin-pages.php
+
+		-
+			message: '#^Call to method Metasync_Error_Logs\:\:show_info\(\) on a separate line has no effect\.$#'
+			identifier: method.resultUnused
+			count: 1
+			path: includes/class-metasync-admin-pages.php
+
+		-
+			message: '#^Variable \$user_password in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: includes/class-metasync-admin-pages.php
+
+		-
+			message: '#^Call to method Metasync_API_Backoff_Manager\:\:log_backoff_event\(\) on a separate line has no effect\.$#'
+			identifier: method.resultUnused
+			count: 5
+			path: includes/class-metasync-api-backoff-manager.php
+
+		-
+			message: '#^Variable \$new_value in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: includes/class-metasync-api-key-monitor.php
+
+		-
+			message: '#^Left side of && is always true\.$#'
+			identifier: booleanAnd.leftAlwaysTrue
+			count: 1
+			path: includes/class-metasync-auth-manager.php
+
+		-
+			message: '#^Access to constant COMPLETE on an unknown class NitroPack\\SDK\\PurgeType\.$#'
+			identifier: class.notFound
+			count: 1
+			path: includes/class-metasync-cache-purge.php
+
+		-
+			message: '#^Call to function method_exists\(\) with ''Cache_Enabler'' and ''clear_complete_cache'' will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: includes/class-metasync-cache-purge.php
+
+		-
+			message: '#^Call to function method_exists\(\) with ''WpeCommon'' and ''purge_url'' will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: includes/class-metasync-cache-purge.php
+
+		-
+			message: '#^Call to function method_exists\(\) with ''WpeCommon'' and ''purge_varnish_cache…'' will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: includes/class-metasync-cache-purge.php
+
+		-
+			message: '#^Call to function method_exists\(\) with ''comet_cache'' and ''clearPost'' will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: includes/class-metasync-cache-purge.php
+
+		-
+			message: '#^Call to function method_exists\(\) with ''comet_cache'' and ''clearUrl'' will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: includes/class-metasync-cache-purge.php
+
+		-
+			message: '#^Call to static method get_instance\(\) on an unknown class KinstaCache\.$#'
+			identifier: class.notFound
+			count: 1
+			path: includes/class-metasync-cache-purge.php
+
+		-
+			message: '#^Call to static method purge_memcached\(\) on an unknown class WpeCommon\.$#'
+			identifier: class.notFound
+			count: 1
+			path: includes/class-metasync-cache-purge.php
+
+		-
+			message: '#^Call to static method purge_varnish_cache\(\) on an unknown class WpeCommon\.$#'
+			identifier: class.notFound
+			count: 1
+			path: includes/class-metasync-cache-purge.php
+
+		-
+			message: '#^Function w3_instance not found\.$#'
+			identifier: function.notFound
+			count: 1
+			path: includes/class-metasync-cache-purge.php
+
+		-
+			message: '#^Offset ''type'' on array\{ext\: string\|false, type\: string\|false\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: includes/class-metasync-common.php
+
+		-
+			message: '#^Parameter \#1 \$array of function end is passed by reference, so it expects variables only\.$#'
+			identifier: argument.byRef
+			count: 1
+			path: includes/class-metasync-common.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: includes/class-metasync-common.php
+
+		-
+			message: '#^Variable \$filename on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: includes/class-metasync-common.php
+
+		-
+			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: includes/class-metasync-compatibility-checker.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 3
+			path: includes/class-metasync-compatibility-checker.php
+
+		-
+			message: '#^Offset ''note'' on array\{name\: ''All in One SEO'', plugin_files\: array\{''all\-in\-one\-seo\-pack…'', ''all\-in\-one\-seo\-pack…''\}, supported\: true, version\: ''4\.8\.7''\}\|array\{name\: ''Rank Math'', plugin_files\: array\{''seo\-by\-rank\-math…'', ''seo\-by\-rank\-math…''\}, supported\: true, version\: ''1\.0\.253\.0''\}\|array\{name\: ''Yoast SEO'', plugin_files\: array\{''wordpress\-seo/wp…'', ''wordpress\-seo…''\}, supported\: true, version\: ''25\.9\.0''\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: includes/class-metasync-compatibility-checker.php
+
+		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
+			count: 1
+			path: includes/class-metasync-compatibility-checker.php
+
+		-
+			message: '#^Found usage of constant DOING_AJAX\. Use wp_doing_ajax\(\) instead\.$#'
+			identifier: phpstanWP.wpConstant.fetch
+			count: 1
+			path: includes/class-metasync-connect-manager.php
+
+		-
+			message: '#^Found usage of constant DOING_CRON\. Use wp_doing_cron\(\) instead\.$#'
+			identifier: phpstanWP.wpConstant.fetch
+			count: 1
+			path: includes/class-metasync-connect-manager.php
+
+		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
+			count: 1
+			path: includes/class-metasync-connect-manager.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 14
+			path: includes/class-metasync-connect-manager.php
+
+		-
+			message: '#^Variable \$raw in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: includes/class-metasync-cpu-monitor.php
+
+		-
+			message: '#^Call to function is_array\(\) with non\-empty\-array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: includes/class-metasync-debug-manager.php
+
+		-
+			message: '#^Call to method Metasync_Error_Logs\:\:show_copy_button\(\) on a separate line has no effect\.$#'
+			identifier: method.resultUnused
+			count: 1
+			path: includes/class-metasync-debug-manager.php
+
+		-
+			message: '#^Call to method Metasync_Error_Logs\:\:show_info\(\) on a separate line has no effect\.$#'
+			identifier: method.resultUnused
+			count: 1
+			path: includes/class-metasync-debug-manager.php
+
+		-
+			message: '#^Comparison operation "\>" between 10485760 and 0 is always true\.$#'
+			identifier: greater.alwaysTrue
+			count: 1
+			path: includes/class-metasync-debug-mode-manager.php
+
+		-
+			message: '#^Parameter \#1 \$string of function strlen expects string, int\<min, \-1\>\|int\<1, max\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: includes/class-metasync-debug-mode-manager.php
+
+		-
+			message: '#^Action callback returns int\|false but should not return anything\.$#'
+			identifier: return.void
+			count: 1
+			path: includes/class-metasync-error-logger.php
+
+		-
+			message: '#^Negated boolean expression is always true\.$#'
+			identifier: booleanNot.alwaysTrue
+			count: 1
+			path: includes/class-metasync-error-logger.php
+
+		-
+			message: '#^PHPDoc tag @param references unknown parameter\: \$logFilePath$#'
+			identifier: parameter.notFound
+			count: 1
+			path: includes/class-metasync-errorlogs.php
+
+		-
+			message: '#^Call to function is_string\(\) with non\-falsy\-string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: includes/class-metasync-external-importer.php
+
+		-
+			message: '#^Parameter \#2 \$user_id of function get_the_author_meta expects int\|false, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: includes/class-metasync-external-importer.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between mixed and null will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 2
+			path: includes/class-metasync-external-importer.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 3
+			path: includes/class-metasync-external-importer.php
+
+		-
+			message: '#^Expression in empty\(\) is not falsy\.$#'
+			identifier: empty.expr
+			count: 2
+			path: includes/class-metasync-ga4.php
+
+		-
+			message: '#^Negated boolean expression is always false\.$#'
+			identifier: booleanNot.alwaysFalse
+			count: 1
+			path: includes/class-metasync-ga4.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 2
+			path: includes/class-metasync-heartbeat-manager.php
+
+		-
+			message: '#^Variable \$full_context in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: includes/class-metasync-heartbeat-manager.php
+
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: includes/class-metasync-html-to-markdown.php
+
+		-
+			message: '#^Parameter \#1 \$user_id of function get_userdata expects int, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: includes/class-metasync-html-to-markdown.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\{string, string\} will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: includes/class-metasync-opengraph.php
+
+		-
+			message: '#^Call to function is_string\(\) with non\-falsy\-string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: includes/class-metasync-opengraph.php
+
+		-
+			message: '#^Class Yoast\\WP\\SEO\\Presenters\\Open_Graph\\Article_Author_Presenter not found\.$#'
+			identifier: class.notFound
+			count: 1
+			path: includes/class-metasync-opengraph.php
+
+		-
+			message: '#^Class Yoast\\WP\\SEO\\Presenters\\Open_Graph\\Article_Modified_Time_Presenter not found\.$#'
+			identifier: class.notFound
+			count: 1
+			path: includes/class-metasync-opengraph.php
+
+		-
+			message: '#^Class Yoast\\WP\\SEO\\Presenters\\Open_Graph\\Article_Published_Time_Presenter not found\.$#'
+			identifier: class.notFound
+			count: 1
+			path: includes/class-metasync-opengraph.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 2
+			path: includes/class-metasync-opengraph.php
+
+		-
+			message: '#^Method Metasync_OpenGraph\:\:seo_plugin_has_og_data\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: includes/class-metasync-opengraph.php
+
+		-
+			message: '#^Parameter \#1 \$author_id of function get_author_posts_url expects int, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: includes/class-metasync-opengraph.php
+
+		-
+			message: '#^Parameter \#2 \$user_id of function get_the_author_meta expects int\|false, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: includes/class-metasync-opengraph.php
+
+		-
+			message: '#^Property Metasync_OpenGraph\:\:\$plugin_name is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: includes/class-metasync-opengraph.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 2
+			path: includes/class-metasync-opengraph.php
+
+		-
+			message: '#^Variable \$site_name on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: includes/class-metasync-opengraph.php
+
+		-
+			message: '#^Parameter \#1 \$text of function esc_html expects string, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: includes/class-metasync-otto-cache-manager.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 18
+			path: includes/class-metasync-otto-cache-manager.php
+
+		-
+			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: includes/class-metasync-oxygen-compat.php
+
+		-
+			message: '#^Call to method generate_signature\(\) on an unknown class OXYGEN_VSB_Signature\.$#'
+			identifier: class.notFound
+			count: 1
+			path: includes/class-metasync-oxygen-compat.php
+
+		-
+			message: '#^Class OXYGEN_VSB_Signature not found\.$#'
+			identifier: class.notFound
+			count: 1
+			path: includes/class-metasync-oxygen-compat.php
+
+		-
+			message: '#^Parameter \$signer of method Metasync_Oxygen_Compat\:\:resign_oxygen_in_string\(\) has invalid type OXYGEN_VSB_Signature\.$#'
+			identifier: class.notFound
+			count: 1
+			path: includes/class-metasync-oxygen-compat.php
+
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: includes/class-metasync-plugin-sync.php
+
+		-
+			message: '#^Constant DB_NAME not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: includes/class-metasync-plugin-sync.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between int\|string\|true and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: includes/class-metasync-plugin-sync.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 3
+			path: includes/class-metasync-plugin-sync.php
+
+		-
+			message: '#^Variable \$message might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: includes/class-metasync-redirections-admin.php
+
+		-
+			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 4
+			path: includes/class-metasync-seo-conflict-handler.php
+
+		-
+			message: '#^Dead catch \- Exception is never thrown in the try block\.$#'
+			identifier: catch.neverThrown
+			count: 1
+			path: includes/class-metasync-session-helper.php
+
+		-
+			message: '#^Found usage of constant DOING_AJAX\. Use wp_doing_ajax\(\) instead\.$#'
+			identifier: phpstanWP.wpConstant.fetch
+			count: 1
+			path: includes/class-metasync-session-helper.php
+
+		-
+			message: '#^Found usage of constant DOING_CRON\. Use wp_doing_cron\(\) instead\.$#'
+			identifier: phpstanWP.wpConstant.fetch
+			count: 1
+			path: includes/class-metasync-session-helper.php
+
+		-
+			message: '#^Loose comparison using \=\= between 0\|1 and 2 will always evaluate to false\.$#'
+			identifier: equal.alwaysFalse
+			count: 1
+			path: includes/class-metasync-session-helper.php
+
+		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
+			count: 1
+			path: includes/class-metasync-session-helper.php
+
+		-
+			message: '#^Access to an undefined property DateInterval&object\{days\: int\}\:\:\$w\.$#'
+			identifier: property.notFound
+			count: 1
+			path: includes/class-metasync-settings-fields.php
+
+		-
+			message: '#^Negated boolean expression is always true\.$#'
+			identifier: booleanNot.alwaysTrue
+			count: 1
+			path: includes/class-metasync-settings-registration.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 15
+			path: includes/class-metasync-settings-registration.php
+
+		-
+			message: '#^Variable \$add_nofollow_to_external_links in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: includes/class-metasync-settings-registration.php
+
+		-
+			message: '#^Variable \$enable_binginstantindex in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: includes/class-metasync-settings-registration.php
+
+		-
+			message: '#^Variable \$enable_googleinstantindex in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: includes/class-metasync-settings-registration.php
+
+		-
+			message: '#^Variable \$hide_dashboard in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: includes/class-metasync-settings-registration.php
+
+		-
+			message: '#^Variable \$index_author_archives in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: includes/class-metasync-settings-registration.php
+
+		-
+			message: '#^Variable \$index_category_archives in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: includes/class-metasync-settings-registration.php
+
+		-
+			message: '#^Variable \$index_date_archives in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: includes/class-metasync-settings-registration.php
+
+		-
+			message: '#^Variable \$index_format_archives in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: includes/class-metasync-settings-registration.php
+
+		-
+			message: '#^Variable \$index_tag_archives in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: includes/class-metasync-settings-registration.php
+
+		-
+			message: '#^Variable \$noindex_empty_archives in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: includes/class-metasync-settings-registration.php
+
+		-
+			message: '#^Variable \$otto_disable_on_loggedin in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: includes/class-metasync-settings-registration.php
+
+		-
+			message: '#^Variable \$override_robots_tags in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: includes/class-metasync-settings-registration.php
+
+		-
+			message: '#^Method Metasync_Setup_Wizard\:\:get_wizard_steps\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: includes/class-metasync-setup-wizard.php
+
+		-
+			message: '#^Property Metasync_Setup_Wizard\:\:\$plugin_name is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: includes/class-metasync-setup-wizard.php
+
+		-
+			message: '#^Property Metasync_Setup_Wizard\:\:\$total_steps is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: includes/class-metasync-setup-wizard.php
+
+		-
+			message: '#^Property Metasync_Setup_Wizard\:\:\$version is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: includes/class-metasync-setup-wizard.php
+
+		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
+			count: 1
+			path: includes/class-metasync-site-health.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''critical''\|''good'' and ''recommended'' will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: includes/class-metasync-site-health.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between non\-falsy\-string&numeric\-string and 0 will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: includes/class-metasync-site-health.php
+
+		-
+			message: '#^Negated boolean expression is always false\.$#'
+			identifier: booleanNot.alwaysFalse
+			count: 1
+			path: includes/class-metasync.php
+
+		-
+			message: '#^Parameter \#2 \$component of method Metasync_Loader\:\:add_action\(\) expects object, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: includes/class-metasync.php
+
+		-
+			message: '#^Ternary operator condition is always false\.$#'
+			identifier: ternary.alwaysFalse
+			count: 1
+			path: llms-txt/class-metasync-llms-txt-generator.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and false will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: media-optimization/class-image-converter.php
+
+		-
+			message: '#^Cannot access property \$ID on array\|object\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: media-optimization/class-media-library-list-table.php
+
+		-
+			message: '#^Parameter \#1 \$string of function strlen expects string, int\<2, max\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: media-optimization/class-media-library-list-table.php
+
+		-
+			message: '#^Variable \$like_clauses in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: media-optimization/class-media-library-list-table.php
+
+		-
+			message: '#^Parameter \#1 \$text of function esc_attr expects string, float given\.$#'
+			identifier: argument.type
+			count: 1
+			path: media-optimization/views/image-library-tab.php
+
+		-
+			message: '#^Parameter \#1 \$text of function esc_attr expects string, int given\.$#'
+			identifier: argument.type
+			count: 3
+			path: media-optimization/views/settings-tab.php
+
+		-
+			message: '#^Parameter \#1 \$text of function esc_html expects string, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: media-optimization/views/settings-tab.php
+
+		-
+			message: '#^Variable \$capabilities might not be defined\.$#'
+			identifier: variable.undefined
+			count: 8
+			path: media-optimization/views/settings-tab.php
+
+		-
+			message: '#^Variable \$settings might not be defined\.$#'
+			identifier: variable.undefined
+			count: 10
+			path: media-optimization/views/settings-tab.php
+
+		-
+			message: '#^Found usage of constant DOING_AJAX\. Use wp_doing_ajax\(\) instead\.$#'
+			identifier: phpstanWP.wpConstant.fetch
+			count: 1
+			path: metasync.php
+
+		-
+			message: '#^Negated boolean expression is always false\.$#'
+			identifier: booleanNot.alwaysFalse
+			count: 1
+			path: metasync.php
+
+		-
+			message: '#^Property WP_Upgrader\:\:\$result \(array\<string, bool\|string\>\|WP_Error\) in isset\(\) is not nullable\.$#'
+			identifier: isset.property
+			count: 1
+			path: metasync.php
+
+		-
+			message: '#^Left side of && is always true\.$#'
+			identifier: booleanAnd.leftAlwaysTrue
+			count: 1
+			path: optimal-settings/class-metasync-optimal-settings.php
+
+		-
+			message: '#^Parameter \#1 \$text of function esc_attr expects string, int\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: otto-frontend-toolbar/class-metasync-otto-frontend-toolbar.php
+
+		-
+			message: '#^Call to function is_array\(\) with non\-empty\-array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: otto/Otto_html_class.php
+
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 5
+			path: otto/Otto_html_class.php
+
+		-
+			message: '#^Instantiated class simplehtmldom\\HtmlDocument not found\.$#'
+			identifier: class.notFound
+			count: 2
+			path: otto/Otto_html_class.php
+
+		-
+			message: '#^Method Metasync_otto_html\:\:process_html_directly\(\) has invalid return type simplehtmldom\\HtmlDocument\.$#'
+			identifier: class.notFound
+			count: 1
+			path: otto/Otto_html_class.php
+
+		-
+			message: '#^Method Metasync_otto_html\:\:process_html_directly\(\) should return simplehtmldom\\HtmlDocument\|false but returns string\.$#'
+			identifier: return.type
+			count: 1
+			path: otto/Otto_html_class.php
+
+		-
+			message: '#^PHPDoc tag @param has invalid value \(change_data \: Pre\-fetched OTTO suggestions data\)\: Unexpected token "\:", expected variable at offset 185 on line 5$#'
+			identifier: phpDoc.parseError
+			count: 1
+			path: otto/Otto_html_class.php
+
+		-
+			message: '#^PHPDoc tag @param has invalid value \(path \: The path of the html file to save\)\: Unexpected token "\:", expected variable at offset 240 on line 6$#'
+			identifier: phpDoc.parseError
+			count: 1
+			path: otto/Otto_html_class.php
+
+		-
+			message: '#^PHPDoc tag @param has invalid value \(path \: The path of the html file to save\)\: Unexpected token "\:", expected variable at offset 90 on line 4$#'
+			identifier: phpDoc.parseError
+			count: 1
+			path: otto/Otto_html_class.php
+
+		-
+			message: '#^PHPDoc tag @param has invalid value \(route \: The route to check\)\: Unexpected token "\:", expected variable at offset 138 on line 4$#'
+			identifier: phpDoc.parseError
+			count: 1
+			path: otto/Otto_html_class.php
+
+		-
+			message: '#^PHPDoc tag @param has invalid value \(route \: The route to check\)\: Unexpected token "\:", expected variable at offset 50 on line 3$#'
+			identifier: phpDoc.parseError
+			count: 1
+			path: otto/Otto_html_class.php
+
+		-
+			message: '#^Property Metasync_otto_html\:\:\$html_file is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: otto/Otto_html_class.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between int\<0, max\> and false will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: otto/Otto_html_class.php
+
+		-
+			message: '#^Call to function is_string\(\) with non\-falsy\-string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: otto/Otto_pixel_class.php
+
+		-
+			message: '#^Property Metasync_otto_pixel\:\:\$otto_uuid is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: otto/Otto_pixel_class.php
+
+		-
+			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: otto/class-metasync-otto-excluded-urls-database.php
+
+		-
+			message: '#^Parameter \#2 \$value of function ini_set expects string, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: otto/class-metasync-otto-excluded-urls-database.php
+
+		-
+			message: '#^Call to function is_array\(\) with non\-empty\-array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 3
+			path: otto/class-metasync-otto-persistence-handler.php
+
+		-
+			message: '#^Expression on left side of \?\? is always null\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: otto/class-metasync-otto-persistence-settings.php
+
+		-
+			message: '#^Function et_theme_builder_decorate_page_resource_slug not found\.$#'
+			identifier: function.notFound
+			count: 1
+			path: otto/class-metasync-otto-render-strategy.php
+
+		-
+			message: '#^Static property Metasync_Otto_Render_Strategy\:\:\$pending_route is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: otto/class-metasync-otto-render-strategy.php
+
+		-
+			message: '#^Call to function is_array\(\) with non\-empty\-array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: otto/class-metasync-otto-transient-cache.php
+
+		-
+			message: '#^Method Metasync_Otto_Transient_Cache\:\:get_lock_key\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: otto/class-metasync-otto-transient-cache.php
+
+		-
+			message: '#^Method Metasync_Otto_Transient_Cache\:\:purge_nitropack_cache\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: otto/class-metasync-otto-transient-cache.php
+
+		-
+			message: '#^Call to function is_string\(\) with non\-falsy\-string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: otto/metasync-otto-seo-functions.php
+
+		-
+			message: '#^Call to function is_wp_error\(\) with WP_Term will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: otto/metasync-otto-seo-functions.php
+
+		-
+			message: '#^Call to function method_exists\(\) with ''RankMath\\\\Helper'' and ''clear_cache'' will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: otto/metasync-otto-seo-functions.php
+
+		-
+			message: '#^Call to function method_exists\(\) with ''WPSEO_Utils'' and ''clear_cache'' will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: otto/metasync-otto-seo-functions.php
+
+		-
+			message: '#^Function metasync_update_seo_meta_fields\(\) never returns false so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: otto/metasync-otto-seo-functions.php
+
+		-
+			message: '#^Offset ''brizy_post_uid'' on null in isset\(\) does not exist\.$#'
+			identifier: isset.offset
+			count: 1
+			path: otto/metasync-otto-seo-functions.php
+
+		-
+			message: '#^Offset ''ct_builder…'' on null in isset\(\) does not exist\.$#'
+			identifier: isset.offset
+			count: 1
+			path: otto/metasync-otto-seo-functions.php
+
+		-
+			message: '#^Parameter \#2 \$callback of function array_filter expects \(callable\(string\)\: bool\)\|null, ''strlen'' given\.$#'
+			identifier: argument.type
+			count: 1
+			path: otto/metasync-otto-seo-functions.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 4
+			path: otto/metasync-otto-seo-functions.php
+
+		-
+			message: '#^Variable \$meta_description on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 2
+			path: otto/metasync-otto-seo-functions.php
+
+		-
+			message: '#^Variable \$meta_title on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 2
+			path: otto/metasync-otto-seo-functions.php
+
+		-
+			message: '#^Call to function is_string\(\) with non\-falsy\-string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 5
+			path: otto/otto_pixel.php
+
+		-
+			message: '#^Call to function is_wp_error\(\) with WP_Term will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 2
+			path: otto/otto_pixel.php
+
+		-
+			message: '#^Call to method Metasync_otto_pixel\:\:refresh_cache\(\) on a separate line has no effect\.$#'
+			identifier: method.resultUnused
+			count: 1
+			path: otto/otto_pixel.php
+
+		-
+			message: '#^Found usage of constant DOING_AJAX\. Use wp_doing_ajax\(\) instead\.$#'
+			identifier: phpstanWP.wpConstant.fetch
+			count: 1
+			path: otto/otto_pixel.php
+
+		-
+			message: '#^Negated boolean expression is always false\.$#'
+			identifier: booleanNot.alwaysFalse
+			count: 1
+			path: otto/otto_pixel.php
+
+		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
+			count: 1
+			path: otto/otto_pixel.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''publish'' and ''trash'' will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: otto/otto_pixel.php
+
+		-
+			message: '#^Call to an undefined method DOMNameSpaceNode\|DOMNode\:\:getAttribute\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: public/class-metasync-hidden-post.php
+
+		-
+			message: '#^Call to function is_wp_error\(\) with int\<0, max\> will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: public/class-metasync-hidden-post.php
+
+		-
+			message: '#^Call to static method instance\(\) on an unknown class Elementor\\Plugin\.$#'
+			identifier: class.notFound
+			count: 1
+			path: public/class-metasync-hidden-post.php
+
+		-
+			message: '#^Inner named functions are not supported by PHPStan\. Consider refactoring to an anonymous function, class method, or a top\-level\-defined function\. See issue \#165 \(https\://github\.com/phpstan/phpstan/issues/165\) for more details\.$#'
+			identifier: function.inner
+			count: 1
+			path: public/class-metasync-public.php
+
+		-
+			message: '#^Parameter \#2 \$callback of function add_shortcode expects callable\(array\<string\>, string\|null, string\)\: string, ''metasync_accordion'' given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/class-metasync-public.php
+
+		-
+			message: '#^Access to an undefined property WP_Term\:\:\$cat_ID\.$#'
+			identifier: property.notFound
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Call to function is_string\(\) with non\-falsy\-string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 5
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Call to function is_wp_error\(\) with int will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 2
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Call to function is_wp_error\(\) with int\<0, max\> will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Call to static method instance\(\) on an unknown class Elementor\\Plugin\.$#'
+			identifier: class.notFound
+			count: 3
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Cannot unset offset ''post_category'' on array\{post_author\: mixed, post_title\?\: mixed, post_parent\?\: mixed, meta_description\?\: mixed, meta_robots\?\: mixed, meta_canonical\?\: mixed, post_content\?\: mixed, custom_post_header\?\: mixed, \.\.\.\}\.$#'
+			identifier: unset.offset
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Constant ET_BUILDER_VERSION not found\.$#'
+			identifier: constant.notFound
+			count: 10
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Left side of && is always true\.$#'
+			identifier: booleanAnd.leftAlwaysTrue
+			count: 2
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Loose comparison using \=\= between ''array'' and ''array'' will always evaluate to true\.$#'
+			identifier: equal.alwaysTrue
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Loose comparison using \=\= between 0 and 0 will always evaluate to true\.$#'
+			identifier: equal.alwaysTrue
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Method Metasync_Rest_Api\:\:create_sso_error_response\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Method Metasync_Rest_Api\:\:diviBlockData\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Method Metasync_Rest_Api\:\:elementorBlockData\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Method Metasync_Rest_Api\:\:get_post_author_id\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Method Metasync_Rest_Api\:\:get_random_user_id_by_roles\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Method Metasync_Rest_Api\:\:gutenbergBlockData\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Method Metasync_Rest_Api\:\:is_enhanced_token\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Method Metasync_Rest_Api\:\:validate_enhanced_searchatlas_token\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Method Metasync_Rest_Api\:\:validate_legacy_searchatlas_token\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Negated boolean expression is always true\.$#'
+			identifier: booleanNot.alwaysTrue
+			count: 14
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Offset ''body'' on array\{headers\: WpOrg\\Requests\\Utility\\CaseInsensitiveDictionary, body\: string, response\: array\{code\: int, message\: string\}, cookies\: array\<int, WP_Http_Cookie\>, filename\: string\|null, http_response\: WP_HTTP_Requests_Response\} in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Parameter \#1 \$postarr of function wp_update_post expects array\{ID\?\: int, post_author\?\: int, post_date\?\: string, post_date_gmt\?\: string, post_content\?\: string, post_content_filtered\?\: string, post_title\?\: string, post_excerpt\?\: string, \.\.\.\}, WP_Post given\.$#'
+			identifier: argument.type
+			count: 2
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Property WP_Post\:\:\$post_status \(string\) on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.property
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Property WP_Post\:\:\$post_title \(string\) on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.property
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Property WP_Post\:\:\$post_type \(string\) on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.property
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Right side of && is always false\.$#'
+			identifier: booleanAnd.rightAlwaysFalse
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between int\<1, max\> and false will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''table'' and ''table'' will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between non\-empty\-string and null will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Ternary operator condition is always true\.$#'
+			identifier: ternary.alwaysTrue
+			count: 3
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 3
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Variable \$permalink on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 2
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Variable \$update_params in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: public/class-metasync-rest-api.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\{string, string\} will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: public/class-metasync-seo-output.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: public/class-metasync-seo-output.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 2
+			path: public/class-metasync-seo-output.php
+
+		-
+			message: '#^Offset ''height'' on array\{width\: int, height\: int, file\: non\-falsy\-string, sizes\: array, image_meta\: array, filesize\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: public/class-metasync-seo-output.php
+
+		-
+			message: '#^Offset ''width'' on array\{width\: int, height\: int, file\: non\-falsy\-string, sizes\: array, image_meta\: array, filesize\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: public/class-metasync-seo-output.php
+
+		-
+			message: '#^Parameter \#1 \$author_id of function get_author_posts_url expects int, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/class-metasync-seo-output.php
+
+		-
+			message: '#^Parameter \#2 \$user_id of function get_the_author_meta expects int\|false, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: public/class-metasync-seo-output.php
+
+		-
+			message: '#^Property Metasync_Seo_Output\:\:\$common is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: public/class-metasync-seo-output.php
+
+		-
+			message: '#^Property Metasync_Seo_Output\:\:\$metasync_option_data is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: public/class-metasync-seo-output.php
+
+		-
+			message: '#^Property Metasync_Seo_Output\:\:\$plugin_name is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: public/class-metasync-seo-output.php
+
+		-
+			message: '#^Property Metasync_Seo_Output\:\:\$version is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: public/class-metasync-seo-output.php
+
+		-
+			message: '#^Property WP_Post\:\:\$post_title \(string\) on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.property
+			count: 1
+			path: public/class-metasync-seo-output.php
+
+		-
+			message: '#^Variable \$post_text on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: public/class-metasync-seo-output.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<mixed, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: redirections/class-metasync-redirection-importer.php
+
+		-
+			message: '#^Offset ''options'' on array\{name\: ''Yoast SEO Premium'', slugs\: array\{''wordpress\-seo…'', ''wordpress\-seo…'', ''wordpress\-seo/wp…''\}, options\: array\{''wpseo\-premium…'', ''wpseo\-premium…'', ''wpseo\-premium…'', ''wpseo\-premium…'', ''wpseo\-premium…''\}\} in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 1
+			path: redirections/class-metasync-redirection-importer.php
+
+		-
+			message: '#^Offset ''slugs'' on array\{name\: ''Yoast SEO Premium'', slugs\: array\{''wordpress\-seo…'', ''wordpress\-seo…'', ''wordpress\-seo/wp…''\}, options\: array\{''wpseo\-premium…'', ''wpseo\-premium…'', ''wpseo\-premium…'', ''wpseo\-premium…'', ''wpseo\-premium…''\}\} in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 1
+			path: redirections/class-metasync-redirection-importer.php
+
+		-
+			message: '#^Access to an undefined property Metasync_Redirection_List_Table\:\:\$_pagination\.$#'
+			identifier: property.notFound
+			count: 1
+			path: redirections/class-metasync-redirection-list-table.php
+
+		-
+			message: '#^Method Metasync_Redirection_List_Table\:\:loadRecords\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: redirections/class-metasync-redirection-list-table.php
+
+		-
+			message: '#^Parameter \#1 \$args of method WP_List_Table\:\:set_pagination_args\(\) expects array\{total_items\?\: int, total_pages\?\: int, per_page\?\: int\}, array\{total_items\: mixed, per_page\: 10, total_pages\: float\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: redirections/class-metasync-redirection-list-table.php
+
+		-
+			message: '#^Property Metasync_Redirection_List_Table\:\:\$records is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: redirections/class-metasync-redirection-list-table.php
+
+		-
+			message: '#^Variable \$class in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: redirections/class-metasync-redirection-list-table.php
+
+		-
+			message: '#^Call to function is_string\(\) with non\-falsy\-string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: redirections/class-metasync-redirection.php
+
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: redirections/class-metasync-redirection.php
+
+		-
+			message: '#^Property Metasync_Redirection\:\:\$common is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: redirections/class-metasync-redirection.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between 1 and false will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: redirections/class-metasync-redirection.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 3
+			path: redirections/class-metasync-redirection.php
+
+		-
+			message: '#^Variable \$captured_path on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 2
+			path: redirections/class-metasync-redirection.php
+
+		-
+			message: '#^Variable \$current_content might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: robots-txt/views/admin-page.php
+
+		-
+			message: '#^Variable \$file_exists might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: robots-txt/views/admin-page.php
+
+		-
+			message: '#^Variable \$is_writable might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: robots-txt/views/admin-page.php
+
+		-
+			message: '#^Call to method get_average_rating\(\) on an unknown class WC_Product\.$#'
+			identifier: class.notFound
+			count: 1
+			path: schema-markup/class-metasync-schema-markup.php
+
+		-
+			message: '#^Call to method get_price\(\) on an unknown class WC_Product\.$#'
+			identifier: class.notFound
+			count: 1
+			path: schema-markup/class-metasync-schema-markup.php
+
+		-
+			message: '#^Call to method get_review_count\(\) on an unknown class WC_Product\.$#'
+			identifier: class.notFound
+			count: 1
+			path: schema-markup/class-metasync-schema-markup.php
+
+		-
+			message: '#^Call to method get_sku\(\) on an unknown class WC_Product\.$#'
+			identifier: class.notFound
+			count: 1
+			path: schema-markup/class-metasync-schema-markup.php
+
+		-
+			message: '#^Call to method is_in_stock\(\) on an unknown class WC_Product\.$#'
+			identifier: class.notFound
+			count: 1
+			path: schema-markup/class-metasync-schema-markup.php
+
+		-
+			message: '#^Class Metasync_SEO_Conflict_Handler referenced with incorrect case\: Metasync_Seo_Conflict_Handler\.$#'
+			identifier: class.nameCase
+			count: 1
+			path: schema-markup/class-metasync-schema-markup.php
+
+		-
+			message: '#^Function get_woocommerce_currency not found\.$#'
+			identifier: function.notFound
+			count: 1
+			path: schema-markup/class-metasync-schema-markup.php
+
+		-
+			message: '#^Negated boolean expression is always false\.$#'
+			identifier: booleanNot.alwaysFalse
+			count: 1
+			path: schema-markup/class-metasync-schema-markup.php
+
+		-
+			message: '#^Parameter \#1 \$text of function esc_attr expects string, int given\.$#'
+			identifier: argument.type
+			count: 2
+			path: schema-markup/class-metasync-schema-markup.php
+
+		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
+			count: 1
+			path: schema-markup/class-metasync-schema-markup.php
+
+		-
+			message: '#^Call to function is_null\(\) with object will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: site-error-logs/class-metasync-error-logs.php
+
+		-
+			message: '#^Negated boolean expression is always false\.$#'
+			identifier: booleanNot.alwaysFalse
+			count: 1
+			path: site-error-logs/class-metasync-error-logs.php
+
+		-
+			message: '#^Negated boolean expression is always true\.$#'
+			identifier: booleanNot.alwaysTrue
+			count: 1
+			path: site-error-logs/class-metasync-error-logs.php
+
+		-
+			message: '#^Parameter \#2 \$callback of function array_filter expects \(callable\(string\)\: bool\)\|null, ''strlen'' given\.$#'
+			identifier: argument.type
+			count: 1
+			path: site-error-logs/class-metasync-error-logs.php
+
+		-
+			message: '#^Call to function is_object\(\) with WP_Post will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 3
+			path: sitemap/class-metasync-sitemap-generator.php
+
+		-
+			message: '#^Method Metasync_Sitemap_Generator\:\:atomic_write\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: sitemap/class-metasync-sitemap-generator.php
+
+		-
+			message: '#^Method Metasync_Sitemap_Generator\:\:generate_sitemap_file\(\) never returns WP_Error so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: sitemap/class-metasync-sitemap-generator.php
+
+		-
+			message: '#^Method Metasync_Sitemap_Generator\:\:generate_sitemap_index\(\) never returns WP_Error so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: sitemap/class-metasync-sitemap-generator.php
+
+		-
+			message: '#^Method Metasync_Sitemap_Generator\:\:stream_sitemap_index\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: sitemap/class-metasync-sitemap-generator.php
+
+		-
+			message: '#^Method Metasync_Sitemap_Generator\:\:stream_sitemap_urls\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: sitemap/class-metasync-sitemap-generator.php
+
+		-
+			message: '#^Negated boolean expression is always false\.$#'
+			identifier: booleanNot.alwaysFalse
+			count: 3
+			path: sitemap/class-metasync-sitemap-generator.php
+
+		-
+			message: '#^Parameter \#2 \$gmt of function current_time expects bool, int given\.$#'
+			identifier: argument.type
+			count: 2
+			path: sitemap/class-metasync-sitemap-generator.php
+
+		-
+			message: '#^Result of \|\| is always false\.$#'
+			identifier: booleanOr.alwaysFalse
+			count: 3
+			path: sitemap/class-metasync-sitemap-generator.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between false and int\<1, max\> will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: sitemap/class-metasync-sitemap-generator.php
+
+		-
+			message: '#^Variable \$filename in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: sitemap/class-metasync-sitemap-generator.php
+
+		-
+			message: '#^Variable \$post in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 3
+			path: sitemap/class-metasync-sitemap-generator.php
+
+		-
+			message: '#^Parameter \#2 \$value of method DOMDocument\:\:createElement\(\) expects string, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: sitemap/class-metasync-sitemap-video.php
+
+		-
+			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: sync-history/class-metasync-sync-history-database.php
+
+		-
+			message: '#^Left side of && is always true\.$#'
+			identifier: booleanAnd.leftAlwaysTrue
+			count: 1
+			path: sync-history/class-metasync-sync-history-database.php
+
+		-
+			message: '#^Variable \$where_values in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.variable
+			count: 1
+			path: sync-history/class-metasync-sync-history-database.php
+
+		-
+			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: telemetry/class-request_monitor.php
+
+		-
+			message: '#^Callback expects 3 parameters, \$accepted_args is set to 4\.$#'
+			identifier: arguments.count
+			count: 1
+			path: telemetry/class-request_monitor.php
+
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: telemetry/class-sentry-telemetry.php
+
+		-
+			message: '#^Call to method captureException\(\) on an unknown class Metasync_Sentry_Integration\.$#'
+			identifier: class.notFound
+			count: 1
+			path: telemetry/class-telemetry-manager.php
+
+		-
+			message: '#^Call to method captureMessage\(\) on an unknown class Metasync_Sentry_Integration\.$#'
+			identifier: class.notFound
+			count: 4
+			path: telemetry/class-telemetry-manager.php
+
+		-
+			message: '#^Call to method testProxyConnection\(\) on an unknown class Metasync_Sentry_Integration\.$#'
+			identifier: class.notFound
+			count: 1
+			path: telemetry/class-telemetry-manager.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 2
+			path: telemetry/class-telemetry-manager.php
+
+		-
+			message: '#^Left side of && is always true\.$#'
+			identifier: booleanAnd.leftAlwaysTrue
+			count: 4
+			path: telemetry/class-telemetry-manager.php
+
+		-
+			message: '#^Method Metasync_Telemetry_Manager\:\:setup_hooks\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: telemetry/class-telemetry-manager.php
+
+		-
+			message: '#^Property Metasync_Telemetry_Manager\:\:\$page_start_time \(float\) in isset\(\) is not nullable\.$#'
+			identifier: isset.property
+			count: 1
+			path: telemetry/class-telemetry-manager.php
+
+		-
+			message: '#^Property Metasync_Telemetry_Manager\:\:\$sentry_integration has unknown class Metasync_Sentry_Integration as its type\.$#'
+			identifier: class.notFound
+			count: 1
+			path: telemetry/class-telemetry-manager.php
+
+		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
+			count: 3
+			path: telemetry/class-telemetry-manager.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and \-1 will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: telemetry/class-telemetry-manager.php
+
+		-
+			message: '#^Variable \$error_type on left side of \?\? is never defined\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: telemetry/class-telemetry-manager.php
+
+		-
+			message: '#^Method MetaSync_Sentry_WordPress\:\:getSentryAuthHeader\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: telemetry/sentry-wordpress-integration.php
+
+		-
+			message: '#^Property MetaSync_Sentry_WordPress\:\:\$host is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: telemetry/sentry-wordpress-integration.php
+
+		-
+			message: '#^Property MetaSync_Sentry_WordPress\:\:\$options is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: telemetry/sentry-wordpress-integration.php
+
+		-
+			message: '#^Property MetaSync_Sentry_WordPress\:\:\$scheme is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: telemetry/sentry-wordpress-integration.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and \-1 will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: telemetry/telemetry-init.php
+
+		-
+			message: '#^Variable \$memory_limit might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: telemetry/telemetry-init.php
+
+		-
+			message: '#^Callback expects 1 parameter, \$accepted_args is set to 2\.$#'
+			identifier: arguments.count
+			count: 1
+			path: telemetry/wordpress-error-handler.php
+
+		-
+			message: '#^Parameter \#1 \$text of function esc_attr expects string, int\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: templates/template-metasync-blank.php
+
+		-
+			message: '#^Variable \$Metasync404Monitor might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: views/metasync-404-monitor.php
+
+		-
+			message: '#^Variable \$this might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: views/metasync-404-monitor.php
+
+		-
+			message: '#^Variable \$this might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: views/metasync-bing-console.php
+
+		-
+			message: '#^Variable \$is_configured might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: views/metasync-google-console.php
+
+		-
+			message: '#^Variable \$is_configured might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: views/metasync-google-index-api-settings.php
+
+		-
+			message: '#^Variable \$service_info might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: views/metasync-google-index-api-settings.php
+
+		-
+			message: '#^Variable \$post_types_settings might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: views/metasync-google-instant-post-types.php
+
+		-
+			message: '#^Variable \$this might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: views/metasync-import-external-data.php
+
+		-
+			message: '#^Variable \$importer might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: views/metasync-import-redirections.php
+
+		-
+			message: '#^Variable \$this might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: views/metasync-otto-bot-statistics.php
+
+		-
+			message: '#^Variable \$MetasyncRedirection might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: views/metasync-redirection.php
+
+		-
+			message: '#^Call to function is_object\(\) with WP_Theme will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: views/metasync-report-issue.php
+
+		-
+			message: '#^Variable \$this might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: views/metasync-report-issue.php
+
+		-
+			message: '#^Variable \$this might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: views/metasync-setup-wizard.php
+
+		-
+			message: '#^Parameter \#1 \$text of function esc_attr expects string, int given\.$#'
+			identifier: argument.type
+			count: 6
+			path: views/metasync-xml-sitemap.php
+
+		-
+			message: '#^Variable \$auto_update_enabled might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: views/metasync-xml-sitemap.php
+
+		-
+			message: '#^Variable \$last_generated might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: views/metasync-xml-sitemap.php
+
+		-
+			message: '#^Variable \$sitemap_exists might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: views/metasync-xml-sitemap.php
+
+		-
+			message: '#^Variable \$sitemap_generator might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: views/metasync-xml-sitemap.php
+
+		-
+			message: '#^Variable \$sitemap_url might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: views/metasync-xml-sitemap.php
+
+		-
+			message: '#^Variable \$this might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: views/metasync-xml-sitemap.php
+
+		-
+			message: '#^Variable \$url_count might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: views/metasync-xml-sitemap.php
+
+		-
+			message: '#^Call to function is_callable\(\) with callable\(\)\: mixed will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: wp-mcp-server/class-mcp-json-rpc-handler.php
+
+		-
+			message: '#^Call to function method_exists\(\) with MCP_Tool_Base and ''execute'' will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: wp-mcp-server/class-mcp-tool-registry.php
+
+		-
+			message: '#^Method Metasync_MCP_Server\:\:generate_jwt_token\(\) never returns false so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: wp-mcp-server/class-metasync-mcp-server.php
+
+		-
+			message: '#^Method Metasync_MCP_Sync_Logger\:\:fetch_before_state\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: wp-mcp-server/class-metasync-mcp-sync-logger.php
+
+		-
+			message: '#^Function process_mcp_request\(\) should return array but returns null\.$#'
+			identifier: return.type
+			count: 1
+			path: wp-mcp-server/mcp-http-bridge.php
+
+		-
+			message: '#^Offset 0 on non\-empty\-list\<string\> on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: wp-mcp-server/mcp-http-bridge.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: wp-mcp-server/mcp-http-bridge.php
+
+		-
+			message: '#^While loop condition is always true\.$#'
+			identifier: while.alwaysTrue
+			count: 1
+			path: wp-mcp-server/mcp-http-bridge.php
+
+		-
+			message: '#^Function process_mcp_request\(\) should return array but returns null\.$#'
+			identifier: return.type
+			count: 1
+			path: wp-mcp-server/mcp-stdio-bridge.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between int and false will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: wp-mcp-server/tools/class-mcp-tool-404-monitor.php
+
+		-
+			message: '#^Method MCP_Tool_Cache_Purge_All\:\:execute\(\) should return array but return statement is missing\.$#'
+			identifier: return.missing
+			count: 1
+			path: wp-mcp-server/tools/class-mcp-tool-cache-purge.php
+
+		-
+			message: '#^Method MCP_Tool_Cache_Purge_URL\:\:execute\(\) should return array but return statement is missing\.$#'
+			identifier: return.missing
+			count: 1
+			path: wp-mcp-server/tools/class-mcp-tool-cache-purge.php
+
+		-
+			message: '#^Comparison operation "\>" between int\<1, 100\> and 0 is always true\.$#'
+			identifier: greater.alwaysTrue
+			count: 1
+			path: wp-mcp-server/tools/class-mcp-tool-custom-pages.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between 0 and 0 will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: wp-mcp-server/tools/class-mcp-tool-custom-pages.php
+
+		-
+			message: '#^Constant DB_NAME not found\.$#'
+			identifier: constant.notFound
+			count: 2
+			path: wp-mcp-server/tools/class-mcp-tool-db-query.php
+
+		-
+			message: '#^Parameter \#1 \$array \(list\<mixed\>\) of array_values is already a list, call has no effect\.$#'
+			identifier: arrayValues.list
+			count: 1
+			path: wp-mcp-server/tools/class-mcp-tool-db-query.php
+
+		-
+			message: '#^Call to an undefined static method Metasync_Plugin_Sync\:\:sync\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: wp-mcp-server/tools/class-mcp-tool-otto.php
+
+		-
+			message: '#^Call to function method_exists\(\) with ''Metasync_Plugin_Sync'' and ''sync_post'' will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: wp-mcp-server/tools/class-mcp-tool-otto.php
+
+		-
+			message: '#^Static call to instance method Metasync_Plugin_Sync\:\:sync_post\(\)\.$#'
+			identifier: method.staticCall
+			count: 1
+			path: wp-mcp-server/tools/class-mcp-tool-otto.php
+
+		-
+			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: wp-mcp-server/tools/class-mcp-tool-plugin-settings.php
+
+		-
+			message: '#^Parameter \#2 \$id of method Metasync_Redirection_Database\:\:update\(\) expects string, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: wp-mcp-server/tools/class-mcp-tool-redirects.php
+
+		-
+			message: '#^Variable \$destination might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: wp-mcp-server/tools/class-mcp-tool-redirects.php
+
+		-
+			message: '#^Comparison operation "\>" between 98\|100\|int\<0, 96\> and 100 is always false\.$#'
+			identifier: greater.alwaysFalse
+			count: 1
+			path: wp-mcp-server/tools/class-mcp-tool-seo-audit.php
+
+		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
+			count: 1
+			path: wp-mcp-server/tools/class-mcp-tool-seo-audit.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<array\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: wp-mcp-server/tools/class-mcp-tool-system-info.php
+
+		-
+			message: '#^Constant DB_NAME not found\.$#'
+			identifier: constant.notFound
+			count: 1
+			path: wp-mcp-server/tools/class-mcp-tool-system-info.php

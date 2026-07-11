@@ -86,6 +86,10 @@ class MCP_Tool_SEO_Health_Report extends MCP_Tool_Base {
             'order'          => 'DESC',
         ];
 
+        // Exclude custom/LPS pages — their SEO is self-managed, so agents must
+        // not see them flagged as missing SEO.
+        $args['meta_query'] = [metasync_get_custom_page_exclusion_meta_query()];
+
         $query = new WP_Query($args);
         $posts = $query->posts;
 

@@ -1090,6 +1090,28 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             // The graphs array (Pro-only) and default.graphName (UI-gated) cannot reliably render OTTO schema on Free.
         }
 
+        # WP-541: UN-DEPLOY CLEAR — OTTO sent no structured data this sync, so remove the
+        # copy we previously persisted. Without this the stale otto_jsonld lingers in the DB
+        # and is re-served by output_schema_markup() once OTTO is disabled (WP-388 path),
+        # making schema "survive" an un-deploy. This mirrors the _metasync_otto_structured_data
+        # clear above and the WP-373 title/description un-deploy behaviour: we only remove OUR
+        # own otto_jsonld key and leave any user-authored per-post schema (types/enabled) intact.
+        if (class_exists('Metasync_Otto_Persistence_Settings') && empty($structured_data)) {
+            $existing_schema = get_post_meta($post_id, 'metasync_schema_markup', true);
+            if (is_array($existing_schema) && array_key_exists('otto_jsonld', $existing_schema)) {
+                unset($existing_schema['otto_jsonld']);
+                if (empty($existing_schema)) {
+                    # Nothing but the OTTO copy was stored — drop the whole meta row rather
+                    # than leaving an empty array behind.
+                    delete_post_meta($post_id, 'metasync_schema_markup');
+                } else {
+                    update_post_meta($post_id, 'metasync_schema_markup', wp_slash($existing_schema));
+                }
+                $fields_updated['structured_data_persisted'] = false;
+                $any_updated = true;
+            }
+        }
+
         # PERSISTENCE: canonical_url → _metasync_canonical_url + SEO plugin canonical fields
         if (class_exists('Metasync_Otto_Persistence_Settings') &&
             Metasync_Otto_Persistence_Settings::should_persist('canonical_url') &&
@@ -2988,16 +3010,33 @@ function metasync_output_otto_meta_description() {
 
     // WP-196: When synced to an active SEO plugin, that plugin outputs the
     // description from its native storage — skip OTTO's own description tag.
+    // WP-551: Only defer if the plugin's field is actually populated; a stale
+    // or partial sync (timestamp present, plugin field empty) would otherwise
+    // drop the description entirely, so fall through and emit OTTO's tag.
     if (is_singular()) {
         $post_id = get_the_ID();
         if ($post_id) {
             $sync_ts = get_post_meta($post_id, '_metasync_plugin_sync_ts', true);
             if (!empty($sync_ts) && class_exists('Metasync_SEO_Conflict_Handler')) {
                 $handler = Metasync_SEO_Conflict_Handler::get_instance();
-                if ($handler->has_active_seo_plugin()) {
+                if ($handler->has_active_seo_plugin() && $handler->active_plugin_has_description($post_id)) {
                     return;
                 }
             }
+        }
+    }
+
+    // WP-550: When the MetaSync SEO sidebar holds a custom description for this
+    // post, that custom value owns the tag — Metasync_SEO_Sidebar::output_seo_meta_description()
+    // emits it (data-metasync-seo="custom"). Skip OTTO's own description here so the
+    // two don't both render on delivery paths where the OTTO SSR buffer dedup never
+    // runs (cold/served-from-cache, rate-limited, or Cloudflare-pixel mode). Mirrors
+    // the sidebar's documented "custom always wins over OTTO" precedence, and matches
+    // deduplicate_description_tags()'s keeper order when SSR does run.
+    if (is_singular()) {
+        $post_id = get_the_ID();
+        if ($post_id && !empty(get_post_meta($post_id, '_metasync_seo_desc', true))) {
+            return;
         }
     }
 

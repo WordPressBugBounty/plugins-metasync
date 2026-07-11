@@ -76,6 +76,13 @@ class Metasync_Custom_Pages
     // Stable per-project LPS UUID; primary key for home-page dedup when external_ref is present.
     const META_LPS_PROJECT_REF = '_metasync_lps_project_ref';
 
+    // Stable per-page manifest path (e.g. "blog/2026/launch"), written on every
+    // imported non-home page + auto-created parent. Combined with the project key
+    // (external_ref / assets_folder) it identifies a page across re-imports
+    // regardless of the slug WordPress actually stored — so a re-import updates the
+    // same page instead of creating duplicates when a slug was renamed (WP-461).
+    const META_LPS_PAGE_PATH = '_metasync_lps_page_path';
+
     /**
      * Initialize the custom pages functionality
      */

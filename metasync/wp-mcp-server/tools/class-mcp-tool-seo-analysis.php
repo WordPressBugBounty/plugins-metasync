@@ -48,6 +48,21 @@ class MCP_Tool_Analyze_SEO extends MCP_Tool_Base {
         // Verify post exists
         $post = $this->verify_post_exists($post_id);
 
+        // Custom/LPS pages ship their own self-contained SEO inside their HTML
+        // bundle (not WP post meta), so content/keyword metrics are meaningless.
+        if (metasync_is_custom_or_lps_page($post_id)) {
+            return $this->success([
+                'notice'    => 'self-managed SEO — analysis not applicable',
+                'post_info' => [
+                    'id'     => $post_id,
+                    'title'  => $post->post_title,
+                    'type'   => $post->post_type,
+                    'status' => $post->post_status,
+                    'url'    => get_permalink($post_id),
+                ],
+            ]);
+        }
+
         // Get SEO meta
         $meta_title = get_post_meta($post_id, '_metasync_metatitle', true);
         $meta_desc = get_post_meta($post_id, '_metasync_metadesc', true);

@@ -57,46 +57,117 @@ class Metasync_CPU_Monitor {
 	}
 
 	/**
-	 * Detect number of CPU cores on the system
+	 * Cached core-detection result for the current request.
 	 *
-	 * Uses multiple fallback methods to detect CPU cores across platforms:
-	 * 1. Linux: Parse /proc/cpuinfo
-	 * 2. Linux/macOS: shell_exec('nproc')
-	 * 3. macOS: shell_exec('sysctl -n hw.ncpu')
-	 * 4. Default: 1 (safe fallback)
+	 * int   = detected core count
+	 * false = every detection method failed (restricted host)
+	 * null  = not probed yet
 	 *
-	 * @return int Number of CPU cores (minimum 1)
+	 * @var int|false|null
 	 */
-	public static function get_cpu_core_count() {
+	private static $detected_cores = null;
+
+	/**
+	 * Probe the system for its CPU core count
+	 *
+	 * Detection methods, in order:
+	 * 1. Linux: Parse /proc/cpuinfo
+	 * 2. Linux/some Unix: shell_exec('nproc')
+	 * 3. macOS: shell_exec('sysctl -n hw.ncpu')
+	 *
+	 * Returns false when every method fails — common on managed/shared
+	 * hosting where open_basedir blocks /proc/cpuinfo and shell_exec is
+	 * disabled. Callers must treat false as "unknown", NOT as 1 core:
+	 * sys_getloadavg() still reports the WHOLE machine's load on such
+	 * hosts, so pairing it with an assumed 1-core threshold wrongly flags
+	 * large, healthy shared servers as overloaded (WP-547).
+	 *
+	 * @return int|false Core count, or false when detection failed
+	 */
+	public static function detect_cpu_core_count() {
+		if ( self::$detected_cores !== null ) {
+			return self::$detected_cores;
+		}
+
+		$detected = false;
+
 		// Try Linux: count processor lines in /proc/cpuinfo
 		// Use @ to suppress open_basedir warnings on restricted shared hosting
 		if ( @is_readable( '/proc/cpuinfo' ) ) {
-			$cpuinfo = file_get_contents( '/proc/cpuinfo' );
+			$cpuinfo = @file_get_contents( '/proc/cpuinfo' );
 			if ( $cpuinfo !== false ) {
 				$count = substr_count( $cpuinfo, 'processor' );
 				if ( $count > 0 ) {
-					return (int) $count;
+					$detected = (int) $count;
 				}
 			}
 		}
 
-		// Try shell_exec: nproc (Linux, some Unix)
-		if ( function_exists( 'shell_exec' ) && ! in_array( 'shell_exec', explode( ',', ini_get( 'disable_functions' ) ), true ) ) {
-			// Try nproc
+		// Try shell_exec: nproc (Linux, some Unix), then sysctl (macOS)
+		if ( $detected === false && function_exists( 'shell_exec' ) && ! in_array( 'shell_exec', explode( ',', ini_get( 'disable_functions' ) ), true ) ) {
 			$nproc = intval( @shell_exec( 'nproc 2>/dev/null' ) );
 			if ( $nproc > 0 ) {
-				return $nproc;
-			}
-
-			// Try sysctl (macOS)
-			$sysctl = intval( @shell_exec( 'sysctl -n hw.ncpu 2>/dev/null' ) );
-			if ( $sysctl > 0 ) {
-				return $sysctl;
+				$detected = $nproc;
+			} else {
+				$sysctl = intval( @shell_exec( 'sysctl -n hw.ncpu 2>/dev/null' ) );
+				if ( $sysctl > 0 ) {
+					$detected = $sysctl;
+				}
 			}
 		}
 
-		// Safe fallback
-		return 1;
+		/**
+		 * Filter the detected CPU core count.
+		 *
+		 * Lets hosts and tests override detection: return a positive int to
+		 * force a core count, or false to mark detection as failed.
+		 *
+		 * @param int|false $detected Detected core count, or false when unknown.
+		 */
+		$filtered = apply_filters( 'metasync_cpu_detected_cores', $detected );
+
+		// Defend the int|false contract: anything that is not a positive
+		// number counts as failed detection. This keeps the cache from being
+		// reset to null (which would defeat it and re-run shell_exec probes
+		// on every call) and stops a bogus 0/negative/garbage filter return
+		// from silently recreating the 1-core/2.0-threshold gate this class
+		// must avoid (WP-547) while reporting detection as "reliable".
+		// Round through float so numeric strings like "1e3" parse by value
+		// (a direct (int) cast would stop at the "e" and yield 1).
+		$normalized = is_numeric( $filtered ) ? (int) round( (float) $filtered ) : 0;
+		self::$detected_cores = $normalized > 0 ? $normalized : false;
+
+		return self::$detected_cores;
+	}
+
+	/**
+	 * Reset the cached core-detection result (used by unit tests)
+	 */
+	public static function reset_core_detection_cache() {
+		self::$detected_cores = null;
+	}
+
+	/**
+	 * Whether the core count came from a real probe rather than the fallback
+	 *
+	 * @return bool True when a detection method succeeded
+	 */
+	public static function is_core_detection_reliable() {
+		return self::detect_cpu_core_count() !== false;
+	}
+
+	/**
+	 * Get the number of CPU cores, falling back to 1 when detection fails
+	 *
+	 * Note: when is_core_detection_reliable() is false this returns the
+	 * 1-core fallback, which is NOT a trustworthy basis for a load
+	 * threshold — is_load_safe() fails open in that case (WP-547).
+	 *
+	 * @return int Number of CPU cores (minimum 1)
+	 */
+	public static function get_cpu_core_count() {
+		$detected = self::detect_cpu_core_count();
+		return $detected === false ? 1 : max( 1, (int) $detected );
 	}
 
 	/**
@@ -130,6 +201,17 @@ class Metasync_CPU_Monitor {
 	public static function is_load_safe() {
 		// Skip check if sys_getloadavg() is unavailable (Windows)
 		if ( ! self::is_available() ) {
+			return true;
+		}
+
+		// WP-547: without a real core count the effective threshold
+		// (assumed 1 core × per-core limit) is meaningless. On managed
+		// hosts that block /proc/cpuinfo and shell_exec, sys_getloadavg()
+		// reports the whole shared machine's load — which normally sits
+		// far above a 1-core threshold — so the gate would block every
+		// job forever. A gate that cannot measure must not drop work:
+		// fail open.
+		if ( ! self::is_core_detection_reliable() ) {
 			return true;
 		}
 
@@ -173,6 +255,10 @@ class Metasync_CPU_Monitor {
 		$stats['total_load'] += $load;
 		$stats['sample_count']++;
 
+		// Timestamp of the most recent deferral, so consumers can tell an
+		// active load problem from a historic spike (the counter is lifetime).
+		$stats['last_deferral'] = time();
+
 		// Store updated stats (autoload=false to reduce options table bloat)
 		update_option( self::STATS_OPTION_KEY, $stats, false );
 
@@ -206,6 +292,7 @@ class Metasync_CPU_Monitor {
 			'max_load'    => (float) $stats['max_load'],
 			'avg_load'    => round( $avg_load, 2 ),
 			'sample_count' => (int) $stats['sample_count'],
+			'last_deferral' => (int) ( $stats['last_deferral'] ?? 0 ),
 		);
 	}
 

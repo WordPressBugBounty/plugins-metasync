@@ -272,6 +272,12 @@ class Metasync_Activator
 			// Merge imported settings with existing (imported settings take precedence)
 			$options['whitelabel'] = array_merge($options['whitelabel'], $whitelabel_settings);
 
+			// The settings password travels as plaintext in the export file so it
+			// can be imported on a site with different salts — encrypt it at rest.
+			if (!empty($options['whitelabel']['settings_password']) && is_string($options['whitelabel']['settings_password'])) {
+				$options['whitelabel']['settings_password'] = Metasync::encrypt_secret($options['whitelabel']['settings_password']);
+			}
+
 			// Update timestamp
 			$options['whitelabel']['updated_at'] = time();
 			$options['whitelabel']['imported_at'] = current_time('mysql');

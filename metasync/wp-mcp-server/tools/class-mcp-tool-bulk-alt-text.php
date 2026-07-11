@@ -68,13 +68,17 @@ class MCP_Tool_Audit_Alt_Text extends MCP_Tool_Base {
         $offset = isset($params['offset']) ? intval($params['offset']) : 0;
         $mime_type = isset($params['mime_type']) ? sanitize_text_field($params['mime_type']) : '';
 
-        // Query arguments
+        // Query arguments. Disable term-cache priming and found-rows calculation
+        // for the page query — neither is used here, and skipping them keeps peak
+        // memory bounded on media-heavy sites (WP-489).
         $query_args = [
             'post_type' => 'attachment',
             'post_status' => 'inherit',
             'posts_per_page' => $limit,
             'offset' => $offset,
             'post_mime_type' => $mime_type ?: 'image',
+            'no_found_rows' => true,
+            'update_post_term_cache' => false,
         ];
 
         $query = new WP_Query($query_args);
@@ -129,19 +133,31 @@ class MCP_Tool_Audit_Alt_Text extends MCP_Tool_Base {
             ];
         }
 
-        // Get total counts
+        // Get total count cheaply. posts_per_page=1 with no_found_rows=false still
+        // computes found_posts via SQL_CALC_FOUND_ROWS but only hydrates a single
+        // row — unlike posts_per_page=-1, which loaded every attachment ID into
+        // memory and was a primary OOM source on large media libraries (WP-489).
         $total_query = new WP_Query([
             'post_type' => 'attachment',
             'post_status' => 'inherit',
-            'posts_per_page' => -1,
+            'posts_per_page' => 1,
             'post_mime_type' => $mime_type ?: 'image',
             'fields' => 'ids',
+            'no_found_rows' => false,
+            'update_post_meta_cache' => false,
+            'update_post_term_cache' => false,
         ]);
-        $total_images = $total_query->found_posts;
+        $total_images = (int) $total_query->found_posts;
+        unset($total_query);
+
+        $images_analyzed = count($query->posts);
+
+        // Release the page query (post objects) before building the response (WP-489).
+        unset($query);
 
         return $this->success([
             'total_images' => $total_images,
-            'images_analyzed' => count($query->posts),
+            'images_analyzed' => $images_analyzed,
             'images_returned' => count($images),
             'counts' => $counts,
             'filter' => $status,

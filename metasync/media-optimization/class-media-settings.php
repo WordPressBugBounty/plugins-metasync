@@ -24,6 +24,7 @@ class Metasync_Media_Settings {
         'conversion_quality'         => 82,
         'conversion_strategy'        => 'alongside',  // 'replace' or 'alongside'
         'convert_existing_sizes'     => true,
+        'max_image_dimensions'       => 2560,         // Max width/height (px) before conversion; 0 disables downscaling
         // Lazy Loading
         'enable_lazy_loading'        => false,
         'lazy_load_iframes'          => true,
@@ -68,6 +69,7 @@ class Metasync_Media_Settings {
             'conversion_quality'         => max(1, min(100, (int) ($input['conversion_quality'] ?? 82))),
             'conversion_strategy'        => in_array($input['conversion_strategy'] ?? '', ['replace', 'alongside'], true) ? $input['conversion_strategy'] : 'alongside',
             'convert_existing_sizes'     => !empty($input['convert_existing_sizes']),
+            'max_image_dimensions'       => max(0, min(10000, (int) ($input['max_image_dimensions'] ?? 2560))),
             'enable_lazy_loading'        => !empty($input['enable_lazy_loading']),
             'lazy_load_iframes'          => !empty($input['lazy_load_iframes']),
             'lcp_skip_count'             => max(0, min(10, (int) ($input['lcp_skip_count'] ?? 2))),

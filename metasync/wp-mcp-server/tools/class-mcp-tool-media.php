@@ -384,6 +384,8 @@ class MCP_Tool_List_Media extends MCP_Tool_Base {
             'paged' => isset($params['page']) ? intval($params['page']) : 1,
             'orderby' => isset($params['orderby']) ? sanitize_text_field($params['orderby']) : 'date',
             'order' => isset($params['order']) ? sanitize_text_field($params['order']) : 'DESC',
+            // Term cache is unused here; skip priming it to keep peak memory bounded (WP-489).
+            'update_post_term_cache' => false,
         ];
 
         if (isset($params['mime_type'])) {
@@ -408,13 +410,20 @@ class MCP_Tool_List_Media extends MCP_Tool_Base {
                 'file_size' => isset($metadata['filesize']) ? $metadata['filesize'] : null,
                 'uploaded_at' => $attachment->post_date,
             ];
+            unset($metadata);
         }
 
+        // Capture pagination totals, then release the query (post objects) before
+        // returning the response payload (WP-489).
+        $found_posts = (int) $query->found_posts;
+        $max_num_pages = (int) $query->max_num_pages;
+        unset($query);
+
         return $this->success([
-            'total' => $query->found_posts,
+            'total' => $found_posts,
             'page' => $args['paged'],
             'per_page' => $args['posts_per_page'],
-            'total_pages' => $query->max_num_pages,
+            'total_pages' => $max_num_pages,
             'media' => $media_items,
         ]);
     }

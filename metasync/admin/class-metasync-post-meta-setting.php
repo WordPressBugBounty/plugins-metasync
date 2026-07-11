@@ -45,25 +45,46 @@ class Metasync_Post_Meta_Settings
 		$post_types = array_values(get_post_types(['public' => true], 'names'));
 		$post_types = array_diff($post_types, ['attachment']);
 
-		// Only add meta boxes if not disabled in settings
-		if (empty($general_settings['disable_common_robots_metabox'])) {
+		// Resolve the current post ID in admin_init context: $_GET['post'] on the
+		// edit screen, $_POST['post_ID'] on save. Mirrors the sidebar enqueue.
+		$post_id = isset($_GET['post']) ? intval($_GET['post']) : (isset($_POST['post_ID']) ? intval($_POST['post_ID']) : 0);
+
+		// LPS / custom-HTML pages carry their own baked SEO served before wp_head,
+		// so the editable SEO fields here do nothing and mislead editors (WP-486).
+		// otto_pixel.php (where metasync_is_custom_or_lps_page lives) is only
+		// required conditionally, so the function_exists guard is needed at runtime.
+		$is_custom_or_lps_page = function_exists('metasync_is_custom_or_lps_page') && $post_id > 0 && metasync_is_custom_or_lps_page($post_id);
+
+		// Only add meta boxes if not disabled in settings.
+		// On LPS / custom-HTML pages all of these MetaSync boxes are suppressed: they do
+		// nothing useful there (their output goes into wp_head, which never runs for these
+		// pages — serve_raw_html() exits first — and a redirect would only break the
+		// published page). The single SEO read-only notice below carries the messaging. (WP-486)
+		if (empty($general_settings['disable_common_robots_metabox']) && !$is_custom_or_lps_page) {
 			add_meta_box('common-robots-meta', "Common Robots Meta by $plugin_name", [$this, 'common_robots_meta_box_display'], $post_types, 'normal', 'default');
 		}
 
-		if (empty($general_settings['disable_advance_robots_metabox'])) {
+		if (empty($general_settings['disable_advance_robots_metabox']) && !$is_custom_or_lps_page) {
 			add_meta_box('advance-robots-meta', "Advance Robots Meta by $plugin_name", [$this, 'advance_robots_meta_box_display'], $post_types, 'normal', 'default');
 		}
 
-		if (empty($general_settings['disable_redirection_metabox'])) {
+		if (empty($general_settings['disable_redirection_metabox']) && !$is_custom_or_lps_page) {
 			add_meta_box('post-redirection-meta', "Redirection by $plugin_name", [$this, 'post_redirection_display'], $post_types, 'normal', 'default');
 		}
 
-		if (empty($general_settings['disable_canonical_metabox'])) {
+		if (empty($general_settings['disable_canonical_metabox']) && !$is_custom_or_lps_page) {
 			add_meta_box('post-canonical-meta', "Canonical by $plugin_name", [$this, 'post_canonical_display'], $post_types, 'normal', 'default');
 		}
 
 		if (empty($general_settings['disable_seo_metabox'])) {
-			add_meta_box('metasync-seo-meta', "SEO by $plugin_name", [$this, 'seo_meta_box_display'], $post_types, 'normal', 'default', ['__back_compat_meta_box' => true]);
+			if ($is_custom_or_lps_page) {
+				// Replace the editable SEO box with a read-only notice on LPS pages.
+				// __back_compat_meta_box hides it in Gutenberg (the block-editor sidebar
+				// already renders the same notice), so it shows only in the Classic editor.
+				add_meta_box('metasync-seo-lps-notice', "SEO by $plugin_name", [$this, 'seo_lps_notice_meta_box_display'], $post_types, 'normal', 'default', ['__back_compat_meta_box' => true]);
+			} else {
+				add_meta_box('metasync-seo-meta', "SEO by $plugin_name", [$this, 'seo_meta_box_display'], $post_types, 'normal', 'default', ['__back_compat_meta_box' => true]);
+			}
 		}
 
 		// Video Sitemap meta box — only if video sitemap is enabled
@@ -329,10 +350,81 @@ class Metasync_Post_Meta_Settings
 
 		$post_redirection_meta = $this->common->sanitize_array($post_data[$field_name]);
 
+		// Persist the meta box UI state (checkbox / type / destination) so the form repopulates.
 		if (isset($post_redirection_meta['enable']))
 			update_post_meta($post_id, 'metasync_post_redirection_meta', $post_redirection_meta);
 		else
 			delete_post_meta($post_id, 'metasync_post_redirection_meta', $old_post_redirection_meta);
+
+		// WP-540: sync the actual redirect into the shared redirection table (exact
+		// match) using the same DB layer as ?page=...-redirections&action=add. This
+		// keeps a single redirect code path — the existing handle_template_redirect()
+		// serves it — instead of a duplicate per-post frontend handler.
+		$this->sync_post_redirect_rule($post_id, is_array($post_redirection_meta) ? $post_redirection_meta : []);
+	}
+
+	/**
+	 * Create, update, or remove a row in the shared redirection table so a redirect
+	 * configured on the post-edit "Redirection" meta box is served by the same engine
+	 * as manually-added redirections (exact match on the post's own URL). The row id we
+	 * create is remembered in post meta so repeated saves update — never duplicate — it,
+	 * and disabling the meta box removes it. (WP-540)
+	 *
+	 * @param int   $post_id The post being saved.
+	 * @param array $meta    Sanitized meta box values (enable/type/url).
+	 */
+	private function sync_post_redirect_rule($post_id, $meta)
+	{
+		// Never act on autosaves or revisions — their permalink isn't the public URL.
+		if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id) || !class_exists('Metasync_Redirection_Database')) {
+			return;
+		}
+
+		$db = new Metasync_Redirection_Database();
+		$existing_row_id = (int) get_post_meta($post_id, '_metasync_post_redirect_row_id', true);
+
+		$enabled = isset($meta['enable']) && $meta['enable'] === 'true';
+		$type    = isset($meta['type']) ? (int) $meta['type'] : 301;
+		$dest    = isset($meta['url']) ? trim((string) $meta['url']) : '';
+		$is_gone = in_array($type, [410, 451], true);
+
+		// Disabled, or a redirect type that needs a destination but has none → drop any
+		// row we previously created for this post.
+		if (!$enabled || (!$is_gone && $dest === '')) {
+			if ($existing_row_id > 0) {
+				$db->delete([$existing_row_id]);
+				delete_post_meta($post_id, '_metasync_post_redirect_row_id');
+			}
+			return;
+		}
+
+		// Source = this post's own relative URL; visiting it triggers the redirect.
+		$permalink = get_permalink($post_id);
+		if (!$permalink) {
+			return;
+		}
+		$parsed      = wp_parse_url($permalink);
+		$source_path = isset($parsed['path']) ? $parsed['path'] : '/';
+
+		$data = [
+			'sources_from'    => serialize([$source_path => 'exact']),
+			'url_redirect_to' => $is_gone ? '' : $dest,
+			'http_code'       => $type,
+			'status'          => 'active',
+			'pattern_type'    => 'exact',
+			'regex_pattern'   => null,
+			'description'     => sprintf('Post redirection meta box for post #%d', $post_id),
+		];
+
+		// Update the row we own if it still exists; otherwise create it and remember its id.
+		if ($existing_row_id > 0 && $db->find($existing_row_id)) {
+			$db->update($data, (string) $existing_row_id);
+		} else {
+			$new_id = $db->add($data);
+			if ($new_id) {
+				update_post_meta($post_id, '_metasync_post_redirect_row_id', (int) $new_id);
+			}
+		}
 	}
 
 	public function canonical_meta_box_save($post_id)
@@ -466,6 +558,16 @@ class Metasync_Post_Meta_Settings
 	}
 
 	/**
+	 * Display a read-only notice in place of the SEO meta box on LPS / custom-HTML
+	 * pages, whose SEO is baked into their own HTML bundle and managed by WebStudio.
+	 * No inputs, nonce, or editable fields are rendered (WP-486).
+	 */
+	public function seo_lps_notice_meta_box_display()
+	{
+		echo '<p><strong>The SEO for this page is managed by WebStudio.</strong></p>';
+	}
+
+	/**
 	 * Display the SEO meta box (SEO Title & Meta Description) in the Classic editor.
 	 *
 	 * Reads/writes the same _metasync_seo_title / _metasync_seo_desc keys used by the
@@ -483,7 +585,7 @@ class Metasync_Post_Meta_Settings
 		wp_nonce_field('metasync_seo_meta_nonce', 'metasync_seo_meta_nonce');
 		?>
 		<p style="color: #666; margin-bottom: 12px;">
-			<?php esc_html_e('Set the SEO Title and Meta Description for this post. Leave the field blank to use OTTO suggestion.', 'metasync'); ?>
+			<?php printf(esc_html__('Set the SEO Title and Meta Description for this post. Leave the field blank to use %s suggestion.', 'metasync'), esc_html(Metasync::get_whitelabel_otto_name())); ?>
 		</p>
 		<table class="form-table" style="margin: 0;">
 			<tr>

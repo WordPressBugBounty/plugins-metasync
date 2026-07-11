@@ -89,6 +89,10 @@ class Metasync_SEO_Inventory_Builder {
             ];
         }
 
+        // Exclude custom/LPS pages — their SEO is self-managed, so the platform
+        // must not treat them as "missing SEO".
+        $query_args['meta_query'] = [metasync_get_custom_page_exclusion_meta_query()];
+
         $query = new WP_Query($query_args);
 
         // Remove the filter immediately so it doesn't affect other queries
@@ -236,6 +240,10 @@ class Metasync_SEO_Inventory_Builder {
             'no_found_rows'  => false, // we need found_rows for total
             'update_post_meta_cache' => false,
             'update_post_term_cache' => false,
+            // Exclude custom/LPS pages so the total matches the excluded item list
+            // in build() — otherwise the platform sees a count larger than the
+            // number of items it can page through (WP-458).
+            'meta_query'     => [metasync_get_custom_page_exclusion_meta_query()],
         ];
 
         if (!empty($modified_after)) {

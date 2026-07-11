@@ -1299,6 +1299,25 @@
     display: block;
 }
 
+/* Placeholder shown when an attachment's file is missing on disk */
+.metasync-image-thumb-missing {
+    width: 50px;
+    height: 50px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px dashed rgba(239, 68, 68, 0.4);
+    color: #ef4444;
+}
+
+.metasync-image-thumb-missing .dashicons {
+    font-size: 22px;
+    width: 22px;
+    height: 22px;
+}
+
 .metasync-image-info {
     display: flex;
     flex-direction: column;
@@ -1377,6 +1396,11 @@
 .metasync-status-unoptimized {
     background: rgba(156, 163, 175, 0.15);
     color: var(--dashboard-text-secondary);
+}
+
+.metasync-status-missing {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
 }
 
 /* ── Size Savings ── */

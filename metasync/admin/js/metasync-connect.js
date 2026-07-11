@@ -8,7 +8,6 @@
  *
  * Localized data object: metasyncConnectData
  *   - optionKey        (string) — plugin option key for form field names
- *   - storedPassword   (string) — current stored settings password
  *   - adminPostUrl     (string) — admin-post.php URL
  *   - exportNonce      (string) — nonce for metasync_export_whitelabel action
  *   - ajaxUrl          (string) — admin-ajax.php URL
@@ -127,8 +126,6 @@ jQuery(document).ready(function($) {
     });
 
     // Prevent clearing password when Hide Settings is enabled
-    var storedPassword = metasyncConnectData.storedPassword;
-
     passwordField.on('keydown', function(e) {
         var currentValue = $(this).val();
 

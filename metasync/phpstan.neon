@@ -1,0 +1,23 @@
+includes:
+    # Pre-existing legacy findings captured so the job only gates NEW errors (WP-512).
+    - phpstan-baseline.neon
+
+parameters:
+    level: 5
+    # Some legacy inline @phpstan-ignore comments are unmatched under the current
+    # ruleset (e.g. third-party SEO-plugin calls that no longer error). These are
+    # "non-ignorable" so they can't be baselined; don't fail the build on them
+    # (baseline adoption, WP-512). New genuine errors still fail the job.
+    reportUnmatchedIgnoredErrors: false
+    # The codebase uses PHP 8.0+ syntax (e.g. match expressions in
+    # media-optimization/), so PHPStan must parse with the 8.0 grammar.
+    phpVersion: 80000
+    paths:
+        - .
+    excludePaths:
+        - vendor
+        - otto/vendor
+        - node_modules (?)
+        - tests
+        - assets
+        - .gitlab

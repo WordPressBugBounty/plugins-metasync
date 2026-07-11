@@ -151,6 +151,14 @@ class Metasync_OpenGraph {
             return;
         }
 
+        # LPS / custom-HTML pages bake their own OG/social tags into their HTML bundle,
+        # served before wp_head — so this box does nothing on them. Hide it; the SEO
+        # read-only notice covers the messaging. (WP-486)
+        $lps_post_id = isset($_GET['post']) ? intval($_GET['post']) : (isset($_POST['post_ID']) ? intval($_POST['post_ID']) : 0);
+        if (function_exists('metasync_is_custom_or_lps_page') && $lps_post_id > 0 && metasync_is_custom_or_lps_page($lps_post_id)) {
+            return;
+        }
+
         # Get supported post types (allow filtering)
         $post_types = $this->get_supported_post_types();
         $plugin_name = Metasync::get_effective_plugin_name();

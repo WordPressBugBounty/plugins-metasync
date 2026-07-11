@@ -756,6 +756,21 @@ class Metasync_Seo_Output
 	private function get_canonical_url($post) {
 		# Check for persisted OTTO canonical URL first
 		$metasync_canonical = get_post_meta($post->ID, '_metasync_canonical_url', true);
+
+		# Fall back to the Canonical meta box value (meta_canonical) when OTTO has no
+		# persisted canonical. Without this the meta box is write-only — its value is
+		# saved but never emitted (WP-544). OTTO's canonical keeps priority above.
+		if (empty($metasync_canonical)) {
+			$legacy_canonical = get_post_meta($post->ID, 'meta_canonical', true);
+			# Repair legacy values stored as arrays by sanitize_array()
+			if (is_array($legacy_canonical)) {
+				$legacy_canonical = reset($legacy_canonical) ?: '';
+			}
+			if (!empty($legacy_canonical)) {
+				$metasync_canonical = $legacy_canonical;
+			}
+		}
+
 		if (!empty($metasync_canonical)) {
 			return esc_url($metasync_canonical);
 		}

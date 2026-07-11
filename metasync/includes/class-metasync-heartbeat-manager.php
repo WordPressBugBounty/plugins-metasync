@@ -71,6 +71,35 @@ class Metasync_Heartbeat_Manager
         return false;
     }
 
+    /**
+     * Single source of truth for the admin connection status badge.
+     *
+     * Derives the label from the heartbeat round-trip RESULT that the cron
+     * records in is_heartbeat_connected() — NOT from mere API-key presence,
+     * which stays truthy after Search Atlas revokes a key and is the root cause
+     * of WP-476's misleading "Connected" badge.
+     *
+     * Deliberately result-based (200 → connected, non-200/401 → disconnected)
+     * with no time-based "stale" tier: last_heartbeat_at only advances when the
+     * 2h WP-cron actually fires, and WP-cron only fires on traffic, so a
+     * low-traffic-but-healthy site would otherwise be wrongly flagged degraded.
+     *
+     * @param array|null $general_settings Optional pre-loaded general options.
+     * @return array{class:string,text:string,state:string} Badge CSS modifier, label, machine state.
+     */
+    public function get_connection_badge($general_settings = null)
+    {
+        if ($general_settings === null) {
+            $general_settings = Metasync::get_option('general') ?? [];
+        }
+
+        if (!$this->is_heartbeat_connected($general_settings)) {
+            return array('class' => 'disconnected', 'text' => 'Not Connected', 'state' => 'disconnected');
+        }
+
+        return array('class' => 'connected', 'text' => 'Connected', 'state' => 'connected');
+    }
+
     // ------------------------------------------------------------------
     //  Public-hash fetching (OTTO API)
     // ------------------------------------------------------------------
@@ -885,31 +914,31 @@ class Metasync_Heartbeat_Manager
     {
         $schedules['metasync_every_2_hours'] = array(
             'interval' => 2 * HOUR_IN_SECONDS,
-            'display' => esc_html__('Every 2 Hours (MetaSync)', 'metasync')
+            'display' => esc_html(sprintf(__('Every 2 Hours (%s)', 'metasync'), Metasync::get_effective_plugin_name()))
         );
 
         $schedules['metasync_every_2_minutes'] = array(
             'interval' => 2 * MINUTE_IN_SECONDS,
-            'display' => esc_html__('Every 2 Minutes (MetaSync Burst)', 'metasync')
+            'display' => esc_html(sprintf(__('Every 2 Minutes (%s Burst)', 'metasync'), Metasync::get_effective_plugin_name()))
         );
         $schedules['metasync_every_5_minutes'] = array(
             'interval' => 5 * MINUTE_IN_SECONDS,
-            'display' => esc_html__('Every 5 Minutes (MetaSync)', 'metasync')
+            'display' => esc_html(sprintf(__('Every 5 Minutes (%s)', 'metasync'), Metasync::get_effective_plugin_name()))
         );
         // 10-minute heartbeat cadence used for UNREGISTERED + KEY_PENDING short-interval behavior
         $schedules['metasync_every_10_minutes'] = array(
             'interval' => 10 * MINUTE_IN_SECONDS,
-            'display' => esc_html__('Every 10 Minutes (MetaSync)', 'metasync')
+            'display' => esc_html(sprintf(__('Every 10 Minutes (%s)', 'metasync'), Metasync::get_effective_plugin_name()))
         );
 
         $schedules['metasync_daily_cleanup'] = array(
             'interval' => DAY_IN_SECONDS,
-            'display' => esc_html__('Daily (MetaSync Cleanup)', 'metasync')
+            'display' => esc_html(sprintf(__('Daily (%s Cleanup)', 'metasync'), Metasync::get_effective_plugin_name()))
         );
 
         $schedules['metasync_weekly'] = array(
             'interval' => 7 * DAY_IN_SECONDS,
-            'display' => esc_html__('Weekly (MetaSync)', 'metasync')
+            'display' => esc_html(sprintf(__('Weekly (%s)', 'metasync'), Metasync::get_effective_plugin_name()))
         );
 
         return $schedules;

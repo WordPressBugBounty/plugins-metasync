@@ -892,7 +892,7 @@ class Metasync_Admin_Ajax
             }
 
             $whitelabel_settings = Metasync::get_whitelabel_settings();
-            $password = $whitelabel_settings['settings_password'] ?? '';
+            $password = Metasync::get_whitelabel_password();
             $recovery_email = $whitelabel_settings['recovery_email'] ?? '';
 
             if (empty($password)) {
@@ -1069,7 +1069,15 @@ class Metasync_Admin_Ajax
         try {
             # Get all whitelabel settings
             $whitelabel_settings = Metasync::get_whitelabel_settings();
-            
+
+            # Export the settings password as plaintext (not the encrypted blob):
+            # the encryption key derives from this site's salts, so the blob
+            # would be undecryptable after import on a different site. The
+            # importer re-encrypts it at rest with the destination site's salts.
+            if (!empty($whitelabel_settings['settings_password'])) {
+                $whitelabel_settings['settings_password'] = Metasync::get_whitelabel_password();
+            }
+
             # Get general settings that relate to whitelabel
             $general_settings = Metasync::get_option('general');
             $whitelabel_related_general = array();

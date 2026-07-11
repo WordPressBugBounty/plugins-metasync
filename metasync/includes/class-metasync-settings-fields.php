@@ -1001,7 +1001,7 @@ class Metasync_Settings_Fields {
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px;">
                     <div>
                         <label style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px; font-weight: 500;">
-                            OTTO API Calls Per Minute:
+                            <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> API Calls Per Minute:
                         </label>
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <input type="number" 
@@ -1064,7 +1064,7 @@ class Metasync_Settings_Fields {
         $otto_name = Metasync::get_whitelabel_otto_name();
 
         return array(
-            'searchatlas_api_key' => sprintf('Connect your WordPress site to your %s dashboard to retrieve your API key and OTTO UUID. This does not create a WordPress login session.', $plugin_name),
+            'searchatlas_api_key' => sprintf('Connect your WordPress site to your %1$s dashboard to retrieve your API key and %2$s UUID. This does not create a WordPress login session.', $plugin_name, $otto_name),
             'apikey' => sprintf('Auto-generated authentication token used for secure API communication between your WordPress site and %s services. You can refresh this token if needed for security purposes.', $plugin_name),
             'otto_pixel_uuid' => sprintf('Your unique %s tracking pixel identifier. This UUID is used to track %s modifications and analytics on your website pages.', $otto_name, $otto_name),
             'otto_disable_on_loggedin' => sprintf('Disable %s modifications when you are logged in to WordPress. This allows you to see and edit the original content without %s\'s enhancements during editing sessions.', $otto_name, $otto_name),
@@ -1081,14 +1081,14 @@ class Metasync_Settings_Fields {
             'disable_social_opengraph_metabox' => 'Hide the Social Media & Open Graph meta box from post and page edit screens. This removes Facebook, Twitter, and other social media meta tag controls from the editor.',
             'disable_schema_markup_metabox' => 'Hide the Schema Markup meta box from post and page edit screens. This removes the structured data (Article, FAQ, Product, Recipe, etc.) configuration from the editor interface.',
             'disable_seo_metabox' => 'Hide the SEO Title & Meta Description meta box from post and page edit screens. This removes the Classic editor SEO fields (the Gutenberg sidebar is unaffected).',
-            'open_external_links' => 'Automatically add target="_blank" attribute to external links appearing in your posts, pages, and other post types when rendered by Otto.',
+            'open_external_links' => sprintf('Automatically add target="_blank" attribute to external links appearing in your posts, pages, and other post types when rendered by %s.', $otto_name),
             'content_genius_sync_roles' => 'Select which WordPress user roles should be synchronized with Content Genius. This determines which users will have their profiles and permissions synced for content collaboration.',
             'permalink_structure' => sprintf('Displays your current WordPress permalink structure. %s works best with pretty permalinks (not "Plain"). If you see a warning, visit Settings > Permalinks to change your structure.', $plugin_name),
             'hide_dashboard_framework' => sprintf('Hide the main %s dashboard from the WordPress admin menu. This is useful if you want to reduce menu clutter but still keep the plugin active.', $plugin_name),
             'show_admin_bar_status' => sprintf('Display the %s status indicator in the WordPress admin bar at the top of your screen. This provides quick visibility of plugin status and key metrics.', $plugin_name),
             'enable_auto_updates' => sprintf('Allow WordPress to automatically update the %s plugin when new versions are released. Recommended for security patches, but you may prefer manual updates for major versions.', $plugin_name),
             'import_external_data' => sprintf('Import your existing SEO settings and metadata from other popular SEO plugins like Yoast, Rank Math, or All in One SEO. This makes migration to %s seamless without losing your SEO data.', $plugin_name),
-            'import_seo_metadata' => 'Migrate your existing SEO titles and meta descriptions from Yoast, Rank Math, or All in One SEO. This one-click import preserves your search rankings by copying your optimized meta data to MetaSync, even if the source plugin is deactivated.',
+            'import_seo_metadata' => sprintf('Migrate your existing SEO titles and meta descriptions from Yoast, Rank Math, or All in One SEO. This one-click import preserves your search rankings by copying your optimized meta data to %s, even if the source plugin is deactivated.', $plugin_name),
             'default_page_builder' => 'Choose how Content Genius stores synced articles. "Gutenberg" works with all themes and page builders. Selecting a specific builder converts content to that builder\'s widget format, which inherits the builder\'s global typography and layout styles.'
         );
     }
@@ -1431,7 +1431,7 @@ class Metasync_Settings_Fields {
 
         ?>
         <p class="description" style="margin-top: 10px; padding: 8px 12px; background: #fff9e6; border-left: 3px solid #f0b849; border-radius: 4px; font-size: 12px;">
-            <strong>Manual Authentication:</strong> If you manually enter your <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> API Key and OTTO UUID, you also consent to the same AI-powered automation permissions described above.
+            <strong>Manual Authentication:</strong> If you manually enter your <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> API Key and <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> UUID, you also consent to the same AI-powered automation permissions described above.
         </p>
         <?php
 

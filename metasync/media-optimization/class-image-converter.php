@@ -34,6 +34,24 @@ class Metasync_Image_Converter {
     private const MIN_MEMORY_FOR_SUBSIZE = 8 * 1024 * 1024;
 
     /**
+     * Fresh execution budget (seconds) granted before heavy conversion work,
+     * and the cap on a single synchronous sub-size pass.
+     */
+    private const UPLOAD_TIME_LIMIT = 300;
+
+    /**
+     * Seconds reserved before PHP's hard limit, mirroring class-media-batch-optimizer.php.
+     */
+    private const TIME_SAFETY_MARGIN = 5;
+
+    /**
+     * When the PHP execution timer last (re)started, as a microtime(true)
+     * timestamp. 0.0 means the timer has never been reset, so it has been
+     * running since the request started ($_SERVER['REQUEST_TIME_FLOAT']).
+     */
+    private static float $timer_started_at = 0.0;
+
+    /**
      * Get file extension for a given format.
      */
     private static function get_format_extension(string $format): string {
@@ -83,9 +101,18 @@ class Metasync_Image_Converter {
         $format   = $this->settings['conversion_format'];
         $quality  = (int) $this->settings['conversion_quality'];
         $strategy = $this->settings['conversion_strategy'];
+        $max_dim  = (int) ($this->settings['max_image_dimensions'] ?? 0);
 
-        // Convert main/full file
-        $converted = $this->convert_file($file, $format, $quality);
+        // Capture original size before any replacement deletes the source file.
+        $original_size = file_exists($file) ? (int) filesize($file) : 0;
+
+        // Give a heavy multi-size upload a fresh execution budget instead of
+        // inheriting what WP's own thumbnail generation left of the request's
+        // default cap (WP-527).
+        static::reset_time_limit();
+
+        // Convert main/full file (downscaled to $max_dim if it exceeds the limit)
+        $converted = $this->convert_file($file, $format, $quality, $max_dim);
 
         if ($converted && $strategy === 'replace') {
             $this->replace_original($attachment_id, $file, $converted, $metadata, $format);
@@ -97,9 +124,14 @@ class Metasync_Image_Converter {
             static::convert_subsizes($metadata['sizes'], dirname($file), $format, $quality, $strategy);
         }
 
-        // Store converted format in meta for later use by picture tag rewriter
-        if ($converted && $strategy === 'alongside') {
+        // Record the conversion for BOTH strategies so the image reports as
+        // optimized in the library and is not re-queued by the batch optimizer.
+        // (The picture tag rewriter also relies on this meta for "alongside".)
+        if ($converted) {
             update_post_meta($attachment_id, '_metasync_converted_format', $format);
+            if ($original_size) {
+                update_post_meta($attachment_id, '_metasync_original_filesize', $original_size);
+            }
         }
 
         return $metadata;
@@ -119,14 +151,21 @@ class Metasync_Image_Converter {
             return false;
         }
 
+        // Request WordPress's image processing memory limit (typically 256MB) before heavy work
+        wp_raise_memory_limit('image');
+
+        // Give a heavy multi-size conversion a fresh execution budget (WP-527).
+        static::reset_time_limit();
+
         $format  = $settings['conversion_format'] ?? 'webp';
         $quality = (int) ($settings['conversion_quality'] ?? 82);
         $strategy = $settings['conversion_strategy'] ?? 'alongside';
+        $max_dim  = (int) ($settings['max_image_dimensions'] ?? 0);
 
         // Store original file size before conversion for savings display
         $original_size = filesize($file);
 
-        $converted = self::do_convert_file($file, $format, $quality);
+        $converted = self::do_convert_file($file, $format, $quality, $max_dim);
         if (!$converted) {
             return false;
         }
@@ -229,6 +268,57 @@ class Metasync_Image_Converter {
         return true;
     }
 
+    /**
+     * Delete converted sibling files when an attachment is deleted.
+     *
+     * Hooked on `delete_attachment` (fires before WordPress removes the
+     * attachment's own files). The "alongside" strategy writes .webp/.avif
+     * files next to the originals that are NOT tracked in attachment metadata,
+     * so WordPress core never deletes them and they leak on disk. The "replace"
+     * strategy's converted files ARE the attachment files and are removed by
+     * core, so nothing extra is needed there.
+     *
+     * @param int $attachment_id Attachment being deleted.
+     */
+    public static function cleanup_on_delete(int $attachment_id): void {
+        // Replace-strategy converted files are the attachment files themselves
+        // (deleted by core). Only "alongside" siblings need manual cleanup.
+        if (get_post_meta($attachment_id, '_metasync_replaced_original', true)) {
+            return;
+        }
+
+        $file = get_attached_file($attachment_id);
+        if (!$file) {
+            return;
+        }
+
+        // Prefer the recorded format; fall back to both next-gen extensions
+        // when the format is unknown (e.g. created by an older plugin version).
+        $format = get_post_meta($attachment_id, '_metasync_converted_format', true);
+        $exts   = $format ? [self::get_format_extension($format)] : [self::EXT_WEBP, self::EXT_AVIF];
+
+        // Collect the full-size file plus every registered sub-size.
+        $paths    = [$file];
+        $metadata = wp_get_attachment_metadata($attachment_id);
+        if (is_array($metadata) && !empty($metadata['sizes'])) {
+            $dir = dirname($file);
+            foreach ($metadata['sizes'] as $size_data) {
+                if (!empty($size_data['file'])) {
+                    $paths[] = $dir . '/' . $size_data['file'];
+                }
+            }
+        }
+
+        foreach ($paths as $path) {
+            foreach ($exts as $ext) {
+                $converted = preg_replace(self::ORIGINAL_EXT_PATTERN, $ext, $path);
+                if ($converted && $converted !== $path && file_exists($converted)) {
+                    @unlink($converted);
+                }
+            }
+        }
+    }
+
     // ── Core Conversion (static, reusable) ──
 
     /**
@@ -262,11 +352,63 @@ class Metasync_Image_Converter {
     }
 
     /**
-     * Convert sub-sizes with memory management.
+     * Grant the current request a fresh execution budget before heavy
+     * conversion work (WP-527). Returns true when the timer was actually
+     * reset; false on hosts where set_time_limit() is disabled, in which
+     * case callers must rely on get_remaining_time() to bail out early.
+     */
+    protected static function reset_time_limit(): bool {
+        if (function_exists('set_time_limit') && @set_time_limit(self::UPLOAD_TIME_LIMIT)) {
+            self::$timer_started_at = microtime(true);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Seconds left before PHP's execution limit kills the request, minus
+     * TIME_SAFETY_MARGIN.
+     *
+     * Defense-in-depth for hosts where set_time_limit() is disabled: the
+     * elapsed time is measured from the request start
+     * ($_SERVER['REQUEST_TIME_FLOAT']) — not from when conversion began — so
+     * time WordPress already spent generating thumbnails counts against the
+     * budget. Once reset_time_limit() succeeds, the baseline moves to the
+     * moment of the reset, matching PHP's own restarted timer.
+     *
+     * On Linux max_execution_time counts CPU time while this measures wall
+     * clock, so the estimate only errs on the early-bail (safe) side.
+     *
+     * @param int $max_execution_time PHP max_execution_time (0 = unlimited). Accepts parameter for testability.
+     * @return float Remaining seconds; PHP_INT_MAX when no limit applies.
+     */
+    protected static function get_remaining_time(int $max_execution_time = -1): float {
+        if ($max_execution_time < 0) {
+            $max_execution_time = (int) ini_get('max_execution_time');
+        }
+
+        // No execution limit (CLI, unlimited hosts): a timeout fatal is
+        // impossible, so never cut conversions short.
+        if ($max_execution_time <= 0) {
+            return (float) PHP_INT_MAX;
+        }
+
+        $started = self::$timer_started_at > 0.0
+            ? self::$timer_started_at
+            : (float) ($_SERVER['REQUEST_TIME_FLOAT'] ?? microtime(true));
+
+        return $max_execution_time - (microtime(true) - $started) - self::TIME_SAFETY_MARGIN;
+    }
+
+    /**
+     * Convert sub-sizes with memory and execution-time management.
      *
      * Runs gc_collect_cycles() between each sub-size to release memory and
      * checks available memory before each iteration, skipping remaining
-     * sub-sizes when memory drops below MIN_MEMORY_FOR_SUBSIZE.
+     * sub-sizes when memory drops below MIN_MEMORY_FOR_SUBSIZE. Each
+     * iteration also refreshes the execution timer (or, where that is
+     * disabled, bails out before PHP's limit is hit) so a heavy multi-size
+     * image cannot trigger a max_execution_time fatal (WP-527).
      *
      * @param array  $sizes      Reference to $metadata['sizes'].
      * @param string $upload_dir Directory containing the sub-size files.
@@ -275,7 +417,25 @@ class Metasync_Image_Converter {
      * @param string $strategy   Conversion strategy (replace|alongside).
      */
     protected static function convert_subsizes(array &$sizes, string $upload_dir, string $format, int $quality, string $strategy): void {
+        $pass_started = microtime(true);
+
         foreach ($sizes as $size_name => &$size_data) {
+            // Cap the total synchronous sub-size pass (WP-527) so the
+            // per-iteration timer resets below cannot keep one request busy
+            // indefinitely.
+            if ((microtime(true) - $pass_started) >= self::UPLOAD_TIME_LIMIT) {
+                error_log('[MetaSync Media Opt] Sub-size time budget exceeded, skipping remaining sub-sizes from: ' . $size_name);
+                break;
+            }
+
+            // Refresh the execution timer between encodes; when the host
+            // disables set_time_limit(), bail out before PHP's limit kills
+            // the request (WP-527).
+            if (!static::reset_time_limit() && static::get_remaining_time() <= 0) {
+                error_log('[MetaSync Media Opt] Execution time nearly exhausted, skipping remaining sub-sizes from: ' . $size_name);
+                break;
+            }
+
             // Check available memory before each sub-size conversion
             $available = static::get_available_memory();
             if ($available < self::MIN_MEMORY_FOR_SUBSIZE) {
@@ -301,9 +461,42 @@ class Metasync_Image_Converter {
     }
 
     /**
-     * Convert a single image file. Returns path to converted file or null on failure.
+     * Calculate downscaled dimensions that fit within a square bound while
+     * preserving aspect ratio.
+     *
+     * Returns [width, height] when the image exceeds $max on either axis, or
+     * null when no downscale is needed (already within bounds, downscaling
+     * disabled, or invalid dimensions). The result is never upscaled.
+     *
+     * @param int $width  Original width in pixels.
+     * @param int $height Original height in pixels.
+     * @param int $max    Maximum allowed width/height; 0 disables downscaling.
+     * @return array{0:int,1:int}|null
      */
-    protected static function do_convert_file(string $source, string $format, int $quality): ?string {
+    protected static function calc_scaled_dimensions(int $width, int $height, int $max): ?array {
+        if ($max <= 0 || $width <= 0 || $height <= 0) {
+            return null;
+        }
+
+        if ($width <= $max && $height <= $max) {
+            return null;
+        }
+
+        $ratio = min($max / $width, $max / $height);
+        $new_w = max(1, (int) round($width * $ratio));
+        $new_h = max(1, (int) round($height * $ratio));
+
+        return [$new_w, $new_h];
+    }
+
+    /**
+     * Convert a single image file. Returns path to converted file or null on failure.
+     *
+     * When $max_dimensions is greater than zero and the source exceeds it on
+     * either axis, the image is downscaled (aspect ratio preserved) before
+     * encoding. This lowers the encoder's pixel buffer and shrinks output.
+     */
+    protected static function do_convert_file(string $source, string $format, int $quality, int $max_dimensions = 0): ?string {
         if (!file_exists($source)) {
             return null;
         }
@@ -313,10 +506,21 @@ class Metasync_Image_Converter {
             return null;
         }
 
+        // Bail out instead of starting an encode PHP may kill mid-write
+        // (WP-527). On hosts where set_time_limit() is disabled the request
+        // keeps its original cap, and the fatal reported by Sentry fired here.
+        if (static::get_remaining_time() <= 0) {
+            error_log('[MetaSync Media Opt] Execution time nearly exhausted, skipping conversion: ' . basename($source));
+            return null;
+        }
+
         // Request WordPress's image processing memory limit
         wp_raise_memory_limit('image');
 
-        // Pre-flight memory check using pixel dimensions when available
+        // Pre-flight memory check using pixel dimensions when available.
+        // Note: the estimate intentionally uses the ORIGINAL dimensions because
+        // both encoders must decode the full-resolution source into memory
+        // before any downscale can be applied.
         $info = getimagesize($source);
         if ($info && $info[0] > 0 && $info[1] > 0) {
             $bpp = ($info['mime'] === 'image/png') ? 4 : 3;
@@ -330,13 +534,18 @@ class Metasync_Image_Converter {
             return null;
         }
 
+        // Determine target dimensions when the source exceeds the configured cap.
+        $target_dimensions = ($info && $info[0] > 0 && $info[1] > 0)
+            ? self::calc_scaled_dimensions((int) $info[0], (int) $info[1], $max_dimensions)
+            : null;
+
         $ext = self::get_format_extension($format);
         $dest = preg_replace(self::ORIGINAL_EXT_PATTERN, $ext, $source);
 
         // Try Imagick first, fall back to GD if it fails (e.g. missing encode delegate)
         if (extension_loaded('imagick')) {
             try {
-                $result = self::do_convert_with_imagick($source, $dest, $format, $quality);
+                $result = self::do_convert_with_imagick($source, $dest, $format, $quality, $target_dimensions);
                 if ($result) {
                     return $result;
                 }
@@ -347,7 +556,7 @@ class Metasync_Image_Converter {
 
         if (extension_loaded('gd')) {
             try {
-                return self::do_convert_with_gd($source, $dest, $format, $quality);
+                return self::do_convert_with_gd($source, $dest, $format, $quality, $target_dimensions);
             } catch (\Exception $e) {
                 error_log('[MetaSync Media Opt] GD conversion failed: ' . $e->getMessage());
             }
@@ -356,8 +565,18 @@ class Metasync_Image_Converter {
         return null;
     }
 
-    private static function do_convert_with_imagick(string $src, string $dest, string $fmt, int $q): ?string {
-        $img = new \Imagick($src);
+    private static function do_convert_with_imagick(string $src, string $dest, string $fmt, int $q, ?array $target_dimensions = null): ?string {
+        $img = new \Imagick();
+        $img->setResourceLimit(\Imagick::RESOURCETYPE_MEMORY, 64 * 1024 * 1024);
+        $img->setResourceLimit(\Imagick::RESOURCETYPE_MAP, 128 * 1024 * 1024);
+        $img->readImage($src);
+
+        // Downscale before encoding when the image exceeds the configured cap.
+        if ($target_dimensions !== null) {
+            [$new_w, $new_h] = $target_dimensions;
+            $img->scaleImage($new_w, $new_h);
+        }
+
         $img->setImageFormat($fmt === 'avif' ? 'avif' : 'webp');
         $img->setImageCompressionQuality($q);
         $img->stripImage();
@@ -377,11 +596,13 @@ class Metasync_Image_Converter {
         return null;
     }
 
-    private static function do_convert_with_gd(string $src, string $dest, string $fmt, int $q): ?string {
+    private static function do_convert_with_gd(string $src, string $dest, string $fmt, int $q, ?array $target_dimensions = null): ?string {
         $info = getimagesize($src);
         if (!$info) {
             return null;
         }
+
+        $is_png = ($info['mime'] === 'image/png');
 
         $gd_img = match ($info['mime']) {
             'image/jpeg' => imagecreatefromjpeg($src),
@@ -393,10 +614,33 @@ class Metasync_Image_Converter {
             return null;
         }
 
-        if ($info['mime'] === 'image/png') {
+        if ($is_png) {
             imagepalettetotruecolor($gd_img);
             imagealphablending($gd_img, true);
             imagesavealpha($gd_img, true);
+        }
+
+        // Downscale before encoding when the image exceeds the configured cap.
+        if ($target_dimensions !== null) {
+            [$new_w, $new_h] = $target_dimensions;
+            $resized = imagecreatetruecolor($new_w, $new_h);
+            if ($resized !== false) {
+                if ($is_png) {
+                    // Preserve transparency on the resized canvas.
+                    imagealphablending($resized, false);
+                    imagesavealpha($resized, true);
+                    $transparent = imagecolorallocatealpha($resized, 0, 0, 0, 127);
+                    imagefilledrectangle($resized, 0, 0, $new_w, $new_h, $transparent);
+                }
+                imagecopyresampled(
+                    $resized, $gd_img,
+                    0, 0, 0, 0,
+                    $new_w, $new_h,
+                    imagesx($gd_img), imagesy($gd_img)
+                );
+                imagedestroy($gd_img);
+                $gd_img = $resized;
+            }
         }
 
         $success = match ($fmt) {
@@ -438,6 +682,15 @@ class Metasync_Image_Converter {
         update_attached_file($id, $new_path);
         $meta['file'] = _wp_relative_upload_path($new_path);
 
+        // Sync the full-size dimensions to the converted file. When a pre-conversion
+        // downscale shrank the image, the original width/height in metadata are now
+        // stale; otherwise this is a harmless no-op.
+        $new_dims = @getimagesize($new_path);
+        if ($new_dims && $new_dims[0] > 0 && $new_dims[1] > 0) {
+            $meta['width']  = (int) $new_dims[0];
+            $meta['height'] = (int) $new_dims[1];
+        }
+
         // Rewrite hardcoded image URLs in post content to point to the new file
         $new_url = wp_get_attachment_url($id);
         if ($old_url && $new_url && $old_url !== $new_url) {
@@ -461,12 +714,31 @@ class Metasync_Image_Converter {
             return;
         }
 
-        $wpdb->query($wpdb->prepare(
-            "UPDATE {$wpdb->posts} SET post_content = REPLACE(post_content, %s, %s) WHERE post_content LIKE %s",
-            $old_path,
-            $new_path,
-            '%' . $wpdb->esc_like($old_path) . '%'
-        ));
+        // Batch the UPDATE so a large wp_posts table is never locked by a single
+        // unbounded REPLACE (WP-386). Each batch only rewrites rows that still
+        // contain the old path; once replaced they no longer match the LIKE, so
+        // the loop converges. The batch ceiling is a safety net against an
+        // unexpected non-converging loop (e.g. a DB-level error returning false).
+        $batch_size  = 500;
+        $like        = '%' . $wpdb->esc_like($old_path) . '%';
+        $max_batches = 100000;
+
+        for ($batch = 0; $batch < $max_batches; $batch++) {
+            $affected = $wpdb->query($wpdb->prepare(
+                "UPDATE {$wpdb->posts} SET post_content = REPLACE(post_content, %s, %s)
+                 WHERE post_content LIKE %s ORDER BY ID LIMIT %d",
+                $old_path,
+                $new_path,
+                $like,
+                $batch_size
+            ));
+
+            // false → query error; a short batch (< batch_size) means the last
+            // matching rows were just rewritten. Either way there is no more work.
+            if ($affected === false || $affected < $batch_size) {
+                break;
+            }
+        }
     }
 
     // ── Instance Wrappers (Upload Hook) ──
@@ -474,8 +746,8 @@ class Metasync_Image_Converter {
     /**
      * Instance wrapper around static conversion method.
      */
-    private function convert_file(string $source, string $format, int $quality): ?string {
-        return self::do_convert_file($source, $format, $quality);
+    private function convert_file(string $source, string $format, int $quality, int $max_dimensions = 0): ?string {
+        return self::do_convert_file($source, $format, $quality, $max_dimensions);
     }
 
     /**

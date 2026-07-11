@@ -167,7 +167,7 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 	{
 		return array(
 			'push_to_platform'     => _x('Push to platform for optimization', 'List table bulk action', 'metasync'),
-			'clear_metasync_cache' => _x('Clear MetaSync cache for selected', 'List table bulk action', 'metasync'),
+			'clear_metasync_cache' => sprintf(_x('Clear %s cache for selected', 'List table bulk action', 'metasync'), Metasync::get_effective_plugin_name()),
 		);
 	}
 
@@ -324,10 +324,14 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 				: 'ASC';
 		}
 
+		// Always exclude custom/LPS pages — their SEO is self-managed inside their
+		// own HTML bundle, so they would otherwise show as false "not set".
+		$exclusion_mq = metasync_get_custom_page_exclusion_meta_query();
+
 		// Build meta_query for missing filters that can be handled at DB level
-		$meta_query = $this->build_missing_meta_query($missing_filter);
-		if ($meta_query !== null) {
-			$args['meta_query'] = $meta_query;
+		$missing_meta_query = $this->build_missing_meta_query($missing_filter);
+		if ($missing_meta_query !== null) {
+			$args['meta_query'] = array('relation' => 'AND', $missing_meta_query, $exclusion_mq);
 			$args['posts_per_page'] = $per_page;
 			$args['paged'] = $current_page;
 
@@ -336,6 +340,7 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 			$total_items = $query->found_posts;
 		} elseif ($missing_filter === 'missing_alt_text') {
 			// Alt text requires post_content inspection — must filter post-query
+			$args['meta_query'] = array($exclusion_mq);
 			$args['posts_per_page'] = -1;
 			$query = new WP_Query($args);
 			$all_filtered = $this->filter_missing_alt_text($query->posts);
@@ -343,6 +348,7 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 			$this->items = array_slice($all_filtered, ($current_page - 1) * $per_page, $per_page);
 		} else {
 			// No missing filter — standard paginated query
+			$args['meta_query'] = array($exclusion_mq);
 			$args['posts_per_page'] = $per_page;
 			$args['paged'] = $current_page;
 

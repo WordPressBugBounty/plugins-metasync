@@ -1268,6 +1268,9 @@ class Metasync_Custom_Pages_API
 		wp_cache_delete($page_id, 'posts');
 		wp_cache_delete($page_id, 'post_meta');
 
+		// Purge page + edge caches so the re-published HTML references the new asset hashes.
+		$this->purge_lps_page_caches(array(array('page_id' => $page_id, 'url' => get_permalink($page_id))));
+
 		return array(
 			'success' => true,
 			'message' => 'LPS ZIP imported successfully',
@@ -1362,6 +1365,72 @@ class Metasync_Custom_Pages_API
 	}
 
 	/**
+	 * Purge full-page and edge/CDN caches for imported LPS pages.
+	 *
+	 * LPS bundles use content-hashed asset filenames. A re-publish writes new
+	 * hashes and deletes the old bundle, but a page-cache plugin or CDN may keep
+	 * serving the OLD HTML — which references the now-deleted assets (404 →
+	 * unstyled / white screen). This clears those layers for every created/updated
+	 * page (and the front page when one was set/updated) so the served HTML always
+	 * references the current asset hashes. Reuses the plugin's existing
+	 * Metasync_Cache_Purge (page-cache plugins) and Metasync_Edge_Cache_Purge (CDN)
+	 * subsystems, with the edge purge batched into a single call.
+	 *
+	 * Wrapped in a \Throwable guard so a purge failure can never abort or error the
+	 * import (same pattern as the WP-442 audit logger).
+	 *
+	 * @param array $page_records Records carrying 'page_id', 'url', and optional 'is_front_page'.
+	 */
+	private function purge_lps_page_caches(array $page_records)
+	{
+		try {
+			$urls = array();
+			$front_page_seen = false;
+
+			foreach ($page_records as $rec) {
+				if (!empty($rec['is_front_page'])) {
+					$front_page_seen = true;
+				}
+
+				$url = !empty($rec['url']) ? $rec['url'] : '';
+				if (empty($url) && !empty($rec['page_id'])) {
+					$url = get_permalink((int) $rec['page_id']);
+				}
+
+				if (!empty($url) && !in_array($url, $urls, true)) {
+					$urls[] = $url;
+				}
+			}
+
+			// A front page is served at "/" — purge that URL too.
+			if ($front_page_seen) {
+				$home = home_url('/');
+				if (!in_array($home, $urls, true)) {
+					$urls[] = $home;
+				}
+			}
+
+			if (empty($urls)) {
+				return;
+			}
+
+			// Page-cache plugins: purge each URL individually.
+			if (class_exists('Metasync_Cache_Purge')) {
+				foreach ($urls as $url) {
+					Metasync_Cache_Purge::purge_single_url($url);
+				}
+			}
+
+			// Edge/CDN caches: one batched call for all URLs (avoids N API calls).
+			if (class_exists('Metasync_Edge_Cache_Purge')) {
+				Metasync_Edge_Cache_Purge::purge($urls);
+			}
+		} catch (\Throwable $e) {
+			error_log('MetaSync: LPS import cache purge failed - ' . $e->getMessage());
+		}
+	}
+
+	/**
 	 * Find this project's existing LPS home page by a stable per-project marker,
 	 * independent of its slug, so a re-publish updates the same home instead of
 	 * creating a duplicate.
@@ -1442,6 +1511,27 @@ class Metasync_Custom_Pages_API
 		$failed  = array();
 		$slug_to_id = array(); // full slug path => page ID, for parent resolution
 
+		// Resolve the bundle root once before the loop so we can verify every
+		// per-page HTML path stays inside it. The string blocklist above rejects
+		// literal ".." and backslashes, but cannot catch symlinks in the bundle or
+		// encoding tricks. realpath() gives the canonical on-disk path, making
+		// containment provable regardless of how the path was constructed.
+		$target_real = realpath($target_dir);
+		if ($target_real === false) {
+			// $target_dir must exist at this point (the swap already ran); if
+			// realpath fails anyway, fail safe and bail out entirely.
+			return array(
+				'success' => false,
+				'message' => 'Could not resolve the bundle directory path.',
+				'data'    => array('mode' => 'multi', 'assets_folder' => $assets_folder, 'assets_dir_url' => $assets_dir_url, 'pages_total' => count($pages), 'created' => array(), 'updated' => array(), 'failed' => array()),
+			);
+		}
+		// Ensure the prefix check below cannot match a sibling directory that
+		// starts with the same characters as $target_real (e.g. /foo/bar vs
+		// /foo/bar-extra). Adding DIRECTORY_SEPARATOR guarantees we match a real
+		// path boundary.
+		$target_real_prefix = rtrim($target_real, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+
 		foreach ($pages as $entry) {
 			if (!is_array($entry)) {
 				continue;
@@ -1449,6 +1539,20 @@ class Metasync_Custom_Pages_API
 
 			$is_home  = !empty($entry['isHome']);
 			$raw_slug = isset($entry['slug']) ? trim((string) $entry['slug'], '/') : '';
+
+			// Reject path-traversal slugs before $raw_slug is used to build the
+			// on-disk HTML path below. A crafted manifest slug (e.g.
+			// "../../../../some-dir") could otherwise escape $target_dir and have
+			// file_get_contents() read an index.html from outside the bundle. The
+			// raw value is checked as-is, before any normalization.
+			if (strpos($raw_slug, '..') !== false || strpos($raw_slug, '\\') !== false) {
+				$failed[] = array(
+					'slug'    => $raw_slug,
+					'code'    => 'invalid_slug_path',
+					'message' => 'Slug contains unsafe path characters.',
+				);
+				continue;
+			}
 
 			// Home page (isHome / empty slug) is handled specially below: it is
 			// created and set as the WordPress static front page so it serves at "/".
@@ -1482,6 +1586,22 @@ class Metasync_Custom_Pages_API
 			$html_file = trailingslashit($target_dir) . $rel;
 			if (!file_exists($html_file)) {
 				$failed[] = array('slug' => $effective_slug, 'code' => 'missing_html', 'message' => 'No index.html for this page in the bundle.');
+				continue;
+			}
+			// Containment check: verify the resolved, canonical path stays under
+			// $target_dir. The string blocklist above catches literal ".." and
+			// backslashes, but realpath() is the authoritative guard — it resolves
+			// any symlinks in the bundle and proves the final on-disk read is
+			// inside the bundle directory regardless of how the path was built.
+			// (Same pattern used at lines 1055-1056 for staging and 1353-1354 for
+			// the post-swap target.)
+			$html_real = realpath($html_file);
+			if ($html_real === false || strpos($html_real, $target_real_prefix) !== 0) {
+				$failed[] = array(
+					'slug'    => $effective_slug,
+					'code'    => 'invalid_slug_path',
+					'message' => 'Resolved HTML path escapes the bundle directory.',
+				);
 				continue;
 			}
 			$html = file_get_contents($html_file);
@@ -1578,6 +1698,15 @@ class Metasync_Custom_Pages_API
 					$parent_id = $slug_to_id[$ancestor_path];
 					continue;
 				}
+				// WP-461: find our previously-created ancestor by stable tag (project +
+				// path) first, so a re-import reuses it even if WordPress renamed its slug
+				// on a collision — instead of auto-creating another placeholder each time.
+				$tagged_ancestor = $this->find_lps_page_by_path($assets_folder, $external_ref, $ancestor_path);
+				if ($tagged_ancestor > 0) {
+					$parent_id = $tagged_ancestor;
+					$slug_to_id[$ancestor_path] = $parent_id;
+					continue;
+				}
 				$ancestor_page = get_page_by_path($ancestor_path, OBJECT, 'page');
 				if ($ancestor_page) {
 					// WP-462: only nest under ancestors we own. If an existing page on this
@@ -1618,6 +1747,8 @@ class Metasync_Custom_Pages_API
 					if ($external_ref !== '') {
 						update_post_meta($new_parent, Metasync_Custom_Pages::META_LPS_PROJECT_REF, $external_ref);
 					}
+					// WP-461: tag the placeholder with its manifest path so re-imports find it.
+					update_post_meta($new_parent, Metasync_Custom_Pages::META_LPS_PAGE_PATH, $ancestor_path);
 					$parent_id = $new_parent;
 				}
 				$slug_to_id[$ancestor_path] = $parent_id;
@@ -1636,8 +1767,20 @@ class Metasync_Custom_Pages_API
 				continue;
 			}
 
-			// Ownership check for the leaf page.
-			$existing = get_page_by_path($effective_slug, OBJECT, 'page');
+			// WP-461: find our previously-imported page by its stable tag (project +
+			// manifest path) first, so a re-import updates the SAME page even if WordPress
+			// renamed its slug on a collision — instead of creating a duplicate. Only when
+			// no tagged page exists do we fall back to the intended slug path, which is
+			// also where a non-LPS ownership conflict is detected (a user page sitting on
+			// the slug we want).
+			$existing = null;
+			$tagged_id = $this->find_lps_page_by_path($assets_folder, $external_ref, $effective_slug);
+			if ($tagged_id > 0) {
+				$existing = get_post($tagged_id);
+			}
+			if (!$existing) {
+				$existing = get_page_by_path($effective_slug, OBJECT, 'page');
+			}
 			if ($existing) {
 				$is_lps = get_post_meta($existing->ID, Metasync_Custom_Pages::META_LPS_IMPORT, true) === '1';
 				if (!$is_lps) {
@@ -1692,6 +1835,8 @@ class Metasync_Custom_Pages_API
 			if ($external_ref !== '') {
 				update_post_meta($page_id, Metasync_Custom_Pages::META_LPS_PROJECT_REF, $external_ref);
 			}
+			// WP-461: tag the page with its manifest path so re-imports find it by identity, not slug.
+			update_post_meta($page_id, Metasync_Custom_Pages::META_LPS_PAGE_PATH, $effective_slug);
 			update_post_meta($page_id, Metasync_Custom_Pages::META_HTML_ENABLED, '1');
 			update_post_meta($page_id, Metasync_Custom_Pages::META_HTML_CONTENT, wp_unslash($html));
 			update_post_meta($page_id, Metasync_Custom_Pages::META_HTML_FILENAME, $rel);
@@ -1707,6 +1852,9 @@ class Metasync_Custom_Pages_API
 			}
 		}
 
+		// Purge page + edge caches so the re-published HTML references the new asset hashes.
+		$this->purge_lps_page_caches(array_merge($created, $updated));
+
 		return array(
 			'success' => true,
 			'message' => sprintf('LPS multi-page import complete: %d created, %d updated, %d failed.', count($created), count($updated), count($failed)),
@@ -1720,6 +1868,58 @@ class Metasync_Custom_Pages_API
 				'failed'         => $failed,
 			)
 		);
+	}
+
+	/**
+	 * Find a previously-imported LPS page by its stable per-page identity
+	 * (project key + manifest path), independent of the slug WordPress actually
+	 * stored. This makes re-imports idempotent even when a slug was renamed on a
+	 * collision (e.g. "2026" -> "2026-2"): we match on META_LPS_PAGE_PATH within
+	 * the same project, so the existing page is updated instead of duplicated (WP-461).
+	 *
+	 * The project is keyed on external_ref (the LPS project UUID) when present,
+	 * falling back to assets_folder for pre-external_ref imports — mirroring
+	 * find_lps_home_page().
+	 *
+	 * @param string $assets_folder Per-project key (fallback).
+	 * @param string $external_ref  LPS project UUID (preferred key when present).
+	 * @param string $page_path     Manifest path of the page (e.g. "blog/2026/launch").
+	 * @return int Post ID of the matching LPS page, or 0 when none exists.
+	 */
+	private function find_lps_page_by_path($assets_folder, $external_ref, $page_path)
+	{
+		$page_path = (string) $page_path;
+		if ($page_path === '') {
+			return 0;
+		}
+
+		// Prefer the stable project UUID; fall back to assets_folder.
+		if ($external_ref !== '') {
+			$project_clause = array('key' => Metasync_Custom_Pages::META_LPS_PROJECT_REF, 'value' => $external_ref);
+		} else {
+			$project_clause = array('key' => Metasync_Custom_Pages::META_ASSETS_FOLDER, 'value' => $assets_folder);
+		}
+
+		// suppress_filters + explicit statuses mirror find_lps_home_page() so query
+		// hooks (e.g. WPML/Polylang on pre_get_posts) cannot silently alter this
+		// identity lookup and cause a missed match -> duplicate. The META_LPS_IMPORT
+		// clause enforces the "tagged == LPS-owned" invariant rather than assuming it.
+		$ids = get_posts(array(
+			'post_type'        => 'page',
+			'post_status'      => array('publish', 'future', 'draft', 'pending', 'private'),
+			'posts_per_page'   => 1,
+			'fields'           => 'ids',
+			'suppress_filters' => true,
+			'no_found_rows'    => true,
+			'meta_query'       => array(
+				'relation' => 'AND',
+				$project_clause,
+				array('key' => Metasync_Custom_Pages::META_LPS_PAGE_PATH, 'value' => $page_path),
+				array('key' => Metasync_Custom_Pages::META_LPS_IMPORT, 'value' => '1'),
+			),
+		));
+
+		return !empty($ids) ? (int) $ids[0] : 0;
 	}
 
 	/**

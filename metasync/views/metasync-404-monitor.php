@@ -30,8 +30,21 @@ if (!defined('ABSPATH')) {
 	.wrap .wp-list-table th.check-column,
 	.wrap .wp-list-table td.check-column {
 		width: 2.2em;
-		padding: 8px 0 0 3px;
+	}
+
+	/* Header/footer checkbox cell only ever holds a single-line label, so centring it works. */
+	.wrap .wp-list-table td.check-column {
+		padding: 0 0 0 3px;
 		vertical-align: middle;
+	}
+
+	/* Row checkbox cells sit next to columns that can wrap onto multiple lines. Centring
+	   against the whole (taller) row pushes the checkbox below the first line of text, so
+	   align it to the top like the other columns and nudge it down just enough to sit
+	   level with that first line instead. */
+	.wrap .wp-list-table th.check-column {
+		padding: 9px 0 0 3px;
+		vertical-align: top;
 	}
 
 	.wrap .wp-list-table th.check-column input[type="checkbox"],
@@ -39,6 +52,15 @@ if (!defined('ABSPATH')) {
 		margin: 0;
 		padding: 0;
 		vertical-align: middle;
+	}
+
+	/* This view's <style> block is always rendered onto the page alongside the
+	   Redirections tab's (see render_tab_content() in class-metasync-redirections-admin.php,
+	   which outputs both tabs' markup regardless of which is active), so this rule must stay
+	   in sync with views/metasync-redirection.php's check-column fix or its later cascade
+	   position will silently win and undo it. */
+	.wrap .wp-list-table td.check-column input[type="checkbox"] {
+		transform: translateY(-1px);
 	}
 
 	.column-uri {

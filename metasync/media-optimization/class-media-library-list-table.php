@@ -91,10 +91,29 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
     }
 
     /**
+     * Whether the attachment's primary file is missing on disk.
+     *
+     * Orphaned attachments (DB record present, file deleted externally or via a
+     * failed sideload) otherwise render broken thumbnails and can never be
+     * optimized. Used to flag these rows distinctly across the table.
+     */
+    public static function is_file_missing(int $attachment_id): bool {
+        $path = get_attached_file($attachment_id);
+        return !$path || !file_exists($path);
+    }
+
+    /**
      * Image column: thumbnail + filename + URL with copy button.
      */
     protected function column_image($item): string {
-        $thumb = wp_get_attachment_image($item->ID, [50, 50], true, ['style' => 'border-radius:4px;']);
+        if (self::is_file_missing($item->ID)) {
+            $thumb = sprintf(
+                '<span class="metasync-image-thumb-missing" title="%s"><span class="dashicons dashicons-format-image"></span></span>',
+                esc_attr__('File missing on disk', 'metasync')
+            );
+        } else {
+            $thumb = wp_get_attachment_image($item->ID, [50, 50], true, ['style' => 'border-radius:4px;']);
+        }
         $url   = wp_get_attachment_url($item->ID);
         $file  = basename(get_attached_file($item->ID) ?: '');
 
@@ -177,6 +196,14 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
      * Reusable by AJAX handlers (DRY).
      */
     public static function render_status_html(int $attachment_id): string {
+        // Orphaned attachment: file no longer exists on disk.
+        if (self::is_file_missing($attachment_id)) {
+            return sprintf(
+                '<span class="metasync-status-badge metasync-status-missing">%s</span>',
+                esc_html__('Missing file', 'metasync')
+            );
+        }
+
         $format = get_post_meta($attachment_id, '_metasync_converted_format', true);
 
         if (!$format) {
@@ -260,6 +287,17 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
      * Actions column: optimize or revert button.
      */
     protected function column_actions($item): string {
+        // Orphaned attachment (missing file): offer cleanup of the stale record.
+        if (self::is_file_missing($item->ID)) {
+            return sprintf(
+                '<button type="button" class="button button-small metasync-delete-orphan-btn" data-id="%d">
+                    <span class="dashicons dashicons-trash" style="margin-top:3px;"></span> %s
+                </button>',
+                $item->ID,
+                esc_html__('Delete record', 'metasync')
+            );
+        }
+
         $format = get_post_meta($item->ID, '_metasync_converted_format', true);
 
         if ($format) {

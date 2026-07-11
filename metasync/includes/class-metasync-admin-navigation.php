@@ -35,6 +35,22 @@ class Metasync_Admin_Navigation
 
     private function __construct() {}
 
+    /**
+     * Whether the Dashboard is hidden by the "Hide Dashboard" general setting
+     * (hide_dashboard_framework).
+     *
+     * When enabled this removes the Dashboard from the WordPress admin submenu
+     * and from the in-plugin SEO feature navigation, matching the setting's
+     * description "Hide the main dashboard from the WordPress admin menu" (WP-457).
+     *
+     * @return bool
+     */
+    public static function is_dashboard_hidden_by_framework()
+    {
+        $general_options = Metasync::get_option('general') ?? [];
+        return filter_var($general_options['hide_dashboard_framework'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    }
+
     // ------------------------------------------------------------------
     //  Logo resolution helper
     // ------------------------------------------------------------------
@@ -76,7 +92,7 @@ class Metasync_Admin_Navigation
                 $data['url']       = $single;
             } elseif (!$is_whitelabel) {
                 $data['show_logo']  = true;
-                $data['url']        = Metasync::HOMEPAGE_DOMAIN . '/wp-content/uploads/2023/12/white.svg';
+                $data['url']        = plugin_dir_url(dirname(__FILE__)) . 'assets/images/searchatlas-logo.svg';
                 $data['is_default'] = true;
             }
         }
@@ -108,8 +124,9 @@ class Metasync_Admin_Navigation
 
         $current_theme = get_option('metasync_theme', 'dark');
         $general_settings = Metasync::get_option('general');
-        $searchatlas_api_key = isset($general_settings['searchatlas_api_key']) ? $general_settings['searchatlas_api_key'] : '';
-        $is_integrated = !empty($searchatlas_api_key);
+        // WP-476: derive the badge from confirmed heartbeat health, not from
+        // mere API-key presence (which stays set after Search Atlas revokes it).
+        $badge = Metasync_Heartbeat_Manager::instance()->get_connection_badge($general_settings);
         ?>
         <div class="metasync-header" data-current-theme="<?php echo esc_attr($current_theme); ?>">
             <div class="metasync-header-left">
@@ -125,9 +142,9 @@ class Metasync_Admin_Navigation
                 <?php endif; ?>
             </div>
             <div class="metasync-header-right">
-                <div class="metasync-status <?php echo $is_integrated ? 'connected' : 'disconnected'; ?>">
+                <div class="metasync-status <?php echo esc_attr($badge['class']); ?>">
                     <span class="status-dot"></span>
-                    <span class="status-text"><?php echo $is_integrated ? 'Connected' : 'Not Connected'; ?></span>
+                    <span class="status-text"><?php echo esc_html($badge['text']); ?></span>
                 </div>
                 <button type="button" class="metasync-theme-toggle" onclick="toggleMetasyncTheme()" title="Toggle theme">
                     <span class="theme-icon-light">&#9728;</span>
@@ -164,7 +181,7 @@ class Metasync_Admin_Navigation
             'general'          => 'admin-settings',
         ];
         
-        if (empty($whitelabel_settings['hide_dashboard'])) {
+        if (empty($whitelabel_settings['hide_dashboard']) && !self::is_dashboard_hidden_by_framework()) {
             $menu_items['dashboard'] = ['title' => 'Dashboard', 'slug_suffix' => '-dashboard'];
         }
         
@@ -374,8 +391,8 @@ class Metasync_Admin_Navigation
 
         // === SEO FEATURES GROUP ===
         
-        // Dashboard (check access control)
-        if (Metasync_Access_Control::user_can_access('hide_dashboard')) {
+        // Dashboard (check access control + "Hide Dashboard" general setting — WP-457)
+        if (Metasync_Access_Control::user_can_access('hide_dashboard') && !self::is_dashboard_hidden_by_framework()) {
             $menu_items['dashboard'] = [
                 'title' => 'Dashboard',
                 'slug_suffix' => '-dashboard',
@@ -683,8 +700,8 @@ class Metasync_Admin_Navigation
         // ── Connect slug ──────────────────────────────────────────────────
         $connect_slug = $menu_slug . '-connect';
 
-        // Dashboard
-        if (Metasync_Access_Control::user_can_access('hide_dashboard')) {
+        // Dashboard (check access control + "Hide Dashboard" general setting — WP-457)
+        if (Metasync_Access_Control::user_can_access('hide_dashboard') && !self::is_dashboard_hidden_by_framework()) {
             add_submenu_page($menu_slug, 'Dashboard', 'Dashboard', $menu_capability, $menu_slug . '-dashboard', array($admin, 'create_admin_dashboard_iframe'));
         }
 
@@ -790,7 +807,8 @@ class Metasync_Admin_Navigation
 
         // ── Connect CTA (shown when not authenticated) ────────────────────
         if (!$is_fully_connected) {
-            add_submenu_page($menu_slug, 'Connect to SearchAtlas', 'Connect to SearchAtlas', $menu_capability, $connect_slug, array($admin, 'create_admin_settings_page'));
+            $connect_label = sprintf('Connect to %s', Metasync::get_effective_plugin_name());
+            add_submenu_page($menu_slug, $connect_label, $connect_label, $menu_capability, $connect_slug, array($admin, 'create_admin_settings_page'));
         }
 
         // ── Hidden pages (no sidebar entry needed) ────────────────────────
@@ -1519,10 +1537,12 @@ class Metasync_Admin_Navigation
         $plugin_name = Metasync::get_effective_plugin_name();
         $general     = Metasync::get_option('general') ?? [];
         $is_connected = Metasync_Heartbeat_Manager::instance()->is_heartbeat_connected($general);
+        // WP-476: badge reflects confirmed heartbeat health (connected / stale /
+        // disconnected), not raw API-key presence.
+        $badge       = Metasync_Heartbeat_Manager::instance()->get_connection_badge($general);
         $logo        = $this->resolve_logo_data();
 
         $current_theme = get_option('metasync_theme', 'dark');
-        $api_key       = $general['searchatlas_api_key'] ?? '';
         ?>
         <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo $theme; ?>">
 
@@ -1577,9 +1597,9 @@ class Metasync_Admin_Navigation
                 <?php endif; ?>
             </div>
             <div class="metasync-header-compact-right">
-                <div class="metasync-status <?php echo !empty($api_key) ? 'connected' : 'disconnected'; ?>">
+                <div class="metasync-status <?php echo esc_attr($badge['class']); ?>">
                     <span class="status-dot"></span>
-                    <span class="status-text"><?php echo !empty($api_key) ? 'Connected' : 'Not Connected'; ?></span>
+                    <span class="status-text"><?php echo esc_html($badge['text']); ?></span>
                 </div>
                 <button type="button" class="metasync-theme-toggle" onclick="toggleMetasyncTheme()" title="Toggle theme">
                     <span class="theme-icon-light">&#9728;</span>
@@ -1598,6 +1618,15 @@ class Metasync_Admin_Navigation
 
             <!-- Main content -->
             <main class="metasync-layout-main">
+                <?php
+                // Anchor for WP core's notice relocation (common.js). Without it, core
+                // moves admin notices after the first .wrap h1 only on DOM-ready, after
+                // the server has already painted them at the top of #wpbody-content —
+                // causing a flash above the header and layout shift (WP-496). Providing
+                // an explicit .wp-header-end inside this (FOUC-hidden) wrap makes core
+                // relocate notices here deterministically, so they fade in with the page.
+                ?>
+                <hr class="wp-header-end">
                 <?php if ($page_title || $description): ?>
                 <div class="metasync-page-header">
                     <?php if ($page_title): ?>

@@ -405,6 +405,12 @@ class Metasync
 
 		// REST API hooks (Metasync_Rest_Api)
 		$this->loader->add_action('rest_api_init', $rest_api, 'metasync_register_rest_routes');
+		// Coexist with third-party JWT auth plugins: clear their prior auth error
+		// for metasync/v1 requests when our own API key validates. The Tmeister
+		// "JWT Authentication for WP-API" plugin surfaces its jwt_auth_invalid_token
+		// 403 via rest_pre_dispatch (priority 10), so we hook the same filter at a
+		// later priority (11) to clear it for our namespace only.
+		$this->loader->add_filter('rest_pre_dispatch', $rest_api, 'allow_metasync_rest_auth', 11, 3);
 		$this->loader->add_action('init', $plugin_public, 'metasync_plugin_init', 5);
 		$this->loader->add_action('wp_ajax_metasync_lglogin', $rest_api, 'linkgraph_login');
 
@@ -734,6 +740,175 @@ class Metasync
 		}
 		$merged = array_merge($existing, $fields);
 		update_option(self::heartbeat_throttle_option, $merged);
+	}
+
+	/**
+	 * Storage prefix marking a secret value as encrypted at rest.
+	 */
+	private const SECRET_ENC_PREFIX = 'enc_v1:';
+
+	/**
+	 * Derive the 32-byte AES key from existing WordPress salts.
+	 *
+	 * No new secret is stored anywhere — the key material is the concatenation
+	 * of three WordPress salts, hashed to a fixed 32 bytes. If the salts change
+	 * (e.g. wp-config regenerated) the derived key changes and previously
+	 * encrypted values can no longer be decrypted, which callers handle
+	 * gracefully rather than fataling.
+	 *
+	 * @return string 32 raw bytes.
+	 */
+	private static function secret_crypto_key()
+	{
+		$material = wp_salt('secure_auth') . wp_salt('logged_in') . wp_salt('nonce');
+		return hash('sha256', $material, true);
+	}
+
+	/**
+	 * Determine whether a stored value is in the encrypted-at-rest format.
+	 *
+	 * @param mixed $value
+	 * @return bool
+	 */
+	public static function is_encrypted_secret($value)
+	{
+		return is_string($value) && strncmp($value, self::SECRET_ENC_PREFIX, strlen(self::SECRET_ENC_PREFIX)) === 0;
+	}
+
+	/**
+	 * Encrypt a plaintext secret (e.g. the whitelabel settings password) for
+	 * storage at rest.
+	 *
+	 * Uses AES-256-GCM (authenticated) with a random 12-byte IV. The IV, the
+	 * 16-byte GCM tag and the ciphertext are concatenated and base64-encoded
+	 * behind an `enc_v1:` prefix. An empty string is stored as-is (no secret).
+	 *
+	 * When OpenSSL is unavailable or encryption fails the plaintext is stored
+	 * unchanged (availability over hard-fail) and the degradation is logged so
+	 * it cannot go unnoticed.
+	 *
+	 * @param string $plaintext
+	 * @return string Encrypted blob, or '' when $plaintext is empty.
+	 */
+	public static function encrypt_secret($plaintext)
+	{
+		$plaintext = (string) $plaintext;
+		if ($plaintext === '') {
+			return '';
+		}
+
+		// Already encrypted — do not double-encrypt.
+		if (self::is_encrypted_secret($plaintext)) {
+			return $plaintext;
+		}
+
+		if (!function_exists('openssl_encrypt')) {
+			// OpenSSL unavailable — store plaintext rather than lose the secret.
+			error_log('MetaSync: OpenSSL is unavailable — a secret was stored WITHOUT encryption at rest.');
+			return $plaintext;
+		}
+
+		$key = self::secret_crypto_key();
+		$iv  = random_bytes(12);
+		$tag = '';
+		$ciphertext = openssl_encrypt($plaintext, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag, '', 16);
+
+		if ($ciphertext === false) {
+			// Encryption failed — fall back to plaintext storage, but say so.
+			error_log('MetaSync: Secret encryption failed — a secret was stored WITHOUT encryption at rest.');
+			return $plaintext;
+		}
+
+		return self::SECRET_ENC_PREFIX . base64_encode($iv . $tag . $ciphertext);
+	}
+
+	/**
+	 * Decrypt a stored secret value.
+	 *
+	 * Accepts either the encrypted `enc_v1:` format or a legacy plaintext value
+	 * (returned unchanged, supporting installs that pre-date encryption). On any
+	 * decryption failure (salt change / corruption) returns false so callers can
+	 * degrade gracefully instead of using a bad value.
+	 *
+	 * @param mixed $value
+	 * @return string|false Plaintext, or false when an encrypted value cannot be decrypted.
+	 */
+	public static function decrypt_secret($value)
+	{
+		if (!is_string($value) || $value === '') {
+			return '';
+		}
+
+		if (!self::is_encrypted_secret($value)) {
+			// Legacy plaintext value.
+			return $value;
+		}
+
+		if (!function_exists('openssl_decrypt')) {
+			return false;
+		}
+
+		$raw = base64_decode(substr($value, strlen(self::SECRET_ENC_PREFIX)), true);
+		if ($raw === false || strlen($raw) < 12 + 16 + 1) {
+			return false;
+		}
+
+		$iv         = substr($raw, 0, 12);
+		$tag        = substr($raw, 12, 16);
+		$ciphertext = substr($raw, 28);
+
+		$key = self::secret_crypto_key();
+		$plaintext = openssl_decrypt($ciphertext, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+
+		if ($plaintext === false) {
+			return false;
+		}
+
+		return $plaintext;
+	}
+
+	/**
+	 * Get the decrypted whitelabel settings password.
+	 *
+	 * Reads the stored (encrypted) value and returns the plaintext for
+	 * verification or authorized display. A legacy plaintext value found in
+	 * storage is migrated to the encrypted format in place (one-time migration
+	 * on read). Returns '' when no password is set or when an encrypted value
+	 * can no longer be decrypted (salts changed / corrupt) — in that case the
+	 * stored value still counts as "password set" for protection checks, but
+	 * the user password cannot authenticate until it is reset.
+	 *
+	 * @return string
+	 */
+	public static function get_whitelabel_password()
+	{
+		$whitelabel = self::get_whitelabel_settings();
+		$stored = $whitelabel['settings_password'] ?? '';
+
+		if (!is_string($stored) || $stored === '') {
+			return '';
+		}
+
+		// One-time migration: encrypt a legacy plaintext value in place.
+		// This is a whole-blob read-modify-write of metasync_options during a
+		// read request; a concurrent settings save could theoretically clobber
+		// it, but it fires at most once per legacy install so the window is
+		// accepted rather than adding a dedicated option.
+		if (!self::is_encrypted_secret($stored)) {
+			$encrypted = self::encrypt_secret($stored);
+			if (self::is_encrypted_secret($encrypted)) {
+				$options = self::get_option();
+				if (!is_array($options)) {
+					$options = [];
+				}
+				$options['whitelabel']['settings_password'] = $encrypted;
+				self::set_option($options);
+			}
+			return $stored;
+		}
+
+		$plaintext = self::decrypt_secret($stored);
+		return $plaintext === false ? '' : $plaintext;
 	}
 
 	/**

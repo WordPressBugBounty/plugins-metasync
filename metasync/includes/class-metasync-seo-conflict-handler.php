@@ -137,6 +137,59 @@ class Metasync_SEO_Conflict_Handler {
             || is_plugin_active('seo-by-rankmath/rank-math.php');
     }
 
+    /**
+     * WP-551: Whether an active third-party SEO plugin actually holds a
+     * non-empty meta description for this post in its OWN storage.
+     *
+     * The native-first (WP-196) output guards previously stood down whenever a
+     * sync timestamp (_metasync_plugin_sync_ts) existed, assuming the plugin
+     * would render the description. But a stale or partial sync leaves the
+     * plugin's field empty — MetaSync suppresses its own tag, the plugin has
+     * nothing to emit, and the description is dropped entirely. Callers use this
+     * to only defer when the plugin can genuinely output a description.
+     *
+     * @param int $post_id Post ID.
+     * @return bool True if the active/primary SEO plugin has a description.
+     */
+    public function active_plugin_has_description($post_id) {
+        $post_id = (int) $post_id;
+        if ($post_id <= 0) {
+            return false;
+        }
+
+        $this->ensure_plugin_api();
+
+        // Yoast (free or premium)
+        if (is_plugin_active('wordpress-seo/wp-seo.php') || is_plugin_active('wordpress-seo-premium/wp-seo-premium.php')) {
+            if (!empty(get_post_meta($post_id, '_yoast_wpseo_metadesc', true))) {
+                return true;
+            }
+        }
+
+        // Rank Math
+        if (is_plugin_active('seo-by-rank-math/rank-math.php') || is_plugin_active('seo-by-rankmath/rank-math.php')) {
+            if (!empty(get_post_meta($post_id, 'rank_math_description', true))) {
+                return true;
+            }
+        }
+
+        // AIOSEO stores its description in a custom table, not post meta.
+        if ($this->is_aioseo_active()) {
+            global $wpdb;
+            // Defensive: $wpdb is always present on a booted frontend, but never
+            // assume — a method call on a null/!object $wpdb would be fatal.
+            if (isset($wpdb) && is_object($wpdb)) {
+                $table = $wpdb->prefix . 'aioseo_posts';
+                $desc = $wpdb->get_var($wpdb->prepare("SELECT description FROM {$table} WHERE post_id = %d", $post_id));
+                if (!empty($desc)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     // ------------------------------------------------------------------
     // MetaSync description resolution
     // ------------------------------------------------------------------
@@ -209,6 +262,38 @@ class Metasync_SEO_Conflict_Handler {
         }
 
         return '';
+    }
+
+    /**
+     * Resolve the MetaSync-managed canonical URL for a post, if any.
+     *
+     * Priority: OTTO persisted canonical (_metasync_canonical_url) → Canonical meta
+     * box value (meta_canonical). Restricted to singular views so term/archive
+     * queried-object ids are never misread as post ids. Mirrors the fallback in
+     * Metasync_Seo_Output::get_canonical_url() so both the no-SEO-plugin path and
+     * the third-party-plugin path honor the same value (WP-544).
+     *
+     * @param int $post_id Current object id.
+     * @return string Escaped canonical URL, or '' when none is set.
+     */
+    private function get_metasync_canonical($post_id) {
+        if (!$post_id || !is_singular()) {
+            return '';
+        }
+
+        $canonical = get_post_meta($post_id, '_metasync_canonical_url', true);
+        if (empty($canonical)) {
+            $legacy = get_post_meta($post_id, 'meta_canonical', true);
+            // Repair legacy values stored as arrays by sanitize_array()
+            if (is_array($legacy)) {
+                $legacy = reset($legacy) ?: '';
+            }
+            if (!empty($legacy)) {
+                $canonical = $legacy;
+            }
+        }
+
+        return !empty($canonical) ? esc_url($canonical) : '';
     }
 
     /**
@@ -332,6 +417,20 @@ class Metasync_SEO_Conflict_Handler {
 
         // Suppress AIOSEO schema/JSON-LD when OTTO has structured data
         add_filter('aioseo_schema_output', [$this, 'filter_aioseo_schema'], 999);
+
+        // Canonical — override AIOSEO's canonical with the MetaSync/OTTO value when set
+        add_filter('aioseo_canonical_url', [$this, 'filter_aioseo_canonical'], 999);
+    }
+
+    /**
+     * Filter AIOSEO's canonical URL.
+     *
+     * Mirrors filter_yoast_canonical(): return the MetaSync-managed canonical
+     * (OTTO or the Canonical meta box) when set, else pass AIOSEO's through. (WP-544)
+     */
+    public function filter_aioseo_canonical($canonical) {
+        $custom = $this->get_metasync_canonical($this->get_current_object_id());
+        return $custom !== '' ? $custom : $canonical;
     }
 
     /**
@@ -751,6 +850,22 @@ class Metasync_SEO_Conflict_Handler {
 
         // Suppress Yoast schema/JSON-LD when OTTO has structured data
         add_filter('wpseo_schema_graph', [$this, 'filter_yoast_schema'], 999);
+
+        // Canonical — override Yoast's canonical with the MetaSync/OTTO value when set
+        add_filter('wpseo_canonical', [$this, 'filter_yoast_canonical'], 999);
+    }
+
+    /**
+     * Filter Yoast's canonical URL.
+     *
+     * When a MetaSync-managed canonical exists (OTTO or the Canonical meta box),
+     * return it so Yoast emits our value instead of its own — avoiding a duplicate
+     * <link rel="canonical"> while still honoring the per-post override (WP-544).
+     * Otherwise let Yoast's canonical through unchanged.
+     */
+    public function filter_yoast_canonical($canonical) {
+        $custom = $this->get_metasync_canonical($this->get_current_object_id());
+        return $custom !== '' ? $custom : $canonical;
     }
 
     /**
@@ -974,6 +1089,20 @@ class Metasync_SEO_Conflict_Handler {
 
         // Suppress RankMath schema/JSON-LD when OTTO has structured data
         add_filter('rank_math/json_ld', [$this, 'filter_rankmath_schema'], 999);
+
+        // Canonical — override RankMath's canonical with the MetaSync/OTTO value when set
+        add_filter('rank_math/frontend/canonical', [$this, 'filter_rankmath_canonical'], 999);
+    }
+
+    /**
+     * Filter RankMath's canonical URL.
+     *
+     * Mirrors filter_yoast_canonical(): return the MetaSync-managed canonical
+     * (OTTO or the Canonical meta box) when set, else pass RankMath's through. (WP-544)
+     */
+    public function filter_rankmath_canonical($canonical) {
+        $custom = $this->get_metasync_canonical($this->get_current_object_id());
+        return $custom !== '' ? $custom : $canonical;
     }
 
     /**

@@ -27,11 +27,30 @@ if (!defined('ABSPATH')) {
 		width: 2.2em;
 	}
 
+	/* NOTE: render_tab_content() in includes/class-metasync-redirections-admin.php always
+	   renders both the Redirections and 404 Monitor tab markup into the page (JS just
+	   toggles which one is visible), so this view's <style> block and
+	   views/metasync-404-monitor.php's both land in the DOM together. Keep their
+	   .check-column rules identical, or whichever one is later in source order silently
+	   wins the cascade and undoes the other's fix. */
 	.wrap .wp-list-table th.check-column,
 	.wrap .wp-list-table td.check-column {
 		width: 2.2em;
-		padding: 8px 0 0 3px;
+	}
+
+	/* Header/footer checkbox cell only ever holds a single-line label, so centring it works. */
+	.wrap .wp-list-table td.check-column {
+		padding: 0 0 0 3px;
 		vertical-align: middle;
+	}
+
+	/* Row checkbox cells sit next to columns that can wrap onto multiple lines (e.g. "From"
+	   plus its pattern-type badge). Centring against the whole (taller) row pushes the
+	   checkbox below the first line of text, so align it to the top like the other columns
+	   and nudge it down just enough to sit level with that first line instead. */
+	.wrap .wp-list-table th.check-column {
+		padding: 9px 0 0 3px;
+		vertical-align: top;
 	}
 
 	.wrap .wp-list-table th.check-column input[type="checkbox"],
@@ -39,6 +58,14 @@ if (!defined('ABSPATH')) {
 		margin: 0;
 		padding: 0;
 		vertical-align: middle;
+	}
+
+	/* The header/footer cell's row height is computed from the sortable column links'
+	   padding and rounds ~1px taller than the checkbox's own box, so vertical-align:
+	   middle alone still lands it a hair below the column label text. Nudge it up to
+	   sit pixel-level centred (measured against "From" in a real browser). */
+	.wrap .wp-list-table td.check-column input[type="checkbox"] {
+		transform: translateY(-1px);
 	}
 
 	.column-sources_from {
@@ -831,7 +858,7 @@ if (!defined('ABSPATH')) {
 		<form method="post" style="display: flex; align-items: center; gap: 12px; margin: 0;">
 			<?php wp_nonce_field('metasync_external_redirects_toggle', '_metasync_external_nonce'); ?>
 			<label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--dashboard-text-primary, #fff); font-weight: 500;">
-				<input type="checkbox" name="metasync_allow_external_redirects" value="1" <?php checked($allow_external_current, 1); ?> onchange="this.form.submit();" style="width: 16px; height: 16px;">
+				<input type="checkbox" name="metasync_allow_external_redirects" value="1" <?php checked($allow_external_current, 1); ?> onchange="this.form.submit();" style="width: 16px; height: 16px; margin: 0; flex-shrink: 0;">
 				Allow External Redirects
 			</label>
 			<input type="hidden" name="metasync_save_external_redirects" value="1">

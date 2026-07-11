@@ -413,7 +413,7 @@ $stats = $importer->get_import_stats();
 
     <div class="metasync-import-header">
         <h2 class="metasync-import-header__title">Import Redirections from SEO Plugins</h2>
-        <p class="metasync-import-header__description">Import existing redirections from popular SEO plugins. MetaSync will automatically detect and import redirections while avoiding duplicates.</p>
+        <p class="metasync-import-header__description">Import existing redirections from popular SEO plugins. <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> will automatically detect and import redirections while avoiding duplicates.</p>
     </div>
 
     <div class="metasync-import-stats">

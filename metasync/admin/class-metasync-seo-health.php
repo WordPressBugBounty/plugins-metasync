@@ -167,6 +167,10 @@ class Metasync_SEO_Health
 		foreach ($meta_keys as $meta_key => $source) {
 			$value = get_post_meta($post_id, $meta_key, true);
 			if (!empty($value)) {
+				// White-label the OTTO source label at render time (const values stay literal).
+				if ($source === 'OTTO') {
+					$source = Metasync::get_whitelabel_otto_name();
+				}
 				return array('value' => $value, 'source' => $source);
 			}
 		}
@@ -325,13 +329,17 @@ class Metasync_SEO_Health
 
 		$post_types = self::get_supported_post_types();
 
-		// Fetch all post IDs in one query
+		// Fetch all post IDs in one query. Exclude custom/LPS pages so the score
+		// percentages below reflect only WordPress-managed pages (WP-458) — they
+		// carry self-contained SEO in their HTML, not WP post meta, and would
+		// otherwise drag every percentage down as false "not set".
 		$query = new WP_Query(array(
 			'post_type'      => $post_types,
 			'post_status'    => array('publish', 'draft'),
 			'posts_per_page' => -1,
 			'fields'         => 'ids',
 			'no_found_rows'  => true,
+			'meta_query'     => array(metasync_get_custom_page_exclusion_meta_query()),
 		));
 
 		$post_ids = $query->posts;
@@ -436,6 +444,9 @@ class Metasync_SEO_Health
 		if (!empty($search)) {
 			$args['s'] = $search;
 		}
+
+		// Exclude custom/LPS pages so the export matches the on-screen table (WP-458).
+		$args['meta_query'] = array(metasync_get_custom_page_exclusion_meta_query());
 
 		$query = new WP_Query($args);
 

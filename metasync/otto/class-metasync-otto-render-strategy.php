@@ -28,6 +28,22 @@ class Metasync_Otto_Render_Strategy {
     const METHOD_WP_ROCKET = 'rocket_buffer';
 
     /**
+     * WP-488: Memory amplification factor for SimpleHtmlDom.
+     * Parsing a page into a SimpleHtmlDom node tree costs ~18x the raw HTML
+     * size, and the save()/load() reload cycle adds another ~40% transient
+     * peak. We budget 25x to keep a safety margin before the PHP memory limit.
+     */
+    const DOM_MEMORY_AMPLIFICATION = 25;
+
+    /**
+     * WP-488: Absolute hard cap (bytes) on documents OTTO will DOM-parse,
+     * regardless of available memory. Backstop against pathological pages.
+     * Default 16 MB; override with the METASYNC_OTTO_MAX_HTML_BYTES constant
+     * or the 'metasync_otto_max_html_bytes' filter.
+     */
+    const ABSOLUTE_MAX_DOCUMENT_BYTES = 16777216;
+
+    /**
      * Current render method being used
      */
     private static $current_method = null;
@@ -268,6 +284,79 @@ class Metasync_Otto_Render_Strategy {
         }
 
         return $value;
+    }
+
+    /**
+     * WP-488: Resolve the configurable absolute document-size cap (bytes).
+     *
+     * @return int Maximum document size in bytes (0 disables the absolute cap)
+     */
+    public static function get_max_document_bytes() {
+        $cap = defined('METASYNC_OTTO_MAX_HTML_BYTES')
+            ? (int) METASYNC_OTTO_MAX_HTML_BYTES
+            : self::ABSOLUTE_MAX_DOCUMENT_BYTES;
+
+        # Allow per-site tuning via filter (e.g. higher cap on large-memory hosts)
+        if (function_exists('apply_filters')) {
+            $cap = (int) apply_filters('metasync_otto_max_html_bytes', $cap);
+        }
+
+        return max(0, $cap);
+    }
+
+    /**
+     * WP-488: Decide whether a document is safe to DOM-parse without risking
+     * a fatal out-of-memory error.
+     *
+     * Combines a configurable absolute byte cap with a dynamic check against
+     * the actual memory headroom (memory_limit minus current usage), budgeting
+     * DOM_MEMORY_AMPLIFICATION times the HTML size for the parse + reload cycle.
+     *
+     * @param int $html_length Length of the raw HTML in bytes
+     * @return bool True if processing is safe, false if it should be skipped
+     */
+    public static function is_document_processable($html_length) {
+        $html_length = (int) $html_length;
+
+        if ($html_length <= 0) {
+            return false;
+        }
+
+        # 1. Absolute configurable cap (backstop against pathological pages)
+        $max = self::get_max_document_bytes();
+        if ($max > 0 && $html_length > $max) {
+            return false;
+        }
+
+        # 2. Dynamic memory budget — adapts to the host's memory_limit
+        $limit = self::get_memory_limit_bytes();
+        if ($limit === PHP_INT_MAX) {
+            return true; # Unlimited memory_limit (-1)
+        }
+
+        $available = $limit - memory_get_usage(true);
+        $needed    = $html_length * self::DOM_MEMORY_AMPLIFICATION;
+
+        return $needed < $available;
+    }
+
+    /**
+     * WP-488: Log a skipped oversized document once per request (warning, not fatal).
+     *
+     * @param string $context Where the skip happened (for the log line)
+     * @param int    $html_length Raw HTML length in bytes
+     */
+    public static function log_oversized_skip($context, $html_length) {
+        $route = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : 'unknown';
+        error_log(sprintf(
+            '[MetaSync OTTO] Skipped DOM processing on %s (%s): document %s exceeds safe memory budget (limit %s, used %s, cap %s).',
+            $route,
+            $context,
+            size_format($html_length),
+            ini_get('memory_limit'),
+            size_format(memory_get_usage(true)),
+            size_format(self::get_max_document_bytes())
+        ));
     }
 
     /**

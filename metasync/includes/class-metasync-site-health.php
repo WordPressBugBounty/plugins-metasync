@@ -226,7 +226,7 @@ class Metasync_Site_Health
 
 			// Failed Actions Health Check
 			$tests['direct']['metasync_failed_actions'] = [
-				'label' => __('MetaSync Failed Actions'),
+				'label' => sprintf(__('%s Failed Actions'), Metasync::get_effective_plugin_name()),
 				'test'  => [$this, 'failed_actions_check']
 			];
 
@@ -365,7 +365,7 @@ class Metasync_Site_Health
 				'label' => __('WordPress cron queue is excessively large'),
 				'status' => 'critical',
 				'badge' => [
-					'label' => __('MetaSync'),
+					'label' => Metasync::get_effective_plugin_name(),
 					'color' => 'red'
 				],
 				'description' => sprintf(
@@ -417,7 +417,7 @@ class Metasync_Site_Health
 			$truncated ? sprintf(__('%d+'), $one_time_count) : number_format($one_time_count),
 			__('Total scheduled events (recurring):'),
 			$recurring_count,
-			__('MetaSync pending jobs:'),
+			sprintf(__('%s pending jobs:'), Metasync::get_effective_plugin_name()),
 			$metasync_count
 		);
 		
@@ -446,10 +446,12 @@ class Metasync_Site_Health
 			if ($metasync_count > 500) {
 				$description .= sprintf(
 					'<p><strong>%s</strong> %s</p>',
-					__('MetaSync Contribution:'),
+					sprintf(__('%s Contribution:'), Metasync::get_effective_plugin_name()),
 					sprintf(
-						__('MetaSync has %s pending OTTO SEO processing jobs. This may indicate high crawl volume from OTTO or slow processing. Consider reviewing OTTO crawl settings if this number continues to grow.'),
-						number_format($metasync_count)
+						__('%1$s has %2$s pending %3$s SEO processing jobs. This may indicate high crawl volume from %3$s or slow processing. Consider reviewing %3$s crawl settings if this number continues to grow.'),
+						Metasync::get_effective_plugin_name(),
+						number_format($metasync_count),
+						Metasync::get_whitelabel_otto_name()
 					)
 				);
 			}
@@ -483,7 +485,7 @@ class Metasync_Site_Health
 			'label' => $label,
 			'status' => $status,
 			'badge' => [
-				'label' => __('MetaSync'),
+				'label' => Metasync::get_effective_plugin_name(),
 				'color' => $status === 'good' ? 'green' : 'red'
 			],
 			'description' => $description,
@@ -602,7 +604,7 @@ class Metasync_Site_Health
 				'label' => __('PHP memory limit is unlimited'),
 				'status' => 'good',
 				'badge' => [
-					'label' => __('MetaSync'),
+					'label' => Metasync::get_effective_plugin_name(),
 					'color' => 'green'
 				],
 				'description' => sprintf(
@@ -730,7 +732,7 @@ class Metasync_Site_Health
 			'label' => $label,
 			'status' => $status,
 			'badge' => [
-				'label' => __('MetaSync'),
+				'label' => Metasync::get_effective_plugin_name(),
 				'color' => $status === 'critical' ? 'red' : 'green'
 			],
 			'description' => $description,
@@ -815,7 +817,7 @@ class Metasync_Site_Health
 			'<li>%s <strong>%d</strong></li>' .
 			'<li>%s</li>' .
 			'</ul>',
-			__('OTTO API Rate Limit Statistics (last 24 hours):'),
+			sprintf(__('%s API Rate Limit Statistics (last 24 hours):'), Metasync::get_whitelabel_otto_name()),
 			__('HTTP 429 responses received:'),
 			$hits,
 			$last_hit_text
@@ -824,7 +826,7 @@ class Metasync_Site_Health
 		if ($status === 'good') {
 			$description .= sprintf(
 				'<p><em>%s</em></p>',
-				__('The OTTO API is responding normally. No action required.')
+				sprintf(__('The %s API is responding normally. No action required.'), Metasync::get_whitelabel_otto_name())
 			);
 		} else {
 			$description .= sprintf(
@@ -835,11 +837,11 @@ class Metasync_Site_Health
 				'<li>%s</li>' .
 				'<li>%s</li>' .
 				'</ul>',
-				__('Frequent rate limiting can degrade OTTO SEO data delivery on your site.'),
+				sprintf(__('Frequent rate limiting can degrade %s SEO data delivery on your site.'), Metasync::get_whitelabel_otto_name()),
 				__('Recommended Actions:'),
-				__('Review your OTTO crawl frequency settings in the SearchAtlas dashboard to reduce request volume.'),
-				__('Check if multiple server processes are triggering OTTO jobs simultaneously.'),
-				__('Contact SearchAtlas support if rate limiting persists despite low crawl volume.')
+				sprintf(__('Review your %1$s crawl frequency settings in the %2$s dashboard to reduce request volume.'), Metasync::get_whitelabel_otto_name(), Metasync::get_effective_plugin_name()),
+				sprintf(__('Check if multiple server processes are triggering %s jobs simultaneously.'), Metasync::get_whitelabel_otto_name()),
+				sprintf(__('Contact %s support if rate limiting persists despite low crawl volume.'), Metasync::get_effective_plugin_name())
 			);
 
 			$description .= sprintf(
@@ -853,7 +855,7 @@ class Metasync_Site_Health
 			'label'       => $label,
 			'status'      => $status,
 			'badge'       => [
-				'label' => __('MetaSync'),
+				'label' => Metasync::get_effective_plugin_name(),
 				'color' => $status === 'critical' ? 'red' : ( $status === 'recommended' ? 'orange' : 'green' ),
 			],
 			'description' => $description,
@@ -915,7 +917,7 @@ class Metasync_Site_Health
 				'label'       => __('Debug mode is disabled'),
 				'status'      => 'good',
 				'badge'       => [
-					'label' => __('MetaSync'),
+					'label' => Metasync::get_effective_plugin_name(),
 					'color' => 'green',
 				],
 				'description' => sprintf(
@@ -993,7 +995,7 @@ class Metasync_Site_Health
 			'label'       => $label,
 			'status'      => 'recommended',
 			'badge'       => [
-				'label' => __('MetaSync'),
+				'label' => Metasync::get_effective_plugin_name(),
 				'color' => 'orange',
 			],
 			'description' => $description,
@@ -1052,15 +1054,15 @@ class Metasync_Site_Health
 				'value' => $max_exec,
 			],
 			'perf_otto_request_timeout' => [
-				'label' => __( 'Performance - OTTO API Request Timeout' ),
+				'label' => sprintf(__('Performance - %s API Request Timeout'), Metasync::get_whitelabel_otto_name()),
 				'value' => '30s',
 			],
 			'perf_otto_cache_ttl' => [
-				'label' => __( 'Performance - OTTO Suggestions Cache TTL' ),
+				'label' => sprintf(__('Performance - %s Suggestions Cache TTL'), Metasync::get_whitelabel_otto_name()),
 				'value' => $otto_cache_ttl_val,
 			],
 			'perf_otto_max_calls' => [
-				'label' => __( 'Performance - OTTO Max API Calls/Min' ),
+				'label' => sprintf(__('Performance - %s Max API Calls/Min'), Metasync::get_whitelabel_otto_name()),
 				'value' => Metasync_Otto_Transient_Cache::MAX_API_CALLS_PER_MINUTE,
 			],
 			'perf_telemetry_queue_max' => [
@@ -1139,12 +1141,13 @@ class Metasync_Site_Health
 		if ( $count > self::FAILED_ACTIONS_THRESHOLD ) {
 			$status = 'recommended';
 			$label  = sprintf(
-				__( 'MetaSync has %d failed SEO processing actions in the last 24 hours' ),
+				__( '%s has %d failed SEO processing actions in the last 24 hours' ),
+				Metasync::get_effective_plugin_name(),
 				$count
 			);
 		} else {
 			$status = 'good';
-			$label  = __( 'MetaSync SEO action queue is healthy' );
+			$label  = sprintf(__('%s SEO action queue is healthy'), Metasync::get_effective_plugin_name());
 		}
 
 		$description = sprintf(
@@ -1153,8 +1156,8 @@ class Metasync_Site_Health
 			'<li>%s <strong>%d</strong></li>' .
 			'<li>%s</li>' .
 			'</ul>',
-			__( 'MetaSync Failed Actions Statistics (last 24 hours):' ),
-			__( 'Failed OTTO SEO processing jobs:' ),
+			sprintf(__('%s Failed Actions Statistics (last 24 hours):'), Metasync::get_effective_plugin_name()),
+			sprintf(__('Failed %s SEO processing jobs:'), Metasync::get_whitelabel_otto_name()),
 			$count,
 			$last_hit_text
 		);
@@ -1162,7 +1165,7 @@ class Metasync_Site_Health
 		if ( $status === 'good' ) {
 			$description .= sprintf(
 				'<p><em>%s</em></p>',
-				__( 'OTTO SEO processing jobs are completing successfully. No action required.' )
+				sprintf(__('%s SEO processing jobs are completing successfully. No action required.'), Metasync::get_whitelabel_otto_name())
 			);
 		} else {
 			$description .= sprintf(
@@ -1173,9 +1176,9 @@ class Metasync_Site_Health
 				'<li>%s</li>' .
 				'</ul>',
 				__( 'Recommended Actions:' ),
-				__( 'Check your SearchAtlas API connection in MetaSync → Settings.' ),
-				__( 'Review your PHP error log for OTTO processing exceptions.' ),
-				__( 'Verify your OTTO UUID is correctly configured and the SearchAtlas API is reachable.' )
+				sprintf(__('Check your %1$s API connection in %1$s → Settings.'), Metasync::get_effective_plugin_name()),
+				sprintf(__('Review your PHP error log for %s processing exceptions.'), Metasync::get_whitelabel_otto_name()),
+				sprintf(__('Verify your %1$s UUID is correctly configured and the %2$s API is reachable.'), Metasync::get_whitelabel_otto_name(), Metasync::get_effective_plugin_name())
 			);
 
 			$description .= sprintf(
@@ -1190,7 +1193,7 @@ class Metasync_Site_Health
 			'label'       => $label,
 			'status'      => $status,
 			'badge'       => [
-				'label' => __( 'MetaSync' ),
+				'label' => Metasync::get_effective_plugin_name(),
 				'color' => $status === 'recommended' ? 'orange' : 'green',
 			],
 			'description' => $description,

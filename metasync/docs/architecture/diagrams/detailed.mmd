@@ -1,0 +1,61 @@
+flowchart LR
+  subgraph Legend["Legend"]
+    LG["solid=sync request/hook; dashed=async cron/job; read/write labels=store direction; cloud=external service"]
+  end
+
+  subgraph Runtime["WordPress runtime"]
+    WP["WordPress runtime<br/>metasync.php:565<br/>metasync.php::run_metasync"]
+    B["Plugin bootstrap<br/>metasync.php::run_metasync"]
+    L["Hook loader<br/>includes/class-metasync.php::Metasync.__construct"]
+  end
+
+  subgraph Ingress["Ingress surfaces"]
+    R["REST/AJAX APIs<br/>public/class-metasync-rest-api.php:293<br/>public/class-metasync-rest-api.php::Metasync_Rest_Api.metasync_register_rest_routes"]
+    MCP["MCP REST server<br/>wp-mcp-server/class-metasync-mcp-server.php::Metasync_MCP_Server.register_rest_routes"]
+    CP["Custom Pages API<br/>custom-pages/class-metasync-custom-pages-api.php::Metasync_Custom_Pages_API.register_routes"]
+    FR["Frontend SEO/render hooks<br/>includes/class-metasync.php::Metasync.define_public_hooks"]
+  end
+
+  subgraph Work["Jobs and processors"]
+    J["WP-Cron jobs<br/>includes/class-metasync.php::Metasync.define_admin_hooks"]
+    HB["Heartbeat scheduler<br/>includes/class-metasync-heartbeat-manager.php:1058<br/>includes/class-metasync-heartbeat-manager.php::Metasync_Heartbeat_Manager.maybe_schedule_heartbeat_cron"]
+    OTTO["OTTO crawl/SEO jobs<br/>otto/otto_pixel.php::metasync_handle_otto_crawl_url_job"]
+    MEDIA["Media batch optimizer<br/>media-optimization/class-media-batch-optimizer.php::Metasync_Media_Batch_Optimizer.start_batch"]
+  end
+
+  subgraph State["WordPress state"]
+    S[("WP DB: options, postmeta, custom tables<br/>database/class-db-migrations.php::MetaSync_DBMigration.run_migrations")]
+    CACHE[("Transients/object cache<br/>includes/class-metasync-api-backoff-manager.php::Metasync_API_Backoff_Manager.is_endpoint_in_backoff")]
+    FILES[("Sitemap/cache/media files<br/>metasync.php::metasync_migrate_physical_sitemaps")]
+  end
+
+  subgraph External["External providers"]
+    E[("Search Atlas APIs<br/>includes/class-metasync-heartbeat-manager.php::Metasync_Heartbeat_Manager.execute_heartbeat_cron_check")]
+    IDX[("Bing/Google indexing APIs<br/>google-index/google-index-init.php::google_index_url")]
+    TLM[("Sentry/GA4 telemetry<br/>telemetry/sentry-wordpress-integration.php::MetaSync_Sentry_WordPress.sendToSentry")]
+  end
+
+  WP --> B
+  B --> L
+  L --> R
+  L --> FR
+  L -.-> J
+  R --> S
+  FR --> S
+  J -.-> S
+  R --> MCP
+  MCP --> M["MCP registry<br/>wp-mcp-server/class-mcp-tool-registry.php::MCP_Tool_Registry.execute_tool"]
+  M --> S
+  R --> CP
+  CP --> S
+  J -.-> HB
+  HB -.-> E
+  J -.-> OTTO
+  OTTO -.-> S
+  OTTO -.-> E
+  J -.-> MEDIA
+  MEDIA -.-> FILES
+  R --> CACHE
+  FR --> CACHE
+  FR --> IDX
+  FR --> TLM

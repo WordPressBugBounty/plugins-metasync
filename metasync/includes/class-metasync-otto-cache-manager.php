@@ -428,6 +428,15 @@ class Metasync_Otto_Cache_Manager
             try {
                 $result = Metasync_Otto_Transient_Cache::clear_all_transients();
                 $redirect_url .= '&otto_cache_cleared=1&count=' . $result['cleared_count'];
+
+                # WP-463: Clearing the OTTO suggestions transient is not enough on its
+                # own. The OTTO-modified HTML (e.g. an injected hidden H1 from a module
+                # that has since been unapproved in the dashboard) is frozen in the host
+                # page cache and any edge CDN. Until those layers are purged, PHP never
+                # re-renders the page, so the stale injection keeps serving even though
+                # the suggestions cache is now empty. Purge the page caches too so the
+                # next request regenerates with the current (clean) OTTO state.
+                self::purge_page_caches_all();
             } catch (Exception $e) {
                 error_log('MetaSync OTTO Cache Clear Error: ' . $e->getMessage());
                 $redirect_url .= '&otto_cache_error=1&message=' . urlencode('An error occurred while clearing the OTTO cache. Please try again.');
@@ -473,6 +482,13 @@ class Metasync_Otto_Cache_Manager
 
                 if ($result['success']) {
                     $redirect_url .= '&otto_cache_cleared=1&count=' . $result['cleared_count'] . '&url=' . urlencode($url);
+
+                    # WP-463: Also purge the host page cache and edge CDN for this URL so
+                    # the frozen OTTO-modified HTML (e.g. a hidden injected H1 from a module
+                    # unapproved in the dashboard) is regenerated. Clearing the suggestions
+                    # transient alone leaves the stale HTML live in the page cache because
+                    # PHP never re-renders the cached page.
+                    self::purge_page_caches_for_url($url);
                 } else {
                     $redirect_url .= '&otto_cache_error=1&message=' . urlencode($result['message']);
                 }
@@ -488,6 +504,66 @@ class Metasync_Otto_Cache_Manager
 
         wp_safe_redirect($redirect_url);
         exit;
+    }
+
+    // ------------------------------------------------------------------
+    //  Page-cache propagation (WP-463)
+    // ------------------------------------------------------------------
+
+    /**
+     * Purge the host page cache and edge CDN after clearing OTTO suggestions
+     * for a single URL.
+     *
+     * Clearing the OTTO suggestions transient only invalidates the data layer.
+     * The rendered, OTTO-modified HTML is still frozen in the host page cache
+     * (WP Rocket, Kinsta/WP Engine FastCGI, etc.) and any edge CDN, so PHP never
+     * re-runs and the stale injection keeps serving. Purging both page layers
+     * forces a clean regeneration on the next request.
+     *
+     * Unlike the crawl-notify webhook (which defers the same purge to a
+     * background job because it runs under a strict response-time budget), this
+     * is a deliberate, user-initiated admin action, so the purge runs inline —
+     * the admin expects to wait for the clear to complete. The purge is not
+     * followed by a warm: the goal here is to drop stale OTTO HTML, not to
+     * pre-populate fresh content, so a cold cache that repopulates on the next
+     * request is the desired outcome.
+     *
+     * @param string $url Absolute URL whose page caches should be purged.
+     * @return void
+     */
+    public static function purge_page_caches_for_url($url)
+    {
+        if (class_exists('Metasync_Cache_Purge')) {
+            Metasync_Cache_Purge::purge_single_url($url);
+        }
+        if (class_exists('Metasync_Edge_Cache_Purge')) {
+            Metasync_Edge_Cache_Purge::purge(array($url));
+        }
+    }
+
+    /**
+     * Purge all host page caches and trigger edge CDN flush after clearing every
+     * OTTO suggestions transient.
+     *
+     * Edge coverage caveat: full-flush providers (Sucuri/Sevalla/Cloudways, etc.)
+     * ignore the URL list and clear everything, so the home-URL sentinel below is
+     * enough to fire them. Tag-based providers (Cloudflare/Fastly/Akamai), however,
+     * purge per-URL/per-tag — passing only the home URL purges just the homepage on
+     * those CDNs. The host page cache is still flushed site-wide by purge_all(), so
+     * the stale OTTO HTML is gone at the origin; on tag-based CDNs, non-home pages
+     * clear on their normal TTL. Clearing a specific page's CDN entry immediately is
+     * what the per-URL "Clear Cache for URL" action is for.
+     *
+     * @return void
+     */
+    public static function purge_page_caches_all()
+    {
+        if (class_exists('Metasync_Cache_Purge')) {
+            Metasync_Cache_Purge::purge_all('otto_manual_clear');
+        }
+        if (class_exists('Metasync_Edge_Cache_Purge')) {
+            Metasync_Edge_Cache_Purge::purge(array(home_url('/')));
+        }
     }
 
     // ------------------------------------------------------------------

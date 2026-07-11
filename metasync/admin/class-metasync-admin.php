@@ -371,6 +371,7 @@ class Metasync_Admin
         add_action('wp_ajax_metasync_bulk_optimize_selected', array($this, 'ajax_bulk_optimize_selected'));
         add_action('wp_ajax_metasync_bulk_unoptimize_selected', array($this, 'ajax_bulk_unoptimize_selected'));
         add_action('wp_ajax_metasync_process_batch_tick', array($this, 'ajax_process_batch_tick'));
+        add_action('wp_ajax_metasync_delete_orphaned_image', array($this, 'ajax_delete_orphaned_image'));
         add_action('metasync_media_batch_optimize_cron', array($this, 'handle_media_batch_cron'));
 
         # Add AJAX handlers for Google Instant Indexing
@@ -492,15 +493,121 @@ class Metasync_Admin
             return;
         }
         ?>
-        <style>.metasync-dashboard-wrap { opacity: 0; transition: opacity 0.15s ease-in; }</style>
+        <style>
+            .metasync-dashboard-wrap { opacity: 0; transition: opacity 0.15s ease-in; }
+            /*
+             * WP prints admin notices at the top of #wpbody-content, then core's
+             * common.js relocates them next to .wp-header-end inside our wrap on
+             * DOM-ready. Keep them out of the flow until that move so they don't
+             * flash above the dashboard header and shove the page down (WP-496).
+             * Once relocated they're no longer a direct child here, so this rule
+             * stops matching and they fade in with the wrap. We mirror core's
+             * relocation set exactly (.notice/.updated/.error, minus .inline and
+             * .below-h2); .update-nag is left alone since core never moves it.
+             */
+            #wpbody-content > .notice:not(.inline):not(.below-h2),
+            #wpbody-content > .updated:not(.inline):not(.below-h2),
+            #wpbody-content > .error:not(.inline):not(.below-h2) { display: none !important; }
+        </style>
         <?php
     }
 
     public function suppress_notices_on_wizard_page() {
-        if ( isset( $_GET['page'] ) && strpos( $_GET['page'], '-setup-wizard' ) !== false ) {
+        if ( ! isset( $_GET['page'] ) ) {
+            return;
+        }
+
+        $page = sanitize_text_field( wp_unslash( $_GET['page'] ) );
+
+        // Setup wizard: strip every notice for a fully focused, distraction-free screen.
+        if ( strpos( $page, '-setup-wizard' ) !== false ) {
             remove_all_actions( 'admin_notices' );
             remove_all_actions( 'all_admin_notices' );
+            return;
         }
+
+        // Other Search Atlas plugin pages: strip third-party notices but keep our own.
+        if ( strpos( $page, self::$page_slug ) === 0 ) {
+            $this->remove_third_party_admin_notices();
+        }
+    }
+
+    /**
+     * Remove admin-notice callbacks that don't belong to this plugin.
+     *
+     * Third-party plugins (e.g. Rank Math, Yoast) register their banners on the
+     * global admin_notices / all_admin_notices actions, which WordPress fires on
+     * every admin screen — so their notices leak onto our settings pages. We walk
+     * the registered callbacks and drop any whose code lives outside this plugin's
+     * directory, leaving every one of our own notices intact.
+     */
+    private function remove_third_party_admin_notices() {
+        global $wp_filter;
+
+        foreach ( array( 'admin_notices', 'all_admin_notices' ) as $hook ) {
+            if ( empty( $wp_filter[ $hook ] ) || ! ( $wp_filter[ $hook ] instanceof WP_Hook ) ) {
+                continue;
+            }
+
+            // Collect first, then remove — avoids mutating the callbacks array mid-walk.
+            $to_remove = array();
+            foreach ( $wp_filter[ $hook ]->callbacks as $priority => $callbacks ) {
+                foreach ( $callbacks as $callback ) {
+                    if ( ! $this->is_own_admin_notice_callback( $callback['function'] ) ) {
+                        $to_remove[] = array( $callback['function'], $priority );
+                    }
+                }
+            }
+
+            foreach ( $to_remove as $entry ) {
+                remove_action( $hook, $entry[0], $entry[1] );
+            }
+        }
+    }
+
+    /**
+     * Determine whether an admin-notice callback is defined by this plugin.
+     *
+     * Ownership is decided by where the callback's code physically lives, not by
+     * class name — our notice owners use inconsistent prefixes (Metasync_Admin,
+     * Google_Index_Admin, ConfigControllerMetaSync), and a white-label install can
+     * rename the plugin folder. Resolving the declaring file and checking it sits
+     * inside this plugin's directory is robust against all of that. If a callback
+     * can't be introspected, we keep it rather than risk hiding a legitimate notice.
+     *
+     * @param string|array|Closure $function The registered callback.
+     * @return bool True when the callback's code lives inside this plugin.
+     */
+    private function is_own_admin_notice_callback( $function ) {
+        // Plugin root: this file lives in <plugin>/admin, so its parent is the root.
+        $plugin_dir = wp_normalize_path( dirname( __DIR__ ) ) . '/';
+
+        try {
+            if ( is_array( $function ) && isset( $function[0], $function[1] ) ) {
+                $class = is_object( $function[0] ) ? get_class( $function[0] ) : $function[0];
+                $ref   = new ReflectionMethod( $class, $function[1] );
+            } elseif ( $function instanceof Closure ) {
+                $ref = new ReflectionFunction( $function );
+            } elseif ( is_string( $function ) && strpos( $function, '::' ) !== false ) {
+                list( $class, $method ) = explode( '::', $function, 2 );
+                $ref                    = new ReflectionMethod( $class, $method );
+            } elseif ( is_string( $function ) ) {
+                $ref = new ReflectionFunction( $function );
+            } else {
+                return false;
+            }
+        } catch ( \Throwable $e ) {
+            // Unintrospectable callback — keep it; never hide a notice we can't classify.
+            return true;
+        }
+
+        $file = $ref->getFileName();
+        if ( ! $file ) {
+            // Internal/built-in callback (no source file) — not ours.
+            return false;
+        }
+
+        return strpos( wp_normalize_path( $file ), $plugin_dir ) === 0;
     }
 
     #---------fixes issue : #95 ----------
@@ -1052,7 +1159,6 @@ class Metasync_Admin
             );
             wp_localize_script($this->plugin_name . '-connect', 'metasyncConnectData', array(
                 'optionKey'        => self::option_key,
-                'storedPassword'   => isset($whitelabel_data['settings_password']) ? $whitelabel_data['settings_password'] : '',
                 'adminPostUrl'     => admin_url('admin-post.php'),
                 'exportNonce'      => wp_create_nonce('metasync_export_whitelabel'),
                 'ajaxUrl'          => admin_url('admin-ajax.php'),
@@ -1519,7 +1625,7 @@ class Metasync_Admin
         ?>
         <!-- OTTO Cache TTL Setting -->
         <div style="margin-bottom: 30px; padding-top: 20px;">
-            <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">OTTO Cache TTL</h4>
+            <h4 style="margin-top: 0; color: var(--dashboard-text-primary);"><?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> Cache TTL</h4>
             <p style="margin-bottom: 15px; color: var(--dashboard-text-secondary);">
                 Configure how long <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> API suggestions are cached before a fresh API call. Stale cache expires at 2× this value.
             </p>
@@ -2099,7 +2205,7 @@ class Metasync_Admin
         $ttl = isset($_POST['otto_cache_ttl']) ? absint($_POST['otto_cache_ttl']) : 30;
 
         if ($ttl < 30 || $ttl > 1440) {
-            wp_send_json_error(array('message' => 'OTTO Cache TTL must be between 30 and 1440 minutes.'));
+            wp_send_json_error(array('message' => sprintf('%s Cache TTL must be between 30 and 1440 minutes.', Metasync::get_whitelabel_otto_name())));
             return;
         }
 
@@ -2107,7 +2213,7 @@ class Metasync_Admin
         $settings['otto_cache_ttl'] = $ttl;
         update_option('metasync_execution_settings', $settings);
 
-        wp_send_json_success(array('message' => 'OTTO Cache TTL saved.'));
+        wp_send_json_success(array('message' => sprintf('%s Cache TTL saved.', Metasync::get_whitelabel_otto_name())));
     }
 
     /**
@@ -2922,6 +3028,47 @@ class Metasync_Admin
     }
 
     /**
+     * AJAX: Delete an orphaned media record (attachment whose file is missing).
+     *
+     * Only deletes when the file is confirmed missing on disk, so valid
+     * attachments can never be removed through this endpoint.
+     */
+    public function ajax_delete_orphaned_image()
+    {
+        check_ajax_referer('metasync_media_opt_nonce', 'nonce');
+
+        $attachment_id = isset($_POST['attachment_id']) ? absint($_POST['attachment_id']) : 0;
+        if (!$attachment_id) {
+            wp_send_json_error(__('Invalid attachment ID.', 'metasync'));
+        }
+
+        if (!current_user_can('delete_post', $attachment_id)) {
+            wp_send_json_error(__('Permission denied.', 'metasync'));
+        }
+
+        if (get_post_type($attachment_id) !== 'attachment') {
+            wp_send_json_error(__('Not an attachment.', 'metasync'));
+        }
+
+        require_once plugin_dir_path(dirname(__FILE__)) . 'media-optimization/class-media-library-list-table.php';
+
+        // Guard: only orphaned records (missing file) may be deleted here.
+        if (!Metasync_Media_Library_List_Table::is_file_missing($attachment_id)) {
+            wp_send_json_error(__('The image file exists; refusing to delete a valid attachment.', 'metasync'));
+        }
+
+        $deleted = wp_delete_attachment($attachment_id, true);
+
+        if ($deleted) {
+            wp_send_json_success([
+                'stats' => Metasync_Media_Library_List_Table::get_stats(),
+            ]);
+        }
+
+        wp_send_json_error(__('Failed to delete the orphaned media record.', 'metasync'));
+    }
+
+    /**
      * Cron handler: Process batch optimization tick.
      */
     public function handle_media_batch_cron()
@@ -3452,8 +3599,9 @@ class Metasync_Admin
         delete_transient( Metasync_CPU_Monitor::DEFER_NOTICE_TRANSIENT );
         echo '<div class="notice notice-warning is-dismissible"><p>';
         printf(
-            /* translators: 1: current load, 2: threshold, 3: core count */
-            esc_html__( 'MetaSync: Batch processing was deferred — server CPU load (%1$s) exceeded the threshold (%2$s on %3$s cores). Processing will resume automatically.', 'metasync' ),
+            /* translators: 1: plugin name, 2: current load, 3: threshold, 4: core count */
+            esc_html__( '%1$s: Batch processing was deferred — server CPU load (%2$s) exceeded the threshold (%3$s on %4$s cores). Processing will resume automatically.', 'metasync' ),
+            esc_html( Metasync::get_effective_plugin_name() ),
             esc_html( $data['load'] ),
             esc_html( $data['threshold'] ),
             esc_html( $data['cores'] )
@@ -3473,7 +3621,7 @@ class Metasync_Admin
             return;
         }
         echo '<div class="notice notice-info is-dismissible"><p>';
-        echo esc_html__('Note: Another SEO plugin (Yoast, Rank Math, or AIOSEO) may also be generating /llms.txt. MetaSync\'s version takes priority when enabled.', 'metasync');
+        echo esc_html(sprintf(__('Note: Another SEO plugin (Yoast, Rank Math, or AIOSEO) may also be generating /llms.txt. %s\'s version takes priority when enabled.', 'metasync'), Metasync::get_effective_plugin_name()));
         echo '</p></div>';
     }
 
@@ -4155,6 +4303,7 @@ class Metasync_Admin
         $per_core_threshold = Metasync_CPU_Monitor::get_per_core_threshold();
         $cores = Metasync_CPU_Monitor::get_cpu_core_count();
         $effective_threshold = Metasync_CPU_Monitor::get_effective_threshold();
+        $detection_reliable = Metasync_CPU_Monitor::is_core_detection_reliable();
         ?>
         <div style="background: var(--dashboard-card-bg); padding: 20px; border-radius: 8px;">
             <!-- CPU Cores Detected -->
@@ -4163,10 +4312,18 @@ class Metasync_Admin
                     CPU Cores Detected
                 </label>
                 <div style="padding: 10px 12px; background: var(--dashboard-input-bg); border: 1px solid var(--dashboard-border); border-radius: 6px; color: var(--dashboard-text-secondary);">
-                    <strong><?php echo intval($cores); ?></strong> core<?php echo $cores !== 1 ? 's' : ''; ?>
+                    <?php if ($detection_reliable) : ?>
+                        <strong><?php echo intval($cores); ?></strong> core<?php echo $cores !== 1 ? 's' : ''; ?>
+                    <?php else : ?>
+                        <strong>Not detected</strong>
+                    <?php endif; ?>
                 </div>
                 <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
-                    Automatically detected on this system.
+                    <?php if ($detection_reliable) : ?>
+                        Automatically detected on this system.
+                    <?php else : ?>
+                        Core detection is not available on this hosting environment.
+                    <?php endif; ?>
                 </p>
             </div>
 
@@ -5972,6 +6129,14 @@ class Metasync_Admin
     public function add_editor_source_notice($post)
     {
         if (!$post || !in_array($post->post_type, array('post', 'page'))) {
+            return;
+        }
+
+        // Don't show the "HTML-to-Builder converter" banner on LPS-synced / custom-HTML
+        // pages: those are raw-HTML store-and-serve pages, NOT actually converted to a
+        // page builder, so the banner mislabels them. It still shows for pages genuinely
+        // produced by the converter. (WP-486)
+        if (function_exists('metasync_is_custom_or_lps_page') && metasync_is_custom_or_lps_page($post->ID)) {
             return;
         }
 

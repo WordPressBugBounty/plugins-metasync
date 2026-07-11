@@ -396,7 +396,7 @@ class Metasync_Otto_Debug {
             <div class="card">
                 <h2>Next Steps</h2>
                 <ol>
-                    <li><strong>Access Debug Page:</strong> The "<?php echo esc_html($whitelabel_otto_name); ?> Debug" menu should now be visible in the MetaSync plugin menu</li>
+                    <li><strong>Access Debug Page:</strong> The "<?php echo esc_html($whitelabel_otto_name); ?> Debug" menu should now be visible in the <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> plugin menu</li>
                     <li><strong>Use Diagnostics:</strong> Click on "<?php echo esc_html($whitelabel_otto_name); ?> Debug" to access comprehensive diagnostic tools</li>
                     <li><strong>Troubleshoot Issues:</strong> Use the debug tools to identify why <?php echo esc_html($whitelabel_otto_name); ?> changes may not be applied</li>
                 </ol>

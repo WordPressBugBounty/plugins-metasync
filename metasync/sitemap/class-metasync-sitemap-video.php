@@ -567,4 +567,30 @@ class Metasync_Sitemap_Video
 
         return $notices;
     }
+
+    /**
+     * Display name of the third-party plugin currently owning the video sitemap,
+     * or an empty string when there is no blocking conflict.
+     *
+     * Mirrors has_conflicts() so the UI can name the specific plugin. Google XML
+     * Sitemaps is intentionally excluded here because it coexists (separate files).
+     *
+     * @return string
+     */
+    public function get_conflict_plugin_name()
+    {
+        if (class_exists('WPSEO_Video_Sitemap')) {
+            return 'Yoast Video SEO';
+        }
+
+        if (class_exists('RankMath\\Sitemap\\Video\\Video')) {
+            return 'Rank Math';
+        }
+
+        if ($this->is_aioseo_video_active()) {
+            return 'All in One SEO';
+        }
+
+        return '';
+    }
 }

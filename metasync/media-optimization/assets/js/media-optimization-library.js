@@ -149,6 +149,46 @@
         });
     });
 
+    // ── Delete Orphaned Record (missing file) ──
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.metasync-delete-orphan-btn');
+        if (!btn || btn.disabled) return;
+
+        if (!confirm(i18n.deleteOrphanConfirm || 'The file for this image is missing on disk. Delete this orphaned media record? This cannot be undone.')) {
+            return;
+        }
+
+        var id = btn.dataset.id;
+        btn.classList.add('loading');
+        btn.disabled = true;
+
+        fetch(ajaxUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'action=metasync_delete_orphaned_image&nonce=' + nonce + '&attachment_id=' + encodeURIComponent(id)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                var row = btn.closest('tr');
+                if (row) { row.parentNode.removeChild(row); }
+                if (data.data && data.data.stats) {
+                    applyStats(data.data.stats);
+                } else {
+                    updateStats();
+                }
+            } else {
+                btn.classList.remove('loading');
+                btn.disabled = false;
+                alert(data.data || (i18n.deleteOrphanFailed || 'Failed to delete the orphaned media record.'));
+            }
+        })
+        .catch(function() {
+            btn.classList.remove('loading');
+            btn.disabled = false;
+        });
+    });
+
     // ── Optimize All (Start Batch) ──
     var optimizeAllBtn = document.getElementById('metasync-optimize-all');
     if (optimizeAllBtn) {

@@ -587,7 +587,16 @@ if (!defined('ABSPATH')) {
         $news_conflicts = $news_checker->get_conflict_notices();
         $news_has_content = false !== get_transient('metasync_vsm_' . md5('news-sitemap.xml'))
             || file_exists(ABSPATH . 'news-sitemap.xml');
+        $news_conflict_name = $news_checker->get_conflict_plugin_name();
+        $mss_brand = Metasync::get_effective_plugin_name();
         ?>
+
+        <?php if (!empty($news_conflict_name)): ?>
+        <div class="metasync-sitemap-conflict-note" style="display:flex; gap:7px; align-items:center; margin:0 0 16px; padding:8px 12px; border-radius:7px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.28); font-size:12px; line-height:1.5; color:var(--dashboard-text-secondary,#6b7280);">
+            <span style="font-size:13px; line-height:1;">&#9888;&#65039;</span>
+            <span><strong style="color:#8a5a00;"><?php echo esc_html($news_conflict_name); ?></strong> <?php printf(esc_html__('is also active — its news sitemap settings may conflict with %s\'s.', 'metasync'), esc_html($mss_brand)); ?></span>
+        </div>
+        <?php endif; ?>
 
         <!-- News Sitemap Status -->
         <div class="dashboard-card" style="margin-bottom: 20px;">
@@ -825,7 +834,16 @@ if (!defined('ABSPATH')) {
         $video_conflicts = $video_checker->get_conflict_notices();
         $video_has_content = false !== get_transient('metasync_vsm_' . md5('video-sitemap.xml'))
             || file_exists(ABSPATH . 'video-sitemap.xml');
+        $video_conflict_name = $video_checker->get_conflict_plugin_name();
+        $mss_brand = Metasync::get_effective_plugin_name();
         ?>
+
+        <?php if (!empty($video_conflict_name)): ?>
+        <div class="metasync-sitemap-conflict-note" style="display:flex; gap:7px; align-items:center; margin:0 0 16px; padding:8px 12px; border-radius:7px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.28); font-size:12px; line-height:1.5; color:var(--dashboard-text-secondary,#6b7280);">
+            <span style="font-size:13px; line-height:1;">&#9888;&#65039;</span>
+            <span><strong style="color:#8a5a00;"><?php echo esc_html($video_conflict_name); ?></strong> <?php printf(esc_html__('is also active — its video sitemap settings may conflict with %s\'s.', 'metasync'), esc_html($mss_brand)); ?></span>
+        </div>
+        <?php endif; ?>
 
         <!-- Video Sitemap Status -->
         <div class="dashboard-card" style="margin-bottom: 20px;">

@@ -47,6 +47,14 @@ class MCP_Tool_List_Categories extends MCP_Tool_Base {
                     'enum' => ['ASC', 'DESC'],
                     'description' => 'Sort order (default: ASC)',
                 ],
+                'number' => [
+                    'type' => 'integer',
+                    'description' => 'Maximum number of categories to return (default: 100, max: 500)',
+                ],
+                'offset' => [
+                    'type' => 'integer',
+                    'description' => 'Number of categories to skip, for pagination (default: 0)',
+                ],
             ],
         ];
     }
@@ -60,6 +68,10 @@ class MCP_Tool_List_Categories extends MCP_Tool_Base {
             'hide_empty' => isset($params['hide_empty']) ? (bool)$params['hide_empty'] : false,
             'orderby' => isset($params['orderby']) ? sanitize_text_field($params['orderby']) : 'name',
             'order' => isset($params['order']) ? sanitize_text_field($params['order']) : 'ASC',
+            // Bound the result set so a single call cannot exhaust PHP memory on
+            // sites with very large taxonomies (WP-489).
+            'number' => isset($params['number']) ? min(max(intval($params['number']), 1), 500) : 100,
+            'offset' => isset($params['offset']) ? max(intval($params['offset']), 0) : 0,
         ];
 
         $categories = get_terms($args);
@@ -81,8 +93,13 @@ class MCP_Tool_List_Categories extends MCP_Tool_Base {
             ];
         }
 
+        // Release the term objects now that the response payload is built (WP-489).
+        unset($categories);
+
         return $this->success([
             'count' => count($categories_data),
+            'number' => $args['number'],
+            'offset' => $args['offset'],
             'categories' => $categories_data,
         ]);
     }
@@ -571,7 +588,11 @@ class MCP_Tool_List_Tags extends MCP_Tool_Base {
                 ],
                 'number' => [
                     'type' => 'integer',
-                    'description' => 'Maximum number of tags to return (default: all)',
+                    'description' => 'Maximum number of tags to return (default: 100, max: 500)',
+                ],
+                'offset' => [
+                    'type' => 'integer',
+                    'description' => 'Number of tags to skip, for pagination (default: 0)',
                 ],
             ],
         ];
@@ -586,11 +607,11 @@ class MCP_Tool_List_Tags extends MCP_Tool_Base {
             'hide_empty' => isset($params['hide_empty']) ? (bool)$params['hide_empty'] : false,
             'orderby' => isset($params['orderby']) ? sanitize_text_field($params['orderby']) : 'name',
             'order' => isset($params['order']) ? sanitize_text_field($params['order']) : 'ASC',
+            // Bound the result set so a single call cannot exhaust PHP memory on
+            // sites with very large tag counts (WP-489).
+            'number' => isset($params['number']) ? min(max(intval($params['number']), 1), 500) : 100,
+            'offset' => isset($params['offset']) ? max(intval($params['offset']), 0) : 0,
         ];
-
-        if (isset($params['number'])) {
-            $args['number'] = intval($params['number']);
-        }
 
         $tags = get_terms($args);
 
@@ -609,8 +630,13 @@ class MCP_Tool_List_Tags extends MCP_Tool_Base {
             ];
         }
 
+        // Release the term objects now that the response payload is built (WP-489).
+        unset($tags);
+
         return $this->success([
             'count' => count($tags_data),
+            'number' => $args['number'],
+            'offset' => $args['offset'],
             'tags' => $tags_data,
         ]);
     }

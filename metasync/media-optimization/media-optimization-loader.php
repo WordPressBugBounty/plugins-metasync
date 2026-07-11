@@ -43,6 +43,19 @@ function metasync_media_optimization_init() {
 }
 add_action('init', 'metasync_media_optimization_init');
 
+// Clean up converted sibling files (.webp/.avif) when an attachment is deleted.
+// Registered unconditionally so orphaned files are removed even if conversion
+// has since been disabled in settings.
+add_action('delete_attachment', ['Metasync_Image_Converter', 'cleanup_on_delete']);
+
+// Invalidate cached image dimensions when an attachment is deleted or its
+// metadata is (re)generated, so stale width/height are never injected after an
+// image is removed, replaced under the same filename, or its thumbnails are
+// regenerated to new sizes. Registered unconditionally so the cache cannot
+// outlive the image even when dimension injection is disabled.
+add_action('delete_attachment', ['Metasync_Dimension_Injector', 'purge_attachment_cache']);
+add_filter('wp_update_attachment_metadata', ['Metasync_Dimension_Injector', 'purge_on_metadata_update'], 10, 2);
+
 /**
  * Enqueue media optimization admin assets on the correct page only.
  *
@@ -118,6 +131,8 @@ function metasync_media_optimization_enqueue_assets($hook_suffix) {
             'unoptimizeConfirm'     => __('Revert selected images to their original format?', 'metasync'),
             'bulkUnoptimizeFailed'  => __('Bulk unoptimize failed.', 'metasync'),
             'alreadyUnoptimized'    => __('All selected images are already unoptimized.', 'metasync'),
+            'deleteOrphanConfirm'   => __('The file for this image is missing on disk. Delete this orphaned media record? This cannot be undone.', 'metasync'),
+            'deleteOrphanFailed'    => __('Failed to delete the orphaned media record.', 'metasync'),
         ),
     ));
 }

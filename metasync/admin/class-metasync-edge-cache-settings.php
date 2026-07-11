@@ -151,7 +151,7 @@ class Metasync_Edge_Cache_Settings {
         ?>
         <div style="background: var(--dashboard-card-bg); padding: 20px; border-radius: 8px;">
             <p style="color: var(--dashboard-text-secondary); margin: 0 0 20px 0;">
-                Configure CDN credentials for cache-tag purging. When enabled, cache-tag headers are added to OTTO-processed pages so CDNs can purge by post ID.
+                Configure CDN credentials for cache-tag purging. When enabled, cache-tag headers are added to <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?>-processed pages so CDNs can purge by post ID.
             </p>
 
             <?php wp_nonce_field(self::NONCE_ACTION, self::NONCE_FIELD); ?>
@@ -213,11 +213,11 @@ class Metasync_Edge_Cache_Settings {
                 }
 
                 if ($show_cloudways) {
-                    self::render_provider('cloudways', 'Cloudways', 'purges Varnish cache per URL', $settings, array(), !$show_flywheel, 'Detected Cloudways Varnish. Enable to purge Varnish on each OTTO update.');
+                    self::render_provider('cloudways', 'Cloudways', 'purges Varnish cache per URL', $settings, array(), !$show_flywheel, sprintf('Detected Cloudways Varnish. Enable to purge Varnish on each %s update.', Metasync::get_whitelabel_otto_name()));
                 }
 
                 if ($show_flywheel) {
-                    self::render_provider('flywheel', 'Flywheel', 'full cache flush on OTTO updates', $settings, array(), true, 'Detected Flywheel hosting. Enable to clear cache on each OTTO update.');
+                    self::render_provider('flywheel', 'Flywheel', sprintf('full cache flush on %s updates', Metasync::get_whitelabel_otto_name()), $settings, array(), true, sprintf('Detected Flywheel hosting. Enable to clear cache on each %s update.', Metasync::get_whitelabel_otto_name()));
                 }
                 ?>
             </div>

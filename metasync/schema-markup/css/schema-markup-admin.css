@@ -45,12 +45,29 @@
 }
 
 .remove-schema-type {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     color: #dc3232;
     text-decoration: none;
     font-size: 12px;
+    padding: 6px 12px !important;
 }
 
-.remove-schema-type:hover {
+.remove-schema-type .dashicons {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #dc3232 !important;
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.remove-schema-type:hover,
+.remove-schema-type:hover .dashicons {
     color: #a00;
 }
 
@@ -76,6 +93,21 @@
 .add-schema-type-section .button {
     font-size: 14px;
     padding: 8px 16px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.add-schema-type-section .button .dashicons {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    font-size: 16px;
+    line-height: 1;
+}
+
+#add_schema_type_button.button.button-primary .dashicons {
+    color: #fff !important;
 }
 
 /* Schema Type Modal */
@@ -304,6 +336,17 @@
 
 .schema-preview-section .button {
     margin-right: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.schema-preview-section .button .dashicons {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    font-size: 16px;
+    line-height: 1;
 }
 
 #schema-preview-output {

@@ -1119,9 +1119,22 @@
 				}
 			}
 			
-			// Update header status indicator (only on General Settings page)
-			if (isFullyConnected) {
+			// Update header status indicator (only on General Settings page).
+			// WP-476: the header badge must reflect the confirmed heartbeat
+			// round-trip (metaSync.is_connected), NOT mere API-key/UUID presence —
+			// otherwise a revoked/invalid key still shows "Connected" because the
+			// key string and UUID remain stored locally.
+			// NOTE: wp_localize_script stringifies PHP booleans (true -> "1",
+			// false -> ""), so normalise to a real boolean rather than ===.
+			var heartbeatConnected = metaSync.is_connected === true
+				|| metaSync.is_connected === '1'
+				|| metaSync.is_connected === 1;
+			if (isFullyConnected && heartbeatConnected) {
 				updateHeaderStatus(true, 'Synced', getPluginName() + ' API key and ' + getOttoName() + ' UUID are configured');
+			} else if (isFullyConnected) {
+				// Key + UUID are configured but the heartbeat is not succeeding
+				// (e.g. the key was revoked on the Search Atlas side).
+				updateHeaderStatus(false, 'Not Connected', getPluginName() + ' API key is set but the heartbeat is not responding — the connection may be revoked or unreachable.');
 			} else if (hasApiKey && !hasOttoUuid) {
 				updateHeaderStatus(false, 'Warning', 'Connected but ' + getOttoName() + ' UUID is missing — deploys will not work. Please reconnect.');
 			} else {

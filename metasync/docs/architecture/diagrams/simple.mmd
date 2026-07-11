@@ -1,0 +1,30 @@
+flowchart LR
+  subgraph Legend["Legend"]
+    LG["solid=sync request/hook; dashed=async cron/job; cylinder=WP datastore; cloud=external service"]
+  end
+
+  WP["WordPress runtime<br/>metasync.php:565<br/>metasync.php::run_metasync"]
+  B["Plugin bootstrap<br/>metasync.php::run_metasync"]
+  L["Hook loader<br/>includes/class-metasync.php::Metasync.__construct"]
+  R["REST/AJAX APIs<br/>public/class-metasync-rest-api.php:293<br/>public/class-metasync-rest-api.php::Metasync_Rest_Api.metasync_register_rest_routes"]
+  FR["Frontend SEO/render hooks<br/>includes/class-metasync.php::Metasync.define_public_hooks"]
+  J["WP-Cron jobs<br/>includes/class-metasync.php::Metasync.define_admin_hooks"]
+  HB["Heartbeat scheduler<br/>includes/class-metasync-heartbeat-manager.php:1058<br/>includes/class-metasync-heartbeat-manager.php::Metasync_Heartbeat_Manager.maybe_schedule_heartbeat_cron"]
+  MCP["MCP REST server<br/>wp-mcp-server/class-metasync-mcp-server.php::Metasync_MCP_Server.register_rest_routes"]
+  M["MCP registry<br/>wp-mcp-server/class-mcp-tool-registry.php::MCP_Tool_Registry.execute_tool"]
+  S[("WP DB: options, postmeta, custom tables<br/>database/class-db-migrations.php::MetaSync_DBMigration.run_migrations")]
+  E[("Search Atlas APIs<br/>includes/class-metasync-heartbeat-manager.php::Metasync_Heartbeat_Manager.execute_heartbeat_cron_check")]
+
+  WP --> B
+  B --> L
+  L --> R
+  L --> FR
+  L -.-> J
+  R --> S
+  FR --> S
+  J -.-> S
+  R --> MCP
+  MCP --> M
+  M --> S
+  J -.-> HB
+  HB -.-> E

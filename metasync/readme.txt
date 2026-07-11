@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 2.6.15
+Stable tag: 2.6.16
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,50 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.16 =
+* Security: Whitelabel password is now encrypted at rest instead of stored in plain text
+* Security: Prevented path traversal from unvalidated slugs in imported ZIP manifests
+* Security: Validated file paths built from ZIP manifest slugs before reading them
+* Performance: Capped image-processing resource usage to prevent unbounded memory consumption
+* Performance: Added a maximum image dimensions setting that downscales oversized images before conversion
+* Performance: Cached image dimensions to avoid repeated file reads on every page render
+* Performance: Batched the content URL rewrite query to prevent database table locks
+* Performance: Raised the memory limit before heavy image processing to avoid out-of-memory failures
+* Performance: Reduced memory usage during HTML rendering on large pages
+* Performance: Prevented memory exhaustion caused by bot and vulnerability-scanner traffic
+* Performance: Prevented image conversion from exceeding PHP's maximum execution time during media optimization
+* Improvement: Surfaced the Focus Keyword as a read-only field in the Gutenberg SEO sidebar
+* Improvement: Excluded Website Studio / custom HTML pages from SEO audit, inventory, and analysis surfaces
+* Improvement: Hid SEO meta fields on Website Studio-synced pages and show a read-only notice instead
+* Improvement: Labeled Website Studio-synced pages with a post state in the admin Pages list
+* Improvement: Stopped admin notices from causing layout shift and viewport scroll when navigating between plugin features
+* Improvement: Fixed checkbox alignment with their labels on the Redirections screen
+* Improvement: Bundled the default plugin logo locally instead of hotlinking it
+* Improvement: Fixed icon alignment on the Schema Markup metabox
+* Improvement: Show a sitemap conflict notice on the Video and News sitemap tabs when another SEO plugin is active
+* Improvement: Fixed a color mismatch and text crowding on the Schema Markup metabox Remove button
+* Improvement: Fixed the "Hide Dashboard" option so it actually hides the dashboard from the admin menu, and corrected its help text
+* Improvement: Streamlined the plugin entry file for maintainability
+* Fix: Fixed several bugs surfaced by static analysis
+* Fix: Fixed broken thumbnails for orphaned images and cleaned up converted files when the originals are deleted
+* Fix: Made multi-page imports idempotent so re-importing no longer creates duplicate pages when a slug collides
+* Fix: MetaSync REST authentication now coexists with third-party JWT authentication plugins
+* Fix: Heartbeat status badge now reflects a stale or dead sync instead of always showing "Connected"
+* Fix: Purge page and edge cache after import to prevent stale-asset white screens on republish
+* Fix: Fixed white-label leaks where product names appeared across admin, Site Health, toolbar, and import screens
+* Fix: Restored the XML Sitemap and other REST responses that could return blank
+* Fix: Prevented OTTO from silently serving un-optimized HTML on Divi and other page-builder pages
+* Fix: Ensured canonical optimization is reliably applied
+* Fix: Stopped query strings from being stripped, which caused search and query-only URLs to serve the home page for logged-in and cache-bypass users
+* Fix: The post-edit Redirection metabox now applies per-post redirects on the frontend
+* Fix: Stopped serving schema markup when no schema has been deployed
+* Fix: The canonical metabox now emits the configured canonical URL
+* Fix: Prevented the CPU load gate from dropping sync jobs on hosts where CPU-core detection fails
+* Fix: The XML sitemap no longer hijacks sitemap URLs when disabled or deleted, allowing Rank Math, Yoast, and AIOSEO sitemaps to work
+* Fix: Purge page and edge cache when clearing the OTTO cache, so stale optimized markup (such as a hidden injected heading) is no longer served
+* Fix: Removed duplicate <meta name="description"> tags on OTTO-optimized pages when MetaSync is the only active SEO plugin
+* Fix: Stopped the meta description from being dropped when a synced third-party SEO plugin (Yoast, Rank Math, AIOSEO) has an empty description field
+
 = 2.6.15 =
 * Improvement: Added a search icon to the SEO Health search field
 * Improvement: Fixed the sort-arrow placement in the SEO Health table column headers

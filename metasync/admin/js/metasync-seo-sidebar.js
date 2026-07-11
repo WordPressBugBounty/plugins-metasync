@@ -21,6 +21,7 @@
     // Get configuration from PHP
     const config = window.metasyncSeoSidebar || {
         iconUrl: '',
+        isCustomOrLpsPage: false,
         otherSeoPrimary: {
             yoastActive: false,
             rankMathActive: false,
@@ -32,6 +33,8 @@
             // OTTO keys for fallback (read-only, used to prefill if manual fields are empty)
             ottoTitle: '_metasync_otto_title',
             ottoDescription: '_metasync_otto_description',
+            // OTTO focus keyword (read-only display only)
+            ottoKeywords: '_metasync_otto_keywords',
             // OTTO disabled per-post flag
             ottoDisabled: '_metasync_otto_disabled',
             // Breadcrumb title override
@@ -75,6 +78,8 @@
             breadcrumbTitleLabel: 'Breadcrumb Title Override',
             breadcrumbTitleHelp: 'Custom label for this page in breadcrumb trails. Leave empty to use the post title.',
             ottoPrefillHelp: 'Pre-filled from OTTO. Edit to customize.',
+            focusKeywordLabel: 'Focus Keyword',
+            focusKeywordHelp: 'Managed by OTTO. Set in Search Atlas — read-only here.',
             ottoOverrideNotice: 'OTTO is enabled. Any SEO title and description changes from OTTO will be overwritten by your custom values entered here.',
             // Language Alternates (hreflang) panel strings
             languageAlternatesTitle: 'Language Alternates',
@@ -84,6 +89,7 @@
             urlLabel: 'URL',
             editManually: 'Edit Manually',
             wpmlAutoPopulated: 'Auto-populated from WPML. Click Edit Manually to override.',
+            lpsNotice: 'The SEO for this page is managed by WebStudio.',
         },
     };
 
@@ -307,6 +313,39 @@
                 min: limits.min,
                 max: limits.max,
                 absolute: limits.absolute,
+            })
+        );
+    };
+
+    /**
+     * Focus Keyword Display Component (WP-403)
+     * Read-only surface of the keyword OTTO already saved to _metasync_otto_keywords.
+     * Display only — never writes back to meta. Hidden entirely when no keyword exists,
+     * so a site with no OTTO keyword shows nothing (no empty/blank confusion).
+     */
+    const FocusKeywordInput = () => {
+        const ottoKey = config.metaKeys.ottoKeywords || '_metasync_otto_keywords';
+
+        const { ottoValue } = useSelect((select) => {
+            const meta = select('core/editor').getEditedPostAttribute('meta') || {};
+            return { ottoValue: meta[ottoKey] || '' };
+        }, [ottoKey]);
+
+        // No keyword from OTTO — render nothing (AC: empty/hidden, no error).
+        const keyword = (ottoValue || '').trim();
+        if (!keyword) {
+            return null;
+        }
+
+        return el('div', { className: 'metasync-seo-field metasync-focus-keyword-field' },
+            el(TextControl, {
+                label: config.i18n.focusKeywordLabel || 'Focus Keyword',
+                value: keyword,
+                // Display only: read-only and never writes back to meta.
+                readOnly: true,
+                onChange: function() {},
+                help: config.i18n.focusKeywordHelp || 'Managed by OTTO. Set in Search Atlas — read-only here.',
+                className: 'metasync-prefilled-otto metasync-readonly-field',
             })
         );
     };
@@ -1920,6 +1959,24 @@
     };
 
     const MetaSyncSeoSidebar = () => {
+        // LPS / custom-HTML pages bake their own SEO — show only a read-only notice
+        // instead of the editable panels (WP-486). The sidebar still registers and
+        // opens; it just has no editable fields.
+        if (config.isCustomOrLpsPage) {
+            return el(PluginSidebar, {
+                name: 'metasync-seo-sidebar',
+                title: config.i18n.panelTitle,
+                icon: MetaSyncIcon,
+            },
+                el('div', { className: 'metasync-seo-sidebar-content' },
+                    el(Notice, {
+                        status: 'info',
+                        isDismissible: false,
+                    }, config.i18n.lpsNotice)
+                )
+            );
+        }
+
         return el(PluginSidebar, {
             name: 'metasync-seo-sidebar',
             title: config.i18n.panelTitle,
@@ -1934,6 +1991,7 @@
                 },
                     el(SeoTitleInput, null),
                     el(MetaDescriptionInput, null),
+                    el(FocusKeywordInput, null),
                     el(UrlSlugInput, null),
                     el(BreadcrumbTitleInput, null),
                     el(PrimaryCategoryInjectPanel, null)

@@ -241,6 +241,14 @@ class MCP_Tool_List_Custom_Pages extends MCP_Tool_Base {
                     'enum' => ['publish', 'draft', 'pending', 'all'],
                     'description' => 'Filter by page status (default: all)',
                 ],
+                'per_page' => [
+                    'type' => 'integer',
+                    'description' => 'Number of pages per page (default: 20, max: 100)',
+                ],
+                'page' => [
+                    'type' => 'integer',
+                    'description' => 'Page number, for pagination (default: 1)',
+                ],
             ],
         ];
     }
@@ -252,8 +260,17 @@ class MCP_Tool_List_Custom_Pages extends MCP_Tool_Base {
         // Load custom pages class
         require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'custom-pages/class-metasync-custom-pages.php';
 
+        // Bound the result set. The previous implementation loaded EVERY custom
+        // page along with each page's full HTML body into one array, which could
+        // exhaust PHP memory on sites with many/large pages (WP-489).
+        $per_page = isset($params['per_page']) ? min(max(intval($params['per_page']), 1), 100) : 20;
+        $page_num = isset($params['page']) ? max(intval($params['page']), 1) : 1;
+
         // Build query args
-        $args = [];
+        $args = [
+            'posts_per_page' => $per_page,
+            'paged' => $page_num,
+        ];
         if (isset($params['status']) && $params['status'] !== 'all') {
             $args['post_status'] = sanitize_text_field($params['status']);
         }
@@ -279,10 +296,38 @@ class MCP_Tool_List_Custom_Pages extends MCP_Tool_Base {
                 'created_at' => $page->post_date,
                 'updated_at' => $page->post_modified,
             ];
+
+            // Free the full HTML body each iteration so a page of large pages can't
+            // accumulate their bodies in memory (WP-489).
+            unset($html_content);
         }
+        unset($pages);
+
+        // Count total matching pages cheaply (single hydrated row + found_posts),
+        // mirroring get_custom_pages()'s default statuses and meta filter.
+        $total = (int) (new WP_Query([
+            'post_type' => 'page',
+            'post_status' => isset($args['post_status']) ? $args['post_status'] : ['publish', 'draft', 'pending'],
+            'posts_per_page' => 1,
+            'fields' => 'ids',
+            'no_found_rows' => false,
+            'update_post_meta_cache' => false,
+            'update_post_term_cache' => false,
+            'meta_query' => [
+                [
+                    'key' => Metasync_Custom_Pages::META_IS_CUSTOM_HTML_PAGE,
+                    'value' => '1',
+                    'compare' => '=',
+                ],
+            ],
+        ]))->found_posts;
 
         return $this->success([
             'count' => count($pages_data),
+            'total' => $total,
+            'page' => $page_num,
+            'per_page' => $per_page,
+            'total_pages' => $per_page > 0 ? (int) ceil($total / $per_page) : 1,
             'pages' => $pages_data,
         ]);
     }

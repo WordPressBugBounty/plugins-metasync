@@ -157,6 +157,18 @@
     background-color: #ffffff;
 }
 
+/* Read-only field (WP-403: Focus Keyword managed by Search Atlas) */
+.metasync-readonly-field .components-text-control__input[readonly] {
+    background-color: #f0f0f1;
+    color: #50575e;
+    cursor: default;
+}
+
+.metasync-readonly-field .components-text-control__input[readonly]:focus {
+    background-color: #f0f0f1;
+    box-shadow: none;
+}
+
 /* ========================================
    SERP Preview Styles
    ======================================== */

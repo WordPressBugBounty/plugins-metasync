@@ -165,6 +165,16 @@ class Metasync_Link_Suggestions {
             ), 200);
         }
 
+        // Custom/LPS pages carry self-managed SEO in their own HTML bundle;
+        // bigram-scanning their raw HTML produces noise, so skip them entirely.
+        if (metasync_is_custom_or_lps_page($post_id)) {
+            return new WP_REST_Response(array(
+                'suggestions'          => array(),
+                'yoast_premium_active' => class_exists('WPSEO_Premium'),
+                'rankmath_active'      => defined('RANK_MATH_VERSION'),
+            ), 200);
+        }
+
         // Strip block comments and HTML tags to get clean text for matching
         $content = $post->post_content;
         $content_text = wp_strip_all_tags(strip_shortcodes($content));

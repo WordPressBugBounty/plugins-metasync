@@ -632,7 +632,7 @@ if (!array_key_exists($active_tab, $sections)) {
                     <input type="checkbox" id="import-titles" checked>
                     <div class="metasync-checkbox-label">
                         <strong>Import Titles</strong>
-                        <span>Copy SEO title metadata to MetaSync custom fields</span>
+                        <span>Copy SEO title metadata to <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> custom fields</span>
                     </div>
                 </label>
 
@@ -640,7 +640,7 @@ if (!array_key_exists($active_tab, $sections)) {
                     <input type="checkbox" id="import-descriptions" checked>
                     <div class="metasync-checkbox-label">
                         <strong>Import Descriptions</strong>
-                        <span>Copy SEO description metadata to MetaSync custom fields</span>
+                        <span>Copy SEO description metadata to <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> custom fields</span>
                     </div>
                 </label>
 
@@ -648,7 +648,7 @@ if (!array_key_exists($active_tab, $sections)) {
                     <input type="checkbox" id="import-social-text" checked>
                     <div class="metasync-checkbox-label">
                         <strong>Import Social Text</strong>
-                        <span>Copy OG and Twitter title/description metadata to MetaSync custom fields</span>
+                        <span>Copy OG and Twitter title/description metadata to <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> custom fields</span>
                     </div>
                 </label>
 
@@ -656,7 +656,7 @@ if (!array_key_exists($active_tab, $sections)) {
                     <input type="checkbox" id="import-social-images" checked>
                     <div class="metasync-checkbox-label">
                         <strong>Import Social Images</strong>
-                        <span>Copy OG and Twitter social sharing images to MetaSync custom fields</span>
+                        <span>Copy OG and Twitter social sharing images to <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> custom fields</span>
                     </div>
                 </label>
 
@@ -664,7 +664,7 @@ if (!array_key_exists($active_tab, $sections)) {
                     <input type="checkbox" id="overwrite-existing">
                     <div class="metasync-checkbox-label">
                         <strong>Overwrite Existing Data</strong>
-                        <span>Replace existing MetaSync data if already present (default: skip posts with existing data)</span>
+                        <span>Replace existing <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> data if already present (default: skip posts with existing data)</span>
                     </div>
                 </label>
             </div>

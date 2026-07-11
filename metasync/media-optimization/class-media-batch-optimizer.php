@@ -216,6 +216,10 @@ class Metasync_Media_Batch_Optimizer {
         }
 
         $settings = get_option('metasync_batch_optimize_settings', []);
+
+        // Request WordPress's image processing memory limit (typically 256MB) before heavy work
+        wp_raise_memory_limit('image');
+
         $batch = array_splice($queue, 0, self::get_batch_size());
 
         foreach ($batch as $attachment_id) {
@@ -261,6 +265,9 @@ class Metasync_Media_Batch_Optimizer {
         $settings   = get_option('metasync_batch_optimize_settings', []);
         $start      = time();
         $time_limit = self::get_safe_time_limit();
+
+        // Request WordPress's image processing memory limit (typically 256MB) before heavy work
+        wp_raise_memory_limit('image');
 
         // Process images until time limit or queue empty.
         // Batch size is re-computed each iteration so it adapts as memory fills up.

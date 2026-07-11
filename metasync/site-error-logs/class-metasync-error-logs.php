@@ -268,10 +268,10 @@ class Metasync_Error_Logs
 	/**
 	 * Get human read number of units.
 	 *
-	 * @param string $bytes
+	 * @param int $bytes
 	 * @return string
 	 */
-	public function get_human_number(string $bytes)
+	public function get_human_number(int $bytes)
 	{
 		if ($bytes >= 1073741824) {
 			$bytes = number_format($bytes / 1073741824, 2) . ' GB';
