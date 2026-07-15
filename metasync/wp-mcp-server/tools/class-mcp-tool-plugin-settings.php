@@ -251,7 +251,7 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
         // Sanitize sensitive fields
         $new_options = $this->sanitize_settings($new_options);
 
-        // The whitelabel settings password is encrypted at rest (WP-395) —
+        // The whitelabel settings password is encrypted at rest —
         // never persist a plaintext value. encrypt_secret() is a no-op on
         // values that are already encrypted.
         if (!empty($new_options['whitelabel']['settings_password']) && is_string($new_options['whitelabel']['settings_password'])) {

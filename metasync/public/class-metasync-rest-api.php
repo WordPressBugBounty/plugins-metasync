@@ -1594,10 +1594,10 @@ class Metasync_Rest_Api
 	}
 
 	/**
-	 * WP-429: Remove a leading <h1> from post content when it duplicates the post title.
+	 * Remove a leading <h1> from post content when it duplicates the post title.
 	 *
 	 * Themes that render post_title as an H1 produce a duplicate heading when the
-	 * synced body also opens with the title. Counterpart of the WP-337 guard, which
+	 * synced body also opens with the title. Counterpart of the guard, which
 	 * only prevents prepending a second H1 but never removes one supplied in the body.
 	 *
 	 * @param string $content Post body HTML
@@ -1626,7 +1626,7 @@ class Metasync_Rest_Api
 	}
 
 	/**
-	 * WP-429: Decide whether the synced body should carry a prepended <h1> title.
+	 * Decide whether the synced body should carry a prepended <h1> title.
 	 *
 	 * Replaces the unreliable 7-day hidden-post probe (title_in_headings) as the
 	 * source of truth for the prepend decision. We only prepend when we have a
@@ -1652,7 +1652,7 @@ class Metasync_Rest_Api
 	}
 
 	/**
-	 * WP-429: After a post is saved, render its live URL once and record whether
+	 * After a post is saved, render its live URL once and record whether
 	 * the active theme outputs the post title in a heading. The verdict is cached
 	 * per post-type so subsequent syncs skip the round-trip. Best-effort: any
 	 * inconclusive fetch (non-200, cache/challenge page, wrong post) records
@@ -1694,7 +1694,7 @@ class Metasync_Rest_Api
 	}
 
 	/**
-	 * WP-429: Fetch the rendered post and detect whether the theme outputs the
+	 * Fetch the rendered post and detect whether the theme outputs the
 	 * title in a heading.
 	 *
 	 * @param string $permalink  Public permalink
@@ -1742,7 +1742,7 @@ class Metasync_Rest_Api
 	}
 
 	/**
-	 * WP-429: Return true if $title appears within any heading (h1–h6) of $html.
+	 * Return true if $title appears within any heading (h1–h6) of $html.
 	 *
 	 * @param string $html  Rendered page HTML
 	 * @param string $title Title text to match
@@ -1829,7 +1829,7 @@ class Metasync_Rest_Api
 					$is_flatsome_theme = true;
 				}
 
-				# WP-429: Always strip a leading H1 that duplicates the title. The
+				# Always strip a leading H1 that duplicates the title. The
 				# theme renders post_title in its header on virtually every theme, so a
 				# title H1 at the top of the body is a duplicate. Whether we then put one
 				# back is decided by should_prepend_title() below.
@@ -1847,7 +1847,7 @@ class Metasync_Rest_Api
 						$item['post_content'] = '<img src="' . esc_url_raw($item['hero_image_url']) . '" />'.$item['post_content'] ;
 					}
 
-					# WP-429: Only prepend the title H1 when the theme is render-verified to
+					# Only prepend the title H1 when the theme is render-verified to
 					# omit it. Unknown verdict defaults to NOT prepending (see should_prepend_title).
 					if(isset($item['post_title']) && $this->should_prepend_title($current_post_type)){
 						$item['post_content'] = '<h1>'.$item['post_title'].'</h1>'.$item['post_content'] ;
@@ -2102,7 +2102,7 @@ class Metasync_Rest_Api
 			$this->metasync_google_index_post($post_id, $new_post['post_type'], $new_post['post_status']);
 			}
 
-			# WP-429: For standard synced posts, learn (once per post-type) whether the
+			# For standard synced posts, learn (once per post-type) whether the
 			# theme renders the title, so future syncs prepend only when genuinely needed.
 			if (!is_wp_error($post_id) && $post_id > 0
 				&& !isset($item['is_landing_page']) && empty($isOttoAiPage) && empty($item['style_data'])
@@ -2110,7 +2110,7 @@ class Metasync_Rest_Api
 				try {
 					$this->record_theme_title_verdict($post_id, $permalink, $new_post['post_title'], $new_post['post_type']);
 				} catch (Exception $e) {
-					error_log('MetaSync WP-429 title verdict failed: ' . $e->getMessage());
+					error_log('MetaSync title verdict failed: ' . $e->getMessage());
 				}
 			}
 
@@ -2550,7 +2550,12 @@ class Metasync_Rest_Api
 					sanitize_text_field($post['meta_robots']) : $get_robots_meta;
 			}
 			if (isset($post['meta_canonical']) && !empty($post['meta_canonical'])) {
-				$update_params['meta_canonical'] = sanitize_text_field($post['meta_canonical']);
+				// Validate as a URL: drop unusable values instead of
+				// storing text that would later be emitted as a canonical.
+				$clean_canonical = Metasync_Canonical_Sanitizer::sanitize_for_save($post['meta_canonical']);
+				if ($clean_canonical !== '') {
+					$update_params['meta_canonical'] = $clean_canonical;
+				}
 			}
 
 			$isOttoAiPage = !empty($post['otto_ai_page']) && filter_var($post['otto_ai_page'], FILTER_VALIDATE_BOOLEAN);
@@ -2579,7 +2584,7 @@ class Metasync_Rest_Api
 				# Title to compare against — payload may omit post_title on update
 				$compare_title = isset($post['post_title']) && !empty($post['post_title']) ? $post['post_title'] : $post_fresh_data->post_title;
 
-				# WP-429: Always strip a leading H1 that duplicates the title; the theme
+				# Always strip a leading H1 that duplicates the title; the theme
 				# renders post_title in its header, so a body title H1 is a duplicate.
 				$post['post_content'] = $this->strip_leading_title_h1($post['post_content'], $compare_title);
 
@@ -2593,7 +2598,7 @@ class Metasync_Rest_Api
 						$post['post_content'] = '<img src="' . esc_url_raw($post['hero_image_url']) . '" />'.$post['post_content'] ;
 					}
 
-					# WP-429: Only prepend the title H1 when the theme is render-verified to
+					# Only prepend the title H1 when the theme is render-verified to
 					# omit it. Unknown verdict defaults to NOT prepending (see should_prepend_title).
 					if($this->should_prepend_title($post_fresh_data->post_type)){
 						$post['post_content'] = '<h1>'.$compare_title.'</h1>'.$post['post_content'] ;
@@ -2754,7 +2759,6 @@ class Metasync_Rest_Api
 			$this->lgSendCustomerPostParams();
 
 			unset($update_params['post_name']);
-			unset($update_params['post_category']);
 
 			$update_params['post_categories'] = $post_cattegories;
 			$update_params['post_tags'] = $post_tags;
@@ -2833,14 +2837,14 @@ class Metasync_Rest_Api
 					error_log('MetaSync: Analytics tracking failed for Content Genius - ' . $e->getMessage());
 				}
 
-				# WP-429: Learn (once per post-type) whether the theme renders the title,
+				# Learn (once per post-type) whether the theme renders the title,
 				# so future syncs prepend only when the theme genuinely omits it.
 				if ($post_id > 0 && empty($post['is_landing_page']) && empty($isOttoAiPage)
 					&& $sync_status === 'published') {
 					try {
 						$this->record_theme_title_verdict($post_id, ($permalink ?? get_permalink($post_id)), $post_title, $post_type);
 					} catch (Exception $e) {
-						error_log('MetaSync WP-429 title verdict failed: ' . $e->getMessage());
+						error_log('MetaSync title verdict failed: ' . $e->getMessage());
 					}
 				}
 			}
@@ -4204,7 +4208,7 @@ class Metasync_Rest_Api
 			), 400);
 		}
 
-		# Register the key for virtual serving via template_redirect (WP-511).
+		# Register the key for virtual serving via template_redirect.
 		# We deliberately do NOT write a physical {key}.txt: on nginx hosts that
 		# 403 direct static .txt access, an on-disk file is served statically and
 		# blocked before WordPress runs. Serving the key from PHP avoids that and

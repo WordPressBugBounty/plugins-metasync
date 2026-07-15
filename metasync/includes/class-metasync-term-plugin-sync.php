@@ -70,6 +70,16 @@ class Metasync_Term_Plugin_Sync {
                 return $results;
             }
 
+            // Never mirror a corrupted or non-URL canonical into third-party
+            // storage — a nested-array value cast with (string) becomes the
+            // literal "Array" and propagates into Yoast/RankMath/AIOSEO.
+            if (array_key_exists('canonical', $data)) {
+                $data['canonical'] = Metasync_Canonical_Sanitizer::sanitize($data['canonical']);
+                if ($data['canonical'] === '') {
+                    unset($data['canonical']);
+                }
+            }
+
             if ($this->is_yoast_active()) {
                 $results['yoast'] = $this->sync_yoast((int) $term_id, $taxonomy, $data);
             }

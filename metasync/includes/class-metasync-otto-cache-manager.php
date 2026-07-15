@@ -429,7 +429,7 @@ class Metasync_Otto_Cache_Manager
                 $result = Metasync_Otto_Transient_Cache::clear_all_transients();
                 $redirect_url .= '&otto_cache_cleared=1&count=' . $result['cleared_count'];
 
-                # WP-463: Clearing the OTTO suggestions transient is not enough on its
+                # Clearing the OTTO suggestions transient is not enough on its
                 # own. The OTTO-modified HTML (e.g. an injected hidden H1 from a module
                 # that has since been unapproved in the dashboard) is frozen in the host
                 # page cache and any edge CDN. Until those layers are purged, PHP never
@@ -483,7 +483,7 @@ class Metasync_Otto_Cache_Manager
                 if ($result['success']) {
                     $redirect_url .= '&otto_cache_cleared=1&count=' . $result['cleared_count'] . '&url=' . urlencode($url);
 
-                    # WP-463: Also purge the host page cache and edge CDN for this URL so
+                    # Also purge the host page cache and edge CDN for this URL so
                     # the frozen OTTO-modified HTML (e.g. a hidden injected H1 from a module
                     # unapproved in the dashboard) is regenerated. Clearing the suggestions
                     # transient alone leaves the stale HTML live in the page cache because
@@ -507,7 +507,7 @@ class Metasync_Otto_Cache_Manager
     }
 
     // ------------------------------------------------------------------
-    //  Page-cache propagation (WP-463)
+    // Page-cache propagation
     // ------------------------------------------------------------------
 
     /**

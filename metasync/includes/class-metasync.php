@@ -355,7 +355,7 @@ class Metasync
 		$this->loader->add_action('updated_term_meta', $this, 'on_term_meta_updated', 10, 4);
 		$this->loader->add_action('added_term_meta', $this, 'on_term_meta_updated', 10, 4);
 
-		// Post-level plugin sync (WP-196): propagate MetaSync post meta into
+		// Post-level plugin sync: propagate MetaSync post meta into
 		// Yoast/Rank Math/AIOSEO post storage on every write.
 		$this->loader->add_action('updated_post_meta', $this, 'on_post_meta_updated', 10, 4);
 		$this->loader->add_action('added_post_meta', $this, 'on_post_meta_updated', 10, 4);
@@ -453,7 +453,7 @@ class Metasync
 		require_once plugin_dir_path(dirname(__FILE__)) . 'llms-txt/class-metasync-llms-txt-generator.php';
 		$llms_txt_generator = new Metasync_Llms_Txt_Generator();
 
-		// Serve the IndexNow key file virtually at /{key}.txt (WP-511) so it works
+		// Serve the IndexNow key file virtually at /{key}.txt so it works
 		// on read-only web roots and nginx hosts that 403 direct static .txt access.
 		require_once plugin_dir_path(dirname(__FILE__)) . 'bing-index/class-metasync-bing-instant-index.php';
 		add_action('template_redirect', array('Metasync_Bing_Instant_Index', 'serve_virtual_key_file'), 0);

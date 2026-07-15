@@ -318,7 +318,7 @@
     };
 
     /**
-     * Focus Keyword Display Component (WP-403)
+     * Focus Keyword Display Component
      * Read-only surface of the keyword OTTO already saved to _metasync_otto_keywords.
      * Display only — never writes back to meta. Hidden entirely when no keyword exists,
      * so a site with no OTTO keyword shows nothing (no empty/blank confusion).
@@ -1680,7 +1680,7 @@
     };
 
     /**
-     * Advanced Robots Directives Panel Component (WP-197)
+     * Advanced Robots Directives Panel Component
      * Allows per-post control of robots directives like nofollow, noarchive, etc.
      */
     const RobotsAdvancedPanel = () => {
@@ -1902,7 +1902,7 @@
      * Main Sidebar Component
      */
     /**
-     * Plugin Sync Status Panel Component (WP-196)
+     * Plugin Sync Status Panel Component
      * Reads _metasync_plugin_sync_ts from post meta and displays sync status.
      */
     const PluginSyncStatusPanel = () => {
@@ -1960,7 +1960,7 @@
 
     const MetaSyncSeoSidebar = () => {
         // LPS / custom-HTML pages bake their own SEO — show only a read-only notice
-        // instead of the editable panels (WP-486). The sidebar still registers and
+        // instead of the editable panels. The sidebar still registers and
         // opens; it just has no editable fields.
         if (config.isCustomOrLpsPage) {
             return el(PluginSidebar, {

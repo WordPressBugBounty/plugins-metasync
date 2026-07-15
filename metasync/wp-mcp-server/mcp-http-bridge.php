@@ -33,7 +33,7 @@
  * @since      2.0.0
  */
 
-// Signal to metasync_init_mcp_server() that MCP init must not be skipped (WP-255).
+// Signal to metasync_init_mcp_server() that MCP init must not be skipped.
 define('METASYNC_MCP_BRIDGE', true);
 
 // Check if running as standalone server or via PHP built-in server

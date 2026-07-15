@@ -3,7 +3,7 @@
  * MetaSync — MCP Server Bootstrap
  *
  * Creates the MCP server instance and registers all MCP tools. Extracted from
- * metasync.php (WP-530) to keep the plugin entry file a lean bootstrap. Loaded
+ * metasync.php to keep the plugin entry file a lean bootstrap. Loaded
  * via require_once from metasync.php; registers metasync_init_mcp_server() on
  * the WordPress 'init' hook. Function names and hook timing are unchanged.
  *
@@ -19,7 +19,7 @@ if (!defined('WPINC')) {
  *
  * Safely register a single MCP tool class, logging failures without aborting
  * subsequent registrations. Extracted as a named function so both production
- * code and unit tests exercise the same logic (WP-265).
+ * code and unit tests exercise the same logic.
  *
  * @param object $server  The MCP server instance (must have register_tool()).
  * @param string $class_name  Fully-qualified tool class name.
@@ -51,7 +51,7 @@ function metasync_init_mcp_server() {
 	}
 	// Skip the heavy MCP boot (server + sync logger + REST inventory + 100+ tool objects)
 	// unless this request is actually targeting the MCP REST route or was loaded via
-	// the stdio/HTTP bridge. WP-255.
+	// the stdio/HTTP bridge.
 	if (!metasync_is_mcp_rest_request() && !defined('METASYNC_MCP_BRIDGE')) {
 		return;
 	}
@@ -64,7 +64,7 @@ function metasync_init_mcp_server() {
 		// Attach MCP sync logger so all write tool calls are recorded in Sync History.
 		new Metasync_MCP_Sync_Logger();
 
-		// SEO Inventory: shared builder + standalone REST endpoint (WP-135)
+		// SEO Inventory: shared builder + standalone REST endpoint
 		new Metasync_REST_SEO_Inventory();
 	} catch (\Throwable $e) {
 		error_log('MCP Server Initialization Error: ' . $e->getMessage());
@@ -249,7 +249,7 @@ function metasync_init_mcp_server() {
 	$safe_register('MCP_Tool_Get_Cron_Jobs');
 	$safe_register('MCP_Tool_Get_WP_Option');
 
-	// SEO Inventory (1 tool — WP-135)
+	// SEO Inventory (1 tool)
 	$safe_register('MCP_Tool_List_Posts_SEO_Inventory');
 
 	// Read-Only Database Access (3 tools)
@@ -271,7 +271,7 @@ function metasync_init_mcp_server() {
 	$safe_register('MCP_Tool_Update_LLMs_Txt_Settings');
 	$safe_register('MCP_Tool_Get_Post_Markdown');
 
-	// SEO Plugin Audit (4 tools — WP-202)
+	// SEO Plugin Audit (4 tools)
 	$safe_register('MCP_Tool_Read_SEO_Plugin_Data');
 	$safe_register('MCP_Tool_SEO_Plugin_Diff');
 	$safe_register('MCP_Tool_Sync_To_Active_Plugins');

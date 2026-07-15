@@ -102,7 +102,7 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
             $meta_value = wp_json_encode($decoded);
         }
 
-        // WP-197: Validate _metasync_robots_advanced JSON
+        // Validate _metasync_robots_advanced JSON
         if ($meta_key === '_metasync_robots_advanced') {
             $raw_value = isset($params['meta_value']) ? (string) $params['meta_value'] : '';
             $decoded = json_decode($raw_value, true);
@@ -139,6 +139,15 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
         // SECURITY: Apply esc_url_raw() to URL-typed meta keys (prevent javascript: protocol).
         if (in_array($meta_key, ['_metasync_og_image', '_metasync_og_url', '_metasync_canonical_url', '_metasync_og_article_author'])) {
             $meta_value = esc_url_raw($meta_value);
+        }
+
+        // Canonical must be a usable URL — reject corrupted values like
+        // "Array"/"http://Array" so they can't re-enter storage.
+        if ($meta_key === '_metasync_canonical_url') {
+            $meta_value = Metasync_Canonical_Sanitizer::sanitize_for_save($meta_value);
+            if ($meta_value === '') {
+                return $this->error('canonical_url must be a valid URL');
+            }
         }
 
         // Sanitize integer meta fields

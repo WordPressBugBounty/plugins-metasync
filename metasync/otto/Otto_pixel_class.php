@@ -261,7 +261,7 @@ Class Metasync_otto_pixel{
         # comment out for fixing pagination issues
         # $route = rtrim($route, '/');
 
-        # WP-498: Now that OTTO has confirmed suggestions to apply to this URL,
+        # Now that OTTO has confirmed suggestions to apply to this URL,
         # disable SiteGround SG Optimizer page caching for THIS request only.
         # Doing it here (instead of unconditionally on the `wp` hook) ensures
         # pages without OTTO suggestions keep being served from SG's page cache.
@@ -524,7 +524,7 @@ Class Metasync_otto_pixel{
         # Set method indicator
         Metasync_Otto_Render_Strategy::set_current_method(Metasync_Otto_Render_Strategy::METHOD_HTTP);
 
-        # WP-315: On Divi sites, skip OTTO for the first HTTP render per page
+        # On Divi sites, skip OTTO for the first HTTP render per page
         # per 24h. OTTO's internal wp_remote_get creates corrupted CSS cache
         # files in et-cache/{post_id}/ (wrong server context). By returning
         # false once, WordPress renders the page normally — building correct
@@ -551,7 +551,7 @@ Class Metasync_otto_pixel{
 
         $route_html_string = is_string($route_html) ? $route_html : $route_html->__toString();
 
-        # WP-315: Detect incomplete Divi rendering in OTTO's HTTP render output.
+        # Detect incomplete Divi rendering in OTTO's HTTP render output.
         # OTTO's internal wp_remote_get runs in a different server context than the
         # normal page load. This can cause Divi to produce incomplete output:
         #
@@ -622,7 +622,7 @@ Class Metasync_otto_pixel{
            
         }
         
-        # WP-315: If Divi's module-design CSS is missing from OTTO output,
+        # If Divi's module-design CSS is missing from OTTO output,
         # fetch it directly and inject it. This handles the case where the
         # internal wp_remote_get response was truncated by SG Optimizer's parser.
         if (strpos($route_html_string, 'et-builder-module-design') === false

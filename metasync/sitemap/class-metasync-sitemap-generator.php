@@ -54,7 +54,7 @@ class Metasync_Sitemap_Generator
         $this->sitemap_index_path = ABSPATH . 'sitemap_index.xml';
         $this->sitemap_index_url = home_url('/sitemap_index.xml');
 
-        // WP-548: MetaSync must only take over the sitemap URLs (/sitemap*.xml)
+        // MetaSync must only take over the sitemap URLs (/sitemap*.xml)
         // when its own sitemap feature is actually in use. When it is not, the
         // URLs are left untouched so a third-party provider (RankMath, Yoast,
         // AIOSEO, or WordPress core) can serve them. Previously the interception
@@ -63,7 +63,7 @@ class Metasync_Sitemap_Generator
         // the UI, and even regenerated our sitemap on access after a delete.
         if ($this->is_sitemap_enabled()) {
             // Disable WordPress core sitemap so we don't serve duplicate sitemaps
-            // to search engines (WP-396).
+            // to search engines.
             add_filter('wp_sitemaps_enabled', '__return_false', 10);
             if (!get_option('metasync_disable_wp_sitemap', false)) {
                 update_option('metasync_disable_wp_sitemap', true);
@@ -94,7 +94,7 @@ class Metasync_Sitemap_Generator
      * feature is actually in use. When it is not, the URLs are left untouched so
      * a third-party provider (RankMath, Yoast, AIOSEO, or WordPress core) can
      * serve them — this prevents MetaSync from silently shadowing another
-     * sitemap plugin (WP-548).
+     * sitemap plugin.
      *
      * Resolution order:
      *   1. Explicit `metasync_sitemap_enabled` option when set to a real boolean.
@@ -167,7 +167,7 @@ class Metasync_Sitemap_Generator
      */
     public function inject_rewrite_rules($rules)
     {
-        // CRITICAL (WP-446): never inject into an empty/non-array rules value.
+        // CRITICAL: never inject into an empty/non-array rules value.
         //
         // WordPress self-heals broken routing in WP_Rewrite::wp_rewrite_rules():
         // "if ( empty( get_option('rewrite_rules') ) ) { regenerate + save; }".
@@ -514,7 +514,7 @@ class Metasync_Sitemap_Generator
         // Each term filter is OR-ed with a NOT EXISTS clause: the query runs across all
         // selected post types in one WP_Query, and content with no terms in the taxonomy
         // (pages, custom post types, untagged posts) must not be excluded by a term
-        // selection that cannot apply to it (WP-420).
+        // selection that cannot apply to it.
         $sitemap_tax_query = [];
         if (!empty($sitemap_settings['_configured']) && !empty($sitemap_settings['categories'])) {
             $sitemap_tax_query[] = [
@@ -676,7 +676,7 @@ class Metasync_Sitemap_Generator
             }
 
             // Respect per-term category/tag selections for archive URLs too, so an
-            // unchecked term's archive page does not appear in the sitemap (WP-420).
+            // unchecked term's archive page does not appear in the sitemap.
             $selected_term_ids = null;
             if (!empty($sitemap_settings['_configured'])) {
                 if ($taxonomy === 'category' && !empty($sitemap_settings['categories'])) {
@@ -1943,7 +1943,7 @@ class Metasync_Sitemap_Generator
             } elseif ($filename === 'video-sitemap.xml') {
                 $this->generate_video_sitemap();
             } elseif ($this->is_sitemap_enabled()) {
-                // WP-548: only rebuild the general sitemap when the feature is
+                // only rebuild the general sitemap when the feature is
                 // actually in use. Never fabricate a sitemap the site has not
                 // opted into — the previous `empty($known_files)` fallback
                 // regenerated our sitemap on ANY request, which silently undid

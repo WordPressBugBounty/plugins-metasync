@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) {
 class Metasync_SEO_Inventory_Builder {
 
     /**
-     * Meta keys we read for every post (MCP field set — matches WP-134).
+     * Meta keys we read for every post (MCP field set — matches).
      */
     const SEO_META_KEYS = [
         'meta_title'          => '_metasync_metatitle',
@@ -138,7 +138,7 @@ class Metasync_SEO_Inventory_Builder {
         $post_id = $post->ID;
 
         // Basic info
-        // WP-499: Page-builder content (Divi [et_pb_*], Elementor, WPBakery) is stored
+        // Page-builder content (Divi [et_pb_*], Elementor, WPBakery) is stored
         // as shortcodes whose handlers are not registered during a REST inventory request.
         // Render what we can, then strip registered + leftover shortcode-style tags so raw
         // builder markup does not leak into the content/word-count sent to SearchAtlas.
@@ -242,7 +242,7 @@ class Metasync_SEO_Inventory_Builder {
             'update_post_term_cache' => false,
             // Exclude custom/LPS pages so the total matches the excluded item list
             // in build() — otherwise the platform sees a count larger than the
-            // number of items it can page through (WP-458).
+            // number of items it can page through.
             'meta_query'     => [metasync_get_custom_page_exclusion_meta_query()],
         ];
 

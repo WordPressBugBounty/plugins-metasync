@@ -520,7 +520,7 @@ body:has(.metasync-dashboard-wrap) #adminmenuback {
 }
 
 /* ── Static header connection status (render_static_header) ─────────── */
-/* WP-476: the static-header badge previously had no styling; mirror the
+/* the static-header badge previously had no styling; mirror the
    compact-header rules so connected / disconnected / warning render. */
 
 .metasync-header .metasync-status {

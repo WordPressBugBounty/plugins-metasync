@@ -384,7 +384,7 @@ class MCP_Tool_List_Media extends MCP_Tool_Base {
             'paged' => isset($params['page']) ? intval($params['page']) : 1,
             'orderby' => isset($params['orderby']) ? sanitize_text_field($params['orderby']) : 'date',
             'order' => isset($params['order']) ? sanitize_text_field($params['order']) : 'DESC',
-            // Term cache is unused here; skip priming it to keep peak memory bounded (WP-489).
+            // Term cache is unused here; skip priming it to keep peak memory bounded.
             'update_post_term_cache' => false,
         ];
 
@@ -414,7 +414,7 @@ class MCP_Tool_List_Media extends MCP_Tool_Base {
         }
 
         // Capture pagination totals, then release the query (post objects) before
-        // returning the response payload (WP-489).
+        // returning the response payload.
         $found_posts = (int) $query->found_posts;
         $max_num_pages = (int) $query->max_num_pages;
         unset($query);

@@ -3,7 +3,7 @@
  * MetaSync — Runtime Feature Initialisers
  *
  * GA4 analytics, API backoff, review notice, the global metasync_get_jwt_token()
- * accessor, and the debug mode manager. Extracted from metasync.php (WP-530) to
+ * accessor, and the debug mode manager. Extracted from metasync.php to
  * keep the plugin entry file a lean bootstrap. Loaded via require_once from
  * metasync.php; each initialiser registers its own hook. Function names and hook
  * timing are unchanged.

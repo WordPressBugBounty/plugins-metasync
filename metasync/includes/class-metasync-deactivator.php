@@ -54,7 +54,7 @@ class Metasync_Deactivator
 		// so a soft flush fully clears them without ever touching the file.
 		flush_rewrite_rules(false);
 
-		// Reset WP-299 one-time cleanup flag so it re-runs on next activation/update
+		// Reset one-time cleanup flag so it re-runs on next activation/update
 		delete_option('metasync_wp299_cron_cleanup_done');
 	}
 }

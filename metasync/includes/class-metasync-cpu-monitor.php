@@ -80,7 +80,7 @@ class Metasync_CPU_Monitor {
 	 * disabled. Callers must treat false as "unknown", NOT as 1 core:
 	 * sys_getloadavg() still reports the WHOLE machine's load on such
 	 * hosts, so pairing it with an assumed 1-core threshold wrongly flags
-	 * large, healthy shared servers as overloaded (WP-547).
+	 * large, healthy shared servers as overloaded.
 	 *
 	 * @return int|false Core count, or false when detection failed
 	 */
@@ -131,7 +131,7 @@ class Metasync_CPU_Monitor {
 		// reset to null (which would defeat it and re-run shell_exec probes
 		// on every call) and stops a bogus 0/negative/garbage filter return
 		// from silently recreating the 1-core/2.0-threshold gate this class
-		// must avoid (WP-547) while reporting detection as "reliable".
+		// must avoid while reporting detection as "reliable".
 		// Round through float so numeric strings like "1e3" parse by value
 		// (a direct (int) cast would stop at the "e" and yield 1).
 		$normalized = is_numeric( $filtered ) ? (int) round( (float) $filtered ) : 0;
@@ -161,7 +161,7 @@ class Metasync_CPU_Monitor {
 	 *
 	 * Note: when is_core_detection_reliable() is false this returns the
 	 * 1-core fallback, which is NOT a trustworthy basis for a load
-	 * threshold — is_load_safe() fails open in that case (WP-547).
+	 * threshold — is_load_safe() fails open in that case.
 	 *
 	 * @return int Number of CPU cores (minimum 1)
 	 */
@@ -204,7 +204,7 @@ class Metasync_CPU_Monitor {
 			return true;
 		}
 
-		// WP-547: without a real core count the effective threshold
+		// without a real core count the effective threshold
 		// (assumed 1 core × per-core limit) is meaningless. On managed
 		// hosts that block /proc/cpuinfo and shell_exec, sys_getloadavg()
 		// reports the whole shared machine's load — which normally sits

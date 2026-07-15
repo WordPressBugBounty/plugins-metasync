@@ -43,7 +43,7 @@ class Metasync_SEO_Conflict_Handler {
     private $aioseo_has_description_cache = null;
 
     /**
-     * Cached result: whether the current post has been synced via WP-196.
+     * Cached result: whether the current post has been synced via.
      *
      * @var array Keyed by post_id => bool
      */
@@ -138,10 +138,10 @@ class Metasync_SEO_Conflict_Handler {
     }
 
     /**
-     * WP-551: Whether an active third-party SEO plugin actually holds a
+     * Whether an active third-party SEO plugin actually holds a
      * non-empty meta description for this post in its OWN storage.
      *
-     * The native-first (WP-196) output guards previously stood down whenever a
+     * The native-first output guards previously stood down whenever a
      * sync timestamp (_metasync_plugin_sync_ts) existed, assuming the plugin
      * would render the description. But a stale or partial sync leaves the
      * plugin's field empty — MetaSync suppresses its own tag, the plugin has
@@ -271,7 +271,7 @@ class Metasync_SEO_Conflict_Handler {
      * box value (meta_canonical). Restricted to singular views so term/archive
      * queried-object ids are never misread as post ids. Mirrors the fallback in
      * Metasync_Seo_Output::get_canonical_url() so both the no-SEO-plugin path and
-     * the third-party-plugin path honor the same value (WP-544).
+     * the third-party-plugin path honor the same value.
      *
      * @param int $post_id Current object id.
      * @return string Escaped canonical URL, or '' when none is set.
@@ -281,19 +281,18 @@ class Metasync_SEO_Conflict_Handler {
             return '';
         }
 
-        $canonical = get_post_meta($post_id, '_metasync_canonical_url', true);
-        if (empty($canonical)) {
-            $legacy = get_post_meta($post_id, 'meta_canonical', true);
-            // Repair legacy values stored as arrays by sanitize_array()
-            if (is_array($legacy)) {
-                $legacy = reset($legacy) ?: '';
-            }
-            if (!empty($legacy)) {
-                $canonical = $legacy;
-            }
+        // Validate both sources: legacy rows corrupted to the literal "Array"
+        // (or stored as arrays) must never be emitted as a canonical.
+        $canonical = Metasync_Canonical_Sanitizer::sanitize(
+            get_post_meta($post_id, '_metasync_canonical_url', true)
+        );
+        if ($canonical === '') {
+            $canonical = Metasync_Canonical_Sanitizer::sanitize(
+                get_post_meta($post_id, 'meta_canonical', true)
+            );
         }
 
-        return !empty($canonical) ? esc_url($canonical) : '';
+        return $canonical !== '' ? esc_url($canonical) : '';
     }
 
     /**
@@ -307,7 +306,7 @@ class Metasync_SEO_Conflict_Handler {
     }
 
     /**
-     * Check whether a post has been synced to third-party plugins via WP-196.
+     * Check whether a post has been synced to third-party plugins via.
      *
      * When native-first sync is active, each plugin reads MetaSync values from
      * its own storage — no filter suppression needed. This method returns true
@@ -426,7 +425,7 @@ class Metasync_SEO_Conflict_Handler {
      * Filter AIOSEO's canonical URL.
      *
      * Mirrors filter_yoast_canonical(): return the MetaSync-managed canonical
-     * (OTTO or the Canonical meta box) when set, else pass AIOSEO's through. (WP-544)
+     * (OTTO or the Canonical meta box) when set, else pass AIOSEO's through.
      */
     public function filter_aioseo_canonical($canonical) {
         $custom = $this->get_metasync_canonical($this->get_current_object_id());
@@ -447,7 +446,7 @@ class Metasync_SEO_Conflict_Handler {
             $this->aioseo_has_description_cache = !empty($description);
         }
 
-        // WP-196: Primary plugin check — only the designated plugin outputs.
+        // Primary plugin check — only the designated plugin outputs.
         $post_id = $this->get_current_object_id();
         if ($post_id && $this->has_active_seo_plugin()) {
             if ($this->is_primary_output_plugin($post_id, 'aioseo')) {
@@ -487,7 +486,7 @@ class Metasync_SEO_Conflict_Handler {
      * @return string
      */
     public function filter_aioseo_title($title) {
-        // WP-196: Primary plugin check — only the designated plugin outputs.
+        // Primary plugin check — only the designated plugin outputs.
         $post_id = $this->get_current_object_id();
         if ($post_id && $this->has_active_seo_plugin()) {
             if ($this->is_primary_output_plugin($post_id, 'aioseo')) {
@@ -531,7 +530,7 @@ class Metasync_SEO_Conflict_Handler {
 
         $post_id = $this->get_current_object_id();
 
-        // WP-196: Post synced to AIOSEO — let AIOSEO read from its own storage.
+        // Post synced to AIOSEO — let AIOSEO read from its own storage.
         if ($post_id && $this->is_primary_output_plugin($post_id, 'aioseo')) {
             return $meta;
         }
@@ -572,7 +571,7 @@ class Metasync_SEO_Conflict_Handler {
 
         $post_id = $this->get_current_object_id();
 
-        // WP-196: Post synced to AIOSEO — let AIOSEO read from its own storage.
+        // Post synced to AIOSEO — let AIOSEO read from its own storage.
         if ($post_id && $this->is_primary_output_plugin($post_id, 'aioseo')) {
             return $meta;
         }
@@ -612,7 +611,7 @@ class Metasync_SEO_Conflict_Handler {
             return $robots;
         }
 
-        // WP-196: Post synced to AIOSEO — let AIOSEO read from its own storage.
+        // Post synced to AIOSEO — let AIOSEO read from its own storage.
         if ($this->is_primary_output_plugin($post_id, 'aioseo')) {
             return $robots;
         }
@@ -860,7 +859,7 @@ class Metasync_SEO_Conflict_Handler {
      *
      * When a MetaSync-managed canonical exists (OTTO or the Canonical meta box),
      * return it so Yoast emits our value instead of its own — avoiding a duplicate
-     * <link rel="canonical"> while still honoring the per-post override (WP-544).
+     * <link rel="canonical"> while still honoring the per-post override.
      * Otherwise let Yoast's canonical through unchanged.
      */
     public function filter_yoast_canonical($canonical) {
@@ -884,7 +883,7 @@ class Metasync_SEO_Conflict_Handler {
     public function filter_yoast_title($title) {
         $post_id = $this->get_current_object_id();
 
-        // WP-196: When Yoast is the primary output plugin, let it through.
+        // When Yoast is the primary output plugin, let it through.
         // For synced posts, Yoast reads from its own storage (already has the value).
         // For unsynced posts as primary, still check for MetaSync sidebar override.
         if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
@@ -896,7 +895,7 @@ class Metasync_SEO_Conflict_Handler {
             return $title;
         }
 
-        // WP-196: Another plugin is primary — suppress Yoast.
+        // Another plugin is primary — suppress Yoast.
         if ($post_id && $this->has_active_seo_plugin()) {
             if ($this->is_primary_output_plugin($post_id, 'rankmath') || $this->is_primary_output_plugin($post_id, 'aioseo')) {
                 return '';
@@ -1098,7 +1097,7 @@ class Metasync_SEO_Conflict_Handler {
      * Filter RankMath's canonical URL.
      *
      * Mirrors filter_yoast_canonical(): return the MetaSync-managed canonical
-     * (OTTO or the Canonical meta box) when set, else pass RankMath's through. (WP-544)
+     * (OTTO or the Canonical meta box) when set, else pass RankMath's through.
      */
     public function filter_rankmath_canonical($canonical) {
         $custom = $this->get_metasync_canonical($this->get_current_object_id());
@@ -1122,7 +1121,7 @@ class Metasync_SEO_Conflict_Handler {
      */
     public function filter_rankmath_title($title) {
         $post_id = $this->get_current_object_id();
-        // WP-196: If another plugin is the primary output owner, suppress Rank Math.
+        // If another plugin is the primary output owner, suppress Rank Math.
         if ($post_id && $this->has_active_seo_plugin()) {
             if ($this->is_primary_output_plugin($post_id, 'rankmath')) {
                 return $title;
@@ -1239,7 +1238,7 @@ class Metasync_SEO_Conflict_Handler {
      * @return bool True if the legacy output should include a description tag.
      */
     public function should_output_legacy_description() {
-        // WP-196: Post synced to any active plugin — that plugin now owns the
+        // Post synced to any active plugin — that plugin now owns the
         // description output from its native storage. Suppress MetaSync's own tag.
         $post_id = $this->get_current_object_id();
         if ($post_id && $this->has_active_seo_plugin()) {
@@ -1319,7 +1318,7 @@ class Metasync_SEO_Conflict_Handler {
      * Strip BreadcrumbList nodes from a JSON-LD @graph array and remove
      * dangling breadcrumb references from WebPage-type nodes.
      *
-     * WP-369: Previously we only removed the BreadcrumbList entry but left
+     * Previously we only removed the BreadcrumbList entry but left
      * the WebPage's `breadcrumb: { @id: "...#breadcrumb" }` property intact.
      * Google follows that dangling @id, finds no matching node, and reports
      * "Missing field itemListElement".
@@ -1384,7 +1383,7 @@ class Metasync_SEO_Conflict_Handler {
             return false;
         }
 
-        // WP-369: When schema output is explicitly disabled, don't strip
+        // When schema output is explicitly disabled, don't strip
         // third-party breadcrumbs — MetaSync won't emit its own.
         if (!empty($settings['disable_schema'])) {
             return false;

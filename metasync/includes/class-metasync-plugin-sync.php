@@ -1,6 +1,6 @@
 <?php
 /**
- * Post-Level SEO Plugin Sync (WP-196)
+ * Post-Level SEO Plugin Sync
  *
  * Mirrors MetaSync post meta (`_metasync_*`) into the active third-party
  * SEO plugins' post storage (Yoast, Rank Math, AIOSEO) so that posts and
@@ -192,7 +192,7 @@ class Metasync_Plugin_Sync {
 
 		$canonical_key = $watched[$meta_key];
 
-		// WP-197 JSON key -- do a full sync + mirror to legacy meta boxes
+		// JSON key -- do a full sync + mirror to legacy meta boxes
 		if ($canonical_key === '_robots_advanced_json') {
 			$this->sync_post((int) $post_id);
 			$this->sync_to_legacy_meta((int) $post_id, $meta_value);
@@ -242,8 +242,17 @@ class Metasync_Plugin_Sync {
 	 * @return array Canonical data array.
 	 */
 	private function collect_post_data($post_id, array $fields = []) {
-		// If caller already resolved specific fields, return them directly
+		// If caller already resolved specific fields, return them directly.
+		// Canonical still gets validated — this branch serves the
+		// updated_post_meta fast-path, which would otherwise mirror a raw
+		// (possibly corrupted) value into third-party storage.
 		if (!empty($fields)) {
+			if (array_key_exists('canonical', $fields)) {
+				$fields['canonical'] = Metasync_Canonical_Sanitizer::sanitize($fields['canonical']);
+				if ($fields['canonical'] === '') {
+					unset($fields['canonical']);
+				}
+			}
 			return $fields;
 		}
 
@@ -275,7 +284,7 @@ class Metasync_Plugin_Sync {
 		// desc: sidebar > persisted OTTO > volatile OTTO
 		$data['desc'] = $first('_metasync_seo_desc', '_metasync_metadesc', '_metasync_otto_description');
 
-		// Robots directives: check _metasync_robots_advanced JSON first (WP-197),
+		// Robots directives: check _metasync_robots_advanced JSON first,
 		// then fall back to metasync_common_robots array + metasync_advance_robots array
 		$robots_json_raw = $get('_metasync_robots_advanced');
 		$robots_json = !empty($robots_json_raw) ? json_decode($robots_json_raw, true) : null;
@@ -329,7 +338,9 @@ class Metasync_Plugin_Sync {
 		$data['twitter_card'] = $get('_metasync_twitter_card');
 
 		// Canonical, focus keyword, breadcrumb
-		$data['canonical'] = $get('_metasync_canonical_url');
+		// Canonical is validated at the source so a corrupted value ("Array")
+		// never propagates into Yoast/RankMath/AIOSEO storage.
+		$data['canonical'] = Metasync_Canonical_Sanitizer::sanitize($get('_metasync_canonical_url'));
 		$data['focus_keyword'] = $first('_metasync_focus_keyword', '_metasync_otto_keywords');
 		$data['breadcrumb_title'] = $get('_metasync_breadcrumb_title');
 

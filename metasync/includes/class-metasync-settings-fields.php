@@ -1054,7 +1054,7 @@ class Metasync_Settings_Fields {
         // Real-time validation and AJAX save for this form live in
         // admin/js/metasync-execution-settings.js (enqueued on this page).
         // The previous inline duplicate was removed to avoid a double-bound
-        // submit handler that fired the save request twice (WP-430).
+        // submit handler that fired the save request twice.
         ?>
         <?php
     }
@@ -1267,12 +1267,13 @@ class Metasync_Settings_Fields {
             $refresh_help = 'You can also manually generate a token by clicking refresh.';
         }
         
+        printf('<div class="metasync-auth-token-row">');
         printf(
-            '<input type="text" id="apikey" name="' . Metasync_Admin::option_key . '[general][apikey]" value="%s" size="40" readonly="readonly" /> ',
+            '<input type="text" id="apikey" name="' . Metasync_Admin::option_key . '[general][apikey]" value="%s" size="40" class="regular-text" readonly="readonly" />',
             esc_attr($display_value)
         );
-        
-        printf('<button type="button" id="refresh-plugin-auth-token" class="button button-secondary" style="margin-left: 10px; margin-top: 8px;"><span class="dashicons dashicons-controls-repeat"></span> Refresh Token</button>');
+        printf('<button type="button" id="refresh-plugin-auth-token" class="button button-secondary metasync-refresh-token-btn"><span class="dashicons dashicons-controls-repeat"></span> Refresh Token</button>');
+        printf('</div>');
         printf('<p class="description">%s %s</p>', $status_message, $refresh_help);
     }
 
@@ -1305,7 +1306,7 @@ class Metasync_Settings_Fields {
         # Stored timestamps use current_time('mysql') which is the WP site's
         # local timezone (no offset marker on the string). Constructing
         # DateTime without a timezone would default to UTC and produce a
-        # bogus diff equal to the WP timezone offset (WP-350 QA: "4 hours ago"
+        # bogus diff equal to the WP timezone offset (QA: "4 hours ago"
         # after a 4-minute sync on non-UTC sites).
         $wp_tz = function_exists('wp_timezone') ? wp_timezone() : new DateTimeZone('UTC');
         $now = new DateTime('now', $wp_tz);

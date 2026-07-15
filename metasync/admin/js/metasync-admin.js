@@ -1120,7 +1120,7 @@
 			}
 			
 			// Update header status indicator (only on General Settings page).
-			// WP-476: the header badge must reflect the confirmed heartbeat
+			// the header badge must reflect the confirmed heartbeat
 			// round-trip (metaSync.is_connected), NOT mere API-key/UUID presence —
 			// otherwise a revoked/invalid key still shows "Connected" because the
 			// key string and UUID remain stored locally.
@@ -1403,7 +1403,7 @@
 	 * Update UI elements when account is disconnected
 	 */
 	function updateUIForDisconnectedState() {
-		// WP-426: a cached manual-sync cooldown must not survive disconnect —
+		// a cached manual-sync cooldown must not survive disconnect —
 		// it keeps the Sync Now button locked after the user reconnects even
 		// though the server-side cooldown stamp was cleared with the auth data.
 		localStorage.removeItem('metasync_manual_sync_throttle_expires');
@@ -2199,7 +2199,7 @@
 				$('#sendAuthTokenTimestamp').text('Ready to sync').css({ color: 'green' });
 				// Cooldown is over — clear the lingering "Request Throttled" admin
 				// notice at the top of the page. Without this the button resets to
-				// "Sync Now" but the red throttled bar stays visible (WP-350 QA).
+				// "Sync Now" but the red throttled bar stays visible (QA).
 				$('.metasync-sync-notice, .metasync-sync-error').remove();
 				return;
 			}
@@ -2276,7 +2276,7 @@
 				success: function (response) {
 					// Handle success response
 					if(response.success){
-						// Per-field whitelabel validation issues (WP-413): the save succeeded for
+						// Per-field whitelabel validation issues: the save succeeded for
 						// other fields, so show a warning notice and stay on the page so the
 						// user can see which values were rejected.
 						const wlErrors = response.data && response.data.whitelabel_errors;
@@ -2302,7 +2302,7 @@
 						let tabParam = new URLSearchParams(window.location.search).get('tab');
 						let tabQuery = tabParam ? '&tab=' + encodeURIComponent(tabParam) : '';
 
-						// Prefer the server-sanitized slug (WP-413) so the redirect matches the page
+						// Prefer the server-sanitized slug so the redirect matches the page
 						// WordPress actually registered; fall back to the raw input field value.
 						const savedSlug = response.data && typeof response.data.saved_menu_slug === 'string' ? response.data.saved_menu_slug : null;
 						const inputSlug = (whiteLableUrl && whiteLableUrl !== '') ? whiteLableUrl : 'searchatlas';

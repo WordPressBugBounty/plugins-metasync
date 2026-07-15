@@ -47,7 +47,7 @@ class Metasync_Sync_Requests
      *                             system callers (settings-save verification,
      *                             cron connectivity test, category CRUD, REST).
      *                             Only 'manual' consumes/stamps the manual
-     *                             cooldown (WP-426).
+     *                             cooldown.
      */
     public function SyncCustomerParams($token = null, $context = '')
     {
@@ -108,7 +108,7 @@ class Metasync_Sync_Requests
             # Manual "Sync Now" path: track throttle via a dedicated option key so
             # heartbeat ticks (which update last_heart_beat every ~15s) cannot keep
             # the manual cooldown alive indefinitely.
-            # WP-426: only the Settings "Sync Now" button takes this branch. System
+            # only the Settings "Sync Now" button takes this branch. System
             # callers (API-key save verification, cron connectivity test, category
             # CRUD, REST sync) must neither be rejected by the manual cooldown —
             # a throttled object reads as a failed verification and reverts a

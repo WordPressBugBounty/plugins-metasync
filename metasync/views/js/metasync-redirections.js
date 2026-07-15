@@ -28,6 +28,28 @@ document.addEventListener('DOMContentLoaded', function () {
 		});
 	});
 
+	// Submit the search when Enter is pressed in the search field.
+	//
+	// #redirection-form also contains the (hidden until action=add/edit) "Save"
+	// button from the add/edit-redirection panel, and that button is first in
+	// tree order. Per the HTML spec, pressing Enter in a text field submits the
+	// form via its *default* button (the first submit button in tree order),
+	// even if that button is hidden — so Enter here would otherwise submit as
+	// the "Save" button instead of "Search", which fails the add/edit form's
+	// validation and gets silently cancelled. Explicitly clicking the actual
+	// Search button reproduces exactly what a mouse click does, sidestepping
+	// the browser's implicit-submission button choice.
+	var searchInput = document.getElementById('post-search-input');
+	var searchSubmit = document.getElementById('search-submit');
+	if (searchInput && searchSubmit) {
+		searchInput.addEventListener('keydown', function (e) {
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				searchSubmit.click();
+			}
+		});
+	}
+
 	// Add tab parameter to all pagination links in redirections tab
 	function addTabToPaginationLinks() {
 		// Find all pagination links within redirections-content

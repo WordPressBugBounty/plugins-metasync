@@ -28,7 +28,7 @@ class Metasync_Otto_Render_Strategy {
     const METHOD_WP_ROCKET = 'rocket_buffer';
 
     /**
-     * WP-488: Memory amplification factor for SimpleHtmlDom.
+     * Memory amplification factor for SimpleHtmlDom.
      * Parsing a page into a SimpleHtmlDom node tree costs ~18x the raw HTML
      * size, and the save()/load() reload cycle adds another ~40% transient
      * peak. We budget 25x to keep a safety margin before the PHP memory limit.
@@ -36,7 +36,7 @@ class Metasync_Otto_Render_Strategy {
     const DOM_MEMORY_AMPLIFICATION = 25;
 
     /**
-     * WP-488: Absolute hard cap (bytes) on documents OTTO will DOM-parse,
+     * Absolute hard cap (bytes) on documents OTTO will DOM-parse,
      * regardless of available memory. Backstop against pathological pages.
      * Default 16 MB; override with the METASYNC_OTTO_MAX_HTML_BYTES constant
      * or the 'metasync_otto_max_html_bytes' filter.
@@ -187,7 +187,7 @@ class Metasync_Otto_Render_Strategy {
                 # SITEGROUND OPTIMIZER: Use HTTP method — buffer method + SimpleHtmlDom
                 # corrupts Divi module numbering (et_pb_blog_0 → et_pb_blog_1), breaking
                 # AJAX pagination. HTTP method preserves numbering; Divi CSS re-injection
-                # is handled in render_via_http() via et_core_page_resource_get API (WP-315).
+                # is handled in render_via_http() via et_core_page_resource_get API.
                 if ($name === 'SG_CachePress') {
                     return true;
                 }
@@ -287,7 +287,7 @@ class Metasync_Otto_Render_Strategy {
     }
 
     /**
-     * WP-488: Resolve the configurable absolute document-size cap (bytes).
+     * Resolve the configurable absolute document-size cap (bytes).
      *
      * @return int Maximum document size in bytes (0 disables the absolute cap)
      */
@@ -305,7 +305,7 @@ class Metasync_Otto_Render_Strategy {
     }
 
     /**
-     * WP-488: Decide whether a document is safe to DOM-parse without risking
+     * Decide whether a document is safe to DOM-parse without risking
      * a fatal out-of-memory error.
      *
      * Combines a configurable absolute byte cap with a dynamic check against
@@ -341,7 +341,7 @@ class Metasync_Otto_Render_Strategy {
     }
 
     /**
-     * WP-488: Log a skipped oversized document once per request (warning, not fatal).
+     * Log a skipped oversized document once per request (warning, not fatal).
      *
      * @param string $context Where the skip happened (for the log line)
      * @param int    $html_length Raw HTML length in bytes
@@ -581,7 +581,7 @@ class Metasync_Otto_Render_Strategy {
             );
         }
 
-        # WP-315: Re-inject Divi's module-design CSS if missing from buffer output.
+        # Re-inject Divi's module-design CSS if missing from buffer output.
         # SG Optimizer's parser strips late-injected CSS from the buffer. We read it
         # from Divi's page resource manager (available in the current WP context) and
         # inject it before </body>. This preserves correct module numbering (buffer
@@ -688,11 +688,11 @@ class Metasync_Otto_Render_Strategy {
         if (!is_user_logged_in() && !$wp_rocket_active) {
             $cache_duration = 3600; // 1 hour for browsers
 
-            # WP-507: only the HTTP fallback path must force `private`. That path serves an
+            # only the HTTP fallback path must force `private`. That path serves an
             # internally-fetched copy of the page (handle_route_html) and keeps ONLY the body —
             # the response `Set-Cookie` (e.g. PHPSESSID from Formidable etc.) is discarded — so the
             # host/CDN cannot auto-skip caching form/session pages, and a shared copy would re-leak
-            # nonces across visitors (the WP-329 regression).
+            # nonces across visitors (the regression).
             #
             # On the BUFFER path the visitor's own request renders the page, so its real `Set-Cookie`
             # IS on the response; the host/CDN already auto-skips caching any response that sets a

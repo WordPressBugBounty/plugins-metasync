@@ -77,7 +77,7 @@ class Metasync_Heartbeat_Manager
      * Derives the label from the heartbeat round-trip RESULT that the cron
      * records in is_heartbeat_connected() — NOT from mere API-key presence,
      * which stays truthy after Search Atlas revokes a key and is the root cause
-     * of WP-476's misleading "Connected" badge.
+     * of's misleading "Connected" badge.
      *
      * Deliberately result-based (200 → connected, non-200/401 → disconnected)
      * with no time-based "stale" tier: last_heartbeat_at only advances when the

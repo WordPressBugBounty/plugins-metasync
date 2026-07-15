@@ -246,8 +246,12 @@ class MCP_Tool_Update_Term_Meta extends MCP_Tool_Base {
         }
 
         if (isset($params['canonical_url'])) {
-            update_term_meta($term_id, '_metasync_canonical_url', esc_url_raw($params['canonical_url']));
-            $updated_fields[] = 'canonical_url';
+            // Validated: never store a corrupted/non-URL canonical.
+            $clean_canonical = Metasync_Canonical_Sanitizer::sanitize_for_save($params['canonical_url']);
+            if ($clean_canonical !== '') {
+                update_term_meta($term_id, '_metasync_canonical_url', $clean_canonical);
+                $updated_fields[] = 'canonical_url';
+            }
         }
 
         // Update Open Graph meta
@@ -476,8 +480,12 @@ class MCP_Tool_Bulk_Update_Term_Meta extends MCP_Tool_Base {
                 }
 
                 if (isset($update['canonical_url'])) {
-                    update_term_meta($term_id, '_metasync_canonical_url', esc_url_raw($update['canonical_url']));
-                    $updated_fields[] = 'canonical_url';
+                    // Validated: never store a corrupted/non-URL canonical.
+                    $clean_canonical = Metasync_Canonical_Sanitizer::sanitize_for_save($update['canonical_url']);
+                    if ($clean_canonical !== '') {
+                        update_term_meta($term_id, '_metasync_canonical_url', $clean_canonical);
+                        $updated_fields[] = 'canonical_url';
+                    }
                 }
 
                 if (isset($update['og_enabled'])) {

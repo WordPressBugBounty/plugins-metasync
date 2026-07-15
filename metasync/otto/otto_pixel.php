@@ -110,7 +110,7 @@ function metasync_otto_crawl_notify($request){
     # the response for up to 30s × N URLs and timed the caller out.
     # Each URL gets its own scheduled event so failures are isolated.
     #
-    # WP-299: Cap the number of per-URL cron jobs scheduled per webhook batch.
+    # Cap the number of per-URL cron jobs scheduled per webhook batch.
     # Large crawl batches (100+ URLs) previously created hundreds of cron events
     # that overwhelmed WP-Cron on shared/managed hosts like WP Engine. Excess
     # URLs beyond the cap are silently skipped — OTTO will re-crawl them on the
@@ -212,7 +212,7 @@ function metasync_handle_otto_crawl_url_job($route, $retry_count = 0) {
         # 1-second scheduled job hadn't run yet and stale meta got cached.
         # allow_defer=false: do NOT reschedule a new metasync_process_seo_job cron
         # event from this synchronous path — the crawl_url_job retry mechanism already
-        # handles failures, and rescheduling here caused an unbounded cron pile-up (WP-299).
+        # handles failures, and rescheduling here caused an unbounded cron pile-up.
         metasync_process_otto_seo_data($route, false);
 
         # Step 3: Clear the per-URL cache entry
@@ -357,7 +357,7 @@ function metasync_start_otto(){
     # Note: title/description filters (pre_get_document_title, wp_head meta desc)
     # run on ALL pages regardless — they are hooked unconditionally in seo-functions.php
 
-    # ── WooCommerce-independent cart/checkout protection (WP-374) ──────────
+    # ── WooCommerce-independent cart/checkout protection ──────────
     # The is_cart()/is_checkout() guards below only recognize WooCommerce. Carts
     # from other systems — e.g. the Point of Rental "Catalog" plugin on
     # venturarental.com — are invisible to them, so OTTO would process those
@@ -376,6 +376,22 @@ function metasync_start_otto(){
     # front-end GET (not is_admin()), so it slips past the admin guard below;
     # buffering and rewriting it breaks the editor canvas ("fails to load").
     if (metasync_is_elementor_editor_request()) {
+        return;
+    }
+
+    # WP core file-editor self-check. When an admin saves a THEME file
+    # via the Plugin/Theme Editor, wp_edit_theme_plugin_file() fires an internal
+    # loopback GET to home_url('/') carrying wp_scrape_key/wp_scrape_nonce to
+    # detect a white-screen. That request is NOT is_admin(), so — exactly like
+    # the Elementor case above — it slips past the admin/AJAX/REST guards below.
+    # OTTO must not output-buffer or rewrite it: the SimpleHtmlDom pass (and any
+    # fatal thrown inside the ob_start() callback, e.g. under memory pressure)
+    # corrupts the scrape and surfaces as the misleading
+    # "preg_match(): Cannot use output buffering in output buffering display
+    # handlers" fatal. Skipping OTTO lets WP render the page normally so the
+    # scrape works. Returning here also avoids the HTTP-fallback path firing a
+    # second loopback for an already-internal self-request.
+    if (metasync_is_scrape_request()) {
         return;
     }
 
@@ -485,7 +501,7 @@ function metasync_start_otto(){
     # API_ERROR for these URLs — which then stamps misleading
     # X-MetaSync-OTTO-Cache: API_ERROR / X-MetaSync-OTTO-Method: NONE headers
     # onto otherwise-healthy sitemap responses and causes false-alarm bug
-    # reports from customers. See WP-353.
+    # reports from customers.
     $request_path = strtok($request_uri, '?');
     if ($request_path && preg_match('#\.xml$#i', $request_path)) {
         return;
@@ -547,7 +563,7 @@ function metasync_start_otto(){
         }
     }
 
-    # Skip OTTO for Divi AJAX pagination and paginated archive requests (WP-315).
+    # Skip OTTO for Divi AJAX pagination and paginated archive requests.
     # ?et_blog = Divi AJAX pagination callback
     # /page/N/ = paginated blog/archive pages — OTTO's buffer/HTTP render causes
     # module numbering mismatch between page 1 (with TB template) and page N
@@ -556,7 +572,7 @@ function metasync_start_otto(){
         return;
     }
 
-    # WP-537: Skip OTTO on search-results pages. A search request carries its
+    # Skip OTTO on search-results pages. A search request carries its
     # meaning entirely in the query string (e.g. /?s=term, or FiboSearch's
     # /?s=term&post_type=product&dgwt_wcas=1). get_route() intentionally strips
     # the query string to build a canonical, cache-key-stable route — which
@@ -586,14 +602,14 @@ function metasync_start_otto(){
 
     # Skip OTTO on MetaSync custom HTML / LPS-imported pages — they ship their
     # own complete, self-contained SEO and OTTO must not inject or overwrite it
-    # with a different/older project's SEO (WP-440). Resolve the queried object
+    # with a different/older project's SEO. Resolve the queried object
     # id (with get_the_ID() fallback) so the static-front-page case — an LPS home
     # set as the WP front page, where is_page() is false — is still detected.
     # Applying the skip here, upstream of the single render_route_html() entry,
     # covers all three render paths (Rocket buffer, output buffer, HTTP fallback).
     # Only singular views (posts/pages, incl. a static front page) can be a
     # custom/LPS page; gate on is_singular() so an archive/search/term query
-    # can never have its object id mistaken for a custom page's post id (WP-440).
+    # can never have its object id mistaken for a custom page's post id.
     $custom_page_id = is_singular() ? ( get_queried_object_id() ?: get_the_ID() ) : 0;
     if (metasync_is_custom_or_lps_page($custom_page_id)) {
         if (!headers_sent()) {
@@ -661,7 +677,7 @@ function metasync_start_otto(){
  */
 function metasync_otto_handle_cache_compatibility() {
     # Detect active plugins. SG Optimizer detection now lives in
-    # metasync_otto_disable_sg_page_cache() (WP-498), which is invoked later
+    # metasync_otto_disable_sg_page_cache(), which is invoked later
     # once OTTO confirms suggestions for the URL.
     $brizy_active = class_exists('Brizy_Editor') || defined('BRIZY_VERSION');
     $wp_rocket_active = class_exists('WP_Rocket');
@@ -712,7 +728,7 @@ function metasync_otto_handle_cache_compatibility() {
     # Case 3: WP Rocket active with auto/buffer mode - DON'T set DONOTCACHEPAGE
     # This allows WP Rocket optimizations to continue working
 
-    # NOTE (WP-498): SiteGround SG Optimizer cache bypass is intentionally NOT
+    # NOTE: SiteGround SG Optimizer cache bypass is intentionally NOT
     # handled here. Emitting no-cache headers / disabling SG cache on this hook
     # fired on EVERY front-end page — including pages OTTO never modifies —
     # forcing SG to bypass its page cache site-wide and spiking CPU. The SG
@@ -733,7 +749,7 @@ function metasync_otto_handle_cache_compatibility() {
  * it has suggestions to apply to the requested URL. Scoping the no-cache
  * override to pages OTTO actually modifies — rather than emitting it on every
  * front-end page via the unconditional `wp` hook — keeps SG's page cache
- * working site-wide and avoids the CPU spike reported in WP-498.
+ * working site-wide and avoids the CPU spike reported in.
  *
  * Only meaningful on SiteGround sites without WP Rocket; a no-op otherwise.
  */
@@ -931,7 +947,7 @@ function metasync_run_otto_js_check(){
 
     $body = wp_remote_retrieve_body($page_data);
 
-    # WP-488: Detect the OTTO script via a lightweight regex instead of parsing
+    # Detect the OTTO script via a lightweight regex instead of parsing
     # the entire fetched page into a SimpleHtmlDom tree (which exhausted memory
     # on large pages — this check runs on admin page loads). We only need to
     # confirm a <script id="sa-dynamic-optimization" ... data-uuid="..."> exists.
@@ -1045,14 +1061,14 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                     );
                     return false;
                 }
-                # WP-547: deferral budget exhausted — RUN the job late instead
+                # deferral budget exhausted — RUN the job late instead
                 # of dropping it. The write is idempotent and bounded, and a
                 # late sync is strictly better than SEO data that never
-                # arrives. No new cron events are created, so the WP-299
+                # arrives. No new cron events are created, so the
                 # anti-pile-up guarantee is preserved. Fall through.
             } else {
                 # allow_defer=false (sync path): return false without creating
-                # cron events (WP-299) — OTTO's next crawl re-triggers this URL.
+                # cron events — OTTO's next crawl re-triggers this URL.
                 return false;
             }
         }

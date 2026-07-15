@@ -177,6 +177,7 @@ return array(
     'Metasync_CPU_Monitor' => $baseDir . '/includes/class-metasync-cpu-monitor.php',
     'Metasync_CSS_Minifier' => $baseDir . '/code-minification/class-css-minifier.php',
     'Metasync_Cache_Purge' => $baseDir . '/includes/class-metasync-cache-purge.php',
+    'Metasync_Canonical_Sanitizer' => $baseDir . '/includes/class-metasync-canonical-sanitizer.php',
     'Metasync_Code_Snippets' => $baseDir . '/code-snippets/class-metasync-code-snippets.php',
     'Metasync_Common' => $baseDir . '/includes/class-metasync-common.php',
     'Metasync_Compatibility_Checker' => $baseDir . '/includes/class-metasync-compatibility-checker.php',

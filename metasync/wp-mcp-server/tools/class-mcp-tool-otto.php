@@ -156,7 +156,7 @@ class MCP_Tool_Trigger_Otto_Optimization extends MCP_Tool_Base {
             return (bool) metasync_process_otto_seo_data($url);
         });
 
-        // Step 3: plugin_sync (WP-196 — may not be available yet)
+        // Step 3: plugin_sync (may not be available yet)
         $steps['plugin_sync'] = $run_step(function () use ($post_id) {
             if (!class_exists('Metasync_Plugin_Sync')) {
                 return ['success' => false, 'reason' => 'not_available'];
@@ -369,7 +369,7 @@ class MCP_Tool_Get_Otto_Status extends MCP_Tool_Base {
             $persistence_settings = Metasync_Otto_Persistence_Settings::get_settings();
         }
 
-        // Plugin sync timestamp (written by WP-196 when available)
+        // Plugin sync timestamp (written by when available)
         $plugin_sync_timestamp = null;
         if ($post_id > 0) {
             $ts = get_post_meta($post_id, '_metasync_plugin_sync_ts', true);

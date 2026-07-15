@@ -185,7 +185,7 @@ class Metasync_Otto_Transient_Cache {
                 # API responded 200 OK but genuinely no OTTO suggestions for this URL.
                 # Cache the negative result for a short time to prevent hammering the API.
                 set_transient($keys['transient'], false, self::NO_SUGGESTIONS_TTL);
-                # WP-361: Wipe the stale fallback too. Without this, a rate-limit
+                # Wipe the stale fallback too. Without this, a rate-limit
                 # event within the next 60 min serves the previously-deployed (now
                 # undeployed) suggestion, keeping the wrong title alive on the page.
                 delete_transient($keys['stale']);
@@ -396,7 +396,7 @@ class Metasync_Otto_Transient_Cache {
             return false;
         }
 
-        # WP-361: Undeployed OTTO responses ship harmless whitespace ("\n") and
+        # Undeployed OTTO responses ship harmless whitespace ("\n") and
         # empty wrappers ({"images": {}}) that PHP's empty() reads as non-empty.
         # Without these guards, has_payload() flagged undeployed pages as "live"
         # and downstream code (otto_has_live_suggestions(), title filter) kept
@@ -460,7 +460,7 @@ class Metasync_Otto_Transient_Cache {
         # Scope rate-limit key per site so each multisite subsite has its own
         # 10 req/min budget. Without this, one subsite's traffic spike
         # exhausts the network-wide bucket and silently rate-limits every
-        # other subsite for the rest of the minute. WP-293.
+        # other subsite for the rest of the minute.
         $site_id = is_multisite() ? get_current_blog_id() : 0;
         # Create rate limit key (per site, per minute)
         $rate_key = self::RATE_LIMIT_PREFIX . $site_id . '_' . date('Y-m-d-H-i');
@@ -588,7 +588,7 @@ class Metasync_Otto_Transient_Cache {
         $site_id = is_multisite() ? get_current_blog_id() : 0;
 
         # All keys scoped by $site_id so multisite subsites don't collide on a
-        # shared Redis/Memcached object cache. WP-293.
+        # shared Redis/Memcached object cache.
         return [
             'transient' => self::TRANSIENT_PREFIX . $site_id . '_' . $hash,
             'lock'      => self::LOCK_PREFIX . $site_id . '_' . $hash,
@@ -640,7 +640,7 @@ class Metasync_Otto_Transient_Cache {
         $transient_key = $this->get_transient_key($url);
         $cached = get_transient($transient_key);
 
-        # Match the scoped rate-limit key produced by can_make_api_call(). WP-293.
+        # Match the scoped rate-limit key produced by can_make_api_call().
         $site_id = is_multisite() ? get_current_blog_id() : 0;
         $rate_limit_key = self::RATE_LIMIT_PREFIX . $site_id . '_' . date('Y-m-d-H-i');
 
@@ -726,7 +726,7 @@ class Metasync_Otto_Transient_Cache {
         # Previously lock/stale used raw $url (no normalization), which generated
         # different hashes than the actual keys — they were never actually deleted.
         $hash = md5($normalized);
-        # All three keys must include $site_id to match get_cache_keys(). WP-293.
+        # All three keys must include $site_id to match get_cache_keys().
         $transient_key = self::TRANSIENT_PREFIX . $site_id . '_' . $hash;
         $lock_key      = self::LOCK_PREFIX . $site_id . '_' . $hash;
         $stale_key     = self::STALE_PREFIX . $site_id . '_' . $hash;

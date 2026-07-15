@@ -50,7 +50,7 @@ class Metasync_Post_Meta_Settings
 		$post_id = isset($_GET['post']) ? intval($_GET['post']) : (isset($_POST['post_ID']) ? intval($_POST['post_ID']) : 0);
 
 		// LPS / custom-HTML pages carry their own baked SEO served before wp_head,
-		// so the editable SEO fields here do nothing and mislead editors (WP-486).
+		// so the editable SEO fields here do nothing and mislead editors.
 		// otto_pixel.php (where metasync_is_custom_or_lps_page lives) is only
 		// required conditionally, so the function_exists guard is needed at runtime.
 		$is_custom_or_lps_page = function_exists('metasync_is_custom_or_lps_page') && $post_id > 0 && metasync_is_custom_or_lps_page($post_id);
@@ -59,7 +59,7 @@ class Metasync_Post_Meta_Settings
 		// On LPS / custom-HTML pages all of these MetaSync boxes are suppressed: they do
 		// nothing useful there (their output goes into wp_head, which never runs for these
 		// pages — serve_raw_html() exits first — and a redirect would only break the
-		// published page). The single SEO read-only notice below carries the messaging. (WP-486)
+		// published page). The single SEO read-only notice below carries the messaging.
 		if (empty($general_settings['disable_common_robots_metabox']) && !$is_custom_or_lps_page) {
 			add_meta_box('common-robots-meta', "Common Robots Meta by $plugin_name", [$this, 'common_robots_meta_box_display'], $post_types, 'normal', 'default');
 		}
@@ -254,14 +254,23 @@ class Metasync_Post_Meta_Settings
 	{
 		global $post;
 
-		$post_canonical = get_post_meta($post->ID, 'meta_canonical', true) ?? '';
-		// Fix legacy array values stored by sanitize_array()
-		if (is_array($post_canonical)) {
-			$post_canonical = reset($post_canonical) ?: '';
-			// Repair the stored value so it won't recur
-			if (!empty($post_canonical)) {
-				update_post_meta($post->ID, 'meta_canonical', (string) $post_canonical);
+		$raw_canonical = get_post_meta($post->ID, 'meta_canonical', true);
+		$post_canonical = Metasync_Canonical_Sanitizer::sanitize($raw_canonical);
+
+		// Repair legacy array rows and rows corrupted to the literal "Array"
+		// A nested array here previously became the string "Array"
+		// via a single reset() + (string) cast, permanently corrupting the row.
+		if (is_array($raw_canonical) || Metasync_Canonical_Sanitizer::is_corrupted($raw_canonical)) {
+			if ($post_canonical !== '') {
+				update_post_meta($post->ID, 'meta_canonical', $post_canonical);
+			} else {
+				delete_post_meta($post->ID, 'meta_canonical');
 			}
+		} elseif ($post_canonical === '' && is_string($raw_canonical) && trim($raw_canonical) !== '') {
+			// Stored value the validator doesn't recognize (and is not a
+			// corruption artifact): show it as-is so a routine post save
+			// doesn't silently wipe it. It is not emitted while invalid.
+			$post_canonical = trim($raw_canonical);
 		}
 		wp_nonce_field('metasync_post_canonical_nonce', 'metasync_post_canonical_nonce');
 	?>
@@ -278,7 +287,7 @@ class Metasync_Post_Meta_Settings
 		if (!current_user_can('edit_post', $post_id))
 			return;
 
-		// WP-197: When saving from Gutenberg (REST API context) and the sidebar
+		// When saving from Gutenberg (REST API context) and the sidebar
 		// JSON exists, skip — the sidebar auto-save is the source of truth.
 		// Classic editor form submits (non-REST) always proceed so classic-only
 		// users can still save via the meta boxes.
@@ -311,7 +320,7 @@ class Metasync_Post_Meta_Settings
 		if (!current_user_can('edit_post', $post_id))
 			return;
 
-		// WP-197: When saving from Gutenberg (REST API context) and the sidebar
+		// When saving from Gutenberg (REST API context) and the sidebar
 		// JSON exists, skip — the sidebar auto-save is the source of truth.
 		if (defined('REST_REQUEST') && REST_REQUEST && !empty(get_post_meta($post_id, '_metasync_robots_advanced', true))) {
 			return;
@@ -356,7 +365,7 @@ class Metasync_Post_Meta_Settings
 		else
 			delete_post_meta($post_id, 'metasync_post_redirection_meta', $old_post_redirection_meta);
 
-		// WP-540: sync the actual redirect into the shared redirection table (exact
+		// sync the actual redirect into the shared redirection table (exact
 		// match) using the same DB layer as ?page=...-redirections&action=add. This
 		// keeps a single redirect code path — the existing handle_template_redirect()
 		// serves it — instead of a duplicate per-post frontend handler.
@@ -368,7 +377,7 @@ class Metasync_Post_Meta_Settings
 	 * configured on the post-edit "Redirection" meta box is served by the same engine
 	 * as manually-added redirections (exact match on the post's own URL). The row id we
 	 * create is remembered in post meta so repeated saves update — never duplicate — it,
-	 * and disabling the meta box removes it. (WP-540)
+	 * and disabling the meta box removes it.
 	 *
 	 * @param int   $post_id The post being saved.
 	 * @param array $meta    Sanitized meta box values (enable/type/url).
@@ -441,12 +450,11 @@ class Metasync_Post_Meta_Settings
 
 		$old_post_canonical_meta = get_post_meta($post_id, 'meta_canonical', true);
 
-		// Canonical is a URL string — sanitize as URL, not array
-		$raw_value = $post_data[$field_name];
-		if (is_array($raw_value)) {
-			$raw_value = reset($raw_value); // extract first element if array
-		}
-		$post_canonical_meta = esc_url_raw(trim((string) $raw_value));
+		// Canonical is a URL string — extract the first scalar from nested
+		// arrays, normalize schemeless input, and validate. Unusable input
+		// (including the corruption literal "Array") clears the meta instead
+		// of persisting garbage like "http://Array".
+		$post_canonical_meta = Metasync_Canonical_Sanitizer::sanitize_for_save($post_data[$field_name]);
 
 		if (!empty($post_canonical_meta))
 			update_post_meta($post_id, 'meta_canonical', $post_canonical_meta);
@@ -560,7 +568,7 @@ class Metasync_Post_Meta_Settings
 	/**
 	 * Display a read-only notice in place of the SEO meta box on LPS / custom-HTML
 	 * pages, whose SEO is baked into their own HTML bundle and managed by WebStudio.
-	 * No inputs, nonce, or editable fields are rendered (WP-486).
+	 * No inputs, nonce, or editable fields are rendered.
 	 */
 	public function seo_lps_notice_meta_box_display()
 	{

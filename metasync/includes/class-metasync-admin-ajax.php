@@ -141,7 +141,7 @@ class Metasync_Admin_Ajax
         $general_options = Metasync::get_option('general') ?? [];
         $token = $general_options['apikey'] ?? null;
 
-        # WP-426: declare the call context explicitly so only the Settings
+        # declare the call context explicitly so only the Settings
         # "Sync Now" button consumes/stamps the 5-minute manual cooldown.
         $is_heartbeat_tick = filter_var($_POST['is_heart_beat'] ?? false, FILTER_VALIDATE_BOOLEAN);
 

@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.6.16
+ * Version:           2.6.17
  * Requires PHP:      8.2
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
@@ -32,12 +32,16 @@ if (!defined('WPINC')) {
 // Composer classmap autoloader — loads all plugin classes on demand.
 require_once __DIR__ . '/vendor/autoload.php';
 
+// Canonical sanitizer — required explicitly (not via the committed classmap)
+// so it is guaranteed loadable everywhere canonicals are read or written.
+require_once __DIR__ . '/includes/class-metasync-canonical-sanitizer.php';
+
 /**
  * Currently plugin version.
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.6.16';
+$metasync_version = '2.6.17';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -109,7 +113,7 @@ if (!function_exists('metasync_sanitize_input_array')) {
 	}
 }
 
-// Skip heavy MetaSync init on admin-ajax requests that don't target our own actions (Sentry issue 7441226449 / WP-227).
+// Skip heavy MetaSync init on admin-ajax requests that don't target our own actions (Sentry issue 7441226449).
 if (!function_exists('metasync_is_non_metasync_admin_ajax')) {
 	function metasync_is_non_metasync_admin_ajax() {
 		static $result = null;
@@ -134,7 +138,7 @@ if (!function_exists('metasync_is_non_metasync_admin_ajax')) {
 // Lazy-load guard: only initialise the MCP server when the request is actually targeting
 // the MCP REST route (or its sibling SEO-inventory route, which depends on $metasync_mcp_server
 // for its permission callback). Saves ~2-5 MB / 10-50 ms on the 99.9% of requests that never
-// touch MCP. See WP-255.
+// touch MCP.
 if (!function_exists('metasync_is_mcp_rest_request')) {
 	function metasync_is_mcp_rest_request(): bool {
 		$uri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
@@ -262,14 +266,14 @@ function activate_metasync()
 	// Set initial version
 	update_option('metasync_version', METASYNC_VERSION);
 
-	// WP-315: Record activation timestamp so Divi CSS fix transients
+	// Record activation timestamp so Divi CSS fix transients
 	// auto-invalidate after plugin deactivate/reactivate cycles.
 	update_option('metasync_activated_at', (string) time());
 
 	// Clear all cache plugins to ensure fresh start
 	Metasync_Cache_Purge::purge_all('plugin_activation');
 
-	// WP-332: Migrate physical sitemap files on activation.
+	// Migrate physical sitemap files on activation.
 	metasync_migrate_physical_sitemaps();
 }
 
@@ -306,7 +310,7 @@ register_activation_hook(__FILE__, 'activate_metasync');
 register_deactivation_hook(__FILE__, 'deactivate_metasync');
 
 /**
- * WP-332: Migrate physical sitemap .xml files into transients and delete them.
+ * Migrate physical sitemap .xml files into transients and delete them.
  *
  * Physical files in ABSPATH cause nginx/Plesk to 403 before WordPress can
  * serve them. Called from both the activation hook and the version-gate
@@ -410,7 +414,7 @@ function check_metasync_updates()
             }
         }
 
-        // WP-299: One-time purge of stale OTTO SEO cron backlog.
+        // One-time purge of stale OTTO SEO cron backlog.
         // Prior versions could accumulate thousands of metasync_process_seo_job and
         // metasync_process_otto_crawl_url_job events due to unbounded rescheduling.
         // Clear the backlog once on update; the new code prevents re-accumulation.
@@ -421,7 +425,22 @@ function check_metasync_updates()
             update_option('metasync_wp299_cron_cleanup_done', true, false);
         }
 
-        // WP-332: Migrate physical sitemap files on version update.
+        // One-time cleanup of canonical values corrupted to the literal
+        // "Array" (emitted as http://Array once the 2.6.16 canonical filters
+        // started reading them). The sanitizer prevents new corruption; this
+        // repairs the rows already in the database. Cache purge below pushes
+        // the clean pages live. Claimed via add_option() — it fails if the row
+        // already exists, so concurrent requests can't run the cleanup twice,
+        // and the claim lands BEFORE the work: everything inside is idempotent
+        // and the read-side sanitizer already protects output if a run is
+        // interrupted.
+        if (false === get_option('metasync_canonical_cleanup_done')
+            && add_option('metasync_canonical_cleanup_done', 'running', '', false)) {
+            MetaSync_DBMigration::cleanup_corrupted_canonicals();
+            update_option('metasync_canonical_cleanup_done', 'done', false);
+        }
+
+        // Migrate physical sitemap files on version update.
         metasync_migrate_physical_sitemaps();
 
         // Run full migration to ensure all tables are up to date
@@ -455,7 +474,7 @@ function metasync_handle_plugin_upgrade($upgrader, $hook_extra)
         return;
     }
 
-    // WP-427: By the time upgrader_process_complete fires, the upgrader may have
+    // By the time upgrader_process_complete fires, the upgrader may have
     // deleted the directory this (old, still-in-memory) copy of the plugin was
     // loaded from — e.g. when the installed dir name differs from the package's
     // root dir ('metasync-develop' vs 'metasync'). The Composer classmap then
@@ -570,7 +589,7 @@ function run_metasync()
 }
 run_metasync();
 
-// WP-530: MCP server bootstrap (server + tool registration) extracted to keep this entry file lean.
+// MCP server bootstrap (server + tool registration) extracted to keep this entry file lean.
 require_once plugin_dir_path( __FILE__ ) . 'includes/mcp-server-bootstrap.php';
 
 /**
@@ -602,13 +621,13 @@ function metasync_output_dyo_init_flag() {
 }
 add_action('wp_head', 'metasync_output_dyo_init_flag', 1);
 
-// WP-530: Runtime feature initialisers (GA4, API backoff, review notice, JWT accessor, debug mode) extracted to keep this entry file lean.
+// Runtime feature initialisers (GA4, API backoff, review notice, JWT accessor, debug mode) extracted to keep this entry file lean.
 require_once plugin_dir_path( __FILE__ ) . 'includes/metasync-runtime-init.php';
 
 /**
  * Append a "Website Studio" post state to LPS-synced / MetaSync custom pages in
  * the admin Pages list, so site owners can tell at a glance which pages are
- * managed by Website Studio and shouldn't be hand-edited (WP-491).
+ * managed by Website Studio and shouldn't be hand-edited.
  *
  * Hooks WordPress core's display_post_states filter — the same mechanism that
  * renders the grey inline tags like "— Front Page" / "— Draft" — so the label

@@ -311,7 +311,7 @@ class MetaSyncHiddenPostManager
         $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE); # Capture the HTTP status code
         curl_close($ch); # Close the cURL session
 
-        # WP-429: Only trust the probe when we verifiably fetched the test post.
+        # Only trust the probe when we verifiably fetched the test post.
         # A cache 404, bot challenge, or security-plugin block used to parse as
         # "title not found" and flip title_in_headings to false, which made every
         # synced post get an extra <h1> prepended (duplicate H1 on the live page).

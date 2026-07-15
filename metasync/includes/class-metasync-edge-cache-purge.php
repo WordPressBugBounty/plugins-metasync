@@ -81,16 +81,28 @@ class Metasync_Edge_Cache_Purge {
      *
      * Safe to call from anywhere — failures are logged, never thrown.
      *
-     * @param array $urls Absolute URLs that were modified by OTTO.
+     * Accepts either a single URL string or an array of URLs. The argument is
+     * intentionally untyped: a strict `array` hint would raise a TypeError at
+     * the call boundary (before the body runs), which the try/catch below could
+     * never intercept — contradicting the "never thrown" contract above. Any
+     * non-string, non-array input is normalised away and ignored.
+     *
+     * @param mixed $urls Absolute URL(s) that were modified by OTTO — a string
+     *                    or an array of strings; anything else is ignored.
      */
-    public static function purge(array $urls) {
-        if (empty($urls)) {
+    public static function purge($urls) {
+        // Normalise a single URL string to a one-element array.
+        if (is_string($urls)) {
+            $urls = array($urls);
+        }
+
+        if (!is_array($urls) || empty($urls)) {
             return;
         }
 
         try {
             self::get_instance()->purge_urls($urls);
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             self::log_error('purge', $e->getMessage());
         }
     }

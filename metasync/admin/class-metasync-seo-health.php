@@ -330,7 +330,7 @@ class Metasync_SEO_Health
 		$post_types = self::get_supported_post_types();
 
 		// Fetch all post IDs in one query. Exclude custom/LPS pages so the score
-		// percentages below reflect only WordPress-managed pages (WP-458) — they
+		// percentages below reflect only WordPress-managed pages — they
 		// carry self-contained SEO in their HTML, not WP post meta, and would
 		// otherwise drag every percentage down as false "not set".
 		$query = new WP_Query(array(
@@ -445,7 +445,7 @@ class Metasync_SEO_Health
 			$args['s'] = $search;
 		}
 
-		// Exclude custom/LPS pages so the export matches the on-screen table (WP-458).
+		// Exclude custom/LPS pages so the export matches the on-screen table.
 		$args['meta_query'] = array(metasync_get_custom_page_exclusion_meta_query());
 
 		$query = new WP_Query($args);

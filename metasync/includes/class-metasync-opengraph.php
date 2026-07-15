@@ -91,7 +91,7 @@ class Metasync_OpenGraph {
      * Mirrors the early-return guards in output_opengraph_tags() so this
      * canonical emitter and the legacy emitter stay mutually exclusive —
      * exactly one fires per page, and neither stays silent on a
-     * MetaSync-only site (WP-411).
+     * MetaSync-only site.
      *
      * @param bool $default Filter default (ignored; the real answer is computed).
      * @return bool
@@ -153,7 +153,7 @@ class Metasync_OpenGraph {
 
         # LPS / custom-HTML pages bake their own OG/social tags into their HTML bundle,
         # served before wp_head — so this box does nothing on them. Hide it; the SEO
-        # read-only notice covers the messaging. (WP-486)
+        # read-only notice covers the messaging.
         $lps_post_id = isset($_GET['post']) ? intval($_GET['post']) : (isset($_POST['post_ID']) ? intval($_POST['post_ID']) : 0);
         if (function_exists('metasync_is_custom_or_lps_page') && $lps_post_id > 0 && metasync_is_custom_or_lps_page($lps_post_id)) {
             return;
@@ -446,7 +446,7 @@ class Metasync_OpenGraph {
         # Check if Open Graph is enabled for this post.
         # Only an explicit '0' opt-out suppresses output; unset/empty counts as enabled
         # so a MetaSync-only site gets one consolidated set whether or not the meta
-        # box was ever saved (WP-411). Must stay in sync with will_emit().
+        # box was ever saved. Must stay in sync with will_emit().
         $og_enabled = get_post_meta($post->ID, '_metasync_og_enabled', true);
         if ($og_enabled === '0') {
             return;
@@ -486,7 +486,7 @@ class Metasync_OpenGraph {
 
         # Fall back to the site-wide Twitter username (Social Meta settings) so the
         # twitter:site / twitter:creator tags the legacy emitter produced are not lost
-        # now that this emitter is the single canonical OG/Twitter source (WP-411)
+        # now that this emitter is the single canonical OG/Twitter source
         $twitter_username = Metasync::get_option('social_meta')['twitter_username'] ?? '';
         if (empty($twitter_site) && !empty($twitter_username)) {
             $twitter_site = '@' . $twitter_username;
@@ -1074,7 +1074,7 @@ class Metasync_OpenGraph {
         # Generate excerpt from content
         $content = $post->post_content;
 
-        # WP-510: Do NOT run do_shortcode()/apply_filters('the_content') here.
+        # Do NOT run do_shortcode()/apply_filters('the_content') here.
         # This method runs on wp_head (priority 5, before the body renders) to build
         # og:description. On page-builder pages (Elementor, etc.) the_content fully
         # renders the page — including widgets like Elementor Loop Grid — which makes
@@ -1086,7 +1086,7 @@ class Metasync_OpenGraph {
         # render — matching how Metasync_Seo_Output builds its description safely.
         $content = strip_shortcodes($content);
 
-        # WP-499: Page builders (Divi, Elementor, WPBakery) store content as shortcodes.
+        # Page builders (Divi, Elementor, WPBakery) store content as shortcodes.
         # do_shortcode() only renders shortcodes whose handlers are registered, and when
         # this runs server-side (REST/cron/CLI) or before the builder loads the [et_pb_*]
         # tags are never expanded. strip_shortcodes() only removes *registered* shortcodes
@@ -1119,7 +1119,7 @@ class Metasync_OpenGraph {
      * leftover shortcode-style tags (e.g. unregistered page-builder tags such
      * as [et_pb_section ...] / [/et_pb_section]) by pattern. The pattern is
      * anchored to a leading letter so legitimate bracketed prose like
-     * "[2026 Guide]" is preserved. (WP-499)
+     * "[2026 Guide]" is preserved.
      *
      * @param string $content
      * @return string

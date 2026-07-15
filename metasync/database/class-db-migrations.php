@@ -538,5 +538,141 @@ class MetaSync_DBMigration
 		}
 	}
 
+	/**
+	 * One-time cleanup of canonical meta corrupted to the literal
+	 * "Array" (and its esc_url'd forms "http://Array" / "https://Array").
+	 *
+	 * Deletions are exact-match only — a legitimate URL can never match.
+	 * Also repairs legacy rows still stored as (possibly nested) serialized
+	 * arrays, and clears the mirrored corruption from Yoast / RankMath /
+	 * AIOSEO storage that plugin-sync propagated, so cleaned sites are not
+	 * re-polluted by stale third-party caches. Idempotent by construction.
+	 */
+	public static function cleanup_corrupted_canonicals()
+	{
+		global $wpdb;
+
+		$meta_keys  = array('meta_canonical', '_metasync_canonical_url', '_yoast_wpseo_canonical', 'rank_math_canonical_url');
+		$bad_values = array('array', 'http://array', 'https://array');
+
+		$keys_placeholders = implode(',', array_fill(0, count($meta_keys), '%s'));
+		$vals_placeholders = implode(',', array_fill(0, count($bad_values), '%s'));
+
+		// Normalized comparison: trailing slashes stripped in SQL so
+		// "http://Array/" and "http://Array//" both match the literals.
+		$norm_meta = "LOWER(TRIM(TRAILING '/' FROM TRIM(meta_value)))";
+
+		// 1. Post meta + term meta: delete exact-match corrupted rows.
+		// Batched and deleted by primary key so huge postmeta tables aren't
+		// range-locked in one statement, with per-object meta-cache
+		// invalidation — raw SQL alone would leave persistent object caches
+		// (Redis/Memcached) serving the deleted value to Yoast/RankMath
+		// readers indefinitely.
+		$meta_targets = array(
+			array($wpdb->postmeta, 'post_id', 'post_meta'),
+			array($wpdb->termmeta, 'term_id', 'term_meta'),
+		);
+		foreach ($meta_targets as $target) {
+			list($table, $object_col, $cache_group) = $target;
+			for ($batch = 0; $batch < 50; $batch++) {
+				$rows = $wpdb->get_results($wpdb->prepare(
+					"SELECT meta_id, {$object_col} AS object_id FROM {$table} WHERE meta_key IN ({$keys_placeholders}) AND {$norm_meta} IN ({$vals_placeholders}) ORDER BY meta_id LIMIT 500",
+					array_merge($meta_keys, $bad_values)
+				));
+				if (empty($rows)) {
+					break;
+				}
+				$meta_ids = implode(',', array_map('intval', wp_list_pluck($rows, 'meta_id')));
+				$wpdb->query("DELETE FROM {$table} WHERE meta_id IN ({$meta_ids})");
+				foreach ($rows as $row) {
+					wp_cache_delete((int) $row->object_id, $cache_group);
+				}
+				if (count($rows) < 500) {
+					break;
+				}
+			}
+		}
+
+		// 2. Rows still stored as serialized arrays (the raw material the
+		// "Array" casts came from): repair MetaSync's own keys to the first
+		// usable URL inside; third-party keys are delete-only (never invent
+		// a value inside another plugin's storage). Written with direct SQL
+		// by meta_id so the updated_post_meta plugin-sync cascade, Yoast
+		// indexable rebuilds, and sitemap cache busts don't fire once per
+		// row; loops until exhausted (repaired rows stop matching LIKE).
+		if (class_exists('Metasync_Canonical_Sanitizer')) {
+			$own_keys = array('meta_canonical', '_metasync_canonical_url');
+			for ($batch = 0; $batch < 50; $batch++) {
+				$rows = $wpdb->get_results($wpdb->prepare(
+					"SELECT meta_id, post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE meta_key IN ({$keys_placeholders}) AND meta_value LIKE 'a:%%' ORDER BY meta_id LIMIT 500",
+					$meta_keys
+				));
+				if (empty($rows)) {
+					break;
+				}
+				foreach ($rows as $row) {
+					$repaired = '';
+					if (in_array($row->meta_key, $own_keys, true)) {
+						$repaired = Metasync_Canonical_Sanitizer::sanitize(maybe_unserialize($row->meta_value));
+					}
+					if ($repaired !== '') {
+						$wpdb->update($wpdb->postmeta, array('meta_value' => $repaired), array('meta_id' => (int) $row->meta_id));
+					} else {
+						$wpdb->delete($wpdb->postmeta, array('meta_id' => (int) $row->meta_id));
+					}
+					wp_cache_delete((int) $row->post_id, 'post_meta');
+				}
+				if (count($rows) < 500) {
+					break;
+				}
+			}
+		}
+
+		// 3. Yoast indexable cache: null corrupted canonical columns so the
+		// frontend and sitemaps stop serving the bad value immediately.
+		$indexable_table = $wpdb->prefix . 'yoast_indexable';
+		if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($indexable_table))) === $indexable_table) {
+			$wpdb->query($wpdb->prepare(
+				"UPDATE {$indexable_table} SET canonical = NULL WHERE LOWER(TRIM(TRAILING '/' FROM TRIM(canonical))) IN ({$vals_placeholders})",
+				$bad_values
+			));
+		}
+
+		// 4. AIOSEO custom tables: null corrupted canonical_url columns.
+		foreach (array('aioseo_posts', 'aioseo_terms') as $aioseo_table) {
+			$table = $wpdb->prefix . $aioseo_table;
+			if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table))) === $table) {
+				$wpdb->query($wpdb->prepare(
+					"UPDATE {$table} SET canonical_url = NULL WHERE LOWER(TRIM(TRAILING '/' FROM TRIM(canonical_url))) IN ({$vals_placeholders})",
+					$bad_values
+				));
+			}
+		}
+
+		// 5. Yoast stores term canonicals in the wpseo_taxonomy_meta option,
+		// not termmeta. Strip only exact corruption literals.
+		if (class_exists('Metasync_Canonical_Sanitizer')) {
+			$tax_meta = get_option('wpseo_taxonomy_meta');
+			if (is_array($tax_meta)) {
+				$changed = false;
+				foreach ($tax_meta as $taxonomy => $terms) {
+					if (!is_array($terms)) {
+						continue;
+					}
+					foreach ($terms as $term_id => $fields) {
+						if (is_array($fields) && isset($fields['wpseo_canonical'])
+							&& Metasync_Canonical_Sanitizer::is_corrupted($fields['wpseo_canonical'])) {
+							unset($tax_meta[$taxonomy][$term_id]['wpseo_canonical']);
+							$changed = true;
+						}
+					}
+				}
+				if ($changed) {
+					update_option('wpseo_taxonomy_meta', $tax_meta);
+				}
+			}
+		}
+	}
+
 
 }

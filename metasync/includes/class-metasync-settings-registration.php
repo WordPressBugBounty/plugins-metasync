@@ -2464,7 +2464,7 @@ class Metasync_Settings_Registration
         $whitelabel_tab_submitted = ($active_tab === 'whitelabel');
 
         // Whitelabel field validation issues are collected per-field and reported back
-        // without blocking the rest of the settings save (WP-413).
+        // without blocking the rest of the settings save.
         $whitelabel_errors = [];
 
         foreach ($text_fields as $field) {
@@ -2473,7 +2473,7 @@ class Metasync_Settings_Registration
 
                 $value = trim($_POST['metasync_options']['general'][$field]);
 
-                // searchatlas_api_key must be clearable to support key removal (WP-334)
+                // searchatlas_api_key must be clearable to support key removal
                 $clearable_fields = [
                     'searchatlas_api_key',
                     'white_label_plugin_name',
@@ -2492,7 +2492,7 @@ class Metasync_Settings_Registration
                 if ($field === 'white_label_plugin_name') {
                     $stored_name = (string) ($metasync_options['general']['white_label_plugin_name'] ?? '');
                     // Only enforce the 16-char limit when the value actually changes so an
-                    // already-saved longer legacy name can be re-saved without an error (WP-413).
+                    // already-saved longer legacy name can be re-saved without an error.
                     if (strlen($value) > 16 && $value !== $stored_name && wp_unslash($value) !== $stored_name) {
                         $whitelabel_errors[$field] = 'Plugin name must not exceed 16 characters';
                         continue;
@@ -2504,7 +2504,7 @@ class Metasync_Settings_Registration
                     if ($value === '') {
                         $metasync_options['general'][$field] = '';
                     } elseif (preg_match('/^dashicons-[a-z0-9-]+$/', $value)) {
-                        // Accept dashicon names (e.g. dashicons-location) in addition to image URLs (WP-413)
+                        // Accept dashicon names (e.g. dashicons-location) in addition to image URLs
                         $metasync_options['general'][$field] = sanitize_text_field($value);
                     } elseif (filter_var($value, FILTER_VALIDATE_URL)) {
 
@@ -2522,7 +2522,7 @@ class Metasync_Settings_Registration
                         $whitelabel_errors[$field] = 'Invalid Menu icon URL format.';
                     }
                 } elseif ($field === 'white_label_plugin_menu_slug') {
-                    // Self-correcting slug (WP-413): a URL-shaped value is reduced to a valid WP
+                    // Self-correcting slug: a URL-shaped value is reduced to a valid WP
                     // menu slug so it can never break sidebar link generation.
                     $metasync_options['general'][$field] = sanitize_title($value);
                 } else {
@@ -2694,9 +2694,9 @@ class Metasync_Settings_Registration
         $api_key_warning       = null;
         $proposed_new_api_key  = $metasync_options['general']['searchatlas_api_key'] ?? '';
 
-        // WP-308: When the API key changes, save it first, then POST heartbeat to register
+        // When the API key changes, save it first, then POST heartbeat to register
         // the WPWebsiteHeartbeat row on the backend, then GET ping to verify.
-        // The old flow (WP-239) did GET ping first, which failed because the row didn't exist yet.
+        // The old flow did GET ping first, which failed because the row didn't exist yet.
         if ( $api_key_field_present && $proposed_new_api_key !== '' && $proposed_new_api_key !== $old_api_key ) {
             // Step 1: Save the new key so SyncCustomerParams can use it
             Metasync::set_option($metasync_options);
@@ -2953,13 +2953,13 @@ class Metasync_Settings_Registration
         );
 
         // Per-field whitelabel validation issues (non-blocking): the save succeeded for all
-        // other fields, but the user must be told which values were rejected (WP-413).
+        // other fields, but the user must be told which values were rejected.
         if (!empty($whitelabel_errors)) {
             $response_payload['whitelabel_errors'] = $whitelabel_errors;
         }
 
         // Final slug after sanitization so the client redirects to the page WP actually
-        // registered, even when the submitted value was cleaned up (WP-413).
+        // registered, even when the submitted value was cleaned up.
         if (isset($_POST['metasync_options']['general']['white_label_plugin_menu_slug'])) {
             $response_payload['saved_menu_slug'] = $metasync_options['general']['white_label_plugin_menu_slug'] ?? '';
         }
@@ -3215,7 +3215,7 @@ class Metasync_Settings_Registration
                 error_log( 'Bing IndexNow: Refusing to write outside ABSPATH' );
                 return false;
             }
-            // WP-511: serve the key virtually via template_redirect instead of
+            // serve the key virtually via template_redirect instead of
             // writing a physical {key}.txt. An on-disk file is served statically
             // by the web server and 403'd before PHP on some nginx setups, and
             // cannot be written on read-only roots. Register the key (the saved

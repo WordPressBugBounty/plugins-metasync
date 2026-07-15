@@ -86,9 +86,11 @@ class Metasync_Seo_Output
 
 	public function print_metatag($name, $value, $valueAttrib = "content", $nameAttrib = "name", $tagName = "meta")
 	{
-		// Safety: extract string from array values (fixes legacy meta_canonical stored as array)
+		// Safety: extract string from array values (fixes legacy meta stored as
+		// arrays). Recursive — a single reset() on a nested array
+		// returns another array and printf would emit the literal "Array".
 		if (is_array($value)) {
-			$value = reset($value) ?: '';
+			$value = Metasync_Canonical_Sanitizer::extract_scalar($value);
 		}
 
 		if (empty($value))
@@ -204,7 +206,7 @@ class Metasync_Seo_Output
 
 		$list_page_meta = array();
 
-		// WP-196: When synced to an active SEO plugin, skip MetaSync's own
+		// When synced to an active SEO plugin, skip MetaSync's own
 		// robots and description output — the native plugin handles it.
 		$post_id = get_the_ID();
 		$is_synced_to_plugin = false;
@@ -313,7 +315,7 @@ class Metasync_Seo_Output
 		// Offload Media / S3) store the actual files in remote object storage, so
 		// the local file is legitimately absent. A missing local file is NOT proof
 		// of an orphaned attachment and must never trigger deletion of the featured
-		// image association (WP-522).
+		// image association.
 		if ($post) {
 			$image_id = get_post_thumbnail_id($post->ID);
 			if ($image_id) {
@@ -405,14 +407,14 @@ class Metasync_Seo_Output
 			// When the canonical emitter (Metasync_OpenGraph::output_opengraph_tags, wp_head
 			// priority 5) will emit for this post, suppress these legacy og:*/twitter:* blocks
 			// so a MetaSync-only page outputs exactly one OG set and one Twitter set, preferring
-			// the persisted/OTTO values that emitter resolves (WP-411). The Facebook block
+			// the persisted/OTTO values that emitter resolves. The Facebook block
 			// (article:publisher / article:author / fb:admins) is NOT gated on it — the canonical
 			// emitter never outputs those tags, so they never duplicate.
 			$og2_will_emit = apply_filters('metasync_opengraph_will_emit', false);
 
 			// When a third-party SEO plugin (Yoast / Rank Math / AIOSEO) is active it owns the
 			// social tags — suppress ALL legacy Facebook/OG/Twitter output so MetaSync never
-			// duplicates the other plugin's og:*/twitter:*/article:* tags (WP-411).
+			// duplicates the other plugin's og:*/twitter:*/article:* tags.
 			$has_seo_plugin = $conflict_handler->has_active_seo_plugin();
 
 			$common_meta_settings = Metasync::get_option('common_meta_settings') ?? [];
@@ -442,7 +444,7 @@ class Metasync_Seo_Output
 	 * Intentionally avoids `file_exists()`/disk access and any HTTP validation so
 	 * it works for media-offload setups (WP Stateless, WP Offload Media / S3) where
 	 * the file lives in remote object storage rather than on the local filesystem.
-	 * It is strictly read-only and never mutates post or attachment meta (WP-522).
+	 * It is strictly read-only and never mutates post or attachment meta.
 	 *
 	 * The image URL is resolved via `wp_get_attachment_url()`, which offload plugins
 	 * filter to the correct remote URL; it falls back to building the URL from the
@@ -572,7 +574,7 @@ class Metasync_Seo_Output
 	 * Resolve the robots meta value from all storage formats.
 	 *
 	 * Priority order:
-	 *   1. _metasync_robots_advanced (WP-197 JSON)
+	 *   1. _metasync_robots_advanced (JSON)
 	 *   2. meta_robots (string, e.g. "noindex, nofollow") — set via REST API
 	 *   3. metasync_common_robots (array) + metasync_advance_robots (array) — admin checkboxes
 	 *   4. Global defaults from metasync_options['advance_robots_meta']
@@ -592,7 +594,7 @@ class Metasync_Seo_Output
 			$directives[] = 'noindex';
 		}
 
-		// 1. Check _metasync_robots_advanced (WP-197 JSON)
+		// 1. Check _metasync_robots_advanced (JSON)
 		$advanced_raw = $all_meta['_metasync_robots_advanced'][0] ?? '';
 		if (!empty($advanced_raw)) {
 			$advanced = json_decode($advanced_raw, true);
@@ -712,9 +714,12 @@ class Metasync_Seo_Output
 		if (is_home()) {
 			$blog_page_id = (int) get_option('page_for_posts');
 			if ($blog_page_id > 0) {
-				// Honour a manual MetaSync canonical override on the Posts page.
-				$override = get_post_meta($blog_page_id, '_metasync_canonical_url', true);
-				if (!empty($override)) {
+				// Honour a manual MetaSync canonical override on the Posts page
+				// (validated — corrupted legacy rows are ignored,).
+				$override = Metasync_Canonical_Sanitizer::sanitize(
+					get_post_meta($blog_page_id, '_metasync_canonical_url', true)
+				);
+				if ($override !== '') {
 					return esc_url($override);
 				}
 				return get_permalink($blog_page_id);
@@ -754,24 +759,19 @@ class Metasync_Seo_Output
 	 * Get the canonical URL for a post
 	 */
 	private function get_canonical_url($post) {
-		# Check for persisted OTTO canonical URL first
-		$metasync_canonical = get_post_meta($post->ID, '_metasync_canonical_url', true);
-
-		# Fall back to the Canonical meta box value (meta_canonical) when OTTO has no
-		# persisted canonical. Without this the meta box is write-only — its value is
-		# saved but never emitted (WP-544). OTTO's canonical keeps priority above.
-		if (empty($metasync_canonical)) {
-			$legacy_canonical = get_post_meta($post->ID, 'meta_canonical', true);
-			# Repair legacy values stored as arrays by sanitize_array()
-			if (is_array($legacy_canonical)) {
-				$legacy_canonical = reset($legacy_canonical) ?: '';
-			}
-			if (!empty($legacy_canonical)) {
-				$metasync_canonical = $legacy_canonical;
-			}
+		# Check for persisted OTTO canonical URL first, then the Canonical meta
+		# box value (meta_canonical). Both are validated so legacy rows corrupted
+		# to the literal "Array" (or stored as arrays) are never emitted.
+		$metasync_canonical = Metasync_Canonical_Sanitizer::sanitize(
+			get_post_meta($post->ID, '_metasync_canonical_url', true)
+		);
+		if ($metasync_canonical === '') {
+			$metasync_canonical = Metasync_Canonical_Sanitizer::sanitize(
+				get_post_meta($post->ID, 'meta_canonical', true)
+			);
 		}
 
-		if (!empty($metasync_canonical)) {
+		if ($metasync_canonical !== '') {
 			return esc_url($metasync_canonical);
 		}
 

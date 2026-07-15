@@ -108,7 +108,7 @@ class Metasync_Image_Converter {
 
         // Give a heavy multi-size upload a fresh execution budget instead of
         // inheriting what WP's own thumbnail generation left of the request's
-        // default cap (WP-527).
+        // default cap.
         static::reset_time_limit();
 
         // Convert main/full file (downscaled to $max_dim if it exceeds the limit)
@@ -154,7 +154,7 @@ class Metasync_Image_Converter {
         // Request WordPress's image processing memory limit (typically 256MB) before heavy work
         wp_raise_memory_limit('image');
 
-        // Give a heavy multi-size conversion a fresh execution budget (WP-527).
+        // Give a heavy multi-size conversion a fresh execution budget.
         static::reset_time_limit();
 
         $format  = $settings['conversion_format'] ?? 'webp';
@@ -353,7 +353,7 @@ class Metasync_Image_Converter {
 
     /**
      * Grant the current request a fresh execution budget before heavy
-     * conversion work (WP-527). Returns true when the timer was actually
+     * conversion work. Returns true when the timer was actually
      * reset; false on hosts where set_time_limit() is disabled, in which
      * case callers must rely on get_remaining_time() to bail out early.
      */
@@ -408,7 +408,7 @@ class Metasync_Image_Converter {
      * sub-sizes when memory drops below MIN_MEMORY_FOR_SUBSIZE. Each
      * iteration also refreshes the execution timer (or, where that is
      * disabled, bails out before PHP's limit is hit) so a heavy multi-size
-     * image cannot trigger a max_execution_time fatal (WP-527).
+     * image cannot trigger a max_execution_time fatal.
      *
      * @param array  $sizes      Reference to $metadata['sizes'].
      * @param string $upload_dir Directory containing the sub-size files.
@@ -420,7 +420,7 @@ class Metasync_Image_Converter {
         $pass_started = microtime(true);
 
         foreach ($sizes as $size_name => &$size_data) {
-            // Cap the total synchronous sub-size pass (WP-527) so the
+            // Cap the total synchronous sub-size pass so the
             // per-iteration timer resets below cannot keep one request busy
             // indefinitely.
             if ((microtime(true) - $pass_started) >= self::UPLOAD_TIME_LIMIT) {
@@ -430,7 +430,7 @@ class Metasync_Image_Converter {
 
             // Refresh the execution timer between encodes; when the host
             // disables set_time_limit(), bail out before PHP's limit kills
-            // the request (WP-527).
+            // the request.
             if (!static::reset_time_limit() && static::get_remaining_time() <= 0) {
                 error_log('[MetaSync Media Opt] Execution time nearly exhausted, skipping remaining sub-sizes from: ' . $size_name);
                 break;
@@ -507,7 +507,7 @@ class Metasync_Image_Converter {
         }
 
         // Bail out instead of starting an encode PHP may kill mid-write
-        // (WP-527). On hosts where set_time_limit() is disabled the request
+        // On hosts where set_time_limit() is disabled the request
         // keeps its original cap, and the fatal reported by Sentry fired here.
         if (static::get_remaining_time() <= 0) {
             error_log('[MetaSync Media Opt] Execution time nearly exhausted, skipping conversion: ' . basename($source));
@@ -715,7 +715,7 @@ class Metasync_Image_Converter {
         }
 
         // Batch the UPDATE so a large wp_posts table is never locked by a single
-        // unbounded REPLACE (WP-386). Each batch only rewrites rows that still
+        // unbounded REPLACE. Each batch only rewrites rows that still
         // contain the old path; once replaced they no longer match the LIKE, so
         // the loop converges. The batch ceiling is a safety net against an
         // unexpected non-converging loop (e.g. a DB-level error returning false).

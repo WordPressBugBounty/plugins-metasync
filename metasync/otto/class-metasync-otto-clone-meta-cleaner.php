@@ -7,8 +7,8 @@
  * Post, Yoast Duplicate Post, or any `wp_insert_post` flow that carries
  * clone-context signals. This prevents stale OTTO data from overriding fresh
  * SEO values on the new page before OTTO has crawled the new URL, and
- * ensures social preview meta starts blank on each duplicate (WP-406 /
- * WP-407).
+ * ensures social preview meta starts blank on each duplicate (/
+ *).
  *
  * The class name is preserved for backwards compatibility with existing
  * autoload paths even though it now covers more than OTTO.

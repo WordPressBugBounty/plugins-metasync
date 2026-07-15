@@ -1029,7 +1029,7 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 /* Disabled state — needed because the base .button-primary rule keeps the
    full gradient even when prop('disabled', true) is set. Without this,
    the Sync Now button stays blue/purple while the cooldown countdown is
-   active (WP-350 QA report).
+   active (QA report).
 
    The .is-throttled class is the primary driver for the Sync Now cooldown
    visual because earlier code in the AJAX callback chain calls
@@ -1048,7 +1048,7 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 .metasync-dashboard-wrap .button-secondary.is-throttled {
     /* Replace the blue/purple gradient with a solid grey. The base rule sets
        `background: var(--dashboard-gradient-primary)`, so opacity + grayscale
-       alone left the button a dimmed blue (WP-350 QA: "still blue on Elementor").
+       alone left the button a dimmed blue (QA: "still blue on Elementor").
        background/filter/pointer-events carry !important so a page-builder's
        admin stylesheet (Elementor ships more than Divi) can't override them. */
     background: #d5d7da !important;

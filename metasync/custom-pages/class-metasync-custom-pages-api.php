@@ -575,7 +575,7 @@ class Metasync_Custom_Pages_API
 
 		// Capture whether this page is the static front page BEFORE deleting it -
 		// WordPress/plugins may clear page_on_front during wp_delete_post(), so a
-		// post-delete read could miss it (WP-443).
+		// post-delete read could miss it.
 		$was_front_page = ((int) get_option('page_on_front') === $page_id);
 
 		// Delete the page permanently
@@ -1377,7 +1377,7 @@ class Metasync_Custom_Pages_API
 	 * subsystems, with the edge purge batched into a single call.
 	 *
 	 * Wrapped in a \Throwable guard so a purge failure can never abort or error the
-	 * import (same pattern as the WP-442 audit logger).
+	 * import (same pattern as the audit logger).
 	 *
 	 * @param array $page_records Records carrying 'page_id', 'url', and optional 'is_front_page'.
 	 */
@@ -1513,7 +1513,7 @@ class Metasync_Custom_Pages_API
 
 		// Resolve the bundle root once before the loop so we can verify every
 		// per-page HTML path stays inside it. The string blocklist above rejects
-		// literal ".." and backslashes, but cannot catch symlinks in the bundle or
+		// literal "." and backslashes, but cannot catch symlinks in the bundle or
 		// encoding tricks. realpath() gives the canonical on-disk path, making
 		// containment provable regardless of how the path was constructed.
 		$target_real = realpath($target_dir);
@@ -1542,7 +1542,7 @@ class Metasync_Custom_Pages_API
 
 			// Reject path-traversal slugs before $raw_slug is used to build the
 			// on-disk HTML path below. A crafted manifest slug (e.g.
-			// "../../../../some-dir") could otherwise escape $target_dir and have
+			// "././././some-dir") could otherwise escape $target_dir and have
 			// file_get_contents() read an index.html from outside the bundle. The
 			// raw value is checked as-is, before any normalization.
 			if (strpos($raw_slug, '..') !== false || strpos($raw_slug, '\\') !== false) {
@@ -1589,7 +1589,7 @@ class Metasync_Custom_Pages_API
 				continue;
 			}
 			// Containment check: verify the resolved, canonical path stays under
-			// $target_dir. The string blocklist above catches literal ".." and
+			// $target_dir. The string blocklist above catches literal "." and
 			// backslashes, but realpath() is the authoritative guard — it resolves
 			// any symlinks in the bundle and proves the final on-disk read is
 			// inside the bundle directory regardless of how the path was built.
@@ -1619,7 +1619,7 @@ class Metasync_Custom_Pages_API
 			// project's home is left in place (non-destructive). Home conflicts are NOT
 			// reported to LPS — a taken 'home' slug just falls back to 'home-2'.
 			// Home dedup keys on external_ref (the LPS project UUID) when present,
-			// falling back to assets_folder for pre-external_ref imports (WP-449).
+			// falling back to assets_folder for pre-external_ref imports.
 			if ($is_home) {
 				$home_id = $this->find_lps_home_page($assets_folder, $external_ref);
 				$home_existing = $home_id > 0;
@@ -1698,7 +1698,7 @@ class Metasync_Custom_Pages_API
 					$parent_id = $slug_to_id[$ancestor_path];
 					continue;
 				}
-				// WP-461: find our previously-created ancestor by stable tag (project +
+				// find our previously-created ancestor by stable tag (project +
 				// path) first, so a re-import reuses it even if WordPress renamed its slug
 				// on a collision — instead of auto-creating another placeholder each time.
 				$tagged_ancestor = $this->find_lps_page_by_path($assets_folder, $external_ref, $ancestor_path);
@@ -1709,7 +1709,7 @@ class Metasync_Custom_Pages_API
 				}
 				$ancestor_page = get_page_by_path($ancestor_path, OBJECT, 'page');
 				if ($ancestor_page) {
-					// WP-462: only nest under ancestors we own. If an existing page on this
+					// only nest under ancestors we own. If an existing page on this
 					// path was NOT created by LPS, refuse to graft LPS content under the
 					// user's content — consistent with the leaf ownership gate below.
 					if (get_post_meta($ancestor_page->ID, Metasync_Custom_Pages::META_LPS_IMPORT, true) !== '1') {
@@ -1747,7 +1747,7 @@ class Metasync_Custom_Pages_API
 					if ($external_ref !== '') {
 						update_post_meta($new_parent, Metasync_Custom_Pages::META_LPS_PROJECT_REF, $external_ref);
 					}
-					// WP-461: tag the placeholder with its manifest path so re-imports find it.
+					// tag the placeholder with its manifest path so re-imports find it.
 					update_post_meta($new_parent, Metasync_Custom_Pages::META_LPS_PAGE_PATH, $ancestor_path);
 					$parent_id = $new_parent;
 				}
@@ -1767,7 +1767,7 @@ class Metasync_Custom_Pages_API
 				continue;
 			}
 
-			// WP-461: find our previously-imported page by its stable tag (project +
+			// find our previously-imported page by its stable tag (project +
 			// manifest path) first, so a re-import updates the SAME page even if WordPress
 			// renamed its slug on a collision — instead of creating a duplicate. Only when
 			// no tagged page exists do we fall back to the intended slug path, which is
@@ -1835,7 +1835,7 @@ class Metasync_Custom_Pages_API
 			if ($external_ref !== '') {
 				update_post_meta($page_id, Metasync_Custom_Pages::META_LPS_PROJECT_REF, $external_ref);
 			}
-			// WP-461: tag the page with its manifest path so re-imports find it by identity, not slug.
+			// tag the page with its manifest path so re-imports find it by identity, not slug.
 			update_post_meta($page_id, Metasync_Custom_Pages::META_LPS_PAGE_PATH, $effective_slug);
 			update_post_meta($page_id, Metasync_Custom_Pages::META_HTML_ENABLED, '1');
 			update_post_meta($page_id, Metasync_Custom_Pages::META_HTML_CONTENT, wp_unslash($html));
@@ -1875,7 +1875,7 @@ class Metasync_Custom_Pages_API
 	 * (project key + manifest path), independent of the slug WordPress actually
 	 * stored. This makes re-imports idempotent even when a slug was renamed on a
 	 * collision (e.g. "2026" -> "2026-2"): we match on META_LPS_PAGE_PATH within
-	 * the same project, so the existing page is updated instead of duplicated (WP-461).
+	 * the same project, so the existing page is updated instead of duplicated.
 	 *
 	 * The project is keyed on external_ref (the LPS project UUID) when present,
 	 * falling back to assets_folder for pre-external_ref imports — mirroring

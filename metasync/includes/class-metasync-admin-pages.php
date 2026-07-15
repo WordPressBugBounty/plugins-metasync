@@ -1563,7 +1563,7 @@ class Metasync_Admin_Pages
                 $deleted = $sitemap_generator->delete_sitemap();
                 if ($deleted) {
                     update_option('metasync_sitemap_auto_update', false);
-                    // Re-enable WP core sitemap so the site isn't left with zero sitemaps (WP-396)
+                    // Re-enable WP core sitemap so the site isn't left with zero sitemaps
                     delete_option('metasync_disable_wp_sitemap');
                     echo '<div class="notice notice-success"><p>' . esc_html__('Sitemap deleted successfully!', 'metasync') . '</p></div>';
                 } else {
@@ -1678,7 +1678,7 @@ echo $breadcrumbs-&gt;render_breadcrumb_html();</pre><span class="metasync-copy-
                     <strong>Tip:</strong> You can also pass a <code>post_id</code> argument to generate breadcrumbs for a specific post outside of a template context:<br>
                     <code>echo $breadcrumbs-&gt;render_breadcrumb_html(['post_id' =&gt; 123]);</code>
                 </p>
-                <?php /* WP-492: click-to-copy for the code snippets above */ ?>
+                <?php /* click-to-copy for the code snippets above */ ?>
                 <style>
                 .metasync-copy-wrap { position: relative; }
                 .metasync-copy-snippet { cursor: pointer; outline: 1px solid transparent; transition: outline-color .15s ease; }
@@ -2193,7 +2193,7 @@ echo $breadcrumbs-&gt;render_breadcrumb_html();</pre><span class="metasync-copy-
         }
         # Stored timestamps use current_time('mysql') which is WP local time
         # with no timezone marker. Defaulting DateTime to UTC produces a diff
-        # equal to the WP timezone offset (WP-350 QA: "4 hours ago" after a
+        # equal to the WP timezone offset (QA: "4 hours ago" after a
         # 4-minute sync on non-UTC sites).
         $wp_tz = function_exists('wp_timezone') ? wp_timezone() : new DateTimeZone('UTC');
         $now = new DateTime('now', $wp_tz);

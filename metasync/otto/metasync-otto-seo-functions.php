@@ -132,7 +132,7 @@ function metasync_clean_seo_variables($text) {
     # Remove Yoast/RankMath template variables (%%variable%%)
     $text = preg_replace('/%%[^%]+%%/i', '', $text);
 
-    # WP-499: SEO text values (og/meta/twitter descriptions and titles) must never
+    # SEO text values (og/meta/twitter descriptions and titles) must never
     # contain page-builder shortcodes. OTTO can derive these from raw page content,
     # so strip registered shortcodes plus any leftover shortcode-style tags (e.g.
     # unregistered Divi [et_pb_*]). The pattern is anchored to a leading letter so
@@ -1090,11 +1090,11 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             // The graphs array (Pro-only) and default.graphName (UI-gated) cannot reliably render OTTO schema on Free.
         }
 
-        # WP-541: UN-DEPLOY CLEAR — OTTO sent no structured data this sync, so remove the
+        # UN-DEPLOY CLEAR — OTTO sent no structured data this sync, so remove the
         # copy we previously persisted. Without this the stale otto_jsonld lingers in the DB
-        # and is re-served by output_schema_markup() once OTTO is disabled (WP-388 path),
+        # and is re-served by output_schema_markup() once OTTO is disabled (path),
         # making schema "survive" an un-deploy. This mirrors the _metasync_otto_structured_data
-        # clear above and the WP-373 title/description un-deploy behaviour: we only remove OUR
+        # clear above and the title/description un-deploy behaviour: we only remove OUR
         # own otto_jsonld key and leave any user-authored per-post schema (types/enabled) intact.
         if (class_exists('Metasync_Otto_Persistence_Settings') && empty($structured_data)) {
             $existing_schema = get_post_meta($post_id, 'metasync_schema_markup', true);
@@ -1116,7 +1116,9 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
         if (class_exists('Metasync_Otto_Persistence_Settings') &&
             Metasync_Otto_Persistence_Settings::should_persist('canonical_url') &&
             !empty($seo_data['canonical_url'])) {
-            $canonical = esc_url_raw($seo_data['canonical_url']);
+            # Validate before persisting: never store or mirror a corrupted /
+            # non-URL canonical into MetaSync or SEO-plugin storage.
+            $canonical = Metasync_Canonical_Sanitizer::sanitize_for_save($seo_data['canonical_url']);
             if (!empty($canonical)) {
                 update_post_meta($post_id, '_metasync_canonical_url', $canonical);
                 $fields_updated['canonical_url_persisted'] = $canonical;
@@ -1151,7 +1153,7 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
-        // WP-196: Sync to all active SEO plugins
+        // Sync to all active SEO plugins
         if (class_exists('Metasync_Plugin_Sync') && $any_updated) {
             Metasync_Plugin_Sync::get_instance()->sync_post($post_id);
         }
@@ -1531,7 +1533,7 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
 
         # A persistence-only back-fill (staging key already current, but the permanent
         # / SEO-plugin fields were just written) must still mark the post as updated so
-        # the caller runs cache purge and the WP-196 plugin sync. Without this, a
+        # the caller runs cache purge and the plugin sync. Without this, a
         # back-fill silently returns updated=false and the downstream refresh is skipped.
         $title_updated = $title_updated || $should_persist_title || $plugin_title_written;
         $description_updated = $description_updated || $should_persist_description || $plugin_description_written;
@@ -2542,7 +2544,7 @@ add_action('init', 'metasync_register_seo_meta_fields');
 // add_action('admin_notices', 'metasync_otto_seo_admin_notice');
 
 /**
- * WP-313: Suppress OTTO-synced SEO plugin output for logged-in users.
+ * Suppress OTTO-synced SEO plugin output for logged-in users.
  *
  * When "Disable OTTO for Logged in Users" is enabled, filter Yoast SEO and
  * Rank Math output hooks to return original (non-OTTO) values. These plugins
@@ -2997,7 +2999,7 @@ function metasync_output_otto_meta_description() {
         return;
     }
 
-    // WP-361: Mirror the conflict guard used in metasync_pre_get_document_title()
+    // Mirror the conflict guard used in metasync_pre_get_document_title()
     // (around line 2817). When a third-party SEO plugin is active AND OTTO has no
     // live suggestions for this URL, defer to the SEO plugin's description instead
     // of rendering a stale _metasync_otto_description from a previous deployment.
@@ -3008,9 +3010,9 @@ function metasync_output_otto_meta_description() {
         }
     }
 
-    // WP-196: When synced to an active SEO plugin, that plugin outputs the
+    // When synced to an active SEO plugin, that plugin outputs the
     // description from its native storage — skip OTTO's own description tag.
-    // WP-551: Only defer if the plugin's field is actually populated; a stale
+    // Only defer if the plugin's field is actually populated; a stale
     // or partial sync (timestamp present, plugin field empty) would otherwise
     // drop the description entirely, so fall through and emit OTTO's tag.
     if (is_singular()) {
@@ -3026,7 +3028,7 @@ function metasync_output_otto_meta_description() {
         }
     }
 
-    // WP-550: When the MetaSync SEO sidebar holds a custom description for this
+    // When the MetaSync SEO sidebar holds a custom description for this
     // post, that custom value owns the tag — Metasync_SEO_Sidebar::output_seo_meta_description()
     // emits it (data-metasync-seo="custom"). Skip OTTO's own description here so the
     // two don't both render on delivery paths where the OTTO SSR buffer dedup never

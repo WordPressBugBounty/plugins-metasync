@@ -69,7 +69,7 @@ class MCP_Tool_List_Categories extends MCP_Tool_Base {
             'orderby' => isset($params['orderby']) ? sanitize_text_field($params['orderby']) : 'name',
             'order' => isset($params['order']) ? sanitize_text_field($params['order']) : 'ASC',
             // Bound the result set so a single call cannot exhaust PHP memory on
-            // sites with very large taxonomies (WP-489).
+            // sites with very large taxonomies.
             'number' => isset($params['number']) ? min(max(intval($params['number']), 1), 500) : 100,
             'offset' => isset($params['offset']) ? max(intval($params['offset']), 0) : 0,
         ];
@@ -93,7 +93,7 @@ class MCP_Tool_List_Categories extends MCP_Tool_Base {
             ];
         }
 
-        // Release the term objects now that the response payload is built (WP-489).
+        // Release the term objects now that the response payload is built.
         unset($categories);
 
         return $this->success([
@@ -608,7 +608,7 @@ class MCP_Tool_List_Tags extends MCP_Tool_Base {
             'orderby' => isset($params['orderby']) ? sanitize_text_field($params['orderby']) : 'name',
             'order' => isset($params['order']) ? sanitize_text_field($params['order']) : 'ASC',
             // Bound the result set so a single call cannot exhaust PHP memory on
-            // sites with very large tag counts (WP-489).
+            // sites with very large tag counts.
             'number' => isset($params['number']) ? min(max(intval($params['number']), 1), 500) : 100,
             'offset' => isset($params['offset']) ? max(intval($params['offset']), 0) : 0,
         ];
@@ -630,7 +630,7 @@ class MCP_Tool_List_Tags extends MCP_Tool_Base {
             ];
         }
 
-        // Release the term objects now that the response payload is built (WP-489).
+        // Release the term objects now that the response payload is built.
         unset($tags);
 
         return $this->success([

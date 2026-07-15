@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 2.6.16
+Stable tag: 2.6.17
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -70,6 +70,13 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.17 =
+* Improvement: Fixed the Refresh Token button's oversized icon and misalignment on the settings page
+* Improvement: The Redirections search field now triggers a search when pressing Enter, not only when clicking the Search button
+* Fix: Prevented a fatal error when WordPress internally checks for a white screen after saving a theme file
+* Fix: Prevented a fatal error when clearing edge cache for a single URL
+* Fix: Prevented invalid `http://Array` canonical URLs from being output and cleaned up already-corrupted stored values
+
 = 2.6.16 =
 * Security: Whitelabel password is now encrypted at rest instead of stored in plain text
 * Security: Prevented path traversal from unvalidated slugs in imported ZIP manifests

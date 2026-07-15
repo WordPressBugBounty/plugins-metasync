@@ -1537,6 +1537,54 @@
     color: #fff;
 }
 
+.metasync-auth-token-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.metasync-auth-token-row input.regular-text {
+    flex: 0 0 auto;
+}
+
+.metasync-auth-token-row .metasync-refresh-token-btn {
+    margin: 0;
+    flex-shrink: 0;
+    min-width: 175px;
+    text-align: center;
+    /*
+     * WP core's .wp-core-ui .button rule sets line-height: 2.92308 (a unitless
+     * ratio tuned for its own 13px font-size). metasync-dashboard.css bumps this
+     * button's font-size to 14px without resetting line-height, so the ratio
+     * recalculates against the new font-size to ~41px, ballooning the button to
+     * ~67px tall vs ~43-45px for every other button/field on this row (WP-529).
+     * Resetting line-height here (after both stylesheets, so it always wins)
+     * restores it to the same height as its neighbors.
+     */
+    line-height: normal;
+}
+
+.metasync-refresh-token-btn .dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    line-height: 1.4;
+    vertical-align: middle;
+    margin-right: 4px;
+}
+
+@media screen and (max-width: 782px) {
+    .metasync-auth-token-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .metasync-auth-token-row .metasync-refresh-token-btn {
+        margin-top: 8px;
+    }
+}
+
 @media (max-width: 768px) {
     .metasync-sitemap-table th,
     .metasync-sitemap-table td {

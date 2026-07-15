@@ -536,7 +536,7 @@ class Metasync_Otto_Frontend_Toolbar {
 			$this->set_otto_status( $post_id, false );
 		} elseif ( $action === 'disable' ) {
 			$this->set_otto_status( $post_id, true );
-			// WP-315: Clear Divi's per-page CSS cache when OTTO is disabled.
+			// Clear Divi's per-page CSS cache when OTTO is disabled.
 			// OTTO's HTTP render can corrupt the CSS cache file; clearing it
 			// forces Divi to rebuild it on the next normal render.
 			// Also delete the 24h transient so the fix re-runs when OTTO is re-enabled.

@@ -178,6 +178,7 @@ class ComposerStaticInit8e5917ee534e616253713b8104fcda43
         'Metasync_CPU_Monitor' => __DIR__ . '/../..' . '/includes/class-metasync-cpu-monitor.php',
         'Metasync_CSS_Minifier' => __DIR__ . '/../..' . '/code-minification/class-css-minifier.php',
         'Metasync_Cache_Purge' => __DIR__ . '/../..' . '/includes/class-metasync-cache-purge.php',
+        'Metasync_Canonical_Sanitizer' => __DIR__ . '/../..' . '/includes/class-metasync-canonical-sanitizer.php',
         'Metasync_Code_Snippets' => __DIR__ . '/../..' . '/code-snippets/class-metasync-code-snippets.php',
         'Metasync_Common' => __DIR__ . '/../..' . '/includes/class-metasync-common.php',
         'Metasync_Compatibility_Checker' => __DIR__ . '/../..' . '/includes/class-metasync-compatibility-checker.php',

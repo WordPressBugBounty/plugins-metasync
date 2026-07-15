@@ -489,7 +489,7 @@ class MCP_Tool_SEO_Plugin_Diff extends MCP_Tool_Base {
                 'field' => $field,
                 'metasync_value' => $metasync_value,
                 $plugin . '_value' => null,
-                'note' => sprintf('MetaSync %s not written to %s (WP-196 sync needed)', $field, $plugin),
+                'note' => sprintf('MetaSync %s not written to %s (sync needed)', $field, $plugin),
             ];
             return;
         }
@@ -501,7 +501,7 @@ class MCP_Tool_SEO_Plugin_Diff extends MCP_Tool_Base {
  * Tool: wordpress_sync_to_active_plugins
  *
  * Bulk-syncs MetaSync data to each active third-party plugin via
- * the Metasync_Plugin_Sync class (WP-196). Guarded with class_exists.
+ * the Metasync_Plugin_Sync class. Guarded with class_exists.
  */
 class MCP_Tool_Sync_To_Active_Plugins extends MCP_Tool_Base {
 
@@ -510,7 +510,7 @@ class MCP_Tool_Sync_To_Active_Plugins extends MCP_Tool_Base {
     }
 
     public function get_description() {
-        return 'Bulk-sync MetaSync SEO data to all active third-party SEO plugins (requires WP-196 Metasync_Plugin_Sync)';
+        return 'Bulk-sync MetaSync SEO data to all active third-party SEO plugins (requires Metasync_Plugin_Sync)';
     }
 
     public function get_input_schema() {
@@ -543,7 +543,7 @@ class MCP_Tool_Sync_To_Active_Plugins extends MCP_Tool_Base {
 
         if (!class_exists('Metasync_Plugin_Sync')) {
             throw new Exception(
-                'Metasync_Plugin_Sync class not found — this tool requires WP-196 to be merged and active.'
+                'Metasync_Plugin_Sync class not found — the plugin-sync module is not available on this site.'
             );
         }
 

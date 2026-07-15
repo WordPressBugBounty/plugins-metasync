@@ -75,7 +75,7 @@ class Metasync_Bing_Instant_Index
 	 *
 	 * Keys are stored in a capped option and served from PHP via
 	 * template_redirect, so ownership verification works even when the web root
-	 * is not writable or the host 403s direct static .txt access (WP-511).
+	 * is not writable or the host 403s direct static .txt access.
 	 *
 	 * @param string $key The IndexNow key (also the filename stem).
 	 * @return bool True when the key is stored or already present.
@@ -131,7 +131,7 @@ class Metasync_Bing_Instant_Index
 	 * Registered on template_redirect from the public bootstrap so it runs for
 	 * every front-end request. Serving the key from PHP (rather than a physical
 	 * file) avoids the 403 some nginx setups return for direct static .txt
-	 * access, and works on read-only web roots (WP-511).
+	 * access, and works on read-only web roots.
 	 *
 	 * The handler only responds when the requested basename exactly matches a
 	 * configured/registered key, so it never shadows robots.txt, llms.txt, or
@@ -163,7 +163,7 @@ class Metasync_Bing_Instant_Index
 	 *
 	 * Extracted from serve_virtual_key_file() so the matching rules (extension,
 	 * charset, key membership, physical-file shadowing) are unit-testable
-	 * without the header/echo/exit side effects (WP-513).
+	 * without the header/echo/exit side effects.
 	 *
 	 * @param string $request_uri Raw REQUEST_URI, possibly with a query string.
 	 * @return string|null The key stem to serve, or null when the request is not
@@ -181,7 +181,7 @@ class Metasync_Bing_Instant_Index
 		// for subdirectory installs, where the path carries the subdir prefix.
 		$requested = basename(substr($path, 0, -4));
 		// Allow hyphens and underscores, not just bare alphanumerics: SearchAtlas
-		// registers IndexNow keys in the form "index-now-<uuid>" (WP-513), which
+		// registers IndexNow keys in the form "index-now-<uuid>", which
 		// the previous alnum-only guard rejected, causing /index-now-<uuid>.txt to
 		// 404 even though the key was registered. This is only a cheap pre-filter;
 		// the in_array() membership check below is the real security boundary, and
@@ -696,7 +696,7 @@ class Metasync_Bing_Instant_Index
 
 		// No physical file: the key is served virtually via template_redirect as
 		// long as it is registered. The configured api_key is always part of the
-		// virtual key set, so this confirms the virtual route is active (WP-511).
+		// virtual key set, so this confirms the virtual route is active.
 		if (in_array($safe_key, self::get_virtual_keys(), true)) {
 			return [
 				'success' => true,

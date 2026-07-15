@@ -262,7 +262,7 @@ class MCP_Tool_List_Custom_Pages extends MCP_Tool_Base {
 
         // Bound the result set. The previous implementation loaded EVERY custom
         // page along with each page's full HTML body into one array, which could
-        // exhaust PHP memory on sites with many/large pages (WP-489).
+        // exhaust PHP memory on sites with many/large pages.
         $per_page = isset($params['per_page']) ? min(max(intval($params['per_page']), 1), 100) : 20;
         $page_num = isset($params['page']) ? max(intval($params['page']), 1) : 1;
 
@@ -298,7 +298,7 @@ class MCP_Tool_List_Custom_Pages extends MCP_Tool_Base {
             ];
 
             // Free the full HTML body each iteration so a page of large pages can't
-            // accumulate their bodies in memory (WP-489).
+            // accumulate their bodies in memory.
             unset($html_content);
         }
         unset($pages);

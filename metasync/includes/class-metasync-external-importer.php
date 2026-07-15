@@ -794,7 +794,7 @@ class Metasync_External_Importer
                 }
             }
 
-            // WP-197: Also write to _metasync_robots_advanced JSON
+            // Also write to _metasync_robots_advanced JSON
             $robots_advanced = [];
             if (!empty($yoast_adv)) {
                 $adv_directives = array_map('trim', explode(',', $yoast_adv));
@@ -817,8 +817,13 @@ class Metasync_External_Importer
             if (!empty($yoast_canonical)) {
                 $existing_canonical = get_post_meta($post_id, 'meta_canonical', true);
                 if (empty($existing_canonical)) {
-                    update_post_meta($post_id, 'meta_canonical', sanitize_url($yoast_canonical));
-                    $has_changes = true;
+                    // Validate: never import a corrupted value such as
+                    // "http://Array" from third-party storage.
+                    $clean_canonical = Metasync_Canonical_Sanitizer::sanitize_for_save($yoast_canonical);
+                    if ($clean_canonical !== '') {
+                        update_post_meta($post_id, 'meta_canonical', $clean_canonical);
+                        $has_changes = true;
+                    }
                 }
             }
 
@@ -915,7 +920,7 @@ class Metasync_External_Importer
                 }
             }
 
-            // WP-197: Parse max-* values and write _metasync_robots_advanced JSON
+            // Parse max-* values and write _metasync_robots_advanced JSON
             $robots_advanced = [];
             // Boolean directives from rank_math_robots
             if (is_array($rm_robots)) {
@@ -949,8 +954,13 @@ class Metasync_External_Importer
             if (!empty($rm_canonical)) {
                 $existing_canonical = get_post_meta($post_id, 'meta_canonical', true);
                 if (empty($existing_canonical)) {
-                    update_post_meta($post_id, 'meta_canonical', sanitize_url($rm_canonical));
-                    $has_changes = true;
+                    // Validate: never import a corrupted value such as
+                    // "http://Array" from third-party storage.
+                    $clean_canonical = Metasync_Canonical_Sanitizer::sanitize_for_save($rm_canonical);
+                    if ($clean_canonical !== '') {
+                        update_post_meta($post_id, 'meta_canonical', $clean_canonical);
+                        $has_changes = true;
+                    }
                 }
             }
 
@@ -1066,7 +1076,7 @@ class Metasync_External_Importer
                 }
             }
 
-            // WP-197: Write _metasync_robots_advanced JSON
+            // Write _metasync_robots_advanced JSON
             $robots_advanced = [];
             if ($aioseo_data->robots_default == 0) {
                 if ($aioseo_data->robots_nofollow == 1) $robots_advanced['nofollow'] = true;
@@ -1092,8 +1102,13 @@ class Metasync_External_Importer
             if (!empty($aioseo_data->canonical_url)) {
                 $existing_canonical = get_post_meta($post_id, 'meta_canonical', true);
                 if (empty($existing_canonical)) {
-                    update_post_meta($post_id, 'meta_canonical', sanitize_url($aioseo_data->canonical_url));
-                    $has_changes = true;
+                    // Validate: never import a corrupted value such as
+                    // "http://Array" from third-party storage.
+                    $clean_canonical = Metasync_Canonical_Sanitizer::sanitize_for_save($aioseo_data->canonical_url);
+                    if ($clean_canonical !== '') {
+                        update_post_meta($post_id, 'meta_canonical', $clean_canonical);
+                        $has_changes = true;
+                    }
                 }
             }
 
@@ -2620,6 +2635,14 @@ class Metasync_External_Importer
                     continue;
                 }
 
+                // Validate canonical: never import a corrupted value.
+                if ($dest_key === '_metasync_canonical_url') {
+                    $src_value = Metasync_Canonical_Sanitizer::sanitize_for_save($src_value);
+                    if ($src_value === '') {
+                        continue;
+                    }
+                }
+
                 update_term_meta($term->term_id, $dest_key, $src_value);
                 $term_updated = true;
             }
@@ -2702,6 +2725,14 @@ class Metasync_External_Importer
                 $existing = get_term_meta($term->term_id, $dest_key, true);
                 if (!empty($existing) && !$overwrite) {
                     continue;
+                }
+
+                // Validate canonical: never import a corrupted value.
+                if ($dest_key === '_metasync_canonical_url') {
+                    $src_value = Metasync_Canonical_Sanitizer::sanitize_for_save($src_value);
+                    if ($src_value === '') {
+                        continue;
+                    }
                 }
 
                 update_term_meta($term->term_id, $dest_key, $src_value);
@@ -2798,6 +2829,14 @@ class Metasync_External_Importer
                 $existing = get_term_meta($term_id, $dest_key, true);
                 if (!empty($existing) && !$overwrite) {
                     continue;
+                }
+
+                // Validate canonical: never import a corrupted value.
+                if ($dest_key === '_metasync_canonical_url') {
+                    $value = Metasync_Canonical_Sanitizer::sanitize_for_save($value);
+                    if ($value === '') {
+                        continue;
+                    }
                 }
 
                 update_term_meta($term_id, $dest_key, $value);

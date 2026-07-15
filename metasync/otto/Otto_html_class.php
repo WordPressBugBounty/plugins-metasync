@@ -63,7 +63,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * WP-355: Fix malformed self-closing non-void HTML tags before DOM parsing.
+     * Fix malformed self-closing non-void HTML tags before DOM parsing.
      *
      * Some themes (e.g. Bootstrap Component Blox) output malformed tags like:
      *   <ul/ class="sub-menu dropdown-menu" />
@@ -127,7 +127,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * WP-355 / WP-315: Capture ALL <style> blocks before DOM processing.
+     * / Capture ALL <style> blocks before DOM processing.
      *
      * SimpleHtmlDom can lose or corrupt <style> blocks during parse/serialize,
      * especially those without an id attribute (common in custom themes).
@@ -152,7 +152,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * WP-355 / WP-315: Re-inject any <style> blocks lost during DOM processing.
+     * / Re-inject any <style> blocks lost during DOM processing.
      *
      * Compares the captured blocks against the final HTML and re-injects any
      * that disappeared. Named blocks (with id) are checked by id; anonymous
@@ -186,7 +186,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * WP-465: Protect entity-encoded `srcdoc` attribute values before DOM parsing.
+     * Protect entity-encoded `srcdoc` attribute values before DOM parsing.
      *
      * Lazy-loaded YouTube/video facades embed a full HTML document inside an
      * iframe's `srcdoc` attribute, entity-encoded:
@@ -218,7 +218,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * WP-465: Restore srcdoc values tokenized by protect_srcdoc_attributes().
+     * Restore srcdoc values tokenized by protect_srcdoc_attributes().
      * Tokens are unique and never altered by SimpleHtmlDom, so a plain
      * str_replace on the final output is safe.
      *
@@ -234,7 +234,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * WP-465: Safety net — strip any lazy-video FACADE <style> that leaked into the
+     * Safety net — strip any lazy-video FACADE <style> that leaked into the
      * document as a real stylesheet.
      *
      * Lazy YouTube/video facades carry this exact CSS reset inside their iframe
@@ -252,7 +252,7 @@ Class Metasync_otto_html{
      * @return string
      */
     /**
-     * WP-535: Crash-free guard for full-document string transforms.
+     * Crash-free guard for full-document string transforms.
      *
      * PCRE operations (preg_replace / preg_replace_callback) return NULL when they
      * hit a limit — most notably "JIT stack limit exhausted" on Divi/page-builder
@@ -265,7 +265,7 @@ Class Metasync_otto_html{
      * This guard keeps the last-good HTML whenever a transform yields NULL (or an
      * unexpectedly empty string), so a single failing regex can no longer discard
      * every OTTO optimisation. It is defence-in-depth: the specific pattern that
-     * triggered WP-535 (strip_hoisted_facade_styles) has been rewritten to be
+     * triggered (strip_hoisted_facade_styles) has been rewritten to be
      * non-backtracking, but this guard still protects the rest of the pipeline.
      *
      * @param string|null $new   Result of the transform.
@@ -285,7 +285,7 @@ Class Metasync_otto_html{
     }
 
     private function strip_hoisted_facade_styles($html) {
-        # WP-535: Non-backtracking implementation.
+        # Non-backtracking implementation.
         #
         # The previous single-regex approach used two tempered-greedy segments
         # ((?:(?!</style>).)*?) to keep the match inside one <style> block. That
@@ -319,7 +319,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * WP-536: Apply OTTO's canonical via string replacement (reliable fallback).
+     * Apply OTTO's canonical via string replacement (reliable fallback).
      *
      * Why the DOM path fails: do_header_replacements() sets the canonical with a
      * DOM attribute edit ($link->href = …). That edit works in isolation, but
@@ -361,18 +361,24 @@ Class Metasync_otto_html{
             return $html;
         }
 
+        # Validate OTTO's own suggestion too: if the platform payload
+        # carries a corrupted/non-URL canonical, leave the document untouched.
+        $canonical = Metasync_Canonical_Sanitizer::sanitize($canonical);
+        if ($canonical === '') {
+            return $html;
+        }
+
         # Respect a manually-set canonical (same protection as the DOM path).
+        # Validated: a legacy row corrupted to "Array" must not count
+        # as a manual canonical — that would suppress OTTO's correct value.
         if (function_exists('is_singular') && is_singular()) {
             $post_id = function_exists('get_the_ID') ? get_the_ID() : 0;
             if ($post_id) {
-                $custom = get_post_meta($post_id, '_metasync_canonical_url', true);
-                if (empty($custom)) {
-                    $custom = get_post_meta($post_id, 'meta_canonical', true);
-                    if (is_array($custom)) {
-                        $custom = reset($custom) ?: '';
-                    }
+                $custom = Metasync_Canonical_Sanitizer::sanitize(get_post_meta($post_id, '_metasync_canonical_url', true));
+                if ($custom === '') {
+                    $custom = Metasync_Canonical_Sanitizer::sanitize(get_post_meta($post_id, 'meta_canonical', true));
                 }
-                if (!empty($custom)) {
+                if ($custom !== '') {
                     return $html; # manual canonical wins — leave the document untouched
                 }
             }
@@ -403,7 +409,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * WP-465: Keep the charset declaration within the first 1024 bytes of <head>.
+     * Keep the charset declaration within the first 1024 bytes of <head>.
      *
      * OTTO injects meta tags + JSON-LD schema at the top of <head>, which can push
      * the theme's <meta charset="utf-8"> past the 1024-byte limit that browsers
@@ -710,7 +716,7 @@ Class Metasync_otto_html{
             return false;
         }
 
-        # WP-488: Skip DOM processing on oversized documents to avoid fatal OOM.
+        # Skip DOM processing on oversized documents to avoid fatal OOM.
         if (class_exists('Metasync_Otto_Render_Strategy')
             && !Metasync_Otto_Render_Strategy::is_document_processable(strlen($html_body))
         ) {
@@ -721,13 +727,13 @@ Class Metasync_otto_html{
         # Remove XML declaration
         $html_body = preg_replace('/<\?xml[^?]*\?>\s*/i', '', $html_body);
 
-        # WP-355 / WP-315: Save ALL original <style> blocks before DOM processing.
+        # / Save ALL original <style> blocks before DOM processing.
         # SimpleHtmlDom can lose or corrupt style blocks during parse/serialize —
         # not only Divi's id-tagged ones but also anonymous <style> blocks used by
         # custom themes for nav collapse CSS, responsive breakpoints, etc.
         $original_style_blocks = $this->capture_style_blocks($html_body);
 
-        # WP-465: Shield entity-encoded srcdoc values (lazy YouTube/video facades)
+        # Shield entity-encoded srcdoc values (lazy YouTube/video facades)
         # so SimpleHtmlDom can't decode them and hoist their global <style> into <head>.
         $srcdoc_store = array();
         $html_body = $this->protect_srcdoc_attributes($html_body, $srcdoc_store);
@@ -735,7 +741,7 @@ Class Metasync_otto_html{
         # Escape bare < in text content (e.g. "<4 microns") before DOM parsing
         $html_body = $this->sanitize_text_less_than($html_body);
 
-        # WP-355: Fix malformed self-closing non-void tags (e.g. <ul/ class="...">)
+        # Fix malformed self-closing non-void tags (e.g. <ul/ class="...">)
         # before DOM parsing — SimpleHtmlDom strips attributes from these.
         $html_body = $this->fix_malformed_self_closing_tags($html_body);
 
@@ -916,7 +922,7 @@ Class Metasync_otto_html{
             $result_html = preg_replace('/(<\/html>)/i', $safe_footer . "\n" . '$1', $result_html, 1);
         }
 
-        # WP-536: Apply OTTO's canonical via string replacement (DOM edit is clobbered by the insert_header_html head-freeze; see apply_canonical_via_string).
+        # Apply OTTO's canonical via string replacement (DOM edit is clobbered by the insert_header_html head-freeze; see apply_canonical_via_string).
         $result_html = $this->apply_canonical_via_string($result_html, $replacement_data);
 
         # DEDUPLICATION: Remove duplicate <title>, meta description, OG, Twitter tags, canonical, and JSON-LD schema
@@ -933,44 +939,44 @@ Class Metasync_otto_html{
 
         $result_html = $this->otto_guard_html($this->restore_case_sensitive_attributes($result_html), $result_html, 'restore_case_sensitive_attributes');
 
-        # WP-355 / WP-315: Re-inject any <style> blocks lost during processing.
+        # / Re-inject any <style> blocks lost during processing.
         $result_html = $this->otto_guard_html($this->restore_lost_style_blocks($result_html, $original_style_blocks), $result_html, 'restore_lost_style_blocks');
 
-        # WP-315: Fix Divi 5 shortcode framework class renumbering (HTTP path)
+        # Fix Divi 5 shortcode framework class renumbering (HTTP path)
         $result_html = $this->otto_guard_html($this->fix_divi_class_renumbering($result_html), $result_html, 'fix_divi_class_renumbering');
 
-        # WP-315: Clean OTTO internal fetch params from HTML output.
+        # Clean OTTO internal fetch params from HTML output.
         # The HTTP render uses wp_remote_get with ?is_otto_page_fetch=1&otto_block_title=1&otto_block_desc=1
         # These leak into form action URLs, canonical links, etc. in the rendered HTML.
         $result_html = $this->otto_guard_html($this->clean_otto_fetch_params($result_html), $result_html, 'clean_otto_fetch_params');
 
-        # WP-465: Remove any lazy-video facade <style> hoisted into the page
+        # Remove any lazy-video facade <style> hoisted into the page
         # (runs while srcdoc is still tokenized, so the iframe's own copy is safe).
         $result_html = $this->otto_guard_html($this->strip_hoisted_facade_styles($result_html), $result_html, 'strip_hoisted_facade_styles');
 
-        # WP-465: Restore the original encoded srcdoc values (undo tokenization).
+        # Restore the original encoded srcdoc values (undo tokenization).
         $result_html = $this->otto_guard_html($this->restore_srcdoc_attributes($result_html, $srcdoc_store), $result_html, 'restore_srcdoc_attributes');
 
-        # WP-465: Keep <meta charset> within the first 1024 bytes so external CSS
+        # Keep <meta charset> within the first 1024 bytes so external CSS
         # (e.g. checkmark content:"✓") doesn't mojibake on cached responses.
         $result_html = $this->otto_guard_html($this->ensure_early_charset_meta($result_html), $result_html, 'ensure_early_charset_meta');
 
-        # WP-471: undo double-encoded numeric/hex character references produced by the
+        # undo double-encoded numeric/hex character references produced by the
         # bundled simplehtmldom serializer from attributes like data-x-icon-s="&#xf3c5".
         $result_html = $this->otto_guard_html($this->repair_double_encoded_entities($result_html), $result_html, 'repair_double_encoded_entities');
 
-        # WP-465: Remove any lazy-video facade <style> hoisted into the page
+        # Remove any lazy-video facade <style> hoisted into the page
         # (runs while srcdoc is still tokenized, so the iframe's own copy is safe).
         $result_html = $this->strip_hoisted_facade_styles($result_html);
 
-        # WP-465: Restore the original encoded srcdoc values (undo tokenization).
+        # Restore the original encoded srcdoc values (undo tokenization).
         $result_html = $this->restore_srcdoc_attributes($result_html, $srcdoc_store);
 
-        # WP-465: Keep <meta charset> within the first 1024 bytes so external CSS
+        # Keep <meta charset> within the first 1024 bytes so external CSS
         # (e.g. checkmark content:"✓") doesn't mojibake on cached responses.
         $result_html = $this->ensure_early_charset_meta($result_html);
 
-        # WP-471: undo double-encoded numeric/hex character references produced by the
+        # undo double-encoded numeric/hex character references produced by the
         # bundled simplehtmldom serializer from attributes like data-x-icon-s="&#xf3c5".
         $result_html = $this->repair_double_encoded_entities($result_html);
 
@@ -978,7 +984,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * WP-471: Repair double-encoded character references in serialized HTML.
+     * Repair double-encoded character references in serialized HTML.
      *
      * The bundled simplehtmldom serializer (HtmlNode::makeup(), reached via
      * $this->dom->save() and $root->outertext) runs every attribute value through
@@ -1104,7 +1110,7 @@ Class Metasync_otto_html{
             return;
         }
 
-        # WP-425: index suggestions by URL path as well, so images authored with
+        # index suggestions by URL path as well, so images authored with
         # relative srcs still match OTTO's absolute-URL keys (and vice versa).
         $alt_lookup = $this->build_image_alt_lookup($image_data);
 
@@ -1145,7 +1151,7 @@ Class Metasync_otto_html{
         }
     }
 
-    # WP-425: memoized site host — home_url() runs its filter chain on every
+    # memoized site host — home_url() runs its filter chain on every
     # call and these helpers run per suggestion and per img.
     private ?string $site_host_cache = null;
 
@@ -1163,7 +1169,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * WP-425: Candidate lookup keys for an image URL — the URL itself plus,
+     * Candidate lookup keys for an image URL — the URL itself plus,
      * for relative URLs or absolute/protocol-relative URLs on this site's
      * host, the bare URL path. URLs on a different host only ever match
      * exactly, so a same path on a foreign host cannot produce a false match.
@@ -1193,7 +1199,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * WP-425: Build the image alt lookup keyed by every URL variant of each
+     * Build the image alt lookup keyed by every URL variant of each
      * OTTO suggestion, so relative img srcs match absolute suggestion URLs.
      *
      * @param array $image_data OTTO body_substitutions.images map (url => alt)
@@ -1217,7 +1223,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * WP-425: Resolve the OTTO alt text for an img src, trying the exact src
+     * Resolve the OTTO alt text for an img src, trying the exact src
      * first and then its same-host path variant.
      *
      * @param array  $lookup Expanded lookup from build_image_alt_lookup()
@@ -1282,7 +1288,7 @@ Class Metasync_otto_html{
      * Known limitation (pre-existing): the `<img[^>]*src=` pattern can match a
      * `data-src`/`data-lazy-src` attribute that ends with the target URL before
      * the real `src`, mis-attributing the alt on lazy-loaded markup. Tracked as
-     * a follow-up to WP-425.
+     * a follow-up to.
      *
      * @param string $html The HTML to process
      * @param array  $replacement_data The replacement data containing body_substitutions.images
@@ -1294,7 +1300,7 @@ Class Metasync_otto_html{
         }
 
         foreach ($replacement_data['body_substitutions']['images'] as $image_url => $alt_text) {
-            # WP-425: prefilter and match on the same-host path variant too, so
+            # prefilter and match on the same-host path variant too, so
             # relative img srcs match OTTO's absolute suggestion URLs.
             $src_pattern = $this->get_image_src_pattern($image_url);
 
@@ -1351,7 +1357,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * WP-425: Build the src match for an OTTO image suggestion URL.
+     * Build the src match for an OTTO image suggestion URL.
      *
      * For relative URLs or absolute/protocol-relative URLs on this site's
      * host, the regex matches the URL path with an optional scheme+host
@@ -1671,19 +1677,17 @@ Class Metasync_otto_html{
             # handle canonical links
             if($data['type'] == 'link' && $data['rel'] === 'canonical'){
 
-                # Protect manually-set canonical from OTTO override
+                # Protect manually-set canonical from OTTO override.
+                # Validated: a legacy row corrupted to "Array" must not
+                # count as a manual canonical and block OTTO's correct value.
                 if (function_exists('is_singular') && is_singular()) {
                     $post_id = get_the_ID();
                     if ($post_id) {
-                        $custom_canonical = get_post_meta($post_id, '_metasync_canonical_url', true);
-                        if (empty($custom_canonical)) {
-                            $custom_canonical = get_post_meta($post_id, 'meta_canonical', true);
-                            // Handle legacy array values
-                            if (is_array($custom_canonical)) {
-                                $custom_canonical = reset($custom_canonical) ?: '';
-                            }
+                        $custom_canonical = Metasync_Canonical_Sanitizer::sanitize(get_post_meta($post_id, '_metasync_canonical_url', true));
+                        if ($custom_canonical === '') {
+                            $custom_canonical = Metasync_Canonical_Sanitizer::sanitize(get_post_meta($post_id, 'meta_canonical', true));
                         }
-                        if (!empty($custom_canonical)) {
+                        if ($custom_canonical !== '') {
                             # Manual canonical takes priority — skip OTTO override
                             continue;
                         }
@@ -1693,9 +1697,13 @@ Class Metasync_otto_html{
                 # find the cannonical dom element
                 $link = $this->dom->find('link[rel="canonical"]', 0);
 
-                # set the link property if not empty
+                # set the link property if not empty — only to a validated URL
+                # never inject a corrupted/non-URL suggestion.
                 if(!empty($link->href)){
-                    $link->href = $data['recommended_value'] ?? $link->href;
+                    $otto_canonical = Metasync_Canonical_Sanitizer::sanitize($data['recommended_value'] ?? '');
+                    if ($otto_canonical !== '') {
+                        $link->href = $otto_canonical;
+                    }
                 }
 
                 #
@@ -2067,7 +2075,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * WP-550: Deduplicate <meta name="description"> tags after OTTO processing.
+     * Deduplicate <meta name="description"> tags after OTTO processing.
      *
      * Unlike title, og, twitter, and canonical tags, the plain name="description"
      * tag had NO dedup pass, so a page could end up with 2-3 copies when several
@@ -2446,7 +2454,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * WP-488: Explicitly free the SimpleHtmlDom node tree and reclaim memory.
+     * Explicitly free the SimpleHtmlDom node tree and reclaim memory.
      *
      * SimpleHtmlDom nodes hold circular parent/child references, so simply
      * dropping the document does not free the tree until request shutdown.
@@ -2496,7 +2504,7 @@ Class Metasync_otto_html{
                 return false;
             }
 
-            # WP-488: Skip DOM processing on oversized documents to avoid fatal OOM.
+            # Skip DOM processing on oversized documents to avoid fatal OOM.
             # Returning false makes the buffer callback serve the original HTML
             # unmodified — the page still renders, just without OTTO changes.
             if (class_exists('Metasync_Otto_Render_Strategy')
@@ -2509,10 +2517,10 @@ Class Metasync_otto_html{
             # Remove XML declaration if present
             $html = preg_replace('/<\?xml[^?]*\?>\s*/i', '', $html);
 
-            # WP-355 / WP-315: Save ALL original <style> blocks before DOM processing.
+            # / Save ALL original <style> blocks before DOM processing.
             $original_style_blocks = $this->capture_style_blocks($html);
 
-            # WP-465: Shield entity-encoded srcdoc values (lazy YouTube/video facades)
+            # Shield entity-encoded srcdoc values (lazy YouTube/video facades)
             # so SimpleHtmlDom can't decode them and hoist their global <style> into <head>.
             $srcdoc_store = array();
             $html = $this->protect_srcdoc_attributes($html, $srcdoc_store);
@@ -2520,7 +2528,7 @@ Class Metasync_otto_html{
             # Escape bare < in text content before DOM parsing
             $html = $this->sanitize_text_less_than($html);
 
-            # WP-355: Fix malformed self-closing non-void tags (e.g. <ul/ class="...">)
+            # Fix malformed self-closing non-void tags (e.g. <ul/ class="...">)
             $html = $this->fix_malformed_self_closing_tags($html);
 
             # Load HTML into DOM
@@ -2834,7 +2842,7 @@ Class Metasync_otto_html{
                 );
             }
 
-            # WP-536: Apply OTTO's canonical via string replacement (DOM edit is clobbered by the insert_header_html head-freeze; see apply_canonical_via_string).
+            # Apply OTTO's canonical via string replacement (DOM edit is clobbered by the insert_header_html head-freeze; see apply_canonical_via_string).
             $result_html = $this->apply_canonical_via_string($result_html, $replacement_data);
 
             # DEDUPLICATION: Remove duplicate <title>, meta description, OG, Twitter tags, canonical, and JSON-LD schema
@@ -2848,7 +2856,7 @@ Class Metasync_otto_html{
             # This ensures memory is released immediately, especially important for high-traffic sites
             unset($final_meta_matches, $matches);
 
-            # WP-488: Explicitly free the SimpleHtmlDom node tree now that the
+            # Explicitly free the SimpleHtmlDom node tree now that the
             # result has been serialized to a string. The bundled HtmlDocument has
             # no clear() method, so the previous method_exists() guard was a no-op
             # and the (circular-referenced) node tree lingered until object
@@ -2865,10 +2873,10 @@ Class Metasync_otto_html{
 
             $result_html = $this->otto_guard_html($this->restore_case_sensitive_attributes($result_html), $result_html, 'restore_case_sensitive_attributes');
 
-            # WP-355 / WP-315: Re-inject any <style> blocks lost during processing.
+            # / Re-inject any <style> blocks lost during processing.
             $result_html = $this->otto_guard_html($this->restore_lost_style_blocks($result_html, $original_style_blocks), $result_html, 'restore_lost_style_blocks');
 
-            # WP-480: Do NOT renumber Divi classes on the buffer/in-place path.
+            # Do NOT renumber Divi classes on the buffer/in-place path.
             # fix_divi_class_renumbering() exists to undo the index offset that
             # Divi's shortcode framework introduces ONLY during the internal
             # wp_remote_get fetch (handle_route_html), where the Theme Builder
@@ -2880,36 +2888,36 @@ Class Metasync_otto_html{
             # number and collapsing layouts (Divi hero/slider) on Divi sites.
             # The renumber stays only on the HTTP-fetch path (handle_route_html).
 
-            # WP-315: Clean OTTO internal fetch params from HTML output
+            # Clean OTTO internal fetch params from HTML output
             $result_html = $this->otto_guard_html($this->clean_otto_fetch_params($result_html), $result_html, 'clean_otto_fetch_params');
 
-            # WP-465: Remove any lazy-video facade <style> hoisted into the page
+            # Remove any lazy-video facade <style> hoisted into the page
             # (runs while srcdoc is still tokenized, so the iframe's own copy is safe).
             $result_html = $this->otto_guard_html($this->strip_hoisted_facade_styles($result_html), $result_html, 'strip_hoisted_facade_styles');
 
-            # WP-465: Restore the original encoded srcdoc values (undo tokenization).
+            # Restore the original encoded srcdoc values (undo tokenization).
             $result_html = $this->otto_guard_html($this->restore_srcdoc_attributes($result_html, $srcdoc_store), $result_html, 'restore_srcdoc_attributes');
 
-            # WP-465: Keep <meta charset> within the first 1024 bytes so external CSS
+            # Keep <meta charset> within the first 1024 bytes so external CSS
             # (e.g. checkmark content:"✓") doesn't mojibake on cached responses.
             $result_html = $this->otto_guard_html($this->ensure_early_charset_meta($result_html), $result_html, 'ensure_early_charset_meta');
 
-            # WP-471: undo double-encoded numeric/hex character references produced by the
+            # undo double-encoded numeric/hex character references produced by the
             # bundled simplehtmldom serializer from attributes like data-x-icon-s="&#xf3c5".
             $result_html = $this->otto_guard_html($this->repair_double_encoded_entities($result_html), $result_html, 'repair_double_encoded_entities');
 
-            # WP-465: Remove any lazy-video facade <style> hoisted into the page
+            # Remove any lazy-video facade <style> hoisted into the page
             # (runs while srcdoc is still tokenized, so the iframe's own copy is safe).
             $result_html = $this->strip_hoisted_facade_styles($result_html);
 
-            # WP-465: Restore the original encoded srcdoc values (undo tokenization).
+            # Restore the original encoded srcdoc values (undo tokenization).
             $result_html = $this->restore_srcdoc_attributes($result_html, $srcdoc_store);
 
-            # WP-465: Keep <meta charset> within the first 1024 bytes so external CSS
+            # Keep <meta charset> within the first 1024 bytes so external CSS
             # (e.g. checkmark content:"✓") doesn't mojibake on cached responses.
             $result_html = $this->ensure_early_charset_meta($result_html);
 
-            # WP-471: undo double-encoded numeric/hex character references produced by the
+            # undo double-encoded numeric/hex character references produced by the
             # bundled simplehtmldom serializer from attributes like data-x-icon-s="&#xf3c5".
             $result_html = $this->repair_double_encoded_entities($result_html);
 
@@ -2990,7 +2998,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * Clean OTTO internal fetch query parameters from rendered HTML (WP-315).
+     * Clean OTTO internal fetch query parameters from rendered HTML.
      *
      * @param string $html The rendered HTML
      * @return string HTML with OTTO fetch params removed
@@ -3006,7 +3014,7 @@ Class Metasync_otto_html{
         ];
         $html = preg_replace($patterns, '', $html);
 
-        # WP-398: Protect <script>/<style> bodies before the URL cleanup below.
+        # Protect <script>/<style> bodies before the URL cleanup below.
         # The href/src/action matcher can otherwise match JS that looks like an
         # attribute (e.g. location.href="/x??y", el.src="a??b") and collapse the
         # ?? inside it. Swap each block for a placeholder comment, run the cleanup,
@@ -3022,7 +3030,7 @@ Class Metasync_otto_html{
             $html
         );
 
-        # WP-398: Normalize leftover query-string separators (?? / ?& / ?#) created
+        # Normalize leftover query-string separators (?? / ?& / ?#) created
         # by the param removal above — but ONLY inside URL attributes (href/src/action).
         # The previous implementation ran str_replace('??','?') over the ENTIRE document,
         # which corrupted inline JavaScript nullish operators (?? / ??=) and any literal
@@ -3045,7 +3053,7 @@ Class Metasync_otto_html{
     }
 
     /**
-     * Fix Divi 5 shortcode framework class renumbering (WP-315)
+     * Fix Divi 5 shortcode framework class renumbering
      *
      * When Divi 5's shortcode framework loads during the internal HTTP fetch,
      * it uses shared counters across all template parts (header + page + footer),
@@ -3087,7 +3095,7 @@ Class Metasync_otto_html{
         # shifts their numbering (et_pb_blog_0 → et_pb_blog_1) because the internal
         # wp_remote_get includes the Theme Builder header template in Divi's counter.
         # If the blog module class doesn't match between page 1 (OTTO-processed) and
-        # page 2 (AJAX, no OTTO), Divi's pagination JS can't find the container → empty results (WP-315).
+        # page 2 (AJAX, no OTTO), Divi's pagination JS can't find the container → empty results.
         $types = [
             'section', 'row', 'column', 'text', 'blurb', 'toggle',
             'button', 'image', 'group_carousel',
@@ -3104,7 +3112,7 @@ Class Metasync_otto_html{
         # et_pb_column_4_4 → et_pb_column_0_4) strips the column's width rule from
         # Divi's static stylesheet (.et_pb_column_4_4{width:100%}) and collapses the
         # layout. Bare instance indices (et_pb_column_16, followed by space/quote)
-        # still match and renumber as intended (WP-470 / WP-315).
+        # still match and renumber as intended.
         $instance_lookahead = '(?!_(?:tb_|\d))';
 
         foreach ($types as $type) {

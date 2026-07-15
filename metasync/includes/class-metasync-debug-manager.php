@@ -646,7 +646,7 @@ class Metasync_Debug_Manager
                 <div class="metasync-copy-wrap"><pre class="metasync-copy-snippet" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--dashboard-border); padding: 10px; border-radius: 4px; color: var(--dashboard-text-primary);">define('WP_DEBUG', true);
 define('WP_DEBUG_LOG', true);
 define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</span></div>
-                <?php /* WP-492: click-to-copy for the wp-config snippet above */ ?>
+                <?php /* click-to-copy for the wp-config snippet above */ ?>
                 <style>
                 .metasync-copy-wrap { position: relative; }
                 .metasync-copy-snippet { cursor: pointer; outline: 1px solid transparent; transition: outline-color .15s ease; }

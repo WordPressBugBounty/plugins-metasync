@@ -201,7 +201,7 @@ class Metasync_Admin
         $this->menu_title = $this->get_effective_menu_title();      
         $raw_slug = isset($data['white_label_plugin_menu_slug']) ? $data['white_label_plugin_menu_slug'] : '';
         $clean_slug = sanitize_title($raw_slug);
-        # Self-heal a legacy URL-shaped slug (WP-413): persist the sanitized value so every
+        # Self-heal a legacy URL-shaped slug: persist the sanitized value so every
         # reader that builds admin links from the stored option gets a valid WP menu slug.
         if ($raw_slug !== '' && $clean_slug !== $raw_slug) {
             $options = Metasync::get_option();
@@ -468,7 +468,7 @@ class Metasync_Admin
         $data= Metasync::get_option('general');
 
         # Get white label menu slug
-        # Sanitize so a URL-shaped legacy value still yields a valid WP menu slug (WP-413)
+        # Sanitize so a URL-shaped legacy value still yields a valid WP menu slug
         $menu_slug = empty($data['white_label_plugin_menu_slug']) ?  self::$page_slug : sanitize_title($data['white_label_plugin_menu_slug']);
         $menu_slug = $menu_slug === '' ? self::$page_slug : $menu_slug;
         
@@ -499,7 +499,7 @@ class Metasync_Admin
              * WP prints admin notices at the top of #wpbody-content, then core's
              * common.js relocates them next to .wp-header-end inside our wrap on
              * DOM-ready. Keep them out of the flow until that move so they don't
-             * flash above the dashboard header and shove the page down (WP-496).
+             * flash above the dashboard header and shove the page down.
              * Once relocated they're no longer a direct child here, so this rule
              * stops matching and they fade in with the wrap. We mirror core's
              * relocation set exactly (.notice/.updated/.error, minus .inline and
@@ -3305,7 +3305,7 @@ class Metasync_Admin
                 if ($deleted) {
                     // Disable auto-update only when the general sitemap is removed
                     update_option('metasync_sitemap_auto_update', false);
-                    // Re-enable WP core sitemap only if no other MetaSync sitemaps remain (WP-396)
+                    // Re-enable WP core sitemap only if no other MetaSync sitemaps remain
                     if (!$sitemap_generator->sitemap_exists()) {
                         delete_option('metasync_disable_wp_sitemap');
                     }
@@ -3336,7 +3336,7 @@ class Metasync_Admin
                 if ($deleted) {
                     // Also disable auto-update when deleting
                     update_option('metasync_sitemap_auto_update', false);
-                    // Re-enable WP core sitemap so the site isn't left with zero sitemaps (WP-396)
+                    // Re-enable WP core sitemap so the site isn't left with zero sitemaps
                     delete_option('metasync_disable_wp_sitemap');
                     echo '<div class="notice notice-success"><p>' . esc_html__('All sitemaps deleted successfully!', 'metasync') . '</p></div>';
                 } else {
@@ -6135,7 +6135,7 @@ class Metasync_Admin
         // Don't show the "HTML-to-Builder converter" banner on LPS-synced / custom-HTML
         // pages: those are raw-HTML store-and-serve pages, NOT actually converted to a
         // page builder, so the banner mislabels them. It still shows for pages genuinely
-        // produced by the converter. (WP-486)
+        // produced by the converter.
         if (function_exists('metasync_is_custom_or_lps_page') && metasync_is_custom_or_lps_page($post->ID)) {
             return;
         }

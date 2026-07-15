@@ -70,7 +70,7 @@ class MCP_Tool_Audit_Alt_Text extends MCP_Tool_Base {
 
         // Query arguments. Disable term-cache priming and found-rows calculation
         // for the page query — neither is used here, and skipping them keeps peak
-        // memory bounded on media-heavy sites (WP-489).
+        // memory bounded on media-heavy sites.
         $query_args = [
             'post_type' => 'attachment',
             'post_status' => 'inherit',
@@ -136,7 +136,7 @@ class MCP_Tool_Audit_Alt_Text extends MCP_Tool_Base {
         // Get total count cheaply. posts_per_page=1 with no_found_rows=false still
         // computes found_posts via SQL_CALC_FOUND_ROWS but only hydrates a single
         // row — unlike posts_per_page=-1, which loaded every attachment ID into
-        // memory and was a primary OOM source on large media libraries (WP-489).
+        // memory and was a primary OOM source on large media libraries.
         $total_query = new WP_Query([
             'post_type' => 'attachment',
             'post_status' => 'inherit',
@@ -152,7 +152,7 @@ class MCP_Tool_Audit_Alt_Text extends MCP_Tool_Base {
 
         $images_analyzed = count($query->posts);
 
-        // Release the page query (post objects) before building the response (WP-489).
+        // Release the page query (post objects) before building the response.
         unset($query);
 
         return $this->success([
