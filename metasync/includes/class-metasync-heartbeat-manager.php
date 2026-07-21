@@ -49,7 +49,10 @@ class Metasync_Heartbeat_Manager
             $general_settings = Metasync::get_option('general') ?? [];
         }
 
-        $searchatlas_api_key = $general_settings['searchatlas_api_key'] ?? '';
+        $searchatlas_api_key = Metasync::get_searchatlas_api_key();
+        if ($searchatlas_api_key === false) {
+            $searchatlas_api_key = '';
+        }
 
         if (empty($searchatlas_api_key)) {
             return false;
@@ -643,7 +646,10 @@ class Metasync_Heartbeat_Manager
 
     private function test_heartbeat_api_connection($general_settings)
     {
-        $searchatlas_api_key = $general_settings['searchatlas_api_key'] ?? '';
+        $searchatlas_api_key = Metasync::get_searchatlas_api_key();
+        if ($searchatlas_api_key === false) {
+            $searchatlas_api_key = '';
+        }
         $apikey = $general_settings['apikey'] ?? '';
 
         $start_time = microtime(true);
@@ -715,7 +721,10 @@ class Metasync_Heartbeat_Manager
      * @return string|null Heartbeat URL or null if not determinable.
      */
     private function get_heartbeat_api_url_for_backoff_check($general_settings) {
-        $api_key = $general_settings['searchatlas_api_key'] ?? '';
+        $api_key = Metasync::get_searchatlas_api_key();
+        if ($api_key === false) {
+            $api_key = '';
+        }
         if (empty($api_key)) {
             return null;
         }
@@ -756,8 +765,10 @@ class Metasync_Heartbeat_Manager
     {
         $default = ['connected' => false, 'otto_pixel_uuid' => null];
 
-        $general = Metasync::get_option('general') ?? [];
-        $searchatlas_api_key = $general['searchatlas_api_key'] ?? '';
+        $searchatlas_api_key = Metasync::get_searchatlas_api_key();
+        if ($searchatlas_api_key === false) {
+            $searchatlas_api_key = '';
+        }
 
         if ( $api_key_override !== null && $api_key_override !== '' ) {
             $searchatlas_api_key = $api_key_override;
@@ -864,7 +875,10 @@ class Metasync_Heartbeat_Manager
     {
         $general_settings = Metasync::get_option('general') ?? [];
 
-        $searchatlas_api_key = $general_settings['searchatlas_api_key'] ?? '';
+        $searchatlas_api_key = Metasync::get_searchatlas_api_key();
+        if ($searchatlas_api_key === false) {
+            $searchatlas_api_key = '';
+        }
 
         if (empty($searchatlas_api_key)) {
             $cache_data = array(
@@ -951,7 +965,10 @@ class Metasync_Heartbeat_Manager
     public function get_heartbeat_state()
     {
         $general = Metasync::get_option('general') ?? [];
-        $api_key = $general['searchatlas_api_key'] ?? '';
+        $api_key = Metasync::get_searchatlas_api_key();
+        if ($api_key === false) {
+            $api_key = '';
+        }
         if (empty($api_key)) {
             return 'UNREGISTERED';
         }
@@ -1037,7 +1054,11 @@ class Metasync_Heartbeat_Manager
     public function execute_announce_cron()
     {
         $general = Metasync::get_option('general') ?? [];
-        if (!empty($general['searchatlas_api_key'] ?? '')) {
+        $announce_api_key = Metasync::get_searchatlas_api_key();
+        if ($announce_api_key === false) {
+            $announce_api_key = '';
+        }
+        if (!empty($announce_api_key)) {
             $this->unschedule_announce_cron();
             return;
         }
@@ -1156,7 +1177,10 @@ class Metasync_Heartbeat_Manager
         $last_immediate_check = $current_time;
 
         $general_settings = Metasync::get_option('general') ?? [];
-        $searchatlas_api_key = $general_settings['searchatlas_api_key'] ?? '';
+        $searchatlas_api_key = Metasync::get_searchatlas_api_key();
+        if ($searchatlas_api_key === false) {
+            $searchatlas_api_key = '';
+        }
 
         if (empty($searchatlas_api_key)) {
             delete_transient('metasync_heartbeat_status_cache');

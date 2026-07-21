@@ -185,7 +185,7 @@ class Metasync_Access_Control_UI {
         $features = Metasync_Access_Control::get_features();
         ?>
         <div class="metasync-access-control-section">
-            <h2>Advanced Access Control</h2>
+            <h2>Advanced Access Control<?php Metasync::render_tooltip_icon('access_control_table', 'Choose which WordPress user roles can see this plugin, its settings, and its Advanced tab. Restrict this if you don\'t want all admins changing SEO settings.'); ?></h2>
             <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">
                 Control who can access each feature. You can restrict access by user role or specific users.
             </p>

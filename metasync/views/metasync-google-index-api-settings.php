@@ -56,6 +56,7 @@ if (!defined('ABSPATH')) {
         <tr>
             <th scope="row" style="width: 200px;">
                 <label for="google_index_service_account_json">Service Account JSON</label>
+                <?php Metasync::render_tooltip_icon('google_index_service_account_json', 'Paste the private key file from a Google Cloud service account added to your Search Console property. This lets the plugin ask Google to crawl your pages. Treat it like a password — it\'s stored on your server and never shared.'); ?>
             </th>
             <td>
                 <textarea name="google_index_service_account_json" 
@@ -108,7 +109,7 @@ if (!defined('ABSPATH')) {
                     style="margin-left: 10px;">
                 <span class="dashicons dashicons-trash" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Clear Configuration
             </button>
-            
+
             <div id="google-index-test-results" style="margin-top: 15px;"></div>
         </div>
     <?php endif; ?>

@@ -3883,7 +3883,8 @@ class Metasync_Rest_Api
             }
             // Only update the API key in settings if status_code is 200 (success)
             if ($status_code === 200) {
-                $options['general']['searchatlas_api_key'] = $new_api_key;
+                // Encrypt the API key at rest; never store it in cleartext.
+                $options['general']['searchatlas_api_key'] = Metasync::encrypt_api_key($new_api_key);
                 $options['general']['otto_pixel_uuid'] = $new_otto_uuid;
                 // Note: OTTO SSR is always enabled by default, no need to set
 
@@ -3951,6 +3952,7 @@ class Metasync_Rest_Api
             }
             
             $save_result = Metasync::set_option($options);
+            Metasync::invalidate_api_key_cache();
 
             if (!$save_result) {
                 error_log('MetaSync SA Connect: mark_searchatlas_nonce_used - Failed to save plugin options');
@@ -4208,11 +4210,8 @@ class Metasync_Rest_Api
 			), 400);
 		}
 
-		# Register the key for virtual serving via template_redirect.
-		# We deliberately do NOT write a physical {key}.txt: on nginx hosts that
-		# 403 direct static .txt access, an on-disk file is served statically and
-		# blocked before WordPress runs. Serving the key from PHP avoids that and
-		# also works on read-only web roots.
+		# Register the key for virtual serving via template_redirect as a
+		# FALLBACK for read-only web roots and hosts that 403 direct static .txt.
 		if (!class_exists('Metasync_Bing_Instant_Index')) {
 			$bing_file = plugin_dir_path(dirname(__FILE__)) . 'bing-index/class-metasync-bing-instant-index.php';
 			if (file_exists($bing_file)) {
@@ -4223,17 +4222,49 @@ class Metasync_Rest_Api
 			Metasync_Bing_Instant_Index::register_virtual_key($safe_key);
 		}
 
-		# Best-effort removal of any stale physical key file so the virtual route
-		# governs — this is what fixes installs previously broken by a host that
-		# 403s static .txt (the on-disk file shadows the PHP handler). Safe: the
-		# path was validated to stay within ABSPATH above.
-		if (file_exists($file_path)) {
-			@unlink($file_path);
+		# Decide how {key}.txt is served, then confirm it end-to-end.
+		#
+		# Two host families must both work:
+		#  - Static-serving hosts (e.g. cPanel Apache-behind-nginx): a missing .txt
+		#    is 404'd by the web server before WordPress runs, so ONLY a physical
+		#    file at the root is reachable.
+		#  - nginx hosts that 403 direct static .txt: a physical file is blocked AND
+		#    shadows the PHP route, so the key must be served virtually via
+		#    template_redirect (no physical file present).
+		#
+		# Strategy: write the physical file when the root is writable, then probe
+		# it. Keep it only on a clean 200-with-matching-body; on 403/404/wrong body
+		# delete it so it stops shadowing the virtual route and let WordPress serve
+		# the key from PHP instead.
+		$serving = 'virtual';
+
+		if (is_writable($wp_root) && @file_put_contents($file_path, $safe_key) !== false) {
+			# Cache-buster avoids a stale 404 cached by a CDN/nginx for this path.
+			$probe = wp_remote_get(
+				home_url('/' . $safe_key . '.txt?_msverify=' . time()),
+				array('timeout' => 10, 'sslverify' => false)
+			);
+			$code = is_wp_error($probe) ? 0 : (int) wp_remote_retrieve_response_code($probe);
+			$body = is_wp_error($probe) ? '' : trim((string) wp_remote_retrieve_body($probe));
+
+			if ($code === 200 && $body === $safe_key) {
+				$serving = 'physical';
+			} else {
+				# 403 / 404 / wrong body — a present file shadows the virtual route,
+				# so remove it and let WordPress serve the key instead.
+				@unlink($file_path);
+				$serving = 'virtual';
+			}
 		}
 
-		# 'physical' only if the file still exists (e.g. read-only root prevented
-		# removal); otherwise the key is served virtually by WordPress.
-		$serving = file_exists($file_path) ? 'physical' : 'virtual';
+		# Persist the winning strategy per key so activation stays deterministic
+		# and we can tell when a rotated key needs re-probing.
+		update_option('metasync_indexnow_serving', array(
+			'key'      => $safe_key,
+			'strategy' => $serving,
+			'ts'       => time(),
+		), false);
+
 
 		# Return success response
 		return new WP_REST_Response(array(

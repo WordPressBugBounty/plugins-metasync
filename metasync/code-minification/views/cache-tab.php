@@ -49,6 +49,7 @@ $cache_stats = Metasync_Minification_Cache::get_cache_stats();
                         <span class="dashicons dashicons-trash" style="margin-top: 4px;"></span>
                         <?php esc_html_e('Purge Minification Cache', 'metasync'); ?>
                     </button>
+                    <?php Metasync::render_tooltip_icon('code_min_purge_cache', 'Clears the minified CSS/JS cache so the next page load rebuilds it fresh. Safe to run anytime — it doesn\'t delete your settings.'); ?>
                     <span class="metasync-cache-purge-status" id="cache-purge-status"></span>
                 </div>
 

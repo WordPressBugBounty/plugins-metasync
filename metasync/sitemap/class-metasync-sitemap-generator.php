@@ -90,11 +90,30 @@ class Metasync_Sitemap_Generator
     /**
      * Whether MetaSync should own the XML sitemap URLs (/sitemap*.xml).
      *
+     * Instance wrapper around {@see is_feature_enabled()}; kept so existing
+     * callers (and tests) that hold a generator instance are unchanged.
+     *
+     * @return bool
+     */
+    public function is_sitemap_enabled()
+    {
+        return self::is_feature_enabled();
+    }
+
+    /**
+     * Side-effect-free, static form of the sitemap-feature gate.
+     *
      * MetaSync only intercepts and serves the sitemap URLs when its own sitemap
      * feature is actually in use. When it is not, the URLs are left untouched so
      * a third-party provider (RankMath, Yoast, AIOSEO, or WordPress core) can
      * serve them — this prevents MetaSync from silently shadowing another
      * sitemap plugin.
+     *
+     * This is exposed as a static so callers outside the generator — notably the
+     * robots.txt manager, which must not advertise a `Sitemap:` line when the
+     * feature is off — can consult the exact same gate without constructing a
+     * generator (whose constructor registers front-end hooks and would
+     * re-register them). Single source of truth.
      *
      * Resolution order:
      *   1. Explicit `metasync_sitemap_enabled` option when set to a real boolean.
@@ -109,7 +128,7 @@ class Metasync_Sitemap_Generator
      *
      * @return bool
      */
-    public function is_sitemap_enabled()
+    public static function is_feature_enabled()
     {
         // Only a value that parses to a real boolean counts as an explicit
         // choice; unset, '' or unparseable values fall through to auto-detect
@@ -130,7 +149,7 @@ class Metasync_Sitemap_Generator
                 || !empty(get_option('metasync_sitemap_files', []))
                 || (is_array($news_settings) && !empty($news_settings['enabled']))
                 || (is_array($video_settings) && !empty($video_settings['enabled']))
-                || $this->sitemap_exists();
+                || self::sitemap_index_exists();
         }
 
         /**
@@ -143,6 +162,36 @@ class Metasync_Sitemap_Generator
          * @param bool $enabled Whether MetaSync currently owns the sitemap URLs.
          */
         return (bool) apply_filters('metasync_sitemap_enabled', $enabled);
+    }
+
+    /**
+     * Static, side-effect-free check for the general sitemap index, mirroring
+     * the instance {@see sitemap_exists()} without touching $this so it can be
+     * used by {@see is_feature_enabled()} from a static context.
+     *
+     * @return bool
+     */
+    private static function sitemap_index_exists()
+    {
+        // Virtual content is the primary storage path (transient).
+        if (false !== get_transient('metasync_vsm_' . md5('sitemap_index.xml'))) {
+            return true;
+        }
+
+        // Legacy option storage (pre-transient installs), read-only — no migration
+        // side effects here.
+        $legacy_virtual = get_option('metasync_sitemap_virtual', []);
+        if (is_array($legacy_virtual) && isset($legacy_virtual['sitemap_index.xml'])) {
+            return true;
+        }
+
+        // Tracked sitemap files option (survives transient eviction).
+        if (!empty(get_option('metasync_sitemap_files', []))) {
+            return true;
+        }
+
+        // Legacy physical file for installs that haven't migrated yet.
+        return file_exists(ABSPATH . 'sitemap_index.xml');
     }
 
     /**

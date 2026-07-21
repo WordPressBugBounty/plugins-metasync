@@ -74,7 +74,7 @@ class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
                 }
             }
             return $this->success([
-                'settings' => $result,
+                'settings' => $this->mask_sensitive_values($result),
                 'count' => count($result)
             ]);
         }
@@ -98,14 +98,14 @@ class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
 
             return $this->success([
                 'section' => $section,
-                'settings' => $result,
+                'settings' => $this->mask_sensitive_values($result),
                 'count' => is_array($result) ? count($result) : 0
             ]);
         }
 
         // Return all settings
         return $this->success([
-            'settings' => $all_options,
+            'settings' => $this->mask_sensitive_values($all_options),
             'count' => count($all_options),
             'available_sections' => [
                 'general' => 'API keys, integration settings',
@@ -117,6 +117,36 @@ class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
                 'api' => 'API configuration and tokens'
             ]
         ]);
+    }
+
+    /**
+     * Recursively mask sensitive values before returning settings to a caller.
+     *
+     * The Search Atlas API key is stored encrypted at rest (enc_v1: ciphertext).
+     * Neither the ciphertext nor the decrypted plaintext may leave the server,
+     * so any 'searchatlas_api_key' entry is replaced with a masked display
+     * (8 bullets + last 4 chars of the real key), or '' when not configured.
+     *
+     * @param mixed $data
+     * @return mixed
+     */
+    private function mask_sensitive_values($data) {
+        if (!is_array($data)) {
+            return $data;
+        }
+        foreach ($data as $key => $value) {
+            if (is_array($value)) {
+                $data[$key] = $this->mask_sensitive_values($value);
+            } elseif ($key === 'searchatlas_api_key') {
+                $decrypted = Metasync::get_searchatlas_api_key();
+                if ($decrypted === false || $decrypted === '') {
+                    $data[$key] = '';
+                } else {
+                    $data[$key] = str_repeat('•', 8) . substr($decrypted, -4);
+                }
+            }
+        }
+        return $data;
     }
 
     /**
@@ -251,6 +281,20 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
         // Sanitize sensitive fields
         $new_options = $this->sanitize_settings($new_options);
 
+        // Encrypt the Search Atlas API key at rest if this update supplied a new
+        // value. It is persisted as enc_v1: ciphertext so the cleartext never
+        // lands in wp_options. Already-encrypted values pass through untouched.
+        if (isset($new_options['general']['searchatlas_api_key'])
+            && !Metasync::is_encrypted_api_key($new_options['general']['searchatlas_api_key'])) {
+            $new_options['general']['searchatlas_api_key'] =
+                Metasync::encrypt_api_key($new_options['general']['searchatlas_api_key']);
+        }
+        if (isset($new_options['searchatlas_api_key'])
+            && !Metasync::is_encrypted_api_key($new_options['searchatlas_api_key'])) {
+            $new_options['searchatlas_api_key'] =
+                Metasync::encrypt_api_key($new_options['searchatlas_api_key']);
+        }
+
         // The whitelabel settings password is encrypted at rest —
         // never persist a plaintext value. encrypt_secret() is a no-op on
         // values that are already encrypted.
@@ -267,6 +311,7 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
 
         // Clear any relevant caches
         wp_cache_delete(Metasync::option_name, 'options');
+        Metasync::invalidate_api_key_cache();
 
         return $this->success([
             'message' => 'Plugin settings updated successfully',

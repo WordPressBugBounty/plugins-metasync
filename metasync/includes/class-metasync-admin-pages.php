@@ -466,12 +466,13 @@ class Metasync_Admin_Pages
                     <div class="dashboard-card">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                             <div>
-                                <h2>White Label Branding</h2>
+                                <h2>White Label Branding<?php Metasync::render_tooltip_icon('wl_branding_section', 'Replace this plugin\'s name, logo, and links with your own so clients see your brand instead of Search Atlas. Set a password below to stop clients from changing it back.'); ?></h2>
                                 <p style="color: var(--dashboard-text-secondary); margin: 5px 0 0 0;">Customize the plugin appearance with your own branding and logo.</p>
                             </div>
                             <?php if ($password_protection_enabled && $is_authenticated): ?>
                             <div>
                                 <?php Metasync_Compatibility_Checker::instance()->render_lock_button('whitelabel'); ?>
+                                <?php Metasync::render_tooltip_icon('wl_lock_section', 'Re-lock this section now. You will need the password to open it again.'); ?>
                             </div>
                             <?php endif; ?>
                         </div>
@@ -494,7 +495,7 @@ class Metasync_Admin_Pages
                     <div class="dashboard-card" id="metasync-color-palette-section">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                             <div>
-                                <h2>Color Palette</h2>
+                                <h2>Color Palette<?php Metasync::render_tooltip_icon('wl_color_palette', 'These colors control this plugin\'s admin dashboard theme only. Changes apply immediately here and never affect what your site\'s visitors see on the frontend.'); ?></h2>
                                 <p style="color: var(--dashboard-text-secondary); margin: 5px 0 0 0;">Customize the plugin color scheme for both dark and light themes. Changes preview instantly.</p>
                             </div>
                         </div>
@@ -739,7 +740,7 @@ class Metasync_Admin_Pages
 
                     <!-- Export Whitelabel Settings section -->
                     <div class="dashboard-card">
-                        <h2>Export Whitelabel Plugin</h2>
+                        <h2>Export Whitelabel Plugin<?php Metasync::render_tooltip_icon('wl_export_plugin', 'Downloads a copy of this plugin with your branding already baked in, ready to upload and install on a client\'s site. All your white-label settings are applied automatically on activation.'); ?></h2>
                         <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Export the entire plugin with all whitelabel settings pre-configured. This creates a complete plugin zip file ready for installation on another WordPress site.</p>
                         <button type="button" class="button button-primary" id="metasync-export-whitelabel-btn" style="padding: 10px 20px; font-size: 14px; font-weight: 600;">
                             Export Plugin with Whitelabel Settings
@@ -1720,6 +1721,8 @@ echo $breadcrumbs-&gt;render_breadcrumb_html();</pre><span class="metasync-copy-
         ?>
             <form method="post" action="options.php">
                 <div class="dashboard-card">
+                    <h2>Schema Markup Settings</h2>
+                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure the site-wide Organization and WebSite structured data injected into every page.</p>
                     <?php
                     settings_fields(Metasync_Admin::option_group);
                     do_settings_sections($page_slug);
@@ -1739,7 +1742,7 @@ echo $breadcrumbs-&gt;render_breadcrumb_html();</pre><span class="metasync-copy-
             
             <form method="post" action="options.php">
                 <div class="dashboard-card">
-                    <h2>🏢 Local Business Configuration</h2>
+                    <h2>🏢 Local Business Configuration<?php Metasync::render_tooltip_icon('local_business_section', 'Fill in your business name, address, phone, hours, and category so search engines can show your business in local results and map listings. This generates LocalBusiness schema behind the scenes. Use your exact, consistent NAP (name/address/phone) details.'); ?></h2>
                     <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure your local business information for better local search engine optimization.</p>
                     <?php
         settings_fields(Metasync_Admin::option_group);

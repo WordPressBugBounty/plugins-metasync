@@ -10,7 +10,9 @@
     --dashboard-bg: #0f1419;
     --dashboard-card-bg: #1a1f26;
     --dashboard-card-hover: #222831;
+    --dashboard-input-bg: #22272e;
     --dashboard-text-primary: #ffffff;
+    --dashboard-text: #ffffff;
     --dashboard-text-secondary: #9ca3af;
     --dashboard-accent: #3b82f6;
     --dashboard-accent-hover: #2563eb;
@@ -29,7 +31,9 @@
     --dashboard-bg: #f8f9fa;
     --dashboard-card-bg: #ffffff;
     --dashboard-card-hover: #f1f3f5;
+    --dashboard-input-bg: #ffffff;
     --dashboard-text-primary: #1a1f26;
+    --dashboard-text: #1a1f26;
     --dashboard-text-secondary: #6b7280;
     --dashboard-accent: #3b82f6;
     --dashboard-accent-hover: #2563eb;

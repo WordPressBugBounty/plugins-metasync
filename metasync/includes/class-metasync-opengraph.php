@@ -32,6 +32,15 @@ class Metasync_OpenGraph {
     private $version;
 
     /**
+     * Most recently constructed instance, for cross-class reuse of the value
+     * resolvers (e.g. the OTTO buffer needs the same default OG values the meta
+     * box pre-fills, to tell an auto-filled default from a user-customized value).
+     *
+     * @var Metasync_OpenGraph|null
+     */
+    private static $instance;
+
+    /**
      * Meta box ID
      */
     const META_BOX_ID = 'metasync_opengraph_meta_box';
@@ -42,6 +51,39 @@ class Metasync_OpenGraph {
     public function __construct($plugin_name, $version) {
         $this->plugin_name = $plugin_name;
         $this->version = $version;
+        self::$instance = $this;
+    }
+
+    /**
+     * Get the most recently constructed instance (null if none yet).
+     *
+     * @return Metasync_OpenGraph|null
+     */
+    public static function get_instance() {
+        return self::$instance;
+    }
+
+    /**
+     * The default OG values the meta box pre-fills for a post: post title,
+     * generated excerpt, and featured image. Computed with the same helpers the
+     * meta box/emitter use, so a caller can compare a stored _metasync_og_* value
+     * against the default and tell whether the user genuinely customized it (the
+     * meta box persists these defaults on save, so a non-empty value alone does
+     * not prove user intent).
+     *
+     * @param int $post_id
+     * @return array{title:string,description:string,image:string}
+     */
+    public function get_default_og_values($post_id) {
+        $post = get_post($post_id);
+        if (!$post instanceof WP_Post) {
+            return ['title' => '', 'description' => '', 'image' => ''];
+        }
+        return [
+            'title'       => (string) $post->post_title,
+            'description' => (string) $this->get_post_excerpt($post),
+            'image'       => (string) $this->get_featured_image_url($post->ID),
+        ];
     }
 
     /**
@@ -113,12 +155,8 @@ class Metasync_OpenGraph {
         }
 
         # OTTO active with persisted OG data owns the page (legacy emitter suppresses too)
-        if (class_exists('Metasync_Otto_Config') && Metasync_Otto_Config::is_otto_enabled()) {
-            $otto_og_title = get_post_meta($post->ID, '_metasync_otto_og_title', true);
-            $otto_og_desc  = get_post_meta($post->ID, '_metasync_otto_og_description', true);
-            if (!empty($otto_og_title) || !empty($otto_og_desc)) {
-                return false;
-            }
+        if ($this->otto_owns_og($post->ID)) {
+            return false;
         }
 
         # Third-party SEO plugin active: yield entirely, legacy emitter keeps its original behavior
@@ -127,6 +165,27 @@ class Metasync_OpenGraph {
         }
 
         return true;
+    }
+
+    /**
+     * Whether OTTO owns this page's Open Graph / Twitter output.
+     *
+     * When OTTO is enabled and has persisted OG data for the post, OTTO's
+     * dynamically-injected tags (and the buffer-level dedup) take precedence, so
+     * the per-post OG meta box values are not emitted on the frontend. Shared by
+     * the frontend emitter (to suppress duplicate output) and the admin meta box
+     * (to warn the user their values won't apply on an OTTO-managed page).
+     *
+     * @param int $post_id
+     * @return bool
+     */
+    private function otto_owns_og($post_id) {
+        if (!class_exists('Metasync_Otto_Config') || !Metasync_Otto_Config::is_otto_enabled()) {
+            return false;
+        }
+        $otto_og_title = get_post_meta($post_id, '_metasync_otto_og_title', true);
+        $otto_og_desc  = get_post_meta($post_id, '_metasync_otto_og_description', true);
+        return !empty($otto_og_title) || !empty($otto_og_desc);
     }
 
     /**
@@ -247,6 +306,9 @@ class Metasync_OpenGraph {
         if (empty($twitter_image)) {
             $twitter_image = $og_image;
         }
+
+        # Whether OTTO is managing this page's OG output (values below won't apply on the frontend)
+        $otto_owns_og = $this->otto_owns_og($post->ID);
 
         # Include the meta box template
         include plugin_dir_path(__FILE__) . '../admin/partials/metasync-opengraph-meta-box.php';
@@ -452,16 +514,12 @@ class Metasync_OpenGraph {
             return;
         }
 
-        # When OTTO is active AND has OG data for this post, skip legacy OG output.
-        # For cases where OTTO's pixel injects OG tags dynamically (without
-        # persisting to _metasync_otto_og_* meta), the buffer-level dedup in
-        # Otto_html_class::deduplicate_og_twitter_tags() handles cleanup.
-        if (class_exists('Metasync_Otto_Config') && Metasync_Otto_Config::is_otto_enabled()) {
-            $otto_og_title = get_post_meta($post->ID, '_metasync_otto_og_title', true);
-            $otto_og_desc  = get_post_meta($post->ID, '_metasync_otto_og_description', true);
-            if (!empty($otto_og_title) || !empty($otto_og_desc)) {
-                return;
-            }
+        # When OTTO owns this page's OG (enabled + persisted OG data), skip legacy
+        # OG output. For cases where OTTO's pixel injects OG tags dynamically
+        # (without persisting to _metasync_otto_og_* meta), the buffer-level dedup
+        # in Otto_html_class::deduplicate_og_twitter_tags() handles cleanup.
+        if ($this->otto_owns_og($post->ID)) {
+            return;
         }
 
         # Check for conflicts with other SEO plugins (allow override via filter)

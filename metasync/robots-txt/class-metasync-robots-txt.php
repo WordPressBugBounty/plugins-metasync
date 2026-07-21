@@ -77,13 +77,56 @@ class Metasync_Robots_Txt
             if ($this->database->is_virtual_mode()) {
                 $virtual_content = $this->database->get_virtual_content();
                 if (false !== $virtual_content) {
-                    return $virtual_content;
+                    // A sitemap line MetaSync wrote during a previous generation
+                    // can linger in stored content after the sitemap is
+                    // disabled/deleted. Strip MetaSync's own sitemap URLs so we
+                    // don't advertise a URL that no longer serves valid XML.
+                    return $this->strip_disabled_sitemap_lines($virtual_content);
                 }
             }
         }
 
-        // Return default output (WordPress will handle it)
+        // Return default output (WordPress will handle it). Left untouched so
+        // any sitemap line contributed by another provider's robots_txt filter
+        // is preserved.
         return $output;
+    }
+
+    /**
+     * Remove MetaSync's own `Sitemap:` lines from robots.txt content when the
+     * XML sitemap feature is disabled.
+     *
+     * Only MetaSync's own sitemap URLs (sitemap_index.xml, sitemapN.xml,
+     * news-sitemap.xml, video-sitemap.xml) are removed, and only when the
+     * feature gate is off. When the feature is enabled the content is returned
+     * unchanged. This is applied solely to content MetaSync itself stored, so a
+     * hand-added third-party Sitemap line is never touched.
+     *
+     * @param string $content robots.txt content.
+     * @return string
+     */
+    private function strip_disabled_sitemap_lines($content)
+    {
+        if ('' === $content) {
+            return $content;
+        }
+
+        if ($this->sitemap_feature_enabled()) {
+            return $content;
+        }
+
+        // Match a Sitemap line pointing at one of MetaSync's own sitemap files.
+        $pattern = '#^[ \t]*Sitemap:[ \t]*\S*/(?:sitemap_index\.xml|sitemap\d*\.xml|news-sitemap\.xml|video-sitemap\.xml)[ \t]*\r?$#im';
+        $filtered = preg_replace($pattern, '', $content);
+
+        // Regex failure or nothing removed: return the original untouched.
+        if (null === $filtered || $filtered === $content) {
+            return $content;
+        }
+
+        // Collapse the blank line(s) left behind and normalise the trailing newline.
+        $filtered = preg_replace("/\n{3,}/", "\n\n", $filtered);
+        return rtrim($filtered) . "\n";
     }
 
     /**
@@ -277,11 +320,55 @@ class Metasync_Robots_Txt
     {
         $site_url = get_site_url();
 
-        return "User-agent: *\n" .
+        $content = "User-agent: *\n" .
                "Disallow: /wp-admin/\n" .
                "Allow: /wp-admin/admin-ajax.php\n" .
-               "Disallow: /wp-includes/\n\n" .
-               "Sitemap: {$site_url}/sitemap_index.xml";
+               "Disallow: /wp-includes/";
+
+        // Only advertise the MetaSync sitemap when its XML sitemap feature is
+        // actually enabled/generated. When it is off the URL does not serve
+        // valid XML (it 404s or returns an HTML page), so pointing crawlers at
+        // it is wrong.
+        if ($this->sitemap_feature_enabled()) {
+            $content .= "\n\nSitemap: {$site_url}/sitemap_index.xml";
+        }
+
+        return $content;
+    }
+
+    /**
+     * Whether the MetaSync XML sitemap feature is enabled/generated.
+     *
+     * The robots.txt `Sitemap:` line must only be advertised when the sitemap
+     * URL it points at actually serves valid XML. Delegates to the single
+     * sitemap-enabled gate, loaded on demand and called statically so no
+     * sitemap generator is constructed (its constructor registers front-end
+     * hooks).
+     *
+     * Fails open (returns true) only if the generator class is somehow
+     * unavailable, preserving prior behaviour rather than silently dropping a
+     * legitimate sitemap line.
+     *
+     * @return bool
+     */
+    private function sitemap_feature_enabled()
+    {
+        if (!class_exists('Metasync_Sitemap_Generator')) {
+            $generator_file = plugin_dir_path(dirname(__FILE__)) . 'sitemap/class-metasync-sitemap-generator.php';
+            if (file_exists($generator_file)) {
+                require_once $generator_file;
+            }
+        }
+
+        // Guards against a stale/partially-deployed sitemap generator class (e.g.
+        // an older cached copy already loaded earlier in the request) that
+        // predates is_feature_enabled(); PHPStan can't model that skew.
+        // @phpstan-ignore-next-line function.alreadyNarrowedType
+        if (method_exists('Metasync_Sitemap_Generator', 'is_feature_enabled')) {
+            return (bool) Metasync_Sitemap_Generator::is_feature_enabled();
+        }
+
+        return true;
     }
 
     /**

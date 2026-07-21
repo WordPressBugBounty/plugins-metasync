@@ -109,6 +109,7 @@ if (!defined('WPINC')) {
                     <span class="metasync-count-badge"><?php echo esc_html(number_format_i18n($stats['unoptimized'])); ?></span>
                 <?php endif; ?>
             </button>
+            <?php Metasync::render_tooltip_icon('media_optimize_all', "Converts every unoptimized image in the background. If your Conversion Strategy is set to 'Replace', this permanently overwrites all original files — check that setting first."); ?>
         </div>
         <div class="metasync-toolbar-right">
             <?php $list_table->search_box(__('Search', 'metasync'), 'metasync-image-search'); ?>

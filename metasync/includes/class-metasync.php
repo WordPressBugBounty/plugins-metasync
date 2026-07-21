@@ -94,6 +94,25 @@ class Metasync
 	public const DOCUMENTATION_DOMAIN = "https://help.searchatlas.com";
 
 	/**
+	 * Storage prefix marking a Search Atlas API key value as encrypted at rest.
+	 */
+	private const API_KEY_ENC_PREFIX = 'enc_v1:';
+
+	/**
+	 * Request-scoped memo for the decrypted Search Atlas API key.
+	 *
+	 * null   = not yet loaded this request
+	 * false  = load attempted but decryption failed (salts changed / corrupt)
+	 * string = decrypted plaintext (may be '')
+	 *
+	 * Never written to a transient or the DB — exists only for the lifetime
+	 * of the current request.
+	 *
+	 * @var string|false|null
+	 */
+	private static $memo_api_key = null;
+
+	/**
 	 * Define the core functionality of the plugin.
 	 *
 	 * Set the plugin name and the plugin version that can be used throughout the plugin.
@@ -694,8 +713,178 @@ class Metasync
 				);
 			}
 		}
-		
+
 		return $result;
+	}
+
+	/**
+	 * Derive the 32-byte AES key from existing WordPress salts.
+	 *
+	 * No new secret is stored anywhere — the key material is the concatenation
+	 * of three WordPress salts, hashed to a fixed 32 bytes. If the salts change
+	 * (e.g. wp-config regenerated) the derived key changes and previously
+	 * encrypted values can no longer be decrypted, which is handled gracefully
+	 * by the callers (re-authenticate state) rather than fataling.
+	 *
+	 * @return string 32 raw bytes.
+	 */
+	private static function api_key_crypto_key()
+	{
+		$material = wp_salt('secure_auth') . wp_salt('logged_in') . wp_salt('nonce');
+		return hash('sha256', $material, true);
+	}
+
+	/**
+	 * Determine whether a stored value is in the encrypted-at-rest format.
+	 *
+	 * @param mixed $value
+	 * @return bool
+	 */
+	public static function is_encrypted_api_key($value)
+	{
+		return is_string($value) && strncmp($value, self::API_KEY_ENC_PREFIX, strlen(self::API_KEY_ENC_PREFIX)) === 0;
+	}
+
+	/**
+	 * Encrypt a plaintext Search Atlas API key for storage at rest.
+	 *
+	 * Uses AES-256-GCM (authenticated) with a random 12-byte IV. The IV, the
+	 * 16-byte GCM tag and the ciphertext are concatenated and base64-encoded
+	 * behind an `enc_v1:` prefix. An empty string is stored as-is (no key set).
+	 *
+	 * When OpenSSL is unavailable or encryption fails the plaintext is stored
+	 * unchanged (availability over hard-fail) and the degradation is logged so
+	 * it cannot go unnoticed.
+	 *
+	 * @param string $plaintext
+	 * @return string Encrypted blob, or '' when $plaintext is empty.
+	 */
+	public static function encrypt_api_key($plaintext)
+	{
+		$plaintext = (string) $plaintext;
+		if ($plaintext === '') {
+			return '';
+		}
+
+		// Already encrypted — do not double-encrypt.
+		if (self::is_encrypted_api_key($plaintext)) {
+			return $plaintext;
+		}
+
+		if (!function_exists('openssl_encrypt')) {
+			// OpenSSL unavailable — store plaintext rather than lose the key.
+			error_log('MetaSync: OpenSSL is unavailable — the Search Atlas API key was stored WITHOUT encryption at rest.');
+			return $plaintext;
+		}
+
+		$key = self::api_key_crypto_key();
+		$iv  = random_bytes(12);
+		$tag = '';
+		$ciphertext = openssl_encrypt($plaintext, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag, '', 16);
+
+		if ($ciphertext === false) {
+			// Encryption failed — fall back to plaintext storage, but say so.
+			error_log('MetaSync: API key encryption failed — the Search Atlas API key was stored WITHOUT encryption at rest.');
+			return $plaintext;
+		}
+
+		return self::API_KEY_ENC_PREFIX . base64_encode($iv . $tag . $ciphertext);
+	}
+
+	/**
+	 * Decrypt a stored Search Atlas API key value.
+	 *
+	 * Accepts either the encrypted `enc_v1:` format or a legacy plaintext value
+	 * (returned unchanged, supporting installs that pre-date encryption). On any
+	 * decryption failure (salt change / corruption) returns false so callers can
+	 * surface a re-authenticate state instead of using a bad key.
+	 *
+	 * @param mixed $value
+	 * @return string|false Plaintext, or false when an encrypted value cannot be decrypted.
+	 */
+	public static function decrypt_api_key($value)
+	{
+		if (!is_string($value) || $value === '') {
+			return '';
+		}
+
+		if (!self::is_encrypted_api_key($value)) {
+			// Legacy plaintext key.
+			return $value;
+		}
+
+		if (!function_exists('openssl_decrypt')) {
+			return false;
+		}
+
+		$raw = base64_decode(substr($value, strlen(self::API_KEY_ENC_PREFIX)), true);
+		if ($raw === false || strlen($raw) < 12 + 16 + 1) {
+			return false;
+		}
+
+		$iv         = substr($raw, 0, 12);
+		$tag        = substr($raw, 12, 16);
+		$ciphertext = substr($raw, 28);
+
+		$key = self::api_key_crypto_key();
+		$plaintext = openssl_decrypt($ciphertext, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+
+		if ($plaintext === false) {
+			return false;
+		}
+
+		return $plaintext;
+	}
+
+	/**
+	 * Get the decrypted Search Atlas API key, memoized for the request.
+	 *
+	 * Decrypts at most once per request and never persists the decrypted value
+	 * anywhere. When a legacy plaintext key is found it is migrated to the
+	 * encrypted format in place (one-time migration on load). Returns:
+	 *   - the plaintext key (string, possibly '')
+	 *   - false when an encrypted value exists but cannot be decrypted
+	 *     (salts changed / corrupt) — callers should treat this as a
+	 *     "please re-authenticate" state.
+	 *
+	 * @return string|false
+	 */
+	public static function get_searchatlas_api_key()
+	{
+		if (self::$memo_api_key !== null) {
+			return self::$memo_api_key;
+		}
+
+		$general = self::get_option('general');
+		$stored  = is_array($general) ? ($general['searchatlas_api_key'] ?? '') : '';
+
+		// One-time migration: a non-empty legacy plaintext value is encrypted
+		// in place the first time it is read after this feature ships.
+		if ($stored !== '' && is_string($stored) && !self::is_encrypted_api_key($stored)) {
+			$encrypted = self::encrypt_api_key($stored);
+			if (self::is_encrypted_api_key($encrypted)) {
+				$options = self::get_option();
+				if (!is_array($options)) {
+					$options = [];
+				}
+				$options['general']['searchatlas_api_key'] = $encrypted;
+				self::set_option($options);
+			}
+		}
+
+		self::$memo_api_key = self::decrypt_api_key($stored);
+		return self::$memo_api_key;
+	}
+
+	/**
+	 * Clear the request-scoped decrypted-key memo.
+	 *
+	 * Call after any write that changes the stored searchatlas_api_key so a
+	 * subsequent read in the same request reflects the new value.
+	 */
+	public static function invalidate_api_key_cache()
+	{
+		self::$memo_api_key = null;
 	}
 
 	/**
@@ -1132,7 +1321,66 @@ class Metasync
 		// Priority 3: Return base_name as fallback
 		return $base_name;
 	}
-	
+
+	/**
+	 * Render a standalone info-icon tooltip (the same visual/JS pattern used by
+	 * get_field_tooltips() + render_accordion_sections() in Metasync_Settings_Fields).
+	 * Use this on any admin page whose fields are NOT rendered through that
+	 * accordion field-loop (custom render_callback pages, standalone view files) —
+	 * the trigger/hover/positioning JS in admin/js/metasync-admin.js binds to
+	 * `.metasync-tooltip-trigger` globally, so no extra wiring is needed as long
+	 * as this markup is present on a page where metasync-admin.js is enqueued
+	 * (i.e. any admin page under this plugin's menu).
+	 *
+	 * @param string $tooltip_id Unique id for this tooltip (unique per page).
+	 * @param string $text       Plain-English help text (escaped internally).
+	 */
+	public static function render_tooltip_icon($tooltip_id, $text)
+	{
+		echo self::get_tooltip_icon_html($tooltip_id, $text);
+	}
+
+	/**
+	 * Same tooltip markup as render_tooltip_icon(), but RETURNS the HTML string
+	 * instead of echoing it. Use this when the tooltip needs to be concatenated
+	 * into another string — e.g. appended to the $title argument of
+	 * add_settings_field(), which WordPress core echoes raw next to the label.
+	 *
+	 * The whole trigger+popup pair is wrapped in its own small
+	 * `position: relative` anchor span. The popup CSS (.metasync-tooltip) is
+	 * `position: absolute; left: 100%` and positions itself relative to the
+	 * nearest positioned ancestor — on the main settings accordion that's the
+	 * `.metasync-field-label-wrapper` div, but standalone pages (custom
+	 * render_callback templates, add_settings_field titles on plain
+	 * do_settings_sections() pages, etc.) usually have no such ancestor, so
+	 * the popup would escape to whatever distant positioned element exists
+	 * on the page (rendering in the wrong corner of the screen). Wrapping
+	 * here makes every tooltip self-contained regardless of where it's placed.
+	 *
+	 * @param string $tooltip_id Unique id for this tooltip (unique per page).
+	 * @param string $text       Plain-English help text (escaped internally).
+	 * @return string HTML markup for the info-icon trigger + tooltip content.
+	 */
+	public static function get_tooltip_icon_html($tooltip_id, $text)
+	{
+		$html  = '<span class="metasync-tooltip-anchor" style="position:relative;display:inline-block;vertical-align:middle;margin-left:8px;">';
+		$html .= '<button type="button" class="metasync-tooltip-trigger" data-tooltip-id="' . esc_attr($tooltip_id) . '" aria-label="More information">';
+		$html .= '<svg class="metasync-info-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
+		$html .= '<circle cx="12" cy="12" r="10"></circle>';
+		$html .= '<path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>';
+		$html .= '<line x1="12" y1="17" x2="12.01" y2="17"></line>';
+		$html .= '</svg>';
+		$html .= '</button>';
+
+		$html .= '<div class="metasync-tooltip" id="tooltip-' . esc_attr($tooltip_id) . '" role="tooltip">';
+		$html .= '<div class="metasync-tooltip-arrow"></div>';
+		$html .= '<div class="metasync-tooltip-content">' . esc_html($text) . '</div>';
+		$html .= '</div>';
+		$html .= '</span>';
+
+		return $html;
+	}
+
 	/**
 	 * Centralized API Key Event Logging
 	 * Provides structured logging for all API key related events with consistent formatting

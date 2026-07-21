@@ -50,6 +50,42 @@
 	}
 
 	/**
+	 * Whether a Search Atlas API key is currently configured.
+	 *
+	 * The key is no longer rendered into an editable input — it lives encrypted
+	 * server-side and is shown only as a masked, read-only display. Presence is
+	 * signalled by the data-has-key attribute on that display element, so the
+	 * cleartext key never needs to exist in the DOM for the UI to know it is set.
+	 *
+	 * @returns {boolean}
+	 */
+	function searchAtlasKeyConfigured() {
+		var $display = $('#searchatlas-api-key-display');
+		if ($display.length === 0) {
+			return false;
+		}
+		return $display.attr('data-has-key') === '1';
+	}
+
+	/**
+	 * Update the read-only masked API key display.
+	 *
+	 * @param {string} maskedKey Server-provided masked value (e.g. "••••••••ab12"),
+	 *                           or falsy to render the "Not configured" state.
+	 */
+	function setSearchAtlasMaskedDisplay(maskedKey) {
+		var $display = $('#searchatlas-api-key-display');
+		if ($display.length === 0) {
+			return;
+		}
+		if (maskedKey) {
+			$display.text(maskedKey).attr('data-has-key', '1');
+		} else {
+			$display.html('<em style="color:#646970;">Not configured</em>').attr('data-has-key', '0');
+		}
+	}
+
+	/**
 	 * Update integration status indicator in header
 	 * @param {boolean} isIntegrated - Whether the integration is active
 	 * @param {string} statusText - Status text to display
@@ -471,7 +507,7 @@
 	function resetConnectButton() {
 		var $button = $('#connect-searchatlas-btn');
 		var $progressContainer = $('.metasync-sa-connect-progress');
-		var hasApiKey = $('#searchatlas-api-key').val().trim() !== '';
+		var hasApiKey = searchAtlasKeyConfigured();
 		
 		$button.prop('disabled', false)
 			   .removeClass('connecting authenticating success dashboard-loading') // Remove all loading classes
@@ -570,7 +606,7 @@
 						// Handle different status codes with enhanced UX
 						if (statusCode === 200) {
 							// Success: Update all UI elements to reflect connected state
-							updateUIForConnectedState(response.data.api_key, response.data.otto_pixel_uuid);
+							updateUIForConnectedState(response.data.masked_key, response.data.otto_pixel_uuid);
 							
 							// Refresh Plugin Auth Token field to show the auto-generated token
 							// This will either show the existing token or the newly auto-generated one
@@ -603,7 +639,7 @@
 							}, 600);
 						
 							// Track 1-click activation in GA4
-							var hasExistingApiKey = $('#searchatlas-api-key').val() && $('#searchatlas-api-key').val().trim() !== '';
+							var hasExistingApiKey = searchAtlasKeyConfigured();
 							$.ajax({
 								url: metaSync.ajax_url,
 								type: 'POST',
@@ -1096,15 +1132,15 @@
 		// Add connection status indicator
 		function updateConnectionStatus() {
 			var $button = $('#connect-searchatlas-btn');
-			var $apiKeyField = $('#searchatlas-api-key');
-			
-			// Only update status if we're on a page with the API key field (General Settings)
+			var $apiKeyField = $('#searchatlas-api-key-display');
+
+			// Only update status if we're on a page with the API key display (General Settings)
 			// On other pages, preserve the PHP-determined status in the header
 			if ($apiKeyField.length === 0) {
-				return; // Don't update status on pages without the API key field
+				return; // Don't update status on pages without the API key display
 			}
-			
-			var hasApiKey = $apiKeyField.val() && $apiKeyField.val().trim() !== '';
+
+			var hasApiKey = searchAtlasKeyConfigured();
 			var hasOttoUuid = metaSync.otto_pixel_uuid && metaSync.otto_pixel_uuid.trim() !== '';
 			var isFullyConnected = hasApiKey && hasOttoUuid;
 			
@@ -1142,9 +1178,9 @@
 			}
 		}
 		
-		// Monitor API key field changes
-		$('#searchatlas-api-key').on('input', updateConnectionStatus);
-		
+		// The API key is no longer manually editable (one-click auth only), so there
+		// is no input event to monitor; status changes are driven by connect/disconnect.
+
 		// Initial status update
 		updateConnectionStatus();
 		
@@ -1155,11 +1191,10 @@
 		
 		// Add debug function for connection status (accessible in console)
 		window.debugConnectionStatus = function () {
-			var apiKey = $('#searchatlas-api-key').val();
-			var hasApiKey = apiKey.trim() !== '';
-			
+			var hasApiKey = searchAtlasKeyConfigured();
+
 			console.log('🔍 Connection Status Debug:', {
-				searchatlas_api_key: hasApiKey ? (apiKey.substring(0, 8) + '...') : 'EMPTY',
+				searchatlas_credential_state: hasApiKey ? 'CONFIGURED (masked)' : 'EMPTY',
 				otto_pixel_uuid: metaSync.otto_pixel_uuid || 'NOT SET',
 				connection_state: hasApiKey && metaSync.otto_pixel_uuid ? 'CONNECTED' : 
 								 hasApiKey ? 'PARTIAL (Missing ' + getOttoName() + ' UUID)' : 'NOT CONNECTED',
@@ -1283,7 +1318,6 @@
 
 		var $resetButton = $('#reset-searchatlas-auth');
 		var $connectButton = $('#connect-searchatlas-btn');
-		var $apiKeyField = $('#searchatlas-api-key');
 
 		// Show loading state (prevent dashboard.js conflicts)
 		$resetButton.prop('disabled', true)
@@ -1304,9 +1338,9 @@
 			},
 			success: function (response) {
 				if (response.success) {
-					// Clear the API key field
-					$apiKeyField.val('');
-					
+					// Reset the masked display to the "Not configured" state
+					setSearchAtlasMaskedDisplay('');
+
 					// Update button states
 					$connectButton.html('🔗 Connect to ' + getPluginName());
 					$resetButton.remove(); // Remove reset button since no longer connected
@@ -1411,7 +1445,8 @@
 		$('#sendAuthToken').prop('disabled', false).removeClass('is-throttled').text('🔄 Sync Now');
 
 		// Update API key field placeholder
-		$('#searchatlas-api-key').attr('placeholder', 'Your API key will appear here after authentication');
+		// Reset the masked API key display to the "Not configured" state
+		setSearchAtlasMaskedDisplay('');
 		
 		// ✅ Clear OTTO Pixel UUID field
 		$('input[name="metasync_options[general][otto_pixel_uuid]"]').val('');
@@ -1463,12 +1498,11 @@
 	 * Update UI elements when account is connected/authenticated
 	 * Complementary function to updateUIForDisconnectedState()
 	 */
-	function updateUIForConnectedState(apiKey, ottoPixelUuid) {
-		// Update API key field
-		if (apiKey) {
-			$('#searchatlas-api-key').val(apiKey);
-		}
-		
+	function updateUIForConnectedState(maskedKey, ottoPixelUuid) {
+		// Update the read-only masked API key display. Only the masked value is
+		// ever shown — the cleartext key is never rendered into the DOM.
+		setSearchAtlasMaskedDisplay(maskedKey || '••••••••');
+
 		// ✅ Update OTTO Pixel UUID field
 		if (ottoPixelUuid) {
 			$('input[name="metasync_options[general][otto_pixel_uuid]"]').val(ottoPixelUuid);
@@ -2017,7 +2051,7 @@
 					$('#sendAuthToken').prop('disabled', false).html('🔄 Sync Now');
 				}
 
-				if ($('#searchatlas-api-key') && $('#searchatlas-api-key').val() === '') {
+				if ($('#searchatlas-api-key-display').length > 0 && !searchAtlasKeyConfigured()) {
 					if (!is_hb) {
 						$('#sendAuthTokenTimestamp').html('Please save your ' + getPluginName() + ' API key');
 						$('#sendAuthTokenTimestamp').css({ color: 'red' });
@@ -2624,9 +2658,10 @@
 								noticeType    = 'notice-error';
 								noticeMessage = $('<span/>').text(response.data.warning || 'The API key could not be verified. Your other settings were saved.').html();
 								noAutoDismiss = true;
-								// Revert the input field to the previously saved valid key from the backend
-								var revertKey = (response.data.previous_api_key !== undefined) ? response.data.previous_api_key : '';
-								$('#searchatlas-api-key').val(revertKey);
+								// The server reverts the stored key to the last valid one on
+								// verification failure, and the masked display is read-only, so
+								// nothing in the DOM needs reverting here. The cleartext key is
+								// never sent to the browser.
 							} else if (response.data && response.data.api_key_removed === true) {
 								// API key was cleared — show warning, update status, page will reload
 								noticeType    = 'notice-warning';
@@ -3230,24 +3265,63 @@
 	 * @param {jQuery} $tooltip - The tooltip element
 	 */
 		function positionTooltip($trigger, $tooltip) {
-		// Skip positioning on mobile (uses fixed positioning)
+		// Mobile uses the CSS fixed bottom-sheet layout; clear any inline desktop
+		// styles so the stylesheet takes over.
 			if (window.innerWidth <= 768) {
+				$tooltip.css({ position: '', left: '', top: '', right: '', bottom: '', transform: '', margin: '' });
 				return;
 			}
 
-			var triggerRect = $trigger[0].getBoundingClientRect();
-			var tooltipWidth = $tooltip.outerWidth();
-			var viewportWidth = $(window).width();
-			var spaceRight = viewportWidth - triggerRect.right;
-
-			// Check if tooltip would overflow on the right
-			if (spaceRight < tooltipWidth + 20) {
-			// Position on the left side
-				$tooltip.attr('data-position', 'left');
-			} else {
-			// Position on the right side (default)
-				$tooltip.attr('data-position', 'right');
+			// Move the tooltip up to the plugin wrapper so it escapes the
+			// overflow:hidden on accordion sections / cards that was clipping it.
+			// The wrapper carries data-theme (so the --dashboard-* CSS vars still
+			// resolve) and is position:relative (not transformed), so the
+			// position:fixed below stays relative to the viewport. Verified in a
+			// headless-Chrome harness before shipping.
+			var portal = document.querySelector('.metasync-dashboard-wrap') || document.body;
+			if ($tooltip[0].parentNode !== portal) {
+				portal.appendChild($tooltip[0]);
 			}
+
+			var margin = 12;
+			var rect = $trigger[0].getBoundingClientRect();
+			var vw = window.innerWidth;
+			var vh = window.innerHeight;
+			var tw = $tooltip.outerWidth();
+			var th = $tooltip.outerHeight();
+
+			// Horizontal: prefer to the right of the icon, else flip left; clamp to viewport.
+			var left = rect.right + margin;
+			if (left + tw + margin > vw) { left = rect.left - margin - tw; }
+			if (left < margin) { left = margin; }
+			if (left + tw + margin > vw) { left = Math.max(margin, vw - tw - margin); }
+
+			// Vertical: center on the icon, then clamp so the top/bottom is never cut off.
+			var top = rect.top + (rect.height / 2) - (th / 2);
+			if (top < margin) { top = margin; }
+			if (top + th + margin > vh) { top = Math.max(margin, vh - th - margin); }
+
+			$tooltip.find('.metasync-tooltip-arrow').css('display', 'none');
+			// Place it, then play a small left-to-right slide-in. Position is
+			// handled by left/top (fixed), so transform is free for the entrance
+			// animation: start ~12px to the left and slide right into place.
+			$tooltip.css({
+				position: 'fixed',
+				left: Math.round(left) + 'px',
+				top: Math.round(top) + 'px',
+				right: 'auto',
+				bottom: 'auto',
+				margin: '0',
+				transition: 'opacity 0.2s ease',
+				transform: 'translateX(-12px)'
+			});
+			// Force a reflow so the start position is committed before animating.
+			void $tooltip[0].offsetWidth;
+			$tooltip.css({
+				transition: 'opacity 0.2s ease, transform 0.2s ease',
+				transform: 'translateX(0)'
+			});
+			$tooltip.removeAttr('data-position');
 		}
 
 		// Initialize tooltip system

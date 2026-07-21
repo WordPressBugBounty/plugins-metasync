@@ -212,7 +212,10 @@ jQuery(document).ready(function ($) {
             '<div style="background: white; padding: 20px; border-radius: 4px; min-width: 300px;">' +
             '<h3 style="margin-top: 0;">Add Schema Type</h3>' +
             '<p>Select the schema type you want to add:</p>' +
-            '<select id="new-schema-type-select" style="width: 100%; margin-bottom: 15px;">' + optionsHtml + '</select>' +
+            '<select id="new-schema-type-select" style="width: 100%; margin-bottom: 8px;">' + optionsHtml + '</select>' +
+            '<p class="description" style="margin: 0 0 15px 0; color: #646970; font-size: 12px; font-style: italic;">' +
+            'Pick the type that best describes this page\'s main content — e.g. \'Product\' for a product page, \'FAQ\' for a Q&amp;A page, \'Article\' for a blog post. This tells Google how to display your page in search results.' +
+            '</p>' +
             '<div style="text-align: right;">' +
             '<button type="button" class="button" id="cancel-schema-type">Cancel</button> ' +
             '<button type="button" class="button button-primary" id="add-selected-schema-type">Add Schema Type</button>' +

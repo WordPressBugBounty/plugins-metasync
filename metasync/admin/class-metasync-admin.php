@@ -1635,6 +1635,7 @@ class Metasync_Admin
                     <label for="metasync-otto-cache-ttl" style="color: var(--dashboard-text-primary); font-weight: 500;">
                         Cache TTL (minutes):
                     </label>
+                    <?php Metasync::render_tooltip_icon('otto_cache_ttl', 'How many minutes OTTO reuses its last SEO suggestions before fetching fresh ones. 30 is fine for most sites.'); ?>
                     <input type="number"
                            id="metasync-otto-cache-ttl"
                            value="<?php echo esc_attr($this->get_otto_cache_ttl_minutes()); ?>"
@@ -1780,6 +1781,7 @@ class Metasync_Admin
                            <?php echo !$wpe_detected ? 'disabled' : ''; ?>
                            style="width: 16px; height: 16px; cursor: <?php echo $wpe_detected ? 'pointer' : 'not-allowed'; ?>;" />
                     <span style="color: var(--dashboard-text-primary); font-weight: 500;">WP Engine</span>
+                    <?php Metasync::render_tooltip_icon('hosting_cache_wpengine', 'If hosted on WP Engine, turn on so OTTO clears the host\'s built-in cache when it updates a page.'); ?>
                     <span style="color: var(--dashboard-text-secondary); font-size: 12px;">— purges Varnish + Memcached</span>
                 </label>
 
@@ -1790,6 +1792,7 @@ class Metasync_Admin
                            <?php echo !$kinsta_detected ? 'disabled' : ''; ?>
                            style="width: 16px; height: 16px; cursor: <?php echo $kinsta_detected ? 'pointer' : 'not-allowed'; ?>;" />
                     <span style="color: var(--dashboard-text-primary); font-weight: 500;">Kinsta</span>
+                    <?php Metasync::render_tooltip_icon('hosting_cache_kinsta', 'If hosted on Kinsta, turn on so OTTO clears Kinsta\'s server cache automatically.'); ?>
                     <span style="color: var(--dashboard-text-secondary); font-size: 12px;">— purges full-page cache (kinsta_cache_purge_full)</span>
                 </label>
 
@@ -1939,7 +1942,7 @@ class Metasync_Admin
                            <?php checked('1', $targeted_cache_enabled); ?>
                            style="width: 16px; height: 16px; cursor: pointer; margin-top: 2px; flex-shrink: 0;" />
                     <span>
-                        <span style="color: var(--dashboard-text-primary); font-weight: 500; display: block; margin-bottom: 4px;">Targeted Object Cache Purge</span>
+                        <span style="color: var(--dashboard-text-primary); font-weight: 500; display: block; margin-bottom: 4px;">Targeted Object Cache Purge<?php Metasync::render_tooltip_icon('targeted_object_cache_purge', 'Leave this on. Refreshes only the pages OTTO changed instead of wiping your whole site\'s memory cache — safer/faster on large sites.'); ?></span>
                         <span style="color: var(--dashboard-text-secondary); font-size: 12px;">
                             When enabled, only the updated posts are evicted from the object cache (recommended for large sites).
                             When disabled, a full <code>wp_cache_flush()</code> is used instead.
@@ -2848,6 +2851,12 @@ class Metasync_Admin
         $attachment_id = isset($_POST['attachment_id']) ? absint($_POST['attachment_id']) : 0;
         if (!$attachment_id) {
             wp_send_json_error(__('Invalid attachment ID.', 'metasync'));
+        }
+
+        // Replace-strategy conversions have no original to restore — reverting
+        // would delete the attachment's only file. Refuse up front, like bulk revert does.
+        if (!Metasync_Image_Converter::can_revert($attachment_id)) {
+            wp_send_json_error(__('This image cannot be reverted. The original file no longer exists (replace strategy).', 'metasync'));
         }
 
         $success = Metasync_Image_Converter::revert_attachment($attachment_id);
@@ -4331,6 +4340,7 @@ class Metasync_Admin
             <div style="margin-bottom: 24px;">
                 <label for="cpu_load_per_core_threshold" style="display: block; margin-bottom: 8px; font-weight: 500; color: var(--dashboard-text);">
                     Per-Core Load Threshold
+                    <?php Metasync::render_tooltip_icon('cpu_per_core_load_threshold', 'How busy each CPU core can get before the plugin pauses background SEO syncing. Lower = more cautious. Most sites leave this at 2.0.'); ?>
                 </label>
                 <input type="number"
                        id="cpu_load_per_core_threshold"

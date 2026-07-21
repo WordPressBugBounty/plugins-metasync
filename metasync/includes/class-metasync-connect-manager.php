@@ -358,12 +358,18 @@ class Metasync_Connect_Manager
                 $wpdb->delete($wpdb->options, array('option_name' => '_transient_timeout_' . $success_key));
             }
 
-            // Get current settings to return API key
+            // Get current settings to return connection status
             $general_settings = Metasync::get_option('general') ?? [];
+
+            // Never return the cleartext key to the browser; send a masked value only.
+            $decrypted_key = Metasync::get_searchatlas_api_key();
+            $masked_key = (is_string($decrypted_key) && $decrypted_key !== '')
+                ? str_repeat('*', 8) . substr($decrypted_key, -4)
+                : '';
 
             wp_send_json_success(array(
                 'updated' => true,
-                'api_key' => $general_settings['searchatlas_api_key'], // Return full API key
+                'masked_key' => $masked_key, // Masked key for display only
                 'otto_pixel_uuid' => $general_settings['otto_pixel_uuid'] ?? '', // Return OTTO UUID for UI update
                 'status_code' => 200,
                 'whitelabel_enabled' => !empty($general_settings['white_label_plugin_name']),
@@ -625,8 +631,10 @@ class Metasync_Connect_Manager
      */
     public static function get_active_jwt_token($force_refresh = false)
     {
-        $general_options = Metasync::get_option('general') ?? [];
-        $api_key = $general_options['searchatlas_api_key'] ?? '';
+        $api_key = Metasync::get_searchatlas_api_key();
+        if ($api_key === false) {
+            $api_key = '';
+        }
 
         if (empty($api_key)) {
             return false;
@@ -654,8 +662,10 @@ class Metasync_Connect_Manager
      */
     public function get_fresh_jwt_token()
     {
-        $general_options = Metasync::get_option('general') ?? [];
-        $api_key = $general_options['searchatlas_api_key'] ?? '';
+        $api_key = Metasync::get_searchatlas_api_key();
+        if ($api_key === false) {
+            $api_key = '';
+        }
 
         if (empty($api_key)) {
             return false;
@@ -765,7 +775,12 @@ class Metasync_Connect_Manager
             $cleared_data = array();
 
             if (isset($options['general']['searchatlas_api_key'])) {
-                $cleared_data['searchatlas_api_key'] = substr($options['general']['searchatlas_api_key'], 0, 8) . '...';
+                // Record only a masked marker (last 4 chars) — never the stored
+                // ciphertext or the cleartext key.
+                $disconnect_key = Metasync::get_searchatlas_api_key();
+                $cleared_data['searchatlas_api_key'] = (is_string($disconnect_key) && $disconnect_key !== '')
+                    ? str_repeat('•', 4) . substr($disconnect_key, -4)
+                    : '(removed)';
                 unset($options['general']['searchatlas_api_key']);
             }
 
@@ -798,6 +813,7 @@ class Metasync_Connect_Manager
             $cleared_data['heartbeat_throttle'] = 'removed';
 
             $save_result = Metasync::set_option($options);
+            Metasync::invalidate_api_key_cache();
 
             if (!$save_result) {
                 throw new Exception('Failed to save updated plugin options');

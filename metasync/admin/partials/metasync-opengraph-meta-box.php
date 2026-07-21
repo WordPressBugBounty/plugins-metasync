@@ -17,6 +17,19 @@ if (!defined('ABSPATH')) {
 
 <div class="metasync-opengraph-meta-box">
 
+    <?php if (!empty($otto_owns_og)) : ?>
+        <!-- OTTO also manages this page: values set here take priority; blanks fall back to OTTO -->
+        <div class="metasync-og-otto-notice notice notice-info inline" style="margin:0 0 15px;padding:10px 12px;border-left:4px solid #72aee6;background:#f0f6fc;">
+            <p style="margin:0 0 6px;font-weight:600;">
+                <span class="dashicons dashicons-info" style="color:#72aee6;vertical-align:text-bottom;"></span>
+                <?php esc_html_e('This page is also managed by OTTO.', 'metasync'); ?>
+            </p>
+            <p style="margin:0;">
+                <?php esc_html_e('Any field you set here takes priority and overrides OTTO on the live site. Fields you leave blank fall back to OTTO\'s values, or a default when OTTO has none.', 'metasync'); ?>
+            </p>
+        </div>
+    <?php endif; ?>
+
     <!-- Toggle Switch -->
     <div class="metasync-og-toggle-section">
         <label class="metasync-toggle-switch">

@@ -27,7 +27,7 @@ if (!defined('WPINC')) {
             <div class="metasync-card">
                 <div class="metasync-card-header">
                     <div class="metasync-card-title-group">
-                        <h2><?php esc_html_e('CSS Minification', 'metasync'); ?></h2>
+                        <h2><?php esc_html_e('CSS Minification', 'metasync'); ?><?php Metasync::render_tooltip_icon('code_min_css_minify', 'Can break site styling/scripts if a theme or plugin script depends on exact formatting. Test your site after enabling; turn off for anything that breaks.'); ?></h2>
                         <span class="metasync-card-subtitle"><?php esc_html_e('Strip whitespace and comments from enqueued stylesheets', 'metasync'); ?></span>
                     </div>
                     <label class="metasync-toggle <?php echo isset($conflicts['css_minify']) ? 'metasync-toggle-overridden' : ''; ?>">
@@ -41,7 +41,7 @@ if (!defined('WPINC')) {
                 <div class="metasync-card-body metasync-toggle-section" data-toggle="enable_css_minify"
                     <?php echo empty($settings['enable_css_minify']) ? 'style="display:none;"' : ''; ?>>
                     <div class="metasync-field">
-                        <label for="css_exclude_handles"><?php esc_html_e('Excluded Handles', 'metasync'); ?></label>
+                        <label for="css_exclude_handles"><?php esc_html_e('Excluded Handles', 'metasync'); ?><?php Metasync::render_tooltip_icon('code_min_css_exclude_handles', 'A \'handle\' is the internal name WordPress gives a script or stylesheet. If you don\'t know it, leave this blank — the defaults protect essential files.'); ?></label>
                         <input type="text" name="metasync_code_min[css_exclude_handles]" id="css_exclude_handles"
                                value="<?php echo esc_attr($settings['css_exclude_handles']); ?>"
                                placeholder="handle1, handle2, handle3">
@@ -54,7 +54,7 @@ if (!defined('WPINC')) {
             <div class="metasync-card">
                 <div class="metasync-card-header">
                     <div class="metasync-card-title-group">
-                        <h2><?php esc_html_e('JS Minification', 'metasync'); ?></h2>
+                        <h2><?php esc_html_e('JS Minification', 'metasync'); ?><?php Metasync::render_tooltip_icon('code_min_js_minify', 'Can break site styling/scripts if a theme or plugin script depends on exact formatting. Test your site after enabling; turn off for anything that breaks.'); ?></h2>
                         <span class="metasync-card-subtitle"><?php esc_html_e('Strip whitespace and comments from enqueued scripts', 'metasync'); ?></span>
                     </div>
                     <label class="metasync-toggle <?php echo isset($conflicts['js_minify']) ? 'metasync-toggle-overridden' : ''; ?>">
@@ -68,7 +68,7 @@ if (!defined('WPINC')) {
                 <div class="metasync-card-body metasync-toggle-section" data-toggle="enable_js_minify"
                     <?php echo empty($settings['enable_js_minify']) ? 'style="display:none;"' : ''; ?>>
                     <div class="metasync-field">
-                        <label for="js_exclude_handles"><?php esc_html_e('Excluded Handles', 'metasync'); ?></label>
+                        <label for="js_exclude_handles"><?php esc_html_e('Excluded Handles', 'metasync'); ?><?php Metasync::render_tooltip_icon('code_min_js_exclude_handles', 'A \'handle\' is the internal name WordPress gives a script or stylesheet. If you don\'t know it, leave this blank — the defaults protect essential files.'); ?></label>
                         <input type="text" name="metasync_code_min[js_exclude_handles]" id="js_exclude_handles"
                                value="<?php echo esc_attr($settings['js_exclude_handles']); ?>"
                                placeholder="handle1, handle2, handle3">
@@ -87,7 +87,7 @@ if (!defined('WPINC')) {
             <div class="metasync-card">
                 <div class="metasync-card-header">
                     <div class="metasync-card-title-group">
-                        <h2><?php esc_html_e('JS Defer', 'metasync'); ?></h2>
+                        <h2><?php esc_html_e('JS Defer', 'metasync'); ?><?php Metasync::render_tooltip_icon('code_min_js_defer', 'Loads scripts after the page appears, speeding up display. Some interactive features may briefly stop working — if a slider or form breaks, turn this off or exclude that script.'); ?></h2>
                         <span class="metasync-card-subtitle"><?php esc_html_e('Add defer attribute to non-essential scripts to prevent render blocking', 'metasync'); ?></span>
                     </div>
                     <label class="metasync-toggle <?php echo isset($conflicts['js_defer']) ? 'metasync-toggle-overridden' : ''; ?>">
@@ -101,7 +101,7 @@ if (!defined('WPINC')) {
                 <div class="metasync-card-body metasync-toggle-section" data-toggle="enable_js_defer"
                     <?php echo empty($settings['enable_js_defer']) ? 'style="display:none;"' : ''; ?>>
                     <div class="metasync-field">
-                        <label for="js_defer_exclude_handles"><?php esc_html_e('Excluded Handles', 'metasync'); ?></label>
+                        <label for="js_defer_exclude_handles"><?php esc_html_e('Excluded Handles', 'metasync'); ?><?php Metasync::render_tooltip_icon('code_min_js_defer_exclude_handles', 'A \'handle\' is the internal name WordPress gives a script or stylesheet. If you don\'t know it, leave this blank — the defaults protect essential files.'); ?></label>
                         <input type="text" name="metasync_code_min[js_defer_exclude_handles]" id="js_defer_exclude_handles"
                                value="<?php echo esc_attr($settings['js_defer_exclude_handles']); ?>"
                                placeholder="jquery, jquery-core, jquery-migrate">
@@ -114,7 +114,7 @@ if (!defined('WPINC')) {
             <div class="metasync-card">
                 <div class="metasync-card-header">
                     <div class="metasync-card-title-group">
-                        <h2><?php esc_html_e('JS Delay', 'metasync'); ?></h2>
+                        <h2><?php esc_html_e('JS Delay', 'metasync'); ?><?php Metasync::render_tooltip_icon('code_min_js_delay', 'Holds heavy scripts (analytics, chat, pixels) until the visitor clicks or scrolls, then loads them automatically after 5 seconds. Improves speed but delays those tools slightly.'); ?></h2>
                         <span class="metasync-card-subtitle"><?php esc_html_e('Delay heavy third-party scripts until user interaction (improves INP)', 'metasync'); ?></span>
                     </div>
                     <label class="metasync-toggle <?php echo isset($conflicts['js_defer']) ? 'metasync-toggle-overridden' : ''; ?>">
@@ -128,7 +128,7 @@ if (!defined('WPINC')) {
                 <div class="metasync-card-body metasync-toggle-section" data-toggle="enable_js_delay"
                     <?php echo empty($settings['enable_js_delay']) ? 'style="display:none;"' : ''; ?>>
                     <div class="metasync-field">
-                        <label for="js_delay_handles"><?php esc_html_e('Delay Handles', 'metasync'); ?></label>
+                        <label for="js_delay_handles"><?php esc_html_e('Delay Handles', 'metasync'); ?><?php Metasync::render_tooltip_icon('code_min_js_delay_handles', 'A \'handle\' is the internal name WordPress gives a script or stylesheet. If you don\'t know it, leave this blank — the defaults protect essential files.'); ?></label>
                         <input type="text" name="metasync_code_min[js_delay_handles]" id="js_delay_handles"
                                value="<?php echo esc_attr($settings['js_delay_handles']); ?>"
                                placeholder="analytics-script, facebook-pixel">

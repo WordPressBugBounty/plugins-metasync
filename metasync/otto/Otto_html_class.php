@@ -929,6 +929,7 @@ Class Metasync_otto_html{
         $result_html = $this->otto_guard_html($this->deduplicate_title_tags($result_html), $result_html, 'deduplicate_title_tags');
         $result_html = $this->otto_guard_html($this->deduplicate_description_tags($result_html), $result_html, 'deduplicate_description_tags');
         $result_html = $this->otto_guard_html($this->deduplicate_og_twitter_tags($result_html), $result_html, 'deduplicate_og_twitter_tags');
+        $result_html = $this->otto_guard_html($this->apply_metabox_og_precedence($result_html), $result_html, 'apply_metabox_og_precedence');
         $result_html = $this->otto_guard_html($this->deduplicate_schema_tags($result_html), $result_html, 'deduplicate_schema_tags');
         $result_html = $this->otto_guard_html($this->deduplicate_canonical_tags($result_html), $result_html, 'deduplicate_canonical_tags');
 
@@ -2028,6 +2029,174 @@ Class Metasync_otto_html{
     }
 
     /**
+     * Apply the per-post "Social Media & Open Graph" meta box precedence over OTTO.
+     *
+     * Precedence per tag: an explicit meta box value set by the user wins over OTTO;
+     * a field left blank falls back to OTTO's value; if OTTO also has none, a sensible
+     * default fills the gap. Mirrors how the custom SEO sidebar values take priority
+     * over OTTO (see do_header_replacements()).
+     *
+     * Runs *after* deduplicate_og_twitter_tags(), and only within <head>. For a field the
+     * user explicitly set it removes any existing tag (OTTO's) and re-adds the user's
+     * value; for the rest it only adds a tag when absent — so OTTO stays authoritative
+     * where the user left a field blank and no duplicate is produced. OTTO never emits an
+     * og:image, so this also surfaces a user-set social image on an OTTO-managed page.
+     *
+     * Only applies to singular posts/pages: the meta box values are per-post, and on
+     * archives/home get_queried_object_id() can return a term or user id.
+     *
+     * @param  string $html Full HTML document (post-dedup).
+     * @return string
+     */
+    private function apply_metabox_og_precedence($html) {
+        if (!function_exists('get_queried_object_id') || !function_exists('is_singular')) {
+            return $html;
+        }
+        # Per-post OG only applies to singular posts/pages. On archives/home the queried
+        # object id can be a term or user id, which must not be read as post meta.
+        if (!is_singular()) {
+            return $html;
+        }
+        $post_id = get_queried_object_id();
+        if (!$post_id) {
+            return $html;
+        }
+
+        # Respect the meta box opt-out (only an explicit '0' disables it)
+        if (get_post_meta($post_id, '_metasync_og_enabled', true) === '0') {
+            return $html;
+        }
+
+        # Explicit (user-typed) meta box values. A non-empty value means the user set
+        # this field themselves and it must take priority over OTTO.
+        $og_title_set     = get_post_meta($post_id, '_metasync_og_title', true);
+        $og_desc_set      = get_post_meta($post_id, '_metasync_og_description', true);
+        $og_image_set     = get_post_meta($post_id, '_metasync_og_image', true);
+        $og_type_set      = get_post_meta($post_id, '_metasync_og_type', true);
+        $tw_card_set      = get_post_meta($post_id, '_metasync_twitter_card', true);
+        $tw_site_set      = get_post_meta($post_id, '_metasync_twitter_site', true);
+        $tw_title_set     = get_post_meta($post_id, '_metasync_twitter_title', true);
+        $tw_desc_set      = get_post_meta($post_id, '_metasync_twitter_description', true);
+        $tw_image_set     = get_post_meta($post_id, '_metasync_twitter_image', true);
+        $tw_image_alt_set = get_post_meta($post_id, '_metasync_twitter_image_alt', true);
+
+        # Default OG values the meta box pre-fills (post title / generated excerpt /
+        # featured image). The meta box PERSISTS these defaults on save, so a non-empty
+        # _metasync_og_* value alone does not prove the user customized it — a field is a
+        # genuine override only when its stored value differs from this default. Reuse the
+        # emitter's own resolver so the defaults match exactly (falling back to empty
+        # defaults, i.e. treat nothing as customized, if the instance is unavailable).
+        $defaults = ['title' => '', 'description' => '', 'image' => ''];
+        if (class_exists('Metasync_OpenGraph') && Metasync_OpenGraph::get_instance()) {
+            $defaults = Metasync_OpenGraph::get_instance()->get_default_og_values($post_id);
+        }
+
+        $title_is_custom = ($og_title_set !== '' && $og_title_set !== $defaults['title']);
+        $desc_is_custom  = ($og_desc_set  !== '' && $og_desc_set  !== $defaults['description']);
+        $image_is_custom = ($og_image_set !== '' && $og_image_set !== $defaults['image']);
+
+        # Resolved values (explicit value first, then the meta box default).
+        $og_title = $og_title_set !== '' ? $og_title_set : $defaults['title'];
+        $og_desc  = $og_desc_set  !== '' ? $og_desc_set  : $defaults['description'];
+        $og_image = $og_image_set !== '' ? $og_image_set : $defaults['image'];
+        $og_type  = $og_type_set  ?: 'article';
+        $site_name = get_bloginfo('name');
+
+        # Twitter inherits the OG value when its own field is blank; a user-customized
+        # og:image therefore also overrides OTTO's twitter:image (the meta box treats them
+        # as one). A twitter field is custom if its own value differs from the default OR
+        # the OG field it inherits was customized.
+        $tw_card  = $tw_card_set ?: 'summary_large_image';
+        $tw_title = $tw_title_set !== '' ? $tw_title_set : $og_title;
+        $tw_desc  = $tw_desc_set  !== '' ? $tw_desc_set  : $og_desc;
+        $tw_image = $tw_image_set !== '' ? $tw_image_set : $og_image;
+
+        $tw_title_is_custom = ($tw_title_set !== '' && $tw_title_set !== $defaults['title'])       || $title_is_custom;
+        $tw_desc_is_custom  = ($tw_desc_set  !== '' && $tw_desc_set  !== $defaults['description']) || $desc_is_custom;
+        $tw_image_is_custom = ($tw_image_set !== '' && $tw_image_set !== $defaults['image'])       || $image_is_custom;
+
+        # twitter:site: per-post value, else the site-wide handle from Social Meta settings.
+        # twitter:site / twitter:image:alt are not auto-defaulted by the meta box, so a
+        # non-empty per-post value is itself the override signal.
+        $tw_site = $tw_site_set;
+        if ($tw_site === '' && class_exists('Metasync')) {
+            $social = Metasync::get_option('social_meta');
+            if (is_array($social) && !empty($social['twitter_username'])) {
+                $tw_site = '@' . ltrim($social['twitter_username'], '@');
+            }
+        }
+
+        # og:type / twitter:card are dropdowns that always carry a value, so they override
+        # OTTO only when the user picked a non-default option. og:url is auto-populated with
+        # the permalink on save, so it is fill-only (never an override) to avoid clobbering
+        # OTTO's canonical URL with a stale/auto value. og:site_name is a site default.
+        $og_type_override = ($og_type_set !== '' && $og_type_set !== 'article');
+        $tw_card_override = ($tw_card_set !== '' && $tw_card_set !== 'summary_large_image');
+
+        # [attr, property/name, value, is_url, is_override]
+        $tags = [
+            ['property', 'og:title',       $og_title,  false, $title_is_custom],
+            ['property', 'og:description', $og_desc,   false, $desc_is_custom],
+            ['property', 'og:image',       $og_image,  true,  $image_is_custom],
+            ['property', 'og:url',         get_permalink($post_id), true, false],
+            ['property', 'og:type',        $og_type,   false, $og_type_override],
+            ['property', 'og:site_name',   $site_name, false, false],
+            ['name',     'twitter:card',        $tw_card,      false, $tw_card_override],
+            ['name',     'twitter:site',        $tw_site,      false, $tw_site_set !== ''],
+            ['name',     'twitter:title',       $tw_title,     false, $tw_title_is_custom],
+            ['name',     'twitter:description', $tw_desc,      false, $tw_desc_is_custom],
+            ['name',     'twitter:image',       $tw_image,     true,  $tw_image_is_custom],
+            ['name',     'twitter:image:alt',   $tw_image_alt_set, false, $tw_image_alt_set !== ''],
+        ];
+
+        # Operate only within <head> so meta tags in the body are never touched.
+        if (!preg_match('/(<head\b[^>]*>)(.*?)(<\/head>)/is', $html, $hm)) {
+            return $html;
+        }
+        $head = $hm[2];
+
+        # 1) Remove existing head tags for user-overridden properties so the user's value wins.
+        foreach ($tags as $t) {
+            list($attr, $key, $val, $is_url, $is_override) = $t;
+            if ($is_override && $val !== '' && $val !== null) {
+                $stripped = preg_replace(
+                    '/<meta\s[^>]*' . $attr . '\s*=\s*(["\'])' . preg_quote($key, '/') . '\1[^>]*>\s*/i',
+                    '',
+                    $head
+                );
+                if ($stripped !== null) {
+                    $head = $stripped;
+                }
+            }
+        }
+
+        # 2) Build additions: overrides (removed above) + gap-fills for anything still absent.
+        $additions = '';
+        foreach ($tags as $t) {
+            list($attr, $key, $val, $is_url, $is_override) = $t;
+            if ($val === '' || $val === null) {
+                continue;
+            }
+            if (!$is_override && preg_match('/<meta\s[^>]*' . $attr . '\s*=\s*(["\'])' . preg_quote($key, '/') . '\1/i', $head)) {
+                continue; # OTTO (or another source) already provides it and the user did not override
+            }
+            $content = $is_url ? esc_url($val) : esc_attr($val);
+            if ($content === '') {
+                continue;
+            }
+            $marker = $is_override ? 'override' : 'fill';
+            $additions .= '<meta ' . $attr . '="' . $key . '" content="' . $content . '" data-metasync-og="' . $marker . '">' . "\n";
+        }
+
+        # Reassemble the head block (str_replace avoids backreference issues from $ in values).
+        if ($head === $hm[2] && $additions === '') {
+            return $html; # nothing removed, nothing added
+        }
+        $new_head_block = $hm[1] . $head . $additions . $hm[3];
+        return str_replace($hm[0], $new_head_block, $html);
+    }
+
+    /**
      * Deduplicate meta tags by a specific attribute (property= or name=).
      *
      * When duplicates exist and one carries a data-otto marker, keep only
@@ -2849,6 +3018,7 @@ Class Metasync_otto_html{
             $result_html = $this->otto_guard_html($this->deduplicate_title_tags($result_html), $result_html, 'deduplicate_title_tags');
             $result_html = $this->otto_guard_html($this->deduplicate_description_tags($result_html), $result_html, 'deduplicate_description_tags');
             $result_html = $this->otto_guard_html($this->deduplicate_og_twitter_tags($result_html), $result_html, 'deduplicate_og_twitter_tags');
+            $result_html = $this->otto_guard_html($this->apply_metabox_og_precedence($result_html), $result_html, 'apply_metabox_og_precedence');
             $result_html = $this->otto_guard_html($this->deduplicate_schema_tags($result_html), $result_html, 'deduplicate_schema_tags');
             $result_html = $this->otto_guard_html($this->deduplicate_canonical_tags($result_html), $result_html, 'deduplicate_canonical_tags');
 

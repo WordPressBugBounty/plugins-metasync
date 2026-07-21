@@ -21,6 +21,7 @@ if (!defined('ABSPATH')) {
 			<tr>
 				<th scope="row" style="width: 200px;">
 					Post Types:
+						<?php Metasync::render_tooltip_icon('metasync_google_instant_post_types', 'Choose which content is auto-sent to Google on publish. Google limits this to about 200 URLs per day, so avoid selecting very high-volume content types.'); ?>
 				</th>
 				<td>
 					<?php

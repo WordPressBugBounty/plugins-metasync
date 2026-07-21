@@ -232,6 +232,13 @@ class Metasync_Image_Converter {
             return false;
         }
 
+        // Replace strategy has no original to restore — the attached file IS the
+        // converted file, so the extension swap below would leave the path
+        // unchanged and unlink the attachment's only copy. Refuse instead.
+        if (get_post_meta($attachment_id, '_metasync_replaced_original', true)) {
+            return false;
+        }
+
         $file = get_attached_file($attachment_id);
         if (!$file) {
             return false;
@@ -245,8 +252,11 @@ class Metasync_Image_Converter {
         $ext = self::get_format_extension($format);
 
         // Delete converted full-size file
+        // `$converted_path !== $file` guards against deleting the attachment's
+        // own file when the extension pattern doesn't match (e.g. the attached file is
+        // already .webp/.avif and preg_replace returns the path unchanged).
         $converted_path = preg_replace(self::ORIGINAL_EXT_PATTERN, $ext, $file);
-        if ($converted_path && file_exists($converted_path)) {
+        if ($converted_path && $converted_path !== $file && file_exists($converted_path)) {
             @unlink($converted_path);
         }
 
@@ -255,8 +265,9 @@ class Metasync_Image_Converter {
         if ($metadata && !empty($metadata['sizes'])) {
             $upload_dir = dirname($file);
             foreach ($metadata['sizes'] as $size_data) {
-                $size_converted = preg_replace(self::ORIGINAL_EXT_PATTERN, $ext, $upload_dir . '/' . $size_data['file']);
-                if ($size_converted && file_exists($size_converted)) {
+                $size_path      = $upload_dir . '/' . $size_data['file'];
+                $size_converted = preg_replace(self::ORIGINAL_EXT_PATTERN, $ext, $size_path);
+                if ($size_converted && $size_converted !== $size_path && file_exists($size_converted)) {
                     @unlink($size_converted);
                 }
             }

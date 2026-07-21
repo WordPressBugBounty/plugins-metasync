@@ -182,7 +182,6 @@ class Metasync_Common
 
 		$get_attachment = $this->get_attachment_by_name($args['post_name']);
 
-		
 		# remove if null logic check on 11 march 2025 for issue 264 and merge request 320
 		if (empty($get_attachment)) {
 			$attachment_id 	= media_handle_sideload($args, 0, $args['name']);
@@ -210,6 +209,33 @@ class Metasync_Common
 			if (is_wp_error($attachment_id)) return false;
 			return $attachment_id;
 		} else {
+			// An attachment record can outlive its file (e.g. the file was
+			// deleted from disk outside WordPress). Since we already have a
+			// fresh download, restore it into the existing attachment so its
+			// URL stops 404ing — reusing the record keeps post references
+			// intact and avoids piling up duplicate attachments.
+			$existing_file = get_attached_file($get_attachment->ID);
+			if (empty($existing_file) || !file_exists($existing_file)) {
+				// wp_handle_sideload() takes $file by reference, so the
+				// argument must be a variable — a literal array here is a
+				// runtime fatal that kills the whole sync request.
+				$file_array = array(
+					'name'     => $args['name'],
+					'tmp_name' => $tmp,
+				);
+				$upload = wp_handle_sideload($file_array, array('test_form' => false));
+				if (empty($upload['error']) && !empty($upload['file'])) {
+					update_attached_file($get_attachment->ID, $upload['file']);
+					$attach_data = wp_generate_attachment_metadata($get_attachment->ID, $upload['file']);
+					wp_update_attachment_metadata($get_attachment->ID, $attach_data);
+				}
+			}
+
+			// Delete the temporary file unless the sideload above moved it
+			if (file_exists($tmp)) {
+				unlink($tmp);
+			}
+
 			// check if the title attribute is set on the image tag and then update the title
 			if($title_text !== ''){
 				wp_update_post(

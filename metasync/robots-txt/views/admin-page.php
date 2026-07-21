@@ -33,7 +33,7 @@ $robots_url = trailingslashit($site_url) . 'robots.txt';
         <div class="metasync-robots-txt-editor">
             <div class="metasync-card">
                 <div class="metasync-card-header">
-                    <h2><?php esc_html_e('Edit robots.txt', 'metasync'); ?></h2>
+                    <h2><?php esc_html_e('Edit robots.txt', 'metasync'); ?><?php Metasync::render_tooltip_icon('robots_txt_editor', 'This file tells search engines which pages they may crawl. A wrong rule (e.g. Disallow: /) can remove your entire site from Google — change it only if you know the effect.'); ?></h2>
                     <div class="metasync-robots-info">
                         <span class="metasync-robots-status">
                             <?php 

@@ -68,12 +68,17 @@ class Metasync_Sync_Requests
         # From Feature Issue #132
         # We need to alter this url based on API key
         # so let's fethc the api key first
-        
-        $api_key = $general_options['searchatlas_api_key'] ?? null;
+
+        # Decrypt the stored key for use as the x-api-key value. false => the
+        # stored key could not be decrypted (salts changed); treat as no key.
+        $api_key = Metasync::get_searchatlas_api_key();
+        if ($api_key === false) {
+            $api_key = '';
+        }
 
         #check that the api key is not empty
 
-        if ($api_key == null){
+        if ($api_key === ''){
             return false;
         }
 
@@ -258,7 +263,7 @@ class Metasync_Sync_Requests
         $data = [
             'body'          => $payload,
             'headers'       => [
-                'x-api-key' =>  $general_options['searchatlas_api_key'],
+                'x-api-key' =>  $api_key,
 
             ],
             # PERFORMANCE OPTIMIZATION: Add timeout for sync operations
@@ -382,7 +387,13 @@ class Metasync_Sync_Requests
     {
         $general_options = Metasync::get_option('general') ?? [];
 
-        if (!isset($general_options['apikey'], $general_options['searchatlas_api_key'])) {
+        # Decrypt the stored key; false => undecryptable (salts changed) → bail.
+        $api_key = Metasync::get_searchatlas_api_key();
+        if ($api_key === false) {
+            $api_key = '';
+        }
+
+        if (!isset($general_options['apikey']) || $api_key === '') {
             return;
         }
 
@@ -395,7 +406,7 @@ class Metasync_Sync_Requests
         delete_option(Metasync::option_name . '_whitelabel_user');
 
         $headers = array(
-            'x-api-key'=>$general_options['searchatlas_api_key'] // this should be associative array not a array of string
+            'x-api-key'=>$api_key // this should be associative array not a array of string
         );
         $args = array(
             'headers' => $headers,

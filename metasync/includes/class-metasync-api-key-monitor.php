@@ -134,13 +134,23 @@ class Metasync_API_Key_Monitor
         // Extract values
         $old_plugin_auth_token = $old_value['general']['apikey'] ?? '';
         $new_plugin_auth_token = $new_value['general']['apikey'] ?? '';
-        $old_searchatlas_api_key = $old_value['general']['searchatlas_api_key'] ?? '';
-        $new_searchatlas_api_key = $new_value['general']['searchatlas_api_key'] ?? '';
-        
+
+        // The Search Atlas API key is encrypted at rest with a random IV, so the
+        // stored ciphertext differs on every write even when the plaintext is
+        // unchanged. Decrypt both sides before comparing to avoid false positives.
+        $old_searchatlas_api_key = Metasync::decrypt_api_key($old_value['general']['searchatlas_api_key'] ?? '');
+        $new_searchatlas_api_key = Metasync::decrypt_api_key($new_value['general']['searchatlas_api_key'] ?? '');
+        if ($old_searchatlas_api_key === false) {
+            $old_searchatlas_api_key = '';
+        }
+        if ($new_searchatlas_api_key === false) {
+            $new_searchatlas_api_key = '';
+        }
+
         // Analyze changes
         $plugin_token_changed = $old_plugin_auth_token !== $new_plugin_auth_token;
         $searchatlas_key_changed = $old_searchatlas_api_key !== $new_searchatlas_api_key;
-        
+
         return array(
             'changes_detected' => $plugin_token_changed || $searchatlas_key_changed,
             'plugin_auth_token' => array(
@@ -149,13 +159,34 @@ class Metasync_API_Key_Monitor
                 'new' => $new_plugin_auth_token,
                 'action' => $this->determine_change_action($old_plugin_auth_token, $new_plugin_auth_token)
             ),
+            // Store only masked representations of the Search Atlas key so the
+            // cleartext value is never logged or passed to downstream hooks. The
+            // 'changed'/'action' fields are derived from the decrypted plaintext
+            // above before masking.
             'searchatlas_api_key' => array(
                 'changed' => $searchatlas_key_changed,
-                'old' => $old_searchatlas_api_key,
-                'new' => $new_searchatlas_api_key,
+                'old' => $this->mask_api_key($old_searchatlas_api_key),
+                'new' => $this->mask_api_key($new_searchatlas_api_key),
                 'action' => $this->determine_change_action($old_searchatlas_api_key, $new_searchatlas_api_key)
             )
         );
+    }
+
+    /**
+     * Mask a secret for logging: keep only the last 4 characters.
+     *
+     * Returns '' for an empty value so existing empty() checks keep working.
+     *
+     * @param string $value
+     * @return string
+     */
+    private function mask_api_key($value)
+    {
+        $value = (string) $value;
+        if ($value === '') {
+            return '';
+        }
+        return str_repeat('•', 4) . substr($value, -4);
     }
     
     /**
@@ -191,10 +222,11 @@ class Metasync_API_Key_Monitor
         
         if ($changes['searchatlas_api_key']['changed']) {
             $key_change = $changes['searchatlas_api_key'];
+            // 'old'/'new' are already masked (last 4 chars only) by detect_api_key_changes.
             $log_messages[] = sprintf('Search Atlas API Key %s: %s → %s',
                 $key_change['action'],
-                empty($key_change['old']) ? '(empty)' : substr($key_change['old'], 0, 8) . '...',
-                empty($key_change['new']) ? '(empty)' : substr($key_change['new'], 0, 8) . '...'
+                empty($key_change['old']) ? '(empty)' : $key_change['old'],
+                empty($key_change['new']) ? '(empty)' : $key_change['new']
             );
         }
         
@@ -241,9 +273,11 @@ class Metasync_API_Key_Monitor
      */
     private function should_trigger_heartbeat($changes)
     {
-        // Get current Search Atlas API key
-        $current_options = is_array(Metasync::get_option()) ? Metasync::get_option() : array();
-        $current_searchatlas_key = $current_options['general']['searchatlas_api_key'] ?? '';
+        // Get current Search Atlas API key (decrypted; false → unusable, treat as empty)
+        $current_searchatlas_key = Metasync::get_searchatlas_api_key();
+        if ($current_searchatlas_key === false) {
+            $current_searchatlas_key = '';
+        }
         
         // Always trigger heartbeat if Search Atlas API key is being changed
         if ($changes['searchatlas_api_key']['changed']) {

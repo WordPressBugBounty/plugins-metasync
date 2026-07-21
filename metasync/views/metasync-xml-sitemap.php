@@ -663,7 +663,7 @@ if (!defined('ABSPATH')) {
 
                 <table class="form-table">
                     <tr>
-                        <th scope="row"><?php esc_html_e('Enable News Sitemap', 'metasync'); ?></th>
+                        <th scope="row"><?php esc_html_e('Enable News Sitemap', 'metasync'); ?><?php Metasync::render_tooltip_icon('news_sitemap_enable_info', 'A News sitemap is a special list of your recent news articles (published in the last 48 hours) that helps Google News find and show them quickly. Only turn this on if your site publishes news-style content and is accepted into Google News.'); ?></th>
                         <td>
                             <label>
                                 <input type="checkbox" name="news_enabled" value="1" <?php checked(!empty($news_settings['enabled'])); ?> />
@@ -672,7 +672,7 @@ if (!defined('ABSPATH')) {
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php esc_html_e('Post Types', 'metasync'); ?></th>
+                        <th scope="row"><?php esc_html_e('Post Types', 'metasync'); ?><?php Metasync::render_tooltip_icon('news_sitemap_post_types', 'Choose which content types are included in your Google News sitemap. Only select types that qualify as news content — including everything can hurt News eligibility.'); ?></th>
                         <td>
                             <?php
                             $public_post_types = get_post_types(['public' => true], 'objects');
@@ -910,7 +910,7 @@ if (!defined('ABSPATH')) {
 
                 <table class="form-table">
                     <tr>
-                        <th scope="row"><?php esc_html_e('Enable Video Sitemap', 'metasync'); ?></th>
+                        <th scope="row"><?php esc_html_e('Enable Video Sitemap', 'metasync'); ?><?php Metasync::render_tooltip_icon('video_sitemap_enable_info', 'A Video sitemap lists the videos embedded on your pages (with their title, description, thumbnail, and duration) so search engines can understand them and show them in video search results. Turn this on if your pages contain videos you want discovered.'); ?></th>
                         <td>
                             <label>
                                 <input type="checkbox" name="video_enabled" value="1" <?php checked(!empty($video_settings['enabled'])); ?> />
@@ -919,7 +919,7 @@ if (!defined('ABSPATH')) {
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php esc_html_e('Post Types', 'metasync'); ?></th>
+                        <th scope="row"><?php esc_html_e('Post Types', 'metasync'); ?><?php Metasync::render_tooltip_icon('video_sitemap_post_types', 'Choose which content types are scanned for embedded videos to include in your video sitemap.'); ?></th>
                         <td>
                             <?php
                             $public_post_types = get_post_types(['public' => true], 'objects');

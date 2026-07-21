@@ -94,7 +94,7 @@ if (!defined('WPINC')) {
 
                     <div class="metasync-field-row">
                         <div class="metasync-field metasync-field--card">
-                            <label for="max_image_dimensions"><?php esc_html_e('Max Image Dimensions', 'metasync'); ?></label>
+                            <label for="max_image_dimensions"><?php esc_html_e('Max Image Dimensions', 'metasync'); ?><?php Metasync::render_tooltip_icon('media_max_image_dimensions', 'Automatically shrinks any uploaded image wider or taller than this, to save space and speed up your site. This permanently resizes the file according to your Conversion Strategy setting.'); ?></label>
                             <div class="metasync-number-group">
                                 <input type="number" name="metasync_media[max_image_dimensions]" id="max_image_dimensions"
                                        value="<?php echo esc_attr((int) ($settings['max_image_dimensions'] ?? 2560)); ?>"
@@ -111,7 +111,7 @@ if (!defined('WPINC')) {
             <div class="metasync-card">
                 <div class="metasync-card-header">
                     <div class="metasync-card-title-group">
-                        <h2><?php esc_html_e('Smart Lazy Loading', 'metasync'); ?></h2>
+                        <h2><?php esc_html_e('Smart Lazy Loading', 'metasync'); ?><?php Metasync::render_tooltip_icon('media_enable_lazy_loading', 'Delays loading images until a visitor scrolls near them, speeding up initial page load. Safe to leave on for most sites.'); ?></h2>
                         <span class="metasync-card-subtitle"><?php esc_html_e('Defer off-screen images and iframes for faster page loads', 'metasync'); ?></span>
                     </div>
                     <label class="metasync-toggle">
@@ -123,7 +123,7 @@ if (!defined('WPINC')) {
                 <div class="metasync-card-body metasync-toggle-section" data-toggle="enable_lazy_loading" <?php echo empty($settings['enable_lazy_loading']) ? 'style="display:none;"' : ''; ?>>
                     <div class="metasync-field-row">
                         <div class="metasync-field metasync-field--card">
-                            <label for="lcp_skip_count"><?php esc_html_e('LCP Protection - Skip Count', 'metasync'); ?></label>
+                            <label for="lcp_skip_count"><?php esc_html_e('LCP Protection - Skip Count', 'metasync'); ?><?php Metasync::render_tooltip_icon('media_lcp_skip_count', "How many of the first images on a page are loaded immediately instead of lazily — these are usually the ones visible without scrolling. 'LCP' stands for Largest Contentful Paint, a page-speed metric; leave at the default unless a speed test flags your hero image."); ?></label>
                             <div class="metasync-number-group">
                                 <input type="number" name="metasync_media[lcp_skip_count]" id="lcp_skip_count"
                                        value="<?php echo esc_attr((int) $settings['lcp_skip_count']); ?>"
@@ -184,7 +184,7 @@ if (!defined('WPINC')) {
                 <div class="metasync-card-body">
                     <div class="metasync-field-row">
                         <div class="metasync-field">
-                            <label for="exclude_classes"><?php esc_html_e('Exclude by CSS Class', 'metasync'); ?></label>
+                            <label for="exclude_classes"><?php esc_html_e('Exclude by CSS Class', 'metasync'); ?><?php Metasync::render_tooltip_icon('media_exclude_classes', 'Skip lazy-loading and optimization for images matching this class or URL — use for logos or above-the-fold images you want to load instantly.'); ?></label>
                             <input type="text" name="metasync_media[exclude_classes]" id="exclude_classes"
                                    value="<?php echo esc_attr($settings['exclude_classes']); ?>"
                                    placeholder="no-lazy, skip-convert, custom-class"
@@ -193,7 +193,7 @@ if (!defined('WPINC')) {
                         </div>
 
                         <div class="metasync-field">
-                            <label for="exclude_urls"><?php esc_html_e('Exclude by URL Pattern', 'metasync'); ?></label>
+                            <label for="exclude_urls"><?php esc_html_e('Exclude by URL Pattern', 'metasync'); ?><?php Metasync::render_tooltip_icon('media_exclude_urls', 'Skip lazy-loading and optimization for images matching this class or URL — use for logos or above-the-fold images you want to load instantly.'); ?></label>
                             <input type="text" name="metasync_media[exclude_urls]" id="exclude_urls"
                                    value="<?php echo esc_attr($settings['exclude_urls']); ?>"
                                    placeholder="/logo, /brand, external-cdn.com"

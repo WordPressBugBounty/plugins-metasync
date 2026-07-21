@@ -470,7 +470,8 @@ class Metasync_Settings_Registration
                     '<input type="checkbox" id="enable_googleinstantindex" name="' . $option_key . '[seo_controls][enable_googleinstantindex]" value="true" %s />',
                     isset($enable_googleinstantindex) && $enable_googleinstantindex == 'true' ? 'checked' : ''
                 );
-                printf('<span class="description"><strong>Enable Instant Indexing:</strong> When checked, enables the Google Instant Indexing feature which allows you to submit URLs directly to Google for faster indexing. A new "Instant Indexing" menu item will appear in the navigation.</span>');
+                Metasync::render_tooltip_icon('enable_googleinstantindex', 'Turns on direct URL submission to Google. It only works after you add a service-account key below and verify your site in Search Console — set those up first.');
+                printf('<span class="description" style="margin-left:8px;"><strong>Enable Instant Indexing:</strong> When checked, enables the Google Instant Indexing feature which allows you to submit URLs directly to Google for faster indexing. A new "Instant Indexing" menu item will appear in the navigation.</span>');
             },
             $page_slug . '_seo-controls',
             $SECTION_SEO_CONTROLS_INSTANT_INDEX
@@ -1161,19 +1162,19 @@ class Metasync_Settings_Registration
         if(is_admin()){
         add_settings_field(
             'white_label_plugin_name',
-            'Plugin Name',
+            'Plugin Name' . Metasync::get_tooltip_icon_html('wl_plugin_name_tooltip', 'The name shown for this plugin throughout the WordPress admin — menus, page titles, and system messages. Replace it with your own brand name (max 18 characters).'),
            function() use ($option_key) {
-            $value = Metasync::get_option('general')['white_label_plugin_name'] ?? '';   
-            printf('<input type="text" name="' . $option_key . '[general][white_label_plugin_name]" value="' . esc_attr($value) . '" maxlength="16" />');
-            printf('<p class="description">This name will be used for general plugin branding (WordPress menus, page titles, and system messages). Maximum 16 characters.</p>');
+            $value = Metasync::get_option('general')['white_label_plugin_name'] ?? '';
+            printf('<input type="text" name="' . $option_key . '[general][white_label_plugin_name]" value="' . esc_attr($value) . '" maxlength="18" />');
+            printf('<p class="description">This name will be used for general plugin branding (WordPress menus, page titles, and system messages). Maximum 18 characters.</p>');
            },
            $page_slug . '_branding',
                 $SECTION_METASYNC
         );
-        
+
         add_settings_field(
             'whitelabel_otto_name',
-                'OTTO Name',
+                'OTTO Name' . Metasync::get_tooltip_icon_html('wl_otto_name_tooltip', 'The name used wherever OTTO is mentioned in the plugin (e.g. "Enable [Name] Server Side Rendering"). Rename it to match your own product branding.'),
             function() use ($option_key) {
                 $value = Metasync::get_option('general')['whitelabel_otto_name'] ?? '';
                 printf('<input type="text" name="' . $option_key . '[general][whitelabel_otto_name]" value="' . esc_attr($value) . '" />');
@@ -1183,10 +1184,10 @@ class Metasync_Settings_Registration
             $page_slug . '_branding',
             $SECTION_METASYNC
         );
-        
+
         add_settings_field(
             'whitelabel_logo_light_url',
-            'Logo (Light Theme)',
+            'Logo (Light Theme)' . Metasync::get_tooltip_icon_html('wl_logo_light_tooltip', 'Your logo shown in the admin dashboard when it\'s set to light mode. Leave blank to use the default logo.'),
             function() use ($option_key) {
                 $whitelabel_settings = Metasync::get_whitelabel_settings();
                 $value = $whitelabel_settings['logo_light'] ?? '';
@@ -1199,7 +1200,7 @@ class Metasync_Settings_Registration
 
         add_settings_field(
             'whitelabel_logo_dark_url',
-            'Logo (Dark Theme)',
+            'Logo (Dark Theme)' . Metasync::get_tooltip_icon_html('wl_logo_dark_tooltip', 'Your logo shown in the admin dashboard when it\'s set to dark mode. Leave blank to use the default logo.'),
             function() use ($option_key) {
                 $whitelabel_settings = Metasync::get_whitelabel_settings();
                 $value = $whitelabel_settings['logo_dark'] ?? '';
@@ -1209,13 +1210,13 @@ class Metasync_Settings_Registration
             $page_slug . '_branding',
             $SECTION_METASYNC
         );
-        
+
                 add_settings_field(
             'whitelabel_domain_url',
-            'Dashboard URL',
+            'Dashboard URL' . Metasync::get_tooltip_icon_html('wl_dashboard_url_tooltip', 'The web address of your own branded dashboard, shown to clients instead of the Search Atlas dashboard link. This is cosmetic only — it doesn\'t change where your data is actually stored.'),
             function() use ($option_key) {
                 $whitelabel_settings = Metasync::get_whitelabel_settings();
-                $value = $whitelabel_settings['domain'] ?? '';   
+                $value = $whitelabel_settings['domain'] ?? '';
                 printf('<input type="url" name="' . $option_key . '[whitelabel][domain]" value="' . esc_attr($value) . '" size="60" />');
                 printf('<p class="description">Enter your whitelabel dashboard URL (e.g., https://yourdashboard.com). Used for branding purposes.</p>');
            },
@@ -1352,7 +1353,7 @@ class Metasync_Settings_Registration
 
         add_settings_field(
             'whitelabel_settings_password',
-            'Settings Password',
+            'Settings Password' . Metasync::get_tooltip_icon_html('whitelabel_settings_password_tooltip', 'Set a password to lock the plugin\'s white-label and settings tabs so your clients can\'t change your branding. You\'ll also need a recovery email in case you forget it.'),
             function() use ($option_key) {
                 // Decrypted for display — this field only renders after the
                 // whitelabel password gate has been passed.
@@ -1366,7 +1367,7 @@ class Metasync_Settings_Registration
 
         add_settings_field(
             'whitelabel_recovery_email',
-            'Recovery Email',
+            'Recovery Email' . Metasync::get_tooltip_icon_html('whitelabel_recovery_email_tooltip', 'The email where we\'ll send a reset link if you forget your white-label settings password. Required whenever a password is set.'),
             function() use ($option_key) {
                 $whitelabel_settings = Metasync::get_whitelabel_settings();
                 $value = $whitelabel_settings['recovery_email'] ?? '';
@@ -1455,7 +1456,7 @@ class Metasync_Settings_Registration
 
         add_settings_field(
             'schema_org_logo',
-            'Organization Logo URL',
+            'Organization Logo URL' . Metasync::get_tooltip_icon_html('schema_org_logo_tooltip', 'A direct link to your logo image. Google uses this in your Organization knowledge panel — use a clear, square-ish image on a plain background, ideally at least 112x112 pixels.'),
             function() use ($option_key) {
                 $schema = Metasync::get_option('schema') ?? [];
                 $value = $schema['org_logo'] ?? '';
@@ -1479,7 +1480,7 @@ class Metasync_Settings_Registration
 
         add_settings_field(
             'schema_org_contact_type',
-            'Contact Type',
+            'Contact Type' . Metasync::get_tooltip_icon_html('schema_org_contact_type_tooltip', 'What this phone number is for, using schema.org wording such as "customer support", "sales", or "technical support". It tells search engines how the number should be labeled.'),
             function() use ($option_key) {
                 $schema = Metasync::get_option('schema') ?? [];
                 $value = $schema['org_contact_type'] ?? '';
@@ -1491,7 +1492,7 @@ class Metasync_Settings_Registration
 
         add_settings_field(
             'schema_org_same_as',
-            'Social Profile URLs',
+            'Social Profile URLs' . Metasync::get_tooltip_icon_html('schema_org_same_as_tooltip', 'Links to your official profiles on other sites (Facebook, X/Twitter, LinkedIn, Wikipedia, etc.), one per line. This is the schema.org "sameAs" property — it helps search engines confirm these accounts are really you.'),
             function() use ($option_key) {
                 $schema = Metasync::get_option('schema') ?? [];
                 $value = $schema['org_same_as'] ?? '';
@@ -1537,7 +1538,7 @@ class Metasync_Settings_Registration
 
         add_settings_field(
             'schema_website_searchbox',
-            'Enable Sitelinks Searchbox',
+            'Enable Sitelinks Searchbox' . Metasync::get_tooltip_icon_html('schema_website_searchbox_tooltip', 'Adds a search action to your homepage schema so Google can show a search box directly under your site in results. Only affects how your site can appear in Google, not your actual site search.'),
             function() use ($option_key) {
                 $schema = Metasync::get_option('schema') ?? [];
                 $value = $schema['website_searchbox'] ?? false;
@@ -1562,7 +1563,7 @@ class Metasync_Settings_Registration
 
         add_settings_field(
             'schema_override_woocommerce',
-            'Override WooCommerce Product Schema',
+            'Override WooCommerce Product Schema' . Metasync::get_tooltip_icon_html('schema_override_woocommerce_tooltip', 'By default MetaSync stays out of the way and lets WooCommerce output Product schema, to avoid two copies. Turn this on only if you want MetaSync to replace WooCommerce\'s product structured data with its own.'),
             function() use ($option_key) {
                 $schema = Metasync::get_option('schema') ?? [];
                 $value = $schema['override_woocommerce_schema'] ?? false;
@@ -1588,7 +1589,7 @@ class Metasync_Settings_Registration
 
         add_settings_field(
             'google_site_verification',
-            'Google Search Console',
+            'Google Search Console' . Metasync::get_tooltip_icon_html('google_site_verification_tooltip', 'Paste the verification code Google Search Console gave you. This lets Google confirm you own this site — it does not change anything visitors see.'),
             array( Metasync_Settings_Fields::instance(), 'google_site_verification_callback' ),
             $page_slug . '_searchengines-verification',
             $SECTION_SEARCHENGINE
@@ -1596,7 +1597,7 @@ class Metasync_Settings_Registration
 
         add_settings_field(
             'bing_site_verification',
-            'Bing Webmaster Tools',
+            'Bing Webmaster Tools' . Metasync::get_tooltip_icon_html('bing_site_verification_tooltip', 'Paste the verification code Bing Webmaster Tools gave you. This lets Bing confirm you own this site — it does not change anything visitors see.'),
             array( Metasync_Settings_Fields::instance(), 'bing_site_verification_callback' ),
             $page_slug . '_searchengines-verification',
             $SECTION_SEARCHENGINE
@@ -1604,7 +1605,7 @@ class Metasync_Settings_Registration
 
         add_settings_field(
             'yandex_site_verification',
-            'Yandex Webmaster',
+            'Yandex Webmaster' . Metasync::get_tooltip_icon_html('yandex_site_verification_tooltip', 'Paste the verification code Yandex Webmaster gave you. This lets Yandex confirm you own this site — it does not change anything visitors see.'),
             array( Metasync_Settings_Fields::instance(), 'yandex_site_verification_callback' ),
             $page_slug . '_searchengines-verification',
             $SECTION_SEARCHENGINE
@@ -1612,7 +1613,7 @@ class Metasync_Settings_Registration
 
         add_settings_field(
             'pinterest_site_verification',
-            'Pinterest',
+            'Pinterest' . Metasync::get_tooltip_icon_html('pinterest_site_verification_tooltip', 'Paste the verification code Pinterest gave you when you claimed your website. This lets Pinterest confirm you own this site — it does not change anything visitors see.'),
             array( Metasync_Settings_Fields::instance(), 'pinterest_site_verification_callback' ),
             $page_slug . '_searchengines-verification',
             $SECTION_SEARCHENGINE
@@ -1620,7 +1621,7 @@ class Metasync_Settings_Registration
 
         add_settings_field(
             'baidu_site_verification',
-            'Baidu',
+            'Baidu' . Metasync::get_tooltip_icon_html('baidu_site_verification_tooltip', 'Paste the verification code Baidu Webmaster gave you. This lets Baidu confirm you own this site — it does not change anything visitors see.'),
             function() use ($option_key) {
                 $value = Metasync::get_option('searchengines')['baidu_site_verification'] ?? '';
                 printf( '<input type="text" id="baidu_site_verification" name="' . $option_key . '[searchengines][baidu_site_verification]" value="%s" size="50" />', esc_attr( $value ) );
@@ -1631,7 +1632,7 @@ class Metasync_Settings_Registration
 
         add_settings_field(
             'alexa_site_verification',
-            'Alexa',
+            'Alexa' . Metasync::get_tooltip_icon_html('alexa_site_verification_tooltip', 'Paste the verification code your Alexa/site directory gave you. This confirms you own this site — it does not change anything visitors see.'),
             function() use ($option_key) {
                 $value = Metasync::get_option('searchengines')['alexa_site_verification'] ?? '';
                 printf( '<input type="text" id="alexa_site_verification" name="' . $option_key . '[searchengines][alexa_site_verification]" value="%s" size="50" />', esc_attr( $value ) );
@@ -1642,7 +1643,7 @@ class Metasync_Settings_Registration
 
         add_settings_field(
             'norton_save_site_verification',
-            'Norton Safe Web',
+            'Norton Safe Web' . Metasync::get_tooltip_icon_html('norton_site_verification_tooltip', 'Paste the verification code Norton Safe Web gave you. This confirms you own this site — it does not change anything visitors see.'),
             function() use ($option_key) {
                 $value = Metasync::get_option('searchengines')['norton_save_site_verification'] ?? '';
                 printf( '<input type="text" id="norton_save_site_verification" name="' . $option_key . '[searchengines][norton_save_site_verification]" value="%s" size="50" />', esc_attr( $value ) );
@@ -1689,21 +1690,21 @@ class Metasync_Settings_Registration
 
         $fields_instance = Metasync_Settings_Fields::instance();
 
-        add_settings_field( 'local_seo_person_organization', 'Type',           array( $fields_instance, 'local_seo_person_organization_callback' ), $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_person_organization', 'Type' . Metasync::get_tooltip_icon_html('local_seo_type_tooltip', 'Pick whether this site represents a Person or an Organization/business. This sets the schema.org @type search engines use to describe you in results.'),           array( $fields_instance, 'local_seo_person_organization_callback' ), $page_slug . '_local-seo', $SECTION_LOCALSEO );
         add_settings_field( 'local_seo_name',                'Name',           array( $fields_instance, 'local_seo_name_callback' ),                $page_slug . '_local-seo', $SECTION_LOCALSEO );
         add_settings_field( 'local_seo_logo',                'Logo',           array( $fields_instance, 'local_seo_logo_callback' ),                $page_slug . '_local-seo', $SECTION_LOCALSEO );
         add_settings_field( 'local_seo_url',                 'Website URL',    array( $fields_instance, 'local_seo_url_callback' ),                 $page_slug . '_local-seo', $SECTION_LOCALSEO );
         add_settings_field( 'local_seo_email',               'Email',          array( $fields_instance, 'local_seo_email_callback' ),               $page_slug . '_local-seo', $SECTION_LOCALSEO );
         add_settings_field( 'local_seo_phone',               'Phone',          array( $fields_instance, 'local_seo_phone_callback' ),               $page_slug . '_local-seo', $SECTION_LOCALSEO );
         add_settings_field( 'local_seo_address',             'Address',        array( $fields_instance, 'local_seo_address_callback' ),             $page_slug . '_local-seo', $SECTION_LOCALSEO );
-        add_settings_field( 'local_seo_business_type',       'Business Type',  array( $fields_instance, 'local_seo_business_type_callback' ),       $page_slug . '_local-seo', $SECTION_LOCALSEO );
-        add_settings_field( 'local_seo_opening_hours',       'Opening Hours',  array( $fields_instance, 'local_seo_opening_hours_callback' ),       $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_business_type',       'Business Type' . Metasync::get_tooltip_icon_html('local_seo_business_type_tooltip', 'The category that best describes your business (for example Restaurant, LawFirm, Store). This maps to a schema.org LocalBusiness type so search engines can classify you correctly.'),  array( $fields_instance, 'local_seo_business_type_callback' ),       $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_opening_hours',       'Opening Hours' . Metasync::get_tooltip_icon_html('local_seo_opening_hours_tooltip', 'Your business hours, shown in search results and maps. Use the day/time format shown in the field so search engines can read it.'),  array( $fields_instance, 'local_seo_opening_hours_callback' ),       $page_slug . '_local-seo', $SECTION_LOCALSEO );
         add_settings_field( 'local_seo_phone_numbers',       'Phone Numbers',  array( $fields_instance, 'local_seo_phone_numbers_callback' ),       $page_slug . '_local-seo', $SECTION_LOCALSEO );
-        add_settings_field( 'local_seo_price_range',         'Price Range',    array( $fields_instance, 'local_seo_price_range_callback' ),         $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_price_range',         'Price Range' . Metasync::get_tooltip_icon_html('local_seo_price_range_tooltip', 'A rough indication of how expensive your business is, usually shown as $ to $$$$. This appears in your business listing in search results.'),    array( $fields_instance, 'local_seo_price_range_callback' ),         $page_slug . '_local-seo', $SECTION_LOCALSEO );
         add_settings_field( 'local_seo_about_page',          'About Page',     array( $fields_instance, 'local_seo_about_page_callback' ),          $page_slug . '_local-seo', $SECTION_LOCALSEO );
         add_settings_field( 'local_seo_contact_page',        'Contact Page',   array( $fields_instance, 'local_seo_contact_page_callback' ),        $page_slug . '_local-seo', $SECTION_LOCALSEO );
-        add_settings_field( 'local_seo_map_key',             'Google Maps Key', array( $fields_instance, 'local_seo_map_key_callback' ),            $page_slug . '_local-seo', $SECTION_LOCALSEO );
-        add_settings_field( 'local_seo_geo_coordinates',     'Geo Coordinates', array( $fields_instance, 'local_seo_geo_coordinates_callback' ),    $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_map_key',             'Google Maps Key' . Metasync::get_tooltip_icon_html('local_seo_map_key_tooltip', 'A Google Maps API key from your Google Cloud account. Only needed if you want an embedded map; it lets Google bill and authorize the map requests.'), array( $fields_instance, 'local_seo_map_key_callback' ),            $page_slug . '_local-seo', $SECTION_LOCALSEO );
+        add_settings_field( 'local_seo_geo_coordinates',     'Geo Coordinates' . Metasync::get_tooltip_icon_html('local_seo_geo_coordinates_tooltip', 'The exact latitude and longitude of your business. This helps search engines and maps pin your location precisely, especially when your street address is ambiguous.'), array( $fields_instance, 'local_seo_geo_coordinates_callback' ),    $page_slug . '_local-seo', $SECTION_LOCALSEO );
 
         // ----------------------------------------------------------------
         // Breadcrumbs page
@@ -2491,10 +2492,10 @@ class Metasync_Settings_Registration
 
                 if ($field === 'white_label_plugin_name') {
                     $stored_name = (string) ($metasync_options['general']['white_label_plugin_name'] ?? '');
-                    // Only enforce the 16-char limit when the value actually changes so an
+                    // Only enforce the 18-char limit when the value actually changes so an
                     // already-saved longer legacy name can be re-saved without an error.
-                    if (strlen($value) > 16 && $value !== $stored_name && wp_unslash($value) !== $stored_name) {
-                        $whitelabel_errors[$field] = 'Plugin name must not exceed 16 characters';
+                    if (strlen($value) > 18 && $value !== $stored_name && wp_unslash($value) !== $stored_name) {
+                        $whitelabel_errors[$field] = 'Plugin name must not exceed 18 characters';
                         continue;
                     }
                 }
@@ -2686,20 +2687,38 @@ class Metasync_Settings_Registration
         }
 
         $old_options = Metasync::get_option('general') ?? [];
-        $old_api_key = $old_options['searchatlas_api_key'] ?? '';
+        // Stored value is encrypted at rest (or legacy plaintext/empty). Keep it as-is
+        // for preserve/revert, and decrypt a separate copy for plaintext comparison.
+        $old_stored_api_key = $old_options['searchatlas_api_key'] ?? '';
+        $old_api_key        = Metasync::get_searchatlas_api_key();
+        if ( $old_api_key === false ) {
+            // Stored key could not be decrypted (salts changed). Treat as no usable key.
+            $old_api_key = '';
+        }
 
         $api_key_field_present = isset( $_POST['metasync_options']['general']['searchatlas_api_key'] );
         $api_key_validated     = null;  // null = not checked, true = valid, false = rejected
         $is_connected          = null;
         $api_key_warning       = null;
-        $proposed_new_api_key  = $metasync_options['general']['searchatlas_api_key'] ?? '';
+
+        // The submitted key arrives as plaintext; capture it for comparison before
+        // encrypting it for storage. When the field is absent, preserve the existing
+        // encrypted value untouched so a normal settings save never disturbs the key.
+        $proposed_new_api_key = $api_key_field_present ? ( $metasync_options['general']['searchatlas_api_key'] ?? '' ) : '';
+        if ( $api_key_field_present ) {
+            // encrypt_api_key('') === '' so this also handles key removal.
+            $metasync_options['general']['searchatlas_api_key'] = Metasync::encrypt_api_key( $proposed_new_api_key );
+        } else {
+            $metasync_options['general']['searchatlas_api_key'] = $old_stored_api_key;
+        }
 
         // When the API key changes, save it first, then POST heartbeat to register
         // the WPWebsiteHeartbeat row on the backend, then GET ping to verify.
         // The old flow did GET ping first, which failed because the row didn't exist yet.
         if ( $api_key_field_present && $proposed_new_api_key !== '' && $proposed_new_api_key !== $old_api_key ) {
-            // Step 1: Save the new key so SyncCustomerParams can use it
+            // Step 1: Save the new (encrypted) key so SyncCustomerParams can use it
             Metasync::set_option($metasync_options);
+            Metasync::invalidate_api_key_cache();
 
             // Step 2: POST heartbeat to register the site (creates WPWebsiteHeartbeat row)
             $sync_request = new Metasync_Sync_Requests();
@@ -2730,9 +2749,11 @@ class Metasync_Settings_Registration
                 // Network error during POST — keep the key, warn user
                 $api_key_warning = 'Could not register with the server (network error). The key was saved — it will be verified on the next heartbeat.';
             } else {
-                // POST returned non-200 — the key is likely invalid, revert
-                $metasync_options['general']['searchatlas_api_key'] = $old_api_key;
+                // POST returned non-200 — the key is likely invalid, revert to the
+                // previously stored (already-encrypted) value.
+                $metasync_options['general']['searchatlas_api_key'] = $old_stored_api_key;
                 Metasync::set_option($metasync_options);
+                Metasync::invalidate_api_key_cache();
                 $api_key_validated = false;
                 $is_connected      = false;
                 $api_key_warning   = empty( $old_api_key )
@@ -2740,8 +2761,12 @@ class Metasync_Settings_Registration
                     : 'The API key could not be verified. Your API key has been reverted to the previously saved key.';
             }
         } else {
-            // Key unchanged — just save options
+            // Key unchanged, removed, or field absent — just save options.
+            // $metasync_options already holds the correct stored value: the
+            // re-encrypted submission (present) or the preserved encrypted value
+            // (absent); removal stored encrypt_api_key('') === ''.
             Metasync::set_option($metasync_options);
+            Metasync::invalidate_api_key_cache();
         }
 
         // Update connection state immediately when validated
@@ -2755,8 +2780,12 @@ class Metasync_Settings_Registration
             ], 300 );
         }
 
-        $data = Metasync::get_option('general');
-        $new_api_key = $data['searchatlas_api_key'] ?? '';
+        // Compare decrypted plaintext values — the stored value is ciphertext.
+        Metasync::invalidate_api_key_cache();
+        $new_api_key = Metasync::get_searchatlas_api_key();
+        if ( $new_api_key === false ) {
+            $new_api_key = '';
+        }
 
         $api_key_changed = $old_api_key !== $new_api_key;
         $api_key_added = empty($old_api_key) && !empty($new_api_key);
@@ -2972,9 +3001,9 @@ class Metasync_Settings_Registration
             if ( $api_key_warning !== null ) {
                 $response_payload['warning'] = $api_key_warning;
             }
-            if ( $api_key_validated === false ) {
-                $response_payload['previous_api_key'] = $old_api_key;
-            }
+            // Note: the previous key is intentionally NOT returned. The key is now
+            // managed via one-click auth and shown masked, so the cleartext value
+            // must never be sent to the browser.
         } elseif ( $api_key_field_present && $proposed_new_api_key === '' && $old_api_key !== '' ) {
             $response_payload['api_key_removed'] = true;
             $response_payload['warning'] = 'The API key has been removed. The plugin will no longer sync with the server.';

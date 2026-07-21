@@ -446,6 +446,7 @@ class Metasync_Settings_Fields {
                 <tr>
                     <th scope="row" style="width: 200px; padding-top: 15px;">
                         <label for="metasync_bing_api_key_inline">IndexNow API Key <span style="color: #d63638;">*</span></label>
+                        <?php Metasync::render_tooltip_icon('metasync_bing_api_key_inline', 'This key lets Bing trust indexing requests from your site. Click \'Generate Random API Key\' if you don\'t have one — the plugin publishes the matching verification file automatically, no manual upload needed.'); ?>
                     </th>
                     <td style="padding-top: 15px;">
                         <input type="text"
@@ -878,10 +879,11 @@ class Metasync_Settings_Fields {
                     <div>
                         <label style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px; font-weight: 500;">
                             Max Execution Time:
+                            <?php Metasync::render_tooltip_icon('max_execution_time', 'How many seconds a single plugin operation (like a bulk sync or scan) is allowed to run before PHP stops it. Raise this only if you see timeout errors, and only up to what your host allows.'); ?>
                         </label>
                         <div style="display: flex; align-items: center; gap: 10px;">
-                            <input type="number" 
-                                   id="max_execution_time" 
+                            <input type="number"
+                                   id="max_execution_time"
                                    name="max_execution_time" 
                                    value="<?php echo esc_attr($settings['max_execution_time']); ?>" 
                                    min="1" 
@@ -909,10 +911,11 @@ class Metasync_Settings_Fields {
                     <div>
                         <label style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px; font-weight: 500;">
                             Max Memory Limit:
+                            <?php Metasync::render_tooltip_icon('max_memory_limit', 'How much memory (RAM) the plugin is allowed to use for a single operation before PHP stops it. Raise this only if you see "out of memory" errors, and only up to what your host allows.'); ?>
                         </label>
                         <div style="display: flex; align-items: center; gap: 10px;">
-                            <input type="number" 
-                                   id="max_memory_limit" 
+                            <input type="number"
+                                   id="max_memory_limit"
                                    name="max_memory_limit" 
                                    value="<?php echo esc_attr($settings['max_memory_limit']); ?>" 
                                    min="<?php echo esc_attr($memory_range['min']); ?>"
@@ -958,10 +961,11 @@ class Metasync_Settings_Fields {
                     <div>
                         <label style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px; font-weight: 500;">
                             Log Processing Batch Size:
+                            <?php Metasync::render_tooltip_icon('log_batch_size', 'How many log lines the plugin processes at once when scanning its own logs. Lower it if this causes slowdowns on smaller hosting plans; most sites can leave the default.'); ?>
                         </label>
                         <div style="display: flex; align-items: center; gap: 10px;">
-                            <input type="number" 
-                                   id="log_batch_size" 
+                            <input type="number"
+                                   id="log_batch_size"
                                    name="log_batch_size" 
                                    value="<?php echo esc_attr($settings['log_batch_size']); ?>" 
                                    min="100" 
@@ -975,6 +979,7 @@ class Metasync_Settings_Fields {
                     <div>
                         <label style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px; font-weight: 500;">
                             Action Scheduler Concurrent Batches:
+                            <?php Metasync::render_tooltip_icon('action_scheduler_batches', 'How many background sync jobs the plugin is allowed to run at the same time. Higher values finish syncing faster but use more server resources at once — lower this if your site slows down during syncs.'); ?>
                         </label>
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <input type="number" 
@@ -1002,6 +1007,7 @@ class Metasync_Settings_Fields {
                     <div>
                         <label style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px; font-weight: 500;">
                             <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> API Calls Per Minute:
+                            <?php Metasync::render_tooltip_icon('otto_rate_limit', 'The maximum number of requests per minute the plugin will send to ' . Metasync::get_whitelabel_otto_name() . '\'s servers. Lower it if you\'re seeing rate-limit errors; most sites can leave the default.'); ?>
                         </label>
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <input type="number" 
@@ -1018,6 +1024,7 @@ class Metasync_Settings_Fields {
                     <div>
                         <label style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px; font-weight: 500;">
                             Queue Auto-Cleanup:
+                            <?php Metasync::render_tooltip_icon('queue_cleanup_days', 'How many days a completed background job is kept before the plugin automatically deletes its record. Lower it to save database space; raise it if you need to look back further when troubleshooting.'); ?>
                         </label>
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <input type="number" 
@@ -1089,7 +1096,13 @@ class Metasync_Settings_Fields {
             'enable_auto_updates' => sprintf('Allow WordPress to automatically update the %s plugin when new versions are released. Recommended for security patches, but you may prefer manual updates for major versions.', $plugin_name),
             'import_external_data' => sprintf('Import your existing SEO settings and metadata from other popular SEO plugins like Yoast, Rank Math, or All in One SEO. This makes migration to %s seamless without losing your SEO data.', $plugin_name),
             'import_seo_metadata' => sprintf('Migrate your existing SEO titles and meta descriptions from Yoast, Rank Math, or All in One SEO. This one-click import preserves your search rankings by copying your optimized meta data to %s, even if the source plugin is deactivated.', $plugin_name),
-            'default_page_builder' => 'Choose how Content Genius stores synced articles. "Gutenberg" works with all themes and page builders. Selecting a specific builder converts content to that builder\'s widget format, which inherits the builder\'s global typography and layout styles.'
+            'default_page_builder' => 'Choose how Content Genius stores synced articles. "Gutenberg" works with all themes and page builders. Selecting a specific builder converts content to that builder\'s widget format, which inherits the builder\'s global typography and layout styles.',
+            'og_image_dimensions' => 'Adds your share image\'s width, height, and file type to the Open Graph tags so Facebook, LinkedIn, and others render your preview instantly at the right size instead of guessing. Leave on unless another plugin already outputs these.',
+            'article_timestamps' => 'Tells social platforms and search engines when each post was first published and last updated, so shares and rich results show accurate dates. Safe to leave enabled.',
+            'article_author' => 'Adds a link to the author\'s profile or archive page to each post\'s social tags, so shared articles can show author attribution. You can override the author URL per-post. Turn off if you\'d rather not expose author pages.',
+            'article_section' => 'Labels each post with its main topic (its primary category) in the social tags, helping platforms categorize your content. Falls back to the first category if no primary one is set.',
+            'article_tags' => 'Adds each of your WordPress post tags as a separate social "tag" so platforms understand the topics a post covers. Turn off if you don\'t want your tags exposed in share metadata.',
+            'twitter_image_alt' => 'Adds descriptive alt text to the image shown when your page is shared on X/Twitter, improving accessibility for screen-reader users. Uses your saved alt text or the image\'s own alt attribute.'
         );
     }
 
@@ -1206,11 +1219,20 @@ class Metasync_Settings_Fields {
         }
 
         echo '<table class="form-table" role="presentation">';
+        $llms_tooltips = array(
+            'llms_txt_enabled' => 'Publishes a file at yoursite.com/llms.txt listing your key pages so AI assistants like ChatGPT and Perplexity can find and cite your content. Safe to leave off if you don\'t want AI crawlers guided to your pages.',
+            'llms_full_enabled' => 'Also publishes a larger file with the full text of your posts (not just links). This exposes complete article content and can be large — keep the post limit low on smaller hosting plans.',
+        );
         foreach ($wp_settings_fields[$page][$section] as $field) {
             echo '<tr>';
             echo '<th scope="row">';
             if (!empty($field['title'])) {
+                echo '<div class="metasync-field-label-wrapper">';
                 echo '<label for="' . esc_attr($field['id']) . '">' . $field['title'] . '</label>';
+                if (isset($llms_tooltips[$field['id']])) {
+                    Metasync::render_tooltip_icon($field['id'], $llms_tooltips[$field['id']]);
+                }
+                echo '</div>';
             }
             echo '</th>';
             echo '<td>';
@@ -1337,10 +1359,24 @@ class Metasync_Settings_Fields {
 
     public function searchatlas_api_key_callback()
     {
-        $current_api_key = isset(Metasync::get_option('general')['searchatlas_api_key']) ? esc_attr(Metasync::get_option('general')['searchatlas_api_key']) : '';
+        // Whether a key is stored at rest (encrypted or legacy plaintext).
+        $stored_api_key = Metasync::get_option('general')['searchatlas_api_key'] ?? '';
+        $has_api_key    = ($stored_api_key !== '');
+
+        // Decrypted key for masking only. Never rendered in cleartext.
+        // false => an encrypted key exists but cannot be decrypted (salts changed).
+        $decrypted_api_key = Metasync::get_searchatlas_api_key();
+        $decrypt_failed    = ($decrypted_api_key === false);
+
+        // Build a masked representation: bullets + last 4 chars. The cleartext
+        // key is never emitted into the page.
+        $masked_api_key = '';
+        if (!$decrypt_failed && $decrypted_api_key !== '') {
+            $masked_api_key = str_repeat('*', 8) . substr($decrypted_api_key, -4);
+        }
+
         $otto_uuid = isset(Metasync::get_option('general')['otto_pixel_uuid']) ? Metasync::get_option('general')['otto_pixel_uuid'] : '';
-        
-        $has_api_key = !empty($current_api_key);
+
         $has_otto_uuid = !empty($otto_uuid);
         
         $is_fully_connected = $this->admin_instance->is_heartbeat_connected();
@@ -1396,7 +1432,7 @@ class Metasync_Settings_Fields {
         printf('• Make sure you have a %s account before connecting<br/>', esc_html(Metasync::get_effective_plugin_name()));
         printf('• The authentication window will open in a popup - please allow popups<br/>');
         printf('• The process typically takes 15-30 seconds to complete<br/>');
-        printf('• Your API key will be automatically filled in the field below<br/>');
+        printf('• Your API key will be stored securely and shown masked below<br/>');
         printf('• If you encounter issues, try disabling ad blockers temporarily<br/>');
         printf('• Contact <a href="mailto:%s">%s</a> if you need assistance', Metasync::SUPPORT_EMAIL, Metasync::SUPPORT_EMAIL);
         printf('</div>');
@@ -1415,26 +1451,35 @@ class Metasync_Settings_Fields {
         }
         printf('</label>');
         
+        // Read-only masked display. The API key is managed via one-click
+        // authentication only; the cleartext key is never rendered into the
+        // page HTML (View Source / DOM). No form input is emitted, so saving
+        // settings cannot overwrite or expose the stored key.
+        $display_has_key = (!$decrypt_failed && $masked_api_key !== '') ? '1' : '0';
         printf(
-            '<input type="text" id="searchatlas-api-key" name="' . Metasync_Admin::option_key . '[general][searchatlas_api_key]" value="%s" size="40" class="regular-text" placeholder="Your API key will appear here after authentication" />',
-            $current_api_key
+            '<div id="searchatlas-api-key-display" class="metasync-api-key-masked" data-has-key="%s" style="display:inline-flex; align-items:center; min-width:320px; height:42px; padding:0 14px; font-family:monospace; font-size:15px; letter-spacing:4px; background:var(--dashboard-input-bg, #22272e); border:1px solid var(--dashboard-border, #3a424d); border-radius:6px; color:var(--dashboard-text-primary, #e6e8eb); cursor:default; user-select:none;">',
+            esc_attr($display_has_key)
         );
-        
+        if ($decrypt_failed) {
+            printf('<em style="color:#b32d2e; font-family:sans-serif; letter-spacing:normal; font-style:normal; font-size:14px;">Stored API key could not be read. Please re-authenticate above.</em>');
+        } elseif ($masked_api_key !== '') {
+            echo esc_html($masked_api_key);
+        } else {
+            printf('<em style="color:#646970;">Not configured</em>');
+        }
+        printf('</div>');
+
         printf('<p class="description" style="margin-top: 8px;">');
-        if ($is_fully_connected) {
-            printf('Your %s API key for secure communication with the platform. Use the authentication button above to refresh or change accounts.', esc_html(Metasync::get_effective_plugin_name()));
+        if ($decrypt_failed) {
+            printf('Your stored API key could not be decrypted (your site security keys may have changed). Please re-authenticate above to reconnect.');
+        } elseif ($is_fully_connected) {
+            printf('Your %s API key is stored securely and used for communication with the platform. Use the authentication button above to refresh or change accounts.', esc_html(Metasync::get_effective_plugin_name()));
         } elseif ($has_api_key && !$has_otto_uuid) {
             printf('Your API key is configured but %s UUID is missing. Re-authenticate above to complete the setup and enable dashboard access.', esc_html(Metasync::get_whitelabel_otto_name()));
         } else {
-            printf('This field will be automatically populated when you authenticate using the button above. You can also manually enter your API key if you have one.');
+            printf('Use the authentication button above to securely connect your account. Your API key is stored encrypted and shown masked here.');
         }
         printf('</p>');
-
-        ?>
-        <p class="description" style="margin-top: 10px; padding: 8px 12px; background: #fff9e6; border-left: 3px solid #f0b849; border-radius: 4px; font-size: 12px;">
-            <strong>Manual Authentication:</strong> If you manually enter your <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> API Key and <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> UUID, you also consent to the same AI-powered automation permissions described above.
-        </p>
-        <?php
 
         printf('</div>');
 
@@ -2414,6 +2459,7 @@ class Metasync_Settings_Fields {
                            <?php checked($options['enabled'], 1); ?>
                            style="width: 18px; height: 18px; cursor: pointer;">
                     <span style="font-weight: 500; color: var(--dashboard-text);">Enable breadcrumbs globally</span>
+                    <?php Metasync::render_tooltip_icon('breadcrumbs_enabled', 'Shows a trail of links (e.g. Home > Blog > This Post) near the top of your pages so visitors can see where they are and navigate back up a level. Turn off to hide breadcrumbs everywhere.'); ?>
                 </label>
                 <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
                     Enable or disable breadcrumb navigation on your site
@@ -2429,6 +2475,7 @@ class Metasync_Settings_Fields {
                            <?php checked($options['disable_schema'], 1); ?>
                            style="width: 18px; height: 18px; cursor: pointer;">
                     <span style="font-weight: 500; color: var(--dashboard-text);">Disable breadcrumb schema markup (JSON-LD)</span>
+                    <?php Metasync::render_tooltip_icon('breadcrumbs_disable_schema', 'Leave off. Only check this if another SEO plugin (Yoast, Rank Math, etc.) already sends breadcrumb data to Google, so you don\'t send it twice.'); ?>
                 </label>
                 <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
                     When checked, MetaSync will not output the <code style="background: rgba(0,0,0,0.1); padding: 2px 4px; border-radius: 3px;">BreadcrumbList</code> JSON-LD in <code style="background: rgba(0,0,0,0.1); padding: 2px 4px; border-radius: 3px;">&lt;head&gt;</code>. Use this if another SEO plugin already handles breadcrumb schema.
@@ -2530,6 +2577,7 @@ class Metasync_Settings_Fields {
             <div style="margin-bottom: 24px;">
                 <label for="breadcrumb_archive_format" style="display: block; margin-bottom: 8px; font-weight: 500; color: var(--dashboard-text);">
                     Archive Label Format
+                    <?php Metasync::render_tooltip_icon('breadcrumb_archive_format', 'On category/archive pages, {name} is replaced with that section\'s name. Type {name} alone for just the name, or something like "Category: {name}".'); ?>
                 </label>
                 <input type="text"
                        id="breadcrumb_archive_format"

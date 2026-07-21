@@ -1,58 +1,65 @@
 === Search Atlas SEO - Premier SEO Plugin for One-Click WP Publishing & Integrated AI Optimization ===
 Contributors: shahrukhlinkgraph
-Tags: seo, sitemap, google instant indexing, schema, 404 monitor
+Tags: seo, ai seo, schema, sitemap, redirection
 Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 2.6.17
+Stable tag: 2.6.18
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
-Search Atlas SEO is a user-friendly WordPress plugin that simplifies complex and time-consuming SEO tasks into efficient, easy-to-manage processes. With just a few clicks, the meta-bulk update feature leverages AI to automatically optimize meta tags, enhancing click-through rates. Keep your site or specific URLs up-to-date with the latest Google Search data directly from the Search Atlas SEO plugin page.
+AI-powered SEO & GEO for WordPress: OTTO auto-optimizes meta, schema & content, and helps you rank on Google and in AI search.
 
 == Description ==
-### Search Atlas SEO - Top WordPress Plugin for SEO & AI Integration
-**Comprehensive WordPress SEO Plugin with AI-Powered Optimization & One-Click Publishing**
 
-**SEO is the most effective strategy for driving organic traffic.** We've enhanced our award-winning SEO software, **Search Atlas**, with cutting-edge Artificial Intelligence (AI) integrations to deliver the most powerful WordPress plugin available. Features like one-click publishing, bulk meta updates, and schema markup enable website owners to attract more search traffic and build a high-ranking website effortlessly.
+**AI-powered SEO for WordPress — built for Google rankings and the new era of AI search.**
 
-## LEARN MORE ABOUT THE Search Atlas PLATFORM
+Search Atlas connects your WordPress site to the Search Atlas platform and its OTTO AI optimization engine, automating the technical SEO work that used to take hours. Optimize for traditional search engines and for AI answer engines (GEO — Generative Engine Optimization), publish content in one click, and manage your entire on-page SEO from a single dashboard.
 
-Often hailed as **the best marketing investment** a website can make, SEO provides website owners with the means to boost their web traffic significantly. Traditionally, SEO has been a specialized field requiring technical expertise. **Search Atlas SEO by Search Atlas democratizes SEO, putting every aspect of optimization at the fingertips of every website owner with the power of AI**.
+### OTTO — AI SEO on autopilot
+OTTO server-side optimizes your pages for search crawlers and AI engines: meta titles and descriptions, image alt text, headings, and internal links are applied automatically, without changing your theme. Roll fixes out across up to 100 pages at once, exclude any URL, and optionally save optimizations into native WordPress fields so they persist even if you switch tools.
 
-Search Atlas SEO transforms intricate and laborious SEO tasks into streamlined processes. With a few clicks, the **meta-bulk update** feature uses AI to re-optimize meta tags, increasing click rates. Stay informed with **the latest Google Search data** for your entire site or specific URLs directly within the Search Atlas SEO plugin interface.
+### Get found in AI search (GEO)
+A built-in /llms.txt endpoint serves clean, AI-readable content to AI crawlers such as ChatGPT and Perplexity — so your site can surface in AI answers and AI Overviews, not just classic search results.
 
-Utilize the Search Atlas Content Suite to **generate fully optimized AI-driven content in minutes** and publish it to your WordPress site with a single click. Easily create multiple redirects, identify and resolve indexing errors, and submit sitemaps effortlessly.
+### One-click publishing from Search Atlas
+Push blog posts, landing pages, and content updates straight from the Search Atlas dashboard to WordPress — complete with optimized titles, meta descriptions, image alt text, formatted headings, and internal links.
 
-Save time. Optimize your site seamlessly. Produce high-ranking content.
+### Bulk AI optimization
+- AI bulk meta updates — rewrite titles and descriptions across your whole site in one pass
+- AI alt-text generation & auditing — find missing or weak alt text and fix it library-wide
+- Bulk status and content operations to manage many posts at once
 
-### Superior AI Content for Optimal SEO
+### A complete on-page SEO toolkit
+- 13 schema / structured-data types (Article, FAQ, Product, Recipe, Event, LocalBusiness, HowTo, VideoObject, and more) with JSON-LD output
+- XML sitemaps, including dedicated news and video sitemaps
+- Virtual robots.txt editor — manage rules with no file editing
+- Redirection manager — 5 match types (exact, wildcard, regex, contains, start/end) and 4 status codes (301/302/307/308), with automatic redirects on slug changes
+- 404 monitoring with hit tracking and smart redirect suggestions
+- Breadcrumb schema, canonical URLs, and hreflang (multi-language) support
+- Open Graph and Twitter Card meta with automatic de-duplication
 
-Search Atlas features an **integrated AI content creator** that streamlines the content creation process. From developing your **content calendar** to conducting **keyword research** and producing **exceptional blogs, landing pages, product descriptions**, and more, our SEO tools with built-in AI help you **build a library of high-ranking published pages in a fraction of the time**.
+### Instant indexing
+Submit new and updated URLs directly to Google (Instant Indexing API) and Bing (IndexNow) for faster crawling — one at a time or in bulk.
 
-### One-Click Publishing of Content to Your WordPress Site from the LinkGraph Dashboard
-- Instantly publish new blog posts, content updates, and landing pages to your WordPress site from the LinkGraph dashboard
-- Includes optimized meta descriptions and meta titles
-- Incorporates images with appropriate alt text
-- Features formatted header tags, bullet points, and hyperlinks
+### MCP server — control WordPress with AI agents
+A built-in Model Context Protocol (MCP) server exposes 138 tools across 31 categories, letting AI assistants create and edit content, manage SEO and schema, submit URLs for indexing, handle redirects, and audit your site — secured with API-key or token authentication.
 
-### Bulk Update Title Tags and Meta Descriptions on Your WordPress Site Using AI
-- Quickly optimize meta tags for landing pages, blogs, and other webpages in bulk
-- Utilizes Google's GPT-3 AI technology to generate engaging, relevant meta tags
-- Automatically updates tags across your website
+### Media & performance
+- Convert images to WebP/AVIF, smart lazy-loading, and automatic width/height attributes to reduce layout shift (CLS)
+- Automatic cache purging for popular caching plugins (WP Rocket, LiteSpeed Cache, W3 Total Cache, WP Super Cache, WP Fastest Cache, and more)
+- Edge/CDN cache purging for Cloudflare, Fastly, Akamai, and Sucuri
 
-### Features
-1. Local Business SEO
-2. Google Instant Indexing
-3. Google Search Console Integration
-4. Redirection Management
-5. 404 Error Monitoring
-6. Error Logging
-7. Search Engine Verification
-8. Custom Code Snippets
-9. Optimal Settings Configuration
-10. Global SEO Settings
+### Works with your stack
+- Page builders: Gutenberg, Elementor, Divi, Oxygen, and Beaver Builder
+- WooCommerce breadcrumbs and shop pages
+- Coexistence and migration with Yoast SEO, Rank Math, and All in One SEO
+- Google Search Console and GA4 integration
+- Agency-ready white-label settings to show or hide features per client
+
+### Search Atlas account & external service
+Search Atlas is a companion plugin for the Search Atlas platform, an external service. A Search Atlas account is required to use the AI optimization, OTTO, and content-publishing features. When connected, your site sends and receives data from Search Atlas servers to provide these features. Learn more in the Search Atlas Terms of Service (https://searchatlas.com/terms/) and Privacy Policy (https://searchatlas.com/privacy-policy/).
 
 == Installation ==
 1. Upload the `metasync` folder to the `/wp-content/plugins/` directory.
@@ -70,6 +77,16 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.18 =
+* Improvement: Increased the White Label plugin-name limit so custom plugin names of up to 18 characters are no longer truncated
+* Improvement: Added explanatory tooltips across the admin settings so the purpose of each option is clear
+* Improvement: Made the API key error message readable when a stored key cannot be read and re-authentication is required
+* Security: The Search Atlas API key is now masked in the settings UI and encrypted at rest
+* Fix: Customer-set Open Graph and Twitter/social values now take priority over OTTO on optimized pages, and a social image is always output
+* Fix: Reverting a single optimized image no longer deletes its converted WebP file, and re-syncing content restores images that were previously broken
+* Fix: Bing IndexNow verification no longer fails with "key not found" on hosts that serve the key as a static file
+* Fix: robots.txt no longer advertises a sitemap URL when the XML sitemap is disabled or not generated
+
 = 2.6.17 =
 * Improvement: Fixed the Refresh Token button's oversized icon and misalignment on the settings page
 * Improvement: The Redirections search field now triggers a search when pressing Enter, not only when clicking the Search button
