@@ -1500,7 +1500,9 @@ class Metasync_Admin_Pages
             $current_content = '';
         }
 
-        $backups = $robots_txt->get_backup_history(10);
+        // First page of backups; the Backup History panel is paginated so the
+        // list always reflects the full stored state and its true total.
+        $backups = $robots_txt->get_backup_history(Metasync_Robots_Txt_Database::BACKUPS_PER_PAGE, 0);
 
         $file_exists = $robots_txt->file_exists();
         $is_writable = $robots_txt->is_writable();
@@ -1810,31 +1812,6 @@ echo $breadcrumbs-&gt;render_breadcrumb_html();</pre><span class="metasync-copy-
         <?php
     }
 
-    public function create_admin_optimal_settings_page()
-    {
-        ?>
-        <?php $this->admin->render_layout_open('Optimal Settings', 'optimal_settings', 'Apply recommended SEO settings automatically.'); ?>
-            
-            <div class="dashboard-card">
-                <h2>Site Compatibility Status</h2>
-                <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Check your site's compatibility with optimal <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> settings.</p>
-                <?php
-        $optimal_settings = new Metasync_Optimal_Settings();
-        $optimal_settings->site_compatible_status_view();
-                ?>
-            </div>
-
-            <div class="dashboard-card">
-                <h2>Optimization Settings</h2>
-                <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure optimization settings for best performance.</p>
-                <?php
-        $this->optimization_settings_options();
-                ?>
-            </div>
-        <?php $this->admin->render_layout_close(); ?>
-        <?php
-    }
-
     public function create_admin_global_settings_page()
     {
         $page_slug = Metasync_Admin::$page_slug . '_common-settings';
@@ -1931,18 +1908,6 @@ echo $breadcrumbs-&gt;render_breadcrumb_html();</pre><span class="metasync-copy-
         <?php
     }
 
-    public function optimization_settings_options()
-    {
-        $page_slug = Metasync_Admin::$page_slug . '_optimal-settings';
-        $site_info_slug = Metasync_Admin::$page_slug . '_site-info-settings';
-
-        printf('<form method="post" action="options.php">');
-        settings_fields(Metasync_Admin::option_group);
-        do_settings_sections($page_slug);
-        do_settings_sections($site_info_slug);
-        submit_button();
-        printf('</form>');
-    }
 
     public function create_admin_error_logs_page()
     {

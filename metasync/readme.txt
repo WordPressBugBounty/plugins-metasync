@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 2.6.18
+Stable tag: 2.6.19
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -77,6 +77,18 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.19 =
+* Improvement: Removed the unused legacy "Optimal Settings" page
+* Improvement: Reworked the Search Atlas connection to a pull-based flow so sites behind firewalls that block inbound callbacks can still connect reliably
+* Fix: Resolved a case where content failed to sync to WordPress due to a www/non-www hostname mismatch during connection
+* Fix: robots.txt no longer continues to reference sitemap URLs after the sitemaps have been deleted or disabled
+* Fix: Sitemap generation, including video and news sitemaps, no longer exhausts server memory on sites with large content catalogs
+* Fix: The video sitemap no longer produces invalid XML when a post description contains HTML entities or shortcodes
+* Fix: OTTO no longer breaks concatenated CSS/JS URLs (for example Jetpack Boost), so optimized pages render with their styles intact
+* Fix: "Delete All Sitemaps" now reliably removes all sitemaps even when one is served from a stale cache
+* Fix: Restored compatibility with the Enfold/Avia builder so the Accordion Toggle Title field accepts letters, not just numbers
+* Fix: Deleted robots.txt backup history entries no longer reappear after refreshing the page
+
 = 2.6.18 =
 * Improvement: Increased the White Label plugin-name limit so custom plugin names of up to 18 characters are no longer truncated
 * Improvement: Added explanatory tooltips across the admin settings so the purpose of each option is clear

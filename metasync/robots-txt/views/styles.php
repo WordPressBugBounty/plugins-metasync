@@ -267,6 +267,39 @@ if (!defined('WPINC')) {
         overflow-y: auto;
     }
 
+    .metasync-backups-summary {
+        padding: 14px 20px 0;
+        font-size: 12px;
+        color: var(--dashboard-text-secondary, #9ca3af);
+    }
+
+    .metasync-backups-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 12px 20px 18px;
+        border-top: 1px solid var(--dashboard-border, #e5e7eb);
+    }
+
+    .metasync-backups-pagination .metasync-backup-page {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+    }
+
+    .metasync-backups-pagination .metasync-backup-page .dashicons {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+        line-height: 1;
+    }
+
+    .metasync-backups-page-indicator {
+        font-size: 12px;
+        color: var(--dashboard-text-secondary, #9ca3af);
+    }
+
     .metasync-card .description {
         padding: 20px;
         color: var(--dashboard-text-secondary, #9ca3af);

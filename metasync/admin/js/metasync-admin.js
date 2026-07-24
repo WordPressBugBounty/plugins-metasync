@@ -517,7 +517,12 @@
 
 	function startSearchAtlasPolling(nonceToken) {
 		var pollCount = 0;
-		var maxPolls = 12; // Poll for 60 seconds (12 * 5 seconds)
+		// WP-558 (Option A): poll for 2 minutes (24 * 5s). Each poll also drives
+		// the outbound pull-based connect fallback server-side, which needs a
+		// slightly longer window than the legacy push-only 60s to ride out the
+		// human SSO-authorization delay. ~24 requests stays inside the CA
+		// endpoint's 120/hour per-domain budget.
+		var maxPolls = 24; // Poll for 120 seconds (24 * 5 seconds)
 		var $progressContainer = $('.metasync-sa-connect-progress');
 		var $progressFill = $('.metasync-sa-connect-progress-fill');
 		var $progressText = $('.metasync-sa-connect-progress-text');
@@ -558,18 +563,18 @@
 				// ✅ Reset the authentication flow while keeping the timeout component
 				resetConnectButton();
 				
-				showConnectError('⏰ Authentication Timeout', 
-					'The authentication process timed out after 60 seconds. Please complete the authentication more quickly or check for network issues.',
+				showConnectError('⏰ Authentication Timeout',
+					'The authentication process timed out after 2 minutes. Please complete the authentication more quickly or check for network issues.',
 					[{
 						text: '🔄 Try Again',
 						action: function () {
-							handleSearchAtlasConnect(); 
+							handleSearchAtlasConnect();
 						}
 					}, {
 						text: '💬 Contact Support',
-						action: function () { 
+						action: function () {
 							var supportEmail = metaSync.support_email || 'support@searchatlas.com';
-							window.open('mailto:' + supportEmail + '?subject=Connect Authentication Timeout (30s)', '_blank');
+							window.open('mailto:' + supportEmail + '?subject=Connect Authentication Timeout (120s)', '_blank');
 						}
 					}]
 				);
@@ -774,7 +779,7 @@
 		var timeRemaining = (maxPolls - currentPoll) * 5;
 		$progressTime.text(timeElapsed + 's elapsed, ' + timeRemaining + 's remaining');
 		
-		// Update progress text based on time elapsed (optimized for 60-second timeout)
+		// Update progress text based on time elapsed (optimized for 120-second timeout)
 		var progressMessages = [
 			'Establishing connection and opening authentication window...',
 			'Please complete authentication in the popup window...',
@@ -1000,7 +1005,7 @@
 			];
 		} else if (context === 'timeout') {
 			recoverySuggestions = [
-				'Complete authentication within 60 seconds',
+				'Complete authentication within 2 minutes',
 				'Check if the popup window needs attention',
 				'Ensure you have your ' + getPluginName() + ' login ready',
 				'Try the authentication process again',

@@ -339,12 +339,6 @@ class Metasync
 		$this->loader->add_action('wp_head', $code_snippets, 'get_header_snippet');
 		$this->loader->add_action('wp_footer', $code_snippets, 'get_footer_snippet');
 
-
-
-		$optimal_settings = new Metasync_Optimal_Settings();
-		$this->loader->add_filter('wp_robots', $optimal_settings, 'add_robots_meta');
-		$this->loader->add_action('the_content', $optimal_settings, 'add_attributes_external_links');
-
 		$plugin_public = new Metasync_Public($this->get_plugin_name(), $this->get_version());
 		$rest_api = $plugin_public->get_rest_api();
 		$seo_output = $plugin_public->get_seo_output();

@@ -62,12 +62,15 @@ class Metasync_Sitemap_News
         $post_types = !empty($this->settings['post_types']) ? (array) $this->settings['post_types'] : ['post'];
 
         $args = [
-            'post_type'      => $post_types,
-            'post_status'    => 'publish',
-            'posts_per_page' => 1000,
-            'orderby'        => 'date',
-            'order'          => 'DESC',
-            'date_query'     => [
+            'post_type'              => $post_types,
+            'post_status'            => 'publish',
+            'posts_per_page'         => 1000,
+            'orderby'                => 'date',
+            'order'                  => 'DESC',
+            'no_found_rows'          => true,
+            'update_post_term_cache' => false,
+            'update_post_meta_cache' => false,
+            'date_query'             => [
                 [
                     'after' => '2 days ago',
                 ],
@@ -169,9 +172,11 @@ class Metasync_Sitemap_News
             $news = $xml->createElement('news:news');
 
             $publication = $xml->createElement('news:publication');
-            $pub_name = $xml->createElement('news:name', esc_html($publication_name));
+            $pub_name = $xml->createElement('news:name');
+            $pub_name->appendChild($xml->createTextNode($this->sanitize_xml_text($publication_name)));
             $publication->appendChild($pub_name);
-            $pub_lang = $xml->createElement('news:language', esc_html($publication_language));
+            $pub_lang = $xml->createElement('news:language');
+            $pub_lang->appendChild($xml->createTextNode($this->sanitize_xml_text($publication_language)));
             $publication->appendChild($pub_lang);
             $news->appendChild($publication);
 
@@ -181,14 +186,62 @@ class Metasync_Sitemap_News
             );
             $news->appendChild($pub_date);
 
-            $title = $xml->createElement('news:title', esc_html($post->post_title));
+            $title = $xml->createElement('news:title');
+            $title->appendChild($xml->createTextNode($this->sanitize_xml_text($post->post_title)));
             $news->appendChild($title);
 
             $url_element->appendChild($news);
             $urlset->appendChild($url_element);
         }
 
+        // Release the object-cache accumulation (post objects, post-meta, and
+        // term caches) for the queried posts so memory is reclaimed before
+        // the main sitemap pass runs in the same request. Mirrors the proven
+        // WP-577/WP-579 pattern on the main sitemap generator. Runs AFTER
+        // the foreach above has finished using each $post.
+        foreach ($posts as $cleaned_post) {
+            clean_post_cache((int) $cleaned_post->ID);
+        }
+        unset($posts);
+
         return $xml->saveXML();
+    }
+
+    /**
+     * Sanitize free-form text so it is safe to emit into an XML text node.
+     *
+     * Raw post titles and publication names can carry named HTML entities
+     * (&nbsp;, &hellip;, …) and leftover shortcodes. XML only defines the
+     * five predefined entities (&amp; &lt; &gt; &quot; &apos;), so an
+     * unrecognised named entity like &nbsp; makes the sitemap invalid
+     * ("Entity 'nbsp' not defined").
+     *
+     * The chain strips shortcodes, removes HTML tags, decodes every HTML
+     * entity (including named ones) into its literal character, and
+     * collapses leftover whitespace. The result is plain UTF-8 text that
+     * DOMDocument::createTextNode() can safely escape when serialising.
+     *
+     * @param mixed $text Raw text to sanitize.
+     * @return string Sanitized plain text.
+     */
+    private function sanitize_xml_text($text)
+    {
+        $text = is_string($text) ? $text : '';
+
+        // Remove leftover shortcode-style tags (page builders, [block id="..."]).
+        $text = strip_shortcodes($text);
+        // Strip HTML tags (and script/style blocks).
+        $text = wp_strip_all_tags($text);
+        // Decode every HTML entity — named (&nbsp;) and numeric (&#13;) — so
+        // the output only ever contains literal characters that createTextNode
+        // can re-escape, never raw entity references.
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        // Collapse runs of whitespace (including CR/LF left by decoded entities)
+        // into a single space and trim the ends.
+        $text = preg_replace('/[\s\r\n\t]+/', ' ', $text);
+        $text = trim($text);
+
+        return $text;
     }
 
     /**

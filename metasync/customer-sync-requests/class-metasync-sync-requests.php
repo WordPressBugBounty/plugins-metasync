@@ -163,83 +163,11 @@ class Metasync_Sync_Requests
         $new_categories = $this->post_categories();
         $this->saveHeartBeatError('categories', 'The limit of categories is exceeded', $new_categories, $categories_sync_limit);
 
-       # $users = get_users();
-       # $new_users = [];
-        # Get selected roles for Content Genius sync with safety checks
-        $selected_roles = isset($general_options['content_genius_sync_roles']) && is_array($general_options['content_genius_sync_roles']) 
-            ? $general_options['content_genius_sync_roles'] 
-            : array();
-        
-        # If it's a string (single role from old version), convert to array
-        if (!is_array($selected_roles)) {
-            $selected_roles = !empty($selected_roles) ? array($selected_roles) : array();
-        }
-        
-        # Sanitize role values to prevent injection
-        $selected_roles = array_map('sanitize_key', $selected_roles);
-        
-        # Prepare optimized user query arguments - only fetch required fields
-        $user_query_args = array(
-            'number' => $users_sync_limit,
-            'fields' => array('ID', 'user_login', 'user_email'), // Only fetch needed fields for performance
-            'orderby' => 'ID',
-            'order' => 'ASC'
-        );
-        
-        # If specific roles are selected and "all" is not selected, filter by those roles
-        if (!empty($selected_roles) && !in_array('all', $selected_roles, true)) {
-            # Only add role filter if we have valid roles
-            $valid_roles = array_filter($selected_roles, function($role) {
-                return !empty($role) && $role !== 'all';
-            });
-            
-            if (!empty($valid_roles)) {
-                $user_query_args['role__in'] = $valid_roles;
-            }
-        }
-        
-        # Fetch users based on the selected roles with error handling
-        $users = get_users($user_query_args);
-        
-        # Safety check: ensure $users is an array
-        if (!is_array($users)) {
-            $users = array();
-        }
-        
-        $new_users = array();
-        $user_count = 1;
-        # Get the default user role from WordPress settings
-       # $default_role = get_option('default_role');
-
-       # Get the default user role from WordPress settings (fallback to administrator)
-        $default_role = get_option('default_role', 'administrator');
-
-        foreach ($users as $user) {
-            if ($user_count <= $users_sync_limit) {
-               
-                $user_data = get_userdata($user->ID);
-                # Skip if user data is invalid
-                if (!$user_data || !is_object($user_data)) {
-                    continue;
-                }
-                
-                # Get user role with proper safety checks
-                $user_role = $default_role;
-                if (is_array($user_data->roles) && !empty($user_data->roles)) {
-                    $user_role = isset($user_data->roles[0]) ? $user_data->roles[0] : $default_role;
-                }
-                
-                # Prepare user data with proper sanitization
-                # Using data from optimized query (ID, user_login, user_email already fetched)
-                $new_users[] = array(
-                    'id'            => absint($user->ID),
-                    'user_login'    => isset($user->user_login) ? sanitize_user($user->user_login) : '',
-                    'user_email'    => isset($user->user_email) ? sanitize_email($user->user_email) : '',
-                    'role'          => sanitize_key($user_role)
-                );
-            }
-            $user_count++;
-        }
+        # Build the users payload. Honors the Content Genius role filter
+        # (content_genius_sync_roles) but falls back to all users when the filter
+        # matches nobody — an empty users list makes the backend reject the whole
+        # sync with HTTP 400. See build_users_payload().
+        $new_users = $this->build_users_payload($general_options);
 
         $this->saveHeartBeatError('users', 'The limit of users is exceeded', $new_users, $users_sync_limit);
         $current_permalink_structure = get_option('permalink_structure');
@@ -334,6 +262,117 @@ class Metasync_Sync_Requests
             return $response;
         }
     }
+    /**
+     * Build the users payload for the heartbeat/sync request.
+     *
+     * Honors the Content Genius role filter (content_genius_sync_roles). The
+     * critical guarantee: the returned list is never left empty because the
+     * role filter matched nobody. The Search Atlas heartbeat endpoint rejects
+     * an empty `users` list with HTTP 400 ("users: This field is required."),
+     * which fails the ENTIRE sync — flipping the site to "Not Connected" and
+     * blocking Content Genius. So when a role filter is configured but matches
+     * zero users on the site, we fall back to all users (the same set sent when
+     * no filter is configured) so a role preference can never sever the
+     * connection. (If the site genuinely has no users at all, the list can
+     * still be empty — but that cannot happen on a real WordPress install.)
+     *
+     * @param array         $general_options  The plugin 'general' options array.
+     * @param callable|null $user_fetcher     Fetches users for a WP_User_Query
+     *                                         args array; defaults to get_users().
+     *                                         Injected in tests.
+     * @param callable|null $userdata_fetcher Fetches a WP_User by ID; defaults to
+     *                                         get_userdata(). Injected in tests.
+     * @return array<int,array{id:int,user_login:string,user_email:string,role:string}>
+     */
+    public function build_users_payload($general_options, ?callable $user_fetcher = null, ?callable $userdata_fetcher = null)
+    {
+        $users_sync_limit = 1000;
+        $user_fetcher     = $user_fetcher ?? 'get_users';
+        $userdata_fetcher = $userdata_fetcher ?? 'get_userdata';
+
+        # Get selected roles for Content Genius sync with safety checks
+        $selected_roles = isset($general_options['content_genius_sync_roles']) && is_array($general_options['content_genius_sync_roles'])
+            ? $general_options['content_genius_sync_roles']
+            : array();
+
+        # If it's a string (single role from old version), convert to array
+        if (!is_array($selected_roles)) {
+            $selected_roles = !empty($selected_roles) ? array($selected_roles) : array();
+        }
+
+        # Sanitize role values to prevent injection
+        $selected_roles = array_map('sanitize_key', $selected_roles);
+
+        # Prepare optimized user query arguments - only fetch required fields
+        $user_query_args = array(
+            'number'  => $users_sync_limit,
+            'fields'  => array('ID', 'user_login', 'user_email'), // Only fetch needed fields for performance
+            'orderby' => 'ID',
+            'order'   => 'ASC',
+        );
+
+        # If specific roles are selected and "all" is not selected, filter by those roles
+        if (!empty($selected_roles) && !in_array('all', $selected_roles, true)) {
+            $valid_roles = array_filter($selected_roles, function ($role) {
+                return !empty($role) && $role !== 'all';
+            });
+            if (!empty($valid_roles)) {
+                $user_query_args['role__in'] = $valid_roles;
+            }
+        }
+
+        # Fetch users based on the selected roles with error handling
+        $users = $user_fetcher($user_query_args);
+        if (!is_array($users)) {
+            $users = array();
+        }
+
+        # Never send an empty users list: when the configured role filter matches
+        # no users, drop the filter and sync all users so connectivity is never
+        # broken by a role preference. (Root cause of the "Not Connected" + no
+        # Content Genius sync report.)
+        if (empty($users) && isset($user_query_args['role__in'])) {
+            unset($user_query_args['role__in']);
+            $users = $user_fetcher($user_query_args);
+            if (!is_array($users)) {
+                $users = array();
+            }
+        }
+
+        # Get the default user role from WordPress settings (fallback to administrator)
+        $default_role = get_option('default_role', 'administrator');
+
+        $new_users = array();
+        $user_count = 1;
+        foreach ($users as $user) {
+            if ($user_count <= $users_sync_limit) {
+                $user_data = $userdata_fetcher($user->ID);
+                # Skip if user data is invalid
+                if (!$user_data || !is_object($user_data)) {
+                    continue;
+                }
+
+                # Get user role with proper safety checks
+                $user_role = $default_role;
+                if (is_array($user_data->roles) && !empty($user_data->roles)) {
+                    $user_role = isset($user_data->roles[0]) ? $user_data->roles[0] : $default_role;
+                }
+
+                # Prepare user data with proper sanitization
+                # Using data from optimized query (ID, user_login, user_email already fetched)
+                $new_users[] = array(
+                    'id'         => absint($user->ID),
+                    'user_login' => isset($user->user_login) ? sanitize_user($user->user_login) : '',
+                    'user_email' => isset($user->user_email) ? sanitize_email($user->user_email) : '',
+                    'role'       => sanitize_key($user_role),
+                );
+            }
+            $user_count++;
+        }
+
+        return $new_users;
+    }
+
     public function post_categories() {
 		$categories = get_categories(array(
 			'hide_empty' => false,

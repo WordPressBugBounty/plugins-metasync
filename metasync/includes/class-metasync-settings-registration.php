@@ -106,7 +106,6 @@ class Metasync_Settings_Registration
         $SECTION_SEARCHENGINE           = Metasync_Admin::SECTION_SEARCHENGINE;
         $SECTION_LOCALSEO               = Metasync_Admin::SECTION_LOCALSEO;
         $SECTION_CODESNIPPETS           = Metasync_Admin::SECTION_CODESNIPPETS;
-        $SECTION_OPTIMAL_SETTINGS       = Metasync_Admin::SECTION_OPTIMAL_SETTINGS;
         $SECTION_SITE_SETTINGS          = Metasync_Admin::SECTION_SITE_SETTINGS;
         $SECTION_COMMON_SETTINGS        = Metasync_Admin::SECTION_COMMON_SETTINGS;
         $SECTION_COMMON_META_SETTINGS   = Metasync_Admin::SECTION_COMMON_META_SETTINGS;
@@ -2057,41 +2056,6 @@ class Metasync_Settings_Registration
         }
         if (isset($input['codesnippets']['footer_snippet'])) {
             $new_input['codesnippets']['footer_snippet'] = sanitize_text_field($input['codesnippets']['footer_snippet']);
-        }
-
-
-        // Optimal Settings
-        if (isset($input['optimal_settings']['no_index_posts'])) {
-            $new_input['optimal_settings']['no_index_posts'] = boolval($input['optimal_settings']['no_index_posts']);
-        }
-        if (isset($input['optimal_settings']['no_follow_links'])) {
-            $new_input['optimal_settings']['no_follow_links'] = boolval($input['optimal_settings']['no_follow_links']);
-        }
-        if (isset($input['optimal_settings']['open_external_links'])) {
-            $new_input['optimal_settings']['open_external_links'] = boolval($input['optimal_settings']['open_external_links']);
-        }
-        if (isset($input['optimal_settings']['add_alt_image_tags'])) {
-            $new_input['optimal_settings']['add_alt_image_tags'] = boolval($input['optimal_settings']['add_alt_image_tags']);
-        }
-        if (isset($input['optimal_settings']['add_title_image_tags'])) {
-            $new_input['optimal_settings']['add_title_image_tags'] = boolval($input['optimal_settings']['add_title_image_tags']);
-        }
-
-        // Site Information - Optimal Settings
-        if (isset($input['optimal_settings']['site_info']['type'])) {
-            $new_input['optimal_settings']['site_info']['type'] = sanitize_text_field($input['optimal_settings']['site_info']['type']);
-        }
-        if (isset($input['optimal_settings']['site_info']['business_type'])) {
-            $new_input['optimal_settings']['site_info']['business_type'] = sanitize_text_field($input['optimal_settings']['site_info']['business_type']);
-        }
-        if (isset($input['optimal_settings']['site_info']['company_name'])) {
-            $new_input['optimal_settings']['site_info']['company_name'] = sanitize_text_field($input['optimal_settings']['site_info']['company_name']);
-        }
-        if (isset($input['optimal_settings']['site_info']['google_logo'])) {
-            $new_input['optimal_settings']['site_info']['google_logo'] = sanitize_url($input['optimal_settings']['site_info']['google_logo']);
-        }
-        if (isset($input['optimal_settings']['site_info']['social_share_image'])) {
-            $new_input['optimal_settings']['site_info']['social_share_image'] = sanitize_url($input['optimal_settings']['site_info']['social_share_image']);
         }
 
         // Common Setting - Global Settings

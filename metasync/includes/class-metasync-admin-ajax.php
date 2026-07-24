@@ -417,6 +417,46 @@ class Metasync_Admin_Ajax
         }
     }
 
+    public function ajax_get_robots_backups()
+    {
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(array('message' => esc_html__('Insufficient permissions', 'metasync')));
+            return;
+        }
+
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'metasync_get_robots_backups')) {
+            wp_send_json_error(array('message' => esc_html__('Security check failed', 'metasync')));
+            return;
+        }
+
+        require_once plugin_dir_path(dirname(__FILE__)) . 'robots-txt/class-metasync-robots-txt.php';
+        $robots_txt = Metasync_Robots_Txt::get_instance();
+
+        $backup_per_page    = Metasync_Robots_Txt_Database::BACKUPS_PER_PAGE;
+        $backup_total       = $robots_txt->get_backup_count();
+        $backup_total_pages = max(1, (int) ceil($backup_total / $backup_per_page));
+
+        $backup_page = isset($_POST['page']) ? max(1, intval($_POST['page'])) : 1;
+        if ($backup_page > $backup_total_pages) {
+            $backup_page = $backup_total_pages;
+        }
+
+        $offset  = ($backup_page - 1) * $backup_per_page;
+        $backups = $robots_txt->get_backup_history($backup_per_page, $offset);
+
+        // Render the shared list + pagination partial to a string.
+        ob_start();
+        require plugin_dir_path(dirname(__FILE__)) . 'robots-txt/views/backup-history.php';
+        $html = ob_get_clean();
+
+        wp_send_json_success(array(
+            'html'        => $html,
+            'total'       => $backup_total,
+            'page'        => $backup_page,
+            'total_pages' => $backup_total_pages,
+        ));
+    }
+
     public function ajax_create_redirect_from_404()
     {
         if (empty($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'metasync_404_redirect')) {

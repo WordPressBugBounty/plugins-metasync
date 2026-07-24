@@ -34,7 +34,6 @@ class Metasync_Admin
     const SECTION_SEARCHENGINE          = "searchengine_settings";
     const SECTION_LOCALSEO              = "local_seo";
     const SECTION_CODESNIPPETS          = "code_snippets";
-    const SECTION_OPTIMAL_SETTINGS      = "optimal_settings";
     const SECTION_SITE_SETTINGS         = "site_settings";
     const SECTION_COMMON_SETTINGS       = "common_settings";
     const SECTION_COMMON_META_SETTINGS  = "common_meta_settings";
@@ -316,6 +315,7 @@ class Metasync_Admin
         add_action('wp_ajax_metasync_preview_robots_backup', array($this, 'ajax_preview_robots_backup'));
         add_action('wp_ajax_metasync_delete_robots_backup', array($this, 'ajax_delete_robots_backup'));
         add_action('wp_ajax_metasync_restore_robots_backup', array($this, 'ajax_restore_robots_backup'));
+        add_action('wp_ajax_metasync_get_robots_backups', array($this, 'ajax_get_robots_backups'));
         
         // Add AJAX handlers for host blocking test
         add_action('wp_ajax_metasync_test_host_blocking_get', array($this, 'ajax_test_host_blocking_get'));
@@ -3259,10 +3259,24 @@ class Metasync_Admin
                         $extras[] = 'news';
                     }
                 }
+
+                // Reclaim unreferenced memory between the news and video passes
+                // so the video generator starts with more headroom (they share
+                // one request). Each generator already releases its own object
+                // cache via clean_post_cache(), so no cache flush is needed here.
+                if (function_exists('gc_collect_cycles')) {
+                    gc_collect_cycles();
+                }
+
                 if (!empty($video_opts['enabled'])) {
                     if ($sitemap_generator->generate_video_sitemap()) {
                         $extras[] = 'video';
                     }
+                }
+
+                // Same inter-pass GC before the main sitemap pass begins.
+                if (function_exists('gc_collect_cycles')) {
+                    gc_collect_cycles();
                 }
 
                 // Generate main sitemap (its index will include news/video since they now exist)
@@ -3531,14 +3545,6 @@ class Metasync_Admin
     }
 
     /**
-     * General Options page callback
-     */
-    public function create_admin_optimal_settings_page()
-    {
-        Metasync_Admin_Pages::get_instance($this)->create_admin_optimal_settings_page();
-    }
-
-    /**
      * Global Options page callback
      */
     public function create_admin_global_settings_page()
@@ -3569,14 +3575,6 @@ class Metasync_Admin
     public function create_admin_seo_controls_page()
     {
         Metasync_Admin_Pages::get_instance($this)->create_admin_seo_controls_page();
-    }
-
-    /**
-     * Site Optimal Settings page callback
-     */
-    public function optimization_settings_options()
-    {
-        Metasync_Admin_Pages::get_instance($this)->optimization_settings_options();
     }
 
     /**
@@ -3701,6 +3699,15 @@ class Metasync_Admin
     {
         Metasync_Admin_Ajax::instance()->ajax_restore_robots_backup();
     }
+
+    /**
+     * AJAX handler to fetch a paginated page of robots.txt backups
+     */
+    public function ajax_get_robots_backups()
+    {
+        Metasync_Admin_Ajax::instance()->ajax_get_robots_backups();
+    }
+
     public function ajax_create_redirect_from_404()
     {
         Metasync_Admin_Ajax::instance()->ajax_create_redirect_from_404();
@@ -4889,86 +4896,6 @@ class Metasync_Admin
     public function footer_snippets_callback()
     {
         Metasync_Settings_Fields::instance()->footer_snippets_callback();
-    }
-
-    /**
-     * Get the settings option array and print one of its values
-     */
-    public function no_index_posts_callback()
-    {
-        Metasync_Settings_Fields::instance()->no_index_posts_callback();
-    }
-
-    /**
-     * Get the settings option array and print one of its values
-     */
-    public function no_follow_links_callback()
-    {
-        Metasync_Settings_Fields::instance()->no_follow_links_callback();
-    }
-
-    /**
-     * Get the settings option array and print one of its values
-     */
-    public function open_external_links_callback()
-    {
-        Metasync_Settings_Fields::instance()->open_external_links_callback();
-    }
-
-    /**
-     * Get the settings option array and print one of its values
-     */
-    public function add_alt_image_tags_callback()
-    {
-        Metasync_Settings_Fields::instance()->add_alt_image_tags_callback();
-    }
-
-    /**
-     * Get the settings option array and print one of its values
-     */
-    public function add_title_image_tags_callback()
-    {
-        Metasync_Settings_Fields::instance()->add_title_image_tags_callback();
-    }
-
-    /**
-     * Get the settings option array and print one of its values
-     */
-    public function site_type_callback()
-    {
-        Metasync_Settings_Fields::instance()->site_type_callback();
-    }
-
-    /**
-     * Get the settings option array and print one of its values
-     */
-    public function site_business_type_callback()
-    {
-        Metasync_Settings_Fields::instance()->site_business_type_callback();
-    }
-
-    /**
-     * Get the settings option array and print one of its values
-     */
-    public function site_company_name_callback()
-    {
-        Metasync_Settings_Fields::instance()->site_company_name_callback();
-    }
-
-    /**
-     * Get the settings option array and print one of its values
-     */
-    public function site_google_logo_callback()
-    {
-        Metasync_Settings_Fields::instance()->site_google_logo_callback();
-    }
-
-    /**
-     * Get the settings option array and print one of its values
-     */
-    public function site_social_share_image_callback()
-    {
-        Metasync_Settings_Fields::instance()->site_social_share_image_callback();
     }
 
     /**

@@ -16,6 +16,25 @@ if (!defined('WPINC')) {
 class Metasync_Robots_Txt_Database
 {
     /**
+     * Maximum number of backups retained in the table.
+     *
+     * The Backup History UI must display up to this many entries so the list
+     * reflects the full stored state. Displaying fewer than are retained makes
+     * deleted entries appear to "reappear" on refresh, as older backups that
+     * were hidden by a smaller display limit surface into view.
+     *
+     * @var int
+     */
+    const MAX_BACKUPS = 50;
+
+    /**
+     * Number of backups shown per page in the Backup History UI.
+     *
+     * @var int
+     */
+    const BACKUPS_PER_PAGE = 10;
+
+    /**
      * Instance of this class
      *
      * @var Metasync_Robots_Txt_Database
@@ -96,7 +115,7 @@ class Metasync_Robots_Txt_Database
         }
 
         // Keep only last 50 backups
-        $this->cleanup_old_backups(50);
+        $this->cleanup_old_backups(self::MAX_BACKUPS);
 
         return $wpdb->insert_id;
     }
@@ -104,10 +123,11 @@ class Metasync_Robots_Txt_Database
     /**
      * Get backups
      *
-     * @param int $limit Number of backups to retrieve
+     * @param int $limit  Number of backups to retrieve
+     * @param int $offset Number of backups to skip (for pagination)
      * @return array Array of backups
      */
-    public function get_backups($limit = 10)
+    public function get_backups($limit = 10, $offset = 0)
     {
         global $wpdb;
 
@@ -117,6 +137,7 @@ class Metasync_Robots_Txt_Database
         }
 
         $limit = absint($limit);
+        $offset = absint($offset);
 
         $results = $wpdb->get_results(
             $wpdb->prepare(
@@ -124,13 +145,30 @@ class Metasync_Robots_Txt_Database
                 FROM {$this->table_name} b
                 LEFT JOIN {$wpdb->users} u ON b.created_by = u.ID
                 ORDER BY b.created_at DESC
-                LIMIT %d",
-                $limit
+                LIMIT %d OFFSET %d",
+                $limit,
+                $offset
             ),
             ARRAY_A
         );
 
         return $results ? $results : array();
+    }
+
+    /**
+     * Count the total number of stored backups
+     *
+     * @return int Total backup count
+     */
+    public function count_backups()
+    {
+        global $wpdb;
+
+        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $this->table_name)) !== $this->table_name) {
+            return 0;
+        }
+
+        return (int) $wpdb->get_var("SELECT COUNT(*) FROM {$this->table_name}");
     }
 
     /**
@@ -170,7 +208,11 @@ class Metasync_Robots_Txt_Database
             array('%d')
         );
 
-        return false !== $result;
+        // $wpdb->delete() returns the number of affected rows, or false on
+        // error. Treat "0 rows affected" as a failure: the entry was not
+        // actually removed (e.g. it no longer exists), so reporting success
+        // would let the UI drop the row while it persists in storage.
+        return false !== $result && $result > 0;
     }
 
     /**
@@ -179,7 +221,7 @@ class Metasync_Robots_Txt_Database
      * @param int $keep_count Number of backups to keep
      * @return bool True on success, false on failure
      */
-    private function cleanup_old_backups($keep_count = 50)
+    private function cleanup_old_backups($keep_count = self::MAX_BACKUPS)
     {
         global $wpdb;
 

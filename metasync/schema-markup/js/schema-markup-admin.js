@@ -614,8 +614,16 @@ jQuery(document).ready(function ($) {
 		$('#copy_schema_button').hide();
 	});
 
+	// Scope the numeric-only guards to the schema meta box ONLY.
+	// These were previously delegated on `document`, so the "block every
+	// non-digit key" branch below fired for keystrokes anywhere on the edit
+	// screen — silently swallowing letters in unrelated fields such as page
+	// builder heading inputs. Delegating from the schema container keeps the
+	// filter on `.recipe-time-input` fields (which only exist inside it).
+	var $schemaContainer = $('.metasync-schema-markup-container');
+
 	// Restrict recipe time inputs to numbers and decimals only
-	$(document).on('keydown', '.recipe-time-input', function (e) {
+	$schemaContainer.on('keydown', '.recipe-time-input', function (e) {
 		const key = e.key;
 		const value = $(this).val();
         
@@ -657,7 +665,7 @@ jQuery(document).ready(function ($) {
 	});
 
 	// Prevent paste of non-numeric content
-	$(document).on('paste', '.recipe-time-input', function (e) {
+	$schemaContainer.on('paste', '.recipe-time-input', function (e) {
 		e.preventDefault();
         
 		let pastedData = (e.originalEvent.clipboardData || window.clipboardData).getData('text');

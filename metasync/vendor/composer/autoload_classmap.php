@@ -223,7 +223,6 @@ return array(
     'Metasync_Minification_Cache' => $baseDir . '/code-minification/class-minification-cache.php',
     'Metasync_Minification_Settings' => $baseDir . '/code-minification/class-minification-settings.php',
     'Metasync_OpenGraph' => $baseDir . '/includes/class-metasync-opengraph.php',
-    'Metasync_Optimal_Settings' => $baseDir . '/optimal-settings/class-metasync-optimal-settings.php',
     'Metasync_Otto_Bot_Detector' => $baseDir . '/otto/class-metasync-otto-bot-detector.php',
     'Metasync_Otto_Bot_Statistics_Database' => $baseDir . '/otto/class-metasync-otto-bot-statistics-database.php',
     'Metasync_Otto_Cache_Manager' => $baseDir . '/includes/class-metasync-otto-cache-manager.php',

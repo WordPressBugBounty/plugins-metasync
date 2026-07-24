@@ -377,7 +377,168 @@ class Metasync_Connect_Manager
             ));
         }
 
+        // WP-558 (Option A): pull-based connect fallback.
+        // The push callback (SA server -> this site) is silently dropped by
+        // Cloudflare/WAFs/basic-auth/"coming soon" plugins on many hosts, which
+        // is the #1 connect failure. Outbound requests from this site are NOT
+        // firewalled, so poll the CA endpoint for the staged result using the
+        // same nonce token we already sent to the SSO flow. The push callback
+        // above is checked first and stays intact as a fallback — pull is purely
+        // additive, and mark_searchatlas_nonce_used() is idempotent.
+        if (!empty($nonce_token) && apply_filters('metasync_enable_pull_connect', true)) {
+            $pull = $this->poll_pull_based_connect_result($nonce_token);
+
+            if (is_array($pull)) {
+                $connect = (isset($pull['connect']) && is_array($pull['connect'])) ? $pull['connect'] : array();
+                $pull_status_code = isset($connect['status_code']) ? intval($connect['status_code']) : 0;
+
+                if ($pull['status'] === 'ready'
+                    && $pull_status_code === 200
+                    && !empty($connect['api_key'])
+                    && !empty($connect['uuid'])) {
+
+                    // Persist through the EXACT same path the push callback uses.
+                    // Run the pulled payload through the SAME validation +
+                    // normalization the push callback applies
+                    // (extract_and_validate_searchatlas_params) BEFORE storing, so
+                    // pull and push share identical acceptance criteria: a stringy
+                    // is_whitelabel ("false"/"0") is coerced to a real bool, and a
+                    // malformed/oversized api_key or uuid is rejected instead of
+                    // stored verbatim. Only after this is the storage provably
+                    // identical to the push body.
+                    $rest_api = new Metasync_Rest_Api('metasync', defined('METASYNC_VERSION') ? METASYNC_VERSION : '1.0.0');
+                    $validated = $rest_api->extract_and_validate_searchatlas_params($connect);
+
+                    if (!is_wp_error($validated)) {
+                        $stored = $rest_api->mark_searchatlas_nonce_used(
+                            $nonce_token,
+                            $validated['api_key'],
+                            $validated['uuid'],
+                            $validated['status_code'],
+                            $validated['is_whitelabel'],
+                            $validated['whitelabel_domain'],
+                            $validated['whitelabel_logo'],
+                            $validated['whitelabel_company_name'],
+                            $validated['whitelabel_otto']
+                        );
+
+                        if ($stored) {
+                            // mark_searchatlas_nonce_used() sets the one-time success
+                            // transient keyed by md5($nonce_token); clear it since we
+                            // report success directly here (avoids a stale replay flag).
+                            delete_transient('metasync_sa_connect_success_' . md5($nonce_token));
+
+                            $general_settings = Metasync::get_option('general') ?? [];
+
+                            // Never return the cleartext key to the browser.
+                            $decrypted_key = Metasync::get_searchatlas_api_key();
+                            $masked_key = (is_string($decrypted_key) && $decrypted_key !== '')
+                                ? str_repeat('*', 8) . substr($decrypted_key, -4)
+                                : '';
+
+                            wp_send_json_success(array(
+                                'updated' => true,
+                                'masked_key' => $masked_key,
+                                'otto_pixel_uuid' => $general_settings['otto_pixel_uuid'] ?? '',
+                                'status_code' => 200,
+                                'whitelabel_enabled' => !empty($general_settings['white_label_plugin_name']),
+                                'effective_domain' => Metasync_Admin::get_effective_dashboard_domain(),
+                                'source' => 'pull',
+                            ));
+                        }
+                    }
+                    // A WP_Error from validation (malformed staged payload) is not
+                    // persisted; we fall through to updated:false so polling
+                    // continues and the push callback / heartbeat self-heal remain.
+                } elseif ($pull['status'] === 'error') {
+                    // Honest state: surface the real server error (e.g. "Domain not
+                    // found for customer") instead of the silent 60s timeout. The
+                    // existing JS branches on status_code (404/500/…) to render it.
+                    wp_send_json_success(array(
+                        'updated' => true,
+                        'status_code' => $pull_status_code ?: 400,
+                        'message' => isset($connect['message']) ? sanitize_text_field($connect['message']) : '',
+                        'effective_domain' => Metasync_Admin::get_effective_dashboard_domain(),
+                        'source' => 'pull',
+                    ));
+                }
+            }
+        }
+
         wp_send_json_success(array('updated' => false));
+    }
+
+    /**
+     * WP-558 (Option A): poll the CA pull-based connect-result endpoint.
+     *
+     * Outbound GET to `<CA base>/api/wp-plugin-connect-result/?url=<site_url>` with
+     * the same SSO nonce sent as the `X-Plugin-Token` header. `url` uses the exact
+     * expression the SSO flow registered (str_replace('://www.','://', get_site_url()))
+     * so it matches the server's `(hostname, sha256(nonce))` key. Outbound traffic
+     * from the site bypasses the Cloudflare/WAF/basic-auth layers that silently drop
+     * the inbound push callback.
+     *
+     * @param string $nonce_token The SSO connect nonce (same value sent to the dashboard).
+     * @return array|null ['status' => 'ready'|'error', 'connect' => array] when the
+     *                     server has a staged result; null to keep polling (pending,
+     *                     throttled, bad request, or transport failure — the push
+     *                     callback remains a fallback in every null case).
+     */
+    private function poll_pull_based_connect_result($nonce_token)
+    {
+        // Server rejects tokens over 512 chars with a 400; don't waste the request.
+        if (empty($nonce_token) || strlen($nonce_token) > 512) {
+            return null;
+        }
+
+        $base = class_exists('Metasync_Endpoint_Manager')
+            ? Metasync_Endpoint_Manager::get_endpoint('CA_API_DOMAIN')
+            : (class_exists('Metasync') ? Metasync::CA_API_DOMAIN : 'https://ca.searchatlas.com');
+
+        // Same base + token convention as the activation announce ping
+        // (Metasync_Activator::send_announce_ping). Send the EXACT same domain
+        // expression the SSO flow registered with CA — generate_searchatlas_connect_url()
+        // uses str_replace('://www.', '://', get_site_url()) — so the server's
+        // (hostname, sha256(nonce)) lookup matches byte-for-byte instead of relying
+        // on server-side www normalization or home_url == site_url.
+        $domain = str_replace('://www.', '://', get_site_url());
+        $url = rtrim($base, '/') . '/api/wp-plugin-connect-result/?url=' . rawurlencode($domain);
+
+        // Timeout kept below the JS poll cadence (5s) so a slow/unreachable CA
+        // can't cause overlapping admin-ajax requests to stack up and pin PHP
+        // workers for the whole connect window.
+        $response = wp_remote_get($url, array(
+            'timeout' => 4,
+            'headers' => array(
+                'X-Plugin-Token' => $nonce_token,
+                'Accept' => 'application/json',
+            ),
+        ));
+
+        if (is_wp_error($response)) {
+            return null; // transient network failure — keep polling
+        }
+
+        // 400 (bad request) / 429 (throttled) / anything non-200 → keep polling
+        // this round; the push callback and heartbeat self-heal remain in play.
+        if ((int) wp_remote_retrieve_response_code($response) !== 200) {
+            return null;
+        }
+
+        $data = json_decode(wp_remote_retrieve_body($response), true);
+        if (!is_array($data) || empty($data['status'])) {
+            return null;
+        }
+
+        // 'ready' | 'error' are actionable; 'pending' (or anything else) keeps polling.
+        if ($data['status'] === 'ready' || $data['status'] === 'error') {
+            return array(
+                'status'  => $data['status'],
+                'connect' => (isset($data['connect']) && is_array($data['connect'])) ? $data['connect'] : array(),
+            );
+        }
+
+        return null;
     }
 
     // ------------------------------------------------------------------

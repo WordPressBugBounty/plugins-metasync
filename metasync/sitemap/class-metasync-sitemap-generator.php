@@ -26,6 +26,23 @@ if (!defined('ABSPATH')) {
 class Metasync_Sitemap_Generator
 {
     /**
+     * Prefetched primary-category meta map for the current chunk.
+     *
+     * Populated by collect_all_urls() only on sites whose permalink structure
+     * contains %category%. The map is keyed by `post_id` => [meta_key => value]
+     * and holds the three primary-category keys (_metasync_primary_category,
+     * _yoast_wpseo_primary_category, rank_math_primary_category).
+     *
+     * Metasync_Seo_Output::filter_post_link_category_primary() reads this map
+     * before falling back to get_post_meta(), so that disabling the WP_Query
+     * post-meta cache prime (update_post_meta_cache => false) does not regress
+     * primary-category permalink resolution with per-post queries.
+     *
+     * @var array
+     */
+    public static $primary_category_prefetch = [];
+
+    /**
      * The sitemap index file path
      *
      * @var string
@@ -614,7 +631,7 @@ class Metasync_Sitemap_Generator
                 'order'                  => 'DESC',
                 'no_found_rows'          => true,
                 'update_post_term_cache' => true,
-                'update_post_meta_cache' => true,
+                'update_post_meta_cache' => false,
                 'cache_results'          => true,
                 'ignore_sticky_posts'    => true,
                 'suppress_filters'       => true,
@@ -649,6 +666,43 @@ class Metasync_Sitemap_Generator
             );
             $noindex_ids = array_map('intval', $noindex_ids);
             $noindex_set = array_flip($noindex_ids);
+
+            // Anti-regression for %category% permalink sites: with the post-meta
+            // cache prime disabled (update_post_meta_cache => false), the only
+            // post-meta consumer in the sitemap path — primary-category
+            // resolution in Metasync_Seo_Output::filter_post_link_category_primary()
+            // — would otherwise issue one get_post_meta() call per post. Batch-
+            // fetch the three primary-category keys for the whole chunk in a
+            // single query (mirroring the noindex batch above) and store the
+            // result in the static prefetch map that the filter reads first.
+            // Only relevant when the permalink structure actually contains
+            // %category% (the filter is a no-op otherwise).
+            self::$primary_category_prefetch = [];
+            if (strpos((string) get_option('permalink_structure', ''), '%category%') !== false) {
+                $primary_keys = [
+                    '_metasync_primary_category',
+                    '_yoast_wpseo_primary_category',
+                    'rank_math_primary_category',
+                ];
+                $key_placeholders = implode(',', array_fill(0, count($primary_keys), '%s'));
+                $primary_args = array_merge($post_ids, $primary_keys);
+                $primary_rows = (array) $wpdb->get_results(
+                    $wpdb->prepare(
+                        "SELECT post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN ({$id_placeholders}) AND meta_key IN ({$key_placeholders})",
+                        $primary_args
+                    ),
+                    ARRAY_A
+                );
+                $prefetch = [];
+                foreach ($primary_rows as $row) {
+                    $pid = (int) $row['post_id'];
+                    if (!isset($prefetch[$pid])) {
+                        $prefetch[$pid] = [];
+                    }
+                    $prefetch[$pid][$row['meta_key']] = $row['meta_value'];
+                }
+                self::$primary_category_prefetch = $prefetch;
+            }
 
             foreach ($posts as $post) {
                 if (isset($noindex_set[(int) $post->ID])) {
@@ -701,9 +755,27 @@ class Metasync_Sitemap_Generator
             }
 
             wp_reset_postdata();
-            unset($query, $posts, $noindex_ids, $noindex_set, $post_ids, $id_placeholders, $noindex_args);
+
+            // Release the per-chunk object-cache accumulation (post objects, post
+            // meta, and term caches) so memory stays flat across chunks regardless
+            // of catalog size. clean_post_cache() drops each post's cache entries;
+            // with a persistent external object cache (Redis/Memcached) it evicts
+            // only those individual post entries (re-fetched on demand) rather than
+            // flushing the whole cache, so it never wipes the live site cache. Runs
+            // AFTER the foreach above has finished using $post (get_permalink,
+            // post_modified_gmt) and BEFORE the next chunk loads its post objects.
+            $chunk_post_ids = wp_list_pluck($posts, 'ID');
+            foreach ($chunk_post_ids as $chunk_post_id) {
+                clean_post_cache((int) $chunk_post_id);
+            }
+
+            unset($query, $posts, $noindex_ids, $noindex_set, $post_ids, $id_placeholders, $noindex_args, $prefetch, $primary_rows, $primary_args, $primary_keys, $key_placeholders, $chunk_post_ids);
             $paged++;
         }
+
+        // Clear the chunk-scoped prefetch map so it does not leak into subsequent
+        // non-sitemap get_permalink() calls during the same request.
+        self::$primary_category_prefetch = [];
 
         // Add taxonomies (categories, tags, etc.)
         $taxonomies = get_taxonomies(['public' => true], 'names');
@@ -1361,12 +1433,34 @@ class Metasync_Sitemap_Generator
                 $deleted = true;
             }
 
+            // Delete the virtual sitemap index transient by name. sitemap_exists()
+            // reads this transient directly, so it must be cleared here even when
+            // metasync_sitemap_virtual_index no longer tracks it (an out-of-sync
+            // index leaves the transient orphaned, which made "Delete All Sitemaps"
+            // report failure while the sitemap kept being served.
+            $index_tkey = 'metasync_vsm_' . md5('sitemap_index.xml');
+            if (false !== get_transient($index_tkey)) {
+                delete_transient($index_tkey);
+                $deleted = true;
+            }
+
             // Delete all physical sitemap files (sitemap.xml, sitemap2.xml, etc.)
+            // and their virtual transients (chunks stored in memory are tracked
+            // only by filename in metasync_sitemap_files).
             $sitemap_files = get_option('metasync_sitemap_files', []);
             foreach ($sitemap_files as $sitemap) {
-                $path = ABSPATH . $sitemap['filename'];
+                $filename = is_array($sitemap) && isset($sitemap['filename']) ? $sitemap['filename'] : null;
+                if (null === $filename) {
+                    continue;
+                }
+                $path = ABSPATH . $filename;
                 if (file_exists($path)) {
                     @unlink($path);
+                    $deleted = true;
+                }
+                $chunk_tkey = 'metasync_vsm_' . md5($filename);
+                if (false !== get_transient($chunk_tkey)) {
+                    delete_transient($chunk_tkey);
                     $deleted = true;
                 }
             }
@@ -1396,6 +1490,18 @@ class Metasync_Sitemap_Generator
                 @unlink($physical);
                 $deleted = true;
             }
+
+            // Clear the news sitemap "enabled" setting so the feature gate no
+            // longer reports the sitemap feature as active once the file is gone.
+            // Without this, is_feature_enabled() keeps returning true (because
+            // metasync_news_sitemap_settings['enabled'] persists), so the
+            // "Default Behavior" robots.txt template keeps re-adding a stale
+            // Sitemap: line for a sitemap that no longer serves (WP-574).
+            $news_settings = get_option('metasync_news_sitemap_settings', []);
+            if (is_array($news_settings) && !empty($news_settings['enabled'])) {
+                $news_settings['enabled'] = false;
+                update_option('metasync_news_sitemap_settings', $news_settings);
+            }
         }
 
         if ('video' === $type || 'all' === $type) {
@@ -1409,6 +1515,13 @@ class Metasync_Sitemap_Generator
             if (file_exists($physical)) {
                 @unlink($physical);
                 $deleted = true;
+            }
+
+            // Clear the video sitemap "enabled" setting (see the news block above).
+            $video_settings = get_option('metasync_video_sitemap_settings', []);
+            if (is_array($video_settings) && !empty($video_settings['enabled'])) {
+                $video_settings['enabled'] = false;
+                update_option('metasync_video_sitemap_settings', $video_settings);
             }
         }
 
@@ -1449,13 +1562,63 @@ class Metasync_Sitemap_Generator
                 }
             }
 
-            // Clear stored options
-            delete_option('metasync_sitemap_files');
-            delete_option('metasync_sitemap_total_urls');
-            delete_option('metasync_sitemap_last_generated');
+            // Clear stored options. Clearing a tracking option that was actually
+            // present counts as a successful deletion — otherwise the caller shows
+            // a false-negative "Failed to delete sitemaps" after the state was in
+            // fact cleared.
+            foreach (['metasync_sitemap_files', 'metasync_sitemap_total_urls', 'metasync_sitemap_last_generated'] as $opt_name) {
+                if (false !== get_option($opt_name, false)) {
+                    $deleted = true;
+                }
+                delete_option($opt_name);
+            }
+        }
+
+        // Keep robots.txt in sync with the sitemap state. Deleting a sitemap is
+        // the inverse of generating one, so undo the robots.txt `Sitemap:` line
+        // the generator added at generation time (see generate_news_sitemap(),
+        // generate_video_sitemap() and update_robots_txt_sitemap()). Routing the
+        // change back through the same Metasync_Robots_Txt functions means the
+        // regenerated robots.txt is captured in the backup history exactly like a
+        // manual save (WP-574).
+        if ('general' === $type || 'all' === $type) {
+            $this->remove_robots_sitemap_line($this->sitemap_index_url);
+        }
+        if ('news' === $type || 'all' === $type) {
+            $this->remove_robots_sitemap_line(home_url('/news-sitemap.xml'));
+        }
+        if ('video' === $type || 'all' === $type) {
+            $this->remove_robots_sitemap_line(home_url('/video-sitemap.xml'));
         }
 
         return $deleted;
+    }
+
+    /**
+     * Remove a single MetaSync `Sitemap:` line from robots.txt, reusing the
+     * robots.txt manager's own removal path.
+     *
+     * This is the inverse of the add/update performed when a sitemap is
+     * generated. It delegates to {@see Metasync_Robots_Txt::remove_sitemap_url()},
+     * which persists via write_robots_file() — so the current robots.txt is
+     * backed up before the stale line is dropped, and the change shows up in the
+     * backup history. A no-op (no write, no backup) when the line is not present
+     * or the robots.txt manager class is unavailable.
+     *
+     * @param string $sitemap_url Absolute sitemap URL to remove.
+     * @return void
+     */
+    private function remove_robots_sitemap_line($sitemap_url)
+    {
+        if (!class_exists('Metasync_Robots_Txt')) {
+            $robots_txt_file = plugin_dir_path(dirname(__FILE__)) . 'robots-txt/class-metasync-robots-txt.php';
+            if (!file_exists($robots_txt_file)) {
+                return;
+            }
+            require_once $robots_txt_file;
+        }
+
+        Metasync_Robots_Txt::get_instance()->remove_sitemap_url($sitemap_url);
     }
 
     /**

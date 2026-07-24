@@ -127,48 +127,18 @@ $robots_url = trailingslashit($site_url) . 'robots.txt';
                     <h3><?php esc_html_e('Backup History', 'metasync'); ?></h3>
                 </div>
 
-                <?php if (!empty($backups)): ?>
-                    <div class="metasync-backups-list">
-                        <?php foreach ($backups as $backup): ?>
-                            <div class="metasync-backup-item">
-                                <div class="metasync-backup-info">
-                                    <strong><?php echo esc_html(get_date_from_gmt($backup['created_at'], get_option('date_format') . ' ' . get_option('time_format'))); ?></strong>
-                                    <?php if (!empty($backup['created_by_name'])): ?>
-                                        <span class="metasync-backup-author">
-                                            <?php printf(esc_html__('by %s', 'metasync'), esc_html($backup['created_by_name'])); ?>
-                                        </span>
-                                    <?php endif; ?>
-                                </div>
-                                <div class="metasync-backup-actions">
-                                    <button type="button" 
-                                            class="button button-small metasync-preview-backup" 
-                                            data-backup-id="<?php echo esc_attr($backup['id']); ?>"
-                                            title="<?php esc_html_e('Preview', 'metasync'); ?>">
-                                        <span class="dashicons dashicons-visibility"></span>
-                                        <?php esc_html_e('Preview', 'metasync'); ?>
-                                    </button>
-                                    <button type="button"
-                                            class="button button-small metasync-restore-backup"
-                                            data-backup-id="<?php echo esc_attr($backup['id']); ?>"
-                                            data-nonce="<?php echo wp_create_nonce('metasync_restore_robots_backup'); ?>"
-                                            title="<?php esc_html_e('Restore', 'metasync'); ?>">
-                                        <span class="dashicons dashicons-backup"></span>
-                                        <?php esc_html_e('Restore', 'metasync'); ?>
-                                    </button>
-                                    <button type="button"
-                                            class="button button-small button-link-delete metasync-delete-backup"
-                                            data-backup-id="<?php echo esc_attr($backup['id']); ?>"
-                                            data-nonce="<?php echo wp_create_nonce('metasync_delete_robots_backup'); ?>"
-                                            title="<?php esc_html_e('Delete', 'metasync'); ?>">
-                                        <span class="dashicons dashicons-trash"></span>
-                                    </button>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                <?php else: ?>
-                    <p class="description"><?php esc_html_e('No backups available yet. Backups are created automatically when you save changes.', 'metasync'); ?></p>
-                <?php endif; ?>
+                <?php
+                // Backup History is paginated so the list always reflects the
+                // full stored state (and its true total), rather than a fixed
+                // slice that makes deleted entries appear to "reappear".
+                $robots_txt         = Metasync_Robots_Txt::get_instance();
+                $backup_per_page    = Metasync_Robots_Txt_Database::BACKUPS_PER_PAGE;
+                $backup_total       = $robots_txt->get_backup_count();
+                $backup_total_pages = max(1, (int) ceil($backup_total / $backup_per_page));
+                $backup_page        = 1;
+                // $backups already holds the first page (from the controller).
+                require __DIR__ . '/backup-history.php';
+                ?>
             </div>
 
             <div class="metasync-card metasync-warnings-card">

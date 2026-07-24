@@ -51,16 +51,27 @@ class Metasync_Seo_Output
 	 */
 	public function filter_post_link_category_primary($cat, $cats, $post)
 	{
-		$primary_id = (int) get_post_meta($post->ID, '_metasync_primary_category', true);
+		// When the sitemap generator is collecting URLs on a %category% permalink
+		// site, it primes a per-chunk prefetch map of the primary-category meta
+		// keys (because update_post_meta_cache is disabled there to avoid memory
+		// exhaustion on large catalogs). Read from that map first and only fall
+		// back to get_post_meta() — which lazily fetches on a cache miss — when
+		// the map has no entry for this post. Outside sitemap generation the map
+		// is empty, so behaviour is unchanged.
+		$prefetch = (class_exists('Metasync_Sitemap_Generator') && !empty(Metasync_Sitemap_Generator::$primary_category_prefetch))
+			? Metasync_Sitemap_Generator::$primary_category_prefetch
+			: [];
+
+		$primary_id = (int) self::primary_meta_lookup($post->ID, '_metasync_primary_category', $prefetch);
 
 		// Fallback to Yoast SEO primary category
 		if ($primary_id === 0 && defined('WPSEO_VERSION')) {
-			$primary_id = (int) get_post_meta($post->ID, '_yoast_wpseo_primary_category', true);
+			$primary_id = (int) self::primary_meta_lookup($post->ID, '_yoast_wpseo_primary_category', $prefetch);
 		}
 
 		// Fallback to Rank Math primary category
 		if ($primary_id === 0 && defined('RANK_MATH_VERSION')) {
-			$primary_id = (int) get_post_meta($post->ID, 'rank_math_primary_category', true);
+			$primary_id = (int) self::primary_meta_lookup($post->ID, 'rank_math_primary_category', $prefetch);
 		}
 
 		if ($primary_id === 0 || empty($cats)) {
@@ -74,6 +85,26 @@ class Metasync_Seo_Output
 		}
 
 		return $cat;
+	}
+
+	/**
+	 * Resolve a single primary-category meta value, preferring the sitemap
+	 * generator's per-chunk prefetch map (populated on %category% permalink
+	 * sites where the WP_Query post-meta cache prime is disabled) and falling
+	 * back to get_post_meta() when the map has no entry for the post/key.
+	 *
+	 * @param int    $post_id  Post ID.
+	 * @param string $key      Meta key to resolve.
+	 * @param array  $prefetch Map of post_id => [meta_key => value].
+	 * @return string The scalar meta value (empty string when not set).
+	 */
+	private static function primary_meta_lookup($post_id, $key, array $prefetch)
+	{
+		$pid = (int) $post_id;
+		if (isset($prefetch[$pid]) && is_array($prefetch[$pid]) && array_key_exists($key, $prefetch[$pid])) {
+			return (string) $prefetch[$pid][$key];
+		}
+		return (string) get_post_meta($post_id, $key, true);
 	}
 
 	function metasync_wp_robots_meta($robots)

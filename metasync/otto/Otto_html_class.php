@@ -3200,15 +3200,23 @@ Class Metasync_otto_html{
             $html
         );
 
-        # Normalize leftover query-string separators (?? / ?& / ?#) created
-        # by the param removal above — but ONLY inside URL attributes (href/src/action).
-        # The previous implementation ran str_replace('??','?') over the ENTIRE document,
-        # which corrupted inline JavaScript nullish operators (?? / ??=) and any literal
-        # "??" in page text — breaking Slider Revolution and other modern inline scripts.
+        # Normalize leftover query-string separators (?& / ?#) created by the param
+        # removal above — but ONLY inside URL attributes (href/src/action).
+        #
+        # IMPORTANT: never collapse "??". It is valid, load-bearing syntax for
+        # file-concatenation endpoints — Jetpack Boost (/_jb_static/??<hash>) and
+        # WordPress core (load-styles.php??... / load-scripts.php??...). Collapsing
+        # "??" -> "?" points those at a different URL that returns HTTP 400 / empty,
+        # so every affected CSS/JS bundle fails to load and the page renders broken
+        # (Kadence + Jetpack Boost "defer non-essential CSS" was the reported case).
+        # Removing an OTTO fetch param never produces a "??" anyway, so there is
+        # nothing to normalize there.
+        # (A previous implementation ran str_replace('??','?') over the ENTIRE
+        # document, which additionally corrupted inline JavaScript nullish operators.)
         $html = preg_replace_callback(
             '/\b(href|src|action)(\s*=\s*)(["\'])(.*?)\3/is',
             function ($m) {
-                $url = str_replace(['??', '?&', '?#'], ['?', '?', '#'], $m[4]);
+                $url = str_replace(['?&', '?#'], ['?', '#'], $m[4]);
                 return $m[1] . $m[2] . $m[3] . $url . $m[3];
             },
             $html

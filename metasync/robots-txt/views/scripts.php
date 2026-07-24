@@ -16,6 +16,52 @@ if (!defined('WPINC')) {
 jQuery(document).ready(function($) {
     let allowSave = false;
 
+    // Nonce for fetching a paginated page of backups.
+    const backupsPageNonce = '<?php echo esc_js(wp_create_nonce('metasync_get_robots_backups')); ?>';
+
+    // Load a page of the Backup History panel and swap it in place. Keeps the
+    // list, its total count, and pagination consistent with backend storage
+    // after navigation or deletion. Clamps to a valid page if the requested
+    // one no longer exists (e.g. the last item on a page was deleted).
+    function loadBackupsPage(page) {
+        const $panel = $('#metasync-backups-panel');
+        if (!$panel.length) {
+            return;
+        }
+        $panel.css('opacity', 0.5);
+        $.ajax({
+            url: ajaxurl,
+            type: 'POST',
+            data: {
+                action: 'metasync_get_robots_backups',
+                nonce: backupsPageNonce,
+                page: page
+            },
+            success: function(response) {
+                if (response.success && response.data && typeof response.data.html === 'string') {
+                    $panel.replaceWith(response.data.html);
+                } else {
+                    $panel.css('opacity', 1);
+                }
+            },
+            error: function() {
+                $panel.css('opacity', 1);
+            }
+        });
+    }
+
+    // Pagination controls (Prev/Next).
+    $(document).on('click', '.metasync-backup-page', function() {
+        const $btn = $(this);
+        if ($btn.prop('disabled')) {
+            return;
+        }
+        const page = parseInt($btn.data('page'), 10);
+        if (!isNaN(page) && page >= 1) {
+            loadBackupsPage(page);
+        }
+    });
+
     // Check for restore success message after page reload
     const restoreMessage = sessionStorage.getItem('metasync_robots_restore_message');
     if (restoreMessage) {
@@ -300,7 +346,7 @@ jQuery(document).ready(function($) {
     });
 
     // Preview backup content
-    $('.metasync-preview-backup').on('click', function(e) {
+    $(document).on('click', '.metasync-preview-backup', function(e) {
         e.preventDefault();
         const backupId = $(this).data('backup-id');
         
@@ -442,8 +488,7 @@ jQuery(document).ready(function($) {
         const $button = $(this);
         const backupId = $button.data('backup-id');
         const nonce = $button.data('nonce');
-        const $backupItem = $button.closest('.metasync-backup-item');
-        
+
         // Show loading state
         const originalHtml = $button.html();
         $button.prop('disabled', true).html('<span class="dashicons dashicons-update dashicons-spin"></span>');
@@ -458,22 +503,23 @@ jQuery(document).ready(function($) {
             },
             success: function(response) {
                 if (response.success) {
-                    // Fade out and remove the backup item
-                    $backupItem.fadeOut(300, function() {
-                        $(this).remove();
-                        
-                        // Check if there are any backups left
-                        if ($('.metasync-backup-item').length === 0) {
-                            $('.metasync-backups-list').html('<p class="description" style="text-align: center; padding: 20px;"><?php esc_html_e('No backups available yet. Backups are created automatically when you save changes.', 'metasync'); ?></p>');
-                        }
-                    });
-                    
-                    // Show success message (you can add a notification system here)
+                    // Refresh the panel so the count and pagination reflect the
+                    // new backend state. Stay on the current page, but if the
+                    // deleted entry was the last one on it, fall back a page.
+                    const $panel = $('#metasync-backups-panel');
+                    let currentPage = parseInt($panel.data('page'), 10) || 1;
+                    const remainingOnPage = $panel.find('.metasync-backup-item').length - 1;
+                    if (remainingOnPage <= 0 && currentPage > 1) {
+                        currentPage -= 1;
+                    }
+                    loadBackupsPage(currentPage);
+
+                    // Show success message
                     if (response.data && response.data.message) {
                         // Create a temporary success notice
                         const $notice = $('<div class="notice notice-success is-dismissible" style="margin: 20px 0;"><p>' + response.data.message + '</p></div>');
                         $('.metasync-robots-txt-page').prepend($notice);
-                        
+
                         // Auto-dismiss after 3 seconds
                         setTimeout(function() {
                             $notice.fadeOut(300, function() {

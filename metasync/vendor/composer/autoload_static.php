@@ -224,7 +224,6 @@ class ComposerStaticInit8e5917ee534e616253713b8104fcda43
         'Metasync_Minification_Cache' => __DIR__ . '/../..' . '/code-minification/class-minification-cache.php',
         'Metasync_Minification_Settings' => __DIR__ . '/../..' . '/code-minification/class-minification-settings.php',
         'Metasync_OpenGraph' => __DIR__ . '/../..' . '/includes/class-metasync-opengraph.php',
-        'Metasync_Optimal_Settings' => __DIR__ . '/../..' . '/optimal-settings/class-metasync-optimal-settings.php',
         'Metasync_Otto_Bot_Detector' => __DIR__ . '/../..' . '/otto/class-metasync-otto-bot-detector.php',
         'Metasync_Otto_Bot_Statistics_Database' => __DIR__ . '/../..' . '/otto/class-metasync-otto-bot-statistics-database.php',
         'Metasync_Otto_Cache_Manager' => __DIR__ . '/../..' . '/includes/class-metasync-otto-cache-manager.php',

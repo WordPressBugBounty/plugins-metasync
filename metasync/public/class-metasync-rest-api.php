@@ -3692,7 +3692,7 @@ class Metasync_Rest_Api
 	 * @param array $body_params Request body parameters
 	 * @return array|WP_Error Validated parameters array or WP_Error
 	 */
-	private function extract_and_validate_searchatlas_params($body_params)
+	public function extract_and_validate_searchatlas_params($body_params)
 	{
 		$validation_errors = array();
 		

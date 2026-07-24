@@ -374,12 +374,23 @@ class Metasync_Robots_Txt
     /**
      * Get backup history
      *
-     * @param int $limit Number of backups to retrieve
+     * @param int $limit  Number of backups to retrieve
+     * @param int $offset Number of backups to skip (for pagination)
      * @return array Array of backups
      */
-    public function get_backup_history($limit = 10)
+    public function get_backup_history($limit = 10, $offset = 0)
     {
-        return $this->database->get_backups($limit);
+        return $this->database->get_backups($limit, $offset);
+    }
+
+    /**
+     * Get the total number of stored backups
+     *
+     * @return int
+     */
+    public function get_backup_count()
+    {
+        return $this->database->count_backups();
     }
 
     /**

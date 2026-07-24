@@ -168,7 +168,6 @@ class Metasync_Admin_Navigation
         $menu_icons = [
             'dashboard'        => 'dashboard',
             'seo_controls'     => 'search',
-            'optimal_settings' => 'superhero-alt',
             'instant_index'    => 'performance',
             'google_console'   => 'chart-area',
             'compatibility'    => 'admin-tools',
@@ -188,11 +187,7 @@ class Metasync_Admin_Navigation
         if (empty($whitelabel_settings['hide_indexation_control'])) {
             $menu_items['seo_controls'] = ['title' => 'Indexation Control', 'slug_suffix' => '-seo-controls'];
         }
-        
-        if ($general_options['enable_optimal_settings'] ?? false) {
-            $menu_items['optimal_settings'] = ['title' => 'Optimal Settings', 'slug_suffix' => '-optimal-settings'];
-        }
-        
+
         if ($general_options['enable_googleinstantindex'] ?? false) {
             $menu_items['instant_index'] = ['title' => 'Instant Indexing', 'slug_suffix' => '-instant-index'];
         }
@@ -224,7 +219,7 @@ class Metasync_Admin_Navigation
                 <div class="metasync-nav-left">
                 <?php foreach ($menu_items as $key => $menu_item): 
                     $is_active = ($current_page === $key);
-                    $icon = $menu_icons[$key] ?? 'admin-generic';
+                    $icon = $menu_icons[$key];
                     $page_url = '?page=' . $page_slug . $menu_item['slug_suffix'];
                 ?>
                     <a href="<?php echo esc_url($page_url); ?>" class="metasync-nav-tab <?php echo $is_active ? 'active' : ''; ?>">
@@ -594,16 +589,6 @@ class Metasync_Admin_Navigation
             ];
         }
 
-        if ($general_options['enable_optimal_settings'] ?? false) {
-            $menu_items['optimal_settings'] = [
-                'title' => 'Optimal Settings',
-                'slug_suffix' => '-optimal-settings',
-                'callback' => 'create_admin_optimal_settings_page',
-                'internal_nav' => 'Optimal Settings',
-                'group' => 'plugin'
-            ];
-        }
-
         // Compatibility page (check access control)
         if (Metasync_Access_Control::user_can_access('hide_compatibility')) {
             $menu_items['compatibility'] = [
@@ -759,11 +744,6 @@ class Metasync_Admin_Navigation
             add_submenu_page($menu_slug, 'Settings', 'Settings', $menu_capability, $menu_slug, array($admin, 'create_admin_settings_page'));
         }
 
-        // Optimal Settings (conditional)
-        if ($general_options['enable_optimal_settings'] ?? false) {
-            add_submenu_page($menu_slug, 'Optimal Settings', 'Optimal Settings', $menu_capability, $menu_slug . '-optimal-settings', array($admin, 'create_admin_optimal_settings_page'));
-        }
-
         // Local Business
         add_submenu_page($menu_slug, 'Local Business', 'Local Business', $menu_capability, $menu_slug . '-local-business', array($admin, 'create_admin_local_business_page'));
 
@@ -846,7 +826,6 @@ class Metasync_Admin_Navigation
             'compatibility'    => 'admin-tools',
             'sync_log'         => 'list-view',
             'seo_controls'     => 'search',
-            'optimal_settings' => 'superhero-alt',
             'instant_index'    => 'performance',
             'google_console'   => 'chart-area',
             'bing_console'     => 'chart-bar',
@@ -888,7 +867,7 @@ class Metasync_Admin_Navigation
                 // Dashboard tab (standalone)
                 if (isset($seo_items['dashboard'])) {
                     $is_active = ($current_page === 'dashboard');
-                    $icon = $menu_icons['dashboard'] ?? 'admin-generic';
+                    $icon = $menu_icons['dashboard'];
                     $page_url = '?page=' . $page_slug . $seo_items['dashboard']['slug_suffix'];
                     ?>
                     <a href="<?php echo esc_url($page_url); ?>" class="metasync-nav-tab <?php echo $is_active ? 'active' : ''; ?>">
@@ -1697,7 +1676,6 @@ class Metasync_Admin_Navigation
             'code_snippets'    => 'editor-code',
             'code_minification'=> 'media-code',
             'custom_pages'     => 'admin-page',
-            'optimal_settings' => 'superhero-alt',
             'compatibility'    => 'admin-tools',
             'sync_log'         => 'list-view',
             'bot_statistics'   => 'visibility',

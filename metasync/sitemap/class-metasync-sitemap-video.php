@@ -105,12 +105,15 @@ class Metasync_Sitemap_Video
 
         while ($total_video_entries < $this->max_video_entries) {
             $query_args = [
-                'post_type'      => $post_types,
-                'post_status'    => 'publish',
-                'posts_per_page' => $posts_per_page,
-                'paged'          => $page,
-                'orderby'        => 'date',
-                'order'          => 'DESC',
+                'post_type'              => $post_types,
+                'post_status'            => 'publish',
+                'posts_per_page'         => $posts_per_page,
+                'paged'                  => $page,
+                'orderby'                => 'date',
+                'order'                  => 'DESC',
+                'no_found_rows'          => true,
+                'update_post_term_cache' => false,
+                'update_post_meta_cache' => false,
             ];
 
             if (!empty($tax_query)) {
@@ -159,13 +162,21 @@ class Metasync_Sitemap_Video
 
                     $video_element = $xml->createElement('video:video');
 
-                    $thumbnail = $xml->createElement('video:thumbnail_loc', esc_url($video['thumbnail']));
+                    // esc_url_raw() (not esc_url()) so ampersands stay as "&":
+                    // esc_url() encodes "&" to "&#038;" for display, which
+                    // createTextNode() would then re-escape to "&amp;#038;",
+                    // corrupting thumbnail URLs that carry query strings.
+                    // createTextNode() handles the XML escaping itself.
+                    $thumbnail = $xml->createElement('video:thumbnail_loc');
+                    $thumbnail->appendChild($xml->createTextNode(esc_url_raw($video['thumbnail'])));
                     $video_element->appendChild($thumbnail);
 
-                    $title = $xml->createElement('video:title', esc_html($video['title']));
+                    $title = $xml->createElement('video:title');
+                    $title->appendChild($xml->createTextNode($this->sanitize_xml_text($video['title'])));
                     $video_element->appendChild($title);
 
-                    $description = $xml->createElement('video:description', esc_html($video['description']));
+                    $description = $xml->createElement('video:description');
+                    $description->appendChild($xml->createTextNode($this->sanitize_xml_text($video['description'])));
                     $video_element->appendChild($description);
 
                     if (!empty($video['url'])) {
@@ -194,6 +205,17 @@ class Metasync_Sitemap_Video
                 }
             }
 
+            // Release the per-chunk object-cache accumulation (post objects,
+            // post-meta, and term caches) so memory stays flat across pages
+            // regardless of catalog size. Mirrors the proven WP-577/WP-579
+            // pattern on the main sitemap generator. Runs AFTER the foreach
+            // above has finished using each $post and BEFORE the next page
+            // loads its post objects.
+            foreach (wp_list_pluck($posts, 'ID') as $chunk_post_id) {
+                clean_post_cache((int) $chunk_post_id);
+            }
+
+            unset($posts);
             $page++;
         }
 
@@ -389,10 +411,48 @@ class Metasync_Sitemap_Video
     private function get_post_description($post)
     {
         if (!empty($post->post_excerpt)) {
-            return wp_strip_all_tags($post->post_excerpt);
+            return $this->sanitize_xml_text($post->post_excerpt);
         }
 
-        return wp_trim_words(wp_strip_all_tags($post->post_content), 50, '...');
+        return $this->sanitize_xml_text(wp_trim_words(wp_strip_all_tags($post->post_content), 50, '...'));
+    }
+
+    /**
+     * Sanitize free-form text so it is safe to emit into an XML text node.
+     *
+     * Raw post content/excerpt/titles can carry named HTML entities
+     * (&nbsp;, &hellip;, …) and leftover page-builder shortcodes
+     * ([block id="..."], [et_pb_*]). XML only defines the five predefined
+     * entities (&amp; &lt; &gt; &quot; &apos;), so an unrecognised named
+     * entity like &nbsp; makes the sitemap invalid ("Entity 'nbsp' not
+     * defined"). Shortcodes are not meaningful in a sitemap either.
+     *
+     * The chain strips shortcodes, removes HTML tags, decodes every HTML
+     * entity (including named ones) into its literal character, and
+     * collapses leftover whitespace. The result is plain UTF-8 text that
+     * DOMDocument::createTextNode() can safely escape when serialising.
+     *
+     * @param mixed $text Raw text to sanitize.
+     * @return string Sanitized plain text.
+     */
+    private function sanitize_xml_text($text)
+    {
+        $text = is_string($text) ? $text : '';
+
+        // Remove leftover shortcode-style tags (page builders, [block id="..."]).
+        $text = strip_shortcodes($text);
+        // Strip HTML tags (and script/style blocks).
+        $text = wp_strip_all_tags($text);
+        // Decode every HTML entity — named (&nbsp;) and numeric (&#13;) — so
+        // the output only ever contains literal characters that createTextNode
+        // can re-escape, never raw entity references.
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        // Collapse runs of whitespace (including CR/LF left by decoded entities)
+        // into a single space and trim the ends.
+        $text = preg_replace('/[\s\r\n\t]+/', ' ', $text);
+        $text = trim($text);
+
+        return $text;
     }
 
     /**
