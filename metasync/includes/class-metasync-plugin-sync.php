@@ -34,6 +34,20 @@ class Metasync_Plugin_Sync {
 	private $syncing_json_to_legacy = [];
 
 	/**
+	 * Guard: tracks post IDs currently being synced from legacy → JSON.
+	 *
+	 * Prevents sync_to_legacy_meta from firing in response to the JSON write
+	 * that sync_legacy_to_json just made. Without this the round trip is
+	 * lossy: the JSON format cannot distinguish "user explicitly chose the
+	 * default" from "nothing set" (the sidebar always emits max_snippet=-1
+	 * and max_image_preview=large), so the mirror back would discard the
+	 * legacy meta box values it had just derived the JSON from.
+	 *
+	 * @var array
+	 */
+	private $syncing_legacy_to_json = [];
+
+	/**
 	 * MetaSync meta keys that trigger a sync when written.
 	 *
 	 * @var array
@@ -322,9 +336,20 @@ class Metasync_Plugin_Sync {
 				$adv_robots = [];
 			}
 
-			$data['max_snippet'] = isset($adv_robots['max-snippet']) ? (int) $adv_robots['max-snippet'] : null;
-			$data['max_image_preview'] = isset($adv_robots['max-image-preview']) ? $adv_robots['max-image-preview'] : null;
-			$data['max_video_preview'] = isset($adv_robots['max-video-preview']) ? (int) $adv_robots['max-video-preview'] : null;
+			// Each advance-robots directive is stored as ['enable' => .., 'length' => ..].
+			// Read the length scalar (honouring the enable flag) instead of casting the
+			// whole sub-array — (int) of a non-empty array is 1, which is what produced the
+			// "max-snippet:1" instead of "-1" and dropped the image-preview value. Mirrors
+			// sync_legacy_to_json() so both directions read the legacy format identically.
+			$data['max_snippet'] = !empty($adv_robots['max-snippet']['enable'])
+				? (isset($adv_robots['max-snippet']['length']) ? (int) $adv_robots['max-snippet']['length'] : -1)
+				: null;
+			$data['max_image_preview'] = !empty($adv_robots['max-image-preview']['enable'])
+				? (isset($adv_robots['max-image-preview']['length']) ? (string) $adv_robots['max-image-preview']['length'] : 'large')
+				: null;
+			$data['max_video_preview'] = !empty($adv_robots['max-video-preview']['enable'])
+				? (isset($adv_robots['max-video-preview']['length']) ? (int) $adv_robots['max-video-preview']['length'] : -1)
+				: null;
 		}
 
 		// Social / OG: persisted > volatile OTTO
@@ -606,17 +631,17 @@ class Metasync_Plugin_Sync {
 			$adv = is_array($existing_adv) ? $existing_adv : [];
 			if (array_key_exists('max_snippet', $data) && $data['max_snippet'] !== null) {
 				$val = (int) $data['max_snippet'];
-				$adv['max-snippet'] = 'max-snippet:' . $val;
+				$adv['max-snippet'] = (string) $val;
 			}
 			if (array_key_exists('max_image_preview', $data) && $data['max_image_preview'] !== null) {
 				$allowed = ['none', 'standard', 'large'];
 				if (in_array($data['max_image_preview'], $allowed, true)) {
-					$adv['max-image-preview'] = 'max-image-preview:' . $data['max_image_preview'];
+					$adv['max-image-preview'] = (string) $data['max_image_preview'];
 				}
 			}
 			if (array_key_exists('max_video_preview', $data) && $data['max_video_preview'] !== null) {
 				$val = (int) $data['max_video_preview'];
-				$adv['max-video-preview'] = 'max-video-preview:' . $val;
+				$adv['max-video-preview'] = (string) $val;
 			}
 			if (!empty($adv)) {
 				update_post_meta($post_id, 'rank_math_advanced_robots', $adv);
@@ -837,6 +862,13 @@ class Metasync_Plugin_Sync {
 		if (!empty($syncing_legacy[$post_id])) {
 			return;
 		}
+		// Our own sync_legacy_to_json() write triggered this. The legacy meta
+		// box values are the source of truth in that direction, and mirroring
+		// back would drop any value this function treats as a default (-1 /
+		// large), so bail out and leave the legacy keys alone.
+		if (!empty($this->syncing_legacy_to_json[$post_id])) {
+			return;
+		}
 		$syncing_legacy[$post_id] = true;
 		// Block sync_legacy_to_json from running while we write legacy keys
 		$this->syncing_json_to_legacy[$post_id] = true;
@@ -905,6 +937,8 @@ class Metasync_Plugin_Sync {
 			return;
 		}
 		$syncing_json[$post_id] = true;
+		// Block sync_to_legacy_meta from reacting to the JSON write below
+		$this->syncing_legacy_to_json[$post_id] = true;
 
 		try {
 			$common = get_post_meta($post_id, 'metasync_common_robots', true);
@@ -950,6 +984,7 @@ class Metasync_Plugin_Sync {
 			}
 		} finally {
 			unset($syncing_json[$post_id]);
+			unset($this->syncing_legacy_to_json[$post_id]);
 		}
 	}
 }

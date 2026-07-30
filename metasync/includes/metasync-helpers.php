@@ -93,3 +93,57 @@ if (!function_exists('metasync_get_custom_page_exclusion_meta_query')) {
         );
     }
 }
+
+if (!function_exists('metasync_discard_buffered_output')) {
+    /**
+     * Discard any pending output buffers before emitting a machine-readable body.
+     *
+     * Endpoints that serve XML/plain text (sitemaps, llms.txt, the IndexNow key
+     * file) must start at the very first byte of the response. When another
+     * plugin emits output earlier in the request — most commonly a PHP
+     * Deprecated/Notice/Warning rendered as HTML because display_errors or
+     * WP_DEBUG_DISPLAY is on — that text sits in the output buffer and gets
+     * flushed ahead of the `<?xml` declaration, making the response invalid and
+     * causing crawlers to reject the whole document.
+     *
+     * Call immediately before the header()/echo pair. On a healthy request there
+     * is nothing buffered and this is a no-op.
+     *
+     * @return bool True when the output is guaranteed clean; false when stray
+     *              bytes could not be discarded (see the two cases below).
+     */
+    function metasync_discard_buffered_output(){
+        // Headers already sent means the buffer was flushed to the client, so the
+        // stray bytes are on the wire and cannot be recalled. Discarding buffers
+        // now would only drop legitimate content.
+        if (headers_sent()) {
+            return false;
+        }
+
+        while (ob_get_level() > 0) {
+            $status = ob_get_status();
+            $flags  = isset($status['flags']) ? (int) $status['flags'] : 0;
+            $needed = PHP_OUTPUT_HANDLER_CLEANABLE | PHP_OUTPUT_HANDLER_REMOVABLE;
+
+            // Some buffers cannot be discarded at all — zlib.output_compression
+            // and handlers started without the cleanable/removable flags. Check
+            // first, because calling ob_end_clean() on one emits a PHP notice,
+            // which would add to the very corruption this guards against.
+            if (($flags & $needed) !== $needed) {
+                return false;
+            }
+
+            $level_before = ob_get_level();
+            ob_end_clean();
+
+            // Only keep going while the level is actually falling. Looping on
+            // ob_get_level() alone would spin forever against a buffer that
+            // refuses to close.
+            if (ob_get_level() >= $level_before) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}

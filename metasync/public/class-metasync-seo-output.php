@@ -577,6 +577,264 @@ class Metasync_Seo_Output
 		return $schema;
 	}
 
+	/**
+	 * Output the LocalBusiness / Organization / Person JSON-LD built from the
+	 * Local Business settings page (metasync_options['localseo']).
+	 *
+	 * Hooked to wp_head so the saved Local Business data appears in the
+	 * front-end page source as valid schema.org structured data. Emits nothing
+	 * on admin screens, feeds, or when the Local Business page is unconfigured.
+	 */
+	public function output_local_business_schema()
+	{
+		if (is_admin() || is_feed()) {
+			return;
+		}
+
+		$schema = $this->build_local_business_schema();
+		if (empty($schema)) {
+			return;
+		}
+
+		$json = wp_json_encode($schema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+		if (empty($json)) {
+			return;
+		}
+
+		echo "\t<script type=\"application/ld+json\">" . $json . "</script>\n";
+	}
+
+	/**
+	 * Build the LocalBusiness structured-data entity from the saved localseo
+	 * option. Returns null when the page has never been configured (no Person/
+	 * Organization type selected), so unconfigured sites emit no empty schema.
+	 *
+	 * @param array|null $options Saved localseo options; when null they are
+	 *                            read from metasync_options['localseo'].
+	 * @return array|null JSON-LD entity, or null when nothing is configured.
+	 */
+	public function build_local_business_schema($options = null)
+	{
+		if ($options === null) {
+			$options = Metasync::get_option('localseo');
+		}
+		if (empty($options) || !is_array($options)) {
+			return null;
+		}
+
+		$type = $options['local_seo_person_organization'] ?? '';
+		if ($type !== 'Organization' && $type !== 'Person') {
+			return null;
+		}
+
+		$url = !empty($options['local_seo_url']) ? $options['local_seo_url'] : get_home_url();
+
+		$entity = array(
+			'@context' => 'https://schema.org',
+			'@type'    => '',
+			'name'     => '',
+			'url'      => $url,
+		);
+
+		if (!empty($options['local_seo_email'])) {
+			$entity['email'] = $options['local_seo_email'];
+		}
+
+		if ($type === 'Person') {
+			$entity = $this->local_business_person($entity, $options);
+		} else {
+			$entity = $this->local_business_organization($entity, $options);
+		}
+
+		return $entity;
+	}
+
+	/**
+	 * Populate an Organization / LocalBusiness entity.
+	 *
+	 * @param array $entity  Base JSON-LD entity.
+	 * @param array $options Saved localseo options.
+	 * @return array
+	 */
+	private function local_business_organization($entity, $options)
+	{
+		$name = str_replace($this->escapers, $this->replacements, $options['local_seo_name'] ?? '');
+		$entity['name'] = $name !== '' ? $name : str_replace($this->escapers, $this->replacements, get_bloginfo('name'));
+
+		// The Business Type field stores a human-readable label (e.g. "Local
+		// Business", "Art Gallery"). schema.org @type tokens have no spaces, so
+		// collapse them ("Local Business" -> "LocalBusiness") to stay valid.
+		// A truthy value can never be the string '0', which is itself falsy, so
+		// the truthiness check alone already covers the "0" case.
+		$business_type = $options['local_seo_business_type'] ?? '';
+		$schema_type = $business_type
+			? str_replace(' ', '', $business_type)
+			: 'Organization';
+		$entity['@type'] = $schema_type;
+
+		if (!empty($options['local_seo_logo'])) {
+			$logo_url = is_numeric($options['local_seo_logo'])
+				? wp_get_attachment_image_url($options['local_seo_logo'], 'full')
+				: $options['local_seo_logo'];
+			if ($logo_url) {
+				$entity['logo'] = $logo_url;
+			}
+		}
+
+		if (!empty($options['local_seo_price_range'])) {
+			$entity['priceRange'] = $options['local_seo_price_range'];
+		}
+
+		$this->local_business_add_geo($entity, $options);
+		$this->local_business_add_address($entity, $options);
+		$this->local_business_add_contact_points($entity, $options);
+		$this->local_business_add_hours($entity, $options);
+
+		return $entity;
+	}
+
+	/**
+	 * Populate a Person entity.
+	 *
+	 * @param array $entity  Base JSON-LD entity.
+	 * @param array $options Saved localseo options.
+	 * @return array
+	 */
+	private function local_business_person($entity, $options)
+	{
+		$name = str_replace($this->escapers, $this->replacements, $options['local_seo_name'] ?? '');
+		$entity['@type'] = 'Person';
+		$entity['name'] = $name !== '' ? $name : str_replace($this->escapers, $this->replacements, get_bloginfo('name'));
+
+		if (!empty($options['local_seo_phone'])) {
+			$entity['telephone'] = $options['local_seo_phone'];
+		}
+
+		if (!empty($options['local_seo_logo'])) {
+			$logo_url = is_numeric($options['local_seo_logo'])
+				? wp_get_attachment_image_url($options['local_seo_logo'], 'full')
+				: $options['local_seo_logo'];
+			if ($logo_url) {
+				$entity['image'] = $logo_url;
+			}
+		}
+
+		$this->local_business_add_geo($entity, $options);
+		$this->local_business_add_address($entity, $options);
+
+		return $entity;
+	}
+
+	/**
+	 * Add a PostalAddress from the saved address sub-array.
+	 */
+	private function local_business_add_address(&$entity, $options)
+	{
+		$address = $options['address'] ?? array();
+		if (empty($address) || !is_array($address)) {
+			return;
+		}
+
+		$street   = $address['street'] ?? '';
+		$locality = $address['locality'] ?? '';
+		$region   = $address['region'] ?? '';
+		$postal   = $address['postalcode'] ?? '';
+		$country  = $address['country'] ?? '';
+
+		// Skip entirely if every address field is empty.
+		if ($street === '' && $locality === '' && $region === '' && $postal === '' && $country === '') {
+			return;
+		}
+
+		$entity['address'] = array(
+			'@type'           => 'PostalAddress',
+			'streetAddress'   => str_replace($this->escapers, $this->replacements, $street),
+			'addressLocality' => str_replace($this->escapers, $this->replacements, $locality),
+			'addressRegion'   => str_replace($this->escapers, $this->replacements, $region),
+			'postalCode'      => str_replace($this->escapers, $this->replacements, $postal),
+			'addressCountry'  => str_replace($this->escapers, $this->replacements, $country),
+		);
+	}
+
+	/**
+	 * Add GeoCoordinates + hasMap from "lat,lng" saved coordinates.
+	 */
+	private function local_business_add_geo(&$entity, $options)
+	{
+		$coords = $options['local_seo_geo_coordinates'] ?? '';
+		if (empty($coords)) {
+			return;
+		}
+
+		// explode() always yields at least one element, so only the second index
+		// needs an existence check (a value with no comma has no longitude).
+		$geo = array_map('trim', explode(',', $coords));
+		if (!isset($geo[1]) || $geo[0] === '' || $geo[1] === '') {
+			return;
+		}
+
+		$entity['geo'] = array(
+			'@type'     => 'GeoCoordinates',
+			'latitude'  => $geo[0],
+			'longitude' => $geo[1],
+		);
+		$entity['hasMap'] = 'https://www.google.com/maps/search/?api=1&query=' . rawurlencode($geo[0] . ',' . $geo[1]);
+	}
+
+	/**
+	 * Add ContactPoint entries from the parallel phonetype[] / phonenumber[] arrays.
+	 */
+	private function local_business_add_contact_points(&$entity, $options)
+	{
+		$types   = $options['phonetype'] ?? '';
+		$numbers = $options['phonenumber'] ?? '';
+		if (!is_array($types) || !is_array($numbers) || empty($types) || empty($numbers)) {
+			return;
+		}
+
+		$contacts = array();
+		foreach ($types as $i => $contact_type) {
+			$number = $numbers[$i] ?? '';
+			if ($contact_type === '' || $number === '') {
+				continue;
+			}
+			$contacts[] = array(
+				'@type'       => 'ContactPoint',
+				'telephone'   => $number,
+				'contactType' => $contact_type,
+			);
+		}
+
+		if (!empty($contacts)) {
+			$entity['contactPoint'] = $contacts;
+		}
+	}
+
+	/**
+	 * Add openingHours from the parallel days[] / times[] arrays.
+	 */
+	private function local_business_add_hours(&$entity, $options)
+	{
+		$days  = $options['days'] ?? '';
+		$times = $options['times'] ?? '';
+		if (!is_array($days) || !is_array($times) || empty($days) || empty($times)) {
+			return;
+		}
+
+		$hours = array();
+		foreach ($days as $i => $day) {
+			$time = $times[$i] ?? '';
+			if ($day === '' || $time === '') {
+				continue;
+			}
+			$hours[] = $day . ' ' . $time;
+		}
+
+		if (!empty($hours)) {
+			$entity['openingHours'] = $hours;
+		}
+	}
+
 	/*
 	* This will hide the title on single posts and pages
 	* if they were created with the "metasync" system.

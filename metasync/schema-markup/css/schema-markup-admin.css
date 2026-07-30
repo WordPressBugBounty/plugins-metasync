@@ -52,6 +52,9 @@
     text-decoration: none;
     font-size: 12px;
     padding: 6px 12px !important;
+    /* Match the border to the red label/icon (monochromatic) instead of WP core's
+       blue admin-theme border, which clashes with the red content. */
+    border-color: #dc3232 !important;
 }
 
 .remove-schema-type .dashicons {
@@ -63,12 +66,31 @@
     width: 16px;
     height: 16px;
     font-size: 16px;
-    line-height: 1;
+    /* Override WP core's higher-specificity `.wp-core-ui .button .dashicons`
+       (line-height: 1.9; vertical-align: top), which otherwise offsets the glyph. */
+    line-height: 1 !important;
+    vertical-align: middle !important;
+    margin-bottom: 0.15rem;
 }
 
 .remove-schema-type:hover,
 .remove-schema-type:hover .dashicons {
     color: #a00;
+}
+
+.remove-schema-type:hover {
+    border-color: #a00 !important;
+    background: rgba(220, 50, 50, 0.06) !important;
+}
+
+/* Keep the focus/active (clicked) state red — WP core otherwise paints a blue
+   border and blue box-shadow focus ring from the admin-theme color. */
+.remove-schema-type:focus,
+.remove-schema-type:active {
+    color: #a00 !important;
+    border-color: #a00 !important;
+    box-shadow: 0 0 0 1px #a00 !important;
+    outline: 2px solid transparent;
 }
 
 .no-schema-types {

@@ -443,9 +443,9 @@ class Metasync_Admin_Pages
                     </div>
 
                     <div class="dashboard-card">
-                        <h2>Content Genius Synchronization</h2>
+                        <h2>Content Genius Synchronization<?php Metasync::render_tooltip_icon('cg_sync_section', sprintf('Syncing sends this site\'s categories and authors to %s, so Content Genius can assign the right category and author when publishing articles to this site.', Metasync::get_effective_plugin_name())); ?></h2>
                         <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Sync your categories and user/author data with <?php echo esc_html(Metasync::get_effective_plugin_name()); ?>.</p>
-                        <button type="button" class="button button-primary" id="sendAuthToken" data-toggle="tooltip" data-placement="top" title="Sync Categories and User">
+                        <button type="button" class="button button-primary" id="sendAuthToken">
                             Sync Now
                         </button>
                     </div>

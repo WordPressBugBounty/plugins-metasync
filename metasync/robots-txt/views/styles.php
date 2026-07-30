@@ -404,6 +404,26 @@ if (!defined('WPINC')) {
         cursor: not-allowed;
     }
 
+    /*
+     * Pin the backup-action icon colors to the design system.
+     * WordPress 7.x ships `[class*=branch-7].wp-core-ui .button .dashicons { color: var(--wp-admin-theme-color) }`,
+     * which colors every button glyph with the admin theme color at (0,4,0) specificity and
+     * targets the .dashicons element directly, so the button's own color is not inherited.
+     * We match the glyph directly with !important so each action keeps its intended color
+     * consistently across WordPress versions and site environments.
+     */
+    .metasync-backup-actions .metasync-preview-backup .dashicons {
+        color: #ffffff !important;
+    }
+
+    .metasync-backup-actions .metasync-restore-backup .dashicons {
+        color: var(--dashboard-success, #10b981) !important;
+    }
+
+    .metasync-backup-actions .button-link-delete .dashicons {
+        color: var(--dashboard-error, #ef4444) !important;
+    }
+
     .metasync-warnings-list {
         margin: 0;
         padding: 20px;

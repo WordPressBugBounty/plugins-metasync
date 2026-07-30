@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 2.6.19
+Stable tag: 2.6.20
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -77,6 +77,25 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.20 =
+* Improvement: The OTTO Debug comparison panel now shows the Meta Description when OTTO delivers it as raw header HTML instead of a structured replacement
+* Improvement: Added a tooltip to the Content Genius Synchronization card explaining that "Sync Now" sends the site's categories and authors so published articles are assigned correctly
+* Security: Added the missing permission and nonce checks to the Heartbeat Error Monitor's bulk actions
+* Fix: The trash icon on the "Remove" button in the Schema Markup meta box is aligned correctly again
+* Fix: Sitemaps are no longer corrupted by stray PHP notices or warnings emitted by other plugins, which previously produced invalid XML that search engines rejected
+* Fix: The "Default Page Builder" dropdown no longer renders its option labels invisible unless they are hovered
+* Fix: Corrected the malformed robots meta tag produced when SEO data is synced into Rank Math
+* Fix: Open Graph and Twitter tags are no longer stripped when the per-post "Enable Open Graph and Social Media Tags" toggle is off, so Yoast SEO and All in One SEO can supply their own again
+* Fix: The delete icon in the Robots.txt Backup History panel now uses a consistent color across WordPress versions
+* Fix: The Compatibility page no longer reports the site's active theme as "Not installed" when the theme's display name differs from its folder name
+* Fix: The Local Business logo "Add or Upload File" button opens the media library again
+* Fix: Bulk actions chosen from the control at the bottom of the Redirections, 404 Monitor and Heartbeat Error Monitor lists now apply instead of doing nothing
+* Fix: Saved Local Business details are now output as LocalBusiness structured data on the front end
+* Fix: The per-page "Disable OTTO" toggle now also suppresses previously stored OTTO titles and descriptions instead of continuing to serve them
+* Fix: Values entered in the "Advanced Robots Meta" meta box are kept after saving a post instead of resetting on refresh
+* Fix: The "no results" placeholder no longer appears under short checkbox lists in Sitemap Settings when nothing has been searched
+* Fix: A custom SEO title or meta description set in the SEO sidebar now always takes precedence on the live page, instead of being overridden by OTTO when OTTO is connected
+
 = 2.6.19 =
 * Improvement: Removed the unused legacy "Optimal Settings" page
 * Improvement: Reworked the Search Atlas connection to a pull-based flow so sites behind firewalls that block inbound callbacks can still connect reliably

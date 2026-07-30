@@ -324,6 +324,13 @@
 					}
 				}
 		}
+
+		// Parse header_html_insertion once so it can act as a fallback for the
+		// Meta Description row (OTTO can deploy the description here instead of
+		// header_replacements) and feed the Keywords/Schema/Twitter rows below.
+		let parsedInsertions = data.header_html_insertion
+			? this.parseHeaderInsertions(data.header_html_insertion)
+			: null;
 		
 		// Build comparison table HTML
 		let html = '<table class="otto-comparison-table">';
@@ -344,12 +351,20 @@
 		}
 		
 		// Meta Description - only show if present
+		// header_replacements takes priority; fall back to header_html_insertion
+		// where OTTO can deploy the description tag as raw HTML.
 		if (descriptionData) {
 			html += '<tr>';
 			html += '<td><span class="field-label">Meta Description</span><div class="field-value">' + 
 			        this.escapeHtml(descriptionData.current_value) + '</div></td>';
 			html += '<td><span class="field-label">Meta Description</span><div class="field-value">' + 
 			        this.escapeHtml(descriptionData.recommended_value) + '</div></td>';
+			html += '</tr>';
+		} else if (parsedInsertions && parsedInsertions.description) {
+			html += '<tr>';
+			html += '<td><span class="field-label">Meta Description</span><div class="field-value"><em>Not present</em></div></td>';
+			html += '<td><span class="field-label">Meta Description</span><div class="field-value">' +
+			        this.escapeHtml(parsedInsertions.description) + '</div></td>';
 			html += '</tr>';
 		}
 		
@@ -395,9 +410,9 @@
 			}
 		}
 		
-		// Parse Header HTML Insertion for Keywords and Schema
-		if (data.header_html_insertion) {
-			let parsedInsertions = this.parseHeaderInsertions(data.header_html_insertion);
+		// Header HTML Insertion for Keywords, Schema, and Twitter meta tags.
+		// (Description fallback is handled above; parsedInsertions is reused.)
+		if (parsedInsertions) {
 			
 			// Keywords
 			if (parsedInsertions.keywords) {
@@ -491,6 +506,7 @@
 		let result = {
 			keywords: null,
 			schema: null,
+			description: null,
 			twitterTitle: null,
 			twitterDescription: null
 		};
@@ -507,6 +523,12 @@
 		let keywordsMeta = tempDiv.querySelector('meta[name="keywords"]');
 		if (keywordsMeta) {
 			result.keywords = keywordsMeta.getAttribute('content');
+		}
+
+		// Extract description meta tag (can be deployed here instead of header_replacements)
+		let descriptionMeta = tempDiv.querySelector('meta[name="description"]');
+		if (descriptionMeta) {
+			result.description = descriptionMeta.getAttribute('content');
 		}
 		
 		// Extract schema (JSON-LD)

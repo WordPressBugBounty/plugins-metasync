@@ -930,6 +930,7 @@ Class Metasync_otto_html{
         $result_html = $this->otto_guard_html($this->deduplicate_description_tags($result_html), $result_html, 'deduplicate_description_tags');
         $result_html = $this->otto_guard_html($this->deduplicate_og_twitter_tags($result_html), $result_html, 'deduplicate_og_twitter_tags');
         $result_html = $this->otto_guard_html($this->apply_metabox_og_precedence($result_html), $result_html, 'apply_metabox_og_precedence');
+        $result_html = $this->otto_guard_html($this->apply_custom_seo_precedence($result_html), $result_html, 'apply_custom_seo_precedence');
         $result_html = $this->otto_guard_html($this->deduplicate_schema_tags($result_html), $result_html, 'deduplicate_schema_tags');
         $result_html = $this->otto_guard_html($this->deduplicate_canonical_tags($result_html), $result_html, 'deduplicate_canonical_tags');
 
@@ -1627,6 +1628,113 @@ Class Metasync_otto_html{
         $body->outertext = '<body' . $attributes_string . '>'.$insert_data['body_top_html_insertion'].$body->innertext . '</body>';
     }
 
+    /**
+     * Resolve the current singular post id reliably inside the OTTO output
+     * buffer / direct-render context.
+     *
+     * get_the_ID() depends on the global $post/loop state, which is not reliable
+     * once WordPress has finished rendering and the buffer/shutdown pass runs.
+     * get_queried_object_id() reads the parsed main query and stays correct there
+     * (same approach as apply_metabox_og_precedence()). Restricted to
+     * singular views: on archives/home the queried object id can be a term or
+     * user id, which must not be read as post meta.
+     *
+     * @return int Post id, or 0 when not applicable.
+     */
+    private function get_buffer_post_id() {
+        if (!function_exists('is_singular') || !is_singular()) {
+            return 0;
+        }
+        $post_id = function_exists('get_queried_object_id') ? get_queried_object_id() : 0;
+        return $post_id ? (int) $post_id : 0;
+    }
+
+    /**
+     * Replace the first <meta $attr="$val"> content with $content_escaped (marked
+     * data-metasync-seo="custom"); insert one after <head> if none is present.
+     * Helper for apply_custom_seo_precedence().
+     *
+     * @param string $html
+     * @param string $attr          "name" or "property"
+     * @param string $val           e.g. "description", "og:description"
+     * @param string $content_escaped Already HTML-escaped content value
+     * @return string
+     */
+    private function force_custom_meta($html, $attr, $val, $content_escaped) {
+        $tag = '<meta ' . $attr . '="' . $val . '" content="' . $content_escaped . '" data-metasync-seo="custom" />';
+        $pattern = '/<meta\s[^>]*' . preg_quote($attr, '/') . '\s*=\s*["\']' . preg_quote($val, '/') . '["\'][^>]*\/?>/i';
+        $count = 0;
+        $new = preg_replace_callback($pattern, function ($m) use ($tag) {
+            return $tag;
+        }, $html, 1, $count);
+        if ($count > 0) {
+            return $new;
+        }
+        # None present — insert after <head>.
+        return preg_replace_callback('/(<head[^>]*>)/i', function ($m) use ($tag) {
+            return $m[1] . "\n" . $tag;
+        }, $html, 1);
+    }
+
+    /**
+     * Enforce the SEO-sidebar custom title/description as the FINAL word over OTTO.
+     *
+     * The DOM-pass guards (do_header_replacements/handle_meta_element) already skip
+     * OTTO for these fields, but later steps re-introduce OTTO's value:
+     *   - the manual string-replacement title pass re-applies OTTO's title;
+     *   - OTTO's description arrives via header_html_insertion (data-otto) and the
+     *     dedup keeps it whenever no data-metasync-seo tag is present — which is
+     *     exactly the case when the post is synced to a third-party SEO plugin and
+     *     the sidebar deferred emitting its own tag (output_seo_meta_description()).
+     *
+     * Running LAST — after all dedup/precedence steps — this makes the user's
+     * explicit sidebar value authoritative regardless of how the tag was produced,
+     * mirroring apply_metabox_og_precedence() for the OG meta box. Singular views
+     * only; a value must be non-empty (explicitly set) to take precedence.
+     *
+     * @param  string $html Full HTML document (post-dedup).
+     * @return string
+     */
+    private function apply_custom_seo_precedence($html) {
+        if ($html === '') {
+            return $html;
+        }
+        $post_id = $this->get_buffer_post_id();
+        if (!$post_id) {
+            return $html;
+        }
+
+        # Title — force the custom sidebar title into the (single, post-dedup) <title>.
+        $custom_title = get_post_meta($post_id, '_metasync_seo_title', true);
+        if (!empty($custom_title) && is_string($custom_title)) {
+            $title_tag = '<title>' . htmlspecialchars($custom_title, ENT_QUOTES, 'UTF-8') . '</title>';
+            $count = 0;
+            $replaced = preg_replace_callback('/<title[^>]*>.*?<\/title>/is', function ($m) use ($title_tag) {
+                return $title_tag;
+            }, $html, 1, $count);
+            if ($count > 0) {
+                $html = $replaced;
+            } elseif (stripos($html, '<title') === false) {
+                $html = preg_replace_callback('/(<head[^>]*>)/i', function ($m) use ($title_tag) {
+                    return $m[1] . "\n" . $title_tag;
+                }, $html, 1);
+            }
+        }
+
+        # Description — force the custom sidebar description into the SEO
+        # <meta name="description"> only. og:/twitter: description are social tags
+        # owned by the OG meta box and apply_metabox_og_precedence() (which runs
+        # earlier); this pass must NOT touch them, or it would override a
+        # separately user-set og:description with the plain SEO description.
+        $custom_desc = get_post_meta($post_id, '_metasync_seo_desc', true);
+        if (!empty($custom_desc) && is_string($custom_desc)) {
+            $esc = htmlspecialchars($custom_desc, ENT_QUOTES, 'UTF-8');
+            $html = $this->force_custom_meta($html, 'name', 'description', $esc);
+        }
+
+        return $html;
+    }
+
     # this function does the header replacements
     function do_header_replacements($replacement_data){
 
@@ -2218,17 +2326,25 @@ Class Metasync_otto_html{
 
         $all_tags = $matches[0];
 
-        # Find the OTTO tag (has data-otto-pixel or data-otto attribute)
+        # Choose the keeper by precedence: custom sidebar → OTTO → first.
+        # A user-set SEO sidebar value (data-metasync-seo="custom") must win over
+        # OTTO, matching deduplicate_description_tags() and the sidebar's documented
+        # "custom always wins over OTTO" intent. Without this, the generic keeper
+        # (OTTO-or-first) drops the sidebar's og:/twitter: description in favor of
+        # OTTO's injected tag.
+        $custom_tag = null;
         $otto_tag = null;
         foreach ($all_tags as $tag) {
-            if (stripos($tag, 'data-otto') !== false) {
+            if ($custom_tag === null && stripos($tag, 'data-metasync-seo') !== false) {
+                $custom_tag = $tag;
+            }
+            if ($otto_tag === null && stripos($tag, 'data-otto') !== false) {
                 $otto_tag = $tag;
-                break;
             }
         }
 
-        # Determine the keeper: OTTO tag if present, otherwise the first tag
-        $keeper = $otto_tag ?: $all_tags[0];
+        # Determine the keeper: custom sidebar tag, else OTTO tag, else the first tag
+        $keeper = $custom_tag ?: ($otto_tag ?: $all_tags[0]);
 
         # Remove all occurrences, then re-insert the keeper at the first position
         $first_replaced = false;
@@ -3019,6 +3135,7 @@ Class Metasync_otto_html{
             $result_html = $this->otto_guard_html($this->deduplicate_description_tags($result_html), $result_html, 'deduplicate_description_tags');
             $result_html = $this->otto_guard_html($this->deduplicate_og_twitter_tags($result_html), $result_html, 'deduplicate_og_twitter_tags');
             $result_html = $this->otto_guard_html($this->apply_metabox_og_precedence($result_html), $result_html, 'apply_metabox_og_precedence');
+            $result_html = $this->otto_guard_html($this->apply_custom_seo_precedence($result_html), $result_html, 'apply_custom_seo_precedence');
             $result_html = $this->otto_guard_html($this->deduplicate_schema_tags($result_html), $result_html, 'deduplicate_schema_tags');
             $result_html = $this->otto_guard_html($this->deduplicate_canonical_tags($result_html), $result_html, 'deduplicate_canonical_tags');
 

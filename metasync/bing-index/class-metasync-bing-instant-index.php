@@ -151,6 +151,7 @@ class Metasync_Bing_Instant_Index
 			return;
 		}
 
+		metasync_discard_buffered_output();
 		status_header(200);
 		header('Content-Type: text/plain; charset=utf-8');
 		header('X-Robots-Tag: noindex');

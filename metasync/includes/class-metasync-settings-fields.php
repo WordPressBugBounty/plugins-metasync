@@ -1574,7 +1574,7 @@ class Metasync_Settings_Fields {
             isset(Metasync::get_option('localseo')['local_seo_logo']) ? esc_attr(Metasync::get_option('localseo')['local_seo_logo']) : ''
         );
 
-        printf(' <br> <input class="button-secondary" type="button" id="logo_upload_button" value="Add or Upload File">');
+        printf(' <br> <input class="button-secondary no-loading" type="button" id="logo_upload_button" value="Add or Upload File">');
 
         printf(' <br><br> <span class="description bold"> Min Size: 160Χ90px, Max Size: 1920X1080px. </span> <br> <span class="description"> A squared image is preferred by the search engines. </span> <br><br> ');
 
@@ -1584,7 +1584,7 @@ class Metasync_Settings_Fields {
         if ($local_seo_logo) {
             $button_type = 'button';
         }
-        printf('<input type="%s" class="button-secondary" id="local_seo_logo_close_btn" value="X">', $button_type);
+        printf('<input type="%s" class="button-secondary no-loading" id="local_seo_logo_close_btn" value="X">', $button_type);
     }
 
     public function local_seo_url_callback()

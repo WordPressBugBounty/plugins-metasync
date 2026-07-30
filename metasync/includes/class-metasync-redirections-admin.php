@@ -16,6 +16,20 @@ class Metasync_Redirections_Admin
 {
     private static $instance = null;
 
+    /**
+     * Which tab of the combined Redirections screen is being viewed.
+     *
+     * Set ONLY by render_tab_content(), i.e. only when both the redirections
+     * and 404-monitor tables are rendered onto one page. Stays null on the
+     * standalone 404 Monitor page (page=...-404-monitor), where that table is
+     * the only one present. The list tables read it to decide whether to offer
+     * bulk actions - see get_bulk_actions() in either table for why.
+     *
+     * @var string|null 'redirections', '404-monitor', or null when not on the
+     *                  combined screen.
+     */
+    public static $combined_screen_active_tab = null;
+
     /** @var object Redirection database helper */
     private $db_redirection;
 
@@ -512,6 +526,14 @@ class Metasync_Redirections_Admin
 
     private function render_tab_content($current_tab)
     {
+        // Both tables are rendered onto this one page (CSS hides the inactive
+        // tab), so record which tab is actually being viewed. The list tables
+        // use this to keep the hidden tab from emitting a duplicate set of
+        // bulk-action controls - see get_bulk_actions() in either table.
+        self::$combined_screen_active_tab = ($current_tab === '404-monitor')
+            ? '404-monitor'
+            : 'redirections';
+
         $this->render_redirections_tab($current_tab);
         $this->render_404_monitor_tab($current_tab);
     }

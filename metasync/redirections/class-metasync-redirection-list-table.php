@@ -18,7 +18,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 	private $records;
 	private $db_redirection;
 	private $_displayed = false;
-	private $_nav_displayed = false;
+	private $_nav_displayed = [];
 	public function __construct()
 	{
 		// Set parent defaults.
@@ -595,8 +595,53 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 		return esc_html($label);
 	}
 
+	/**
+	 * Override current_action() so bulk actions triggered from the bottom
+	 * dropdown (which posts `action2`) are detected alongside the top one
+	 * (which posts `action`). WP_List_Table::current_action() only reads
+	 * `action`, so without this the bottom Apply is a silent no-op.
+	 *
+	 * @return string|false
+	 */
+	public function current_action()
+	{
+		// A "Filter"/query submit is not a bulk action. WP core's own
+		// current_action() short-circuits on filter_action for exactly this
+		// reason, and dropping that check makes ticking rows, choosing a bulk
+		// action and then clicking Filter silently run the action.
+		if (!empty($_REQUEST['filter_action'])) {
+			return false;
+		}
+
+		if (isset($_REQUEST['action']) && '-1' !== $_REQUEST['action'] && '' !== $_REQUEST['action']) {
+			return sanitize_text_field(wp_unslash($_REQUEST['action']));
+		}
+		if (isset($_REQUEST['action2']) && '-1' !== $_REQUEST['action2'] && '' !== $_REQUEST['action2']) {
+			return sanitize_text_field(wp_unslash($_REQUEST['action2']));
+		}
+		return parent::current_action();
+	}
+
 	protected function get_bulk_actions()
 	{
+		// On the combined Redirections screen BOTH this table and the 404
+		// monitor table are rendered, with CSS hiding the inactive tab. If the
+		// hidden one also emitted bulk controls the page would carry two
+		// #bulk-action-selector-top/-bottom and #doaction/#doaction2; WP core's
+		// common.js binds those by ID, so it wired up whichever table came
+		// first and left the visible tab's controls inert. Returning an empty
+		// array makes core render no dropdown and no Apply for the hidden
+		// table, which costs nothing (it cannot be clicked) and keeps the IDs
+		// unique.
+		//
+		// The flag is null unless we are on that combined screen, so this table
+		// keeps its bulk actions everywhere else.
+		if (class_exists('Metasync_Redirections_Admin')
+			&& Metasync_Redirections_Admin::$combined_screen_active_tab !== null
+			&& Metasync_Redirections_Admin::$combined_screen_active_tab !== 'redirections') {
+			return array();
+		}
+
 		$actions = array(
 			'delete_bulk' => _x('Delete', 'List table bulk action', 'metasync'),
 			'activate_bulk' => _x('Activate', 'List table bulk action', 'metasync'),
@@ -723,19 +768,22 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 	}
 
 	/**
-	 * Override display_tablenav to prevent duplicate navigation
+	 * Override display_tablenav to prevent duplicate navigation.
+	 *
+	 * Each position ('top' / 'bottom') renders at most once, tracked
+	 * SEPARATELY. A single shared flag suppressed the bottom bar entirely,
+	 * and with it the `action2` bulk control — so bulk actions could never be
+	 * applied from the bottom of the list.
 	 */
 	protected function display_tablenav($which)
 	{
-		// Only display navigation once
-		if (isset($this->_nav_displayed) && $this->_nav_displayed) {
+		// Only display each navigation position once
+		if (!empty($this->_nav_displayed[$which])) {
 			return;
 		}
 		
-		if ($which === 'top') {
-			$this->_nav_displayed = true;
-		}
-		
+		$this->_nav_displayed[$which] = true;
+
 		parent::display_tablenav($which);
 	}
 

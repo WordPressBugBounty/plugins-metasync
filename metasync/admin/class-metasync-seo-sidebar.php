@@ -228,10 +228,19 @@ class Metasync_SEO_Sidebar {
             $description_escaped = esc_attr($description);
             // Standard meta description
             echo '<meta name="description" content="' . $description_escaped . '" data-metasync-seo="custom" />' . "\n";
-            // Open Graph description
-            echo '<meta property="og:description" content="' . $description_escaped . '" data-metasync-seo="custom" />' . "\n";
-            // Twitter description
-            echo '<meta name="twitter:description" content="' . $description_escaped . '" data-metasync-seo="custom" />' . "\n";
+
+            // og:description / twitter:description are Open Graph & social tags, gated by
+            // the per-post "Enable Open Graph & Social Media Tags" toggle. Only an explicit
+            // '0' opt-out disables them (unset/empty counts as enabled), mirroring
+            // Metasync_OpenGraph::will_emit(). When disabled, MetaSync emits no OG/Twitter
+            // description so it neither overrides a third-party plugin's tag nor leaves
+            // one sourced from our database.
+            if (get_post_meta($post_id, '_metasync_og_enabled', true) !== '0') {
+                // Open Graph description
+                echo '<meta property="og:description" content="' . $description_escaped . '" data-metasync-seo="custom" />' . "\n";
+                // Twitter description
+                echo '<meta name="twitter:description" content="' . $description_escaped . '" data-metasync-seo="custom" />' . "\n";
+            }
         }
     }
 

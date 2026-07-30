@@ -205,7 +205,7 @@ class Metasync_Post_Meta_Settings
 				<label for="advanced_robots_image">
 					<input type="checkbox" name="advanced_robots_meta[max-image-preview][enable]" id="advanced_robots_image" value="1" <?php checked('1', esc_attr($image_advance_robots_enable)) ?>>
 					Image Preview </br>
-					<select class="input-length" name="advanced_robots_meta[max-image-preview][length]' ?>" id="advanced_robots_image_value">
+					<select class="input-length" name="advanced_robots_meta[max-image-preview][length]" id="advanced_robots_image_value">
 						<option value="large" <?php selected(esc_attr($image_advance_robots_length), 'large'); ?>>Large</option>
 						<option value="standard" <?php selected(esc_attr($image_advance_robots_length), 'standard'); ?>>Standard</option>
 						<option value="none" <?php selected(esc_attr($image_advance_robots_length), 'none'); ?>>None</option>

@@ -171,8 +171,9 @@
     margin-left: 4px;
 }
 
-/* No results message */
-.metasync-checkbox-scroll .metasync-no-results {
+/* No results message - scoped to the always-present list wrapper (not just the
+   scrollable/searchable variant) so it stays hidden by default on short lists too */
+.metasync-checkbox-list .metasync-no-results {
     display: none;
     padding: 12px 0;
     color: var(--dashboard-text-secondary, #8b949e);

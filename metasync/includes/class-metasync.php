@@ -375,6 +375,8 @@ class Metasync
 
 		// SEO Output hooks (Metasync_Seo_Output)
 		$this->loader->add_action('wp_head', $seo_output, 'hook_metasync_metatags', 1, 1);
+		// LocalBusiness / Organization / Person JSON-LD from the Local Business page.
+		$this->loader->add_action('wp_head', $seo_output, 'output_local_business_schema', 2, 1);
 		$this->loader->add_action('template_redirect', $seo_output, 'inject_archive_seo_controls');
 
 		// Hreflang / language alternates output (wp_head @ priority 2).

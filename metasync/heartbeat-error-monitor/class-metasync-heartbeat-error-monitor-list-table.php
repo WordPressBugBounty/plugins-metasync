@@ -129,6 +129,33 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 		);
 	}
 
+	/**
+	 * Override current_action() so bulk actions triggered from the bottom
+	 * dropdown (which posts `action2`) are detected alongside the top one
+	 * (which posts `action`). WP_List_Table::current_action() only reads
+	 * `action`, so without this the bottom Apply is a silent no-op.
+	 *
+	 * @return string|false
+	 */
+	public function current_action()
+	{
+		// A "Filter"/query submit is not a bulk action. WP core's own
+		// current_action() short-circuits on filter_action for exactly this
+		// reason, and dropping that check makes ticking rows, choosing a bulk
+		// action and then clicking Filter silently run the action.
+		if (!empty($_REQUEST['filter_action'])) {
+			return false;
+		}
+
+		if (isset($_REQUEST['action']) && '-1' !== $_REQUEST['action'] && '' !== $_REQUEST['action']) {
+			return sanitize_text_field(wp_unslash($_REQUEST['action']));
+		}
+		if (isset($_REQUEST['action2']) && '-1' !== $_REQUEST['action2'] && '' !== $_REQUEST['action2']) {
+			return sanitize_text_field(wp_unslash($_REQUEST['action2']));
+		}
+		return parent::current_action();
+	}
+
 	protected function get_bulk_actions()
 	{
 		$actions = array(
@@ -146,11 +173,29 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 
 		if (empty($post_data['item'])) return;
 
+		$action = $this->current_action();
+
+		// Only the state-changing bulk actions need (and emit) a nonce. Returning
+		// early for anything else keeps normal page loads from tripping the check.
+		if (!in_array($action, ['delete_bulk', 'empty'], true)) {
+			return;
+		}
+
+		// Verify the bulk-action nonce emitted by WP_List_Table::display_tablenav()
+		// (plural === 'items' → 'bulk-items') and confirm plugin access before any
+		// delete / clear-logs. Guards against CSRF on the bulk path — this applies
+		// identically to the `action2` (bottom control) path.
+		check_admin_referer('bulk-items');
+
+		if (!Metasync::current_user_has_plugin_access()) {
+			return;
+		}
+
 		// Detect when bulk delete action is being triggered.
-		if ('delete_bulk' === $this->current_action()) {
+		if ('delete_bulk' === $action) {
 			$this->db_heartbeat_errors->delete($items);
 		}
-		if ('empty' === $this->current_action()) {
+		if ('empty' === $action) {
 			$this->db_heartbeat_errors->clear_logs();
 		}
 	}

@@ -530,6 +530,11 @@ class Metasync_SEO_Conflict_Handler {
 
         $post_id = $this->get_current_object_id();
 
+        // Per-post OG toggle off — MetaSync emits no OG, so leave AIOSEO's tags intact.
+        if ($this->og_output_disabled($post_id)) {
+            return $meta;
+        }
+
         // Post synced to AIOSEO — let AIOSEO read from its own storage.
         if ($post_id && $this->is_primary_output_plugin($post_id, 'aioseo')) {
             return $meta;
@@ -570,6 +575,11 @@ class Metasync_SEO_Conflict_Handler {
         }
 
         $post_id = $this->get_current_object_id();
+
+        // Per-post OG toggle off — MetaSync emits no Twitter tags, so leave AIOSEO's intact.
+        if ($this->og_output_disabled($post_id)) {
+            return $meta;
+        }
 
         // Post synced to AIOSEO — let AIOSEO read from its own storage.
         if ($post_id && $this->is_primary_output_plugin($post_id, 'aioseo')) {
@@ -820,6 +830,23 @@ class Metasync_SEO_Conflict_Handler {
         return !empty(get_post_meta($post_id, $meta_key_map[$tag], true));
     }
 
+    /**
+     * Whether the per-post "Enable Open Graph & Social Media Tags" toggle is
+     * explicitly turned off for the given object.
+     *
+     * Mirrors the guard in Metasync_OpenGraph::will_emit()/output_opengraph_tags():
+     * only an explicit '0' opt-out disables MetaSync's OG/Twitter output; an
+     * unset/empty value counts as enabled. When disabled, MetaSync emits no
+     * OG/Twitter tags of its own, so it must NOT strip a third-party SEO
+     * plugin's OG/Twitter tags either — otherwise the page is left with none.
+     *
+     * @param  int $post_id
+     * @return bool
+     */
+    private function og_output_disabled($post_id) {
+        return $post_id && get_post_meta($post_id, '_metasync_og_enabled', true) === '0';
+    }
+
     // ------------------------------------------------------------------
     // Yoast SEO integration
     // ------------------------------------------------------------------
@@ -969,6 +996,9 @@ class Metasync_SEO_Conflict_Handler {
      */
     public function filter_yoast_og_title($value) {
         $post_id = $this->get_current_object_id();
+        if ($this->og_output_disabled($post_id)) {
+            return $value;
+        }
         if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
             return $value;
         }
@@ -984,6 +1014,9 @@ class Metasync_SEO_Conflict_Handler {
      */
     public function filter_yoast_og_description($value) {
         $post_id = $this->get_current_object_id();
+        if ($this->og_output_disabled($post_id)) {
+            return $value;
+        }
         if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
             return $value;
         }
@@ -999,6 +1032,9 @@ class Metasync_SEO_Conflict_Handler {
      */
     public function filter_yoast_og_structural($value) {
         $post_id = $this->get_current_object_id();
+        if ($this->og_output_disabled($post_id)) {
+            return $value;
+        }
         if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
             return $value;
         }
@@ -1014,6 +1050,9 @@ class Metasync_SEO_Conflict_Handler {
      */
     public function filter_yoast_twitter_title($value) {
         $post_id = $this->get_current_object_id();
+        if ($this->og_output_disabled($post_id)) {
+            return $value;
+        }
         if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
             return $value;
         }
@@ -1029,6 +1068,9 @@ class Metasync_SEO_Conflict_Handler {
      */
     public function filter_yoast_twitter_description($value) {
         $post_id = $this->get_current_object_id();
+        if ($this->og_output_disabled($post_id)) {
+            return $value;
+        }
         if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
             return $value;
         }
@@ -1044,6 +1086,9 @@ class Metasync_SEO_Conflict_Handler {
      */
     public function filter_yoast_twitter_structural($value) {
         $post_id = $this->get_current_object_id();
+        if ($this->og_output_disabled($post_id)) {
+            return $value;
+        }
         if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
             return $value;
         }

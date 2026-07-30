@@ -2136,6 +2136,7 @@ class Metasync_Sitemap_Generator
         // requests are 403'd before PHP is involved.
         $physical_path = ABSPATH . $filename;
         if (file_exists($physical_path) && is_readable($physical_path)) {
+            metasync_discard_buffered_output();
             header('Content-Type: application/xml; charset=utf-8');
             header('X-Robots-Tag: noindex');
             status_header(200);
@@ -2174,6 +2175,7 @@ class Metasync_Sitemap_Generator
             return;
         }
 
+        metasync_discard_buffered_output();
         header('Content-Type: application/xml; charset=utf-8');
         header('X-Robots-Tag: noindex');
         status_header(200);

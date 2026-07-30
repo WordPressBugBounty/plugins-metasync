@@ -28,6 +28,50 @@ document.addEventListener('DOMContentLoaded', function () {
 		});
 	});
 
+	// Confirm destructive bulk actions.
+	//
+	// Mirrors the 404 monitor's guard. Reads BOTH dropdowns because the top one
+	// posts `action` and the bottom one posts `action2`. Only Delete is
+	// confirmed - Activate / Deactivate are reversible and do not warrant a
+	// prompt. Skipped when Filter is the submitter, since the server ignores
+	// bulk actions on a filter_action submit.
+	var redirectionForm = document.getElementById('redirection-form');
+	if (redirectionForm) {
+		redirectionForm.addEventListener('submit', function (e) {
+			var filterButton = document.getElementById('post-query-submit');
+			if (e.submitter && filterButton && e.submitter === filterButton) {
+				return;
+			}
+
+			var topSelect = document.getElementById('bulk-action-selector-top');
+			var bottomSelect = document.getElementById('bulk-action-selector-bottom');
+			var action = '-1';
+
+			if (topSelect && topSelect.value !== '-1' && topSelect.value !== '') {
+				action = topSelect.value;
+			} else if (bottomSelect && bottomSelect.value !== '-1' && bottomSelect.value !== '') {
+				action = bottomSelect.value;
+			}
+
+			if (action !== 'delete_bulk') {
+				return;
+			}
+
+			var checked = document.querySelectorAll('#redirection-form input[name="items[]"]:checked');
+			if (checked.length === 0) {
+				return;
+			}
+
+			var message = checked.length > 1
+				? 'Are you sure you want to delete the ' + checked.length + ' selected redirects? This cannot be undone.'
+				: 'Are you sure you want to delete the selected redirect? This cannot be undone.';
+
+			if (!confirm(message)) {
+				e.preventDefault();
+			}
+		});
+	}
+
 	// Submit the search when Enter is pressed in the search field.
 	//
 	// #redirection-form also contains the (hidden until action=add/edit) "Save"

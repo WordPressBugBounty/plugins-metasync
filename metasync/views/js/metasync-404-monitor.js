@@ -8,12 +8,25 @@ document.addEventListener('DOMContentLoaded', function() {
     var bulkActionForm = document.getElementById('404-monitor-form');
     if (bulkActionForm) {
         bulkActionForm.addEventListener('submit', function(e) {
-            var actionSelect = document.getElementById('bulk-action-selector-top');
-            if (actionSelect.value === 'empty') {
+            // Mirror the PHP side: the top dropdown posts `action`, the bottom
+            // one posts `action2`. Reading only the top select meant a bulk
+            // action chosen from the BOTTOM bar ran with no confirmation at
+            // all — including "Empty Table", which is irreversible.
+            var topSelect = document.getElementById('bulk-action-selector-top');
+            var bottomSelect = document.getElementById('bulk-action-selector-bottom');
+            var action = '-1';
+
+            if (topSelect && topSelect.value !== '-1' && topSelect.value !== '') {
+                action = topSelect.value;
+            } else if (bottomSelect && bottomSelect.value !== '-1' && bottomSelect.value !== '') {
+                action = bottomSelect.value;
+            }
+
+            if (action === 'empty') {
                 if (!confirm('Are you sure you want to empty all 404 error logs? This action cannot be undone.')) {
                     e.preventDefault();
                 }
-            } else if (actionSelect.value === 'delete_bulk') {
+            } else if (action === 'delete_bulk') {
                 var checkedBoxes = document.querySelectorAll('input[name="item[]"]:checked');
                 if (checkedBoxes.length > 0) {
                     if (!confirm('Are you sure you want to delete the selected 404 errors?')) {

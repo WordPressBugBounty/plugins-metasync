@@ -1077,7 +1077,6 @@ class Metasync_Settings_Registration
                 $auto_detected = Metasync_HTML_To_Builder_Converter::auto_detect_builder();
 
                 echo '<div class="metasync-page-builder-setting">';
-                echo '<style>#default_page_builder:focus { color: #fff; }</style>';
                 echo '<select id="default_page_builder" name="' . esc_attr($option_key) . '[general][default_page_builder]" style="min-width: 300px;">';
 
                 foreach ($builders as $key => $builder) {
@@ -1985,8 +1984,8 @@ class Metasync_Settings_Registration
         if (isset($input['localseo']['address']['region'])) {
             $new_input['localseo']['address']['region'] = sanitize_text_field($input['localseo']['address']['region']);
         }
-        if (isset($input['localseo']['address']['postancode'])) {
-            $new_input['localseo']['address']['postancode'] = sanitize_text_field($input['localseo']['address']['postancode']);
+        if (isset($input['localseo']['address']['postalcode'])) {
+            $new_input['localseo']['address']['postalcode'] = sanitize_text_field($input['localseo']['address']['postalcode']);
         }
         if (isset($input['localseo']['address']['country'])) {
             $new_input['localseo']['address']['country'] = sanitize_text_field($input['localseo']['address']['country']);
@@ -1998,16 +1997,16 @@ class Metasync_Settings_Registration
             $new_input['localseo']['local_seo_hours_format'] = sanitize_text_field($input['localseo']['local_seo_hours_format']);
         }
         if (isset($input['localseo']['days'])) {
-            $new_input['localseo']['days'] = sanitize_text_field($input['localseo']['days']);
+            $new_input['localseo']['days'] = array_map('sanitize_text_field', (array) $input['localseo']['days']);
         }
         if (isset($input['localseo']['times'])) {
-            $new_input['localseo']['times'] = sanitize_text_field($input['localseo']['times']);
+            $new_input['localseo']['times'] = array_map('sanitize_text_field', (array) $input['localseo']['times']);
         }
         if (isset($input['localseo']['phonetype'])) {
-            $new_input['localseo']['phonetype'] = sanitize_text_field($input['localseo']['phonetype']);
+            $new_input['localseo']['phonetype'] = array_map('sanitize_text_field', (array) $input['localseo']['phonetype']);
         }
         if (isset($input['localseo']['phonenumber'])) {
-            $new_input['localseo']['phonenumber'] = sanitize_text_field($input['localseo']['phonenumber']);
+            $new_input['localseo']['phonenumber'] = array_map('sanitize_text_field', (array) $input['localseo']['phonenumber']);
         }
         if (isset($input['localseo']['local_seo_price_range'])) {
             $new_input['localseo']['local_seo_price_range'] = sanitize_text_field($input['localseo']['local_seo_price_range']);

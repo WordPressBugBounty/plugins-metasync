@@ -41,8 +41,14 @@ class Metasync_HeartBeat_Error_Monitor
         echo '<div class="wrap">';
         // Prepare table
         $MetasyncHeartBeatMonitor->prepare_items();
+        // The table MUST be wrapped in a form. Without one, the row
+        // checkboxes, the action/action2 dropdowns and the bulk-items nonce
+        // emitted by display_tablenav() all render outside any form and
+        // submit nowhere, leaving bulk delete / Empty Table permanently dead.
+        echo '<form id="heartbeat-error-monitor-form" method="post" action="">';
         // Display table
         $MetasyncHeartBeatMonitor->display();
+        echo '</form>';
         echo '</div>';
     }
 }

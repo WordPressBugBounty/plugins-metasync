@@ -2560,6 +2560,54 @@ function metasync_is_otto_suppressed_for_current_user() {
     return $result;
 }
 
+/**
+ * Check whether OTTO is disabled per-page for the current request.
+ *
+ * The per-page "Disable OTTO" toggle (OTTO frontend toolbar) stores a flag in
+ * the `_metasync_otto_disabled` post meta. Historically it only gated the SSR
+ * render path (otto/otto_pixel.php `metasync_start_otto`), so persisted OTTO
+ * SEO values (`_metasync_otto_title` / `_metasync_otto_description`) were still
+ * served via wp_head / the document-title filters — reading as "OTTO is
+ * disabled but still leaking SEO".
+ *
+ * This helper mirrors the SSR-side check so the persisted-meta output paths can
+ * suppress themselves too. It is post-scoped:
+ *   - Singular posts/pages: checks `is_otto_disabled(get_the_ID())`.
+ *   - WooCommerce shop page: checks `is_otto_disabled(wc_get_page_id('shop'))`.
+ *   - Archives/terms/home: the per-page toggle does not apply, so it returns
+ *     false (the toggle is post-scoped).
+ *
+ * @return bool True when OTTO is disabled per-page for the current request.
+ */
+function metasync_is_otto_disabled_for_current_post() {
+    # The toggle is provided by the frontend toolbar; if that class is absent
+    # (e.g. plugin partially loaded / toolbar disabled) there is nothing to gate.
+    if (!class_exists('Metasync_Otto_Frontend_Toolbar')) {
+        return false;
+    }
+
+    # Singular posts/pages use the current post's meta flag.
+    if (is_singular()) {
+        $post_id = get_the_ID();
+        if ($post_id) {
+            return (bool) Metasync_Otto_Frontend_Toolbar::is_otto_disabled($post_id);
+        }
+        return false;
+    }
+
+    # WooCommerce shop page is backed by a real page; check its meta flag.
+    if (function_exists('is_shop') && is_shop() && function_exists('wc_get_page_id')) {
+        $shop_page_id = wc_get_page_id('shop');
+        if ($shop_page_id) {
+            return (bool) Metasync_Otto_Frontend_Toolbar::is_otto_disabled($shop_page_id);
+        }
+    }
+
+    # Archives / terms / home — the per-page toggle is post-scoped, so do not
+    # suppress OTTO output here.
+    return false;
+}
+
 # Yoast SEO filters
 add_filter('wpseo_title', 'metasync_suppress_yoast_title_for_loggedin', 99999);
 add_filter('wpseo_opengraph_title', 'metasync_suppress_yoast_title_for_loggedin', 99999);
@@ -2610,6 +2658,12 @@ function metasync_suppress_yoast_schema_for_loggedin($data) {
  */
 function metasync_astra_title_override($title) {
     if (class_exists('Metasync_Otto_Config') && Metasync_Otto_Config::is_disabled_for_loggedin() && is_user_logged_in()) {
+        return $title;
+    }
+
+    # Per-page "Disable OTTO" toggle: suppress persisted OTTO title output so
+    # it does not leak when OTTO is disabled for this page.
+    if (metasync_is_otto_disabled_for_current_post()) {
         return $title;
     }
 
@@ -2681,6 +2735,12 @@ function metasync_woocommerce_archive_title($title) {
         return $title;
     }
 
+    # Per-page "Disable OTTO" toggle: suppress persisted OTTO title output so
+    # it does not leak when OTTO is disabled for this page.
+    if (metasync_is_otto_disabled_for_current_post()) {
+        return $title;
+    }
+
     if (class_exists('Metasync_SEO_Conflict_Handler')) {
         $handler = Metasync_SEO_Conflict_Handler::get_instance();
         if ($handler->has_active_seo_plugin() && !$handler->otto_has_live_suggestions()) {
@@ -2731,6 +2791,12 @@ add_filter('woocommerce_page_title', 'metasync_woocommerce_archive_title', 99);
  */
 function metasync_wp_title_override($title, $sep = '') {
     if (class_exists('Metasync_Otto_Config') && Metasync_Otto_Config::is_disabled_for_loggedin() && is_user_logged_in()) {
+        return $title;
+    }
+
+    # Per-page "Disable OTTO" toggle: suppress persisted OTTO title output so
+    # it does not leak when OTTO is disabled for this page.
+    if (metasync_is_otto_disabled_for_current_post()) {
         return $title;
     }
 
@@ -2806,6 +2872,12 @@ add_filter('wp_title', 'metasync_wp_title_override', 99, 2);
  */
 function metasync_document_title_parts($title_parts) {
     if (class_exists('Metasync_Otto_Config') && Metasync_Otto_Config::is_disabled_for_loggedin() && is_user_logged_in()) {
+        return $title_parts;
+    }
+
+    # Per-page "Disable OTTO" toggle: suppress persisted OTTO title output so
+    # it does not leak when OTTO is disabled for this page.
+    if (metasync_is_otto_disabled_for_current_post()) {
         return $title_parts;
     }
 
@@ -2912,6 +2984,14 @@ function metasync_pre_get_document_title($title) {
         return '';
     }
 
+    # Per-page "Disable OTTO" toggle: suppress persisted OTTO title output so
+    # it does not leak when OTTO is disabled for this page. Return the incoming
+    # title unchanged (do not force '') so a lower-priority SEO plugin value is
+    # preserved — only the persisted OTTO value must be suppressed.
+    if (metasync_is_otto_disabled_for_current_post()) {
+        return $title;
+    }
+
     if (class_exists('Metasync_SEO_Conflict_Handler')) {
         $handler = Metasync_SEO_Conflict_Handler::get_instance();
         if ($handler->has_active_seo_plugin() && !$handler->otto_has_live_suggestions()) {
@@ -2996,6 +3076,12 @@ add_filter('pre_get_document_title', 'metasync_pre_get_document_title', 99);
  */
 function metasync_output_otto_meta_description() {
     if (class_exists('Metasync_Otto_Config') && Metasync_Otto_Config::is_disabled_for_loggedin() && is_user_logged_in()) {
+        return;
+    }
+
+    # Per-page "Disable OTTO" toggle: suppress persisted OTTO meta description
+    # output so it does not leak when OTTO is disabled for this page.
+    if (metasync_is_otto_disabled_for_current_post()) {
         return;
     }
 

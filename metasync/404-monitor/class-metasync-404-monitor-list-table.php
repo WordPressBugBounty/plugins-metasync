@@ -527,8 +527,49 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		);
 	}
 
+	/**
+	 * Override current_action() so bulk actions triggered from the bottom
+	 * dropdown (which posts `action2`) are detected alongside the top one
+	 * (which posts `action`). WP_List_Table::current_action() only reads
+	 * `action`, so without this the bottom Apply is a silent no-op.
+	 *
+	 * @return string|false
+	 */
+	public function current_action()
+	{
+		// A "Filter"/query submit is not a bulk action. WP core's own
+		// current_action() short-circuits on filter_action for exactly this
+		// reason, and dropping that check makes ticking rows, choosing a bulk
+		// action and then clicking Filter silently run the action.
+		if (!empty($_REQUEST['filter_action'])) {
+			return false;
+		}
+
+		if (isset($_REQUEST['action']) && '-1' !== $_REQUEST['action'] && '' !== $_REQUEST['action']) {
+			return sanitize_text_field(wp_unslash($_REQUEST['action']));
+		}
+		if (isset($_REQUEST['action2']) && '-1' !== $_REQUEST['action2'] && '' !== $_REQUEST['action2']) {
+			return sanitize_text_field(wp_unslash($_REQUEST['action2']));
+		}
+		return parent::current_action();
+	}
+
 	protected function get_bulk_actions()
 	{
+		// See the matching note in the redirection list table. On the combined
+		// Redirections screen both tables render onto one page, so the hidden
+		// tab must not emit a second copy of the bulk controls or their
+		// duplicate IDs break WP core's common.js wiring.
+		//
+		// The flag is null on the standalone 404 Monitor page
+		// (page=...-404-monitor), where this is the only table present - so
+		// bulk actions stay available there.
+		if (class_exists('Metasync_Redirections_Admin')
+			&& Metasync_Redirections_Admin::$combined_screen_active_tab !== null
+			&& Metasync_Redirections_Admin::$combined_screen_active_tab !== '404-monitor') {
+			return array();
+		}
+
 		$actions = array(
 			'delete_bulk' => _x('Delete', 'List table bulk action', 'metasync'),
 			'empty' => _x('Empty Table', 'List table bulk action', 'metasync'),

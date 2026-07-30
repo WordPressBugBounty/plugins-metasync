@@ -874,8 +874,10 @@ class Metasync_Compatibility_Checker
 
         foreach ($builders as $key => $builder) {
             $is_core = isset($builder['is_core']) && $builder['is_core'];
-            $theme_name = isset($builder['theme_name']) ? $builder['theme_name'] : null;
-            $plugin_status = $this->get_plugin_status($builder['plugin_files'], $is_core, $theme_name);
+            // The array key is the theme directory slug; pass it (not the display name)
+            // so wp_get_theme() can resolve the theme on case-sensitive filesystems.
+            $theme_slug = isset($builder['theme_name']) ? $key : null;
+            $plugin_status = $this->get_plugin_status($builder['plugin_files'], $is_core, $theme_slug);
 
             if ($builder['supported']) {
                 $status = 'supported';
@@ -1003,7 +1005,9 @@ class Metasync_Compatibility_Checker
 
         $result = [];
         foreach ( $themes as $key => $theme ) {
-            $status = $this->get_plugin_status( $theme['plugin_files'], false, $theme['theme_name'] );
+            // The array key is the theme directory slug; pass it (not the display name)
+            // so wp_get_theme() can resolve the theme on case-sensitive filesystems.
+            $status = $this->get_plugin_status( $theme['plugin_files'], false, $key );
             $result[] = [
                 'name'         => $theme['name'],
                 'version'      => $theme['version'],
@@ -1178,10 +1182,12 @@ class Metasync_Compatibility_Checker
      *
      * @param array  $plugin_files Array of plugin file paths to check
      * @param bool   $is_core      Whether this is a WordPress core feature
-     * @param string $theme_name   Optional theme name to check
+     * @param string $theme_slug   Optional theme directory slug to check (e.g. 'hello-elementor',
+     *                             'astra'). Must be the directory slug, not the display name,
+     *                             because wp_get_theme() resolves themes by directory slug.
      * @return array ['is_installed' => bool, 'is_active' => bool, 'active_version' => string|null]
      */
-    public function get_plugin_status($plugin_files, $is_core = false, $theme_name = null)
+    public function get_plugin_status($plugin_files, $is_core = false, $theme_slug = null)
     {
         if ($is_core) {
             return [
@@ -1191,12 +1197,14 @@ class Metasync_Compatibility_Checker
             ];
         }
 
-        if ($theme_name) {
+        if ($theme_slug) {
             $current_theme = wp_get_theme();
-            $is_theme_active = (strtolower($current_theme->get('Name')) === strtolower($theme_name) ||
-                               strtolower($current_theme->get_stylesheet()) === strtolower($theme_name));
+            $is_theme_active = (strtolower($current_theme->get('Name')) === strtolower($theme_slug) ||
+                               strtolower($current_theme->get_stylesheet()) === strtolower($theme_slug));
 
-            $theme_exists = wp_get_theme($theme_name)->exists();
+            // An active theme is by definition installed. Fall back to a directory
+            // lookup for themes that are installed but not currently active.
+            $theme_exists = $is_theme_active || wp_get_theme($theme_slug)->exists();
 
             if ($theme_exists) {
                 return [
