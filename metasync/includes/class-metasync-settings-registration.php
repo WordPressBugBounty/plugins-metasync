@@ -2060,9 +2060,6 @@ class Metasync_Settings_Registration
         // Common Setting - Global Settings
         $common_robots_field = isset($input['common_robots_meta']) ? 'common_robots_meta' : 'common_robots_mata';
 
-        if (isset($input[$common_robots_field]['index'])) {
-            $new_input['common_robots_meta']['index'] = boolval($input[$common_robots_field]['index']);
-        }
         if (isset($input[$common_robots_field]['noindex'])) {
             $new_input['common_robots_meta']['noindex'] = boolval($input[$common_robots_field]['noindex']);
         }

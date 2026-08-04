@@ -253,6 +253,7 @@ class ComposerStaticInit8e5917ee534e616253713b8104fcda43
         'Metasync_Review_Notice' => __DIR__ . '/../..' . '/includes/class-metasync-review-notice.php',
         'Metasync_Robots_Txt' => __DIR__ . '/../..' . '/robots-txt/class-metasync-robots-txt.php',
         'Metasync_Robots_Txt_Database' => __DIR__ . '/../..' . '/robots-txt/class-metasync-robots-txt-database.php',
+        'Metasync_SEO_Columns' => __DIR__ . '/../..' . '/admin/class-metasync-seo-columns.php',
         'Metasync_SEO_Conflict_Handler' => __DIR__ . '/../..' . '/includes/class-metasync-seo-conflict-handler.php',
         'Metasync_SEO_Health' => __DIR__ . '/../..' . '/admin/class-metasync-seo-health.php',
         'Metasync_SEO_Health_List_Table' => __DIR__ . '/../..' . '/admin/class-metasync-seo-health-list-table.php',

@@ -21,8 +21,15 @@ class Metasync_SEO_Health
 	/**
 	 * Meta keys for cross-plugin SEO title detection.
 	 * Keys are meta_key, values are display source label (empty = MetaSync).
+	 *
+	 * `_metasync_seo_title` must stay first: it is the SEO sidebar / Classic meta box
+	 * field and outranks everything else (see class-metasync-plugin-sync.php:296 and
+	 * class-metasync-seo-sidebar.php:274). The meta box save writes ONLY that key and
+	 * never mirrors into `_metasync_metatitle`, so omitting it here makes the resolver
+	 * return OTTO's title while the customer's own value is what actually renders.
 	 */
 	const TITLE_META_KEYS = array(
+		'_metasync_seo_title'       => '',
 		'_metasync_metatitle'       => '',
 		'_metasync_otto_title'      => 'OTTO',
 		'_yoast_wpseo_title'        => 'Yoast',
@@ -33,8 +40,11 @@ class Metasync_SEO_Health
 
 	/**
 	 * Meta keys for cross-plugin SEO description detection.
+	 *
+	 * `_metasync_seo_desc` leads for the same reason as `_metasync_seo_title` above.
 	 */
 	const DESC_META_KEYS = array(
+		'_metasync_seo_desc'            => '',
 		'_metasync_metadesc'            => '',
 		'_metasync_otto_description'    => 'OTTO',
 		'_yoast_wpseo_metadesc'         => 'Yoast',

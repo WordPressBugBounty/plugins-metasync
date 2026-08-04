@@ -702,7 +702,19 @@ class Metasync_Otto_Render_Strategy {
             if (self::get_current_method() === self::METHOD_HTTP) {
                 header('Cache-Control: private, max-age=' . $cache_duration);
             }
-            header('Vary: Accept-Encoding');
+
+            # Do NOT emit `Vary: Accept-Encoding` here. Compression is a transport
+            # concern owned by the web server / compression module (mod_deflate,
+            # nginx `gzip_vary`, Cloudflare), which already appends this header
+            # whenever it gzip/brotli-encodes the response. OTTO's HTML does not
+            # vary by Accept-Encoding at the application level, so emitting it from
+            # PHP was purely redundant — and on hosts where the server ALSO sets it
+            # (the common case) the response carried a duplicate/merged
+            # `Vary: Accept-Encoding`, which makes Cloudflare APO and similar edge
+            # caches treat the page as non-cacheable and send every visitor to
+            # origin PHP. Leaving it to the compression layer yields exactly one,
+            # correct Vary. If a stricter Vary is ever required, add it through a
+            # single deduplicated writer, never a blind second `header()` call.
         }
 
         # Cache-tag headers for CDN purge-by-tag (Phase 4).

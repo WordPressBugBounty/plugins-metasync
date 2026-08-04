@@ -279,14 +279,28 @@ class Metasync_Rest_Api
 			return false;
 		}
 
-		$getOptions = Metasync::get_option('general');
-		$stored_key = $getOptions['apikey'] ?? null;
+		$stored_key = $this->get_stored_api_key();
 
 		if (empty($stored_key)) {
 			return false;
 		}
 
 		return hash_equals($stored_key, $api_key);
+	}
+
+	/**
+	 * The plugin API key configured in MetaSync settings.
+	 *
+	 * Single source for the stored key so every auth path compares against the
+	 * same value.
+	 *
+	 * @return string|null Configured key, or null when the plugin is unlinked.
+	 */
+	protected function get_stored_api_key()
+	{
+		$getOptions = Metasync::get_option('general');
+
+		return $getOptions['apikey'] ?? null;
 	}
 
 	/**
@@ -339,6 +353,148 @@ class Metasync_Rest_Api
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Coexist with site-wide "authenticated users only" REST restrictions.
+	 *
+	 * Security plugins and copy-pasted snippets commonly hook
+	 * rest_authentication_errors to reject any request without a logged-in user
+	 * (typically WP_Error 'rest_cannot_access', 401). That filter is applied by
+	 * WP_REST_Server::check_authentication(), which runs BEFORE dispatch:
+	 *
+	 *     $result = $this->check_authentication();
+	 *     if ( ! is_wp_error( $result ) ) {
+	 *         $result = $this->dispatch( $request );
+	 *     }
+	 *
+	 * So an error here short-circuits the whole request: rest_pre_dispatch never
+	 * fires, no permission_callback runs, and even routes registered with
+	 * __return_true answer 401. MetaSync authenticates with a plugin API key
+	 * rather than a WordPress session, so is_user_logged_in() is false for every
+	 * legitimate SearchAtlas call and article publishing fails site-wide.
+	 *
+	 * This filter runs late (priority 99) and clears such an error only when the
+	 * request both targets metasync/v1 and carries a valid MetaSync API key —
+	 * the key is itself proof of authentication. Any other namespace, and any
+	 * request without a valid key, keeps the site's restriction intact.
+	 *
+	 * The filter receives no WP_REST_Request (check_authentication() passes only
+	 * the prior result), so route and credentials are read from the request
+	 * globals instead.
+	 *
+	 * @param mixed $result Prior authentication result: null (no opinion), true, or WP_Error.
+	 * @return mixed Cleared (null) only when our key validates on a metasync/v1
+	 *               route; otherwise the input $result unchanged.
+	 */
+	public function allow_metasync_rest_authentication($result)
+	{
+		// Only a WP_Error blocks the request; true and null are already passing.
+		if (!is_wp_error($result)) {
+			return $result;
+		}
+
+		$route = $this->get_current_rest_route();
+		if ($route === '') {
+			return $result;
+		}
+
+		// Only intervene for our own namespace, so the site's restriction still
+		// applies to core and third-party routes.
+		$prefix = '/' . self::namespace;
+		if (strpos($route, $prefix . '/') !== 0 && $route !== $prefix) {
+			return $result;
+		}
+
+		if ($this->request_has_valid_api_key()) {
+			return null;
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Resolve the REST route being served, without a WP_REST_Request.
+	 *
+	 * @return string Route with a leading slash (e.g. "/metasync/v1/createItem"),
+	 *                or '' when this is not a resolvable REST request.
+	 */
+	protected function get_current_rest_route()
+	{
+		// rest_api_loaded() stores the resolved route on the main query.
+		if (isset($GLOBALS['wp']) && is_object($GLOBALS['wp'])
+			&& !empty($GLOBALS['wp']->query_vars['rest_route'])) {
+			return '/' . ltrim((string) $GLOBALS['wp']->query_vars['rest_route'], '/');
+		}
+
+		// ?rest_route= form, used when pretty permalinks are disabled.
+		if (!empty($_GET['rest_route'])) {
+			return '/' . ltrim(sanitize_text_field(wp_unslash($_GET['rest_route'])), '/');
+		}
+
+		// Last resort: the request path with the /wp-json/ prefix stripped.
+		$uri = isset($_SERVER['REQUEST_URI']) ? (string) wp_unslash($_SERVER['REQUEST_URI']) : '';
+		if ($uri === '') {
+			return '';
+		}
+
+		$path = (string) parse_url($uri, PHP_URL_PATH);
+		$url_prefix = function_exists('rest_get_url_prefix') ? rest_get_url_prefix() : 'wp-json';
+		$needle = '/' . trim((string) $url_prefix, '/') . '/';
+
+		$pos = strpos($path, $needle);
+		if ($pos === false) {
+			return '';
+		}
+
+		return '/' . ltrim(substr($path, $pos + strlen($needle)), '/');
+	}
+
+	/**
+	 * Whether the current request carries a valid MetaSync API key.
+	 *
+	 * Reads credentials from the request globals so it works in filters that get
+	 * no WP_REST_Request. Accepts the same three sources as
+	 * rest_authorization_middleware().
+	 *
+	 * @return bool True only when a presented key matches the configured one.
+	 */
+	protected function request_has_valid_api_key()
+	{
+		$api_key = '';
+
+		// Primary: Authorization: Bearer <token>. Some Apache/FastCGI setups
+		// only expose the header under the REDIRECT_ prefix.
+		$auth_header = '';
+		if (!empty($_SERVER['HTTP_AUTHORIZATION'])) {
+			$auth_header = (string) wp_unslash($_SERVER['HTTP_AUTHORIZATION']);
+		} elseif (!empty($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
+			$auth_header = (string) wp_unslash($_SERVER['REDIRECT_HTTP_AUTHORIZATION']);
+		}
+		if ($auth_header !== '' && preg_match('/^Bearer\s+(.+)$/i', $auth_header, $matches)) {
+			$api_key = sanitize_text_field($matches[1]);
+		}
+
+		// Secondary: X-API-Key header.
+		if ($api_key === '' && !empty($_SERVER['HTTP_X_API_KEY'])) {
+			$api_key = sanitize_text_field(wp_unslash($_SERVER['HTTP_X_API_KEY']));
+		}
+
+		// Fallback: ?apikey= query param (deprecated).
+		if ($api_key === '' && !empty($_GET['apikey'])) {
+			$api_key = sanitize_text_field(wp_unslash($_GET['apikey']));
+		}
+
+		if ($api_key === '') {
+			return false;
+		}
+
+		$stored_key = $this->get_stored_api_key();
+		if (empty($stored_key)) {
+			return false;
+		}
+
+		return hash_equals((string) $stored_key, $api_key);
 	}
 
 

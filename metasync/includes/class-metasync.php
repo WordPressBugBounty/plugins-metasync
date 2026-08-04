@@ -287,6 +287,20 @@ class Metasync
 		}
 		$this->loader->add_action('wp', $post_meta_setting, 'show_top_admin_bar', 9);
 
+		// SEO meta columns on the posts/pages list tables (WP-624).
+		// Registered for both the `posts` and `pages` variants of each hook so the
+		// columns reach every supported post type; the callbacks bail on unsupported
+		// ones. Hidden by default — users opt in from Screen Options.
+		$seo_columns = Metasync_SEO_Columns::get_instance();
+		$this->loader->add_filter('manage_posts_columns', $seo_columns, 'add_columns', 10, 2);
+		$this->loader->add_filter('manage_pages_columns', $seo_columns, 'add_columns', 10, 1);
+		$this->loader->add_action('manage_posts_custom_column', $seo_columns, 'render_column', 10, 2);
+		$this->loader->add_action('manage_pages_custom_column', $seo_columns, 'render_column', 10, 2);
+		$this->loader->add_filter('default_hidden_columns', $seo_columns, 'default_hidden_columns', 10, 2);
+		$this->loader->add_filter('hidden_columns', $seo_columns, 'hidden_columns', 10, 3);
+		$this->loader->add_action('admin_head', $seo_columns, 'print_styles');
+		$this->loader->add_action('admin_notices', $seo_columns, 'companion_plugin_notice');
+
 		// Initialize XML Sitemap auto-update hooks if enabled
 		// Note: Must not be gated by is_admin() because Gutenberg saves posts
 		// via the REST API where is_admin() returns false, and REST_REQUEST
@@ -372,6 +386,9 @@ class Metasync
 		// Yoast/Rank Math/AIOSEO post storage on every write.
 		$this->loader->add_action('updated_post_meta', $this, 'on_post_meta_updated', 10, 4);
 		$this->loader->add_action('added_post_meta', $this, 'on_post_meta_updated', 10, 4);
+		// Deletes matter too: clearing the last checkbox in a meta box removes
+		// the meta row, which fires neither hook above.
+		$this->loader->add_action('deleted_post_meta', $this, 'on_post_meta_deleted', 10, 3);
 
 		// SEO Output hooks (Metasync_Seo_Output)
 		$this->loader->add_action('wp_head', $seo_output, 'hook_metasync_metatags', 1, 1);
@@ -426,6 +443,12 @@ class Metasync
 		// 403 via rest_pre_dispatch (priority 10), so we hook the same filter at a
 		// later priority (11) to clear it for our namespace only.
 		$this->loader->add_filter('rest_pre_dispatch', $rest_api, 'allow_metasync_rest_auth', 11, 3);
+		// Coexist with site-wide "authenticated users only" REST restrictions.
+		// Those hook rest_authentication_errors, which WP applies before dispatch,
+		// so rest_pre_dispatch and permission_callback never run. Hook it late
+		// (99) to clear the error for metasync/v1 requests that present a valid
+		// plugin API key; every other route keeps the site's restriction.
+		$this->loader->add_filter('rest_authentication_errors', $rest_api, 'allow_metasync_rest_authentication', 99, 1);
 		$this->loader->add_action('init', $plugin_public, 'metasync_plugin_init', 5);
 		$this->loader->add_action('wp_ajax_metasync_lglogin', $rest_api, 'linkgraph_login');
 
@@ -638,6 +661,26 @@ class Metasync
 		}
 
 		Metasync_Plugin_Sync::get_instance()->on_meta_updated($meta_id, $post_id, $meta_key, $meta_value);
+	}
+
+	/**
+	 * Bridge deleted_post_meta to the sync layer.
+	 *
+	 * Clearing the last checkbox in a meta box deletes its meta row rather than
+	 * updating it, so the update hooks above never fire and mirrored values can
+	 * go stale. Only the legacy robots keys are acted on; see
+	 * Metasync_Plugin_Sync::on_meta_deleted().
+	 *
+	 * @param array  $meta_ids Meta row IDs (unused).
+	 * @param int    $post_id  Post ID.
+	 * @param string $meta_key Meta key being deleted.
+	 */
+	public function on_post_meta_deleted($meta_ids, $post_id, $meta_key) {
+		if (!class_exists('Metasync_Plugin_Sync')) {
+			return;
+		}
+
+		Metasync_Plugin_Sync::get_instance()->on_meta_deleted($meta_ids, $post_id, $meta_key);
 	}
 
 	/**

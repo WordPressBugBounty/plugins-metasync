@@ -113,14 +113,6 @@ class Metasync_Post_Meta_Settings
 ?>
 		<ul class="checkbox-list">
 			<li>
-				<input type="checkbox" name="common_robots_meta[index]" id="robots_common1" value="index" <?php isset($common_robots['index']) ? checked('index', $common_robots['index']) : '' ?>>
-				<label for="robots_common1">Index </br>
-					<span class="description">
-						<span>Search engines to index and show these pages in the search results.</span>
-					</span>
-				</label>
-			</li>
-			<li>
 				<input type="checkbox" name="common_robots_meta[noindex]" id="robots_common2" value="noindex" <?php isset($common_robots['noindex']) ? checked('noindex', $common_robots['noindex']) : '' ?>>
 				<label for="robots_common2">No Index </br>
 					<span class="description">
@@ -299,7 +291,10 @@ class Metasync_Post_Meta_Settings
 		// Check for new field name first, then old for backward compatibility
 		$field_name = isset($post_data['common_robots_meta']) ? 'common_robots_meta' : 'common_robots_mata';
 
-		if (!isset($post_data['metasync_common_robots_nonce'], $post_data[$field_name]) || !wp_verify_nonce($post_data['metasync_common_robots_nonce'], 'metasync_common_robots_nonce'))
+		// Unchecked checkboxes are omitted from the request. Require the nonce,
+		// but allow an absent checkbox group so a user can clear the last saved
+		// directive (for example, by unticking No Index).
+		if (!isset($post_data['metasync_common_robots_nonce']) || !wp_verify_nonce($post_data['metasync_common_robots_nonce'], 'metasync_common_robots_nonce'))
 			return;
 
 		$old_common_robots = get_post_meta($post_id, 'metasync_common_robots', true);

@@ -522,7 +522,9 @@ function metasync_start_otto(){
     # full OTTO content so indexing remains current. SEO tools, AI scrapers,
     # uptime monitors, and unverified crawlers are de-duplicated so repeat
     # hits don't re-trigger the expensive DOM-rewriting path.
-    if ( $detection['is_bot'] && $detection['bot_type'] !== 'search_engine' ) {
+    if ( $detection['is_bot']
+        && $detection['bot_type'] !== 'search_engine'
+        && ! metasync_otto_is_unthrottled_infrastructure_agent( $detection ) ) {
         $normalized_url = strtok( $current_url, '?' );
         if ( $normalized_url === false ) {
             $normalized_url = $current_url;
@@ -2263,3 +2265,86 @@ add_action('save_post', function($post_id) {
         delete_transient('metasync_has_brizy_posts');
     }
 }, 10, 1);
+
+/**
+ * Identify infrastructure agents that must never hit the render throttle.
+ *
+ * Two classes of agent are covered:
+ *
+ *  - Page-cache warmers. A host preloader (WP Cloud PageCacheBot, WP Rocket preload,
+ *    LiteSpeed, SG Optimizer, ...) exists purely to populate the page cache. Throttling
+ *    one returns un-OTTO'd HTML *and* defines DONOTCACHEPAGE, so the cache can never be
+ *    filled and every subsequent human visitor pays a full uncached render. Measured on
+ *    the reporting site: desktop cache MISS on 17/17 requests at ~2.8s TTFB, versus
+ *    ~0.56s with OTTO disabled.
+ *
+ *  - Synthetic performance auditors (Lighthouse / PageSpeed Insights / GTmetrix).
+ *    These are what customers measure with, so they must receive the same fully
+ *    rendered OTTO output a real visitor gets. Currently `/lighthouse/i` and
+ *    `/pagespeed/i` are generic-bot patterns, so a second PSI run inside the 5-minute
+ *    window is served the throttled, un-OTTO'd, uncacheable page.
+ *
+ * Matching is done on the raw user-agent, deliberately independent of the bot-name
+ * categorisation in Metasync_Otto_Bot_Detector.
+ *
+ * @param mixed $detection Result of Metasync_Otto_Bot_Detector::detect(), or malformed input.
+ * @return bool True when this request must bypass the render throttle.
+ */
+function metasync_otto_is_unthrottled_infrastructure_agent( $detection = array() ) {
+
+	$ua = '';
+	if ( is_array( $detection ) && ! empty( $detection['user_agent'] ) ) {
+		$ua = (string) $detection['user_agent'];
+	} elseif ( isset( $_SERVER['HTTP_USER_AGENT'] ) ) {
+		$ua = (string) $_SERVER['HTTP_USER_AGENT'];
+	}
+
+	$needles = array(
+		// Page-cache preloaders.
+		'pagecachebot',   // WP Cloud / Automattic (PageCacheBotDesktop|Mobile)
+		'wp rocket',      // WP Rocket preload
+		'wprocket',
+		'lscache_runner', // LiteSpeed Cache crawler
+		'sg-optimizer',   // SiteGround
+		'sgoptimizer',
+		'nitropack',
+		'cache-warmer',
+		'cachewarmer',
+		'cache warmer',
+		// Synthetic performance auditors.
+		'lighthouse',
+		'pagespeed',
+		'gtmetrix',
+		'pingdom',
+		'webpagetest',
+	);
+
+	$is_infra = false;
+
+	if ( '' !== $ua ) {
+		$ua_lower = strtolower( $ua );
+		foreach ( $needles as $needle ) {
+			if ( false !== strpos( $ua_lower, $needle ) ) {
+				$is_infra = true;
+				break;
+			}
+		}
+	}
+
+	// WP Cloud's warmer also tags its requests with a query marker.
+	if ( ! $is_infra && isset( $_GET['x-cache-engine'] ) ) {
+		$is_infra = true;
+	}
+
+	/**
+	 * Allow a site or host to declare additional preload agents.
+	 *
+	 * @param bool   $is_infra Whether this request bypasses the OTTO render throttle.
+	 * @param string $ua       The request user-agent.
+	 */
+	if ( function_exists( 'apply_filters' ) ) {
+		$is_infra = (bool) apply_filters( 'metasync_otto_unthrottled_agent', $is_infra, $ua );
+	}
+
+	return $is_infra;
+}

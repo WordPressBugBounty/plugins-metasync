@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 2.6.20
+Stable tag: 2.6.21
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -77,6 +77,16 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.21 =
+* Improvement: The Sitemap Settings screen now warns when a generated News or Video sitemap contains 0 URLs, so it is clear whether that is expected or a misconfiguration
+* Improvement: Added optional SEO Title, Meta Description, Noindex and Nofollow columns to the Posts and Pages admin list (enable via Screen Options)
+* Fix: OTTO no longer emits a redundant Vary: Accept-Encoding header, which could cause CDN edge caches to treat pages as non-cacheable and route every visitor to origin PHP
+* Fix: Importing Yoast advanced robots meta no longer throws a fatal error when the stored value is not a plain string
+* Fix: Page-cache warmer and performance-auditor requests are no longer throttled by OTTO rendering, which had been preventing some sites page caches from populating and made PageSpeed scores appear artificially low
+* Fix: Removed the redundant Index checkbox from Common Robots settings, fixed a case where No Index set via the meta box could be silently ignored when advanced robots data was present, and simplified noindex output to only include indexing/crawling directives
+* Fix: The SEO Health dashboard now reads the same SEO title and description a page actually uses, instead of showing OTTO value when the customer own sidebar value was what really rendered
+* Fix: The plugin REST API no longer returns 401 on sites with a strict logged-in-users-only REST restriction from a security plugin or snippet, which had been silently breaking publishing and syncing on those sites
+
 = 2.6.20 =
 * Improvement: The OTTO Debug comparison panel now shows the Meta Description when OTTO delivers it as raw header HTML instead of a structured replacement
 * Improvement: Added a tooltip to the Content Genius Synchronization card explaining that "Sync Now" sends the site's categories and authors so published articles are assigned correctly

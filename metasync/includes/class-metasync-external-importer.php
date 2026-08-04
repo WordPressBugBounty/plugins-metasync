@@ -768,9 +768,10 @@ class Metasync_External_Importer
             if ($yoast_noindex === '1' && !isset($metasync_robots['noindex'])) {
                 $metasync_robots['noindex'] = 'noindex';
                 $has_changes = true;
-            } elseif ($yoast_noindex === '2' && !isset($metasync_robots['index'])) {
-                // '2' means 'index' in Yoast
-                $metasync_robots['index'] = 'index';
+            } elseif ($yoast_noindex === '2' && isset($metasync_robots['noindex'])) {
+                // '2' means 'index' in Yoast. Index is the implicit default, so
+                // clear any stored noindex rather than recording a redundant flag.
+                unset($metasync_robots['noindex']);
                 $has_changes = true;
             }
 
@@ -783,6 +784,14 @@ class Metasync_External_Importer
 
             // Import advanced robots (noarchive, nosnippet, noimageindex)
             $yoast_adv = get_post_meta($post_id, '_yoast_wpseo_meta-robots-adv', true);
+            // Normalise the meta value to a string before calling explode().
+            // Some sites store malformed/legacy data where this meta value is
+            // an array, which would otherwise throw a TypeError on explode().
+            if (is_array($yoast_adv)) {
+                $yoast_adv = implode(',', $yoast_adv);
+            } elseif (!is_string($yoast_adv)) {
+                $yoast_adv = '';
+            }
             if (!empty($yoast_adv)) {
                 $adv_directives = explode(',', $yoast_adv);
                 foreach ($adv_directives as $directive) {

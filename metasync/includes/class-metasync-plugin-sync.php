@@ -241,6 +241,32 @@ class Metasync_Plugin_Sync {
 		);
 	}
 
+	/**
+	 * Hook handler for deleted_post_meta.
+	 *
+	 * Only the legacy meta box keys are handled here. Unticking the last
+	 * checkbox in the Common Robots meta box deletes metasync_common_robots
+	 * instead of updating it, so without a delete hook the mirrored
+	 * _metasync_robots_advanced JSON kept the stale directive — and because the
+	 * JSON is the highest-priority source in the output resolver, the page went
+	 * on emitting a directive the editor had just cleared.
+	 *
+	 * Deletes of the JSON key itself are deliberately NOT routed into
+	 * on_meta_updated: that path mirrors the value back onto the legacy meta
+	 * boxes, so an empty value would wipe them.
+	 *
+	 * @param array  $meta_ids Meta row IDs (unused).
+	 * @param int    $post_id  Post ID.
+	 * @param string $meta_key Meta key being deleted.
+	 */
+	public function on_meta_deleted($meta_ids, $post_id, $meta_key) {
+		if ($meta_key !== 'metasync_common_robots' && $meta_key !== 'metasync_advance_robots') {
+			return;
+		}
+
+		$this->sync_legacy_to_json((int) $post_id);
+	}
+
 	// ------------------------------------------------------------------
 	// Data collection
 	// ------------------------------------------------------------------

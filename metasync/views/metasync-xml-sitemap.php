@@ -589,6 +589,14 @@ if (!defined('ABSPATH')) {
             || file_exists(ABSPATH . 'news-sitemap.xml');
         $news_conflict_name = $news_checker->get_conflict_plugin_name();
         $mss_brand = Metasync::get_effective_plugin_name();
+
+        # Flag a generated-but-empty news sitemap. $news_url_count is already
+        # computed once near the top of this file for the status card, so reuse it
+        # rather than re-reading and re-scanning the XML on the same page load.
+        $news_empty_warning = !empty($news_settings['enabled'])
+            && empty($news_conflicts)
+            && $news_has_content
+            && $news_url_count === 0;
         ?>
 
         <?php if (!empty($news_conflict_name)): ?>
@@ -651,6 +659,14 @@ if (!defined('ABSPATH')) {
             $notice_type = (strpos($notice, 'can coexist') !== false) ? 'notice-info' : 'notice-warning';
             echo '<div class="notice ' . $notice_type . ' inline" style="margin-bottom: 12px; padding: 12px 16px; border-radius: 8px; background: rgba(255, 152, 0, 0.1); border-left: 4px solid var(--dashboard-warning, #f59e0b); color: var(--dashboard-text-primary, #fff);"><p style="margin: 0;">&#9888; ' . esc_html($notice) . '</p></div>';
         } ?>
+
+        <?php if ($news_empty_warning): ?>
+        <div class="notice notice-warning inline" style="margin-bottom: 12px; padding: 12px 40px 12px 16px; border-radius: 8px; background: rgba(255, 152, 0, 0.1); border-left: 4px solid var(--dashboard-warning, #f59e0b); color: var(--dashboard-text-primary, #fff);">
+            <p style="margin: 0;">
+                &#9888; <?php esc_html_e('The last generated news sitemap contains 0 URLs. A news sitemap only includes posts published in the last 2 days, so this can be normal. If you expected entries here, regenerate it above and review the Post Types and filters below.', 'metasync'); ?>
+            </p>
+        </div>
+        <?php endif; ?>
 
         <div class="dashboard-card">
             <h2><?php esc_html_e('News Sitemap Settings', 'metasync'); ?></h2>
@@ -836,6 +852,14 @@ if (!defined('ABSPATH')) {
             || file_exists(ABSPATH . 'video-sitemap.xml');
         $video_conflict_name = $video_checker->get_conflict_plugin_name();
         $mss_brand = Metasync::get_effective_plugin_name();
+
+        # Flag a generated-but-empty video sitemap. $video_url_count is already
+        # computed once near the top of this file for the status card, so reuse it
+        # rather than re-reading and re-scanning the XML on the same page load.
+        $video_empty_warning = !empty($video_settings['enabled'])
+            && empty($video_conflicts)
+            && $video_has_content
+            && $video_url_count === 0;
         ?>
 
         <?php if (!empty($video_conflict_name)): ?>
@@ -898,6 +922,14 @@ if (!defined('ABSPATH')) {
             $notice_type = (strpos($notice, 'can coexist') !== false) ? 'notice-info' : 'notice-warning';
             echo '<div class="notice ' . $notice_type . ' inline" style="margin-bottom: 12px; padding: 12px 16px; border-radius: 8px; background: rgba(255, 152, 0, 0.1); border-left: 4px solid var(--dashboard-warning, #f59e0b); color: var(--dashboard-text-primary, #fff);"><p style="margin: 0;">&#9888; ' . esc_html($notice) . '</p></div>';
         } ?>
+
+        <?php if ($video_empty_warning): ?>
+        <div class="notice notice-warning inline" style="margin-bottom: 12px; padding: 12px 40px 12px 16px; border-radius: 8px; background: rgba(255, 152, 0, 0.1); border-left: 4px solid var(--dashboard-warning, #f59e0b); color: var(--dashboard-text-primary, #fff);">
+            <p style="margin: 0;">
+                &#9888; <?php esc_html_e('The last generated video sitemap contains 0 URLs. A video sitemap only includes posts that contain an embedded video, so this can be normal. If you expected entries here, regenerate it above and review the Post Types and filters below.', 'metasync'); ?>
+            </p>
+        </div>
+        <?php endif; ?>
 
         <div class="dashboard-card">
             <h2><?php esc_html_e('Video Sitemap Settings', 'metasync'); ?></h2>

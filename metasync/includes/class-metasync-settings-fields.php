@@ -1847,14 +1847,6 @@ class Metasync_Settings_Fields {
     ?>
         <ul class="checkbox-list">
             <li>
-                <input type="checkbox" name="<?php echo esc_attr(Metasync_Admin::option_key . '[common_robots_meta][index]') ?>" id="robots_common1" value="index" <?php isset($common_robots_meta['index']) ? checked('index', $common_robots_meta['index']) : '' ?>>
-                <label for="robots_common1">Index </br>
-                    <span class="description">
-                        <span>Search engines to index and show these pages in the search results.</span>
-                    </span>
-                </label>
-            </li>
-            <li>
                 <input type="checkbox" name="<?php echo esc_attr(Metasync_Admin::option_key . '[common_robots_meta][noindex]') ?>" id="robots_common2" value="noindex" <?php isset($common_robots_meta['noindex']) ? checked('noindex', $common_robots_meta['noindex']) : '' ?>>
                 <label for="robots_common2">No Index </br>
                     <span class="description">

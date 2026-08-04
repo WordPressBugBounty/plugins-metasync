@@ -128,6 +128,17 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     background: rgba(239, 68, 68, 0.15) !important;
 }
 
+/* Specific warning notice styling ONLY in plugin.
+   Without this, warning notices fell through to the base .notice rule above
+   (blue border-left, plain card background) because that rule is !important
+   and the .notice-warning colours defined further down this file are not —
+   !important always wins regardless of source order, so the warning never
+   actually rendered yellow/amber. Mirrors the .notice-error override above. */
+.metasync-dashboard-wrap .notice.notice-warning {
+    border-left-color: var(--dashboard-warning) !important;
+    background: rgba(245, 158, 11, 0.15) !important;
+}
+
 /* License mismatch notice specific styling ONLY in plugin */
 .metasync-dashboard-wrap .notice:has(.dashicons-warning):before,
 .metasync-dashboard-wrap .notice[class*="license"]:before,
@@ -3361,4 +3372,48 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     width: 24px;
     height: 24px;
     color: var(--dashboard-text-secondary);
+}
+
+/* Dismiss button on plugin notices.
+   The dashboard script appends a .notice-dismiss to every notice inside
+   .metasync-dashboard-wrap, but the notice itself was never given a
+   positioning context, so WordPress core's `position: absolute` on the
+   button resolved against whatever ancestor happened to be positioned
+   instead of the notice box — landing the icon mid-text rather than in the
+   notice's own top-right corner. Anchor it explicitly to the notice. */
+.metasync-dashboard-wrap .notice {
+    position: relative;
+}
+
+.metasync-dashboard-wrap .notice-dismiss {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* WordPress core colours the dismiss icon a near-black grey (#1e1e1e), which
+   reads fine on the light theme but is effectively invisible against the dark
+   theme's card background. Give it a theme-aware colour instead. !important
+   because the icon's colour otherwise wins on specificity alone, the same way
+   the base .notice rule above needs !important to beat WP core.
+   `.metasync-dashboard-wrap[data-theme="dark"]` matches the common case: the
+   wrap carries data-theme itself (set server-side on page load). The plain
+   `[data-theme="dark"] .metasync-dashboard-wrap` descendant form is kept too,
+   since the in-page theme switcher additionally stamps data-theme on <html>
+   once the user toggles it, and either could be the one present. */
+.metasync-dashboard-wrap[data-theme="dark"] .notice-dismiss::before,
+[data-theme="dark"] .metasync-dashboard-wrap .notice-dismiss::before {
+    color: var(--dashboard-text-secondary) !important;
+}
+
+.metasync-dashboard-wrap[data-theme="dark"] .notice-dismiss:hover::before,
+.metasync-dashboard-wrap[data-theme="dark"] .notice-dismiss:focus::before,
+[data-theme="dark"] .metasync-dashboard-wrap .notice-dismiss:hover::before,
+[data-theme="dark"] .metasync-dashboard-wrap .notice-dismiss:focus::before {
+    color: var(--dashboard-text-primary) !important;
 }

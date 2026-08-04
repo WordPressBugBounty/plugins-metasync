@@ -860,6 +860,36 @@ class Metasync_Seo_Output
 	}
 
 	/**
+	 * Drop serving/appearance directives when the page is set to noindex.
+	 *
+	 * max-snippet, max-image-preview, max-video-preview, nosnippet, noarchive
+	 * and noimageindex only affect how an indexed page is displayed, so they
+	 * are meaningless once the page is excluded from the index. When noindex is
+	 * present we keep only the indexing/crawling directives (noindex, nofollow)
+	 * so the emitted tag stays clean, e.g. "noindex, nofollow" rather than
+	 * "noindex, nofollow, noarchive, nosnippet, max-snippet:100, ...".
+	 *
+	 * @param  string[] $directives
+	 * @return string[]
+	 */
+	private function strip_serving_directives_if_noindex($directives) {
+		$has_noindex = false;
+		foreach ($directives as $d) {
+			if (strcasecmp((string) $d, 'noindex') === 0) {
+				$has_noindex = true;
+				break;
+			}
+		}
+		if (!$has_noindex) {
+			return $directives;
+		}
+		return array_values(array_filter($directives, function ($d) {
+			$d = strtolower((string) $d);
+			return $d === 'noindex' || $d === 'nofollow';
+		}));
+	}
+
+	/**
 	 * Resolve the robots meta value from all storage formats.
 	 *
 	 * Priority order:
@@ -883,6 +913,19 @@ class Metasync_Seo_Output
 			$directives[] = 'noindex';
 		}
 
+		// Also honor noindex from the classic Common Robots meta box, which stores
+		// it in metasync_common_robots. Without seeding it here, a noindex set via
+		// that meta box is lost whenever the advanced-JSON path below short-circuits.
+		if (!in_array('noindex', $directives, true)) {
+			$common_index_raw = $all_meta['metasync_common_robots'][0] ?? '';
+			if (!empty($common_index_raw)) {
+				$common_index = maybe_unserialize($common_index_raw);
+				if (is_array($common_index) && !empty($common_index['noindex'])) {
+					$directives[] = 'noindex';
+				}
+			}
+		}
+
 		// 1. Check _metasync_robots_advanced (JSON)
 		$advanced_raw = $all_meta['_metasync_robots_advanced'][0] ?? '';
 		if (!empty($advanced_raw)) {
@@ -904,6 +947,7 @@ class Metasync_Seo_Output
 				if (isset($advanced['max_video_preview'])) {
 					$directives[] = 'max-video-preview:' . (int) $advanced['max_video_preview'];
 				}
+				$directives = $this->strip_serving_directives_if_noindex($directives);
 				return !empty($directives) ? implode(', ', $directives) : '';
 			}
 		}
@@ -925,6 +969,12 @@ class Metasync_Seo_Output
 			if (is_array($common) && !empty($common)) {
 				$common_directives = array_values(array_filter($common, function ($v) {
 					return !empty($v);
+				}));
+				// 'index' is the implicit default and must never be emitted as a
+				// directive. Dropping it here also de-conflicts legacy posts saved
+				// with both Index and No Index checked, so noindex always wins.
+				$common_directives = array_values(array_filter($common_directives, function ($v) {
+					return strcasecmp((string) $v, 'index') !== 0;
 				}));
 				$directives = array_merge($directives, $common_directives);
 			}
@@ -952,6 +1002,7 @@ class Metasync_Seo_Output
 		}
 
 		if (!empty($directives)) {
+			$directives = $this->strip_serving_directives_if_noindex($directives);
 			return implode(', ', array_unique($directives));
 		}
 

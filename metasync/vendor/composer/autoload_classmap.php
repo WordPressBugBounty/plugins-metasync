@@ -252,6 +252,7 @@ return array(
     'Metasync_Review_Notice' => $baseDir . '/includes/class-metasync-review-notice.php',
     'Metasync_Robots_Txt' => $baseDir . '/robots-txt/class-metasync-robots-txt.php',
     'Metasync_Robots_Txt_Database' => $baseDir . '/robots-txt/class-metasync-robots-txt-database.php',
+    'Metasync_SEO_Columns' => $baseDir . '/admin/class-metasync-seo-columns.php',
     'Metasync_SEO_Conflict_Handler' => $baseDir . '/includes/class-metasync-seo-conflict-handler.php',
     'Metasync_SEO_Health' => $baseDir . '/admin/class-metasync-seo-health.php',
     'Metasync_SEO_Health_List_Table' => $baseDir . '/admin/class-metasync-seo-health-list-table.php',
