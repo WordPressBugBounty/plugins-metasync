@@ -973,6 +973,26 @@ class Metasync_Admin
             );
         }
 
+        $per_page_screens = [
+            self::$page_slug . '-redirections',
+            self::$page_slug . '-404-monitor',
+            self::$page_slug . '-sync-log',
+            self::$page_slug . '-media-optimization',
+        ];
+
+        if (in_array($current_page, $per_page_screens, true)) {
+            // Results-per-page selectors use this external handler instead of
+            // an inline event attribute so changing a page size always reloads
+            // the current admin page.
+            wp_enqueue_script(
+                $this->plugin_name . '-per-page',
+                plugin_dir_url(__FILE__) . 'js/metasync-per-page.js',
+                array(),
+                $this->version,
+                true
+            );
+        }
+
         // Dashboard iframe height (only on dashboard page)
         if ($current_page === self::$page_slug . '-dashboard' || $current_page === self::$page_slug) {
             wp_enqueue_script(
@@ -3822,7 +3842,7 @@ class Metasync_Admin
 
         // Get pagination parameters
         $page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
-        $per_page = 10;
+        $per_page = Metasync_Per_Page_Helper::resolve('sync_log', 10);
         $offset = ($page - 1) * $per_page;
 
         // Get filters
@@ -3983,12 +4003,13 @@ class Metasync_Admin
                 </div>
 
                 <!-- Pagination -->
-                <?php if ($total_pages > 1): ?>
-                    <div class="sync-log-pagination">
-                        <div class="sync-log-pagination-info">
-                            Total records: <?php echo intval( $total_records ); ?> | Showing <?php echo intval( $offset ) + 1; ?>-<?php echo intval( min($offset + $per_page, $total_records) ); ?>
-                        </div>
+                <div class="sync-log-pagination">
+                    <div class="sync-log-pagination-info">
+                        Total records: <?php echo intval( $total_records ); ?><?php if ($total_records > 0): ?> | Showing <?php echo intval( $offset ) + 1; ?>-<?php echo intval( min($offset + $per_page, $total_records) ); ?><?php endif; ?>
+                        <?php echo Metasync_Per_Page_Helper::render_selector('sync_log', $per_page); ?>
+                    </div>
 
+                    <?php if ($total_pages > 1): ?>
                         <div class="sync-log-pagination-controls">
                             <?php if ($page > 1): ?>
                                 <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo intval( $page ) - 1; ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>" class="sync-pagination-btn">‹</a>
@@ -4003,8 +4024,8 @@ class Metasync_Admin
                                 <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo intval( $page ) + 1; ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>" class="sync-pagination-btn">›</a>
                             <?php endif; ?>
                         </div>
-                    </div>
-                <?php endif; ?>
+                    <?php endif; ?>
+                </div>
             </div>
         <?php $this->render_layout_close(); ?>
 
@@ -4087,6 +4108,17 @@ class Metasync_Admin
                 $query_parts[] = $key . '=' . urlencode($value);
             }
         }
+
+        // Preserve the user-selected results-per-page value across page
+        // navigation so a non-default page size survives clicking a page link.
+        $per_page_key = Metasync_Per_Page_Helper::request_key('sync_log');
+        if (isset($_GET[$per_page_key])) {
+            $per_page = (int) $_GET[$per_page_key];
+            if (in_array($per_page, Metasync_Per_Page_Helper::allowed_values(), true)) {
+                $query_parts[] = $per_page_key . '=' . $per_page;
+            }
+        }
+
         return !empty($query_parts) ? '&' . implode('&', $query_parts) : '';
     }
 

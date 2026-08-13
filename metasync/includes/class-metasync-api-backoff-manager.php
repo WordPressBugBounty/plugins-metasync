@@ -163,15 +163,12 @@ class Metasync_API_Backoff_Manager {
             $endpoint_hash = $this->get_endpoint_hash($url);
             $backoff_data = $this->get_backoff_state($endpoint_hash);
 
-            // Log the blocked request
-            $this->log_backoff_event(
-                'API_BACKOFF_BLOCKED',
-                sprintf(
-                    'Request blocked due to active backoff. Endpoint: %s, Time remaining: %d seconds',
-                    $this->extract_endpoint($url),
-                    $backoff_data['time_remaining']
-                )
-            );
+            // Deliberately NOT logged. This runs once per blocked request, so on a
+            // busy site in backoff it would write a log line and an error-summary
+            // row per request — write amplification at precisely the moment the
+            // site is already struggling. The state transitions below
+            // (triggered / cleared / counter reset) are what carry the diagnostic
+            // value, and they fire once each.
 
             // Return WP_Error to prevent the request
             return new WP_Error(
@@ -498,7 +495,27 @@ class Metasync_API_Backoff_Manager {
      * @param string $message    Log message.
      */
     private function log_backoff_event($event_type, $message) {
-        // Backoff events are operational noise; suppress from error log.
+        // This was previously an empty stub, which made fleet-wide backoff behaviour
+        // completely invisible — we could not tell from a customer's logs whether
+        // backoff had triggered, blocked, or cleared.
+        //
+        // Routed through Metasync_Error_Logger rather than error_log() so it stays
+        // suppressed by default: CATEGORY_API_BACKOFF is in DEBUG_ONLY_CATEGORIES,
+        // so nothing is written unless Debug Mode is on. That keeps the original
+        // "operational noise" concern satisfied while making diagnosis possible.
+        if (!class_exists('Metasync_Error_Logger')) {
+            return;
+        }
+
+        Metasync_Error_Logger::log(
+            Metasync_Error_Logger::CATEGORY_API_BACKOFF,
+            Metasync_Error_Logger::SEVERITY_INFO,
+            $message,
+            [
+                'event_type' => $event_type,
+                'operation'  => 'api_backoff',
+            ]
+        );
     }
 
     /**

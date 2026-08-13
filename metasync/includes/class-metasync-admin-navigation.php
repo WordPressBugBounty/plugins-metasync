@@ -21,6 +21,105 @@ class Metasync_Admin_Navigation
     const CACHE_KEY = 'metasync_admin_bar_status';
 
     /**
+     * Menu item keys that retain a WordPress admin sidebar row in short mode.
+     *
+     * Everything else is registered with an empty parent slug
+     * (add_submenu_page('', ...)) so the page stays reachable at its
+     * existing URL but does not claim a sidebar row. The in-page sidebar
+     * (render_sidenav) continues to show every item.
+     */
+    const WP_MENU_KEEP_LIST = [
+        'dashboard',     // Dashboard
+        'seo_controls',  // Indexation Control
+        'redirections',  // Redirections
+        'monitor_404',   // 404 Monitor
+        'xml_sitemap',   // XML Sitemap
+        'robots_txt',    // Robots.txt
+        'schema_markup', // Schema Markup
+        'seo_health',    // SEO Health
+        'general',       // Settings
+    ];
+
+    /**
+     * Whether the Settings page (general) is reachable for the current user.
+     *
+     * Settings is the floor — the top-level "Search Atlas" menu item is
+     * registered with the Settings callback, so it must always point at a
+     * page the user is permitted to see. When Settings is hidden by access
+     * control, the top-level callback falls back to the first reachable
+     * keep-list page (see resolve_top_level_callback()).
+     *
+     * @return bool
+     */
+    public static function is_settings_reachable()
+    {
+        return Metasync_Access_Control::user_can_access('hide_settings');
+    }
+
+    /**
+     * Resolve the callback the top-level menu item should use.
+     *
+     * The top-level "Search Atlas" menu item is the floor — the plugin must
+     * always present at least one working entry point. When Settings is
+     * reachable it is the floor (its callback also renders the Settings
+     * page). When Settings is hidden, fall back to the first reachable
+     * keep-list page callback so the parent never leads to a permission
+     * error or blank page.
+     *
+     * @param Metasync_Admin $admin  The admin instance whose callbacks are used.
+     * @return array WordPress-style callback array ([$admin, 'method']).
+     */
+    public static function resolve_top_level_callback($admin)
+    {
+        if (self::is_settings_reachable()) {
+            return array($admin, 'create_admin_settings_page');
+        }
+
+        // Fall back to the first reachable keep-list item callback. The
+        // keep-list is ordered by priority (Dashboard, Indexation Control,
+        // Redirections, 404 Monitor, XML Sitemap, Robots.txt, SEO Health,
+        // Settings). We reuse get_available_menu_items() so access-control
+        // and connection-state gates are respected identically to the
+        // sidebar.
+        $available = self::instance()->get_available_menu_items();
+        foreach (self::WP_MENU_KEEP_LIST as $key) {
+            if (isset($available[$key])) {
+                return array($admin, $available[$key]['callback']);
+            }
+        }
+
+        // No keep-list item is reachable — keep Settings as the last resort
+        // so the menu never leads to a blank page. Settings itself handles
+        // its own access-control rendering.
+        return array($admin, 'create_admin_settings_page');
+    }
+
+    /**
+     * The ordered keep-list of menu item keys that always retain a
+     * WordPress admin sidebar row (in short mode).
+     *
+     * @return string[]
+     */
+    public static function get_wp_menu_keep_list()
+    {
+        return self::WP_MENU_KEEP_LIST;
+    }
+
+    /**
+     * Whether a given menu item key retains a WordPress admin sidebar row.
+     *
+     * Only keep-list items retain a WordPress sidebar row. All other pages
+     * remain registered and available from the in-page navigation.
+     *
+     * @param string $item_key Menu item key from get_available_menu_items().
+     * @return bool
+     */
+    public static function item_keeps_wp_sidebar_row($item_key)
+    {
+        return in_array($item_key, self::WP_MENU_KEEP_LIST, true);
+    }
+
+    /**
      * Get singleton instance.
      *
      * @return self
@@ -663,13 +762,17 @@ class Metasync_Admin_Navigation
             $menu['100'] = array('', 'read', 'separator-metasync-before', '', 'wp-menu-separator');
         }, 5);
 
-        // Main menu page at position 100.1 — bottom of the menu after all standard items
+        // Main menu page at position 100.1 — bottom of the menu after all standard items.
+        // The top-level callback is the floor: when Settings is reachable it renders
+        // Settings; when Settings is hidden it falls back to the first reachable
+        // keep-list page so the menu never leads to a blank page.
+        $top_level_callback = self::resolve_top_level_callback($admin);
         add_menu_page(
             $menu_name,
             $menu_title,
             $menu_capability,
             $menu_slug,
-            array($admin, 'create_admin_settings_page'),
+            $top_level_callback,
             $menu_icon,
             '100.1'
         );
@@ -685,107 +788,121 @@ class Metasync_Admin_Navigation
         // ── Connect slug ──────────────────────────────────────────────────
         $connect_slug = $menu_slug . '-connect';
 
+        // Local helper: register a submenu page under the plugin parent slug
+        // when the item keeps its WordPress admin sidebar row, or under an
+        // empty parent slug (hidden from the sidebar but still reachable)
+        // otherwise. The Settings page (general) is registered against the
+        // bare $menu_slug so it doubles as the parent menu callback.
+        $register_submenu = function($item_key, $page_title, $menu_title, $capability, $menu_page_slug, $callback) use ($menu_slug) {
+            $parent = self::item_keeps_wp_sidebar_row($item_key) ? $menu_slug : '';
+            add_submenu_page($parent, $page_title, $menu_title, $capability, $menu_page_slug, $callback);
+        };
+
         // Dashboard (check access control + "Hide Dashboard" general setting)
         if (Metasync_Access_Control::user_can_access('hide_dashboard') && !self::is_dashboard_hidden_by_framework()) {
-            add_submenu_page($menu_slug, 'Dashboard', 'Dashboard', $menu_capability, $menu_slug . '-dashboard', array($admin, 'create_admin_dashboard_iframe'));
+            $register_submenu('dashboard', 'Dashboard', 'Dashboard', $menu_capability, $menu_slug . '-dashboard', array($admin, 'create_admin_dashboard_iframe'));
         }
 
         // Indexation Control
         if (Metasync_Access_Control::user_can_access('hide_indexation_control')) {
-            add_submenu_page($menu_slug, 'Indexation Control', 'Indexation Control', $menu_capability, $menu_slug . '-seo-controls', array($admin, 'create_admin_seo_controls_page'));
+            $register_submenu('seo_controls', 'Indexation Control', 'Indexation Control', $menu_capability, $menu_slug . '-seo-controls', array($admin, 'create_admin_seo_controls_page'));
         }
 
         // 404 Monitor
-        add_submenu_page($menu_slug, '404 Monitor', '404 Monitor', $menu_capability, $menu_slug . '-404-monitor', array($admin, 'create_admin_404_monitor_page'));
+        $register_submenu('monitor_404', '404 Monitor', '404 Monitor', $menu_capability, $menu_slug . '-404-monitor', array($admin, 'create_admin_404_monitor_page'));
 
         // Redirections
         if (Metasync_Access_Control::user_can_access('hide_redirections')) {
-            add_submenu_page($menu_slug, 'Redirections', 'Redirections', $menu_capability, $menu_slug . '-redirections', array($admin, 'create_admin_redirections_page'));
+            $register_submenu('redirections', 'Redirections', 'Redirections', $menu_capability, $menu_slug . '-redirections', array($admin, 'create_admin_redirections_page'));
         }
 
         // XML Sitemap
         if (Metasync_Access_Control::user_can_access('hide_xml_sitemap')) {
-            add_submenu_page($menu_slug, 'XML Sitemap', 'XML Sitemap', $menu_capability, $menu_slug . '-xml-sitemap', array($admin, 'create_admin_xml_sitemap_page'));
+            $register_submenu('xml_sitemap', 'XML Sitemap', 'XML Sitemap', $menu_capability, $menu_slug . '-xml-sitemap', array($admin, 'create_admin_xml_sitemap_page'));
         }
 
         // Robots.txt
         if (Metasync_Access_Control::user_can_access('hide_robots')) {
-            add_submenu_page($menu_slug, 'Robots.txt', 'Robots.txt', $menu_capability, $menu_slug . '-robots-txt', array($admin, 'create_admin_robots_txt_page'));
+            $register_submenu('robots_txt', 'Robots.txt', 'Robots.txt', $menu_capability, $menu_slug . '-robots-txt', array($admin, 'create_admin_robots_txt_page'));
         }
 
-        // Site Verification
-        add_submenu_page($menu_slug, 'Site Verification', 'Site Verification', $menu_capability, $menu_slug . '-search-engine-verify', array($admin, 'create_admin_search_engine_verification_page'));
+        // Site Verification (in-page sidebar only in short mode)
+        $register_submenu('site_verification', 'Site Verification', 'Site Verification', $menu_capability, $menu_slug . '-search-engine-verify', array($admin, 'create_admin_search_engine_verification_page'));
 
         // Instant Indexing (conditional)
         if ($seo_controls['enable_googleinstantindex'] ?? false) {
-            add_submenu_page($menu_slug, 'Instant Indexing', 'Instant Indexing', $menu_capability, $menu_slug . '-instant-index', array($admin, 'create_admin_google_instant_index_page'));
+            $register_submenu('instant_index', 'Instant Indexing', 'Instant Indexing', $menu_capability, $menu_slug . '-instant-index', array($admin, 'create_admin_google_instant_index_page'));
         }
 
         // Google Console (conditional)
         if ($general_options['enable_google_console'] ?? false) {
-            add_submenu_page($menu_slug, 'Google Console', 'Google Console', $menu_capability, $menu_slug . '-google-console', array($admin, 'create_admin_google_console_page'));
+            $register_submenu('google_console', 'Google Console', 'Google Console', $menu_capability, $menu_slug . '-google-console', array($admin, 'create_admin_google_console_page'));
         }
 
         // Bing Console (conditional)
         if ($seo_controls['enable_binginstantindex'] ?? false) {
-            add_submenu_page($menu_slug, 'Bing Console', 'Bing Console', $menu_capability, $menu_slug . '-bing-console', array($admin, 'create_admin_bing_console_page'));
+            $register_submenu('bing_console', 'Bing Console', 'Bing Console', $menu_capability, $menu_slug . '-bing-console', array($admin, 'create_admin_bing_console_page'));
         }
 
         // Schema Markup
-        add_submenu_page($menu_slug, 'Schema Markup', 'Schema Markup', $menu_capability, $menu_slug . '-schema-markup', array($admin, 'create_admin_schema_markup_page'));
+        $register_submenu('schema_markup', 'Schema Markup', 'Schema Markup', $menu_capability, $menu_slug . '-schema-markup', array($admin, 'create_admin_schema_markup_page'));
 
         // Import SEO Data
         if (Metasync_Access_Control::user_can_access('hide_import_seo')) {
-            add_submenu_page($menu_slug, 'Import SEO Data', 'Import SEO Data', $menu_capability, $menu_slug . '-import-external', array($admin, 'render_import_external_data_page'));
+            $register_submenu('import_seo', 'Import SEO Data', 'Import SEO Data', $menu_capability, $menu_slug . '-import-external', array($admin, 'render_import_external_data_page'));
         }
 
-        // Settings
+        // Settings — registered against the bare $menu_slug (parent menu floor).
+        // It always keeps its sidebar row so the plugin always has at least
+        // one working entry point (see is_settings_reachable()).
         if (Metasync_Access_Control::user_can_access('hide_settings')) {
-            add_submenu_page($menu_slug, 'Settings', 'Settings', $menu_capability, $menu_slug, array($admin, 'create_admin_settings_page'));
+            $register_submenu('general', 'Settings', 'Settings', $menu_capability, $menu_slug, array($admin, 'create_admin_settings_page'));
         }
 
-        // Local Business
-        add_submenu_page($menu_slug, 'Local Business', 'Local Business', $menu_capability, $menu_slug . '-local-business', array($admin, 'create_admin_local_business_page'));
+        // Local Business (in-page sidebar only in short mode)
+        $register_submenu('local_business', 'Local Business', 'Local Business', $menu_capability, $menu_slug . '-local-business', array($admin, 'create_admin_local_business_page'));
 
-        // Breadcrumbs
-        add_submenu_page($menu_slug, 'Breadcrumbs', 'Breadcrumbs', $menu_capability, $menu_slug . '-breadcrumbs', array($admin, 'create_admin_breadcrumbs_page'));
+        // Breadcrumbs (in-page sidebar only in short mode)
+        $register_submenu('breadcrumbs', 'Breadcrumbs', 'Breadcrumbs', $menu_capability, $menu_slug . '-breadcrumbs', array($admin, 'create_admin_breadcrumbs_page'));
 
-        // Code Snippets
-        add_submenu_page($menu_slug, 'Code Snippets', 'Code Snippets', $menu_capability, $menu_slug . '-code-snippets', array($admin, 'create_admin_code_snippets_page'));
+        // Code Snippets (in-page sidebar only in short mode)
+        $register_submenu('code_snippets', 'Code Snippets', 'Code Snippets', $menu_capability, $menu_slug . '-code-snippets', array($admin, 'create_admin_code_snippets_page'));
 
-        // Code Minification
-        add_submenu_page($menu_slug, 'Code Minification', 'Code Minification', $menu_capability, $menu_slug . '-code-minification', array($admin, 'create_admin_code_minification_page'));
+        // Code Minification (in-page sidebar only in short mode)
+        $register_submenu('code_minification', 'Code Minification', 'Code Minification', $menu_capability, $menu_slug . '-code-minification', array($admin, 'create_admin_code_minification_page'));
 
-        // Media Optimization
-        add_submenu_page($menu_slug, 'Media Optimization', 'Media Optimization', $menu_capability, $menu_slug . '-media-optimization', array($admin, 'create_admin_media_optimization_page'));
+        // Media Optimization (in-page sidebar only in short mode)
+        $register_submenu('media_optimization', 'Media Optimization', 'Media Optimization', $menu_capability, $menu_slug . '-media-optimization', array($admin, 'create_admin_media_optimization_page'));
 
         // Custom Pages
         if (Metasync_Access_Control::user_can_access('hide_custom_pages')) {
-            add_submenu_page($menu_slug, 'Custom Pages', 'Custom Pages', $menu_capability, $menu_slug . '-custom-pages', array($admin, 'create_admin_custom_pages_page'));
+            $register_submenu('custom_pages', 'Custom Pages', 'Custom Pages', $menu_capability, $menu_slug . '-custom-pages', array($admin, 'create_admin_custom_pages_page'));
         }
 
-        // Bot Statistics
-        add_submenu_page($menu_slug, 'Bot Statistics', 'Bot Statistics', $menu_capability, $menu_slug . '-bot-statistics', array($admin, 'create_admin_bot_statistics_page'));
+        // Bot Statistics (in-page sidebar only in short mode)
+        $register_submenu('bot_statistics', 'Bot Statistics', 'Bot Statistics', $menu_capability, $menu_slug . '-bot-statistics', array($admin, 'create_admin_bot_statistics_page'));
 
         // SEO Health dashboard
-        add_submenu_page($menu_slug, 'SEO Health', 'SEO Health', $menu_capability, $menu_slug . '-seo-health', array($admin, 'create_admin_seo_health_page'));
+        $register_submenu('seo_health', 'SEO Health', 'SEO Health', $menu_capability, $menu_slug . '-seo-health', array($admin, 'create_admin_seo_health_page'));
 
         // Compatibility
         if (Metasync_Access_Control::user_can_access('hide_compatibility')) {
-            add_submenu_page($menu_slug, 'Compatibility', 'Compatibility', $menu_capability, $menu_slug . '-compatibility', array($admin, 'create_admin_compatibility_page'));
+            $register_submenu('compatibility', 'Compatibility', 'Compatibility', $menu_capability, $menu_slug . '-compatibility', array($admin, 'create_admin_compatibility_page'));
         }
 
         // Changes Log
         if (Metasync_Access_Control::user_can_access('hide_sync_log')) {
-            add_submenu_page($menu_slug, 'Changes Log', 'Changes Log', $menu_capability, $menu_slug . '-sync-log', array($admin, 'create_admin_sync_log_page'));
+            $register_submenu('sync_log', 'Changes Log', 'Changes Log', $menu_capability, $menu_slug . '-sync-log', array($admin, 'create_admin_sync_log_page'));
         }
 
         // Report Issue
         if (Metasync_Access_Control::user_can_access('hide_report_issue')) {
-            add_submenu_page($menu_slug, 'Report Issue', 'Report Issue', $menu_capability, $menu_slug . '-report-issue', array($admin, 'create_admin_report_issue_page'));
+            $register_submenu('report_issue', 'Report Issue', 'Report Issue', $menu_capability, $menu_slug . '-report-issue', array($admin, 'create_admin_report_issue_page'));
         }
 
         // ── Connect CTA (shown when not authenticated) ────────────────────
+        // Kept as a sidebar row so an unconnected site always has a visible
+        // entry point alongside the top-level menu item.
         if (!$is_fully_connected) {
             $connect_label = sprintf('Connect to %s', Metasync::get_effective_plugin_name());
             add_submenu_page($menu_slug, $connect_label, $connect_label, $menu_capability, $connect_slug, array($admin, 'create_admin_settings_page'));
@@ -1693,6 +1810,7 @@ class Metasync_Admin_Navigation
                 $plugin_items[$key] = $item;
             }
         }
+
         ?>
         <nav class="metasync-sidenav">
 

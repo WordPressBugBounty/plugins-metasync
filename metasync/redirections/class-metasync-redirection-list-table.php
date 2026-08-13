@@ -19,6 +19,14 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 	private $db_redirection;
 	private $_displayed = false;
 	private $_nav_displayed = [];
+	/**
+	 * User-resolved results-per-page value for this list (validated against
+	 * Metasync_Per_Page_Helper::ALLOWED_VALUES). Cached here so pagination()
+	 * can reuse it without re-resolving from the request / user meta.
+	 *
+	 * @var int
+	 */
+	private $resolved_per_page = 10;
 	public function __construct()
 	{
 		// Set parent defaults.
@@ -97,32 +105,15 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 			$current_url = remove_query_arg('paged_redir', $current_url);
 		}
 		
-		// Preserve filter parameters from REQUEST (works for both GET and POST)
-		// First, remove all filter parameters from URL, then add them back if they exist
-		$filter_params = ['status_filter', 'pattern_filter', 'http_code_filter', 's'];
-		foreach ($filter_params as $param) {
-			// Always remove first to clear old values
-			$current_url = remove_query_arg($param, $current_url);
-			// Then add back only if it has a value in REQUEST
-			if (!empty($_REQUEST[$param])) {
-				$current_url = add_query_arg($param, sanitize_text_field($_REQUEST[$param]), $current_url);
-			}
-		}
-
-		// Preserve sorting parameters (same approach - remove first, then add if exists)
-		$sort_params = ['orderby_redir', 'order_redir'];
-		foreach ($sort_params as $param) {
-			// Always remove first to clear old values
-			$current_url = remove_query_arg($param, $current_url);
-			// Then add back only if it has a value in REQUEST
-			if (!empty($_REQUEST[$param])) {
-				if ($param === 'orderby_redir') {
-					$current_url = add_query_arg($param, sanitize_sql_orderby($_REQUEST[$param]), $current_url);
-				} else {
-					$current_url = add_query_arg($param, sanitize_text_field($_REQUEST[$param]), $current_url);
-				}
-			}
-		}
+		// Rebuild visible list state from the allow-listed request values. Removing
+		// every key first ensures clearing a POSTed filter also clears a stale GET
+		// value from generated pagination links.
+		$state_keys = array_merge(
+			Metasync_Per_Page_Helper::state_params('redirections'),
+			[Metasync_Per_Page_Helper::request_key('redirections')]
+		);
+		$current_url = remove_query_arg($state_keys, $current_url);
+		$current_url = add_query_arg(Metasync_Per_Page_Helper::request_state('redirections'), $current_url);
 
 		$page_links = array();
 
@@ -215,6 +206,10 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 		}
 		$output .= "\n<span class='$pagination_links_class'>" . join("\n", $page_links) . '</span>';
 
+		// Inline "rows per page" selector (10/20/50/100), persisted per user.
+		// $which keeps the top and bottom selectors' ids distinct.
+		$output .= Metasync_Per_Page_Helper::render_selector('redirections', $this->resolved_per_page, $which);
+
 		if ($total_pages) {
 			$page_class = $total_pages < 2 ? ' one-page' : '';
 		} else {
@@ -240,6 +235,12 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 
 		// Also preserve our pagination parameter
 		$key = array_search('paged_redir', $args, true);
+		if ($key !== false) {
+			unset($args[$key]);
+		}
+
+		// Preserve this list's rows-per-page value across pagination / tab changes.
+		$key = array_search(Metasync_Per_Page_Helper::request_key('redirections'), $args, true);
 		if ($key !== false) {
 			unset($args[$key]);
 		}
@@ -288,8 +289,9 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 	{
 		$filters = [];
 		
-		if (!empty($_REQUEST['s'])) {
-			$filters['search'] = sanitize_text_field($_REQUEST['s']);
+		$request_state = Metasync_Per_Page_Helper::request_state('redirections');
+		if (!empty($request_state['s_redir'])) {
+			$filters['search'] = $request_state['s_redir'];
 		}
 		
 		if (!empty($_REQUEST['status_filter'])) {
@@ -375,9 +377,12 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 		list($columns, $hidden, $sortable, $primary) = $this->get_column_info();
 
 		$current_page = isset($_GET['page']) ? sanitize_text_field($_GET['page']) : Metasync_Admin::$page_slug;
-		$current_url = admin_url('admin.php');
+		$current_url = set_url_scheme('http://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']);
+		$current_url = remove_query_arg(['_wpnonce', '_wp_http_referer', 'action', 'action2', 'id'], $current_url);
 		$current_url = add_query_arg('page', $current_page, $current_url);
 		$current_url = add_query_arg('tab', 'redirections', $current_url);
+		$current_url = remove_query_arg('paged_redir', $current_url);
+		$current_url = add_query_arg(Metasync_Per_Page_Helper::request_state('redirections'), $current_url);
 
 		$current_orderby = $this->get_orderby();
 		$current_order = $this->get_order();
@@ -470,9 +475,14 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 		// Build delete row action.
 		$delete_query_args = array(
 			'page'   => sanitize_text_field($request_data['page']),
-			'action' => 'delete',
-			'id'  => $item['id'],
+			'tab'    => 'redirections',
+			'action' => 'delete_redirect',
+			'id'     => $item['id'],
 		);
+		$per_page_key = Metasync_Per_Page_Helper::request_key('redirections');
+		if (isset($request_data[$per_page_key])) {
+			$delete_query_args[$per_page_key] = sanitize_text_field($request_data[$per_page_key]);
+		}
 
 		// Build edit row action.
 		$edit_query_args = array(
@@ -689,7 +699,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 
 	protected function process_row_action()
 	{
-		$state_actions = ['delete', 'activate', 'deactivate'];
+		$state_actions = ['delete_redirect', 'activate', 'deactivate'];
 
 		if (!in_array($this->current_action(), $state_actions, true)) {
 			return;
@@ -708,8 +718,9 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 		$item = isset($get_data['id']) ? sanitize_text_field($get_data['id']) : '';
 
 		// Detect when a delete action is being triggered.
-		if ('delete' === $this->current_action()) {
+		if ('delete_redirect' === $this->current_action()) {
 			$this->db_redirection->delete([$item]);
+			$this->redirect_after_row_action();
 		}
 		// Detect when a activate action is being triggered.
 		if ('activate' === $this->current_action()) {
@@ -721,9 +732,23 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 		}
 	}
 
+	protected function redirect_after_row_action()
+	{
+		$redirect_url = remove_query_arg(['action', 'action2', 'id', '_wpnonce']);
+
+		if (!headers_sent()) {
+			wp_safe_redirect($redirect_url);
+			exit;
+		}
+
+		printf('<script>window.location.replace(%s);</script>', wp_json_encode(esc_url_raw($redirect_url)));
+		exit;
+	}
+
 	function prepare_items()
 	{
-		$per_page = 10;
+		$per_page = Metasync_Per_Page_Helper::resolve('redirections', 10);
+		$this->resolved_per_page = $per_page;
 
 		$columns  = $this->get_columns();
 		$hidden   = array();
@@ -747,7 +772,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 		$this->set_pagination_args(array(
 			'total_items' => $total_items,                     // Total number of items from database
 			'per_page'    => $per_page,                        // Items per page
-			'total_pages' => ceil($total_items / $per_page), // Total number of pages
+			'total_pages' => (int) ceil($total_items / $per_page), // Total number of pages
 		));
 	}
 

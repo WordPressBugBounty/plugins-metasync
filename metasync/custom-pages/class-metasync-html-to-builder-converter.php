@@ -1266,8 +1266,22 @@ class Metasync_HTML_To_Builder_Converter
 		libxml_use_internal_errors(false);
 
 		$output_array = array();
-		foreach ($dom->getElementsByTagName('*') as $root_element) {
-			if (!in_array($root_element->nodeName, array('html', 'body', 'tbody', 'tfoot', 'tr', 'th', 'td'))) {
+		// See parse_html_to_gutenberg() for why this only walks direct
+		// children of <body> instead of every descendant (SPE-1403).
+		$body_element = $dom->getElementsByTagName('body')->item(0);
+		if ($body_element) {
+			foreach ($body_element->childNodes as $root_element) {
+				// childNodes (unlike getElementsByTagName) also yields text
+				// nodes (whitespace between tags) and comment nodes (e.g.
+				// Gutenberg's <!-- wp:heading --> markers). Elementor
+				// requires every entry in the widget list to be an array, so
+				// a stray whitespace string here fatals add_child().
+				if ($root_element->nodeType !== XML_ELEMENT_NODE) {
+					continue;
+				}
+				if (in_array(strtolower($root_element->nodeName), array('tbody', 'tfoot', 'tr', 'th', 'td'))) {
+					continue;
+				}
 				$html_array = $this->convert_element_to_elementor($root_element, $options);
 				if (!empty($html_array)) {
 					$output_array[] = $html_array;
@@ -1505,8 +1519,17 @@ class Metasync_HTML_To_Builder_Converter
 		$builder_version = defined('ET_BUILDER_VERSION') ? ET_BUILDER_VERSION : '4.0.0';
 		$output_array = '[et_pb_section fb_built="1" _builder_version="' . $builder_version . '" _module_preset="default" global_colors_info="{}" ' . $section_attributes . '][et_pb_row _builder_version="' . $builder_version . '" _module_preset="default" global_colors_info="{}"][et_pb_column type="4_4" _builder_version="' . $builder_version . '" _module_preset="default" global_colors_info="{}"]';
 
-		foreach ($dom->getElementsByTagName('*') as $root_element) {
-			if (!in_array($root_element->nodeName, array('html', 'body', 'tbody', 'tfoot', 'tr', 'th', 'td'))) {
+		// See parse_html_to_gutenberg() for why this only walks direct
+		// children of <body> instead of every descendant (SPE-1403).
+		$body_element = $dom->getElementsByTagName('body')->item(0);
+		if ($body_element) {
+			foreach ($body_element->childNodes as $root_element) {
+				if ($root_element->nodeType !== XML_ELEMENT_NODE) {
+					continue;
+				}
+				if (in_array(strtolower($root_element->nodeName), array('tbody', 'tfoot', 'tr', 'th', 'td'))) {
+					continue;
+				}
 				$html_array = $this->convert_element_to_divi($root_element, $options);
 				if (!is_array($html_array)) {
 					$output_array .= $html_array;
@@ -1696,8 +1719,25 @@ class Metasync_HTML_To_Builder_Converter
 
 		$output_array = array();
 
-		foreach ($dom->getElementsByTagName('*') as $root_element) {
-			if (!in_array($root_element->nodeName, array('html', 'body', 'tr', 'th', 'td'))) {
+		// Walk only the direct children of <body>. getElementsByTagName('*')
+		// returns every descendant in the document, so a tag handled at the
+		// top level (e.g. <p>) that also happens to be nested inside another
+		// top-level element (e.g. <p> inside <li> inside <ul>) was being
+		// converted twice: once as part of its parent's block, and again on
+		// its own — producing duplicated content (SPE-1403).
+		$body_element = $dom->getElementsByTagName('body')->item(0);
+		if ($body_element) {
+			foreach ($body_element->childNodes as $root_element) {
+				// childNodes (unlike getElementsByTagName) also yields text
+				// nodes (whitespace between tags) and comment nodes (e.g.
+				// Gutenberg's <!-- wp:heading --> markers), which
+				// serialize_blocks() cannot handle as a bare string entry.
+				if ($root_element->nodeType !== XML_ELEMENT_NODE) {
+					continue;
+				}
+				if (in_array(strtolower($root_element->nodeName), array('tr', 'th', 'td'))) {
+					continue;
+				}
 				$html_array = $this->convert_element_to_gutenberg($root_element, $options);
 				if (!is_null($html_array)) {
 					$output_array[] = $html_array;

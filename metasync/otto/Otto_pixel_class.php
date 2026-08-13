@@ -197,6 +197,21 @@ Class Metasync_otto_pixel{
     # render route html
     function render_route_html(){
 
+        # Clear per-request statics before any path runs. Harmless under PHP-FPM
+        # (the process ends with the request) but required under persistent-worker
+        # SAPIs, where a latched flag would silently disable cache capping and
+        # failure reporting for every later request in that worker.
+        #
+        # method_exists() is redundant to static analysis — this MR adds the method,
+        # so PHPStan proves the call always true. It is kept for the upgrade window:
+        # during a plugin update an opcache can still hold the previous
+        # Metasync_Otto_Render_Strategy, where class_exists() passes but the method
+        # is absent, and an unguarded static call would fatal the page.
+        # @phpstan-ignore-next-line function.alreadyNarrowedType
+        if (class_exists('Metasync_Otto_Render_Strategy') && method_exists('Metasync_Otto_Render_Strategy', 'reset_request_state')) {
+            Metasync_Otto_Render_Strategy::reset_request_state();
+        }
+
         # Disable SG Cache for Brizy pages FIRST - before any other processing
         # Using global function defined in otto_pixel.php
         if (function_exists('metasync_otto_disable_sg_cache_for_brizy')) {
@@ -248,11 +263,34 @@ Class Metasync_otto_pixel{
         $suggestions = $transient_cache->get_suggestions($route, $cache_track_key);
         
         if (!$suggestions || !$transient_cache->has_payload($suggestions)) {
-            # No suggestions available for this URL
-            # Set header to indicate cache status
-            if (!headers_sent()) {
-                $cache_status = Metasync_Otto_Transient_Cache::get_cache_status($cache_track_key);
-                header('X-MetaSync-OTTO-Cache: ' . ($cache_status ?: 'NO_SUGGESTIONS'));
+            # No suggestions available for this URL.
+            $cache_status = Metasync_Otto_Transient_Cache::get_cache_status($cache_track_key);
+
+            # Two very different situations reach this point, and they must be
+            # treated differently.
+            #
+            # A transient failure means the suggestions exist upstream but could
+            # not be retrieved on this request — the API errored or timed out, the
+            # per-minute budget was spent, or another worker held the lock. The
+            # next request will probably succeed. Serving the un-optimized page
+            # with normal cache headers lets a caching layer store it and hand it
+            # to everyone until its TTL expires, so cap how long it may be kept.
+            #
+            # Everything else here is a legitimate answer: OTTO simply has nothing
+            # for this URL (NO_SUGGESTIONS, including the 404 case). Most URLs on
+            # most sites are in that state permanently, so capping those would
+            # strip caching from the bulk of the site and move that load onto the
+            # origin. Those stay fully cacheable.
+            $transient_failures = ['RATE_LIMITED', 'LOCKED', 'API_ERROR'];
+
+            if (in_array($cache_status, $transient_failures, true)
+                && function_exists('metasync_otto_limit_response_cache')) {
+                metasync_otto_limit_response_cache($cache_status);
+            }
+
+            # Set diagnostic headers only while Debug Mode is enabled.
+            if (!headers_sent() && Metasync_Otto_Render_Strategy::diagnostics_enabled()) {
+                header('X-MetaSync-OTTO-Cache: ' . Metasync_Otto_Render_Strategy::display_cache_status($cache_status ?: 'NO_SUGGESTIONS'));
                 header('X-MetaSync-OTTO-Method: NONE');
             }
             return;
@@ -332,6 +370,30 @@ Class Metasync_otto_pixel{
     }
 
     /**
+     * Stop WP Rocket writing the current response to its disk cache.
+     *
+     * DONOTCACHEPAGE is not sufficient from inside the rocket_buffer filter: WP
+     * Rocket reads that constant when it decides whether to buffer the request,
+     * which has already happened by the time the filter runs. It evaluates
+     * do_rocket_generate_caching_files immediately before writing the file, so
+     * that is the only lever still effective at this point.
+     *
+     * This matters more than the response headers do. A page served from WP
+     * Rocket's disk cache is delivered by rewrite rules without invoking PHP, so
+     * once a bad file is on disk no header can override it — only deleting the
+     * file or waiting out Rocket's own expiry will clear it.
+     *
+     * PHP_INT_MAX priority so a site's own filters cannot re-enable the write.
+     */
+    private static function block_rocket_cache_write() {
+        if (!defined('DONOTCACHEPAGE')) {
+            define('DONOTCACHEPAGE', true);
+        }
+
+        add_filter('do_rocket_generate_caching_files', '__return_false', PHP_INT_MAX);
+    }
+
+    /**
      * Render page using WP Rocket's rocket_buffer filter (PREFERRED for WP Rocket sites)
      *
      * When WP Rocket is active, hooking into rocket_buffer ensures WP Rocket
@@ -354,10 +416,10 @@ Class Metasync_otto_pixel{
         # filters (minifiers, CDN rewriters, etc.) run on already-OTTO-modified HTML.
         add_filter('rocket_buffer', function($html) use ($o_html, $suggestions, $blocking_flags) {
             if (empty($html) || strlen($html) < 100) {
-                // Tell WP Rocket not to cache this empty/broken response.
-                if (!defined('DONOTCACHEPAGE')) {
-                    define('DONOTCACHEPAGE', true);
-                }
+                // Tell WP Rocket not to cache this empty/broken response. The
+                // constant alone is too late here (see block_rocket_cache_write),
+                // so the write-time filter is applied as well.
+                self::block_rocket_cache_write();
                 return $html;
             }
 
@@ -373,16 +435,83 @@ Class Metasync_otto_pixel{
                 $data['_otto_blocking'] = $blocking_flags;
             }
 
+            # From here on we hold usable suggestions, so any exit that returns
+            # $html unmodified is a genuine failure: WP Rocket would write the
+            # un-optimized markup to its cache file, and whatever sits in front of
+            # it would then serve that copy. This is worse than the plain buffer
+            # path, because the bad page is persisted on disk as well as at the
+            # edge — and this route exists specifically to make the cached copy the
+            # optimized one.
+            #
+            # Note that DONOTCACHEPAGE alone does NOT prevent that write. WP Rocket
+            # evaluates the constant when it decides whether to buffer the page,
+            # which has already happened by the time this filter runs. The
+            # do_rocket_generate_caching_files filter is evaluated immediately
+            # before the file is written, so it is the only lever still available
+            # from here. A disk-cached page is served by rewrite rules without
+            # invoking PHP, so no response header can undo it afterwards.
             try {
                 $modified = $o_html->process_html_directly($html, $data);
                 # Sanity check: modified HTML must be at least 50% the size of original
                 if ($modified && strlen($modified) > strlen($html) * 0.5) {
                     return $modified;
                 }
+
+                # An unprocessable document (oversized / over the memory budget) is
+                # a permanent property of the page, not a failure to retry. Leave it
+                # fully cacheable — capping it would make the most expensive page on
+                # the site uncacheable forever for no gain.
+                if (class_exists('Metasync_Otto_Render_Strategy')
+                    && Metasync_Otto_Render_Strategy::document_was_unprocessable()) {
+                    return $html;
+                }
+
+                # Either the rewrite returned nothing usable, or the result was so
+                # much smaller than the input that it is assumed to be mangled.
+                self::block_rocket_cache_write();
+                if (function_exists('metasync_otto_limit_response_cache')) {
+                    metasync_otto_limit_response_cache('RENDER_DISCARDED_ROCKET');
+                }
+                if (function_exists('metasync_otto_report_render_failure')) {
+                    metasync_otto_report_render_failure(
+                        'RENDER_DISCARDED_ROCKET',
+                        'OTTO rewrite produced no usable output on the WP Rocket path',
+                        [
+                            'original_bytes' => strlen($html),
+                            'result_bytes'   => is_string($modified) ? strlen($modified) : 0,
+                            'render_method'  => 'wp_rocket',
+                        ],
+                        'warning'
+                    );
+                }
             } catch (Exception $e) {
                 // Fall through — return original HTML on any failure
+                self::block_rocket_cache_write();
+                if (function_exists('metasync_otto_limit_response_cache')) {
+                    metasync_otto_limit_response_cache('RENDER_EXCEPTION_ROCKET');
+                }
+                if (function_exists('metasync_otto_report_render_failure')) {
+                    metasync_otto_report_render_failure(
+                        'RENDER_EXCEPTION_ROCKET',
+                        'OTTO rewrite threw on the WP Rocket path: ' . $e->getMessage(),
+                        ['render_method' => 'wp_rocket', 'exception' => get_class($e)],
+                        'error'
+                    );
+                }
             } catch (Error $e) {
                 // Fall through — return original HTML on any failure
+                self::block_rocket_cache_write();
+                if (function_exists('metasync_otto_limit_response_cache')) {
+                    metasync_otto_limit_response_cache('RENDER_EXCEPTION_ROCKET');
+                }
+                if (function_exists('metasync_otto_report_render_failure')) {
+                    metasync_otto_report_render_failure(
+                        'RENDER_EXCEPTION_ROCKET',
+                        'OTTO rewrite errored on the WP Rocket path: ' . $e->getMessage(),
+                        ['render_method' => 'wp_rocket', 'error' => get_class($e)],
+                        'error'
+                    );
+                }
             }
 
             return $html;
@@ -537,6 +666,12 @@ Class Metasync_otto_pixel{
             $cached = get_transient($cache_key);
             if ($cached === false || $cached !== $activated) {
                 set_transient($cache_key, $activated, DAY_IN_SECONDS);
+                # Deliberate one-off skip, and the next request renders correctly —
+                # so cap how long this un-optimized copy may be cached rather than
+                # letting a caching layer pin it for its full TTL.
+                if (function_exists('metasync_otto_limit_response_cache')) {
+                    metasync_otto_limit_response_cache('DIVI_FIRST_RENDER_SKIP');
+                }
                 return false;
             }
         }
@@ -565,9 +700,23 @@ Class Metasync_otto_pixel{
         #
         # Fix: skip OTTO for this request (return false), letting WordPress render
         # normally. This builds Divi's caches so the next OTTO request works correctly.
+        #
+        # Both checks below are self-resolving — the next render finds warm caches —
+        # so the un-optimized copy served now gets a capped cache lifetime rather
+        # than being pinned for a caching layer's full TTL.
+        #
+        # The remaining fail-open exits on this path are deliberately NOT capped.
+        # They mean the site could not fetch its own page (blocked loopback request,
+        # HTTP Basic Auth, a firewall rejecting the internal user-agent) or that the
+        # document cannot be processed at all. Those are whole-site, permanent
+        # conditions: OTTO cannot work on any page, so capping cache lifetime would
+        # rescue nothing while moving the entire site's traffic to the origin.
         if (defined('ET_CORE_VERSION')) {
             # Check 1: Cold TB CSS cache (inline styles instead of external link)
             if (preg_match('/<style\s[^>]*id=["\']et-core-unified-tb-[^"\']*-cached-inline-styles["\']/', $route_html_string)) {
+                if (function_exists('metasync_otto_limit_response_cache')) {
+                    metasync_otto_limit_response_cache('DIVI_COLD_CSS_CACHE');
+                }
                 return false;
             }
             # Check 2: Missing Google Fonts CSS (Divi enqueues this on every page)
@@ -577,6 +726,9 @@ Class Metasync_otto_pixel{
             if (strpos($route_html_string, 'et-builder-googlefonts') === false
                 && strpos($route_html_string, 'fonts.googleapis.com') === false
             ) {
+                if (function_exists('metasync_otto_limit_response_cache')) {
+                    metasync_otto_limit_response_cache('DIVI_MISSING_FONTS');
+                }
                 return false;
             }
         }

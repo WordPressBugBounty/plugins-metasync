@@ -8,6 +8,15 @@ document.addEventListener('DOMContentLoaded', function() {
     var bulkActionForm = document.getElementById('404-monitor-form');
     if (bulkActionForm) {
         bulkActionForm.addEventListener('submit', function(e) {
+            var submitterId = e.submitter ? e.submitter.id : '';
+            if (submitterId === 'monitor-filter-submit' || submitterId === 'monitor-search-submit') {
+                if (window.metasyncNavigateListState) {
+                    e.preventDefault();
+                    window.metasyncNavigateListState(bulkActionForm, '404_monitor');
+                }
+                return;
+            }
+
             // Mirror the PHP side: the top dropdown posts `action`, the bottom
             // one posts `action2`. Reading only the top select meant a bulk
             // action chosen from the BOTTOM bar ran with no confirmation at

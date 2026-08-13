@@ -265,6 +265,178 @@ class Metasync_SEO_Conflict_Handler {
     }
 
     /**
+     * Return MetaSync's intentional SEO title for the current request.
+     *
+     * Mirrors get_metasync_description(): only values that were explicitly set
+     * (sidebar or OTTO), never an auto-generated fallback such as the post title.
+     * This is the value the og:title / twitter:title suppression keys off, so the
+     * sidebar emitter can render the same title back as a replacement.
+     *
+     * @return string
+     */
+    public function get_metasync_title() {
+        $post_id = $this->get_current_object_id();
+
+        if (!$post_id) {
+            return '';
+        }
+
+        // 1. Social Media & Open Graph meta box (most specific — a social-only title)
+        $og_title = $this->get_customized_og_title($post_id);
+        if ($og_title !== '') {
+            return $og_title;
+        }
+
+        // 2. SEO sidebar (user-edited)
+        $title = get_post_meta($post_id, '_metasync_seo_title', true);
+        if (!empty($title)) {
+            return $title;
+        }
+
+        // 3. OTTO title
+        $title = get_post_meta($post_id, '_metasync_otto_title', true);
+        if (!empty($title)) {
+            return $title;
+        }
+
+        return '';
+    }
+
+    /**
+     * The per-post OG meta box title, but only when the user genuinely set it.
+     *
+     * The meta box pre-fills its Title from the post title and PERSISTS that
+     * default on save, so a non-empty `_metasync_og_title` alone does not prove
+     * intent — treating it as one would let an auto-filled post title override a
+     * deliberately-set SEO title on every ordinary edit. A value counts as the
+     * user's only when it differs from that default, the same comparison
+     * Otto_html_class::apply_metabox_og_precedence() makes.
+     *
+     * @param  int $post_id
+     * @return string The customized OG title, or '' when unset or auto-filled.
+     */
+    private function get_customized_og_title($post_id) {
+        // Per-post OG meta box values only exist on singular views. On archives
+        // get_current_object_id() returns a TERM id, and reading post meta with it
+        // would consult an unrelated post — suppressing the third-party tag on a
+        // page where the singular-only replacement emitter never runs.
+        if (!is_singular()) {
+            return '';
+        }
+
+        $og_title = (string) get_post_meta($post_id, '_metasync_og_title', true);
+        if ($og_title === '') {
+            return '';
+        }
+
+        $post    = get_post($post_id);
+        $default = ($post instanceof WP_Post) ? (string) $post->post_title : '';
+
+        return $og_title === $default ? '' : $og_title;
+    }
+
+    /**
+     * Whether this request suppressed a third-party plugin's og:title /
+     * twitter:title and therefore owes a replacement tag.
+     *
+     * Only true in the narrow case where the suppression leaves a gap:
+     *   - Yoast or AIOSEO is active. Those are the only plugins whose og:title
+     *     we filter; Rank Math / SEOPress / TSF render their own untouched, and
+     *     on a MetaSync-only site Metasync_OpenGraph::output_opengraph_tags()
+     *     still emits og:title itself — emitting here would duplicate it.
+     *   - That plugin is not the primary output owner for the post (a synced
+     *     post renders the plugin's own tags, so we must not double up).
+     *   - The per-post OG toggle is not explicitly off (toggle off suppresses
+     *     nothing, so nothing is owed).
+     *   - MetaSync has an intentional title — the value that triggered the
+     *     suppression in filter_yoast_og_title() / filter_aioseo_facebook_tags().
+     *
+     * Pages where OTTO owns og:title are deliberately excluded: OTTO injects its
+     * own tag through the output buffer, so there is no gap to fill.
+     *
+     * @return bool
+     */
+    public function og_title_needs_replacement() {
+        if (!$this->suppresses_third_party_og_title()) {
+            return false;
+        }
+
+        $post_id = $this->get_current_object_id();
+        if (!$post_id) {
+            return false;
+        }
+
+        if ($this->og_output_disabled($post_id)) {
+            return false;
+        }
+
+        foreach (['yoast', 'rankmath', 'aioseo'] as $slug) {
+            if ($this->is_primary_output_plugin($post_id, $slug)) {
+                return false;
+            }
+        }
+
+        return $this->metasync_has_title($post_id);
+    }
+
+    /**
+     * Whether an active third-party plugin is one whose og:title we filter
+     * (Yoast or AIOSEO). Rank Math, SEOPress and The SEO Framework emit their
+     * own og:title untouched, so they never leave a gap to fill.
+     *
+     * @return bool
+     */
+    private function suppresses_third_party_og_title() {
+        $this->ensure_plugin_api();
+
+        return is_plugin_active('wordpress-seo/wp-seo.php')
+            || is_plugin_active('wordpress-seo-premium/wp-seo-premium.php')
+            || $this->is_aioseo_active();
+    }
+
+    /**
+     * Whether an active third-party SEO plugin renders the og:description /
+     * twitter:description for this request, so MetaSync must not add its own.
+     *
+     * Mirrors the condition the suppression filters use: when that plugin is the
+     * primary output owner, filter_yoast_og_description() (and the AIOSEO/Rank
+     * Math equivalents) pass its tag through untouched, so a second tag from the
+     * sidebar emitter would duplicate it.
+     *
+     * Deliberately does NOT ask whether the plugin's OG description field is
+     * populated. Yoast falls back to its meta description, and then to the
+     * excerpt, so it emits an og:description either way — an "is the field set"
+     * test would miss those fallbacks and let the duplicate through.
+     *
+     * @return bool
+     */
+    public function third_party_owns_og_description() {
+        if (!$this->has_active_seo_plugin()) {
+            return false;
+        }
+
+        // Per-post ownership only means anything on singular views. On archives
+        // get_current_object_id() returns a TERM id, and the sync timestamp would
+        // be read from an unrelated post of the same numeric id.
+        if (!is_singular()) {
+            return false;
+        }
+
+        $post_id = $this->get_current_object_id();
+        if (!$post_id) {
+            return false;
+        }
+
+        foreach (['yoast', 'rankmath', 'aioseo'] as $slug) {
+            if ($this->is_primary_output_plugin($post_id, $slug)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Resolve the MetaSync-managed canonical URL for a post, if any.
      *
      * Priority: OTTO persisted canonical (_metasync_canonical_url) → Canonical meta
@@ -686,6 +858,14 @@ class Metasync_SEO_Conflict_Handler {
      * @return bool
      */
     private function metasync_has_title($post_id) {
+        // Social Media & Open Graph meta box, when genuinely customized. Counted
+        // here so a post whose ONLY title is the OG one still suppresses the
+        // third-party tag — otherwise the plugin keeps rendering its own and the
+        // replacement below never gets the chance to emit.
+        if ($this->get_customized_og_title($post_id) !== '') {
+            return true;
+        }
+
         $seo_title = get_post_meta($post_id, '_metasync_seo_title', true);
         if (!empty($seo_title)) {
             return true;
@@ -1131,6 +1311,12 @@ class Metasync_SEO_Conflict_Handler {
         add_filter('rank_math/frontend/title', [$this, 'filter_rankmath_title'], 999);
         add_filter('rank_math/frontend/description', [$this, 'filter_rankmath_description'], 999);
 
+        // OG/Twitter description — per-tag suppression, mirroring the Yoast filters.
+        // Without these Rank Math renders its own og:description alongside the one
+        // MetaSync emits, leaving two conflicting tags on the page.
+        add_filter('rank_math/opengraph/facebook/og_description', [$this, 'filter_rankmath_og_description'], 999);
+        add_filter('rank_math/opengraph/twitter/twitter_description', [$this, 'filter_rankmath_twitter_description'], 999);
+
         // Suppress RankMath schema/JSON-LD when OTTO has structured data
         add_filter('rank_math/json_ld', [$this, 'filter_rankmath_schema'], 999);
 
@@ -1243,6 +1429,56 @@ class Metasync_SEO_Conflict_Handler {
         }
 
         return $description;
+    }
+
+    /**
+     * Filter Rank Math's og:description / twitter:description output.
+     *
+     * Mirrors filter_yoast_og_description(): suppress when OTTO has the tag or
+     * MetaSync has an intentional description, so exactly one description tag
+     * reaches the page. Returning '' removes Rank Math's.
+     *
+     * @param  string $value Rank Math's computed description.
+     * @return string
+     */
+    public function filter_rankmath_og_description($value) {
+        return $this->filter_rankmath_social_description($value, 'og:description');
+    }
+
+    /**
+     * Filter Rank Math's twitter:description output.
+     *
+     * Kept separate from the og:description filter so each consults its OWN
+     * OTTO key — twitter:description resolves to _metasync_otto_twitter_description,
+     * not the og one. Sharing a callback would suppress Rank Math's tag on the
+     * strength of the wrong key, either leaving a duplicate or a blank.
+     *
+     * @param  string $value Rank Math's computed description.
+     * @return string
+     */
+    public function filter_rankmath_twitter_description($value) {
+        return $this->filter_rankmath_social_description($value, 'twitter:description');
+    }
+
+    /**
+     * Shared body for the two Rank Math social-description filters.
+     *
+     * @param  string $value    Rank Math's computed description.
+     * @param  string $otto_tag OTTO tag identifier to test for this specific tag.
+     * @return string
+     */
+    private function filter_rankmath_social_description($value, $otto_tag) {
+        $post_id = $this->get_current_object_id();
+        if ($post_id && $this->og_output_disabled($post_id)) {
+            return $value;
+        }
+        if ($post_id && $this->is_primary_output_plugin($post_id, 'rankmath')) {
+            return $value;
+        }
+        if ($this->otto_has_tag($otto_tag) || $this->metasync_has_description()) {
+            return '';
+        }
+        return $value;
     }
 
     /**

@@ -193,6 +193,7 @@ jQuery(document).ready(function ($) {
 		var offset = 0;
 		var totalImported = 0;
 		var totalSkipped = 0;
+		var totalUnresolved = 0;
 
 		function processBatch() {
 			$.ajax({
@@ -214,6 +215,9 @@ jQuery(document).ready(function ($) {
 						var data = response.data;
 						totalImported += data.imported || 0;
 						totalSkipped += data.skipped || 0;
+						// Accumulate across batches — a single batch's count is
+						// not the whole import.
+						totalUnresolved += data.unresolved || 0;
 
 						// Update progress bar
 						var percent = data.progress_percent || 0;
@@ -225,19 +229,31 @@ jQuery(document).ready(function ($) {
 
 						if (data.is_complete) {
 							// Import complete
-							$('.metasync-progress-status').empty()
+							var $seoStatus = $('.metasync-progress-status').empty()
 								.append($('<strong>').css('color', 'var(--dashboard-success)').text('\u2713 Import Complete!'))
 								.append(document.createTextNode(' Imported: ' + totalImported + ' posts | Skipped: ' + totalSkipped + ' posts'));
 
 							importData.btn.addClass('success').text('\u2713 Imported');
 
-							// Close modal after 2 seconds
-							setTimeout(function () {
-								$('#metasync-seo-options-modal .metasync-modal-close').click();
-								// Re-enable button for future imports
+							if (totalUnresolved > 0) {
+								$seoStatus.append(
+									$('<div>')
+										.css({ 'color': 'var(--dashboard-warning)', 'margin-top': '8px' })
+										.text('\u26a0 ' + totalUnresolved + ' value(s) skipped because placeholders could not be resolved.')
+								);
+								// Leave the modal open so the warning is actually
+								// read rather than auto-dismissed after 2s.
 								$('#modal-start-import, #modal-cancel, #import-titles, #import-descriptions, #import-social-text, #import-social-images, #overwrite-existing')
 									.prop('disabled', false);
-							}, 2000);
+							} else {
+								// Close modal after 2 seconds
+								setTimeout(function () {
+									$('#metasync-seo-options-modal .metasync-modal-close').click();
+									// Re-enable button for future imports
+									$('#modal-start-import, #modal-cancel, #import-titles, #import-descriptions, #import-social-text, #import-social-images, #overwrite-existing')
+										.prop('disabled', false);
+								}, 2000);
+							}
 						} else {
 							// Continue with next batch
 							offset = data.processed || 0;

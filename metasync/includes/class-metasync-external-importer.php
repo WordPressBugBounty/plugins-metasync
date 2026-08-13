@@ -1792,7 +1792,7 @@ class Metasync_External_Importer
             }
         }
 
-        // All in One SEO — #var# tokens
+        // All in One SEO — #var tokens
         if ($plugin === 'aioseo') {
             try {
                 if (function_exists('aioseo') && isset(aioseo()->tags) && method_exists(aioseo()->tags, 'replaceTags')) {
@@ -1806,18 +1806,25 @@ class Metasync_External_Importer
             }
         }
 
-        return $this->manually_replace_seo_placeholders($text, $post_id);
+        return $this->manually_replace_seo_placeholders($text, $post_id, $plugin);
     }
 
     /**
      * Manual fallback: replace the most common SEO placeholder tokens from
-     * Yoast (%%var%%), Rank Math (%var%), and AIOSEO (#var#) formats.
+     * Yoast (%%var%%), Rank Math (%var%), and AIOSEO (#var) formats.
+     *
+     * AIOSEO tags are handled by resolve_aioseo_placeholders() because they
+     * need pattern matching rather than plain string replacement — see the
+     * docblock there.
      *
      * @param string $text    Text that may contain placeholder tokens.
      * @param int    $post_id Post ID used for context.
+     * @param string $plugin  Optional source plugin ('yoast', 'rankmath',
+     *                        'aioseo') so the separator is read from the
+     *                        plugin the data actually came from.
      * @return string         Text with tokens replaced.
      */
-    private function manually_replace_seo_placeholders($text, $post_id) {
+    private function manually_replace_seo_placeholders($text, $post_id, $plugin = '') {
         $post = get_post($post_id);
         if (!$post) {
             return $text;
@@ -1826,7 +1833,7 @@ class Metasync_External_Importer
         $site_name        = get_bloginfo('name');
         $post_title       = get_the_title($post_id);
         $post_excerpt     = has_excerpt($post_id) ? wp_strip_all_tags(get_the_excerpt($post)) : '';
-        $author           = get_the_author_meta('display_name', $post->post_author);
+        $author           = get_the_author_meta('display_name', (int) $post->post_author);
         $date             = get_the_date('', $post_id);
         $modified         = get_the_modified_date('', $post_id);
 
@@ -1836,28 +1843,7 @@ class Metasync_External_Importer
         $tags             = get_the_tags($post_id);
         $first_tag        = !empty($tags) ? $tags[0]->name : '';
 
-        // Try to read the separator from whichever plugin is active
-        $sep = '-';
-        if (defined('WPSEO_VERSION') && class_exists('WPSEO_Options')) {
-            try {
-                $raw = WPSEO_Options::get('separator', 'sc-dash');
-                // Yoast stores separator keys like 'sc-dash'; convert to glyph
-                // via the public get_separator_options() lookup table.
-                if (class_exists('WPSEO_Option_Titles')) {
-                    $options = WPSEO_Option_Titles::get_instance()->get_separator_options();
-                    if (isset($options[$raw])) {
-                        $sep = html_entity_decode($options[$raw], ENT_QUOTES, 'UTF-8');
-                    }
-                }
-            } catch (Exception $e) {
-                $sep = '-';
-            }
-        } elseif (defined('RANK_MATH_VERSION')) {
-            $rm_settings = get_option('rank_math_general_settings', []);
-            if (!empty($rm_settings['title_separator'])) {
-                $sep = html_entity_decode($rm_settings['title_separator'], ENT_QUOTES, 'UTF-8');
-            }
-        }
+        $sep = $this->resolve_source_separator($plugin);
 
         $map = [
             // ── Yoast (%%var%%) ──────────────────────────────────────────────
@@ -1890,17 +1876,6 @@ class Metasync_External_Importer
             '%category%'           => $primary_category,
             '%tag%'                => $first_tag,
             '%focus_keyword%'      => (string) get_post_meta($post_id, 'rank_math_focus_keyword', true),
-            // ── AIOSEO (#var#) ───────────────────────────────────────────────
-            '#site_title#'         => $site_name,
-            '#post_title#'         => $post_title,
-            '#post_excerpt#'       => $post_excerpt,
-            '#separator_sa#'       => $sep,
-            '#author_name#'        => $author,
-            '#current_date#'       => $date,
-            '#post_date#'          => $date,
-            '#category_title#'     => $primary_category,
-            '#tag_title#'          => $first_tag,
-            '#id#'                 => (string) $post_id,
         ];
 
         // Sort longest token first to avoid partial matches
@@ -1909,7 +1884,477 @@ class Metasync_External_Importer
             return strlen($b) - strlen($a);
         });
 
-        return str_replace(array_keys($map), array_values($map), $text);
+        $text = str_replace(array_keys($map), array_values($map), $text);
+
+        // ── AIOSEO (#var) ────────────────────────────────────────────────────
+        // Only for AIOSEO data, or when the caller did not name a source. Yoast
+        // and Rank Math leave a literal '#categories' alone, so running this on
+        // their imports would rewrite text they would have preserved.
+        if ($plugin === 'aioseo' || $plugin === '') {
+            $text = $this->resolve_aioseo_placeholders($text, $post_id, $sep);
+        }
+
+        return $text;
+    }
+
+    /**
+     * Resolve the title separator for the plugin the data came from.
+     *
+     * Each plugin stores its separator in its own option, so an AIOSEO import
+     * must not inherit Rank Math's separator just because Rank Math happens to
+     * still be active on the site. When the source is known we read only that
+     * plugin's setting and otherwise fall back to '-', which is the default
+     * every one of the three ships anyway.
+     *
+     * With no source named, keep the original precedence — whichever plugin is
+     * active, Yoast first — so callers that predate the $plugin argument see no
+     * behaviour change.
+     *
+     * @param string $plugin Source plugin ('yoast', 'rankmath', 'aioseo') or ''.
+     * @return string        Separator glyph, defaulting to '-'.
+     */
+    private function resolve_source_separator($plugin = '') {
+        switch ($plugin) {
+            case 'yoast':
+                $sep = $this->get_yoast_separator();
+                return $sep !== '' ? $sep : '-';
+            case 'rankmath':
+                $sep = $this->get_rankmath_separator();
+                return $sep !== '' ? $sep : '-';
+            case 'aioseo':
+                $sep = $this->get_aioseo_separator();
+                return $sep !== '' ? $sep : '-';
+        }
+
+        // Source unknown: original active-plugin precedence, including the
+        // class_exists() guard the old code used, so a site with WPSEO_VERSION
+        // defined but Yoast's classes unloaded still falls through to Rank Math
+        // exactly as before.
+        if (defined('WPSEO_VERSION') && class_exists('WPSEO_Options')) {
+            $sep = $this->get_yoast_separator();
+            return $sep !== '' ? $sep : '-';
+        }
+        if (defined('RANK_MATH_VERSION')) {
+            $sep = $this->get_rankmath_separator();
+            return $sep !== '' ? $sep : '-';
+        }
+
+        return '-';
+    }
+
+    /**
+     * Read Yoast's separator. Yoast stores separator keys like 'sc-dash';
+     * convert to a glyph via the public get_separator_options() lookup table.
+     *
+     * @return string Separator glyph, or '' when unavailable.
+     */
+    private function get_yoast_separator() {
+        if (!defined('WPSEO_VERSION') || !class_exists('WPSEO_Options') || !class_exists('WPSEO_Option_Titles')) {
+            return '';
+        }
+
+        try {
+            $raw     = WPSEO_Options::get('separator', 'sc-dash');
+            $options = WPSEO_Option_Titles::get_instance()->get_separator_options();
+            if (isset($options[$raw])) {
+                return html_entity_decode($options[$raw], ENT_QUOTES, 'UTF-8');
+            }
+        } catch (Exception $e) {
+            return '';
+        }
+
+        return '';
+    }
+
+    /**
+     * Read Rank Math's separator from its general settings option.
+     *
+     * @return string Separator glyph, or '' when unavailable.
+     */
+    private function get_rankmath_separator() {
+        if (!defined('RANK_MATH_VERSION')) {
+            return '';
+        }
+
+        $settings = get_option('rank_math_general_settings', []);
+        if (is_array($settings) && !empty($settings['title_separator'])) {
+            return html_entity_decode($settings['title_separator'], ENT_QUOTES, 'UTF-8');
+        }
+
+        return '';
+    }
+
+    /**
+     * Read AIOSEO's separator from aioseo_options.
+     *
+     * Lives at searchAppearance.global.separator (NOT breadcrumbs.separator)
+     * and is stored HTML-entity encoded, e.g. '&#45;'. The option itself may
+     * be a JSON string or an already-decoded array depending on how it was
+     * written, so handle both. Read straight from the option rather than
+     * through aioseo() so it still works once AIOSEO is deactivated.
+     *
+     * @return string Separator glyph, or '' when unavailable.
+     */
+    private function get_aioseo_separator() {
+        $options = get_option('aioseo_options', '');
+        if (is_string($options) && $options !== '') {
+            $options = json_decode($options, true);
+        }
+        if (!is_array($options)) {
+            return '';
+        }
+
+        $raw = $options['searchAppearance']['global']['separator'] ?? '';
+        if (!is_string($raw) || $raw === '') {
+            return '';
+        }
+
+        return html_entity_decode($raw, ENT_QUOTES, 'UTF-8');
+    }
+
+    /**
+     * Every smart-tag id AIOSEO defines, taken from its own Tags class.
+     *
+     * Used for detection as well as replacement, so a value still holding a
+     * tag we cannot resolve outside AIOSEO (#custom_field, #tax_name) is
+     * treated as unresolved rather than written to post meta. Restricting
+     * detection to AIOSEO's real vocabulary means ordinary text containing a
+     * hash — "#1 Rated Clinic", "#hashtag" — is never mistaken for a tag.
+     *
+     * @return string[]
+     */
+    private function get_aioseo_tag_ids() {
+        return [
+            'alt_tag', 'archive_date', 'archive_title', 'attachment_caption',
+            'attachment_description', 'author_bio', 'author_first_name',
+            'author_last_name', 'author_link', 'author_link_alt', 'author_name',
+            'author_url', 'blog_link', 'blog_title', 'categories', 'category',
+            'category_link', 'category_link_alt', 'current_date', 'current_day',
+            'current_month', 'current_year', 'custom_field', 'description',
+            'featured_image', 'page_number', 'parent_title', 'permalink',
+            'post_content', 'post_date', 'post_day', 'post_excerpt',
+            'post_excerpt_only', 'post_link', 'post_link_alt', 'post_month',
+            'post_title', 'post_year', 'search_term', 'separator_sa',
+            'site_description', 'site_link', 'site_link_alt', 'site_title',
+            'tagline', 'tax_name', 'tax_parent_name', 'taxonomy_description',
+            'taxonomy_title',
+        ];
+    }
+
+    /**
+     * Resolve AIOSEO smart tags to their values.
+     *
+     * AIOSEO denotes a tag with a single leading '#' and no closing delimiter
+     * (Tags::$denotationChar), ending the match with a negative lookahead so
+     * supersets do not collide — #post_excerpt must not consume the start of
+     * #post_excerpt_only, nor #post_link the start of #post_link_alt. We use
+     * the same rule here so results match what AIOSEO itself would render,
+     * and so replacement order is irrelevant.
+     *
+     * @param string $text    Text that may contain AIOSEO tags.
+     * @param int    $post_id Post ID used for context.
+     * @param string $sep     Separator glyph for #separator_sa.
+     * @return string         Text with AIOSEO tags replaced.
+     */
+    private function resolve_aioseo_placeholders($text, $post_id, $sep = '-') {
+        if (!is_string($text) || strpos($text, '#') === false) {
+            return (string) $text;
+        }
+
+        $post = get_post($post_id);
+        if (!$post) {
+            return $text;
+        }
+
+        // Resolve only the tags the text actually references. Building every
+        // value up front meant generating an excerpt for every imported post,
+        // and excerpt generation runs the whole the_content filter chain — ~8x
+        // the cost per post on real (page-builder) content, for a value the
+        // template usually never mentions.
+        foreach ($this->get_aioseo_tag_ids() as $tag) {
+            $pattern = '/#' . preg_quote($tag, '/') . '(?![a-zA-Z0-9_])/i';
+            if (!preg_match($pattern, $text)) {
+                continue;
+            }
+
+            $value = $this->resolve_aioseo_tag($tag, $post_id, $post, $sep);
+            if ($value === null) {
+                // Not resolvable outside AIOSEO. Leave it in place so
+                // has_unresolved_placeholders() can stop the write.
+                continue;
+            }
+
+            // Escape backslashes first, then '$', so a value containing "$1"
+            // is not treated as a backreference by preg_replace().
+            $replacement = str_replace(['\\', '$'], ['\\\\', '\\$'], (string) $value);
+            $result      = preg_replace($pattern, $replacement, $text);
+            if (is_string($result)) {
+                $text = $result;
+            }
+        }
+
+        return $text;
+    }
+
+    /**
+     * Value for a single AIOSEO tag in the context of one post.
+     *
+     * Returns null for tags that cannot be resolved without AIOSEO's own
+     * engine (#custom_field, #tax_name, the attachment tags). Callers leave
+     * those in place so the value is reported and skipped rather than saved
+     * half-resolved.
+     *
+     * @param string  $tag     AIOSEO tag id, without the leading '#'.
+     * @param int     $post_id Post ID.
+     * @param WP_Post $post    Post object.
+     * @param string  $sep     Separator glyph.
+     * @return string|null     Replacement value, or null if unresolvable.
+     */
+    private function resolve_aioseo_tag($tag, $post_id, $post, $sep) {
+        switch ($tag) {
+            case 'site_title':
+            case 'blog_title':
+                return (string) get_bloginfo('name');
+
+            case 'tagline':
+            case 'site_description':
+                return (string) get_bloginfo('description');
+
+            case 'post_title':
+                return (string) get_the_title($post_id);
+
+            case 'parent_title':
+                $parent = isset($post->post_parent) ? (int) $post->post_parent : 0;
+                return $parent ? (string) get_the_title($parent) : '';
+
+            case 'post_excerpt_only':
+                // Manual excerpt only — AIOSEO never falls back for this one.
+                return isset($post->post_excerpt) ? (string) $post->post_excerpt : '';
+
+            case 'post_excerpt':
+                // Manual excerpt if set, otherwise a content-derived one, which
+                // is what AIOSEO does. This is the expensive branch, so it only
+                // runs when the template actually references the tag.
+                $manual = isset($post->post_excerpt) ? (string) $post->post_excerpt : '';
+                return $manual !== '' ? $manual : wp_strip_all_tags((string) get_the_excerpt($post));
+
+            case 'post_content':
+                return wp_strip_all_tags((string) $post->post_content);
+
+            case 'separator_sa':
+                return (string) $sep;
+
+            case 'author_name':
+                return (string) get_the_author_meta('display_name', (int) $post->post_author);
+            case 'author_first_name':
+                return (string) get_the_author_meta('first_name', (int) $post->post_author);
+            case 'author_last_name':
+                return (string) get_the_author_meta('last_name', (int) $post->post_author);
+            case 'author_bio':
+                return (string) get_the_author_meta('description', (int) $post->post_author);
+
+            case 'author_link':
+            case 'author_link_alt':
+            case 'author_url':
+                $author = isset($post->post_author) ? (int) $post->post_author : 0;
+                return $author ? (string) get_author_posts_url($author) : '';
+
+            case 'current_date':
+                $format = get_option('date_format');
+                $format = (is_string($format) && $format !== '') ? $format : 'F j, Y';
+                return (string) date_i18n($format);
+            case 'current_day':
+                return (string) date_i18n('d');
+            case 'current_month':
+                return (string) date_i18n('F');
+            case 'current_year':
+                return (string) date_i18n('Y');
+
+            case 'post_date':
+                return (string) get_the_date('', $post_id);
+            case 'post_day':
+                return (string) get_the_date('d', $post_id);
+            case 'post_month':
+                return (string) get_the_date('F', $post_id);
+            case 'post_year':
+                return (string) get_the_date('Y', $post_id);
+
+            case 'permalink':
+            case 'post_link':
+            case 'post_link_alt':
+                return (string) get_permalink($post_id);
+
+            case 'site_link':
+            case 'site_link_alt':
+            case 'blog_link':
+                return (string) home_url();
+
+            case 'categories':
+                $names = [];
+                foreach ($this->get_post_categories($post_id) as $category) {
+                    if (isset($category->name)) {
+                        $names[] = $category->name;
+                    }
+                }
+                return implode(', ', $names);
+
+            case 'category':
+            case 'taxonomy_title':
+                $categories = $this->get_post_categories($post_id);
+                return !empty($categories) && isset($categories[0]->name) ? (string) $categories[0]->name : '';
+
+            case 'taxonomy_description':
+                $categories = $this->get_post_categories($post_id);
+                return !empty($categories) && isset($categories[0]->description) ? (string) $categories[0]->description : '';
+
+            case 'category_link':
+            case 'category_link_alt':
+                $categories = $this->get_post_categories($post_id);
+                return !empty($categories) && isset($categories[0]->term_id)
+                    ? (string) get_category_link($categories[0]->term_id)
+                    : '';
+
+            case 'featured_image':
+                return (string) get_the_post_thumbnail_url($post_id, 'full');
+
+            // AIOSEO renders these empty in a single-post context.
+            case 'description':
+            case 'page_number':
+            case 'search_term':
+            case 'archive_date':
+            case 'archive_title':
+                return '';
+        }
+
+        // #custom_field, #tax_name, #tax_parent_name, #alt_tag and the
+        // attachment tags need AIOSEO's own parsers.
+        return null;
+    }
+
+    /**
+     * Categories for a post, normalised to an array.
+     *
+     * @param int $post_id Post ID.
+     * @return array
+     */
+    private function get_post_categories($post_id) {
+        $categories = get_the_category($post_id);
+        return is_array($categories) ? $categories : [];
+    }
+
+    /**
+     * Whether a value still contains AIOSEO tags after resolution.
+     *
+     * Callers use this to skip the write instead of persisting a literal
+     * token such as '#post_title' as a page title. A tag that legitimately
+     * resolves to an empty string is gone from the text and so is not
+     * reported here.
+     *
+     * Only AIOSEO is checked — see the fall-through comment at the end for why
+     * Yoast and Rank Math are excluded.
+     *
+     * @param string $text   Resolved text.
+     * @param string $plugin Source plugin; only 'aioseo' is checked.
+     * @return bool          True when at least one tag survived.
+     */
+    private function has_unresolved_placeholders($text, $plugin) {
+        if (!is_string($text) || $text === '') {
+            return false;
+        }
+
+        switch ($plugin) {
+            case 'aioseo':
+                if (strpos($text, '#') === false) {
+                    return false;
+                }
+                foreach ($this->get_aioseo_tag_ids() as $tag) {
+                    if (preg_match('/#' . preg_quote($tag, '/') . '(?![a-zA-Z0-9_])/i', $text)) {
+                        return true;
+                    }
+                }
+                return false;
+        }
+
+        // Yoast and Rank Math deliberately fall through. Their manual fallback
+        // maps cover only a fraction of the variables those plugins define
+        // (16 of ~60 for Yoast, 12 of 49 for Rank Math), so treating a leftover
+        // token as a reason to skip would drop common real-world titles
+        // wholesale — "Best Dentist in %currentyear% %sep% %sitename%" resolves
+        // only partly and would import as nothing at all. Until those maps are
+        // filled in, their existing behaviour (save the partly-resolved value)
+        // is the lesser evil and is left untouched.
+        return false;
+    }
+
+    /**
+     * Resolve an imported value and decide whether it is safe to persist.
+     *
+     * Returns null when a placeholder survived resolution, so the caller skips
+     * the write rather than saving a literal '#post_title' that would then
+     * render as the page title and outrank OTTO's recommendation. Skipped
+     * values are collected in $unresolved so the import report can surface
+     * them.
+     *
+     * @param string $raw        Raw value from the source plugin.
+     * @param int    $post_id    Post ID used for context.
+     * @param string $plugin     Source plugin ('yoast', 'rankmath', 'aioseo').
+     * @param string $meta_key   Destination meta key, for the report.
+     * @param array  $unresolved Collected failures, appended to by reference.
+     * @return string|null       Resolved value, or null when it must be skipped.
+     */
+    private function resolve_import_value($raw, $post_id, $plugin, $meta_key, array &$unresolved) {
+        $resolved = $this->resolve_seo_placeholders($raw, $post_id, $plugin);
+
+        if ($this->has_unresolved_placeholders($resolved, $plugin)) {
+            $unresolved[] = [
+                'post_id'  => (int) $post_id,
+                'meta_key' => $meta_key,
+                'raw'      => (string) $raw,
+                'resolved' => (string) $resolved,
+            ];
+
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    'MetaSync importer: unresolved %s placeholder for post %d (%s) — %s',
+                    $plugin,
+                    (int) $post_id,
+                    $meta_key,
+                    (string) $raw
+                ));
+            }
+
+            return null;
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * Add unresolved-placeholder reporting to an import result.
+     *
+     * @param array $result     Result array to augment.
+     * @param array $unresolved Failures collected during the batch.
+     * @return array            Result with the report attached.
+     */
+    private function attach_unresolved_report(array $result, array $unresolved) {
+        $count = count($unresolved);
+        $result['unresolved'] = $count;
+
+        if ($count === 0) {
+            return $result;
+        }
+
+        // Keep the payload small — a few examples are enough to diagnose.
+        $result['unresolved_samples'] = array_slice($unresolved, 0, 5);
+
+        if (!empty($result['message'])) {
+            $result['message'] .= sprintf(
+                ' %d value(s) skipped because placeholders could not be resolved.',
+                $count
+            );
+        }
+
+        return $result;
     }
 
     /**
@@ -2417,6 +2862,7 @@ class Metasync_External_Importer
 
         $imported_count = 0;
         $skipped_count = 0;
+        $unresolved = [];
 
         foreach ($posts as $aioseo_data) {
             $post_id = $aioseo_data->post_id;
@@ -2427,9 +2873,11 @@ class Metasync_External_Importer
                 $existing_title = get_post_meta($post_id, '_metasync_seo_title', true);
 
                 if (empty($existing_title) || $overwrite) {
-                    $aioseo_title = $this->resolve_seo_placeholders($aioseo_data->title, $post_id, 'aioseo');
-                    update_post_meta($post_id, '_metasync_seo_title', sanitize_text_field($aioseo_title));
-                    $updated = true;
+                    $aioseo_title = $this->resolve_import_value($aioseo_data->title, $post_id, 'aioseo', '_metasync_seo_title', $unresolved);
+                    if ($aioseo_title !== null) {
+                        update_post_meta($post_id, '_metasync_seo_title', sanitize_text_field($aioseo_title));
+                        $updated = true;
+                    }
                 }
             }
 
@@ -2438,9 +2886,11 @@ class Metasync_External_Importer
                 $existing_desc = get_post_meta($post_id, '_metasync_seo_desc', true);
 
                 if (empty($existing_desc) || $overwrite) {
-                    $aioseo_desc = $this->resolve_seo_placeholders($aioseo_data->description, $post_id, 'aioseo');
-                    update_post_meta($post_id, '_metasync_seo_desc', sanitize_textarea_field($aioseo_desc));
-                    $updated = true;
+                    $aioseo_desc = $this->resolve_import_value($aioseo_data->description, $post_id, 'aioseo', '_metasync_seo_desc', $unresolved);
+                    if ($aioseo_desc !== null) {
+                        update_post_meta($post_id, '_metasync_seo_desc', sanitize_textarea_field($aioseo_desc));
+                        $updated = true;
+                    }
                 }
             }
 
@@ -2450,9 +2900,11 @@ class Metasync_External_Importer
                 if (!empty($aioseo_og_title)) {
                     $existing = get_post_meta($post_id, '_metasync_og_title', true);
                     if (empty($existing) || $overwrite) {
-                        $aioseo_og_title = $this->resolve_seo_placeholders($aioseo_og_title, $post_id, 'aioseo');
-                        update_post_meta($post_id, '_metasync_og_title', sanitize_text_field($aioseo_og_title));
-                        $updated = true;
+                        $aioseo_og_title = $this->resolve_import_value($aioseo_og_title, $post_id, 'aioseo', '_metasync_og_title', $unresolved);
+                        if ($aioseo_og_title !== null) {
+                            update_post_meta($post_id, '_metasync_og_title', sanitize_text_field($aioseo_og_title));
+                            $updated = true;
+                        }
                     }
                 }
 
@@ -2460,9 +2912,11 @@ class Metasync_External_Importer
                 if (!empty($aioseo_og_desc)) {
                     $existing = get_post_meta($post_id, '_metasync_og_description', true);
                     if (empty($existing) || $overwrite) {
-                        $aioseo_og_desc = $this->resolve_seo_placeholders($aioseo_og_desc, $post_id, 'aioseo');
-                        update_post_meta($post_id, '_metasync_og_description', sanitize_textarea_field($aioseo_og_desc));
-                        $updated = true;
+                        $aioseo_og_desc = $this->resolve_import_value($aioseo_og_desc, $post_id, 'aioseo', '_metasync_og_description', $unresolved);
+                        if ($aioseo_og_desc !== null) {
+                            update_post_meta($post_id, '_metasync_og_description', sanitize_textarea_field($aioseo_og_desc));
+                            $updated = true;
+                        }
                     }
                 }
 
@@ -2470,9 +2924,11 @@ class Metasync_External_Importer
                 if (!empty($aioseo_tw_title)) {
                     $existing = get_post_meta($post_id, '_metasync_twitter_title', true);
                     if (empty($existing) || $overwrite) {
-                        $aioseo_tw_title = $this->resolve_seo_placeholders($aioseo_tw_title, $post_id, 'aioseo');
-                        update_post_meta($post_id, '_metasync_twitter_title', sanitize_text_field($aioseo_tw_title));
-                        $updated = true;
+                        $aioseo_tw_title = $this->resolve_import_value($aioseo_tw_title, $post_id, 'aioseo', '_metasync_twitter_title', $unresolved);
+                        if ($aioseo_tw_title !== null) {
+                            update_post_meta($post_id, '_metasync_twitter_title', sanitize_text_field($aioseo_tw_title));
+                            $updated = true;
+                        }
                     }
                 }
 
@@ -2480,9 +2936,11 @@ class Metasync_External_Importer
                 if (!empty($aioseo_tw_desc)) {
                     $existing = get_post_meta($post_id, '_metasync_twitter_description', true);
                     if (empty($existing) || $overwrite) {
-                        $aioseo_tw_desc = $this->resolve_seo_placeholders($aioseo_tw_desc, $post_id, 'aioseo');
-                        update_post_meta($post_id, '_metasync_twitter_description', sanitize_textarea_field($aioseo_tw_desc));
-                        $updated = true;
+                        $aioseo_tw_desc = $this->resolve_import_value($aioseo_tw_desc, $post_id, 'aioseo', '_metasync_twitter_description', $unresolved);
+                        if ($aioseo_tw_desc !== null) {
+                            update_post_meta($post_id, '_metasync_twitter_description', sanitize_textarea_field($aioseo_tw_desc));
+                            $updated = true;
+                        }
                     }
                 }
             }
@@ -2518,7 +2976,7 @@ class Metasync_External_Importer
         $processed = $offset + count($posts);
         $is_complete = $processed >= $total_posts;
 
-        return [
+        return $this->attach_unresolved_report([
             'success' => true,
             'imported' => $imported_count,
             'skipped' => $skipped_count,
@@ -2529,7 +2987,7 @@ class Metasync_External_Importer
             'message' => $is_complete
                 ? "Import complete! Imported {$imported_count} posts, skipped {$skipped_count} posts."
                 : "Processing... {$imported_count} imported, {$skipped_count} skipped."
-        ];
+        ], $unresolved);
     }
 
     /**

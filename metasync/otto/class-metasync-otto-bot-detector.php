@@ -509,6 +509,41 @@ class Metasync_Otto_Bot_Detector {
             return;
         }
 
+        // This POST is documented below as non-blocking, but `blocking =>
+        // false` only skips waiting for the *response* — cURL still performs DNS
+        // resolution, the TCP connect and the TLS handshake synchronously. Measured
+        // against an unresponsive endpoint it blocked for 1.01s, on every bot
+        // request, on top of the OTTO suggestions call.
+        //
+        // So: if the endpoint is already known to be degraded, do not attempt it.
+        // Checked before the throttle transient is claimed, so a skipped push does
+        // not burn the 30-minute window and the crawl is still reported once the
+        // endpoint recovers.
+        // Resolve endpoint — respects production/staging mode toggle. Hoisted above
+        // the throttle so the health gate below can consult it.
+        if ( class_exists( 'Metasync_Endpoint_Manager' ) ) {
+            $endpoint = Metasync_Endpoint_Manager::get_endpoint( 'OTTO_CRAWL_LOGS' );
+        } else {
+            $endpoint = 'https://sa.searchatlas.com/api/v2/otto-page-crawl-logs';
+        }
+        if ( empty( $endpoint ) ) {
+            return;
+        }
+
+        // Backoff covers explicit 429/503 responses...
+        if (class_exists('Metasync_API_Backoff_Manager')
+            && Metasync_API_Backoff_Manager::get_instance()->is_endpoint_in_backoff($endpoint)) {
+            return;
+        }
+
+        // ...and the circuit breaker covers what backoff is blind to: timeouts,
+        // refused connections and DNS failures. Same host, so the suggestions
+        // path's breaker is authoritative for this endpoint too.
+        if (class_exists('Metasync_Otto_Transient_Cache')
+            && Metasync_Otto_Transient_Cache::is_host_breaker_open($endpoint)) {
+            return;
+        }
+
         // Throttle outbound POSTs to at most one per URL+bot every 30 minutes.
         // Bot bursts can otherwise produce thousands of redundant requests to
         // the crawl-log endpoint. Key includes bot_name so different crawlers
@@ -531,16 +566,6 @@ class Metasync_Otto_Bot_Detector {
         }
         set_transient( $throttle_key, 1, 30 * MINUTE_IN_SECONDS );
 
-        // Resolve endpoint — respects production/staging mode toggle
-        if ( class_exists( 'Metasync_Endpoint_Manager' ) ) {
-            $endpoint = Metasync_Endpoint_Manager::get_endpoint( 'OTTO_CRAWL_LOGS' );
-        } else {
-            $endpoint = 'https://sa.searchatlas.com/api/v2/otto-page-crawl-logs';
-        }
-        if ( empty( $endpoint ) ) {
-            return;
-        }
-
         $payload = array(
             'otto_uuid'  => $otto_uuid,
             'url'        => $url,
@@ -548,17 +573,24 @@ class Metasync_Otto_Bot_Detector {
             'context'    => null,
         );
 
-        // Non-blocking: timeout=0.01 + blocking=false so we never wait for a response.
-        // This prevents any latency impact on the bot's page request.
+        // Fire-and-forget: blocking=false means we never wait for the response body.
+        //
+        // `blocking => false` does NOT make the call free — cURL still does
+        // DNS + TCP connect + TLS handshake inline, which measured 1.01s against an
+        // unresponsive endpoint. connect_timeout caps that handshake explicitly;
+        // the health gate above is what removes it entirely once we know the host
+        // is bad. Together these bound this call at ~1s worst case for the first
+        // few failures, then ~0.
         wp_remote_post(
             trailingslashit( $endpoint ),
             array(
-                'method'      => 'POST',
-                'timeout'     => 0.01,
-                'blocking'    => false,
-                'headers'     => array( 'Content-Type' => 'application/json' ),
-                'body'        => wp_json_encode( $payload ),
-                'data_format' => 'body',
+                'method'          => 'POST',
+                'timeout'         => 0.01,
+                'connect_timeout' => 1,
+                'blocking'        => false,
+                'headers'         => array( 'Content-Type' => 'application/json' ),
+                'body'            => wp_json_encode( $payload ),
+                'data_format'     => 'body',
             )
         );
     }

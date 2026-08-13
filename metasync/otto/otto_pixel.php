@@ -197,7 +197,16 @@ function metasync_otto_crawl_notify($request){
  * @param string $route       Fully-qualified URL to process.
  * @param int    $retry_count Current retry attempt (0 = first run).
  */
-function metasync_handle_otto_crawl_url_job($route, $retry_count = 0) {
+function metasync_handle_otto_crawl_url_job($route = '', $retry_count = 0) {
+    // WP-Cron events persist independently of plugin code. A stale or malformed
+    // event may therefore invoke this callback without its required route.
+    // Docblock type isn't enforced at runtime; a stale cron record can pass a non-string.
+    // @phpstan-ignore-next-line function.alreadyNarrowedType
+    if (!is_string($route) || $route === '') {
+        error_log('MetaSync OTTO: skipping crawl-url job without a valid route.');
+        return;
+    }
+
     try {
         # Step 1: Warm OTTO transient cache (fetch fresh suggestions from OTTO API into WP transient)
         $otto_uuid = Metasync_Otto_Config::get_otto_uuid();
@@ -245,7 +254,16 @@ function metasync_handle_otto_crawl_url_job($route, $retry_count = 0) {
  *
  * @param array $routes List of fully-qualified URLs to warm and purge.
  */
-function metasync_handle_otto_batch_cache_job($routes) {
+function metasync_handle_otto_batch_cache_job($routes = array()) {
+    // WP-Cron events persist independently of plugin code. A stale or malformed
+    // event may therefore invoke this callback without its required route list.
+    // Docblock type isn't enforced at runtime; a stale cron record can pass a non-array.
+    // @phpstan-ignore-next-line function.alreadyNarrowedType
+    if (!is_array($routes) || empty($routes)) {
+        error_log('MetaSync OTTO: skipping batch cache job without valid routes.');
+        return;
+    }
+
     try {
         # Re-populate the cache so OTTO-modified output is what gets stored.
         # Per-URL host cache was already cleared by individual jobs.
@@ -507,6 +525,24 @@ function metasync_start_otto(){
         return;
     }
 
+    # Machine-readable core endpoints. Using WordPress's own conditionals rather
+    # than matching the path: they are exact, and a path pattern here would also
+    # match ordinary content whose slug merely starts with the same characters
+    # (e.g. /robots.txt-explained/, /favicon.ico-vs-svg/).
+    # is_favicon() is WP 5.4+; this plugin supports 5.2.
+    if (is_robots() || (function_exists('is_favicon') && is_favicon())) {
+        return;
+    }
+
+    # Protocol paths and static assets that are never OTTO-able content.
+    # class_exists guard matches how this function treats the render strategy
+    # further down: if the class is missing we fail open and let the request
+    # proceed rather than fatal.
+    if (class_exists('Metasync_Otto_Render_Strategy')
+        && Metasync_Otto_Render_Strategy::is_non_content_path($request_path)) {
+        return;
+    }
+
     # BOT DETECTION: Always detect bots so crawl data reaches the SA backend.
     # Real bots don't execute JS, so otto-tracker.js never fires for them.
     # push_crawl_log_to_sa() fires a non-blocking wp_remote_post here instead.
@@ -543,6 +579,25 @@ function metasync_start_otto(){
             return;
         }
         set_transient( $render_throttle_key, 1, 5 * MINUTE_IN_SECONDS );
+    }
+
+    # Skip OTTO on 404s.
+    #
+    # OTTO suggestions are keyed to real, crawled pages. Asking the API about a URL
+    # that returns 404 spends a full API_TIMEOUT of PHP-FPM worker time on a
+    # guaranteed-empty answer. Not theoretical: in one production sample, 21 of 54
+    # crawler requests were 404s on URLs that never existed on the site, each
+    # costing ~2s of a worker.
+    #
+    # Deliberately placed AFTER bot detection so push_crawl_log_to_sa() still
+    # reports the crawl to SearchAtlas — that telemetry is how the crawler side
+    # can learn to stop requesting these URLs. Only the expensive suggestions
+    # lookup is skipped.
+    #
+    # Filterable because "should a 404 page get OTTO treatment" is arguably a site
+    # decision, even though there is no known case where it should.
+    if (is_404() && apply_filters('metasync_otto_skip_on_404', true)) {
+        return;
     }
 
     # Optionally skip OTTO processing for bot traffic (when the setting is enabled)
@@ -614,7 +669,7 @@ function metasync_start_otto(){
     # can never have its object id mistaken for a custom page's post id.
     $custom_page_id = is_singular() ? ( get_queried_object_id() ?: get_the_ID() ) : 0;
     if (metasync_is_custom_or_lps_page($custom_page_id)) {
-        if (!headers_sent()) {
+        if (!headers_sent() && Metasync_Otto_Render_Strategy::diagnostics_enabled()) {
             header('X-MetaSync-OTTO-Method: EXCLUDED');
         }
         return;
@@ -779,6 +834,291 @@ function metasync_otto_disable_sg_page_cache() {
     if (!headers_sent()) {
         header('Cache-Control: no-cache, must-revalidate, max-age=0');
         header('X-Accel-Expires: 0');
+    }
+}
+
+/**
+ * How long a response that OTTO could not optimize may be cached, in seconds.
+ *
+ * Deliberately short rather than zero — see
+ * metasync_otto_limit_response_cache() for why.
+ */
+if (!defined('METASYNC_OTTO_FALLBACK_CACHE_TTL')) {
+    define('METASYNC_OTTO_FALLBACK_CACHE_TTL', 60);
+}
+
+/**
+ * Cap how long the current response may be cached, because OTTO could not apply
+ * its suggestions to it.
+ *
+ * OTTO fails open: when suggestions are unavailable, or when the HTML rewrite
+ * fails, the site's own un-optimized markup is served instead. That markup is
+ * valid — the harm is that a caching layer then stores it and serves it to
+ * everyone for the rest of its TTL (a host edge cache with s-maxage=86400 pins
+ * it for a day), which surfaces to customers as the OTTO title "reverting".
+ *
+ * A short TTL is used rather than `no-store`, which is the obvious choice but the
+ * wrong one. Some failures look transient and are not: a page that always breaks
+ * the rewriter, or a host that cannot fetch its own pages, fails identically on
+ * every request. `no-store` would make those permanently uncacheable, sending
+ * 100% of their traffic to the origin forever in exchange for markup that will
+ * never improve. A one-minute ceiling fixes the reported bug just as completely —
+ * a day-long pin becomes a minute — while capping the cost of being wrong about
+ * which failures recover.
+ *
+ * Different layers read different signals, so all of them are emitted:
+ *
+ *  - Cache-Control          CDNs, host edge caches, browsers. `max-age=0` keeps
+ *                           browsers revalidating while `s-maxage` lets shared
+ *                           caches absorb a burst for the ceiling's duration.
+ *  - X-Accel-Expires        Nginx's own directive. Evaluated with higher
+ *                           precedence than Cache-Control, and not covered by
+ *                           the `fastcgi_ignore_headers Cache-Control Expires`
+ *                           recipe common on managed hosts — so it can survive
+ *                           a config that discards Cache-Control. Nginx strips
+ *                           X-Accel-* before the response reaches the client,
+ *                           so there is no visitor-facing side effect.
+ *  - Surrogate-Control      Varnish and Fastly. Note that on stock Varnish the
+ *                           mere presence of this header suppresses its
+ *                           Cache-Control check, so it must carry a real
+ *                           lifetime rather than be left at some other value.
+ *  - DONOTCACHEPAGE         WordPress-level page caches (WP Rocket, W3TC,
+ *                           LiteSpeed, SG Optimizer). These run inside PHP and
+ *                           never see response headers. They have no notion of a
+ *                           short TTL — it is cache or do not — so they skip
+ *                           entirely. That is safe here because callers only
+ *                           invoke this for failures expected to resolve; a
+ *                           permanent one (an oversized page, a host that cannot
+ *                           reach itself) is left fully cacheable by the caller
+ *                           and never reaches this function.
+ *
+ * Cache-tagging headers (Surrogate-Key, Cache-Tag, Edge-Cache-Tag) are
+ * deliberately left in place. They are purge-targeting labels, not cacheability
+ * directives — no CDN stores a response *because* a tag is present. On a layer
+ * that stores this response anyway, those tags are the only handle a later purge
+ * has on it, so removing them would discard the recovery path exactly where it
+ * is needed most.
+ *
+ * Some layers may honour none of this; a managed host that overrides origin
+ * cache headers will cache the response regardless. This bounds the damage where
+ * it can and is inert where it cannot.
+ *
+ * @param string $reason Short machine-readable reason, surfaced as a response
+ *                       header for debugging (e.g. 'API_ERROR', 'RENDER_FAILED').
+ */
+/**
+ * Build the response headers that cap how long an un-optimized response may be
+ * cached.
+ *
+ * Thin wrapper over Metasync_Otto_Render_Strategy::fallback_cache_headers(), which
+ * owns the header set so it can be unit-tested (this file cannot be loaded in a
+ * test context). Returns an empty array if the strategy class is somehow absent,
+ * so a caller emits nothing rather than an untested divergent copy.
+ *
+ * @param int    $ttl    Cache ceiling in seconds.
+ * @param string $reason Optional machine-readable reason for the debug header.
+ * @return array Header name => value.
+ */
+function metasync_otto_fallback_cache_headers($ttl, $reason = '') {
+    if (!class_exists('Metasync_Otto_Render_Strategy')) {
+        return [];
+    }
+
+    return Metasync_Otto_Render_Strategy::fallback_cache_headers_for_response($ttl, $reason);
+}
+
+function metasync_otto_limit_response_cache($reason = '') {
+    # This function must only ever make the response LESS cacheable. header()
+    # replaces by default and the capped set carries X-Accel-Expires, which nginx
+    # evaluates ahead of Cache-Control — so emitting it unconditionally could
+    # override an upstream no-store and grant edge caching that nothing had
+    # granted. The strategy reconciles existing cache directives before emitting
+    # a capped set.
+
+    $strategy_available = class_exists('Metasync_Otto_Render_Strategy');
+
+    # 1. Logged-in users. OTTO renders for them unless the "disable on logged in"
+    #    setting is switched on, which is off by default — so this is the common
+    #    case, not an edge case. Their page may carry session-specific or
+    #    membership-gated content, and capping at 60 seconds would still let a
+    #    shared cache store and re-serve it to somebody else.
+    if (function_exists('is_user_logged_in') && is_user_logged_in()) {
+        if (!headers_sent() && $strategy_available) {
+            foreach (Metasync_Otto_Render_Strategy::no_store_headers($reason) as $name => $value) {
+                header($name . ': ' . $value);
+            }
+        }
+        if (!defined('DONOTCACHEPAGE')) {
+            define('DONOTCACHEPAGE', true);
+        }
+        return;
+    }
+
+    # 2. Something upstream already restricted this response. Leave its headers
+    #    alone — a page deliberately marked no-store must not be handed a 60
+    #    second shared-cache lifetime by us.
+    # The strategy turns an existing no-store into a consistent no-store set and
+    # uses the strictest known existing lifetime for every cache layer.
+    $ttl = (int) METASYNC_OTTO_FALLBACK_CACHE_TTL;
+
+    if (!headers_sent()) {
+        foreach (metasync_otto_fallback_cache_headers($ttl, $reason) as $name => $value) {
+            header($name . ': ' . $value);
+        }
+    }
+
+    # Reaches page-cache plugins, which do not see the headers above.
+    if (!defined('DONOTCACHEPAGE')) {
+        define('DONOTCACHEPAGE', true);
+    }
+}
+
+/**
+ * Report an OTTO render failure to the local error log and to Sentry.
+ *
+ * These failures were invisible: the render path swallowed them and returned the
+ * original HTML, so nobody knew how often they fired. Reporting them is what makes
+ * a persistently-failing URL discoverable instead of silently costing origin work.
+ *
+ * Two constraints shape this:
+ *
+ *  1. It runs on the visitor render path, so it must not add latency. The Sentry
+ *     report is therefore queued here and sent by
+ *     metasync_otto_flush_render_failure_reports() after the response has been
+ *     handed to the visitor, so the cost is invisible rather than merely small.
+ *
+ *     Two alternatives were tried and rejected. Sending inline with a blocking
+ *     transport — cURL with a 5s connect and 5s read timeout — could add ten
+ *     seconds to a page load, precisely when the request is already degraded.
+ *     Sending inline non-blocking is far cheaper but still not free: opening the
+ *     connection and writing the body costs the visitor something.
+ *
+ *     A WP-Cron single event was the other obvious option and is worse than both:
+ *     every scheduled event is stored in the `cron` option, which is autoloaded on
+ *     every request site-wide, and WP's own 10-minute duplicate suppression keys on
+ *     the serialized args — which carry per-request byte counts here, so it would
+ *     never engage. A site with many failing URLs would grow that option
+ *     unboundedly and pay for it on every page load, which is the cost the deferral
+ *     was meant to avoid in the first place.
+ *
+ *     The local log stays synchronous. It is cheaper than Sentry but not free —
+ *     Metasync_Error_Logger::log() rewrites a summary option on each call — which is
+ *     the second reason for the throttle below.
+ *
+ *  2. A failing page can be requested thousands of times an hour, so reports are
+ *     throttled per reason+URL.
+ *
+ * @param string $reason  Machine-readable failure reason (e.g. 'RENDER_EXCEPTION').
+ * @param string $message Human-readable description.
+ * @param array  $context Extra key/value context.
+ * @param string $level   Sentry level: 'error' or 'warning'.
+ */
+function metasync_otto_report_render_failure($reason, $message, $context = [], $level = 'error') {
+    $url = '';
+    if (!empty($_SERVER['HTTP_HOST']) && !empty($_SERVER['REQUEST_URI'])) {
+        $url = (is_ssl() ? 'https://' : 'http://')
+            . $_SERVER['HTTP_HOST']
+            . strtok(sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'])), '?');
+    }
+
+    # Throttle: at most one report per reason+URL per 5 minutes. Requests without a
+    # resolvable URL (CLI, odd SAPIs) collapse onto one key, which is intended —
+    # they cannot be attributed to a page anyway.
+    $throttle_key = 'metasync_otto_fail_' . md5($reason . '|' . $url);
+    if (get_transient($throttle_key)) {
+        return;
+    }
+    set_transient($throttle_key, 1, 5 * MINUTE_IN_SECONDS);
+
+    $context = array_merge([
+        'reason' => $reason,
+        'url'    => $url,
+    ], $context);
+
+    # Local structured log. Stays on the customer's site, so it is useful to
+    # support but not visible to us — hence the Sentry dispatch below.
+    if (class_exists('Metasync_Error_Logger')) {
+        Metasync_Error_Logger::log(
+            Metasync_Error_Logger::CATEGORY_OTTO_RENDER,
+            $level === 'warning'
+                ? Metasync_Error_Logger::SEVERITY_WARNING
+                : Metasync_Error_Logger::SEVERITY_ERROR,
+            $message,
+            $context
+        );
+    }
+
+    # Sentry. Queued rather than sent here: even a non-blocking dispatch costs the
+    # visitor something (opening the connection and writing the body), and this runs
+    # on a request that is already degraded. The queue is flushed after the response
+    # has been handed to the visitor — see metasync_otto_flush_render_failure_reports().
+    if (!function_exists('metasync_sentry_capture_message_nonblocking')) {
+        return;
+    }
+
+    $GLOBALS['metasync_otto_pending_failure_reports'][] = [
+        'message' => $message,
+        'level'   => $level,
+        'context' => $context,
+    ];
+
+    if (empty($GLOBALS['metasync_otto_failure_flush_hooked'])) {
+        $GLOBALS['metasync_otto_failure_flush_hooked'] = true;
+        # PHP_INT_MAX so this runs after everything else registered on shutdown —
+        # WordPress flushes its own output buffers and closes the object cache at the
+        # default priority, and this handler ends output for the request.
+        add_action('shutdown', 'metasync_otto_flush_render_failure_reports', PHP_INT_MAX);
+    }
+}
+
+/**
+ * Send any queued render-failure reports after the response has been delivered.
+ *
+ * fastcgi_finish_request() (PHP-FPM) and litespeed_finish_request() (LiteSpeed)
+ * flush the response and close the connection to the visitor while leaving PHP
+ * running. Calling one of them here means the page is already on its way before
+ * any telemetry work starts, so the reporting cost is invisible to the visitor
+ * rather than merely small.
+ *
+ * Neither exists under mod_php or the CLI SAPI. There the reports are still sent
+ * at the very end of the request, after all page output has been generated and
+ * flushed — the same ordering, just without the connection being closed first.
+ *
+ * The dispatch itself stays non-blocking. Now that the visitor is served, the only
+ * remaining cost is PHP worker occupancy, and a blocking transport with a 5s
+ * connect and 5s read timeout could tie up a worker for ten seconds per report on
+ * a site that is failing often.
+ */
+function metasync_otto_flush_render_failure_reports() {
+    $reports = $GLOBALS['metasync_otto_pending_failure_reports'] ?? [];
+    $GLOBALS['metasync_otto_pending_failure_reports'] = [];
+
+    if (empty($reports)) {
+        return;
+    }
+
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    } elseif (function_exists('litespeed_finish_request')) {
+        litespeed_finish_request();
+    }
+
+    if (!function_exists('metasync_sentry_capture_message_nonblocking')) {
+        return;
+    }
+
+    foreach ($reports as $report) {
+        try {
+            metasync_sentry_capture_message_nonblocking(
+                $report['message'],
+                $report['level'],
+                $report['context']
+            );
+        } catch (Exception $e) {
+            # Telemetry must never be able to break a request.
+        } catch (Error $e) {
+            # Same.
+        }
     }
 }
 

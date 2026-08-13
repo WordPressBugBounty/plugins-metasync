@@ -398,6 +398,23 @@ class Metasync_Debug_Mode_Manager
     }
 
     /**
+     * Check whether debug mode is currently enabled
+     *
+     * Static and side-effect free: reads the option directly rather than going
+     * through get_instance(), which registers hooks as part of construction.
+     * Safe to call from front-end request paths, including ones that run before
+     * the singleton is initialized on 'init'.
+     *
+     * @return bool True when debug mode is on
+     */
+    public static function is_enabled()
+    {
+        $settings = get_option(self::OPTION_KEY, array());
+
+        return is_array($settings) && !empty($settings['enabled']);
+    }
+
+    /**
      * Get current debug mode settings
      *
      * @return array Debug mode settings

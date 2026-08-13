@@ -46,7 +46,50 @@ class Metasync_Otto_Transient_Cache {
      * Lock timeout (5 seconds)
      */
     private const LOCK_TIMEOUT = 5;
+
+    /**
+     * Recovery probe lock timeout (10 seconds).
+     * Must exceed warm_cache()'s longest API timeout (8 seconds), so a slow
+     * recovery probe cannot overlap with a second probe.
+     */
+    private const BREAKER_PROBE_LOCK_TIMEOUT = 10;
     
+    /**
+     * Circuit breaker prefix (per API host, not per URL — the failure being
+     * tracked is "the OTTO API is unreachable", which is host-wide)
+     */
+    private const BREAKER_PREFIX = 'otto_breaker_';
+
+    /**
+     * Circuit breaker consecutive-failure tally prefix
+     */
+    private const BREAKER_FAIL_PREFIX = 'otto_breaker_fail_';
+
+    /**
+     * Circuit breaker probe-lock prefix (half-open state)
+     */
+    private const BREAKER_PROBE_PREFIX = 'otto_breaker_probe_';
+
+    /**
+     * Object-cache group for atomic counters (rate limiter, breaker tally).
+     * These are NOT stored in the transient namespace when an external object
+     * cache is present, so they must always be read and deleted via
+     * counter_get() / counter_delete().
+     */
+    private const COUNTER_GROUP = 'otto_counters';
+
+    /**
+     * Consecutive hard failures before the breaker opens.
+     */
+    private const BREAKER_FAILURE_THRESHOLD = 3;
+
+    /**
+     * How long the breaker stays open before allowing a single probe (seconds).
+     * Deliberately short: long enough to shed load off the PHP workers, short
+     * enough that a brief upstream blip does not visibly de-OTTO the site.
+     */
+    private const BREAKER_COOLOFF = 60;
+
     /**
      * Max API calls per minute
      */
@@ -61,6 +104,20 @@ class Metasync_Otto_Transient_Cache {
      * OTTO UUID
      */
     private $otto_uuid;
+
+    /**
+     * Whether the last fetch_from_api() call was answered with HTTP 404.
+     *
+     * Tracked explicitly rather than inferred from the returned value: a 404 is
+     * represented as an empty array, but json_decode() also yields an empty array
+     * for a 200 body of `{}` or `[]`. Distinguishing the two by emptiness would
+     * silently misclassify such a response as "no data held" and stop clearing the
+     * stale copy — resurfacing a withdrawn title, which is the bug the stale wipe
+     * exists to prevent.
+     *
+     * @var bool
+     */
+    private $last_fetch_was_404 = false;
 
     /**
      * OTTO API endpoint
@@ -112,41 +169,33 @@ class Metasync_Otto_Transient_Cache {
         # Step 1: Check transient cache first
         $cached = get_transient($keys['transient']);
         if ($cached !== false) {
-            # Cache hit - return cached data
-            self::$cache_status[$cache_status_key] = 'HIT';
+            # Cache hit. Distinguish a real payload from the "checked, nothing
+            # here" marker so the X-MetaSync-OTTO-Cache header stays truthful —
+            # reporting HIT for a URL OTTO holds no data for would be misleading
+            # when debugging, and the two cases are handled differently upstream.
+            self::$cache_status[$cache_status_key] = $this->has_payload($cached)
+                ? 'HIT'
+                : 'NO_SUGGESTIONS';
             return $cached;
         }
 
-        # Step 2: Check rate limit
-        if (!$this->can_make_api_call()) {
-            # Rate limited - try to use stale cache
+        # Step 1.5: circuit breaker.
+        #
+        # Checked BEFORE the rate limiter on purpose. can_make_api_call() increments
+        # a per-minute counter, so running it first would spend the site's API budget
+        # on requests the breaker is about to block anyway — leaving OTTO throttled
+        # for the rest of the minute even after the upstream recovers.
+        if ($this->is_breaker_open()) {
             $stale = get_transient($keys['stale']);
             if ($stale !== false) {
-                # NEW: Structured error logging with category and code
-                if (class_exists('Metasync_Error_Logger')) {
-                    Metasync_Error_Logger::log(
-                        Metasync_Error_Logger::CATEGORY_API_RATE_LIMIT,
-                        Metasync_Error_Logger::SEVERITY_INFO,
-                        'OTTO API rate limited - using stale cache',
-                        [
-                            'url' => $url,
-                            'fallback' => 'stale_cache',
-                            'api_endpoint' => 'OTTO Suggestions API',
-                            'operation' => 'get_suggestions'
-                        ]
-                    );
-                }
-                
-                error_log('MetaSync OTTO: Rate limited, using stale cache for ' . $url);
                 self::$cache_status[$cache_status_key] = 'STALE';
                 return $stale;
             }
-            # No stale cache available - return false
-            self::$cache_status[$cache_status_key] = 'RATE_LIMITED';
+            self::$cache_status[$cache_status_key] = 'BREAKER_OPEN';
             return false;
         }
 
-        # Step 3: Acquire lock atomically (test-and-set).
+        # Step 2: Acquire lock atomically (test-and-set).
         # If another worker already holds the lock, wait briefly for them to populate
         # the cache, then either return their result or bail out — DO NOT fall through
         # to fetch_from_api() (that was the original bug: duplicate concurrent API calls).
@@ -157,12 +206,59 @@ class Metasync_Otto_Transient_Cache {
                 self::$cache_status[$cache_status_key] = 'HIT';
                 return $cached;
             }
+            # The lock holder did not finish in time. Before giving up and letting
+            # the caller serve un-optimized HTML, reuse the stale copy — it is the
+            # same data one TTL older, which is far better for a crawler than the
+            # original title. Previously only the rate-limit path consulted it.
+            $stale = get_transient($keys['stale']);
+            if ($stale !== false) {
+                self::$cache_status[$cache_status_key] = 'STALE';
+                return $stale;
+            }
             self::$cache_status[$cache_status_key] = 'LOCKED';
             return false;
         }
 
-        $suggestions = false;
         try {
+            # Another request may have populated the cache between our initial
+            # miss and this lock acquisition. Recheck before spending API budget.
+            $cached = get_transient($keys['transient']);
+            if ($cached !== false) {
+                self::$cache_status[$cache_status_key] = $this->has_payload($cached)
+                    ? 'HIT'
+                    : 'NO_SUGGESTIONS';
+                return $cached;
+            }
+
+            # Step 3: Count only the lock winner that can make a real API call.
+            if (!$this->can_make_api_call()) {
+                # Rate limited - try to use stale cache
+                $stale = get_transient($keys['stale']);
+                if ($stale !== false) {
+                    # NEW: Structured error logging with category and code
+                    if (class_exists('Metasync_Error_Logger')) {
+                        Metasync_Error_Logger::log(
+                            Metasync_Error_Logger::CATEGORY_API_RATE_LIMIT,
+                            Metasync_Error_Logger::SEVERITY_INFO,
+                            'OTTO suggestions throttled - served from cache',
+                            [
+                                'url' => $url,
+                                'fallback' => 'stale_cache',
+                                'api_endpoint' => 'OTTO Suggestions API',
+                                'operation' => 'get_suggestions'
+                            ]
+                        );
+                    }
+
+                    error_log('MetaSync OTTO: Throttled, serving suggestions from cache for ' . $url);
+                    self::$cache_status[$cache_status_key] = 'STALE';
+                    return $stale;
+                }
+                # No stale cache available - return false
+                self::$cache_status[$cache_status_key] = 'RATE_LIMITED';
+                return false;
+            }
+
             # Step 4: Fetch from API (with timeout and error handling)
             $suggestions = $this->fetch_from_api($url);
 
@@ -182,20 +278,62 @@ class Metasync_Otto_Transient_Cache {
                 set_transient($keys['stale'], $suggestions, $ttl * 2);
                 self::$cache_status[$cache_status_key] = 'MISS'; // Cache miss, fetched from API
             } elseif ($suggestions !== false) {
-                # API responded 200 OK but genuinely no OTTO suggestions for this URL.
-                # Cache the negative result for a short time to prevent hammering the API.
-                set_transient($keys['transient'], false, self::NO_SUGGESTIONS_TTL);
-                # Wipe the stale fallback too. Without this, a rate-limit
-                # event within the next 60 min serves the previously-deployed (now
-                # undeployed) suggestion, keeping the wrong title alive on the page.
-                delete_transient($keys['stale']);
+                # API responded 200 OK but genuinely no OTTO suggestions for this URL,
+                # or answered 404 (no data held for this URL at all).
+                #
+                # Cache the negative result so we stop asking. This MUST be stored as
+                # an empty array rather than `false`: WordPress cannot distinguish a
+                # stored `false` from an absent key, so a `false` marker never reads
+                # back as a hit and every request re-calls the API — which then
+                # exhausts the per-minute budget and pushes these URLs into
+                # RATE_LIMITED, a status treated as a transient failure. An empty
+                # array reads back cleanly, and has_payload([]) is false, so every
+                # consumer still takes the "no suggestions" path.
+                set_transient($keys['transient'], [], self::NO_SUGGESTIONS_TTL);
+
+                # Wipe the stale fallback for any empty answer that was NOT a 404 —
+                # a 200 whose body is empty or hollow, and a 204. Both mean the URL is
+                # known to OTTO but currently holds no suggestions, and without the
+                # wipe a rate-limit event within the next hour would serve the
+                # previously-deployed (now undeployed) suggestion, keeping the wrong
+                # title alive on the page.
+                #
+                # A 404 is different, and the difference is who answered. A 204 or an
+                # empty 200 came from the application itself: it was asked about this
+                # URL and deliberately said "nothing here". A 404 may never have
+                # reached the application at all — a changed endpoint path, a gateway,
+                # or a CDN in front of the API can produce it for every URL on every
+                # site at once, for reasons that say nothing about whether suggestions
+                # exist. Wiping stale copies on that would destroy the fallback
+                # everywhere simultaneously, precisely when it is the only thing
+                # keeping correct SEO on the page. So a 404 leaves it alone.
+                #
+                # Keyed off the recorded status code rather than the emptiness of the
+                # decoded body: json_decode() also returns an empty array for a 200
+                # body of `{}` or `[]`, which would otherwise be mistaken for a 404.
+                if (!$this->last_fetch_was_404) {
+                    delete_transient($keys['stale']);
+                }
+
                 self::$cache_status[$cache_status_key] = 'NO_SUGGESTIONS';
             } else {
-                # fetch_from_api() returned false — network error, timeout, or non-200 response.
+                # fetch_from_api() returned false — network error, timeout, or a
+                # non-200 response other than 404 and 204 (both of those return []
+                # and are handled by the "no suggestions" branch above).
                 # Do NOT cache the failure: a stale false would poison subsequent MISS requests
                 # (Kinsta sees MISS → PHP runs → transient HIT = false → OTTO skips → old title cached).
                 # Leave the transient empty so the very next page load retries the API call.
-                self::$cache_status[$cache_status_key] = 'API_ERROR';
+                #
+                # Before reporting the failure upward, reuse the stale copy if we
+                # have one — same data, one TTL older, which still renders correct
+                # SEO instead of falling through to the original markup.
+                $stale = get_transient($keys['stale']);
+                if ($stale !== false) {
+                    self::$cache_status[$cache_status_key] = 'STALE';
+                    $suggestions = $stale;
+                } else {
+                    self::$cache_status[$cache_status_key] = 'API_ERROR';
+                }
             }
         } finally {
             # Step 6: Release lock — guaranteed to run even if fetch_from_api() throws
@@ -282,20 +420,28 @@ class Metasync_Otto_Transient_Cache {
      * @return array|false API response or false on failure
      */
     private function fetch_from_api($url) {
+        # Reset per call so a previous 404 cannot influence this one's handling.
+        $this->last_fetch_was_404 = false;
+
         # Check if endpoint is in backoff mode (explicit check for better error handling)
         if (class_exists('Metasync_API_Backoff_Manager')) {
             $backoff_manager = Metasync_API_Backoff_Manager::get_instance();
             if ($backoff_manager->is_endpoint_in_backoff($this->api_endpoint)) {
-                error_log('MetaSync OTTO: API call skipped - endpoint in backoff mode');
+                error_log('MetaSync OTTO: Request deferred - retry scheduled for this endpoint');
                 # Try to use stale cache if available
                 $stale = get_transient($this->get_stale_key($url));
                 if ($stale !== false) {
-                    error_log('MetaSync OTTO: Using stale cache due to backoff');
+                    error_log('MetaSync OTTO: Serving suggestions from cache while retry is pending');
                     return $stale;
                 }
                 return false;
             }
         }
+
+        # NOTE: the circuit breaker gate lives in get_suggestions(), which is
+        # this method's only caller — placed there so an open breaker also skips the
+        # rate-limit increment. Failure recording stays here, at the point where the
+        # transport result is known.
 
         # Construct API URL
         $api_url = add_query_arg(
@@ -321,14 +467,18 @@ class Metasync_Otto_Transient_Cache {
 
             # Check if error is due to backoff
             if ($response->get_error_code() === 'api_backoff_active') {
-                error_log('MetaSync OTTO: API call blocked by backoff - ' . $error_message);
+                error_log('MetaSync OTTO: Request deferred by retry schedule - ' . $error_message);
                 # Try to use stale cache
                 $stale = get_transient($this->get_stale_key($url));
                 if ($stale !== false) {
-                    error_log('MetaSync OTTO: Using stale cache due to backoff');
+                    error_log('MetaSync OTTO: Serving suggestions from cache while retry is pending');
                     return $stale;
                 }
             } else {
+                # A WP_Error that is not a backoff block is a hard transport
+                # failure (cURL 28 timeout, connection refused, DNS failure). These are
+                # the failures that cost a full API_TIMEOUT of PHP-FPM worker time.
+                $this->record_breaker_failure();
                 error_log('MetaSync OTTO: API call failed for ' . $url . ' - ' . $error_message);
             }
             return false;
@@ -337,12 +487,49 @@ class Metasync_Otto_Transient_Cache {
         # Check response code
         $response_code = wp_remote_retrieve_response_code($response);
         if ($response_code !== 200) {
+            # 404 and 204 are ANSWERS, not failures: the API is telling us it
+            # holds no OTTO data for this URL (never crawled, outside the project,
+            # or successfully answered with no content).
+            # Returning false here would classify it as API_ERROR, which is never
+            # cached and therefore re-requested on every uncached page load —
+            # burning the per-minute API budget on URLs that will keep answering
+            # 404 or 204, and (once fail-open emits no-cache headers) making every
+            # not-yet-crawled page uncacheable. Newly published posts are in this
+            # state until OTTO crawls them, so this is the common case, not an edge
+            # case. Return an empty array instead: get_suggestions() then takes the
+            # "no suggestions" branch and negative-caches it like any other
+            # legitimately empty result.
+            #
+            # These also close the circuit breaker, for the same reason a 200 does:
+            # the host answered, so it is reachable. Without that, a project whose
+            # URLs all answer 404 (not yet crawled) would leave a previously-opened
+            # breaker stuck half-open, re-probing every LOCK_TIMEOUT seconds against
+            # an API that is in fact perfectly healthy.
+            if ($response_code === 404) {
+                $this->last_fetch_was_404 = true;
+                $this->reset_breaker();
+                return [];
+            }
+            if ($response_code === 204) {
+                $this->reset_breaker();
+                return [];
+            }
+
+            # 5xx means the upstream is unhealthy — count it toward the breaker.
+            # Checked after the 404/204 answers above so they are never miscounted
+            # as failures. 429/503 are left to the backoff manager as well (503 is
+            # counted by both, which is correct: it is simultaneously "slow down"
+            # and "upstream unhealthy").
+            if ($response_code >= 500) {
+                $this->record_breaker_failure();
+            }
+
             # For 429/503, the backoff manager will handle it automatically
             # Try to use stale cache for these errors
             if (in_array($response_code, [429, 503], true)) {
                 $stale = get_transient($this->get_stale_key($url));
                 if ($stale !== false) {
-                    error_log('MetaSync OTTO: Using stale cache due to rate limit/service unavailable');
+                    error_log('MetaSync OTTO: Serving suggestions from cache - source temporarily unavailable');
                     return $stale;
                 }
             }
@@ -360,7 +547,190 @@ class Metasync_Otto_Transient_Cache {
             return false;
         }
 
+        # A clean 200 means the upstream is healthy again — close the breaker.
+        $this->reset_breaker();
+
         return $data;
+    }
+
+    // ------------------------------------------------------------------
+    //  Circuit breaker
+    //
+    //  Scoped to the API *host*, not the URL: when sa.searchatlas.com is
+    //  unreachable it is unreachable for every URL, so a per-URL breaker would
+    //  need BREAKER_FAILURE_THRESHOLD failures per URL before it helped — which
+    //  on a site with thousands of URLs is never.
+    // ------------------------------------------------------------------
+
+    /**
+     * Transient key for the breaker state (per API host, per site).
+     *
+     * @return string
+     */
+    private function get_breaker_key() {
+        return self::breaker_key_for_host(wp_parse_url($this->api_endpoint, PHP_URL_HOST) ?: 'unknown');
+    }
+
+    /**
+     * Single derivation of the breaker key, shared by the instance and static
+     * paths so the two cannot drift apart.
+     *
+     * @param string $host API host.
+     * @return string
+     */
+    private static function breaker_key_for_host($host) {
+        $site_id = is_multisite() ? get_current_blog_id() : 0;
+        return self::BREAKER_PREFIX . $site_id . '_' . md5($host);
+    }
+
+    /**
+     * Is the circuit breaker currently open (i.e. should we skip the API call)?
+     *
+     * Three states:
+     *  - closed    : fewer than BREAKER_FAILURE_THRESHOLD consecutive failures. Allow.
+     *  - open      : threshold reached, still inside the cool-off. Block.
+     *  - half-open : cool-off elapsed. Allow exactly ONE request through to probe
+     *                the upstream; block the rest. Without the probe lock every
+     *                concurrent request would retry at once and we would recreate
+     *                the stampede the breaker exists to prevent.
+     *
+     * @return bool True if the API call should be skipped.
+     */
+    private function is_breaker_open() {
+        # Escape hatch: lets support disable the breaker on a single site without
+        # shipping a release, mirroring how other OTTO behaviour is gated.
+        if (!apply_filters('metasync_otto_circuit_breaker_enabled', true)) {
+            return false;
+        }
+
+        $open_until = (int) get_transient($this->get_breaker_key());
+
+        if ($open_until <= 0) {
+            # Closed (or counting failures but not yet tripped).
+            return false;
+        }
+
+        if (time() < $open_until) {
+            return true;
+        }
+
+        # Half-open: the first caller to win the probe lock gets to test the
+        # upstream. Without this every concurrent request would retry at once and
+        # recreate the stampede the breaker exists to prevent.
+        # RETRY-LOOP-SAFETY: bounded recovery; do not add a naive retry handler here.
+        # Concurrency: one host-level lock lasting beyond the 8-second transport timeout.
+        # Attempts/backoff: one transport attempt; failure re-arms the 60-second cool-off.
+        # Blocked callers return immediately; inline retries would hold PHP workers.
+        $probe_key = self::BREAKER_PROBE_PREFIX . md5($this->get_breaker_key());
+        if ($this->acquire_lock_atomic($probe_key, self::BREAKER_PROBE_LOCK_TIMEOUT)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Record a hard upstream failure and open the breaker once the threshold is hit.
+     *
+     * The failure tally is incremented atomically: a read-modify-write here loses
+     * increments under exactly the concurrency the breaker is meant to protect
+     * against, which delays the trip and lets the damage continue. Verified in
+     * load testing — the naive version opened several seconds late.
+     *
+     * The open-until timestamp is a plain write because every racing worker
+     * computes the same value, so a lost update is harmless.
+     */
+    private function record_breaker_failure() {
+        $open_key = $this->get_breaker_key();
+
+        $failures = $this->atomic_increment(
+            $this->get_breaker_fail_key(),
+            self::BREAKER_COOLOFF * 10
+        );
+
+        # Re-arm when the tally crosses the threshold, OR when the breaker is
+        # already tripped.
+        #
+        # The second condition is not redundant. The failure tally's expiry is
+        # written once, on first insert, and is never refreshed — so during an
+        # outage longer than its lifetime the tally silently resets to 1. Without
+        # this check a failed half-open probe would then fail to extend the
+        # cool-off, and the breaker would decay into one probe every LOCK_TIMEOUT
+        # seconds instead of one every BREAKER_COOLOFF.
+        #
+        # Short-circuits, so the extra read only happens on the sub-threshold
+        # failure path, which is rare.
+        if ($failures >= self::BREAKER_FAILURE_THRESHOLD || get_transient($open_key) !== false) {
+            # Re-writing this also refreshes its TTL, so the open marker cannot
+            # expire underneath a sustained outage.
+            set_transient($open_key, time() + self::BREAKER_COOLOFF, self::BREAKER_COOLOFF * 10);
+        }
+    }
+
+    /**
+     * Close the breaker after a successful call.
+     */
+    private function reset_breaker() {
+        $open_key = $this->get_breaker_key();
+        $fail_key = $this->get_breaker_fail_key();
+
+        # Guarded so a healthy site is not issuing deletes on every cache MISS.
+        # counter_get()/counter_delete() for the tally because with an object
+        # cache it does not live in the transient namespace.
+        if (get_transient($open_key) !== false || $this->counter_get($fail_key) > 0) {
+            delete_transient($open_key);
+            $this->counter_delete($fail_key);
+        }
+    }
+
+    /**
+     * Transient key for the breaker's consecutive-failure tally.
+     *
+     * @return string
+     */
+    private function get_breaker_fail_key() {
+        return self::BREAKER_FAIL_PREFIX . substr($this->get_breaker_key(), strlen(self::BREAKER_PREFIX));
+    }
+
+    /**
+     * Is the breaker open for the host serving the given endpoint?
+     *
+     * Static so other SearchAtlas callers on the same host (the bot crawl-log
+     * push in particular) can cheaply avoid an outbound call we already know
+     * will hang. Read-only: never opens, closes or probes the breaker, so a
+     * caller using this cannot disturb the suggestions path's state machine.
+     *
+     * @param string $endpoint_url Any URL on the host in question.
+     * @return bool
+     */
+    public static function is_host_breaker_open($endpoint_url) {
+        if (!apply_filters('metasync_otto_circuit_breaker_enabled', true)) {
+            return false;
+        }
+
+        $host = wp_parse_url($endpoint_url, PHP_URL_HOST);
+        if (empty($host)) {
+            return false;
+        }
+
+        $open_until = (int) get_transient(self::breaker_key_for_host($host));
+
+        return $open_until > 0 && time() < $open_until;
+    }
+
+    /**
+     * Circuit breaker state, for Site Health / debug surfaces.
+     *
+     * @return array{open:bool, failures:int, seconds_remaining:int}
+     */
+    public function get_breaker_status() {
+        $remaining = max(0, (int) get_transient($this->get_breaker_key()) - time());
+
+        return [
+            'open'              => $remaining > 0,
+            'failures'          => $this->counter_get($this->get_breaker_fail_key()),
+            'seconds_remaining' => $remaining,
+        ];
     }
     
     /**
@@ -475,13 +845,135 @@ class Metasync_Otto_Transient_Cache {
             return $new_count <= $rate_limit;
         }
 
-        # Transient fallback — persists across requests, minor race under concurrency
-        $count = (int) get_transient($rate_key);
-        if ($count >= $rate_limit) {
-            return false;
+        # MySQL transient fallback, atomic. The previous
+        # read-then-write lost increments whenever two PHP workers interleaved,
+        # which is precisely the traffic pattern the limiter exists for.
+        # Measured effect: ~22 calls/min against a configured cap of 10.
+        return $this->atomic_increment($rate_key, MINUTE_IN_SECONDS) <= $rate_limit;
+    }
+
+    /**
+     * Atomically increment a transient-backed counter and return its new value.
+     *
+     * Shared by the rate limiter and the circuit breaker. Both are counters that
+     * are only ever consulted while multiple PHP workers are racing, so a
+     * read-modify-write (get_transient + set_transient) silently undercounts
+     * exactly when accuracy matters.
+     *
+     * On MySQL, INSERT ... ON DUPLICATE KEY UPDATE is atomic under the unique
+     * key on option_name, and the LAST_INSERT_ID(expr) idiom hands back the
+     * post-increment value on the same connection without a second, racy SELECT.
+     *
+     * Caveat: the raw INSERT bypasses WordPress's in-process option cache, so a
+     * get_transient() call for the same key later in the SAME request may return
+     * a stale value. Nothing reads these counters that way — both callers use the
+     * return value here — but diagnostic surfaces should re-read from the DB.
+     *
+     * @param string $key Transient key (without the _transient_ prefix).
+     * @param int    $ttl Lifetime in seconds.
+     * @return int New counter value.
+     */
+    private function atomic_increment($key, $ttl) {
+        if (wp_using_ext_object_cache()) {
+            # Redis/Memcached INCR is already atomic.
+            wp_cache_add($key, 0, self::COUNTER_GROUP, $ttl);
+            return (int) wp_cache_incr($key, 1, self::COUNTER_GROUP);
         }
-        set_transient($rate_key, $count + 1, MINUTE_IN_SECONDS);
-        return true;
+
+        global $wpdb;
+        $value_option   = '_transient_' . $key;
+        $timeout_option = '_transient_timeout_' . $key;
+
+        # Let WordPress reap an expired window first. get_transient() deletes both
+        # rows when the timeout has passed; without this the raw INSERT below would
+        # happily increment a counter left over from a previous, long-finished
+        # window — so a single fresh failure could inherit an old tally and trip
+        # the breaker immediately.
+        get_transient($key);
+
+        # Timeout row first so WP's transient GC can reap the counter.
+        $wpdb->query(
+            $wpdb->prepare(
+                "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+                $timeout_option,
+                (string) (time() + (int) $ttl)
+            )
+        );
+
+        # MySQL reports 1 affected row for an insert and 2 for an update, which is
+        # how we distinguish "first increment" from "incremented again".
+        $affected = $wpdb->query(
+            $wpdb->prepare(
+                "INSERT INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, '1', 'no')
+                 ON DUPLICATE KEY UPDATE option_value = LAST_INSERT_ID(CAST(option_value AS UNSIGNED) + 1)",
+                $value_option
+            )
+        );
+
+        # Fresh insert — the counter started at 1.
+        if ((int) $affected === 1) {
+            return 1;
+        }
+
+        # Increment — LAST_INSERT_ID() carries the new value on this connection.
+        $new_value = (int) $wpdb->insert_id;
+        if ((int) $affected > 1 && $new_value > 0) {
+            return $new_value;
+        }
+
+        # Anything else means the storage layer did not behave as expected;
+        # wpdb::query() returns false on any SQL error. Do NOT trust insert_id
+        # here — it may hold a stale value from an unrelated statement, and a
+        # large one reads as "budget exhausted", silently switching OTTO off for
+        # the whole site until the minute rolls over. Fall back to a plain
+        # read-modify-write: less precise under concurrency, but it fails open
+        # rather than closed.
+        $count = (int) get_transient($key) + 1;
+        set_transient($key, $count, $ttl);
+
+        return $count;
+    }
+
+    /**
+     * Read a counter written by atomic_increment().
+     *
+     * Must branch on the same backend as the writer. With an external object
+     * cache the counter lives in COUNTER_GROUP, NOT in the transient namespace,
+     * so reading it with get_transient() would always report zero.
+     *
+     * Reads zero if atomic_increment() already ran for this key in the SAME
+     * request, because that writes via raw SQL and WordPress's in-process option
+     * cache still holds the pre-write miss. Harmless for both callers: a request
+     * that recorded a failure does not also reset the breaker, and the diagnostic
+     * surface reads on a separate request.
+     *
+     * @param string $key Counter key.
+     * @return int
+     */
+    private function counter_get($key) {
+        if (wp_using_ext_object_cache()) {
+            return (int) wp_cache_get($key, self::COUNTER_GROUP);
+        }
+
+        return (int) get_transient($key);
+    }
+
+    /**
+     * Delete a counter written by atomic_increment().
+     *
+     * Backend-matched for the same reason as counter_get(). Getting this wrong
+     * leaves the tally growing forever on object-cached sites, so every later
+     * incident would trip the breaker on its first failure.
+     *
+     * @param string $key Counter key.
+     */
+    private function counter_delete($key) {
+        if (wp_using_ext_object_cache()) {
+            wp_cache_delete($key, self::COUNTER_GROUP);
+            return;
+        }
+
+        delete_transient($key);
     }
 
     /**
@@ -671,6 +1163,16 @@ class Metasync_Otto_Transient_Cache {
             self::LOCK_PREFIX,
             self::STALE_PREFIX,
             self::RATE_LIMIT_PREFIX,
+            # Render-failure report throttles. Without this they survive a full
+            # OTTO cache clear, so a support-led "clear the cache" would leave
+            # reporting suppressed for up to 5 more minutes per URL.
+            'metasync_otto_fail_',
+            # Circuit breaker state, for the same reason: clearing the cache is
+            # what support does to make a site retry immediately, so it must also
+            # un-stick the breaker rather than leaving OTTO off for another
+            # cool-off. This one prefix covers the open marker, the failure tally
+            # and the half-open probe lock.
+            self::BREAKER_PREFIX,
         ];
 
         # Build WHERE clause for all transient and timeout variants
@@ -692,7 +1194,10 @@ class Metasync_Otto_Transient_Cache {
         # Also clear object cache if available
         if (function_exists('wp_cache_flush_group')) {
             wp_cache_flush_group('transient');
-            wp_cache_flush_group('otto_rate');
+            # Counters live in their own group when an external object cache is
+            # present, so the raw SQL above cannot reach them. Covers both the
+            # rate limiter and the breaker's failure tally.
+            wp_cache_flush_group(self::COUNTER_GROUP);
         }
 
         delete_transient('metasync_otto_js_detected');

@@ -10,6 +10,14 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 
 	private $records;
 	private $database;
+	/**
+	 * User-resolved results-per-page value for this list (validated against
+	 * Metasync_Per_Page_Helper::ALLOWED_VALUES). Cached here so pagination()
+	 * can reuse it without re-resolving from the request / user meta.
+	 *
+	 * @var int
+	 */
+	private $resolved_per_page = 10;
 	public function __construct()
 	{
 		// Set parent defaults.
@@ -78,12 +86,14 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		if (isset($_GET['tab'])) {
 			$current_url = add_query_arg('tab', sanitize_text_field($_GET['tab']), $current_url);
 		}
-		// Preserve filter params (s, date_from, date_to, min_hits) on pagination URLs.
-		foreach (['s', 'date_from', 'date_to', 'min_hits'] as $param) {
-			if (!empty($_REQUEST[$param])) {
-				$current_url = add_query_arg($param, sanitize_text_field($_REQUEST[$param]), $current_url);
-			}
-		}
+		// Rebuild visible list state from the allow-listed request values so
+		// filters, search, sorting and page size survive every pagination link.
+		$state_keys = array_merge(
+			Metasync_Per_Page_Helper::state_params('404_monitor'),
+			[Metasync_Per_Page_Helper::request_key('404_monitor')]
+		);
+		$current_url = remove_query_arg($state_keys, $current_url);
+		$current_url = add_query_arg(Metasync_Per_Page_Helper::request_state('404_monitor'), $current_url);
 
 		$page_links = array();
 
@@ -175,6 +185,10 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		}
 		$output .= "\n<span class='$pagination_links_class'>" . join("\n", $page_links) . '</span>';
 
+		// Inline "rows per page" selector (10/20/50/100), persisted per user.
+		// $which keeps the top and bottom selectors' ids distinct.
+		$output .= Metasync_Per_Page_Helper::render_selector('404_monitor', $this->resolved_per_page, $which);
+
 		if ($total_pages) {
 			$page_class = $total_pages < 2 ? ' one-page' : '';
 		} else {
@@ -200,6 +214,12 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 
 		// Also preserve our pagination parameter
 		$key = array_search('paged_404', $args, true);
+		if ($key !== false) {
+			unset($args[$key]);
+		}
+
+		// Preserve this list's rows-per-page value across pagination / tab changes.
+		$key = array_search(Metasync_Per_Page_Helper::request_key('404_monitor'), $args, true);
 		if ($key !== false) {
 			unset($args[$key]);
 		}
@@ -248,8 +268,9 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 	{
 		$filters = [];
 		
-		if (!empty($_REQUEST['s'])) {
-			$filters['search'] = sanitize_text_field($_REQUEST['s']);
+		$request_state = Metasync_Per_Page_Helper::request_state('404_monitor');
+		if (!empty($request_state['s_404'])) {
+			$filters['search'] = $request_state['s_404'];
 		}
 		
 		if (!empty($_REQUEST['date_from'])) {
@@ -329,16 +350,12 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		list($columns, $hidden, $sortable, $primary) = $this->get_column_info();
 
 		$current_page = isset($_GET['page']) ? sanitize_text_field($_GET['page']) : Metasync_Admin::$page_slug;
-		$current_url = admin_url('admin.php');
+		$current_url = set_url_scheme('http://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']);
+		$current_url = remove_query_arg(['_wpnonce', '_wp_http_referer', 'action', 'action2', 'id'], $current_url);
 		$current_url = add_query_arg('page', $current_page, $current_url);
 		$current_url = add_query_arg('tab', '404-monitor', $current_url);
-
-		// Preserve filter params so they persist when sorting via column headers
-		foreach (['s', 'date_from', 'date_to', 'min_hits'] as $param) {
-			if (!empty($_REQUEST[$param])) {
-				$current_url = add_query_arg($param, sanitize_text_field($_REQUEST[$param]), $current_url);
-			}
-		}
+		$current_url = remove_query_arg('paged_404', $current_url);
+		$current_url = add_query_arg(Metasync_Per_Page_Helper::request_state('404_monitor'), $current_url);
 
 		$current_orderby = $this->get_orderby();
 		$current_order = $this->get_order();
@@ -450,9 +467,16 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		// Build delete row action.
 		$delete_query_args = array(
 			'page'   => sanitize_text_field($request_data['page']),
-			'action' => 'delete',
-			'id'  => $item['id'],
+			'action' => 'delete_404',
+			'id'     => $item['id'],
 		);
+		if (is_string($request_data['page']) && str_ends_with($request_data['page'], '-redirections')) {
+			$delete_query_args['tab'] = '404-monitor';
+		}
+		$per_page_key = Metasync_Per_Page_Helper::request_key('404_monitor');
+		if (isset($request_data[$per_page_key])) {
+			$delete_query_args[$per_page_key] = sanitize_text_field($request_data[$per_page_key]);
+		}
 
 		$actions['redirect'] = sprintf(
 			'<a href="%1$s">%2$s</a>',
@@ -615,7 +639,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 	{
 		// Only the delete row action changes state; bail on anything else so a
 		// normal page load never triggers a nonce failure.
-		if ('delete' !== $this->current_action()) {
+		if ('delete_404' !== $this->current_action()) {
 			return;
 		}
 
@@ -633,11 +657,26 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		}
 
 		$this->database->delete([$item]);
+		$this->redirect_after_row_action();
+	}
+
+	protected function redirect_after_row_action()
+	{
+		$redirect_url = remove_query_arg(['action', 'action2', 'id', '_wpnonce']);
+
+		if (!headers_sent()) {
+			wp_safe_redirect($redirect_url);
+			exit;
+		}
+
+		printf('<script>window.location.replace(%s);</script>', wp_json_encode(esc_url_raw($redirect_url)));
+		exit;
 	}
 
 	function prepare_items()
 	{
-		$per_page = 10;
+		$per_page = Metasync_Per_Page_Helper::resolve('404_monitor', 10);
+		$this->resolved_per_page = $per_page;
 
 		$columns  = $this->get_columns();
 		$hidden   = array();
@@ -661,7 +700,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		$this->set_pagination_args(array(
 			'total_items' => $total_items,                     // Total number of items from database
 			'per_page'    => $per_page,                        // Items per page
-			'total_pages' => ceil($total_items / $per_page), // Total number of pages
+			'total_pages' => (int) ceil($total_items / $per_page), // Total number of pages
 		));
 	}
 

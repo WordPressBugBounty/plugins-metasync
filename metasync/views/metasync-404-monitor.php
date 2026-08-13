@@ -329,8 +329,8 @@ if (!defined('ABSPATH')) {
 
 	/* Specific button targeting for 404 monitor */
 	.wrap input[type="submit"]#doaction,
-	.wrap input[type="submit"]#post-query-submit,
-	.wrap input[type="submit"]#search-submit,
+	.wrap input[type="submit"]#monitor-filter-submit,
+	.wrap input[type="submit"]#monitor-search-submit,
 	.wrap input[type="submit"].button,
 	.wrap input[type="submit"][value="Apply"],
 	.wrap input[type="submit"][value="Filter"],
@@ -346,8 +346,8 @@ if (!defined('ABSPATH')) {
 	}
 
 	.wrap input[type="submit"]#doaction:hover,
-	.wrap input[type="submit"]#post-query-submit:hover,
-	.wrap input[type="submit"]#search-submit:hover,
+	.wrap input[type="submit"]#monitor-filter-submit:hover,
+	.wrap input[type="submit"]#monitor-search-submit:hover,
 	.wrap input[type="submit"].button:hover,
 	.wrap input[type="submit"][value="Apply"]:hover,
 	.wrap input[type="submit"][value="Filter"]:hover,
@@ -560,7 +560,7 @@ if (!defined('ABSPATH')) {
 	}
 
 	/* Specific ID targeting for search elements - fixed padding */
-	.wrap .tablenav #post-search-input {
+	.wrap .tablenav #monitor-search-input {
 		height: 32px !important;
 		line-height: 1 !important;
 		vertical-align: middle !important;
@@ -574,7 +574,7 @@ if (!defined('ABSPATH')) {
 		box-sizing: border-box !important;
 	}
 
-	.wrap .tablenav #search-submit {
+	.wrap .tablenav #monitor-search-submit {
 		height: 32px !important;
 		line-height: 1 !important;
 		vertical-align: middle !important;
@@ -835,6 +835,7 @@ if (!defined('ABSPATH')) {
 
 	<!-- 404 Errors List -->
 	<div class="dashboard-card" style="padding: 0; overflow: hidden;">
+	<?php $list_state = Metasync_Per_Page_Helper::request_state('404_monitor'); ?>
 	<form id="404-monitor-form" method="post" style="padding: 16px;">
 		<?php wp_nonce_field('metasync_404_monitor_form'); ?>
 		
@@ -857,16 +858,16 @@ if (!defined('ABSPATH')) {
 					   value="<?php echo esc_attr(isset($_REQUEST['min_hits']) ? $_REQUEST['min_hits'] : ''); ?>" 
 					   placeholder="Min Hits" min="1">
 				
-				<input type="submit" name="filter_action" id="post-query-submit" class="button" value="Filter">
+				<input type="submit" name="filter_action" id="monitor-filter-submit" class="button" value="Filter">
 			</div>
 			
 			<div class="alignright">
 				<p class="search-box">
-					<label class="screen-reader-text" for="post-search-input">Search 404 Errors:</label>
-					<input type="search" id="post-search-input" name="s" 
-						   value="<?php echo esc_attr(isset($_REQUEST['s']) ? $_REQUEST['s'] : ''); ?>" 
+					<label class="screen-reader-text" for="monitor-search-input">Search 404 Errors:</label>
+					<input type="search" id="monitor-search-input" name="s_404"
+						   value="<?php echo esc_attr($list_state['s_404'] ?? ''); ?>"
 						   placeholder="Search URIs or User Agents...">
-					<input type="submit" id="search-submit" class="button" value="Search">
+					<input type="submit" id="monitor-search-submit" class="button" value="Search">
 				</p>
 			</div>
 		</div>

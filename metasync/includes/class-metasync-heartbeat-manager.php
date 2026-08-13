@@ -143,6 +143,30 @@ class Metasync_Heartbeat_Manager
         $api_url = $this->build_otto_api_url($otto_pixel_uuid);
         $headers = $this->prepare_api_headers($jwt_token);
 
+        # Bail before the retry loop if the host is already known to be bad.
+        #
+        # Backoff case: without this, all three attempts are rejected instantly by the
+        # pre_http_request filter, but the loop still sleeps 1s + 2s between them,
+        # holding a PHP worker for 3s to accomplish nothing. Measured at 3.01s.
+        #
+        # Breaker case: the retry loop's worst case against a hanging endpoint is
+        # 3 x 15s timeout + 1s + 2s of sleep = 48s of one worker. The suggestions
+        # path runs on the same host, so if its breaker has tripped we already know
+        # this call cannot succeed. This only helps when page traffic has tripped the
+        # breaker first — an admin loading this page on an idle site still pays the
+        # full 48s, which is why the retry budget itself is flagged for follow-up.
+        $endpoint_unhealthy = (class_exists('Metasync_API_Backoff_Manager')
+                && Metasync_API_Backoff_Manager::get_instance()->is_endpoint_in_backoff($api_url))
+            || (class_exists('Metasync_Otto_Transient_Cache')
+                && Metasync_Otto_Transient_Cache::is_host_breaker_open($api_url));
+
+        if ($endpoint_unhealthy) {
+            $this->log_fetch_hash_error('error', 'Public hash fetch skipped - endpoint unhealthy', [
+                'uuid' => substr($otto_pixel_uuid, 0, 8) . '...'
+            ]);
+            return false;
+        }
+
         for ($attempt = 1; $attempt <= $max_retries; $attempt++) {
             $this->log_fetch_hash_error('info', 'Attempting to fetch public hash from API', [
                 'attempt' => $attempt,
@@ -185,6 +209,13 @@ class Metasync_Heartbeat_Manager
                     'error_message' => $error_message,
                     'will_retry' => $attempt < $max_retries
                 ]);
+
+                # A backoff block is not a transient network blip — the
+                # endpoint is deliberately closed for minutes. Retrying (and
+                # sleeping between retries) can only burn worker time.
+                if ($error_code === 'api_backoff_active') {
+                    return false;
+                }
 
                 if ($attempt < $max_retries) {
                     $this->apply_exponential_backoff($attempt, $base_retry_delay);
@@ -333,7 +364,7 @@ class Metasync_Heartbeat_Manager
                     Metasync_Error_Logger::log(
                         Metasync_Error_Logger::CATEGORY_API_RATE_LIMIT,
                         Metasync_Error_Logger::SEVERITY_WARNING,
-                        'OTTO API rate limit exceeded',
+                        'OTTO API throttled upstream',
                         [
                             'status_code' => $status_code,
                             'attempt' => $attempt,
@@ -440,7 +471,7 @@ class Metasync_Heartbeat_Manager
             Metasync_Error_Logger::log(
                 Metasync_Error_Logger::CATEGORY_API_BACKOFF,
                 Metasync_Error_Logger::SEVERITY_INFO,
-                'API backoff active - applying exponential retry delay',
+                'Retry scheduled - applying backoff delay',
                 [
                     'attempt' => $attempt,
                     'delay_seconds' => $delay,

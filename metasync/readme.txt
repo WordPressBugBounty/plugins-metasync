@@ -5,7 +5,7 @@ Donate link: http://searchatlas.com
 Requires at least: 5.2
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 2.6.21
+Stable tag: 2.6.22
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -77,6 +77,24 @@ The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress bl
 This version does not include the new APIs required by the AI Editor.
 
 == Changelog ==
+= 2.6.22 =
+* Improvement: The WordPress admin sidebar now shows a focused 8-item menu by default, with the remaining pages reachable from the plugin's in-page sidebar and a new search box for finding them
+* Improvement: The Redirections, 404 Monitor, Heartbeat Error Monitor and Media Optimization lists now have a results-per-page selector that remembers each user's choice
+* Improvement: The classic editor's separate MetaSync meta boxes (SEO, Robots, Canonical, Redirection, Social and Open Graph, Schema, Video Sitemap) are consolidated into a single tabbed "SEO Suite" box with a live social preview
+* Improvement: OTTO diagnostic response headers are now sent only while Debug Mode is on, so they no longer appear on public responses or leak the product name on white-labeled installs
+* Security: Refreshing the Plugin Auth Token now requires administrator permissions
+* Fix: Pages built with Divi are no longer broken by OTTO — an HTML parsing flaw discarded every attribute following an unquoted attribute value, which stacked carousel slides, threw the header and footer out of position and left the page growing without settling
+* Fix: Articles synced from Content Genius no longer repeat the contents of a bulleted list as plain paragraphs directly beneath it
+* Fix: SEO titles and descriptions imported from All in One SEO now have their smart tags resolved instead of being stored literally, which had left tokens such as #post_title rendering as the page title and suppressing OTTO
+* Fix: A page no longer emits two conflicting og:description tags when a third-party SEO plugin owns the output for that post
+* Fix: og:title and twitter:title are no longer left off the page when a third-party SEO plugin's tags are suppressed — a replacement is now emitted from the MetaSync title instead of the raw post title
+* Fix: When OTTO cannot apply its suggestions, the un-optimized page is now cached for at most 60 seconds instead of the host's full cache lifetime, so a brief hiccup no longer pins un-optimized markup for hours and looks like the OTTO title reverting
+* Fix: A slow or unreachable OTTO connection no longer ties up the site's PHP workers — repeated calls to a failing endpoint now pause briefly before being retried, and requests that never needed optimization (404s, static files, robots.txt and well-known paths) skip the lookup entirely
+* Fix: A partially updated install no longer takes the front end down with a fatal error when another plugin writes post meta
+* Fix: Stale or malformed scheduled OTTO background jobs are now skipped instead of causing fatal errors
+* Fix: Exporting white-label settings no longer downloads the file twice
+* Fix: The Local Business logo remove icon is now a small badge offset from the image instead of an oversized button overlapping the preview
+
 = 2.6.21 =
 * Improvement: The Sitemap Settings screen now warns when a generated News or Video sitemap contains 0 URLs, so it is clear whether that is expected or a misconfiguration
 * Improvement: Added optional SEO Title, Meta Description, Noindex and Nofollow columns to the Posts and Pages admin list (enable via Screen Options)

@@ -39,6 +39,7 @@ class Metasync_Error_Logger {
     const CATEGORY_AUTHENTICATION_FAILURE = 'AUTHENTICATION_FAILURE';
     const CATEGORY_DATABASE_ERROR = 'DATABASE_ERROR';
     const CATEGORY_NETWORK_ERROR = 'NETWORK_ERROR';
+    const CATEGORY_OTTO_RENDER = 'OTTO_RENDER';
     
     /**
      * Error codes mapping
@@ -53,8 +54,34 @@ class Metasync_Error_Logger {
         self::CATEGORY_AUTHENTICATION_FAILURE => 'MS-4001',
         self::CATEGORY_DATABASE_ERROR => 'MS-5001',
         self::CATEGORY_NETWORK_ERROR => 'MS-6001',
+        self::CATEGORY_OTTO_RENDER => 'MS-7001',
     ];
     
+    /**
+     * Categories that only exist while an operator is troubleshooting.
+     *
+     * These record the plugin's OWN client-side throttling, not a site fault:
+     * the OTTO call budget was reached, or a retry was deferred. Both are the
+     * plugin working as designed, but they read as failures in the Error Logs
+     * panel and are a known source of false-alarm bug reports. They are only
+     * recorded while Debug Mode is on, and only shown while Debug Mode is on.
+     */
+    const DEBUG_ONLY_CATEGORIES = [
+        self::CATEGORY_API_RATE_LIMIT,
+        self::CATEGORY_API_BACKOFF,
+    ];
+
+    /**
+     * Non-alarming labels for categories whose raw name overstates severity.
+     *
+     * Presentation only — the stored category is never rewritten, so historical
+     * rows render softly too and no data migration is needed.
+     */
+    private static $display_labels = [
+        self::CATEGORY_API_RATE_LIMIT => 'THROTTLED',
+        self::CATEGORY_API_BACKOFF => 'RETRY_SCHEDULED',
+    ];
+
     /**
      * Severity level constants
      */
@@ -103,7 +130,14 @@ class Metasync_Error_Logger {
         if (empty($category) || empty($severity) || empty($message)) {
             return false;
         }
-        
+
+        // Throttling categories are diagnostics, not faults: skip them entirely
+        // unless an operator has Debug Mode on. Nothing is written, no summary
+        // entry is created, and the metasync_error_logged action does not fire.
+        if (self::is_suppressed_category($category)) {
+            return false;
+        }
+
         // Get error code for this category
         $error_code = self::$error_codes[$category] ?? 'MS-0000';
         
@@ -267,6 +301,54 @@ class Metasync_Error_Logger {
         return delete_option(self::ERROR_SUMMARY_OPTION);
     }
     
+    /**
+     * Whether a category is withheld on this request.
+     *
+     * True for the throttling categories while Debug Mode is off. Used both to
+     * skip recording and to filter what the Error Logs panel shows, so rows
+     * recorded before this behaviour existed are hidden too.
+     *
+     * @param string $category Category name
+     * @return bool True when the category should be withheld
+     */
+    public static function is_suppressed_category($category) {
+        if (!in_array($category, self::DEBUG_ONLY_CATEGORIES, true)) {
+            return false;
+        }
+
+        return !(class_exists('Metasync_Debug_Mode_Manager')
+            && Metasync_Debug_Mode_Manager::is_enabled());
+    }
+
+    /**
+     * Non-alarming label to display for a category.
+     *
+     * @param string $category Stored category name
+     * @return string Label for display
+     */
+    public static function get_display_label($category) {
+        return self::$display_labels[$category] ?? $category;
+    }
+
+    /**
+     * Get error summary for display, with withheld categories removed.
+     *
+     * @return array Error summary entries safe to show on this request
+     */
+    public static function get_visible_error_summary() {
+        // get_error_summary() already guarantees an array.
+        $summary = self::get_error_summary();
+
+        foreach ($summary as $key => $entry) {
+            $category = is_array($entry) ? ($entry['category'] ?? '') : '';
+            if ($category !== '' && self::is_suppressed_category($category)) {
+                unset($summary[$key]);
+            }
+        }
+
+        return $summary;
+    }
+
     /**
      * Get error code for a category
      * 

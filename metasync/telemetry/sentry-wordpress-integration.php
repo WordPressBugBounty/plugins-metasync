@@ -68,6 +68,91 @@ class MetaSync_Sentry_WordPress {
         $result = $this->sendToSentry($data, 'event', $attachment);
         return is_array($result) ? $result['success'] : $result;
     }
+
+    /**
+     * Capture a message without waiting for Sentry to answer.
+     *
+     * captureMessage() blocks: sendToSentry() uses cURL with a 5s connect and 5s
+     * read timeout, so a slow or unreachable collector can add up to ten seconds
+     * to whatever request called it. That is acceptable for admin-side and cron
+     * work, but not on a visitor's page render — least of all when the reason we
+     * are reporting is that the request is already degraded.
+     *
+     * This variant hands the envelope to WordPress's HTTP API with
+     * 'blocking' => false, so the request is dispatched and the caller continues
+     * immediately. The trade-off is that delivery is unconfirmed and never
+     * retried: a dropped report is silently lost. For counting how often
+     * something happens that is a fair exchange for not touching page-load time.
+     *
+     * The token is read from cache only. metasync_get_jwt_token() falls through to
+     * a fresh fetch on a cache miss — a blocking POST with a 15 second timeout —
+     * which would defeat the whole point of this method and land that cost on an
+     * already-degraded request. With no cached token the report is skipped; the
+     * next admin or cron request repopulates the cache.
+     *
+     * @param string $message Message to record.
+     * @param string $level   Sentry level (info|warning|error|fatal).
+     * @param array  $extra   Additional context.
+     * @return bool True if a request was dispatched, false if it could not be.
+     */
+    public function captureMessageNonBlocking($message, $level = 'info', $extra = []) {
+        # Mirrors sendToSentry()'s preconditions.
+        if ($this->isLocalhost()) {
+            return false;
+        }
+
+        try {
+            # method_exists() is redundant to static analysis — this MR adds the
+            # method, so PHPStan proves the call always true. Kept for the upgrade
+            # window: during a plugin update an opcache can still hold the previous
+            # Metasync_Connect_Manager, where class_exists() passes but the
+            # cache-only accessor is absent. Falling through to the else branch is
+            # the safe outcome there; an unguarded call would fatal.
+            # @phpstan-ignore-next-line function.alreadyNarrowedType
+            if (class_exists('Metasync_Connect_Manager') && method_exists('Metasync_Connect_Manager', 'get_cached_jwt_token')) {
+                $jwt_token = Metasync_Connect_Manager::get_cached_jwt_token();
+            } else {
+                # No cache-only accessor available — skip rather than risk the
+                # blocking fetch path.
+                return false;
+            }
+        } catch (Exception $e) {
+            return false;
+        } catch (Error $e) {
+            return false;
+        }
+
+        if (empty($jwt_token)) {
+            return false;
+        }
+
+        $data     = $this->formatMessage($message, $level, $extra);
+        $envelope = $this->createSentryEnvelope($data, 'event', null);
+
+        if (empty($envelope)) {
+            return false;
+        }
+
+        $plugin_version = defined('METASYNC_VERSION') ? METASYNC_VERSION : '1.0.0';
+
+        # Same tunnel endpoint sendToSentry() posts to.
+        $url = 'https://wordpress.telemetry.infra.searchatlas.com/api/4509950439849985/envelope/';
+
+        wp_remote_post($url, [
+            'blocking'  => false,
+            'timeout'   => 0.01,
+            'sslverify' => true,
+            'headers'   => [
+                'Authorization'    => 'Bearer ' . $jwt_token,
+                'Content-Type'     => 'application/x-sentry-envelope',
+                'X-Plugin-Version' => $plugin_version,
+                'User-Agent'       => 'WordPress MetaSync Plugin/' . $plugin_version,
+            ],
+            'body'      => $envelope,
+        ]);
+
+        return true;
+    }
     
     /**
      * Capture user feedback and send to Sentry
@@ -839,9 +924,29 @@ function metasync_sentry_capture_message($message, $level = 'info', $extra = [],
     if (!$metasync_sentry_wordpress) {
         $metasync_sentry_wordpress = init_metasync_sentry_wordpress();
     }
-    
+
     if ($metasync_sentry_wordpress) {
         return $metasync_sentry_wordpress->captureMessage($message, $level, $extra, $attachment);
+    }
+    return false;
+}
+
+/**
+ * Helper function to capture messages without blocking the current request.
+ *
+ * Use this instead of metasync_sentry_capture_message() from anything that runs
+ * on a visitor's page render — the blocking variant can hold the request for up
+ * to ten seconds if the collector is slow. See
+ * MetaSync_Sentry_WordPress::captureMessageNonBlocking() for the trade-off.
+ */
+function metasync_sentry_capture_message_nonblocking($message, $level = 'info', $extra = []) {
+    global $metasync_sentry_wordpress;
+    if (!$metasync_sentry_wordpress) {
+        $metasync_sentry_wordpress = init_metasync_sentry_wordpress();
+    }
+
+    if ($metasync_sentry_wordpress) {
+        return $metasync_sentry_wordpress->captureMessageNonBlocking($message, $level, $extra);
     }
     return false;
 }

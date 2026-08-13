@@ -530,7 +530,7 @@ class Metasync_Debug_Manager
             
             <?php
             if (class_exists('Metasync_Error_Logger')) {
-                $error_summary = Metasync_Error_Logger::get_error_summary();
+                $error_summary = Metasync_Error_Logger::get_visible_error_summary();
                 
                 if (!empty($error_summary) && is_array($error_summary)) {
                     uasort($error_summary, function($a, $b) {
@@ -552,7 +552,7 @@ class Metasync_Debug_Manager
                                 <?php foreach ($error_summary as $key => $error): ?>
                                     <tr>
                                         <td style="padding: 10px 12px; color: var(--dashboard-text-primary);">
-                                            <strong><?php echo esc_html($error['category']); ?></strong>
+                                            <strong><?php echo esc_html(Metasync_Error_Logger::get_display_label($error['category'])); ?></strong>
                                         </td>
                                         <td style="padding: 10px 12px; text-align: center; color: var(--dashboard-text-secondary); font-family: monospace;">
                                             <code style="background: rgba(255, 255, 255, 0.1); padding: 2px 6px; border-radius: 3px;"><?php echo esc_html($error['code']); ?></code>

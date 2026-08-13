@@ -1578,13 +1578,15 @@ class Metasync_Settings_Fields {
 
         printf(' <br><br> <span class="description bold"> Min Size: 160Χ90px, Max Size: 1920X1080px. </span> <br> <span class="description"> A squared image is preferred by the search engines. </span> <br><br> ');
 
+        printf('<span class="metasync-logo-preview-wrap">');
         printf('<img src="%s" id="local_seo_business_logo" width="300">', wp_get_attachment_image_src($local_seo_logo, 'medium')[0] ?? '');
 
         $button_type = 'hidden';
         if ($local_seo_logo) {
             $button_type = 'button';
         }
-        printf('<input type="%s" class="button-secondary no-loading" id="local_seo_logo_close_btn" value="X">', $button_type);
+        printf('<input type="%s" class="button-secondary no-loading metasync-logo-remove-btn" id="local_seo_logo_close_btn" value="X">', $button_type);
+        printf('</span>');
     }
 
     public function local_seo_url_callback()

@@ -276,6 +276,14 @@ class Metasync
 		$this->loader->add_action('admin_init', $post_meta_setting, 'add_post_meta_data', 2);
 		$this->loader->add_action('admin_init', $post_meta_setting, 'show_top_admin_bar', 9);
 
+		// Unified "SEO Suite" meta box — consolidates the separate Classic-editor
+		// meta boxes above into one tabbed box (presentation-only; save handlers
+		// unchanged). Classic editor only; the block editor keeps its SEO sidebar.
+		// Self-registers its hooks in the constructor. Opt out via the
+		// `metasync_enable_seo_suite` filter.
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-seo-suite.php';
+		new Metasync_Seo_Suite();
+
 		// SEO Health CSV export: must run on admin_init (before output).
 		// Cheap $_GET check avoids loading the class on every admin page.
 		if (
@@ -656,7 +664,11 @@ class Metasync
 	 * @param mixed  $meta_value Meta value being written.
 	 */
 	public function on_post_meta_updated($meta_id, $post_id, $meta_key, $meta_value) {
-		if (!class_exists('Metasync_Plugin_Sync')) {
+		if (!self::is_metasync_meta_key($meta_key)) {
+			return;
+		}
+
+		if (!self::sync_layer_handles('on_meta_updated')) {
 			return;
 		}
 
@@ -676,11 +688,57 @@ class Metasync
 	 * @param string $meta_key Meta key being deleted.
 	 */
 	public function on_post_meta_deleted($meta_ids, $post_id, $meta_key) {
-		if (!class_exists('Metasync_Plugin_Sync')) {
+		if (!self::is_metasync_meta_key($meta_key)) {
+			return;
+		}
+
+		if (!self::sync_layer_handles('on_meta_deleted')) {
 			return;
 		}
 
 		Metasync_Plugin_Sync::get_instance()->on_meta_deleted($meta_ids, $post_id, $meta_key);
+	}
+
+	/**
+	 * Is this meta key one the post sync layer could possibly care about?
+	 *
+	 * Cheap string gate, no autoload, no singleton. Every watched post key is
+	 * either `_metasync_*` (sidebar, OTTO and the mirrored robots JSON) or
+	 * `metasync_*` (the legacy meta box keys), so this keeps third-party meta
+	 * writes out of the sync layer entirely — `deleted_post_meta` and
+	 * `updated_post_meta` fire for every key on the site, including on front-end
+	 * requests, and crossing into the sync layer for keys it will only discard
+	 * costs an autoload plus a singleton on the hot path.
+	 *
+	 * Deliberately broader than the sync layer's own key maps: those stay the
+	 * single source of exact truth, so a new MetaSync key needs no change here.
+	 *
+	 * @param string $meta_key Meta key being written or deleted.
+	 * @return bool
+	 */
+	private static function is_metasync_meta_key($meta_key) {
+		return strncmp($meta_key, '_metasync_', 10) === 0
+			|| strncmp($meta_key, 'metasync_', 9) === 0;
+	}
+
+	/**
+	 * Can the post sync layer actually handle this hook right now?
+	 *
+	 * A partially updated install can leave a newer class-metasync.php beside an
+	 * older class-metasync-plugin-sync.php — stale opcache bytecode for one file
+	 * is enough. Calling a method the loaded class does not define is a fatal,
+	 * and because these bridges run on `wp_head` via third-party meta writes it
+	 * takes the front end down rather than degrading. Check before dispatching.
+	 *
+	 * Checked on the class, not an instance, so a mismatch skips the singleton.
+	 *
+	 * @param string $method Sync-layer method about to be called.
+	 * @return bool
+	 */
+	private static function sync_layer_handles($method) {
+		return class_exists('Metasync_Plugin_Sync')
+			&& method_exists('Metasync_Plugin_Sync', 'get_instance')
+			&& method_exists('Metasync_Plugin_Sync', $method);
 	}
 
 	/**

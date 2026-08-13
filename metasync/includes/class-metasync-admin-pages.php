@@ -920,40 +920,6 @@ class Metasync_Admin_Pages
                             }
                         });
 
-                        $('#metasync-export-whitelabel-btn').on('click', function(e) {
-                            e.preventDefault();
-                            
-                            var $button = $(this);
-                            var originalText = $button.html();
-                            
-                            $button.prop('disabled', true).html('⏳ Exporting...');
-                            
-                            var form = $('<form>', {
-                                'method': 'POST',
-                                'action': '<?php echo esc_js(admin_url('admin-post.php')); ?>',
-                                'target': '_blank'
-                            });
-                            
-                            form.append($('<input>', {
-                                'type': 'hidden',
-                                'name': 'action',
-                                'value': 'metasync_export_whitelabel_settings'
-                            }));
-                            
-                            form.append($('<input>', {
-                                'type': 'hidden',
-                                'name': '_wpnonce',
-                                'value': '<?php echo wp_create_nonce('metasync_export_whitelabel'); ?>'
-                            }));
-                            
-                            $('body').append(form);
-                            form.submit();
-                            
-                            setTimeout(function() {
-                                form.remove();
-                                $button.prop('disabled', false).html(originalText);
-                            }, 2000);
-                        });
                     });
                     </script>
                 <?php
@@ -1952,174 +1918,12 @@ echo $breadcrumbs-&gt;render_breadcrumb_html();</pre><span class="metasync-copy-
         <?php
     }
 
-    public function create_admin_sync_log_page()
-    {
-        $sync_db = new Metasync_Sync_History_Database();
-        
-        if (wp_doing_ajax()) {
-            $this->handle_sync_log_ajax();
-            return;
-        }
-        
-        $page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
-        $per_page = 10;
-        $offset = ($page - 1) * $per_page;
-        
-        $filters = [
-            'date_range' => isset($_GET['date_range']) ? sanitize_text_field($_GET['date_range']) : '',
-            'status' => isset($_GET['status']) ? sanitize_text_field($_GET['status']) : '',
-        ];
-
-        $date_range = $filters['date_range'];
-        $wp_now_ts = current_time('timestamp');
-        $date_from = '';
-        $date_to = '';
-
-        if (!empty($date_range)) {
-            $date_to = date('Y-m-d H:i:s', $wp_now_ts);
-
-            if ($date_range === 'today') {
-                $start_ts = strtotime('today', $wp_now_ts);
-                $date_from = date('Y-m-d H:i:s', $start_ts);
-            } elseif ($date_range === 'yesterday') {
-                $start_ts = strtotime('yesterday', $wp_now_ts);
-                $end_ts = strtotime('today', $wp_now_ts) - 1;
-                $date_from = date('Y-m-d H:i:s', $start_ts);
-                $date_to = date('Y-m-d H:i:s', $end_ts);
-            } elseif ($date_range === 'this_week') {
-                $start_of_week = (int) get_option('start_of_week', 1);
-                $day_of_week = (int) date('w', $wp_now_ts);
-                $delta_days = ($day_of_week - $start_of_week + 7) % 7;
-                $start_ts = strtotime('-' . $delta_days . ' days', strtotime('today', $wp_now_ts));
-                $date_from = date('Y-m-d H:i:s', $start_ts);
-            } elseif ($date_range === 'this_month') {
-                $start_ts = strtotime(date('Y-m-01 00:00:00', $wp_now_ts));
-                $date_from = date('Y-m-d H:i:s', $start_ts);
-            } elseif ($date_range === 'all') {
-                // no bounds
-            }
-        }
-
-        if (!empty($date_from)) {
-            $filters['date_from'] = $date_from;
-        }
-        if (!empty($date_to)) {
-            $filters['date_to'] = $date_to;
-        }
-        
-        $filters = array_filter($filters);
-        
-        $sync_records = $sync_db->getAllRecords($per_page, $offset, $filters);
-        $total_records = $sync_db->get_count($filters);
-        $total_pages = ceil($total_records / $per_page);
-        
-        $stats = $sync_db->get_statistics();
-        
-        ?>
-        <?php $this->admin->render_layout_open('Changes Log', 'sync_log', 'Track all SEO changes made by the plugin.'); ?>
-            
-            <div class="dashboard-card">
-                <div class="sync-log-header">
-                    <div class="sync-log-title-section">
-                        <h2>Changes Log</h2>
-                        <p style="color: var(--dashboard-text-secondary); margin-bottom: 0;">Recent content synchronizations from external tools.</p>
-                    </div>
-                    
-                    <!-- Filters - Right aligned -->
-                    <div class="sync-log-filters">
-                        <form method="get" class="sync-filters-form" onchange="this.submit()" style="display:flex;flex-direction:row;align-items:center;gap:12px;flex-wrap:nowrap;">
-                            <input type="hidden" name="page" value="<?php echo esc_attr($_GET['page']); ?>">
-                            
-                            <select name="date_range" class="sync-filter-select">
-                                <option value="all" <?php selected($filters['date_range'] ?? 'all', 'all'); ?>> All Time</option>
-                                <option value="today" <?php selected($filters['date_range'] ?? '', 'today'); ?>>Today</option>
-                                <option value="yesterday" <?php selected($filters['date_range'] ?? '', 'yesterday'); ?>>Yesterday</option>
-                                <option value="this_week" <?php selected($filters['date_range'] ?? '', 'this_week'); ?>>This week</option>
-                                <option value="this_month" <?php selected($filters['date_range'] ?? '', 'this_month'); ?>>This month</option>
-                            </select>
-                            
-                            <select name="status" class="sync-filter-select">
-                                <option value="" <?php selected($filters['status'] ?? '', ''); ?>>Status Filter</option>
-                                <option value="published" <?php selected($filters['status'] ?? '', 'published'); ?>>Published</option>
-                                <option value="draft" <?php selected($filters['status'] ?? '', 'draft'); ?>>Draft</option>
-                            </select>
-                        </form>
-                    </div>
-                </div>
-                
-                <!-- Sync History List -->
-                <div class="sync-log-list">
-                    <?php if (empty($sync_records)): ?>
-                        <div class="sync-log-empty">
-                            <div class="sync-log-empty-icon"><span class="dashicons dashicons-list-view" style="font-size:48px;width:48px;height:48px;color:var(--dashboard-text-secondary);"></span></div>
-                            <h3>No sync records found</h3>
-                            <p>Sync records will appear here when content/pages receive new updates.</p>
-                        </div>
-                    <?php else: ?>
-                        <?php foreach ($sync_records as $record): ?>
-                            <div class="sync-log-item">
-                                <div class="sync-log-icon">
-                                    <div class="sync-icon-circle">
-                                        <span class="dashicons dashicons-media-default sync-icon"></span>
-                                    </div>
-                                </div>
-                                
-                                <div class="sync-log-content">
-                                    <div class="sync-log-title"><?php echo esc_html($record->title); ?>
-                                    <?php if (!empty($record->url)): ?>
-                                        <a href="<?php echo esc_url($record->url); ?>" target="_blank" rel="noopener" title="Open URL" style="margin-left:8px; text-decoration:none;"><span class="dashicons dashicons-external" style="font-size:14px;width:14px;height:14px;vertical-align:middle;"></span></a>
-                                    <?php endif; ?>
-                                    </div>
-                                    <div class="sync-log-meta">
-                                        <?php echo esc_html( $this->time_elapsed_string($record->created_at) ); ?>
-                                    </div>
-                                </div>
-                                
-                                <div class="sync-log-status">
-                                    <?php if ($record->status === 'published' || $record->status === 'publish'): ?>
-                                        <span class="sync-status-badge sync-status-published">
-                                            <span class="sync-status-icon">✓</span>
-                                            Published
-                                        </span>
-                                    <?php else: ?>
-                                        <span class="sync-status-badge sync-status-draft">
-                                            <span class="sync-status-icon">i</span>
-                                            Draft
-                                        </span>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </div>
-                
-                <!-- Pagination -->
-                <?php if ($total_pages > 1): ?>
-                    <div class="sync-log-pagination">
-                        <div class="sync-log-pagination-info">
-                            Total records: <?php echo intval( $total_records ); ?> | Showing <?php echo intval( $offset ) + 1; ?>-<?php echo intval( min($offset + $per_page, $total_records) ); ?>
-                        </div>
-
-                        <div class="sync-log-pagination-controls">
-                            <?php if ($page > 1): ?>
-                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo intval( $page ) - 1; ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>" class="sync-pagination-btn">‹</a>
-                            <?php endif; ?>
-
-                            <?php for ($i = max(1, $page - 2); $i <= min($total_pages, $page + 2); $i++): ?>
-                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo intval( $i ); ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>"
-                                   class="sync-pagination-btn <?php echo $i === $page ? 'active' : ''; ?>"><?php echo intval( $i ); ?></a>
-                            <?php endfor; ?>
-
-                            <?php if ($page < $total_pages): ?>
-                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo intval( $page ) + 1; ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>" class="sync-pagination-btn">›</a>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                <?php endif; ?>
-            </div>
-        <?php $this->admin->render_layout_close(); ?>
-        <?php
-    }
+    // NOTE: The Changes Log (sync log) page is rendered by
+    // Metasync_Admin::create_admin_sync_log_page() in
+    // admin/class-metasync-admin.php, which is the callback registered in
+    // class-metasync-admin-navigation.php. A former duplicate of that method
+    // lived here but was never wired to a menu and has been removed to avoid
+    // drift.
 
     public function creat_error_Logs_List()
     {
@@ -2151,58 +1955,10 @@ echo $breadcrumbs-&gt;render_breadcrumb_html();</pre><span class="metasync-copy-
     }
 
     // ------------------------------------------------------------------
-    //  Private helpers (copied from Metasync_Admin, used only by pages above)
+    //  Private helpers
     // ------------------------------------------------------------------
-
-    private function time_elapsed_string($datetime, $full = false)
-    {
-        if(empty($datetime)){
-            return "";
-        }
-        # Stored timestamps use current_time('mysql') which is WP local time
-        # with no timezone marker. Defaulting DateTime to UTC produces a diff
-        # equal to the WP timezone offset (QA: "4 hours ago" after a
-        # 4-minute sync on non-UTC sites).
-        $wp_tz = function_exists('wp_timezone') ? wp_timezone() : new DateTimeZone('UTC');
-        $now = new DateTime('now', $wp_tz);
-        $ago = new DateTime($datetime, $wp_tz);
-
-        $diff = $now->diff($ago);
-
-        $string = [
-            'y' => 'year',
-            'm' => 'month',
-            'w' => 'week',
-            'd' => 'day',
-            'h' => 'hour',
-            'i' => 'minute',
-            's' => 'second',
-        ];
-
-        foreach ($string as $k => &$v) {
-            if (isset($diff->$k) && $diff->$k) {
-                $v = $diff->$k . ' ' . $v . ($diff->$k > 1 ? 's' : '');
-            } else {
-                unset($string[$k]);
-            }
-        }
-        if (!$full) $string = array_slice($string, 0, 1);
-        return $string ? implode(', ', $string) . ' ago' : 'just now';
-    }
-
-    private function build_filter_query_string($filters)
-    {
-        $query_parts = [];
-        foreach ($filters as $key => $value) {
-            if (!empty($value)) {
-                $query_parts[] = $key . '=' . urlencode($value);
-            }
-        }
-        return !empty($query_parts) ? '&' . implode('&', $query_parts) : '';
-    }
-
-    private function handle_sync_log_ajax()
-    {
-        wp_die();
-    }
+    // The former time_elapsed_string / build_filter_query_string /
+    // handle_sync_log_ajax helpers here were only used by the dead
+    // create_admin_sync_log_page() duplicate that has since been removed. The
+    // live equivalents live on Metasync_Admin.
 }

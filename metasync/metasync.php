@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.6.21
+ * Version:           2.6.22
  * Requires PHP:      8.2
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
@@ -41,7 +41,7 @@ require_once __DIR__ . '/includes/class-metasync-canonical-sanitizer.php';
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.6.21';
+$metasync_version = '2.6.22';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -171,6 +171,11 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-error-logger
 // Shared helpers (custom/LPS page detection + query exclusion) — loaded in all
 // request contexts (admin, REST, MCP, AJAX) so every SEO surface uses one rule.
 require_once plugin_dir_path( __FILE__ ) . 'includes/metasync-helpers.php';
+
+// Shared "results per page" selector helper used by the Redirections, 404
+// Monitor, Changes Log and Media Library admin list tables. Loaded early so
+// the helper class is available before any list table instantiates.
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-per-page-helper.php';
 
 /**
  * Include the Otto Pixel Php Code

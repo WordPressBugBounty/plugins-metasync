@@ -79,6 +79,13 @@ class Metasync_Otto_Render_Strategy {
     private static $blocking_flags = null;
 
     /**
+     * Whether this request's document was declined as unprocessable (oversized /
+     * over the memory budget) rather than attempted and failed. Set by
+     * log_oversized_skip(); read via document_was_unprocessable().
+     */
+    private static $document_unprocessable = false;
+
+    /**
      * Determine the best render method for current environment
      * 
      * @return string METHOD_BUFFER or METHOD_HTTP
@@ -347,6 +354,16 @@ class Metasync_Otto_Render_Strategy {
      * @param int    $html_length Raw HTML length in bytes
      */
     public static function log_oversized_skip($context, $html_length) {
+        # Record that this request's document could not be processed at all, as
+        # opposed to a rewrite that was attempted and failed. The two are
+        # indistinguishable to callers otherwise — both surface as
+        # process_html_directly() returning false — but they need opposite
+        # cache handling: a rewrite failure may succeed on the next request, while
+        # an oversized document will exceed the budget every single time. Treating
+        # the latter as a transient failure would cap that page's cache lifetime
+        # permanently, and it is the most expensive page on the site to render.
+        self::$document_unprocessable = true;
+
         $route = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : 'unknown';
         error_log(sprintf(
             '[MetaSync OTTO] Skipped DOM processing on %s (%s): document %s exceeds safe memory budget (limit %s, used %s, cap %s).',
@@ -357,6 +374,343 @@ class Metasync_Otto_Render_Strategy {
             size_format(memory_get_usage(true)),
             size_format(self::get_max_document_bytes())
         ));
+    }
+
+    /**
+     * Build the response headers that cap how long an un-optimized response may
+     * be cached.
+     *
+     * A pure function so the header set can be asserted directly: header() is a
+     * no-op under the CLI SAPI and headers_list() is always empty there, so
+     * emitting and then inspecting is not testable. It lives on this class rather
+     * than beside its caller in otto_pixel.php because that file cannot be loaded
+     * in a unit-test context (it pulls in simplehtmldom and the whole OTTO stack).
+     *
+     * Each header addresses a different layer:
+     *
+     *  - Cache-Control      CDNs, host edge caches, browsers. max-age=0 keeps
+     *                       browsers revalidating while s-maxage lets shared
+     *                       caches absorb a burst for the ceiling's duration.
+     *  - X-Accel-Expires    Nginx's own directive, evaluated with higher
+     *                       precedence than Cache-Control and not covered by the
+     *                       `fastcgi_ignore_headers Cache-Control Expires` recipe
+     *                       common on managed hosts, so it can survive a config
+     *                       that discards Cache-Control. Nginx strips X-Accel-*
+     *                       before the client sees it.
+     *  - Surrogate-Control  Varnish and Fastly. On stock Varnish the mere presence
+     *                       of this header suppresses its Cache-Control check, so
+     *                       it must carry a real lifetime.
+     *
+     * Cache-tagging headers (Surrogate-Key, Cache-Tag, Edge-Cache-Tag) are
+     * deliberately absent from this list and must not be removed elsewhere: they
+     * are purge-targeting labels, not cacheability directives, and on a layer that
+     * stores this response anyway they are the only handle a later purge has on it.
+     *
+     * @param int    $ttl    Cache ceiling in seconds.
+     * @param string $reason Optional machine-readable reason for the debug header.
+     * @param int|null $cache_control_ttl Shared lifetime for Cache-Control only,
+     *                                    when it must stay stricter than the
+     *                                    lifetime given to the other layers.
+     *                                    Defaults to $ttl.
+     * @return array Header name => value.
+     */
+    public static function fallback_cache_headers($ttl, $reason = '', $cache_control_ttl = null) {
+        $ttl = max(0, (int) $ttl);
+        $cache_control_ttl = $cache_control_ttl === null ? $ttl : max(0, (int) $cache_control_ttl);
+
+        $headers = [
+            'Cache-Control'     => 'max-age=0, s-maxage=' . $cache_control_ttl . ', must-revalidate',
+            'X-Accel-Expires'   => (string) $ttl,
+            'Surrogate-Control' => 'max-age=' . $ttl,
+        ];
+
+        if ($reason !== '' && self::diagnostics_enabled()) {
+            $headers['X-MetaSync-OTTO-Fallback'] = $reason;
+        }
+
+        return $headers;
+    }
+
+    /**
+     * Headers that forbid storage outright.
+     *
+     * Used instead of the capped set when the response must not be shared at all —
+     * currently for logged-in users, whose page may carry session-specific or
+     * membership-gated content. Capping such a response at 60 seconds would still
+     * permit a shared cache to store and re-serve it.
+     *
+     * @param string $reason Optional machine-readable reason for the debug header.
+     * @return array Header name => value.
+     */
+    public static function no_store_headers($reason = '') {
+        $headers = [
+            'Cache-Control'     => 'no-store, no-cache, private, must-revalidate, max-age=0',
+            'X-Accel-Expires'   => '0',
+            'Surrogate-Control' => 'no-store',
+        ];
+
+        if ($reason !== '' && self::diagnostics_enabled()) {
+            $headers['X-MetaSync-OTTO-Fallback'] = $reason;
+        }
+
+        return $headers;
+    }
+
+    /**
+     * Build cache headers for a failed render without loosening an earlier host
+     * cache decision.
+     *
+     * The headers that matter here are interpreted by different cache layers,
+     * so the smallest known lifetime must be applied consistently to all of
+     * them. A no-store directive anywhere wins outright. If a relevant existing
+     * directive is not one we understand, leave it untouched rather than risk
+     * replacing a stricter host policy.
+     *
+     * Cache-Control and Surrogate-Control carry a comma-separated list, so every
+     * directive is judged on its own. Testing the recognised-directive list
+     * against the whole header value instead rejects the multi-directive headers
+     * hosts actually send — `public, must-revalidate` is two safe directives, not
+     * one unknown one — and skips the cap the caller asked for.
+     *
+     * The recognised list covers the directives that do not extend how long a
+     * response stays fresh: the cacheability and transform flags, plus
+     * stale-while-revalidate and stale-if-error. Those two do widen the window in
+     * which a stale copy may be served, but the set we emit replaces the host's
+     * Cache-Control outright and carries must-revalidate, so neither survives to
+     * act on the capped response. Anything genuinely unrecognised still backs off,
+     * because it may be stricter than the cap and there is no safe way to tell.
+     *
+     * Surrogate-Control `content="..."` is deliberately NOT on the list. It
+     * selects a processing mode (ESI) rather than a lifetime, and the header we
+     * emit would replace it — disabling page assembly on sites that rely on it.
+     * Backing off costs those sites the cap; allowlisting it could break how their
+     * pages are built, which is the worse trade.
+     *
+     * A bail-out still returns the diagnostic reason header when Debug Mode is
+     * on. Without it the response is indistinguishable from one where the
+     * failure path never ran at all, which makes a missing cap invisible to
+     * exactly the person trying to confirm it.
+     *
+     * One asymmetry is deliberate. A bare Cache-Control `max-age=0`, with no
+     * s-maxage beside it, is honoured in Cache-Control — a host asking for
+     * revalidation gets it — but is NOT copied into X-Accel-Expires or
+     * Surrogate-Control. Writing 0 into those converts "revalidate before reuse"
+     * into "never store", and every request lands on the origin for as long as
+     * the render keeps failing. Writing nothing is worse still: those layers fall
+     * back to their own default, often 24 hours, which is the exact pinning this
+     * method exists to prevent. They therefore get the ordinary ceiling, which is
+     * stricter than any default they would otherwise apply.
+     *
+     * The two headers do not stand on equal ground here, and the difference
+     * matters when reading the header list documented on fallback_cache_headers():
+     *
+     *  - X-Accel-Expires  nginx configured to discard Cache-Control never saw the
+     *                     host's max-age at all, so nothing is being overridden.
+     *  - Surrogate-Control  Varnish and Fastly CAN read Cache-Control; they simply
+     *                     prefer Surrogate-Control when it is present. So this one
+     *                     IS a deliberate, bounded exception: on those layers we
+     *                     grant 60 seconds the host did not ask for. It is capped,
+     *                     it only applies while a render is failing, and our set
+     *                     carries must-revalidate — whereas honouring the 0 there
+     *                     reinstates the origin-load problem this asymmetry exists
+     *                     to solve. Chosen knowingly; not an oversight.
+     *
+     * An explicit X-Accel-Expires or Surrogate-Control from the host is a
+     * different matter and is always honoured, 0 included: there the host did
+     * speak in that layer's own channel.
+     *
+     * Cache-Control `no-cache` is handled on the same principle: it permits
+     * storage and demands revalidation before reuse, so it is passed through
+     * intact rather than flattened into no-store. `no-store` and `private` do
+     * refuse a shared copy and still produce the no-store set.
+     *
+     * @param int        $ttl     Maximum fallback cache lifetime in seconds.
+     * @param string     $reason  Optional machine-readable fallback reason.
+     * @param array|null $headers Header lines to inspect; defaults to headers_list().
+     * @return array Header name => value. Carries no cache directives when an
+     *               existing one cannot be safely reconciled.
+     */
+    public static function fallback_cache_headers_for_response($ttl, $reason = '', $headers = null) {
+        if ($headers === null) {
+            $headers = function_exists('headers_list') ? headers_list() : [];
+        }
+
+        $ttl = max(0, (int) $ttl);
+
+        # Lifetimes the host declared through a channel a shared cache reads as a
+        # shared lifetime. These bind every layer we emit.
+        $shared_ttls = [];
+
+        # A bare Cache-Control max-age=0 means "revalidate before reuse", not
+        # "never store". It binds Cache-Control, but must not be copied into
+        # X-Accel-Expires or Surrogate-Control: those exist to reach layers that
+        # ignore Cache-Control, and a 0 there converts the host's revalidate into a
+        # storage ban those layers were never given. See the note below.
+        $revalidate_only = [];
+
+        $revalidate_required = false;
+
+        foreach ((array) $headers as $line) {
+            if (!is_string($line) || strpos($line, ':') === false) {
+                continue;
+            }
+
+            list($name, $value) = explode(':', $line, 2);
+            $name = strtolower(trim($name));
+            $value = trim($value);
+
+            if ($name === 'cache-control' || $name === 'surrogate-control') {
+                # no-store and private forbid a shared copy outright. no-cache does
+                # not: it permits storage and requires revalidation before reuse,
+                # which is the same distinction the bare max-age=0 handling rests
+                # on. Flattening it to no-store would be stricter than the host
+                # asked and would contradict that decision.
+                if (preg_match('/\b(no-store|private)\b/i', $value)) {
+                    return self::no_store_headers($reason);
+                }
+
+                if (preg_match('/\bno-cache\b/i', $value)) {
+                    if ($name === 'cache-control') {
+                        $revalidate_required = true;
+                        continue;
+                    }
+
+                    # Surrogate-Control defines no-store, not no-cache. A surrogate
+                    # emitting it non-standardly is not something to reinterpret
+                    # generously, so it keeps the strict reading.
+                    return self::no_store_headers($reason);
+                }
+
+                $shared_ttl = null;
+                $any_ttl    = null;
+
+                foreach (preg_split('/\s*,\s*/', $value, -1, PREG_SPLIT_NO_EMPTY) as $directive) {
+                    if (preg_match('/^s-maxage\s*=\s*(\d+)$/i', $directive, $matches)) {
+                        $shared_ttl = (int) $matches[1];
+                    } elseif (preg_match('/^max-age\s*=\s*(\d+)$/i', $directive, $matches)) {
+                        $any_ttl = (int) $matches[1];
+                    } elseif (!preg_match('/^(?:public|must-revalidate|proxy-revalidate|immutable|no-transform|stale-while-revalidate\s*=\s*\d+|stale-if-error\s*=\s*\d+)$/i', $directive)) {
+                        return self::diagnostics_only_headers($reason);
+                    }
+                }
+
+                # s-maxage governs shared caches and overrides max-age there, so it
+                # wins when a header carries both. Surrogate-Control is only ever
+                # read by a surrogate, so its max-age is a shared lifetime too.
+                if ($shared_ttl !== null) {
+                    $shared_ttls[] = $shared_ttl;
+                } elseif ($any_ttl !== null) {
+                    if ($name === 'surrogate-control' || $any_ttl > 0) {
+                        $shared_ttls[] = $any_ttl;
+                    } else {
+                        $revalidate_only[] = $any_ttl;
+                    }
+                }
+                continue;
+            }
+
+            if ($name === 'x-accel-expires') {
+                if (preg_match('/^\d+$/', $value)) {
+                    $shared_ttls[] = (int) $value;
+                } else {
+                    return self::diagnostics_only_headers($reason);
+                }
+            }
+        }
+
+        $shared = $shared_ttls ? min(array_merge([$ttl], $shared_ttls)) : $ttl;
+
+        if ($revalidate_required) {
+            return self::revalidate_headers($shared, $reason);
+        }
+
+        $cache_control = $revalidate_only
+            ? min(array_merge([$shared], $revalidate_only))
+            : $shared;
+
+        return self::fallback_cache_headers($shared, $reason, $cache_control);
+    }
+
+    /**
+     * Headers for a host that asked for revalidation rather than for storage to
+     * be refused.
+     *
+     * A host sending Cache-Control: no-cache is saying a cache may keep this
+     * response but must check with the origin before reusing it. That instruction
+     * is passed through untouched, so any cache reading Cache-Control behaves
+     * exactly as the host asked. The other two headers carry the ordinary ceiling
+     * for the same reason a bare max-age=0 does not zero them: writing 0 there
+     * turns a revalidation request into a storage ban for layers that were never
+     * given one, and writing nothing hands those layers their own multi-hour
+     * default back.
+     *
+     * @param int    $ttl    Cache ceiling in seconds for the non-Cache-Control layers.
+     * @param string $reason Optional machine-readable reason for the debug header.
+     * @return array Header name => value.
+     */
+    public static function revalidate_headers($ttl, $reason = '') {
+        $ttl = max(0, (int) $ttl);
+
+        $headers = [
+            'Cache-Control'     => 'no-cache, must-revalidate',
+            'X-Accel-Expires'   => (string) $ttl,
+            'Surrogate-Control' => 'max-age=' . $ttl,
+        ];
+
+        if ($reason !== '' && self::diagnostics_enabled()) {
+            $headers['X-MetaSync-OTTO-Fallback'] = $reason;
+        }
+
+        return $headers;
+    }
+
+    /**
+     * The diagnostic reason header on its own, with no cache directives.
+     *
+     * Used by the paths that deliberately emit nothing that affects caching, so
+     * that "we ran and declined to touch the headers" is still distinguishable
+     * from "we never ran". Debug Mode gates it, so a production response is
+     * unchanged.
+     *
+     * @param string $reason Machine-readable fallback reason.
+     * @return array Header name => value; empty unless Debug Mode is on.
+     */
+    private static function diagnostics_only_headers($reason = '') {
+        if ($reason === '' || !self::diagnostics_enabled()) {
+            return [];
+        }
+
+        return ['X-MetaSync-OTTO-Fallback' => $reason];
+    }
+
+    /**
+     * Clear per-request state held in statics.
+     *
+     * Under mod_php/PHP-FPM the process ends with the request, so these reset
+     * themselves. Under a persistent-worker SAPI (FrankenPHP or Swoole worker mode,
+     * `wp server`) they do not — and a latched $document_unprocessable would
+     * suppress cache capping and failure reporting for every subsequent request in
+     * that worker, which is the hardest kind of fault to notice because it makes
+     * things go quiet rather than break.
+     *
+     * Called once per request from the single entry point all three render paths
+     * pass through.
+     */
+    public static function reset_request_state() {
+        self::$document_unprocessable = false;
+    }
+
+    /**
+     * Whether this request's document was skipped as unprocessable.
+     *
+     * True means OTTO declined to parse the document (oversized / memory budget),
+     * which is a permanent property of that page rather than a failure that might
+     * clear on a retry.
+     *
+     * @return bool
+     */
+    public static function document_was_unprocessable() {
+        return self::$document_unprocessable;
     }
 
     /**
@@ -452,8 +806,8 @@ class Metasync_Otto_Render_Strategy {
 
             # Process the HTML with OTTO modifications
             $modified_html = self::apply_otto_modifications($html);
-            
-            
+
+
             if ($modified_html !== false && !empty($modified_html)) {
                 # Validate the modified HTML isn't corrupted
                 if (strlen($modified_html) > strlen($html) * 0.5) {
@@ -465,17 +819,92 @@ class Metasync_Otto_Render_Strategy {
 
                     return $modified_html;
                 } else {
+                    # The rewrite ran but the result is less than half the size of
+                    # the input, so it is assumed to be mangled and discarded. This
+                    # guard is deliberate, but it means a correct-looking request
+                    # still serves un-optimized markup — and until now it did so
+                    # silently, with normal cache headers, so a caching layer could
+                    # store it. Report it and keep it out of any cache.
+                    self::handle_render_failure(
+                        'RENDER_DISCARDED',
+                        'OTTO rewrite output failed the 50% size check and was discarded',
+                        [
+                            'original_bytes' => strlen($html),
+                            'result_bytes'   => strlen($modified_html),
+                        ],
+                        'warning'
+                    );
                 }
             } else {
+                # apply_otto_modifications() returned false: either its
+                # prerequisites were missing or it caught an exception internally.
+                self::handle_render_failure(
+                    'RENDER_NO_OUTPUT',
+                    'OTTO rewrite produced no output',
+                    ['original_bytes' => strlen($html)],
+                    'warning'
+                );
             }
         } catch (Exception $e) {
             error_log('[MetaSync OTTO] Render exception on ' . ($_SERVER['REQUEST_URI'] ?? 'unknown') . ': ' . $e->getMessage());
+            self::handle_render_failure(
+                'RENDER_EXCEPTION',
+                'OTTO rewrite threw: ' . $e->getMessage(),
+                ['exception' => get_class($e)],
+                'error'
+            );
         } catch (Error $e) {
             error_log('[MetaSync OTTO] Render error on ' . ($_SERVER['REQUEST_URI'] ?? 'unknown') . ': ' . $e->getMessage());
+            self::handle_render_failure(
+                'RENDER_EXCEPTION',
+                'OTTO rewrite errored: ' . $e->getMessage(),
+                ['error' => get_class($e)],
+                'error'
+            );
         }
 
         # Return original HTML on any failure - NEVER return empty string
         return $html;
+    }
+
+    /**
+     * Handle a render failure that is about to return un-optimized HTML.
+     *
+     * Marks the response uncacheable and reports the failure. Split out so the
+     * several exit points in process_buffer() behave identically.
+     *
+     * Both helpers are looked up with function_exists() because this is a static
+     * output-buffer callback and may run in contexts where otto_pixel.php's
+     * function definitions are not loaded.
+     *
+     * Note on timing: this runs inside the output-buffer callback, so the response
+     * body has been captured but not yet flushed — headers are still settable, and
+     * headers_sent() is still false. The one case this cannot cover is a hard fatal
+     * or OOM kill, where PHP dies without running any cleanup code at all.
+     *
+     * @param string $reason  Machine-readable failure reason.
+     * @param string $message Human-readable description.
+     * @param array  $context Extra context for the report.
+     * @param string $level   'error' or 'warning'.
+     */
+    private static function handle_render_failure($reason, $message, $context = [], $level = 'error') {
+        # An unprocessable document is not a failure to retry — it will exceed the
+        # budget on every request. Capping its cache lifetime would make the most
+        # expensive page on the site permanently uncacheable and re-report it every
+        # throttle window forever, so leave it fully cacheable. log_oversized_skip()
+        # has already written a line explaining the skip.
+        if (self::document_was_unprocessable()) {
+            return;
+        }
+
+        if (function_exists('metasync_otto_limit_response_cache')) {
+            metasync_otto_limit_response_cache($reason);
+        }
+
+        if (function_exists('metasync_otto_report_render_failure')) {
+            $context['render_method'] = self::$current_method ?? 'buffer';
+            metasync_otto_report_render_failure($reason, $message, $context, $level);
+        }
     }
 
     /**
@@ -645,8 +1074,46 @@ class Metasync_Otto_Render_Strategy {
     }
 
     /**
+     * Non-alarming cache-status wording for the diagnostic header.
+     *
+     * RATE_LIMITED and API_ERROR both describe normal operation on a healthy
+     * site — the plugin's own call budget was reached, or OTTO has nothing for
+     * this URL — but they read as site failures and prompt false-alarm reports.
+     * Softened here, at emission only: the internal status strings that the
+     * cache and its tests rely on are never rewritten.
+     *
+     * @param string $cache_status Internal cache status
+     * @return string Wording to put on the wire
+     */
+    public static function display_cache_status($cache_status) {
+        $soft_wording = array(
+            'RATE_LIMITED' => 'THROTTLED',
+            'API_ERROR'    => 'SOURCE_UNAVAILABLE',
+        );
+
+        return $soft_wording[$cache_status] ?? $cache_status;
+    }
+
+    /**
+     * Whether the X-MetaSync-OTTO-* diagnostic headers should be emitted
+     *
+     * These headers are observability-only — nothing in the plugin or the
+     * SearchAtlas backend reads them — so they stay off on public responses and
+     * are only sent while an operator has Debug Mode on. That keeps internal
+     * render/cache state (including values like RATE_LIMITED and API_ERROR,
+     * which read as failures on a perfectly healthy site) and the hardcoded
+     * product name on whitelabel installs off every front-end response.
+     *
+     * @return bool True when the diagnostic headers should be sent
+     */
+    public static function diagnostics_enabled() {
+        return class_exists('Metasync_Debug_Mode_Manager')
+            && Metasync_Debug_Mode_Manager::is_enabled();
+    }
+
+    /**
      * Send response headers indicating render method and status
-     * 
+     *
      * @param string $cache_status Cache status (HIT, MISS, etc.)
      */
     public static function send_headers($cache_status = '') {
@@ -654,31 +1121,37 @@ class Metasync_Otto_Render_Strategy {
             return;
         }
 
-        # OTTO Render Method header
-        $method = self::get_current_method();
-        if ($method === self::METHOD_BUFFER) {
-            $method_label = 'BUFFER';
-        } elseif ($method === self::METHOD_WP_ROCKET) {
-            $method_label = 'WP_ROCKET_BUFFER'; // WP Rocket caches OTTO-modified HTML
-        } else {
-            $method_label = 'HTTP';
-        }
-        header('X-MetaSync-OTTO-Method: ' . $method_label);
-
-        # OTTO Cache Status header
-        if (!empty($cache_status)) {
-            header('X-MetaSync-OTTO-Cache: ' . $cache_status);
-        }
-
-        # OTTO Processed indicator
-        header('X-MetaSync-OTTO-Processed: true');
-
-        # Check if WP Rocket is active
+        # Check if WP Rocket is active — drives both the diagnostic header below
+        # and the Cache-Control decision further down
         $wp_rocket_active = class_exists('WP_Rocket');
 
-        # Add compatibility indicator
-        if ($wp_rocket_active) {
-            header('X-MetaSync-OTTO-WPRocket: Compatible');
+        # Diagnostic headers: observability only, so gated behind Debug Mode.
+        # Everything after this block is functional (browser/CDN caching) and
+        # must keep running whether or not Debug Mode is on.
+        if (self::diagnostics_enabled()) {
+            # OTTO Render Method header
+            $method = self::get_current_method();
+            if ($method === self::METHOD_BUFFER) {
+                $method_label = 'BUFFER';
+            } elseif ($method === self::METHOD_WP_ROCKET) {
+                $method_label = 'WP_ROCKET_BUFFER'; // WP Rocket caches OTTO-modified HTML
+            } else {
+                $method_label = 'HTTP';
+            }
+            header('X-MetaSync-OTTO-Method: ' . $method_label);
+
+            # OTTO Cache Status header
+            if (!empty($cache_status)) {
+                header('X-MetaSync-OTTO-Cache: ' . self::display_cache_status($cache_status));
+            }
+
+            # OTTO Processed indicator
+            header('X-MetaSync-OTTO-Processed: true');
+
+            # Add compatibility indicator
+            if ($wp_rocket_active) {
+                header('X-MetaSync-OTTO-WPRocket: Compatible');
+            }
         }
 
         # Browser cache header only — let hosting (Kinsta, WP Engine, etc.) manage CDN TTL natively.
@@ -791,6 +1264,50 @@ class Metasync_Otto_Render_Strategy {
                 'flywheel' => defined('FLYWHEEL_CONFIG_DIR'),
             ],
         ];
+    }
+
+    /**
+     * Is this request path something OTTO can never have suggestions for?
+     *
+     * Covers two families:
+     *
+     *  - Protocol paths under /.well-known/ (ACME challenges, Cloudflare
+     *    custom-hostname challenges). Such a challenge path was observed in
+     *    production triggering a live, blocking OTTO API call.
+     *  - Static assets. These normally never reach PHP, but they do on sites
+     *    whose rewrites send missing files through WordPress.
+     *
+     * Both patterns are deliberately bounded. The /.well-known/ match requires a
+     * separator or end-of-string so a page slug that merely shares the prefix
+     * (/.well-knownsecrets/) is not swallowed, and the asset match is anchored
+     * at the end so a directory URL (/style.css/) or a non-final extension
+     * (/a.css.backup) stays OTTO-able.
+     *
+     * Deliberately does NOT cover robots.txt or favicon.ico: WordPress has exact
+     * conditionals for those, and a path pattern would misfire on real content
+     * such as /robots.txt-explained/.
+     *
+     * Deliberately typed loosely: the caller passes strtok($uri, '?'), which
+     * returns string|false, and the underlying $_SERVER value is not guaranteed
+     * to be a string at all. The guard below is therefore load-bearing, not
+     * defensive noise — preg_match() on a non-string would raise a TypeError.
+     *
+     * @param mixed $request_path Request path, query string already stripped.
+     * @return bool True when OTTO should be skipped for this request.
+     */
+    public static function is_non_content_path($request_path) {
+        if (empty($request_path) || !is_string($request_path)) {
+            return false;
+        }
+
+        if (preg_match('#^/\\.well-known(?:/|$)#i', $request_path)) {
+            return true;
+        }
+
+        return (bool) preg_match(
+            '#\\.(?:css|js|json|txt|map|ico|png|jpe?g|gif|svg|webp|avif|woff2?|ttf|eot|pdf|zip|mp4|webm)$#i',
+            $request_path
+        );
     }
 }
 

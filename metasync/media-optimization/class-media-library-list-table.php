@@ -18,7 +18,7 @@ if (!class_exists('WP_List_Table')) {
 
 class Metasync_Media_Library_List_Table extends WP_List_Table {
 
-    private const PER_PAGE       = 20;
+    private const DEFAULT_PER_PAGE = 20;
     private const PAGED_PARAM    = 'paged_media';
     private const ORDERBY_PARAM  = 'orderby_media';
     private const ORDER_PARAM    = 'order_media';
@@ -49,6 +49,15 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
      * @var array<int, int[]>
      */
     private array $attachment_posts = [];
+
+    /**
+     * User-resolved results-per-page value for this list (validated against
+     * Metasync_Per_Page_Helper::ALLOWED_VALUES). Defaults to 20 for
+     * backwards compatibility; updated in prepare_items().
+     *
+     * @var int
+     */
+    private int $resolved_per_page = 20;
 
     public function __construct() {
         parent::__construct([
@@ -389,6 +398,9 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
             $this->get_sortable_columns(),
         ];
 
+        $per_page = Metasync_Per_Page_Helper::resolve('media_library', self::DEFAULT_PER_PAGE);
+        $this->resolved_per_page = $per_page;
+
         $current_page = $this->get_pagenum();
         $filters      = $this->get_filters();
 
@@ -396,7 +408,7 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
             'post_type'      => 'attachment',
             'post_status'    => 'inherit',
             'post_mime_type' => self::IMAGE_MIME_TYPES,
-            'posts_per_page' => self::PER_PAGE,
+            'posts_per_page' => $per_page,
             'paged'          => $current_page,
             'orderby'        => $filters['orderby'],
             'order'          => $filters['order'],
@@ -467,7 +479,7 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
 
         $this->set_pagination_args([
             'total_items' => $query->found_posts,
-            'per_page'    => self::PER_PAGE,
+            'per_page'    => $per_page,
             'total_pages' => $query->max_num_pages,
         ]);
     }
@@ -497,14 +509,21 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
         $total_pages = (int) $this->_pagination_args['total_pages'];
         $current     = $this->get_pagenum();
 
-        if ($total_pages <= 1) {
-            return;
-        }
-
         $output = '<span class="displaying-num">' . sprintf(
             _n('%s item', '%s items', $total_items, 'metasync'),
             number_format_i18n($total_items)
         ) . '</span>';
+
+        // Inline "rows per page" selector (10/20/50/100), persisted per user.
+        // Rendered unconditionally so the control is always available, even
+        // when there is only a single page of results. $which keeps the top and
+        // bottom selectors' ids distinct.
+        $output .= Metasync_Per_Page_Helper::render_selector('media_library', $this->resolved_per_page, $which);
+
+        if ($total_pages <= 1) {
+            echo "<div class='tablenav-pages one-page'>$output</div>";
+            return;
+        }
 
         $removable_args = [
             'paged', 'paged_redir', 'paged_404',

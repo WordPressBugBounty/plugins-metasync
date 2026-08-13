@@ -156,6 +156,11 @@ class Metasync_Connect_Manager
             return;
         }
 
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+            return;
+        }
+
         if (!Metasync::current_user_has_plugin_access()) {
             wp_send_json_error(array('message' => 'Insufficient permissions'));
             return;
@@ -814,6 +819,47 @@ class Metasync_Connect_Manager
         }
 
         return self::instance()->get_fresh_jwt_token();
+    }
+
+    /**
+     * Return the cached JWT token, or false — never fetches a fresh one.
+     *
+     * get_active_jwt_token() falls through to get_fresh_jwt_token() on a cache
+     * miss, which performs a blocking POST with a 15 second timeout. That is fine
+     * for admin and cron work but not for anything on a visitor's page render,
+     * where it would add up to 15 seconds to the response.
+     *
+     * Callers on a request-path should use this and simply skip whatever they
+     * wanted the token for when it returns false. The next admin or cron request
+     * will repopulate the cache.
+     *
+     * @return string|false Cached token, or false when none is cached or it is
+     *                      within the expiry buffer.
+     */
+    public static function get_cached_jwt_token()
+    {
+        $api_key = Metasync::get_searchatlas_api_key();
+        if ($api_key === false) {
+            $api_key = '';
+        }
+
+        if (empty($api_key)) {
+            return false;
+        }
+
+        $cached_token_data = get_transient('metasync_jwt_token_' . md5($api_key));
+
+        if (!$cached_token_data || !is_array($cached_token_data)) {
+            return false;
+        }
+
+        # Same 5-minute expiry buffer get_active_jwt_token() applies.
+        $expires_with_buffer = $cached_token_data['expires'] - 300;
+        if (time() >= $expires_with_buffer || empty($cached_token_data['token'])) {
+            return false;
+        }
+
+        return $cached_token_data['token'];
     }
 
     /**

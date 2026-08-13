@@ -9,6 +9,10 @@ document.addEventListener('DOMContentLoaded', function () {
 	var form = document.getElementById('redirection-form');
 	filterSelects.forEach(function (select) {
 		select.addEventListener('change', function () {
+			if (window.metasyncNavigateListState && window.metasyncNavigateListState(form, 'redirections')) {
+				return;
+			}
+
 			var formAction = form.getAttribute('action') || window.location.href;
 			var url = new URL(formAction, window.location.origin);
 			url.searchParams.delete('paged_redir');
@@ -38,8 +42,12 @@ document.addEventListener('DOMContentLoaded', function () {
 	var redirectionForm = document.getElementById('redirection-form');
 	if (redirectionForm) {
 		redirectionForm.addEventListener('submit', function (e) {
-			var filterButton = document.getElementById('post-query-submit');
-			if (e.submitter && filterButton && e.submitter === filterButton) {
+			var submitterId = e.submitter ? e.submitter.id : '';
+			if (submitterId === 'redirections-filter-submit' || submitterId === 'redirections-search-submit') {
+				if (window.metasyncNavigateListState) {
+					e.preventDefault();
+					window.metasyncNavigateListState(redirectionForm, 'redirections');
+				}
 				return;
 			}
 
@@ -83,8 +91,8 @@ document.addEventListener('DOMContentLoaded', function () {
 	// validation and gets silently cancelled. Explicitly clicking the actual
 	// Search button reproduces exactly what a mouse click does, sidestepping
 	// the browser's implicit-submission button choice.
-	var searchInput = document.getElementById('post-search-input');
-	var searchSubmit = document.getElementById('search-submit');
+	var searchInput = document.getElementById('redirections-search-input');
+	var searchSubmit = document.getElementById('redirections-search-submit');
 	if (searchInput && searchSubmit) {
 		searchInput.addEventListener('keydown', function (e) {
 			if (e.key === 'Enter') {

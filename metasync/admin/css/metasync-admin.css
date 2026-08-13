@@ -2157,3 +2157,47 @@
     background: rgba(34, 113, 177, 0.1);
     color: var(--dashboard-accent, #2271b1);
 }
+
+/* Lays the logo preview out as image + remove control side by side,
+   top-aligned to the image's upper-right, with real spacing between
+   them instead of an inline WP core button that renders full-size and
+   flush against the image with no gap. */
+.metasync-logo-preview-wrap {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 16px;
+}
+
+#local_seo_logo_close_btn.metasync-logo-remove-btn {
+    box-sizing: border-box;
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
+    padding: 0;
+    margin: 0;
+    flex-shrink: 0;
+    /* WP core's .wp-core-ui .button line-height is tuned for a text
+       label, not a fixed-size square icon; reset it so the glyph
+       stays centered instead of inflating the button box. */
+    line-height: 27px !important;
+    font-size: 16px;
+    font-weight: 700;
+    text-align: center;
+    /* !important: WP core's .button-secondary text/background rules
+       otherwise win the cascade — the glyph rendered white-on-white,
+       and a hardcoded white fill clashed with dark admin color
+       schemes. Transparent lets whatever sits behind it show through
+       in both light and dark themes; only the border/glyph are red. */
+    color: #d63638 !important;
+    background: transparent !important;
+    border: 2px solid #d63638;
+    border-radius: 6px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+    cursor: pointer;
+}
+
+#local_seo_logo_close_btn.metasync-logo-remove-btn:hover,
+#local_seo_logo_close_btn.metasync-logo-remove-btn:focus {
+    background: #d63638 !important;
+    color: #fff !important;
+}

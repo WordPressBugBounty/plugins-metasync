@@ -145,7 +145,17 @@ class MCP_Tool_Trigger_Otto_Optimization extends MCP_Tool_Base {
             }
             $tc     = new Metasync_Otto_Transient_Cache($otto_uuid);
             $result = $tc->warm_cache($url);
-            return $result !== false;
+            // Report success only when real suggestions were cached. A URL OTTO
+            // holds no data for returns an empty array rather than false, so a
+            // `!== false` check would report a successful warm for a URL with
+            // nothing to warm — inverting the signal you would use to debug this.
+            if ($result === false) {
+                return ['success' => false, 'reason' => 'fetch_failed'];
+            }
+            if (!$tc->has_payload($result)) {
+                return ['success' => false, 'reason' => 'no_suggestions_for_url'];
+            }
+            return true;
         });
 
         // Step 2: seo_db_sync

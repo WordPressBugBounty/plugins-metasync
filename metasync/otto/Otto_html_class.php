@@ -127,6 +127,193 @@ Class Metasync_otto_html{
     }
 
     /**
+     * Quote unquoted attribute values before DOM parsing.
+     *
+     * Per the HTML spec an unquoted attribute value ends at whitespace, so
+     * browsers read this correctly:
+     *
+     *   data-autoplay-viewport=80%
+     *   data-mousewheel="false"
+     *   data-type="carousel"
+     *
+     * SimpleHtmlDom does not stop at the whitespace. It runs to the next quote
+     * character, so the value becomes
+     * `80%\n data-mousewheel="false"\n data-type="carousel"...` and EVERY
+     * following attribute on the tag is swallowed into it and lost.
+     *
+     * Supreme Modules' image carousel emits exactly that markup. The attributes
+     * lost after it include data-type, data-slider-orientation and
+     * data-slideshow-to-show, so Swiper initialises on defaults, stacks all
+     * slides and grows the page by one slide-set per autoplay tick until it is
+     * tens of thousands of pixels tall.
+     *
+     * Normalising to `data-autoplay-viewport="80%"` before parsing makes the
+     * markup unambiguous, so no attribute is lost. Already-quoted values are
+     * left untouched, and <script>/<style> bodies are shielded so their
+     * contents are never mistaken for tags.
+     *
+     * @param string $html Raw HTML before DOM parsing.
+     * @return string HTML with every unquoted attribute value quoted.
+     */
+    private function quote_unquoted_attribute_values($html) {
+        # Shield <script>/<style> bodies — their contents can contain '<' and '='
+        # and must never be treated as markup.
+        $protected = array();
+        $html = preg_replace_callback(
+            '/<(script|style)\b([^>]*)>(.*?)<\/\1>/is',
+            function ($m) use (&$protected) {
+                $token = '<!--METASYNC_ATTRQ_' . count($protected) . '-->';
+                $protected[$token] = $m[0];
+                return $token;
+            },
+            $html
+        );
+
+        # Walk real tags only. The alternation lets a quoted value contain '>'
+        # so the tag boundary is found correctly. Possessive quantifiers (*+ / ++)
+        # are deliberate: the three branches are mutually exclusive on their first
+        # character, so backtracking can never produce a different match, and
+        # forbidding it removes the catastrophic-backtracking risk this shape
+        # otherwise carries on markup with many quotes and no '>'.
+        $result = preg_replace_callback(
+            '/<([a-zA-Z][a-zA-Z0-9:-]*+)((?:[^>"\']++|"[^"]*+"|\'[^\']*+\')*+)>/s',
+            function ($m) {
+                if (strpos($m[2], '=') === false) {
+                    return $m[0];
+                }
+
+                $attrs = $this->quote_unquoted_values_in_attr_region($m[2]);
+
+                # null means nothing needed changing — return the ORIGINAL tag so
+                # a document of well-formed HTML comes back byte-identical rather
+                # than merely equivalent.
+                return $attrs === null ? $m[0] : '<' . $m[1] . $attrs . '>';
+            },
+            $html
+        );
+
+        if ($result === null) {
+            $result = $html;
+        }
+
+        if (!empty($protected)) {
+            $result = str_replace(array_keys($protected), array_values($protected), $result);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Quote the unquoted values inside one tag's attribute region.
+     *
+     * Must be a tokeniser, not a regex. A flat pattern over the region cannot
+     * tell an attribute from ordinary text inside an already-quoted value, and
+     * would wreck common markup — `content="width=device-width,
+     * initial-scale=1"` looks like it contains an `initial-scale=1` attribute.
+     * Quoted values are therefore copied through verbatim and never inspected.
+     *
+     * @param string $attrs Attribute region: everything between the tag name and '>'.
+     * @return string|null Rewritten region, or null when nothing needed changing.
+     */
+    private function quote_unquoted_values_in_attr_region($attrs) {
+        $len     = strlen($attrs);
+        $out     = '';
+        $i       = 0;
+        $changed = false;
+
+        while ($i < $len) {
+            $c = $attrs[$i];
+
+            # Whitespace between attributes — preserve exactly.
+            if ($c === ' ' || $c === "\t" || $c === "\n" || $c === "\r" || $c === "\f" || $c === "\v") {
+                $out .= $c;
+                $i++;
+                continue;
+            }
+
+            # Attribute name.
+            if (preg_match('/\G[a-zA-Z_:][a-zA-Z0-9_:.\-]*+/', $attrs, $nm, 0, $i)) {
+                $out .= $nm[0];
+                $i   += strlen($nm[0]);
+
+                # Look past optional whitespace for '='. No '=' means a valueless
+                # boolean attribute; leave it alone.
+                $j = $i;
+                while ($j < $len && strpos(" \t\n\r\f\v", $attrs[$j]) !== false) {
+                    $j++;
+                }
+                if ($j >= $len || $attrs[$j] !== '=') {
+                    continue;
+                }
+
+                $out .= substr($attrs, $i, $j - $i) . '=';
+                $i    = $j + 1;
+
+                # Whitespace after '='.
+                while ($i < $len && strpos(" \t\n\r\f\v", $attrs[$i]) !== false) {
+                    $out .= $attrs[$i];
+                    $i++;
+                }
+
+                if ($i >= $len) {
+                    continue;
+                }
+
+                # Quoted value — copy verbatim through the closing quote so its
+                # contents are never treated as attributes.
+                if ($attrs[$i] === '"' || $attrs[$i] === "'") {
+                    $quote = $attrs[$i];
+                    $end   = strpos($attrs, $quote, $i + 1);
+                    if ($end === false) {
+                        $out .= substr($attrs, $i);
+                        $i    = $len;
+                    } else {
+                        $out .= substr($attrs, $i, $end - $i + 1);
+                        $i    = $end + 1;
+                    }
+                    continue;
+                }
+
+                # Unquoted value — runs to the next whitespace. ('>' cannot occur:
+                # it would have ended the tag before this region.)
+                $start = $i;
+                while ($i < $len && strpos(" \t\n\r\f\v", $attrs[$i]) === false) {
+                    $i++;
+                }
+                $value = substr($attrs, $start, $i - $start);
+
+                if ($value === '') {
+                    continue;
+                }
+
+                # Only rewrite when it actually prevents a loss. SimpleHtmlDom
+                # mis-parses an unquoted value by running from it to the NEXT
+                # QUOTE CHARACTER, swallowing everything between. With no quote
+                # left in this region there is nothing to swallow and the value
+                # already parses correctly — so leave that markup byte-identical
+                # rather than churn it. (OceanWP's `style=color:#;` as the final
+                # attribute is the common benign case.)
+                $rest = substr($attrs, $i);
+                if (strpos($rest, '"') === false && strpos($rest, "'") === false) {
+                    $out .= $value;
+                    continue;
+                }
+
+                $out    .= '"' . str_replace('"', '&quot;', $value) . '"';
+                $changed = true;
+                continue;
+            }
+
+            # Anything else (stray punctuation, a '/' before '>', malformed input)
+            # — copy through untouched.
+            $out .= $c;
+            $i++;
+        }
+
+        return $changed ? $out : null;
+    }
+
+    /**
      * / Capture ALL <style> blocks before DOM processing.
      *
      * SimpleHtmlDom can lose or corrupt <style> blocks during parse/serialize,
@@ -186,7 +373,65 @@ Class Metasync_otto_html{
     }
 
     /**
-     * Protect entity-encoded `srcdoc` attribute values before DOM parsing.
+     * Build the new inner HTML for a heading whose text OTTO is replacing,
+     * preserving the author's inline formatting.
+     *
+     * Headings are matched by their stripped text, so the recommended value is
+     * plain text with no way to know how it maps onto the original markup.
+     * Writing it back directly would discard whatever was inside — a coloured
+     * <span>, <em>, <br> line breaks — and visibly restyle the page.
+     *
+     * Two cases are safe:
+     *   - the heading is already plain text        -> replace it
+     *   - the heading is ONE nested inline wrapper -> keep the wrappers,
+     *     chain around a single run of text           swap only the text
+     *
+     * Anything else is ambiguous: sibling elements, <br>-separated lines, or
+     * text mixed with elements have no single place the new sentence belongs.
+     * Those return null so the caller leaves the heading alone — an unapplied
+     * suggestion is better than silently restyling the customer's content.
+     *
+     * @param string $inner_html       Current inner HTML of the heading.
+     * @param string $replacement_text New text, already escaped by the caller.
+     * @return string|null New inner HTML, or null to skip this heading.
+     */
+    public static function build_heading_inner_html($inner_html, $replacement_text) {
+        $inner = trim($inner_html);
+
+        # Plain text — nothing to preserve.
+        if (strpos($inner, '<') === false) {
+            return $replacement_text;
+        }
+
+        # Inline elements whose wrapper carries the styling worth keeping.
+        # Deliberately excludes <br>: it encodes line structure, not styling,
+        # and its presence means the heading has more than one text run.
+        $inline = 'span|em|strong|b|i|u|a|small|mark|abbr|cite|q|s|sub|sup|font';
+
+        $open  = '';
+        $close = '';
+
+        # Peel wrappers outermost-in. The greedy (.*) means a heading with
+        # sibling elements (e.g. <em>A</em><br><em>B</em>) leaves stray tags in
+        # $inner, which the ambiguity check below then rejects.
+        while (preg_match('#^<(' . $inline . ')(\s[^>]*)?>(.*)</\1\s*>$#is', $inner, $m)) {
+            # Group 2 (the attribute list) is optional but always captured as ''
+            # when absent, because group 3 follows it.
+            $open .= '<' . $m[1] . $m[2] . '>';
+            $close = '</' . $m[1] . '>' . $close;
+            $inner = trim($m[3]);
+
+            if (strpos($inner, '<') === false) {
+                return $open . $replacement_text . $close;
+            }
+        }
+
+        # Still markup left after peeling — ambiguous, so don't touch it.
+        return null;
+    }
+
+    /**
+     * / Protect entity-encoded `srcdoc` attribute values before DOM parsing.
      *
      * Lazy-loaded YouTube/video facades embed a full HTML document inside an
      * iframe's `srcdoc` attribute, entity-encoded:
@@ -745,6 +990,10 @@ Class Metasync_otto_html{
         # before DOM parsing — SimpleHtmlDom strips attributes from these.
         $html_body = $this->fix_malformed_self_closing_tags($html_body);
 
+        # Quote unquoted attribute values (e.g. data-autoplay-viewport=80%) —
+        # SimpleHtmlDom swallows every following attribute into such a value.
+        $html_body = $this->quote_unquoted_attribute_values($html_body);
+
         # now that the html is not empty
         # load it into the simple html dom
         $this->dom->load($html_body, true, false);
@@ -875,10 +1124,16 @@ Class Metasync_otto_html{
                     '/(<' . $heading_type . '(?:\s[^>]*)?>)(.*?)(<\/' . $heading_type . '>)/is',
                     function ($m) use ($current_value, $recommended_value) {
                         $inner_text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($m[2]), ENT_QUOTES, 'UTF-8')));
-                        if ($inner_text === $current_value) {
-                            return $m[1] . $recommended_value . $m[3];
+                        if ($inner_text !== $current_value) {
+                            return $m[0];
                         }
-                        return $m[0];
+                        # Keep the author's inline formatting; skip when it can't
+                        # be preserved rather than flattening the heading.
+                        $new_inner = self::build_heading_inner_html($m[2], $recommended_value);
+                        if ($new_inner === null) {
+                            return $m[0];
+                        }
+                        return $m[1] . $new_inner . $m[3];
                     },
                     $result_html,
                     -1
@@ -1415,13 +1670,26 @@ Class Metasync_otto_html{
                 # check matching text
                 if(trim($heading['current_value'] ?? '') == trim($text ?? '')){
 
-                    # replace entire tag output — preserves attributes, removes all children (elements + text nodes)
+                    # Rebuild the inner HTML, keeping the author's inline
+                    # formatting. Returns null when the markup can't be preserved
+                    # unambiguously — leave that heading alone rather than strip
+                    # its <span style>/<em>/<br> and restyle the page.
+                    $new_inner = self::build_heading_inner_html(
+                        $heading_old->innertext,
+                        $heading['recommended_value']
+                    );
+
+                    if ($new_inner === null) {
+                        continue;
+                    }
+
+                    # replace the tag output, preserving the opening tag's attributes
                     $outer = $heading_old->outertext;
                     $open_end = strpos($outer, '>');
                     if ($open_end !== false) {
                         $open_tag = substr($outer, 0, $open_end + 1);
                         $close_tag = '</' . $heading['type'] . '>';
-                        $heading_old->outertext = $open_tag . $heading['recommended_value'] . $close_tag;
+                        $heading_old->outertext = $open_tag . $new_inner . $close_tag;
                     }
 
                 }
@@ -2279,11 +2547,24 @@ Class Metasync_otto_html{
         }
 
         # 2) Build additions: overrides (removed above) + gap-fills for anything still absent.
+        #
+        # When a third-party SEO plugin is active the conflict handler may have suppressed
+        # that plugin's og:title / twitter:title so MetaSync can supply the replacement
+        # (Metasync_SEO_Sidebar::output_seo_meta_description). Gap-filling those two tags
+        # here would inject the meta-box post-title default over that replacement, so skip
+        # them in that case. User-customized overrides are unaffected — they were already
+        # applied above.
+        $seo_plugin_active = class_exists('Metasync_SEO_Conflict_Handler')
+            && Metasync_SEO_Conflict_Handler::get_instance()->has_active_seo_plugin();
+
         $additions = '';
         foreach ($tags as $t) {
             list($attr, $key, $val, $is_url, $is_override) = $t;
             if ($val === '' || $val === null) {
                 continue;
+            }
+            if (!$is_override && $seo_plugin_active && ($key === 'og:title' || $key === 'twitter:title')) {
+                continue; # never gap-fill the post title over a third-party plugin's own title
             }
             if (!$is_override && preg_match('/<meta\s[^>]*' . $attr . '\s*=\s*(["\'])' . preg_quote($key, '/') . '\1/i', $head)) {
                 continue; # OTTO (or another source) already provides it and the user did not override
@@ -2816,6 +3097,10 @@ Class Metasync_otto_html{
             # Fix malformed self-closing non-void tags (e.g. <ul/ class="...">)
             $html = $this->fix_malformed_self_closing_tags($html);
 
+            # Quote unquoted attribute values (e.g. data-autoplay-viewport=80%) —
+            # SimpleHtmlDom swallows every following attribute into such a value.
+            $html = $this->quote_unquoted_attribute_values($html);
+
             # Load HTML into DOM
             $this->dom->load($html, true, false);
 
@@ -3080,10 +3365,16 @@ Class Metasync_otto_html{
                         '/(<' . $heading_type . '(?:\s[^>]*)?>)(.*?)(<\/' . $heading_type . '>)/is',
                         function ($m) use ($current_value, $recommended_value) {
                             $inner_text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($m[2]), ENT_QUOTES, 'UTF-8')));
-                            if ($inner_text === $current_value) {
-                                return $m[1] . $recommended_value . $m[3];
+                            if ($inner_text !== $current_value) {
+                                return $m[0];
                             }
-                            return $m[0];
+                            # Keep the author's inline formatting; skip when it can't
+                            # be preserved rather than flattening the heading.
+                            $new_inner = self::build_heading_inner_html($m[2], $recommended_value);
+                            if ($new_inner === null) {
+                                return $m[0];
+                            }
+                            return $m[1] . $new_inner . $m[3];
                         },
                         $result_html,
                         -1

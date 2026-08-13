@@ -374,9 +374,29 @@ class Metasync_Otto_Persistence_Handler {
     }
 
     /**
+     * Build a heading's new inner HTML, preserving the author's inline markup.
+     *
+     * Delegates to Metasync_otto_html so the render paths and this persistence
+     * path share one rule. Loads that file on demand — persistence runs from
+     * REST/cron contexts where otto_pixel.php (which normally requires it) may
+     * not have loaded. The method is static, so no DOM library is touched.
+     *
+     * @param string $inner_html       Current inner HTML of the heading.
+     * @param string $replacement_text New heading text.
+     * @return string|null New inner HTML, or null to leave the heading alone.
+     */
+    private static function build_heading_inner_html($inner_html, $replacement_text) {
+        if (!class_exists('Metasync_otto_html')) {
+            require_once plugin_dir_path(__FILE__) . 'Otto_html_class.php';
+        }
+
+        return Metasync_otto_html::build_heading_inner_html($inner_html, $replacement_text);
+    }
+
+    /**
      * Persist heading changes to post content
      * Updates heading text in the actual post_content
-     * 
+     *
      * @param int $post_id WordPress post ID
      * @param array $heading_data Array of heading changes
      * @return array Results with counts and details
@@ -443,11 +463,20 @@ class Metasync_Otto_Persistence_Handler {
                 $pattern,
                 function ($m) use ($normalized_current, $recommended_value, &$count) {
                     $inner_text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($m[2]), ENT_QUOTES, 'UTF-8')));
-                    if (strcasecmp($inner_text, $normalized_current) === 0) {
-                        $count++;
-                        return $m[1] . $recommended_value . $m[3];
+                    if (strcasecmp($inner_text, $normalized_current) !== 0) {
+                        return $m[0];
                     }
-                    return $m[0];
+
+                    # Keep the author's inline formatting. This writes to
+                    # post_content, so flattening a heading here destroys the
+                    # markup permanently — skip rather than damage the content.
+                    $new_inner = self::build_heading_inner_html($m[2], $recommended_value);
+                    if ($new_inner === null) {
+                        return $m[0];
+                    }
+
+                    $count++;
+                    return $m[1] . $new_inner . $m[3];
                 },
                 $content
             );

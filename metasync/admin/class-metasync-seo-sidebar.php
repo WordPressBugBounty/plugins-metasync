@@ -186,7 +186,8 @@ class Metasync_SEO_Sidebar {
     /**
      * Output meta description tags from sidebar field
      * Custom values ALWAYS take priority over OTTO
-     * Outputs: meta description, og:description, and twitter:description
+     * Outputs: meta description, og:description, and twitter:description,
+     * plus og:title / twitter:title when a suppressed third-party tag needs replacing
      */
     public function output_seo_meta_description() {
         // Skip for admin, feeds, etc.
@@ -204,18 +205,54 @@ class Metasync_SEO_Sidebar {
             return;
         }
 
+        $conflict_handler = Metasync_SEO_Conflict_Handler::get_instance();
+
+        // og:title / twitter:title replacement.
+        //
+        // On a Yoast/AIOSEO page the conflict handler suppresses that plugin's
+        // og:title when MetaSync has a title, but Metasync_OpenGraph::output_opengraph_tags()
+        // bails whenever an SEO plugin is active — leaving the page with no og:title at all.
+        // Emit the same title the suppression keyed off, so the title path is symmetric with
+        // the description path below. og_title_needs_replacement() is deliberately narrow: it
+        // is false on MetaSync-only sites (the consolidated emitter still renders og:title
+        // there), on synced posts (the plugin renders its own), and when the OG toggle is off.
+        //
+        // Emitted BEFORE the description defer gate below: that gate is about the plugin
+        // owning the *description*, which does not imply it renders the title. A post whose
+        // sync timestamp names a plugin that is not the active one still has its og:title
+        // suppressed, so returning early there would leave the page with none.
+        if ($conflict_handler->og_title_needs_replacement()) {
+            $title = $conflict_handler->get_metasync_title();
+            if (!empty($title)) {
+                $title_escaped = esc_attr($title);
+                echo '<meta property="og:title" content="' . $title_escaped . '" data-metasync-seo="custom" />' . "\n";
+                echo '<meta name="twitter:title" content="' . $title_escaped . '" data-metasync-seo="custom" />' . "\n";
+            }
+        }
+
         // When synced to an active SEO plugin, that plugin outputs
         // the description from its native storage — skip MetaSync's own tag.
         // But only defer if the plugin's field is actually populated.
         // A stale/partial sync (timestamp present, plugin field empty) would
         // otherwise drop the description entirely — so fall through and emit
         // MetaSync's own custom tag as the fallback.
-        $conflict_handler = Metasync_SEO_Conflict_Handler::get_instance();
+        $defer_meta_description = false;
         if ($conflict_handler->has_active_seo_plugin()) {
             $sync_ts = get_post_meta($post_id, '_metasync_plugin_sync_ts', true);
             if (!empty($sync_ts) && $conflict_handler->active_plugin_has_description($post_id)) {
-                return;
+                $defer_meta_description = true;
             }
+        }
+
+        // The Open Graph tags need their own decision. The check above asks whether
+        // the plugin holds a META description, which says nothing about whether it
+        // renders an og:description — Yoast renders one either way, falling back to
+        // its meta description and then the excerpt. Deferring the plain tag while
+        // still emitting ours produced two conflicting og:description tags.
+        $defer_og_description = $conflict_handler->third_party_owns_og_description();
+
+        if ($defer_meta_description && $defer_og_description) {
+            return;
         }
 
         // Get the custom SEO description (takes priority)
@@ -227,7 +264,9 @@ class Metasync_SEO_Sidebar {
         if (!empty($description)) {
             $description_escaped = esc_attr($description);
             // Standard meta description
-            echo '<meta name="description" content="' . $description_escaped . '" data-metasync-seo="custom" />' . "\n";
+            if (!$defer_meta_description) {
+                echo '<meta name="description" content="' . $description_escaped . '" data-metasync-seo="custom" />' . "\n";
+            }
 
             // og:description / twitter:description are Open Graph & social tags, gated by
             // the per-post "Enable Open Graph & Social Media Tags" toggle. Only an explicit
@@ -235,7 +274,7 @@ class Metasync_SEO_Sidebar {
             // Metasync_OpenGraph::will_emit(). When disabled, MetaSync emits no OG/Twitter
             // description so it neither overrides a third-party plugin's tag nor leaves
             // one sourced from our database.
-            if (get_post_meta($post_id, '_metasync_og_enabled', true) !== '0') {
+            if (!$defer_og_description && get_post_meta($post_id, '_metasync_og_enabled', true) !== '0') {
                 // Open Graph description
                 echo '<meta property="og:description" content="' . $description_escaped . '" data-metasync-seo="custom" />' . "\n";
                 // Twitter description

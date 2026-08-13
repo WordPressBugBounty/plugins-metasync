@@ -221,8 +221,8 @@ if (!defined('ABSPATH')) {
 
 	/* Specific button targeting */
 	.wrap input[type="submit"]#doaction,
-	.wrap input[type="submit"]#post-query-submit,
-	.wrap input[type="submit"]#search-submit,
+	.wrap input[type="submit"]#redirections-filter-submit,
+	.wrap input[type="submit"]#redirections-search-submit,
 	.wrap input[type="submit"].button {
 		background: var(--dashboard-accent) !important;
 		border-color: var(--dashboard-accent) !important;
@@ -233,8 +233,8 @@ if (!defined('ABSPATH')) {
 	}
 
 	.wrap input[type="submit"]#doaction:hover,
-	.wrap input[type="submit"]#post-query-submit:hover,
-	.wrap input[type="submit"]#search-submit:hover,
+	.wrap input[type="submit"]#redirections-filter-submit:hover,
+	.wrap input[type="submit"]#redirections-search-submit:hover,
 	.wrap input[type="submit"].button:hover {
 		background: var(--dashboard-accent-hover) !important;
 		border-color: var(--dashboard-accent-hover) !important;
@@ -874,7 +874,8 @@ if (!defined('ABSPATH')) {
 	<form id="redirection-form" method="post" action="">
 		<?php wp_nonce_field('metasync_redirection_form', 'metasync_redirection_nonce'); ?>
 		<?php include "metasync-add-redirection.php";
-		$request_data = metasync_sanitize_input_array($_REQUEST); ?>
+		$request_data = metasync_sanitize_input_array($_REQUEST);
+		$list_state = Metasync_Per_Page_Helper::request_state('redirections'); ?>
 		<!-- For plugins, we also need to ensure that the form posts back to our current page -->
 		<input type="hidden" name="page" value="<?php echo esc_attr($request_data['page']) ?>" />
 		
@@ -909,13 +910,13 @@ if (!defined('ABSPATH')) {
 					<option value="451" <?php selected(isset($_REQUEST['http_code_filter']) ? $_REQUEST['http_code_filter'] : '', '451'); ?>>451 Unavailable</option>
 				</select>
 				
-				<input type="submit" name="filter_action" id="post-query-submit" class="button" value="Filter">
+				<input type="submit" name="filter_action" id="redirections-filter-submit" class="button" value="Filter">
 			</div>
 			
 			<div class="metasync-search-box">
-				<label class="screen-reader-text" for="post-search-input">Search Redirections:</label>
-				<input type="search" id="post-search-input" name="s" value="<?php echo esc_attr(isset($_REQUEST['s']) ? $_REQUEST['s'] : ''); ?>" placeholder="Search redirections...">
-				<input type="submit" id="search-submit" class="button" value="Search">
+				<label class="screen-reader-text" for="redirections-search-input">Search Redirections:</label>
+				<input type="search" id="redirections-search-input" name="s_redir" value="<?php echo esc_attr($list_state['s_redir'] ?? ''); ?>" placeholder="Search redirections...">
+				<input type="submit" id="redirections-search-submit" class="button" value="Search">
 			</div>
 		</div>
 		
