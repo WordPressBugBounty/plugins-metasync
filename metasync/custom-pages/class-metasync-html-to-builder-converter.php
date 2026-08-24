@@ -31,6 +31,40 @@ class Metasync_HTML_To_Builder_Converter
 	private $metasync_option_data;
 
 	/**
+	 * How deep to descend into wrapper elements the builder converters do not
+	 * recognise before giving up. Guards against pathological nesting.
+	 */
+	const MAX_UNWRAP_DEPTH = 8;
+
+	/**
+	 * Tags that never carry renderable article content. Descending into these
+	 * would drag scripts, styles and form controls into the post body.
+	 *
+	 * @var string[]
+	 */
+	private static $non_content_tags = array(
+		'script', 'style', 'noscript', 'template', 'head', 'meta', 'link',
+		'title', 'base', 'svg', 'canvas', 'object', 'embed', 'param',
+		'source', 'track', 'form', 'input', 'button', 'select', 'textarea',
+		'label', 'option', 'audio', 'video', 'map', 'area',
+		// Page chrome. These were already discarded before wrapper descent
+		// existed; keep dropping them so site navigation and footer text are
+		// not pulled into the post body when a full HTML page is synced.
+		'header', 'footer', 'nav', 'aside',
+	);
+
+	/**
+	 * Table internals. These are emitted as part of their <table> ancestor, so
+	 * reaching one on its own means the markup was malformed and DOMDocument
+	 * hoisted it - converting it again would duplicate rows.
+	 *
+	 * @var string[]
+	 */
+	private static $table_internal_tags = array(
+		'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'col', 'colgroup', 'caption',
+	);
+
+	/**
 	 * Constructor
 	 */
 	public function __construct()
@@ -1255,6 +1289,185 @@ class Metasync_HTML_To_Builder_Converter
 	 * @param array $options Conversion options
 	 * @return array Elementor elements array
 	 */
+	/**
+	 * Whether a node is an element.
+	 *
+	 * Deliberately checks nodeType rather than `instanceof DOMElement`:
+	 * parse_html_to_gutenberg() uses Dom\HTMLDocument when the server has it
+	 * (PHP 8.4+), whose nodes are Dom\Element and are NOT DOMElement
+	 * instances. An instanceof check silently fails on those servers and every
+	 * wrapper gets dropped again. XML_ELEMENT_NODE (1) is the same value in
+	 * both APIs.
+	 *
+	 * @param mixed $node
+	 * @return bool
+	 */
+	private function is_element_node($node)
+	{
+		return is_object($node)
+			&& isset($node->nodeType)
+			&& $node->nodeType === XML_ELEMENT_NODE;
+	}
+
+	/**
+	 * Whether a node is a wrapper we are allowed to descend into.
+	 *
+	 * @param DOMNode $node
+	 * @return bool
+	 */
+	private function is_unwrappable_container($node)
+	{
+		if (!$this->is_element_node($node) || !$node->hasChildNodes()) {
+			return false;
+		}
+
+		$name = strtolower($node->nodeName);
+
+		if (in_array($name, self::$non_content_tags, true)) {
+			return false;
+		}
+
+		if (in_array($name, self::$table_internal_tags, true)) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Convert a top-level node to Elementor widgets, descending into wrappers.
+	 *
+	 * The per-element converters only recognise a fixed tag list and return
+	 * nothing for anything else. That silently deleted the entire subtree, so
+	 * a <table> wrapped in <figure class="wp-block-table"> - which is how
+	 * Content Genius emits tables - never reached the table branch and was
+	 * dropped from the post along with everything else inside the wrapper
+	 *. Descend into unrecognised wrappers instead of discarding them.
+	 *
+	 * @param DOMNode $node    Node to convert
+	 * @param array   $options Conversion options
+	 * @param int     $depth   Current recursion depth
+	 * @return array List of Elementor widget arrays
+	 */
+	private function expand_node_to_elementor($node, $options, $depth = 0)
+	{
+		if (!$this->is_element_node($node)) {
+			return array();
+		}
+
+		$name = strtolower($node->nodeName);
+		if (in_array($name, self::$non_content_tags, true) || in_array($name, self::$table_internal_tags, true)) {
+			return array();
+		}
+
+		$widget = $this->convert_element_to_elementor($node, $options);
+		if (!empty($widget)) {
+			return array($widget);
+		}
+
+		if ($depth >= self::MAX_UNWRAP_DEPTH || !$this->is_unwrappable_container($node)) {
+			return array();
+		}
+
+		$widgets = array();
+		foreach ($node->childNodes as $child) {
+			if ($child->nodeType !== XML_ELEMENT_NODE) {
+				continue;
+			}
+			foreach ($this->expand_node_to_elementor($child, $options, $depth + 1) as $nested) {
+				$widgets[] = $nested;
+			}
+		}
+
+		return $widgets;
+	}
+
+	/**
+	 * Convert a top-level node to Divi shortcodes, descending into wrappers.
+	 *
+	 * See expand_node_to_elementor() for why unrecognised wrappers are
+	 * descended into rather than dropped.
+	 *
+	 * @param DOMNode $node    Node to convert
+	 * @param array   $options Conversion options
+	 * @param int     $depth   Current recursion depth
+	 * @return string Concatenated Divi shortcodes
+	 */
+	private function expand_node_to_divi($node, $options, $depth = 0)
+	{
+		if (!$this->is_element_node($node)) {
+			return '';
+		}
+
+		$name = strtolower($node->nodeName);
+		if (in_array($name, self::$non_content_tags, true) || in_array($name, self::$table_internal_tags, true)) {
+			return '';
+		}
+
+		$shortcode = $this->convert_element_to_divi($node, $options);
+		if (is_string($shortcode) && trim($shortcode) !== '') {
+			return $shortcode;
+		}
+
+		if ($depth >= self::MAX_UNWRAP_DEPTH || !$this->is_unwrappable_container($node)) {
+			return '';
+		}
+
+		$out = '';
+		foreach ($node->childNodes as $child) {
+			if ($child->nodeType !== XML_ELEMENT_NODE) {
+				continue;
+			}
+			$out .= $this->expand_node_to_divi($child, $options, $depth + 1);
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Convert a top-level node to Gutenberg blocks, descending into wrappers.
+	 *
+	 * See expand_node_to_elementor() for why unrecognised wrappers are
+	 * descended into rather than dropped.
+	 *
+	 * @param DOMNode $node    Node to convert
+	 * @param array   $options Conversion options
+	 * @param int     $depth   Current recursion depth
+	 * @return array List of Gutenberg block arrays
+	 */
+	private function expand_node_to_gutenberg($node, $options, $depth = 0)
+	{
+		if (!$this->is_element_node($node)) {
+			return array();
+		}
+
+		$name = strtolower($node->nodeName);
+		if (in_array($name, self::$non_content_tags, true) || in_array($name, self::$table_internal_tags, true)) {
+			return array();
+		}
+
+		$block = $this->convert_element_to_gutenberg($node, $options);
+		if (is_array($block) && !empty($block)) {
+			return array($block);
+		}
+
+		if ($depth >= self::MAX_UNWRAP_DEPTH || !$this->is_unwrappable_container($node)) {
+			return array();
+		}
+
+		$blocks = array();
+		foreach ($node->childNodes as $child) {
+			if ($child->nodeType !== XML_ELEMENT_NODE) {
+				continue;
+			}
+			foreach ($this->expand_node_to_gutenberg($child, $options, $depth + 1) as $nested) {
+				$blocks[] = $nested;
+			}
+		}
+
+		return $blocks;
+	}
+
 	private function parse_html_to_elementor($content, $options)
 	{
 		$dom = new DOMDocument();
@@ -1282,9 +1495,10 @@ class Metasync_HTML_To_Builder_Converter
 				if (in_array(strtolower($root_element->nodeName), array('tbody', 'tfoot', 'tr', 'th', 'td'))) {
 					continue;
 				}
-				$html_array = $this->convert_element_to_elementor($root_element, $options);
-				if (!empty($html_array)) {
-					$output_array[] = $html_array;
+				foreach ($this->expand_node_to_elementor($root_element, $options) as $html_array) {
+					if (!empty($html_array)) {
+						$output_array[] = $html_array;
+					}
 				}
 			}
 		}
@@ -1530,10 +1744,7 @@ class Metasync_HTML_To_Builder_Converter
 				if (in_array(strtolower($root_element->nodeName), array('tbody', 'tfoot', 'tr', 'th', 'td'))) {
 					continue;
 				}
-				$html_array = $this->convert_element_to_divi($root_element, $options);
-				if (!is_array($html_array)) {
-					$output_array .= $html_array;
-				}
+				$output_array .= $this->expand_node_to_divi($root_element, $options);
 			}
 		}
 
@@ -1741,11 +1952,115 @@ class Metasync_HTML_To_Builder_Converter
 				$html_array = $this->convert_element_to_gutenberg($root_element, $options);
 				if (!is_null($html_array)) {
 					$output_array[] = $html_array;
+					continue;
+				}
+				// Unrecognised wrapper (e.g. <figure class="wp-block-table">):
+				// descend rather than discarding the subtree.
+				foreach ($this->expand_node_to_gutenberg($root_element, $options) as $nested_block) {
+					$output_array[] = $nested_block;
 				}
 			}
 		}
 
 		return $output_array;
+	}
+
+	/**
+	 * Serialise a node, keeping `>` and `<` escaped inside attribute values.
+	 *
+	 * DOMDocument::saveHTML() escapes a `>` that appears inside an attribute
+	 * value as &gt;. Dom\HTMLDocument::saveHtml() (PHP 8.4+) emits it raw,
+	 * which is valid HTML5 but breaks every regex-based tag parser in
+	 * WordPress - wp_kses_split() and friends match tags with <[^>]*>, so they
+	 * cut the tag at that `>` and the remainder of the attributes is rendered
+	 * to the page as visible text.
+	 *
+	 * Content Genius hits this on every table: its cells carry Tailwind
+	 * classes such as [&>p]:m-0.
+	 *
+	 * @param DOMNode $node
+	 * @return string
+	 */
+	private function save_node_html($node)
+	{
+		$html = $node->ownerDocument->saveHTML($node);
+
+		return $this->escape_markup_chars_in_attributes($html);
+	}
+
+	/**
+	 * Re-escape `<` and `>` that appear inside quoted attribute values.
+	 *
+	 * Walks the string rather than using a regex, because the whole problem is
+	 * that a `>` inside an attribute value makes tag-matching regexes wrong.
+	 * HTML comments are copied through untouched so Gutenberg block delimiters
+	 * (which carry JSON) are never rewritten.
+	 *
+	 * @param string|false $html DOMDocument::saveHTML() return type — it can return false on failure.
+	 * @return string|false
+	 */
+	private function escape_markup_chars_in_attributes($html)
+	{
+		if (!is_string($html) || $html === '' || strpos($html, '<') === false) {
+			return $html;
+		}
+
+		$out    = '';
+		$len    = strlen($html);
+		$i      = 0;
+		$in_tag = false;
+		$quote  = '';
+
+		while ($i < $len) {
+			$ch = $html[$i];
+
+			if (!$in_tag) {
+				// Copy HTML comments verbatim, delimiters included.
+				if ($ch === '<' && substr($html, $i, 4) === '<!--') {
+					$end = strpos($html, '-->', $i);
+					if ($end === false) {
+						$out .= substr($html, $i);
+						break;
+					}
+					$out .= substr($html, $i, $end - $i + 3);
+					$i = $end + 3;
+					continue;
+				}
+
+				if ($ch === '<') {
+					$in_tag = true;
+				}
+				$out .= $ch;
+				$i++;
+				continue;
+			}
+
+			if ($quote !== '') {
+				if ($ch === $quote) {
+					$quote = '';
+					$out  .= $ch;
+				} elseif ($ch === '>') {
+					$out .= '&gt;';
+				} elseif ($ch === '<') {
+					$out .= '&lt;';
+				} else {
+					$out .= $ch;
+				}
+				$i++;
+				continue;
+			}
+
+			if ($ch === '"' || $ch === "'") {
+				$quote = $ch;
+			} elseif ($ch === '>') {
+				$in_tag = false;
+			}
+
+			$out .= $ch;
+			$i++;
+		}
+
+		return $out;
 	}
 
 	/**
@@ -1770,8 +2085,8 @@ class Metasync_HTML_To_Builder_Converter
 				'blockName' => 'core/heading',
 				'attrs' => array('level' => $level),
 				'innerBlocks' => array(),
-				'innerHTML' => $node->ownerDocument->saveHTML($node),
-				'innerContent' => array($node->ownerDocument->saveHTML($node))
+				'innerHTML' => $this->save_node_html($node),
+				'innerContent' => array($this->save_node_html($node))
 			);
 		}
 		// Handle images
@@ -1833,8 +2148,8 @@ class Metasync_HTML_To_Builder_Converter
 				'blockName' => 'core/html',
 				'attrs' => array(),
 				'innerBlocks' => array(),
-				'innerHTML' => $node->ownerDocument->saveHTML($node),
-				'innerContent' => array($node->ownerDocument->saveHTML($node))
+				'innerHTML' => $this->save_node_html($node),
+				'innerContent' => array($this->save_node_html($node))
 			);
 		}
 		// Handle paragraphs
@@ -1843,13 +2158,13 @@ class Metasync_HTML_To_Builder_Converter
 				'blockName' => 'core/paragraph',
 				'attrs' => array(),
 				'innerBlocks' => array(),
-				'innerHTML' => $node->ownerDocument->saveHTML($node),
-				'innerContent' => array($node->ownerDocument->saveHTML($node))
+				'innerHTML' => $this->save_node_html($node),
+				'innerContent' => array($this->save_node_html($node))
 			);
 		}
 		// Handle tables
 		elseif ($node_name === 'table') {
-			$table_html = $node->ownerDocument->saveHTML($node);
+			$table_html = $this->save_node_html($node);
 			$node->setAttribute('class', 'metasyncTable-block');
 			return array(
 				'blockName' => 'core/table',
@@ -1865,8 +2180,8 @@ class Metasync_HTML_To_Builder_Converter
 				'blockName' => 'core/list',
 				'attrs' => array('ordered' => ($node_name === 'ol')),
 				'innerBlocks' => array(),
-				'innerHTML' => $node->ownerDocument->saveHTML($node),
-				'innerContent' => array($node->ownerDocument->saveHTML($node))
+				'innerHTML' => $this->save_node_html($node),
+				'innerContent' => array($this->save_node_html($node))
 			);
 		}
 		// Handle blockquotes
@@ -1878,7 +2193,7 @@ class Metasync_HTML_To_Builder_Converter
 			// Collect text content from child nodes, splitting on <br><br> for paragraphs
 			$raw_html = '';
 			foreach ($node->childNodes as $child) {
-				$raw_html .= $node->ownerDocument->saveHTML($child);
+				$raw_html .= $this->save_node_html($child);
 			}
 
 			// Split into paragraphs on double <br> (with optional whitespace)

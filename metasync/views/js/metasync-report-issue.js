@@ -24,7 +24,6 @@ jQuery(document).ready(function($) {
     $messageField.on('input keyup paste', updateCharCounter);
     updateCharCounter(); // Initial state
 
-    // Show/hide support access options based on checkbox
     $('#metasync-report-issue-form').on('submit', function(e) {
         e.preventDefault();
 
@@ -84,8 +83,6 @@ jQuery(document).ready(function($) {
         formData.append('issue_message', message);
         formData.append('issue_severity', $('#metasync_issue_severity').val());
         formData.append('include_user_info', $('#metasync_include_user_info').is(':checked'));
-        formData.append('grant_support_access', $('#metasync_grant_support_access').is(':checked'));
-        formData.append('access_duration', $('#metasync_access_duration').val());
 
         // Add file if selected
         if ($fileInput && $fileInput.files && $fileInput.files[0]) {

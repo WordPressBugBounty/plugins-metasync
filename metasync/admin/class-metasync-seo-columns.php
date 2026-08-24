@@ -363,9 +363,14 @@ class Metasync_SEO_Columns
 	 * path reads them (confirmed by two independent traces). Ranking them above OTTO
 	 * — as Metasync_SEO_Health still does — makes the column disagree with the page.
 	 *
-	 * Reads post meta only. No API calls and no transient lookups: WP_Query has
-	 * already primed the post meta cache for this list table, so this costs nothing,
-	 * whereas a per-row transient read would not.
+	 * Reads post meta only, with one exception: the OTTO disable test also consults
+	 * the manual URL exclusion list, which costs a URL resolution per row plus a
+	 * single cached read of the exclusion set for the whole request. On the Pages
+	 * table that resolution is not free — get_permalink() walks ancestors through
+	 * get_page_uri() for a nested page, which WP_Query has not primed, and it fires
+	 * the post_link/page_link filters that translation and permalink plugins hook.
+	 * Everything else here is free: WP_Query has already primed the post meta cache
+	 * for this list table.
 	 *
 	 * @param  int    $post_id Post ID.
 	 * @param  string $field   'title' or 'description'.
@@ -417,16 +422,47 @@ class Metasync_SEO_Columns
 	/**
 	 * Whether OTTO output is switched off for this specific post.
 	 *
-	 * Matches Metasync_Otto_Frontend_Toolbar::is_otto_disabled() exactly — it treats
-	 * only '1' and 'true' as disabled. A looser truthiness test would read the string
-	 * 'false' as disabled and wrongly hide OTTO's value from the column while the
-	 * front end still serves it.
+	 * Delegates to Metasync_Otto_Frontend_Toolbar::is_otto_disabled(), which reports
+	 * the effective status: the `_metasync_otto_disabled` meta flag OR a manual entry
+	 * on the Compatibility page's "Excluded URLs" list. Both stop OTTO rendering,
+	 * so both have to stop the column naming OTTO's value as the rendered one.
+	 *
+	 * The fallback repeats the meta test verbatim for the case where the toolbar class
+	 * is not loaded. It treats only '1' and 'true' as disabled: a looser truthiness
+	 * test would read the string 'false' as disabled and wrongly hide OTTO's value
+	 * from the column while the front end still serves it.
 	 *
 	 * @param  int $post_id Post ID.
 	 * @return bool
 	 */
 	private function otto_disabled_for_post($post_id)
 	{
+		// Quick Edit saves over admin-ajax as `inline-save`, and wp_ajax_inline_save()
+		// redraws this row. metasync.php skips otto/otto_pixel.php for any admin-ajax
+		// action that is not ours, so the exclusion checker is absent in exactly the
+		// request that re-renders the column — and the row would show OTTO's value for
+		// an excluded post until the next full page load. Load it here, where the
+		// column is actually being rendered, rather than widening the load for every
+		// third-party ajax request: this runs only inside a column render callback,
+		// so a Quick Edit save pays for it and the frequent ajax actions the guard in
+		// metasync.php exists for (heartbeat, autosave) never reach this line.
+		//
+		// Gated on wp_doing_ajax() rather than the DOING_AJAX constant that
+		// metasync_is_non_metasync_admin_ajax() reads. The two can in principle
+		// disagree — wp_doing_ajax() is filterable — but it is the sanctioned API
+		// and the one PHPStan's WordPress ruleset requires, and a plugin filtering
+		// it to false mid-Quick-Edit would only cost this column its freshness.
+		if (!function_exists('metasync_is_otto_url_manually_excluded') && wp_doing_ajax()) {
+			$pixel_file = plugin_dir_path(dirname(__FILE__)) . 'otto/otto_pixel.php';
+			if (file_exists($pixel_file)) {
+				require_once $pixel_file;
+			}
+		}
+
+		if (class_exists('Metasync_Otto_Frontend_Toolbar')) {
+			return (bool) Metasync_Otto_Frontend_Toolbar::is_otto_disabled($post_id);
+		}
+
 		$disabled = get_post_meta($post_id, '_metasync_otto_disabled', true);
 		return $disabled === '1' || $disabled === 'true';
 	}

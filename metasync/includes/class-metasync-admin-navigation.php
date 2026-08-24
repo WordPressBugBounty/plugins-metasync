@@ -788,12 +788,17 @@ class Metasync_Admin_Navigation
         // ── Connect slug ──────────────────────────────────────────────────
         $connect_slug = $menu_slug . '-connect';
 
+        // Keep a slug-to-title map so hidden pages can still provide WordPress
+        // with a browser-tab title when they are registered without a parent.
+        $admin_page_titles = array();
+
         // Local helper: register a submenu page under the plugin parent slug
         // when the item keeps its WordPress admin sidebar row, or under an
         // empty parent slug (hidden from the sidebar but still reachable)
         // otherwise. The Settings page (general) is registered against the
         // bare $menu_slug so it doubles as the parent menu callback.
-        $register_submenu = function($item_key, $page_title, $menu_title, $capability, $menu_page_slug, $callback) use ($menu_slug) {
+        $register_submenu = function($item_key, $page_title, $menu_title, $capability, $menu_page_slug, $callback) use ($menu_slug, &$admin_page_titles) {
+            $admin_page_titles[$menu_page_slug] = $page_title;
             $parent = self::item_keeps_wp_sidebar_row($item_key) ? $menu_slug : '';
             add_submenu_page($parent, $page_title, $menu_title, $capability, $menu_page_slug, $callback);
         };
@@ -909,7 +914,32 @@ class Metasync_Admin_Navigation
         }
 
         // ── Hidden pages (no sidebar entry needed) ────────────────────────
+        $admin_page_titles[$menu_slug . '-setup-wizard'] = 'Setup Wizard';
         add_submenu_page('', 'Setup Wizard', 'Setup Wizard', $menu_capability, $menu_slug . '-setup-wizard', array($admin->setup_wizard, 'render_wizard_page'));
+
+        // WordPress cannot resolve titles for pages registered under an empty
+        // parent, even though those pages remain reachable by URL. Restore the
+        // standard admin title format for our registered pages only.
+        add_filter('admin_title', function($admin_title, $title) use (&$admin_page_titles) {
+            $current_page = isset($_GET['page']) && is_string($_GET['page'])
+                ? sanitize_text_field(wp_unslash($_GET['page']))
+                : '';
+
+            if (empty($title) && isset($admin_page_titles[$current_page])) {
+                $site_title = is_network_admin() || is_user_admin()
+                    ? get_network()->site_name
+                    : get_bloginfo('name');
+
+                $admin_title = sprintf(
+                    /* translators: 1: Admin page title, 2: Site or network title. */
+                    __('%1$s &lsaquo; %2$s &#8212; WordPress'),
+                    $admin_page_titles[$current_page],
+                    $site_title
+                );
+            }
+
+            return $admin_title;
+        }, 10, 2);
 
 
         // Rename auto-generated first submenu from plugin name to "Settings" and reorder

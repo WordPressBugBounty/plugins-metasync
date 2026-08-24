@@ -153,58 +153,6 @@ $system_info = array(
                     </label>
                 </div>
 
-                <!-- Temporary Support Access Section -->
-                <div class="metasync-form-group metasync-support-access-section" style="padding-top: 30px; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-                    <div class="metasync-support-access-header">
-                        <label class="metasync-form-label">
-                            <strong>Grant Temporary Support Access</strong>
-                            <span class="metasync-optional-badge" style="background: rgba(255, 255, 255, 0.1); padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 8px; color: #888;">Optional</span>
-                        </label>
-                        <p class="metasync-form-help-text" style="color: #888; font-size: 13px; margin-top: 8px; line-height: 1.5;">
-                            Allow <?php echo esc_html($plugin_name); ?> support staff to temporarily access your WordPress admin to investigate and resolve this issue.
-                        </p>
-                    </div>
-
-                    <div class="metasync-checkbox-wrapper" style="margin: 20px 0;">
-                        <label class="metasync-checkbox-label">
-                            <input type="checkbox" id="metasync_grant_support_access" name="grant_support_access" />
-                            <span>I consent to grant temporary admin access to <?php echo esc_html($plugin_name); ?> support</span>
-                        </label>
-                    </div>
-
-                    <div id="metasync_support_access_options" class="metasync-support-access-options" style="display: none; margin-top: 20px; padding: 20px; background: rgba(255, 255, 255, 0.03); border-radius: 5px; border: 1px solid rgba(255, 255, 255, 0.1);">
-                        <label for="metasync_access_duration" class="metasync-form-label" style="display: block; margin-bottom: 10px;">
-                            <strong>Access Duration</strong>
-                        </label>
-                        <select id="metasync_access_duration" name="access_duration" class="metasync-form-select" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.05); color: #fff;">
-                            <option value="3600">1 hour</option>
-                            <option value="14400">4 hours</option>
-                            <option value="28800">8 hours</option>
-                            <option value="86400" selected>24 hours (Recommended)</option>
-                            <option value="172800">48 hours</option>
-                            <option value="604800">7 days</option>
-                            <option value="1209600">14 days</option>
-                            <option value="2592000">30 days</option>
-                        </select>
-
-                        <div class="metasync-security-notice" style="margin-top: 20px; padding: 15px; background: rgba(30, 144, 255, 0.1); border-left: 4px solid #1e90ff; border-radius: 4px;">
-                            <div style="display: flex; gap: 10px;">
-                                <span class="metasync-security-icon"><span class="dashicons dashicons-lock" style="font-size:20px;width:20px;height:20px;color:#1e90ff;"></span></span>
-                                <div class="metasync-security-text" style="flex: 1;">
-                                    <strong style="color: #1e90ff; display: block; margin-bottom: 8px;">Security Information:</strong>
-                                    <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #aaa; line-height: 1.6;">
-                                        <li>Access expires automatically after the selected duration</li>
-                                        <li>You can revoke access at any time from Settings → Support Access</li>
-                                        <li>A secure JWT token will be sent with your report</li>
-                                        <li>Token is valid only for this WordPress site</li>
-                                        <li>All authentication attempts are logged</li>
-                                    </ul>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
                 <div class="metasync-form-actions">
                     <button type="submit" class="button button-primary button-large" id="metasync-submit-report-btn">
                         <span class="metasync-btn-text"><span class="dashicons dashicons-upload" style="margin-top:9px;font-size:15px;width:15px;height:15px;"></span> Submit Report</span>

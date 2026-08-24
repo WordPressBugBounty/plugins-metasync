@@ -59,6 +59,7 @@ class Metasync_Compatibility_Checker
                                 <span class="dashicons dashicons-controls-repeat"></span> Test Both Requests
                             </button>
                         </div>
+                        <?php $this->render_last_automatic_check(); ?>
                     </div>
                     <div id="host-test-results" style="display: none; margin-top:16px;">
                         <h3 style="color: var(--dashboard-text-primary); margin-bottom: 10px;">Test Results</h3>
@@ -194,10 +195,14 @@ class Metasync_Compatibility_Checker
                                 var html = '';
                                 
                                 results.forEach(function(result) {
-                                    var statusClass = result.status === 'success' ? 'success' : 'error';
-                                    var statusIcon = result.status === 'success' ? '✅' : '❌';
-                                    var blockedStatus = result.blocked ? 'BLOCKED' : 'ALLOWED';
-                                    var blockedClass = result.blocked ? 'blocked' : 'allowed';
+                                    // Three states, not two: a request can also be
+                                    // inconclusive when the checker service itself is
+                                    // unavailable — that must never read as "blocked".
+                                    var inconclusive = !!result.checker_unreachable;
+                                    var statusClass = result.status === 'success' ? 'success' : (inconclusive ? 'warning' : 'error');
+                                    var statusIcon = result.status === 'success' ? '✅' : (inconclusive ? '⚠️' : '❌');
+                                    var blockedStatus = inconclusive ? 'INCONCLUSIVE' : (result.blocked ? 'BLOCKED' : 'ALLOWED');
+                                    var blockedClass = inconclusive ? 'inconclusive' : (result.blocked ? 'blocked' : 'allowed');
                                     
                                     html += '<div class="test-result-item ' + statusClass + '">';
                                     html += '<div class="test-result-header">';
@@ -290,7 +295,11 @@ class Metasync_Compatibility_Checker
             .test-result-item.error {
                 border-left: 4px solid #dc3545;
             }
-            
+
+            .test-result-item.warning {
+                border-left: 4px solid #dba617;
+            }
+
             .test-result-header {
                 background: var(--dashboard-bg);
                 padding: 15px 20px;
@@ -323,7 +332,12 @@ class Metasync_Compatibility_Checker
                 background: rgba(248,113,113,0.15);
                 color: #f87171;
             }
-            
+
+            .test-status.inconclusive {
+                background: rgba(219,166,23,0.15);
+                color: #dba617;
+            }
+
             .test-result-details {
                 padding: 20px;
             }
@@ -504,9 +518,12 @@ class Metasync_Compatibility_Checker
                 letter-spacing: 0.5px;
             }
 
+            /* Badge text is 11px uppercase, i.e. normal-size text: the darker
+               foreground steps keep every pair at or above the 4.5:1 AA bar
+               on its own pastel background. */
             .otto-pattern-exact {
                 background: #e3f2fd;
-                color: #1976d2;
+                color: #0d47a1;
             }
 
             .otto-pattern-contain {
@@ -516,12 +533,12 @@ class Metasync_Compatibility_Checker
 
             .otto-pattern-start {
                 background: #e8f5e9;
-                color: #388e3c;
+                color: #1b5e20;
             }
 
             .otto-pattern-end {
-                background: var(--dashboard-card-bg)3e0;
-                color: #f57c00;
+                background: #fff3e0;
+                color: #8f4400;
             }
 
             .otto-pattern-regex {
@@ -555,8 +572,31 @@ class Metasync_Compatibility_Checker
 
             #otto-excluded-urls-table-container .wp-list-table td {
                 background: var(--dashboard-card-bg) !important;
-                color: #2c3338 !important;
+                color: var(--dashboard-text-primary) !important;
                 border-bottom: 1px solid #c3c4c7;
+            }
+
+            /* Placeholder text (empty description, no recheck date) still has to
+               clear AA against the card background in both themes. */
+            #otto-excluded-urls-table-container .otto-muted {
+                color: var(--dashboard-text-secondary) !important;
+            }
+
+            /* Loading / empty-state text shown in place of the table. */
+            #otto-excluded-urls-table-container .otto-table-message {
+                text-align: center;
+                padding: 40px;
+                color: var(--dashboard-text-secondary);
+            }
+
+            /* Error text replaces the table on a failed load. No single red
+               clears AA on both card backgrounds, so each theme gets its own. */
+            #otto-excluded-urls-table-container .otto-error-message {
+                color: #f87171 !important;
+            }
+
+            [data-theme="light"] #otto-excluded-urls-table-container .otto-error-message {
+                color: #b02a37 !important;
             }
 
             #otto-excluded-urls-table-container .wp-list-table tbody tr {
@@ -628,6 +668,60 @@ class Metasync_Compatibility_Checker
             </style>
         <?php
         $admin->render_layout_close();
+    }
+
+    /**
+     * Show the result of the last automatic host blocking check.
+     *
+     * Reads the stored result only — it never triggers a probe, so opening this page
+     * costs nothing extra. The automatic check runs ~10 minutes after activation and
+     * weekly after that; the button above re-runs the same probe on demand.
+     */
+    private function render_last_automatic_check(): void
+    {
+        if (!class_exists('Metasync_Host_Blocking_Check')) {
+            return;
+        }
+
+        $checker = Metasync_Host_Blocking_Check::get_instance();
+        $result  = $checker->get_last_result();
+
+        echo '<p style="margin: 16px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">';
+
+        if ($result === null) {
+            if (!$checker->site_is_publicly_reachable()) {
+                echo esc_html__('Automatic checks are skipped on local and private-network sites, because our services cannot call this site back. Use the button above to test manually.', 'metasync');
+            } else {
+                echo esc_html__('The automatic check has not run yet. It runs about 10 minutes after activation, then weekly.', 'metasync');
+            }
+            echo '</p>';
+            return;
+        }
+
+        $blocked = [];
+        if ($result['get_blocked']) {
+            $blocked[] = 'GET';
+        }
+        if ($result['post_blocked']) {
+            $blocked[] = 'POST';
+        }
+
+        if (empty($blocked)) {
+            printf(
+                /* translators: %s: date/time of the last automatic check */
+                esc_html__('Last automatic check: %s — no blocking detected.', 'metasync'),
+                esc_html($result['checked_at'])
+            );
+        } else {
+            printf(
+                /* translators: 1: date/time of the last automatic check, 2: blocked HTTP methods */
+                esc_html__('Last automatic check: %1$s — %2$s requests were blocked. Re-run the test above after changing any firewall or security settings.', 'metasync'),
+                esc_html($result['checked_at']),
+                esc_html(implode(' and ', $blocked))
+            );
+        }
+
+        echo '</p>';
     }
 
     public function render_compatibility_sections()

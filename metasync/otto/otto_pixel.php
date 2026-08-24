@@ -650,7 +650,12 @@ function metasync_start_otto(){
     metasync_otto_handle_cache_compatibility();
 
     # check if OTTO is disabled for this specific page/post
-    $post_id = get_the_ID();
+    # Gate on is_singular() for the same reason the custom/LPS check below does:
+    # on an archive, search or term query get_the_ID() returns the first post of
+    # the loop — WP::register_globals() seeds $GLOBALS['post'] with it — not the
+    # page being rendered. Without the gate, one excluded or per-page-disabled
+    # post silently takes OTTO off every archive that happens to list it first.
+    $post_id = is_singular() ? ( get_queried_object_id() ?: get_the_ID() ) : 0;
     if ($post_id && class_exists('Metasync_Otto_Frontend_Toolbar')) {
         if (Metasync_Otto_Frontend_Toolbar::is_otto_disabled($post_id)) {
             return;
@@ -676,7 +681,24 @@ function metasync_start_otto(){
     }
 
     # check if we are having an otto request
-    if(!empty($_GET['is_otto_page_fetch'])){
+    #
+    # Recognise our own internal fetch by header/User-Agent as well as by the
+    # query parameter. A redirect that rebuilds the URL strips the parameter,
+    # and without this the redirected request re-enters OTTO and fires another
+    # internal fetch - an unbounded self-request loop.
+    # method_exists() is redundant to static analysis - this MR adds the method,
+    # so PHPStan proves the call always true. It is kept for the upgrade window:
+    # during a plugin update an opcache can still hold the previous
+    # Metasync_Otto_Render_Strategy, where class_exists() passes but the method
+    # is absent, and an unguarded static call would fatal the page.
+    # @phpstan-ignore-next-line function.alreadyNarrowedType
+    $otto_has_fetch_detector = class_exists('Metasync_Otto_Render_Strategy') && method_exists('Metasync_Otto_Render_Strategy', 'is_internal_fetch');
+
+    $otto_is_internal_fetch = $otto_has_fetch_detector
+        ? Metasync_Otto_Render_Strategy::is_internal_fetch()
+        : !empty($_GET['is_otto_page_fetch']);
+
+    if($otto_is_internal_fetch){
 
         # Block SEO plugins NOW for this internal fetch request
        # metasync_otto_block_seo_plugins();
@@ -2299,25 +2321,14 @@ function metasync_is_otto_url_manually_excluded($url)
         }
 
         foreach ($records as $excluded) {
-            $pattern      = rtrim(trim($excluded->url_pattern), '/');
-            $pattern_type = $excluded->pattern_type;
-
-            switch ($pattern_type) {
-                case 'exact':
-                    if ($url_normalized === $pattern) {
-                        return true;
-                    }
-                    break;
-                case 'contain':
-                    if (strpos($url_normalized, $pattern) !== false) {
-                        return true;
-                    }
-                    break;
-                case 'start':
-                    if (strpos($url_normalized, $pattern) === 0) {
-                        return true;
-                    }
-                    break;
+            # Delegate to the shared matcher so this gate supports every pattern type the
+            # add handler accepts (exact|contain|start|end|regex). Keeping a second switch
+            # here is what let `end` and `regex` exclusions be silently ignored on the
+            # visitor render path while still applying on the queue/SEO-write path.
+            # The raw pattern is passed through - the matcher normalizes it per type,
+            # because a regex must keep the trailing slash that closes its delimiters.
+            if (Metasync_Otto_Excluded_URLs_Database::pattern_matches($url_normalized, $excluded->url_pattern, $excluded->pattern_type)) {
+                return true;
             }
         }
         return false;

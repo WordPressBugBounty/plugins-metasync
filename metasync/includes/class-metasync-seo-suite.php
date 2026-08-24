@@ -160,7 +160,20 @@ class Metasync_Seo_Suite
     private static function v($post_id, $key)
     {
         $value = get_post_meta($post_id, $key, true);
-        return is_array($value) ? '' : (string) $value;
+        if (is_array($value)) {
+            return '';
+        }
+        // Collapse the "Auto Draft" placeholder the meta box pre-fill can persist into
+        // the social title/description keys, so the unified box shows the real pre-fill
+        // instead and re-saving the post clears the stored placeholder.
+        // @phpstan-ignore-next-line function.alreadyNarrowedType
+        if (method_exists('Metasync_OpenGraph', 'strip_auto_draft_title')
+            && defined('Metasync_OpenGraph::AUTO_DRAFT_PRONE_KEYS')
+            && in_array($key, Metasync_OpenGraph::AUTO_DRAFT_PRONE_KEYS, true)
+        ) {
+            return Metasync_OpenGraph::strip_auto_draft_title($value);
+        }
+        return (string) $value;
     }
 
     private static function checked_attr($cond)

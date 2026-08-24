@@ -1,11 +1,10 @@
-=== Search Atlas SEO - Premier SEO Plugin for One-Click WP Publishing & Integrated AI Optimization ===
+=== Search Atlas SEO - OTTO AI SEO Automation for WordPress ===
 Contributors: shahrukhlinkgraph
-Tags: seo, ai seo, schema, sitemap, redirection
-Donate link: http://searchatlas.com
-Requires at least: 5.2
-Tested up to: 7.0
-Requires PHP: 8.2
-Stable tag: 2.6.22
+Tags: seo, ai seo, otto, otto seo, schema
+Requires at least: 6.3
+Tested up to: 7.1
+Requires PHP: 8.1
+Stable tag: 2.6.23
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -62,21 +61,63 @@ A built-in Model Context Protocol (MCP) server exposes 138 tools across 31 categ
 Search Atlas is a companion plugin for the Search Atlas platform, an external service. A Search Atlas account is required to use the AI optimization, OTTO, and content-publishing features. When connected, your site sends and receives data from Search Atlas servers to provide these features. Learn more in the Search Atlas Terms of Service (https://searchatlas.com/terms/) and Privacy Policy (https://searchatlas.com/privacy-policy/).
 
 == Installation ==
-1. Upload the `metasync` folder to the `/wp-content/plugins/` directory.
-2. Activate the plugin through the Plugins menu in WordPress.
+1. In your WordPress admin, go to Plugins, then Add New, and search for Search Atlas SEO. Click Install Now, then Activate.
+2. You need a Search Atlas account. If you do not have one, start a free trial at searchatlas.com.
+3. In Search Atlas, add your site as a project. Then, in WordPress, open the Search Atlas menu and click Connect to Search Atlas. The plugin will automatically complete the secure SSO connection.
+4. Switch OTTO on.
+
+Installing by hand: download the ZIP, upload the `metasync` folder to `/wp-content/plugins/`, then activate it from the Plugins menu. After that, continue from step 2.
 
 == Frequently Asked Questions ==
+
 = What does the Search Atlas SEO plugin do? =
-The Search Atlas SEO plugin by Linkgraph serves as a bridge between WordPress blogs and Linkgraph services, enabling data synchronization and updates via API for enhanced SEO optimization.
+It connects your WordPress site to Search Atlas so OTTO, our AI optimisation engine, can work on your pages. It applies titles, descriptions, alt text, headings, internal links and schema, and it lets you publish content straight from Search Atlas into WordPress in one click. You need a Search Atlas account to use it.
+
+= Do I need a paid Search Atlas account to use this plugin? =
+Yes. The plugin connects to your Search Atlas account, and OTTO's AI-driven SEO features are available on paid Search Atlas plans.
+
+= Where do I get my API key? =
+You don't need to enter one manually. Use the "Connect to Search Atlas" option in the plugin settings, and it will generate your API key and connect your account automatically.
+
+= Does it work alongside Yoast SEO or Rank Math? =
+Yes. The plugin detects Yoast SEO, Rank Math, and All in One SEO, avoids duplicate meta tags and schema conflicts, and includes an "Import from Other SEO Plugins" feature that imports meta titles, descriptions, canonical tags, schema, and redirects from those plugins directly into Search Atlas SEO.
+
+= How do I turn OTTO off for one page? =
+You can exclude individual URLs from OTTO processing in the plugin's OTTO settings, so those pages render as they normally would without OTTO's changes.
+
+= Can I manage 404 errors and redirects with this plugin? =
+Yes, along with a lot more - the plugin also includes media optimization, code snippets, code minification, cache busting, and much more.
 
 == Screenshots ==
 1. General Settings
 
 == Upgrade Notice ==
-= 1.4.1 =
-This version does not include the new APIs required by the AI Editor.
+= 2.6.22 =
+2.6.22 fixes OTTO breaking Divi-built pages and stops a partly finished update from taking your site's front end down. Update as soon as you can.
 
 == Changelog ==
+= 2.6.23 =
+* Improvement: The plugin now automatically detects when a host is blocking GET/POST traffic to Search Atlas, both on activation and on a weekly recheck, instead of requiring the site owner to run the check manually
+* Improvement: Pages that don't rely on sessions can now be cached by the host again on SiteGround/Oxygen sites using OTTO's HTTP render path, restoring page-load speed
+* Improvement: The Custom Pages STATUS column now shows "Published" / "Draft" / "Pending Review" instead of the raw "Publish" verb, and no longer looks like a clickable button
+* Improvement: The Excluded URLs table's description text is now readable in dark mode, and the Recheck button no longer deletes the entry it was rechecking
+* Improvement: OTTO's stale suggestion fallback is now retained for a fixed 12 hours
+* Improvement: Removed the non-functional "Grant Temporary Support Access" option from the Report Issue page, since it never actually granted any access
+* Improvement: Lowered the minimum required PHP version from 8.2 to 8.1 (AVIF image conversion still requires PHP 8.2+; WebP is unaffected)
+* Security: Schema/JSON-LD output is now safely encoded everywhere it's emitted, closing a script-injection risk from crafted field values
+* Fix: "Auto Draft" no longer gets stored as the page's social title/description when the social meta box is opened before a post has a real title
+* Fix: On non-English sites, a localized "Auto Draft" placeholder (e.g. "Automatischer Entwurf") no longer leaks into the page title, og:title or twitter:title — the earlier fix only recognized the English placeholder text
+* Fix: OTTO's status indicators (admin bar, debug bar, SEO columns) now correctly show a manually excluded URL as disabled instead of still reporting it as enabled
+* Fix: "Ends with" and "regex" OTTO URL exclusion rules are now honored on the page a visitor actually loads, not just when a URL is queued for optimization
+* Fix: A redirect rule no longer causes OTTO's internal page fetch to re-enter itself repeatedly, which could exhaust the site's PHP workers and take it offline
+* Fix: Restored host-level page caching on sites combining a booking plugin with SiteGround Optimizer, which had been forced into an always-uncached state
+* Fix: The page's <head> tag is no longer rewritten in a way that breaks other plugins or host layers that inject scripts or styles into the head
+* Fix: Google Fonts using multiple font families no longer get truncated to a single font on OTTO-rendered pages
+* Fix: Blog posts synced from Content Genius no longer lose their tables, and post markup is no longer mangled on PHP 8.4
+* Fix: Deleting the last excluded URL on a page beyond the first no longer dead-ends the list on a false "No excluded URLs found" state
+* Fix: Hidden admin pages (Local Business, Breadcrumbs, Site Verification, Setup Wizard) now show a proper browser tab title instead of a blank one
+* Fix: OTTO's internal values are no longer mirrored into Yoast / Rank Math / AIOSEO storage when the matching OTTO Persistence setting is turned off
+
 = 2.6.22 =
 * Improvement: The WordPress admin sidebar now shows a focused 8-item menu by default, with the remaining pages reachable from the plugin's in-page sidebar and a new search box for finding them
 * Improvement: The Redirections, 404 Monitor, Heartbeat Error Monitor and Media Optimization lists now have a results-per-page selector that remembers each user's choice

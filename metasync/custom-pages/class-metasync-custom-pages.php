@@ -416,7 +416,16 @@ class Metasync_Custom_Pages
          * 
          * This ensures both custom HTML design AND OTTO's SEO features work together.
          */
-        $is_otto_fetch = isset($_GET['is_otto_page_fetch']) && $_GET['is_otto_page_fetch'] === '1';
+        # Same three-signal detection as the render strategy: a redirect that
+        # rebuilds the URL strips the query parameter, and the followed hop would
+        # otherwise be mistaken for a visitor request and emit cache headers into
+        # OTTO's internal fetch.
+        # @phpstan-ignore-next-line function.alreadyNarrowedType
+        $has_fetch_detector = class_exists('Metasync_Otto_Render_Strategy') && method_exists('Metasync_Otto_Render_Strategy', 'is_internal_fetch');
+
+        $is_otto_fetch = $has_fetch_detector
+            ? Metasync_Otto_Render_Strategy::is_internal_fetch()
+            : (isset($_GET['is_otto_page_fetch']) && $_GET['is_otto_page_fetch'] === '1');
 
         // Permission check for draft/pending pages
         if ($post->post_status !== 'publish') {
@@ -447,13 +456,22 @@ class Metasync_Custom_Pages
         // Set proper headers for HTML content
         header('Content-Type: text/html; charset=utf-8');
         
-        // Cache control headers (prevent caching of preview/draft pages)
-        if ($post->post_status !== 'publish' || $is_otto_fetch) {
-            header('Cache-Control: no-cache, must-revalidate, max-age=0');
-            header('Pragma: no-cache');
-        } else {
-            // Allow caching for published pages (CDN friendly)
-            header('Cache-Control: private, max-age=3600');
+        // Cache control headers (prevent caching of preview/draft pages).
+        //
+        // Nothing is emitted on OTTO's internal fetch: that response is consumed by the
+        // plugin itself and is never served to a visitor or stored under the public URL,
+        // so a cache header there is meaningless. It is also actively harmful now — the
+        // HTTP render path reads the internal response's Cache-Control as a "this page
+        // declared itself uncacheable" signal, so emitting one here would mark every
+        // custom page uncacheable and remove host caching for the whole feature.
+        if (!$is_otto_fetch) {
+            if ($post->post_status !== 'publish') {
+                header('Cache-Control: no-cache, must-revalidate, max-age=0');
+                header('Pragma: no-cache');
+            } else {
+                // Allow caching for published pages (CDN friendly)
+                header('Cache-Control: private, max-age=3600');
+            }
         }
         
         // Output raw HTML and stop WordPress processing

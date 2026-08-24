@@ -759,7 +759,6 @@ class Metasync_Otto_Cache_Manager
         }
 
         require_once plugin_dir_path(dirname(__FILE__)) . 'otto/class-metasync-otto-excluded-urls-database.php';
-        require_once plugin_dir_path(dirname(__FILE__)) . 'otto/otto_pixel.php';
 
         $db = new Metasync_Otto_Excluded_URLs_Database();
         $row = $db->get_record_by_id($id);
@@ -769,11 +768,84 @@ class Metasync_Otto_Cache_Manager
             return;
         }
 
+        // Only an exact pattern resolves to a single URL that can be probed;
+        // contain/start/end/regex rows match many URLs, so there is nothing to check.
+        if ('exact' !== $row->pattern_type) {
+            wp_send_json_error(['message' => 'Only exact URL exclusions can be rechecked']);
+        }
+
         $url = trim($row->url_pattern);
-        $available = metasync_otto_is_url_available($url);
+
+        // The probe needs a full URL. Older rows may store a site-relative
+        // path, and a protocol-relative pattern only lacks the scheme; any
+        // other scheme-less pattern cannot be turned into one URL reliably,
+        // and guessing (host as path, other host as this site) would probe a
+        // URL nobody excluded.
+        if (null === wp_parse_url($url, PHP_URL_SCHEME)) {
+            if (0 === strpos($url, '//')) {
+                $url = wp_parse_url(home_url(), PHP_URL_SCHEME) . ':' . $url;
+            } elseif (0 === strpos($url, '/')) {
+                $url = home_url($url);
+            } else {
+                wp_send_json_success([
+                    'available' => false,
+                    'checked' => false,
+                    'message' => 'Stored pattern is not a full URL; edit the entry to include the scheme.',
+                    'url' => $url,
+                ]);
+            }
+        }
+
+        // Exclusions exist for this site's URLs, and letting the probe leave
+        // for arbitrary hosts would turn Recheck into a server-side request
+        // oracle, so the probe never targets another host.
+        $url_host = strtolower((string) wp_parse_url($url, PHP_URL_HOST));
+        $home_host = strtolower((string) wp_parse_url(home_url(), PHP_URL_HOST));
+        if ($url_host !== $home_host || '' === $url_host) {
+            wp_send_json_success([
+                'available' => false,
+                'checked' => false,
+                'message' => 'Only URLs on this site can be rechecked.',
+                'url' => $url,
+            ]);
+        }
+
+        // Probe the real URL rather than guessing from local data — a deleted
+        // post is invisible to local lookups but still 404s over HTTP.
+        $args = [
+            'timeout' => 10,
+            'redirection' => 5,
+            // Same opt-out core uses for loopback requests to this site.
+            'sslverify' => apply_filters('https_local_ssl_verify', true),
+        ];
+
+        $response = wp_remote_head($url, $args);
+
+        // Some servers and edge layers refuse HEAD outright while the page
+        // still serves to GET requests, so retry once before reporting the
+        // refusal as a verdict.
+        if (
+            !is_wp_error($response)
+            && 405 === (int) wp_remote_retrieve_response_code($response)
+        ) {
+            $response = wp_remote_get($url, $args);
+        }
+
+        if (is_wp_error($response)) {
+            wp_send_json_success([
+                'available' => false,
+                'checked' => false,
+                'message' => $response->get_error_message(),
+                'url' => $url,
+            ]);
+        }
+
+        $code = (int) wp_remote_retrieve_response_code($response);
 
         wp_send_json_success([
-            'available' => $available,
+            'available' => ($code >= 200 && $code < 400),
+            'checked' => true,
+            'status' => $code,
             'url' => $url,
         ]);
     }

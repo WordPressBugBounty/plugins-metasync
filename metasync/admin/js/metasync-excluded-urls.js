@@ -93,7 +93,7 @@
             page = page || currentPage;
             var $container = $('#otto-excluded-urls-table-container');
 
-            $container.html('<div style="text-align: center; padding: 40px; color: #6c757d;"><p>Loading...</p></div>');
+            $container.html('<div class="otto-table-message"><p>Loading...</p></div>');
 
             $.ajax({
                 url: ajaxUrl,
@@ -106,14 +106,21 @@
                 },
                 success: function (response) {
                     if (response.success) {
+                        // Page emptied (e.g. last record on it was deleted): fall
+                        // back to the previous page instead of showing the
+                        // empty-state message while records still exist.
+                        if (page > 1 && (!response.data.records || response.data.records.length === 0)) {
+                            loadExcludedURLs(page - 1);
+                            return;
+                        }
                         currentPage = page;
                         renderExcludedURLsTable(response.data.records, response.data.pagination);
                     } else {
-                        $container.html('<div style="text-align: center; padding: 40px; color: #dc3545;"><p>Error loading excluded URLs</p></div>');
+                        $container.html('<div class="otto-table-message otto-error-message"><p>Error loading excluded URLs</p></div>');
                     }
                 },
                 error: function () {
-                    $container.html('<div style="text-align: center; padding: 40px; color: #dc3545;"><p>Failed to load excluded URLs</p></div>');
+                    $container.html('<div class="otto-table-message otto-error-message"><p>Failed to load excluded URLs</p></div>');
                 }
             });
         }
@@ -122,7 +129,7 @@
             var $container = $('#otto-excluded-urls-table-container');
 
             if (!records || records.length === 0) {
-                $container.html('<div style="text-align: center; padding: 40px; color: #6c757d;"><p>No excluded URLs found. Add one above to get started.</p></div>');
+                $container.html('<div class="otto-table-message"><p>No excluded URLs found. Add one above to get started.</p></div>');
                 return;
             }
 
@@ -139,11 +146,16 @@
                 html += '<tr>';
                 html += '<td><code>' + escapeHtml(record.url_pattern) + '</code></td>';
                 html += '<td><span class="otto-pattern-type-badge otto-pattern-' + record.pattern_type + '">' + formatPatternType(record.pattern_type) + '</span></td>';
-                html += '<td>' + (record.description ? escapeHtml(record.description) : '<span style="color: #999;">\u2014</span>') + '</td>';
+                html += '<td>' + (record.description ? escapeHtml(record.description) : '<span class="otto-muted">\u2014</span>') + '</td>';
                 html += '<td>' + formatRecheckAfter(record) + '</td>';
                 html += '<td><span class="otto-actions">';
-                html += '<button type="button" class="button button-small otto-recheck-url" data-id="' + record.id + '" style="margin-right: 5px;">\uD83D\uDD04 Recheck</button>';
-                html += '<button type="button" class="button button-small otto-delete-url" data-id="' + record.id + '" style="color: #dc3545;">\uD83D\uDDD1\uFE0F Delete</button>';
+                if (record.pattern_type === 'exact') {
+                    html += '<button type="button" class="button button-small otto-recheck-url" data-id="' + record.id + '" style="margin-right: 5px;">\uD83D\uDD04 Recheck</button>';
+                } else {
+                    // Pattern rows match many URLs, so a single probe would be meaningless.
+                    html += '<button type="button" class="button button-small" disabled title="Only exact URL exclusions can be rechecked" style="margin-right: 5px;">\uD83D\uDD04 Recheck</button>';
+                }
+                html += '<button type="button" class="button button-small otto-delete-url" data-id="' + record.id + '">\uD83D\uDDD1\uFE0F Delete</button>';
                 html += '</span></td>';
                 html += '</tr>';
             });
@@ -208,6 +220,9 @@
             });
         }
 
+        // Recheck probes the URL over HTTP and only reports what came back.
+        // Removing the entry is the Delete button's job, so this must never
+        // fall through into a delete.
         function recheckExcludedURL(id, $btn) {
             var originalText = $btn.text();
             $btn.prop('disabled', true).text('Checking...');
@@ -223,12 +238,14 @@
                 success: function (response) {
                     $btn.prop('disabled', false).text(originalText);
                     if (response.success) {
-                        if (response.data.available) {
-                            if (confirm('This URL is now available. Do you want to remove it from the excluded list?')) {
-                                deleteExcludedURL(id);
-                            }
+                        if (!response.data.checked) {
+                            alert('Could not check this URL: ' + (response.data.message || 'request failed') + '. The site may block loopback requests.');
+                        } else if (response.data.available) {
+                            alert('This URL is reachable again (HTTP ' + response.data.status + '). It stays on the excluded list; use Delete on this row to remove the exclusion.');
+                        } else if (response.data.status === 404 || response.data.status === 410) {
+                            alert('This URL is still returning HTTP ' + response.data.status + '.');
                         } else {
-                            alert('This URL is still returning 404.');
+                            alert('This URL returned HTTP ' + response.data.status + ', so it may not be reachable for crawlers.');
                         }
                     } else {
                         alert('Error: ' + (response.data.message || 'Recheck failed'));
@@ -291,7 +308,7 @@
 
         function formatRecheckAfter(record) {
             if (!record.auto_excluded || !record.recheck_after) {
-                return '<span style="color: #999;">NA</span>';
+                return '<span class="otto-muted">NA</span>';
             }
             var d = new Date(record.recheck_after.replace(' ', 'T'));
             if (isNaN(d.getTime())) {

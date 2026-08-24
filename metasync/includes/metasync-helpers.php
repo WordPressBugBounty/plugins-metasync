@@ -147,3 +147,121 @@ if (!function_exists('metasync_discard_buffered_output')) {
         return true;
     }
 }
+
+if (!function_exists('metasync_escape_json_ld_for_script')) {
+    /**
+     * Escape a JSON document string for safe embedding inside a
+     * `<script type="application/ld+json">` element.
+     *
+     * A JSON-LD block lives inside the HTML document, so a string value that
+     * contains the literal `</script>` (or any `</` that could grow into one)
+     * would let the browser close the script element early and parse the rest
+     * of the payload as page markup (XSS / page corruption). JSON itself has
+     * no closing-tag concept, so the sequence is neutralised by replacing every
+     * `</` with `<\/` — `\/` is a valid JSON escape for `/`, so any
+     * spec-compliant JSON consumer (Google, validators, OTTO) decodes the value
+     * back to identical content.
+     *
+     * @param string $json An already-encoded JSON document.
+     * @return string The escaped JSON, safe to echo inside a script element.
+     */
+    function metasync_escape_json_ld_for_script($json){
+        return str_replace('</', '<\/', (string) $json);
+    }
+}
+
+if (!function_exists('metasync_safe_json_ld_encode')) {
+    /**
+     * Encode a JSON-LD document so it is safe to embed inside a
+     * `<script type="application/ld+json">` element.
+     *
+     * Encodes with wp_json_encode() using the caller's flags, then applies
+     * metasync_escape_json_ld_for_script() so a literal `</script>` inside any
+     * string value cannot break out of the surrounding script block. When no
+     * `</` is present the output is byte-identical to wp_json_encode().
+     *
+     * @param mixed $data  The JSON-LD document to encode.
+     * @param int   $flags json_encode bitmask, e.g. JSON_UNESCAPED_SLASHES.
+     * @return string|false The safely-encoded JSON, or false on encode failure
+     *                     (mirrors wp_json_encode semantics).
+     */
+    function metasync_safe_json_ld_encode($data, $flags = JSON_UNESCAPED_SLASHES){
+        $json = wp_json_encode($data, $flags);
+
+        if (!is_string($json)) {
+            return $json;
+        }
+
+        return metasync_escape_json_ld_for_script($json);
+    }
+}
+
+if (!function_exists('metasync_escape_json_ld_blocks_in_html')) {
+    /**
+     * Escape every JSON-LD script block inside an HTML fragment.
+     *
+     * Remote HTML fragments (e.g. OTTO's header insertion) arrive as assembled
+     * markup, so a JSON string value that contains a literal `</script>` cannot
+     * be fixed with a naive non-greedy `<script>...</script>` match — the match
+     * would stop at the injected closer and leave the payload live. Instead,
+     * for each `application/ld+json` opening tag the content is extended past
+     * successive closing tags until it parses as valid JSON: that is the span
+     * the producer meant to be script content, so every `</` inside it is
+     * neutralised as `<\/` (a valid JSON escape decoding to the same value).
+     *
+     * Blocks whose content never parses as JSON are left untouched rather than
+     * guessing at their extent. Non-JSON-LD script tags are never modified.
+     *
+     * @param string $html HTML fragment possibly containing JSON-LD blocks.
+     * @return string Fragment with JSON-LD payload closers escaped.
+     */
+    function metasync_escape_json_ld_blocks_in_html($html){
+        $html = (string) $html;
+        if (stripos($html, 'application/ld+json') === false) {
+            return $html;
+        }
+
+        preg_match_all('/<script\b[^>]*application\/ld\+json[^>]*>/i', $html, $opens, PREG_OFFSET_CAPTURE);
+        if (empty($opens[0])) {
+            return $html;
+        }
+        if (!preg_match_all('/<\/script\s*>/i', $html, $closers, PREG_OFFSET_CAPTURE)) {
+            return $html;
+        }
+
+        $result        = $html;
+        $processed_from = PHP_INT_MAX;
+
+        // Right to left, so escaping a block never invalidates the offsets of
+        // the blocks still to be processed.
+        for ($i = count($opens[0]) - 1; $i >= 0; $i--) {
+            $open          = $opens[0][$i];
+            $content_start = $open[1] + strlen($open[0]);
+            if ($open[1] >= $processed_from) {
+                continue; // already inside an escaped span
+            }
+
+            foreach ($closers[0] as $closer) {
+                $end = $closer[1];
+                if ($end <= $content_start) {
+                    continue;
+                }
+
+                $candidate = substr($html, $content_start, $end - $content_start);
+                json_decode($candidate);
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    continue; // keep extending to the next closing tag
+                }
+
+                $escaped = str_replace('</', '<\/', $candidate);
+                if ($escaped !== $candidate) {
+                    $result = substr_replace($result, $escaped, $content_start, $end - $content_start);
+                }
+                $processed_from = min($processed_from, $content_start);
+                break;
+            }
+        }
+
+        return $result;
+    }
+}

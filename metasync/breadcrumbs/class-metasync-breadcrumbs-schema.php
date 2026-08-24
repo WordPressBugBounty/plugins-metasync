@@ -112,8 +112,13 @@ class Metasync_Breadcrumbs_Schema {
             ),
         );
 
+        $json = metasync_safe_json_ld_encode($json_ld, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+        if (!is_string($json) || $json === '') {
+            return;
+        }
+
         echo '<script type="application/ld+json" class="metasync-breadcrumb-schema">' . "\n";
-        echo wp_json_encode($json_ld, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+        echo $json;
         echo "\n" . '</script>' . "\n";
 
         self::$breadcrumb_list_injected = true;

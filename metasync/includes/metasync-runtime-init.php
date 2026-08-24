@@ -64,6 +64,21 @@ function metasync_init_review_notice() {
 add_action('init', 'metasync_init_review_notice');
 
 /**
+ * Initialize Host Blocking Check
+ * Owns the shared GET/POST reachability probe, its post-activation + weekly crons,
+ * and the warning notice. Initialised unconditionally (not gated on is_admin) because
+ * the cron callbacks must be registered on WP-Cron requests, where is_admin() is false.
+ * @since 2.8.x
+ */
+function metasync_init_host_blocking_check() {
+	if (metasync_is_non_metasync_admin_ajax()) {
+		return;
+	}
+	Metasync_Host_Blocking_Check::get_instance();
+}
+add_action('plugins_loaded', 'metasync_init_host_blocking_check');
+
+/**
  * Global convenience function to get active JWT token
  * Can be called from anywhere in WordPress (themes, other plugins, etc.)
  * 

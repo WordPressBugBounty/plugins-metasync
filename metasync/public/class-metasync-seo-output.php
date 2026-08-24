@@ -596,7 +596,7 @@ class Metasync_Seo_Output
 			return;
 		}
 
-		$json = wp_json_encode($schema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+		$json = metasync_safe_json_ld_encode($schema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 		if (empty($json)) {
 			return;
 		}

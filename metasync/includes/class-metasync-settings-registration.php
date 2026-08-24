@@ -629,6 +629,64 @@ class Metasync_Settings_Registration
             $SECTION_METASYNC
         );
 
+        # SiteGround Optimizer compatibility mode setting
+        add_settings_field(
+            'otto_sg_optimizer_compat',
+            'SiteGround Optimizer Compatibility',
+            function() use ($option_key) {
+                $value = Metasync::get_option('general')['otto_sg_optimizer_compat'] ?? 'auto';
+                $sg_optimizer_active = defined('SiteGround_Optimizer\VERSION') || class_exists('SiteGround_Optimizer\Parser\Parser');
+
+                echo '<select id="otto_sg_optimizer_compat" name="' . $option_key . '[general][otto_sg_optimizer_compat]">';
+                echo '<option value="auto"' . selected($value, 'auto', false) . '>Auto (Recommended)</option>';
+                echo '<option value="buffer"' . selected($value, 'buffer', false) . '>Buffer Mode (Faster)</option>';
+                echo '<option value="http"' . selected($value, 'http', false) . '>HTTP Mode (Safer)</option>';
+                echo '</select>';
+
+                if ($sg_optimizer_active) {
+                    echo '<p class="description" style="color: #0073aa; margin-top: 8px;">✓ SiteGround Optimizer detected - compatibility mode active</p>';
+                }
+
+                echo '<p class="description" style="margin-top: 8px;">';
+                echo '<strong>Auto (Recommended):</strong> Uses the internal HTTP fetch method with SG Optimizer, protecting themes that defer inline CSS to the footer (e.g. Divi).<br>';
+                echo '<strong>Buffer Mode (Faster):</strong> Renders in-process with no internal page fetch, roughly halving uncached render time. Best when pages can never be host-cached anyway (e.g. a plugin starts a PHP session on every request — though MetaSync already removes that automatically for BookingPress). May conflict with Divi-style themes.<br>';
+                echo '<strong>HTTP Mode:</strong> Forces the internal HTTP fetch method. Slower but more compatible.';
+                echo '</p>';
+            },
+            $page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        # BookingPress front-end session compatibility setting.
+        # Only registered when BookingPress is actually present on the site:
+        # the shim no-ops without it, so the field would be noise for every
+        # other install. The stored value survives while the field is hidden
+        # (the save loop is isset-guarded and keeps absent keys).
+        if (class_exists('bookingpress_spam_protection')) {
+            add_settings_field(
+                'bookingpress_session_compat',
+                'BookingPress Session Compatibility',
+                function() use ($option_key) {
+                    $value = Metasync::get_option('general')['bookingpress_session_compat'] ?? 'auto';
+
+                    echo '<select id="bookingpress_session_compat" name="' . $option_key . '[general][bookingpress_session_compat]">';
+                    echo '<option value="auto"' . selected($value, 'auto', false) . '>Auto (Recommended)</option>';
+                    echo '<option value="off"' . selected($value, 'off', false) . '>Disabled</option>';
+                    echo '</select>';
+
+                    echo '<p class="description" style="color: #0073aa; margin-top: 8px;">✓ BookingPress detected - its front-end session start is removed so pages can be host-cached</p>';
+
+                    echo '<p class="description" style="margin-top: 8px;">';
+                    echo 'BookingPress starts a PHP session on every public page, which makes hosts (e.g. SiteGround) skip their page cache for the whole site. Its booking forms run through admin-ajax and manage their own sessions there, so the page session is not needed. Visitors with an active BookingPress cart keep the session until their cart cookie clears.<br>';
+                    echo '<strong>Auto (Recommended):</strong> Removes the unnecessary session start on public pages so page caching can work.<br>';
+                    echo '<strong>Disabled:</strong> Leaves BookingPress exactly as installed (no page caching while it stays active).';
+                    echo '</p>';
+                },
+                $page_slug . '_general',
+                $SECTION_METASYNC
+            );
+        }
+
         /**
          * BOT DETECTION SETTINGS FOR OTTO
          * @since 1.0.0
@@ -2399,7 +2457,9 @@ class Metasync_Settings_Registration
             'white_label_plugin_menu_icon', 'enabled_plugin_css',
             'enabled_elementor_plugin_css_color','enabled_elementor_plugin_css',
             'otto_pixel_uuid','periodic_clear_otto_cache','periodic_clear_ottopage_cache',
-            'periodic_clear_ottopost_cache', 'whitelabel_otto_name', 'otto_wp_rocket_compat'
+            'periodic_clear_ottopost_cache', 'whitelabel_otto_name', 'otto_wp_rocket_compat',
+            'otto_sg_optimizer_compat',
+            'bookingpress_session_compat'
         ];
 
         $url_fields = [

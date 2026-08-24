@@ -172,6 +172,12 @@ class Metasync
 			require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-admin-navigation.php';
 		}
 
+		// Hooked on init at priority 0, before any theme or plugin callback
+		// runs, so it cannot wait for a lazy autoload. See define_public_hooks.
+		if (!class_exists('Metasync_BookingPress_Compat')) {
+			require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-bookingpress-compat.php';
+		}
+
 		$this->loader = new Metasync_Loader();
 		$this->db_heartbeat_errors = new Metasync_HeartBeat_Error_Monitor_Database();
 		$this->db_redirection = new Metasync_Redirection_Database();
@@ -410,6 +416,14 @@ class Metasync
 
 		// Edge Cache: detect Cloudways Varnish and persist for settings UI
 		$this->loader->add_action('init', 'Metasync_Edge_Cache_Purge', 'detect_cloudways');
+
+		// BookingPress starts a PHP session on every front-end request (init
+		// at priority 1), which makes hosts skip page caching site-wide. Its
+		// booking flows manage their own sessions inside their AJAX handlers,
+		// so unhook the global start. Priority 0 keeps this ahead of theirs.
+		// Registered with add_action directly (like Metasync_Oxygen_Compat)
+		// because the loader's $component parameter is typed to objects.
+		add_action('init', ['Metasync_BookingPress_Compat', 'neutralize_bookingpress_session'], 0);
 
 		// Sitemap exclusions for disabled archive types
 		$this->loader->add_filter('wp_sitemaps_taxonomies', $seo_output, 'filter_sitemap_taxonomies');

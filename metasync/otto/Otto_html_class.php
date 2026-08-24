@@ -15,6 +15,11 @@ use simplehtmldom\HtmlDocument;
 
 Class Metasync_otto_html{
 
+    # Marker announcing that OTTO processed this <head>. Deliberately a comment
+    # rather than an attribute on the tag — see mark_head_optimized().
+    const HEAD_OPTIMIZED_TOKEN  = 'metasync_optimized';
+    const HEAD_OPTIMIZED_MARKER = '<!--metasync_optimized-->';
+
     # html dom
     private $dom;
 
@@ -564,6 +569,50 @@ Class Metasync_otto_html{
     }
 
     /**
+     * Mark the <head> as OTTO-processed without altering the <head> tag itself.
+     *
+     * This marker used to be an attribute — <head metasync_optimized> — which
+     * removed the literal string "<head>" from the document. Anything that
+     * injects into the head with a literal str_replace('<head>', ...) then found
+     * no match on the real tag and silently matched the *next* literal "<head>"
+     * further down the page. That next one can sit inside a JS comment, a <pre>
+     * block or escaped documentation text; injecting a <script>...</script> there
+     * closes the enclosing script early, strands the rest of its code as a text
+     * node in <head>, and the browser therefore ends <head> at that point —
+     * pushing title, canonical, OG/Twitter and JSON-LD into <body>, where
+     * crawlers and social scrapers ignore them.
+     *
+     * A comment placed immediately after the tag carries the same signal and
+     * leaves the tag byte-identical. Note that an HTML minifier may strip
+     * comments, so treat the <meta name="otto"> tag as the durable marker; this
+     * one is a convenience for support and QA.
+     *
+     * Only the first <head> is marked. The real tag is always the first one in
+     * the document, so this pass cannot wander the way a bare literal match can.
+     *
+     * @param string $html Serialized HTML.
+     * @return string
+     */
+    private function mark_head_optimized($html)
+    {
+        # Idempotent, and also a no-op on pages still carrying the legacy
+        # attribute form (e.g. HTML already in a page cache).
+        if ($html === '' || strpos($html, self::HEAD_OPTIMIZED_TOKEN) !== false) {
+            return $html;
+        }
+
+        $out = preg_replace(
+            '/(<head(?:\s[^>]*)?>)/i',
+            '$1' . self::HEAD_OPTIMIZED_MARKER,
+            $html,
+            1
+        );
+
+        # Belt-and-suspenders: if PCRE fails for any reason, keep the input.
+        return $out === null ? $html : $out;
+    }
+
+    /**
      * Apply OTTO's canonical via string replacement (reliable fallback).
      *
      * Why the DOM path fails: do_header_replacements() sets the canonical with a
@@ -954,6 +1003,33 @@ Class Metasync_otto_html{
         # Get the response code
         $response_code = wp_remote_retrieve_response_code($route_html);
 
+        # Capture the internal fetch's `Set-Cookie`. On the HTTP path OTTO keeps only the
+        # body below and would otherwise discard this — but it is both the form/session
+        # signal for the caching decision AND (same-origin only) the session the visitor
+        # needs for their forms to work. $request_body is the URL actually fetched (it may
+        # be rewritten to localhost for tunnels), so only allow pass-through when its
+        # scheme+host match the visitor's; otherwise we would set a wrong-domain cookie.
+        if (class_exists('Metasync_Otto_Render_Strategy')) {
+            $fetch_set_cookie = wp_remote_retrieve_header($route_html, 'set-cookie');
+            $fetch_parts      = wp_parse_url($request_body);
+            $visitor_host     = preg_replace('/:\d+$/', '', $_SERVER['HTTP_HOST'] ?? '');
+            $same_origin      = !empty($fetch_parts['host'])
+                && strcasecmp($fetch_parts['host'], $visitor_host) === 0
+                && ((($fetch_parts['scheme'] ?? '') === 'https') === (bool) is_ssl());
+            Metasync_Otto_Render_Strategy::set_http_fetch_cookie($fetch_set_cookie, $same_origin);
+
+            # Also record the internal response's own `Cache-Control`. When the page's
+            # render starts a PHP session, PHP emits its session cache-limiter headers
+            # (`no-store, no-cache, must-revalidate`) — and it does so whether the session
+            # is new OR resumed, so this catches session pages that set no NEW cookie and
+            # would otherwise look cacheable. It is read as a signal only and never
+            # forwarded to the visitor: our own no-cache request header is not echoed into
+            # the response, so this cannot make ordinary pages uncacheable.
+            Metasync_Otto_Render_Strategy::set_http_fetch_cache_control(
+                wp_remote_retrieve_header($route_html, 'cache-control')
+            );
+        }
+
 
         # check not empty
         if(empty($html_body) || $response_code !== 200){
@@ -1147,12 +1223,15 @@ Class Metasync_otto_html{
 
         # Apply insertions — only if DOM insertion didn't already apply it
         if (!empty($replacement_data['header_html_insertion'])) {
-            $header_html_check = trim($replacement_data['header_html_insertion']);
+            # Escape JSON-LD payload closers first; the DOM path inserts the
+            # same escaped bytes, so the already-applied check must match them.
+            $escaped_header_insertion = metasync_escape_json_ld_blocks_in_html($replacement_data['header_html_insertion']);
+            $header_html_check = trim($escaped_header_insertion);
             if (strpos($result_html, $header_html_check) === false) {
                 $header_html_insertion = preg_replace(
                     '/<script(\s[^>]*)type\s*=\s*(["\'])application\/ld\+json\2/i',
                     '<script$1type=$2application/ld+json$2 data-otto="true"',
-                    $replacement_data['header_html_insertion']
+                    $escaped_header_insertion
                 );
                 $safe_header = str_replace(array('\\', '$'), array('\\\\', '\\$'), $header_html_insertion);
                 $result_html = preg_replace('/(<\/head>)/i', $safe_header . "\n" . '$1', $result_html, 1);
@@ -1189,9 +1268,9 @@ Class Metasync_otto_html{
         $result_html = $this->otto_guard_html($this->deduplicate_schema_tags($result_html), $result_html, 'deduplicate_schema_tags');
         $result_html = $this->otto_guard_html($this->deduplicate_canonical_tags($result_html), $result_html, 'deduplicate_canonical_tags');
 
-        # Ensure metasync_optimized attribute on <head> (post-serialization so dom->clear() can't wipe it)
-        if (!$this->is_amp_page() && strpos($result_html, 'metasync_optimized') === false) {
-            $result_html = preg_replace('/<head(\s|>)/i', '<head metasync_optimized$1', $result_html, 1);
+        # Mark the <head> as processed (post-serialization so dom->clear() can't wipe it)
+        if (!$this->is_amp_page()) {
+            $result_html = $this->mark_head_optimized($result_html);
         }
 
         $result_html = $this->otto_guard_html($this->restore_case_sensitive_attributes($result_html), $result_html, 'restore_case_sensitive_attributes');
@@ -1221,6 +1300,10 @@ Class Metasync_otto_html{
         # undo double-encoded numeric/hex character references produced by the
         # bundled simplehtmldom serializer from attributes like data-x-icon-s="&#xf3c5".
         $result_html = $this->otto_guard_html($this->repair_double_encoded_entities($result_html), $result_html, 'repair_double_encoded_entities');
+
+        # restore literal '&' query-string separators the serializer escaped to
+        # '&amp;', which silently truncates multi-family Google Fonts URLs.
+        $result_html = $this->otto_guard_html($this->repair_query_string_ampersands($result_html), $result_html, 'repair_query_string_ampersands');
 
         # Remove any lazy-video facade <style> hoisted into the page
         # (runs while srcdoc is still tokenized, so the iframe's own copy is safe).
@@ -1263,6 +1346,116 @@ Class Metasync_otto_html{
             return $html;
         }
         return preg_replace('/&amp;(#x[0-9a-fA-F]+;?|#[0-9]+;?)/', '&$1', $html);
+    }
+
+    /**
+     * Restore literal '&' query-string separators inside URL attributes.
+     *
+     * HtmlNode::makeup() serialises every attribute through htmlentities(), so a
+     * separator that arrived as a bare '&' - or as '&#038;', which HtmlDocument
+     * decodes to '&' when it parses the attribute - is written back as '&amp;'.
+     * Both forms decode to '&' in a conforming HTML parser, so the browser is
+     * unaffected. A consumer that reads the raw attribute WITHOUT decoding
+     * entities sees a different URL, and Cloudflare Fonts is one of those: it
+     * refetches fonts.googleapis.com/css2?family=A&amp;family=B, Google treats
+     * only the first 'family=' as a real parameter (the rest arrive named
+     * 'amp;family'), and every font after the first is dropped from the response.
+     * The page keeps its font-family declarations but loses the @font-face rules,
+     * so text silently falls back to a system font.
+     *
+     * Rewrites only a '&amp;' that is immediately followed by a parameter name
+     * and '=', and only inside the listed URL attributes. A '&amp;' elsewhere is
+     * left escaped, and the mandatory '=' in the lookahead (with ';' excluded
+     * from the name class) means no ambiguous ampersand ('&' + alphanumerics +
+     * ';') is ever produced.
+     *
+     * All three delimiter forms the serializer can emit are handled: double
+     * quoted, single quoted, and unquoted - makeup() preserves HDOM_QUOTE_NO and
+     * emits no delimiter for a value with no whitespace, which is common on
+     * minified themes. ENT_COMPAT also leaves "'" unescaped, so a double-quoted
+     * value may legitimately contain an apostrophe.
+     *
+     * The attribute list stops at attributes whose value is always a URL.
+     * 'content' is deliberately excluded because it also carries prose
+     * (<meta name="description" content="A &amp; B">), where unescaping would
+     * corrupt visible text. Attributes read only via JavaScript getAttribute()
+     * do not need it either - the DOM decodes entities for them; only consumers
+     * that scan raw HTML are affected.
+     *
+     * <script>/<style>/<textarea>/<noscript> bodies and comments are shielded
+     * first. Those are verbatim or RCDATA regions, not markup: rewriting bytes
+     * there would edit a JS string literal, or turn "&amp;copy=2" in a textarea
+     * into "(c)=2" once the browser decodes it.
+     *
+     * Plain negated character classes only - no tempered-greedy lookaheads, which
+     * blow the PCRE JIT stack on pages with very large inline blocks.
+     *
+     * @param string $html Serialized HTML from save()/outertext.
+     * @return string
+     */
+    private function repair_query_string_ampersands($html) {
+        # strpos guard: skip the regex entirely when there is nothing to repair
+        if (strpos($html, '&amp;') === false) {
+            return $html;
+        }
+
+        # Shield verbatim / RCDATA regions and comments before touching anything.
+        # Masking also shrinks large inline blocks to a token, so the attribute
+        # pass never walks them.
+        $shielded = array();
+        $masked = preg_replace_callback(
+            '/<(script|style|textarea|noscript)\b[^>]*>.*?<\/\1>|<!--.*?-->/is',
+            function ($m) use (&$shielded) {
+                $token = '<!--METASYNC_QSA_' . count($shielded) . '-->';
+                $shielded[$token] = $m[0];
+                return $token;
+            },
+            $html
+        );
+
+        # preg_* returns null on a PCRE failure; keep the original document.
+        if ($masked === null) {
+            return $html;
+        }
+
+        $repaired = preg_replace_callback(
+            '/(\s(?:href|src|srcset|data-src|data-srcset|poster|action)\s*=\s*)(?:"([^"<>]*)"|\'([^\'<>]*)\'|([^\s"\'<>]+))/i',
+            function ($m) {
+                # Pick the delimiter branch that matched. An empty value carries
+                # no query string, so the ambiguity between an empty quoted value
+                # and an unset group cannot change the outcome.
+                if (isset($m[4]) && $m[4] !== '') { // @phpstan-ignore notIdentical.alwaysTrue (preg fills non-participating groups with '' - this check is what tells the unquoted branch from the quoted ones)
+                    $quote = '';
+                    $value = $m[4];
+                } elseif (isset($m[3]) && $m[3] !== '') {
+                    $quote = "'";
+                    $value = $m[3];
+                } else {
+                    $quote = '"';
+                    $value = isset($m[2]) ? $m[2] : '';
+                }
+
+                # Only a value carrying a query string can hold separators.
+                if (strpos($value, '?') === false || strpos($value, '&amp;') === false) {
+                    return $m[0];
+                }
+
+                $fixed = preg_replace('/&amp;(?=[A-Za-z0-9_.\[\]%\-]+=)/', '&', $value);
+
+                if ($fixed === null) {
+                    return $m[0];
+                }
+
+                return $m[1] . $quote . $fixed . $quote;
+            },
+            $masked
+        );
+
+        if ($repaired === null) {
+            return $html;
+        }
+
+        return empty($shielded) ? $repaired : strtr($repaired, $shielded);
     }
 
     # do the footer html insertion
@@ -2405,6 +2598,32 @@ Class Metasync_otto_html{
     }
 
     /**
+     * Read one of the meta box's social title/description keys with the "Auto Draft"
+     * placeholder collapsed to ''.
+     *
+     * Delegates to Metasync_OpenGraph so the placeholder definition lives in one
+     * place. Falls back to a raw read when that class — or that method on it — is
+     * unavailable: this buffer filter runs on the front end, and a partially updated
+     * install can pair a newer otto/ file with an older includes/ one, where calling
+     * a method the loaded class doesn't define would fatal the page rather than
+     * degrade.
+     *
+     * @param  int    $post_id
+     * @param  string $key
+     * @return string
+     */
+    private function social_meta($post_id, $key) {
+        // PHPStan resolves the literal class-string against the current source and so
+        // sees the method as always present; the check is deliberate runtime
+        // version-skew defence. Suppressed the same way otto_pixel.php does.
+        // @phpstan-ignore-next-line function.alreadyNarrowedType
+        if (method_exists('Metasync_OpenGraph', 'get_social_meta')) {
+            return Metasync_OpenGraph::get_social_meta($post_id, $key);
+        }
+        return (string) get_post_meta($post_id, $key, true);
+    }
+
+    /**
      * Apply the per-post "Social Media & Open Graph" meta box precedence over OTTO.
      *
      * Precedence per tag: an explicit meta box value set by the user wins over OTTO;
@@ -2445,14 +2664,20 @@ Class Metasync_otto_html{
 
         # Explicit (user-typed) meta box values. A non-empty value means the user set
         # this field themselves and it must take priority over OTTO.
-        $og_title_set     = get_post_meta($post_id, '_metasync_og_title', true);
-        $og_desc_set      = get_post_meta($post_id, '_metasync_og_description', true);
+        #
+        # The four social title/description keys are read through
+        # Metasync_OpenGraph::get_social_meta(), which collapses the "Auto Draft"
+        # placeholder to ''. Without that, a row polluted by the meta box pre-fill on a
+        # brand-new post reads as a deliberate override here (it differs from the real
+        # title) and would beat OTTO's correct og:title.
+        $og_title_set     = $this->social_meta($post_id, '_metasync_og_title');
+        $og_desc_set      = $this->social_meta($post_id, '_metasync_og_description');
         $og_image_set     = get_post_meta($post_id, '_metasync_og_image', true);
         $og_type_set      = get_post_meta($post_id, '_metasync_og_type', true);
         $tw_card_set      = get_post_meta($post_id, '_metasync_twitter_card', true);
         $tw_site_set      = get_post_meta($post_id, '_metasync_twitter_site', true);
-        $tw_title_set     = get_post_meta($post_id, '_metasync_twitter_title', true);
-        $tw_desc_set      = get_post_meta($post_id, '_metasync_twitter_description', true);
+        $tw_title_set     = $this->social_meta($post_id, '_metasync_twitter_title');
+        $tw_desc_set      = $this->social_meta($post_id, '_metasync_twitter_description');
         $tw_image_set     = get_post_meta($post_id, '_metasync_twitter_image', true);
         $tw_image_alt_set = get_post_meta($post_id, '_metasync_twitter_image_alt', true);
 
@@ -2827,16 +3052,21 @@ Class Metasync_otto_html{
         $kept = array_merge($otto_by_type, array_diff_key($third_by_type, $otto_by_type));
         $rebuilt = '';
         foreach ($kept as $decoded) {
-            $rebuilt .= '<script type="application/ld+json" data-otto="true">' .
-                        wp_json_encode($decoded) . "</script>\n";
+            $json = metasync_safe_json_ld_encode($decoded, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if (!is_string($json) || $json === '') {
+                continue; // never re-emit a block whose payload failed to encode
+            }
+            $rebuilt .= '<script type="application/ld+json" data-otto="true">' . $json . "</script>\n";
         }
 
         // Re-insert merged @graph block (if any entries exist)
         $merged_graph = array_merge($third_graph, $otto_graph); // OTTO wins on duplicate @type
         if (!empty($merged_graph)) {
             $graph_obj = ['@context' => 'https://schema.org', '@graph' => array_values($merged_graph)];
-            $rebuilt .= '<script type="application/ld+json" data-otto="true">' .
-                        wp_json_encode($graph_obj) . "</script>\n";
+            $graph_json = metasync_safe_json_ld_encode($graph_obj, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if (is_string($graph_json) && $graph_json !== '') {
+                $rebuilt .= '<script type="application/ld+json" data-otto="true">' . $graph_json . "</script>\n";
+            }
         }
 
         // Re-inject before </head>
@@ -2890,17 +3120,20 @@ Class Metasync_otto_html{
 
         if ($head) {
 
-            # Check if this is an AMP page - if so, don't add metasync_optimized attribute
+            # Check if this is an AMP page - if so, skip the processed marker
             $is_amp_page = $this->is_amp_page();
 
-            # Append the new HTML at the start of the <head> tag
-            # For AMP pages: use clean <head> tag without metasync_optimized attribute
-            # For non-AMP pages: add metasync_optimized attribute to <head> tag
-            if ($is_amp_page) {
-                $head->outertext = '<head>' .$data['header_html_insertion']. $head->innertext . '</head>';
-            } else {
-                $head->outertext = '<head metasync_optimized>' .$data['header_html_insertion']. $head->innertext . '</head>';
-            }
+            # Append the new HTML at the start of the <head> tag. The tag itself
+            # stays a literal '<head>' either way, so plugins that inject with a
+            # literal str_replace('<head>', ...) still match the real tag —
+            # see mark_head_optimized() for what breaks when it does not.
+            $marker = $is_amp_page ? '' : self::HEAD_OPTIMIZED_MARKER;
+
+            # Escape JSON-LD payload closers so a `</script>` inside a JSON
+            # string value cannot terminate the element early (XSS/page corruption).
+            $escaped_header_insertion = metasync_escape_json_ld_blocks_in_html($data['header_html_insertion']);
+
+            $head->outertext = '<head>' . $marker . $escaped_header_insertion . $head->innertext . '</head>';
 
         }
 
@@ -3284,12 +3517,15 @@ Class Metasync_otto_html{
 
             # Apply header HTML insertion (for schema, etc.) — only if DOM insertion didn't already apply it
             if (!empty($replacement_data['header_html_insertion'])) {
-                $header_html_check = trim($replacement_data['header_html_insertion']);
+                # Escape JSON-LD payload closers first; the DOM path inserts the
+                # same escaped bytes, so the already-applied check must match them.
+                $escaped_header_insertion = metasync_escape_json_ld_blocks_in_html($replacement_data['header_html_insertion']);
+                $header_html_check = trim($escaped_header_insertion);
                 if (strpos($result_html, $header_html_check) === false) {
                     $header_html_insertion = preg_replace(
                         '/<script(\s[^>]*)type\s*=\s*(["\'])application\/ld\+json\2/i',
                         '<script$1type=$2application/ld+json$2 data-otto="true"',
-                        $replacement_data['header_html_insertion']
+                        $escaped_header_insertion
                     );
                     $header_html = str_replace(array('\\', '$'), array('\\\\', '\\$'), $header_html_insertion);
                     # Insert before </head>
@@ -3444,9 +3680,9 @@ Class Metasync_otto_html{
             # Clear element cache array
             $this->cached_elements = [];
 
-            # Ensure metasync_optimized attribute on <head> (post-serialization so dom->clear() can't wipe it)
-            if (!$this->is_amp_page() && strpos($result_html, 'metasync_optimized') === false) {
-                $result_html = preg_replace('/<head(\s|>)/i', '<head metasync_optimized$1', $result_html, 1);
+            # Mark the <head> as processed (post-serialization so dom->clear() can't wipe it)
+            if (!$this->is_amp_page()) {
+                $result_html = $this->mark_head_optimized($result_html);
             }
 
             $result_html = $this->otto_guard_html($this->restore_case_sensitive_attributes($result_html), $result_html, 'restore_case_sensitive_attributes');
@@ -3483,6 +3719,10 @@ Class Metasync_otto_html{
             # undo double-encoded numeric/hex character references produced by the
             # bundled simplehtmldom serializer from attributes like data-x-icon-s="&#xf3c5".
             $result_html = $this->otto_guard_html($this->repair_double_encoded_entities($result_html), $result_html, 'repair_double_encoded_entities');
+
+            # restore literal '&' query-string separators the serializer escaped to
+            # '&amp;', which silently truncates multi-family Google Fonts URLs.
+            $result_html = $this->otto_guard_html($this->repair_query_string_ampersands($result_html), $result_html, 'repair_query_string_ampersands');
 
             # Remove any lazy-video facade <style> hoisted into the page
             # (runs while srcdoc is still tokenized, so the iframe's own copy is safe).

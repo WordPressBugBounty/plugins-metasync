@@ -79,11 +79,71 @@ class Metasync_Otto_Render_Strategy {
     private static $blocking_flags = null;
 
     /**
+    /**
      * Whether this request's document was declined as unprocessable (oversized /
      * over the memory budget) rather than attempted and failed. Set by
      * log_oversized_skip(); read via document_was_unprocessable().
      */
     private static $document_unprocessable = false;
+
+    /**
+     * Raw `Set-Cookie` header line(s) returned by the HTTP-path internal fetch, kept so
+     * the visitor can be handed the session their page was built around (on the HTTP path
+     * the fetch cookie is otherwise discarded and session-based forms silently fail).
+     * Only populated when the fetch was same-origin as the visitor.
+     */
+    private static $http_fetch_cookies = array();
+
+    /**
+     * Whether the HTTP-path internal fetch response set any cookie (a form/session signal).
+     */
+    private static $http_fetch_had_cookie = false;
+
+    /**
+     * Whether the HTTP-path internal fetch response asked not to be cached. PHP emits its
+     * session cache-limiter headers from session_start() on both new AND resumed sessions,
+     * so this is server-side truth about the page being session-driven — including the
+     * returning-visitor case where no new cookie is set. Signal only, never forwarded.
+     */
+    private static $http_fetch_no_cache = false;
+
+    /**
+     * User-Agent OTTO stamps on its own internal page fetch. Shared with
+     * Otto_html_class so the sender and the detector cannot drift apart.
+     */
+    const INTERNAL_FETCH_USER_AGENT = 'MetaSync-OTTO-SSR';
+
+    /**
+     * Is the current request OTTO's own internal page fetch?
+     *
+     * The is_otto_page_fetch query parameter cannot be the only signal. Any
+     * redirect that rebuilds the destination URL - our own Redirections module,
+     * a host rule, a redirect plugin - drops the query string, and the
+     * redirected request then looks like ordinary visitor traffic. OTTO fires a
+     * second internal fetch, that one is redirected too, and the site feeds
+     * itself until it runs out of workers.
+     *
+     * The request header and the User-Agent are re-sent on every redirect hop,
+     * so they survive what the query string cannot. Any one of the three is
+     * enough to recognise our own traffic.
+     *
+     * @return bool
+     */
+    public static function is_internal_fetch() {
+        if (!empty($_GET['is_otto_page_fetch'])) {
+            return true;
+        }
+
+        if (!empty($_SERVER['HTTP_X_OTTO_INTERNAL_FETCH'])) {
+            return true;
+        }
+
+        $user_agent = isset($_SERVER['HTTP_USER_AGENT'])
+            ? sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT']))
+            : '';
+
+        return $user_agent !== '' && stripos($user_agent, self::INTERNAL_FETCH_USER_AGENT) !== false;
+    }
 
     /**
      * Determine the best render method for current environment
@@ -92,7 +152,7 @@ class Metasync_Otto_Render_Strategy {
      */
     public static function determine_method() {
         # Skip buffer for internal fetch requests (avoid infinite loop)
-        if (!empty($_GET['is_otto_page_fetch'])) {
+        if (self::is_internal_fetch()) {
             return self::METHOD_NONE;
         }
 
@@ -196,6 +256,18 @@ class Metasync_Otto_Render_Strategy {
                 # AJAX pagination. HTTP method preserves numbering; Divi CSS re-injection
                 # is handled in render_via_http() via et_core_page_resource_get API.
                 if ($name === 'SG_CachePress') {
+                    # Escape hatch: when every page of a site is served uncacheable no
+                    # matter what (most commonly another plugin calling session_start()
+                    # on init, which makes the host skip its cache on every response),
+                    # the internal fetch doubles render cost while buying no cache
+                    # safety. The "buffer" compatibility mode opts such a site into
+                    # the render path without the loopback; any other value keeps the
+                    # HTTP force.
+                    $metasync_options = get_option('metasync_options', []);
+                    $sg_compat_mode = $metasync_options['general']['otto_sg_optimizer_compat'] ?? 'auto';
+                    if ($sg_compat_mode === 'buffer') {
+                        continue;
+                    }
                     return true;
                 }
 
@@ -698,6 +770,12 @@ class Metasync_Otto_Render_Strategy {
      */
     public static function reset_request_state() {
         self::$document_unprocessable = false;
+        # HTTP-path cacheability signals: a latched value would carry one request's
+        # session/cookie state into the next under a persistent-worker SAPI, which could
+        # let a session page be treated as cacheable (or the reverse).
+        self::$http_fetch_cookies    = array();
+        self::$http_fetch_had_cookie = false;
+        self::$http_fetch_no_cache   = false;
     }
 
     /**
@@ -1112,6 +1190,178 @@ class Metasync_Otto_Render_Strategy {
     }
 
     /**
+     * Record the HTTP-path internal fetch's Set-Cookie, used for two things:
+     *  - the caching decision (a response cookie means a form/session page), and
+     *  - pass-through to the visitor so their session actually reaches the browser.
+     * $same_origin gates pass-through only: a fetch rewritten to localhost/a tunnel host
+     * must never hand the visitor a cookie scoped to the wrong domain.
+     *
+     * @param string|array $set_cookie_header Raw Set-Cookie header line(s), or ''.
+     * @param bool         $same_origin       Fetch scheme+host matched the visitor's.
+     */
+    public static function set_http_fetch_cookie($set_cookie_header, $same_origin) {
+        self::$http_fetch_had_cookie = !empty($set_cookie_header);
+        self::$http_fetch_cookies = ($same_origin && !empty($set_cookie_header))
+            ? (array) $set_cookie_header
+            : array();
+    }
+
+    /**
+     * Whether the HTTP-path internal fetch response set any cookie.
+     *
+     * @return bool
+     */
+    public static function http_fetch_had_cookie() {
+        return self::$http_fetch_had_cookie;
+    }
+
+    /**
+     * Record the internal fetch response's own `Cache-Control`.
+     *
+     * A `no-store` / `no-cache` / `private` there means the page's own render declared
+     * itself uncacheable — most commonly PHP's session cache-limiter firing from
+     * session_start(), which happens on resumed sessions too. Read as a signal only; the
+     * header is never passed on to the visitor.
+     *
+     * @param string|array $cache_control Raw Cache-Control header value(s), or ''.
+     */
+    public static function set_http_fetch_cache_control($cache_control) {
+        $value = is_array($cache_control) ? implode(', ', $cache_control) : (string) $cache_control;
+
+        self::$http_fetch_no_cache = $value !== ''
+            && preg_match('/\b(no-store|no-cache|private)\b/i', $value) === 1;
+    }
+
+    /**
+     * Whether the internal fetch response declared itself uncacheable.
+     *
+     * @return bool
+     */
+    public static function http_fetch_no_cache() {
+        return self::$http_fetch_no_cache;
+    }
+
+    /**
+     * Re-emit the internal fetch's Set-Cookie header(s) to the visitor so a form/session
+     * page rendered on the HTTP path actually gives the browser its session (without this
+     * the fetch cookie is discarded and such forms silently fail). Appends, never
+     * replaces. A page that sets a cookie is never cached (see block_http_cache()).
+     */
+    public static function passthrough_http_fetch_cookies() {
+        if (headers_sent() || empty(self::$http_fetch_cookies)) {
+            return;
+        }
+        foreach (self::$http_fetch_cookies as $line) {
+            if (is_string($line) && $line !== '') {
+                header('Set-Cookie: ' . $line, false);
+            }
+        }
+    }
+
+    /**
+     * Does the current request carry a cookie that makes the page's CONTENT specific to
+     * this visitor — an active cart, a logged-in user, a password-protected post, or a
+     * remembered comment author? Those change the rendered markup (mini-cart totals,
+     * admin bar, protected content, pre-filled comment form), which no response header
+     * reliably announces, so the cookie is the only signal available.
+     *
+     * PHP session cookies are deliberately NOT checked here. A session that actually
+     * drives the page makes the render emit PHP's session cache-limiter headers, which
+     * http_fetch_no_cache() detects as server-side truth — on resumed sessions too.
+     * Guessing from the cookie instead over-blocked every visitor who merely carried a
+     * stale PHPSESSID from some unrelated page, costing caching while protecting nothing.
+     *
+     * Analytics and live-chat cookies (Hotjar _hjSession*, intercom-session-*, crisp
+     * .../session/...) and browsing-only cookies (woocommerce_recently_viewed) are ignored
+     * for the same reason: they do not change what the server renders.
+     *
+     * @return bool
+     */
+    public static function request_has_visitor_specific_cookie() {
+        # Plugins can mutate superglobals despite PHPStan's built-in array type.
+        # @phpstan-ignore-next-line function.alreadyNarrowedType
+        if (empty($_COOKIE) || !is_array($_COOKIE)) {
+            return false;
+        }
+
+        foreach (array_keys($_COOKIE) as $name) {
+            # An active cart/session store, or an authenticated / privileged visitor.
+            # Deliberately NOT a broad `woocommerce_` prefix: `woocommerce_recently_viewed`
+            # is set by ordinary product browsing with no cart at all, and would make most
+            # of a store's traffic uncacheable.
+            if (strpos($name, 'wp_woocommerce_session_') === 0
+                || $name === 'woocommerce_cart_hash'
+                || $name === 'woocommerce_items_in_cart'
+                || $name === 'edd_items_in_cart'
+                || $name === 'edd_cart_token'
+                || strpos($name, 'wordpress_logged_in_') === 0
+                || strpos($name, 'wordpress_sec_') === 0
+                || strpos($name, 'wp-postpass_') === 0
+                || strpos($name, 'comment_author_') === 0
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Is OTTO's final HTTP-path output complete enough to serve from a shared cache? A
+     * truncated or blank render must never be pinned for the cache TTL. Pragmatic tail
+     * check only (closing tags present); mid-body truncation is caught upstream by the
+     * builder-specific checks in render_via_http().
+     *
+     * @param mixed $html OTTO's final serialized output.
+     * @return bool
+     */
+    public static function http_output_is_complete($html) {
+        if (!is_string($html) || strlen($html) < 255) {
+            return false;
+        }
+
+        # Closing tags sit at the very end, so check the tail first: scanning the whole
+        # document costs ~0.5ms on a 450KB page, the tail ~1us. The full scan stays as a
+        # fallback so a page with unusual trailing output still gets the same answer.
+        $tail = substr($html, -8192);
+        if (stripos($tail, '</body>') !== false && stripos($tail, '</html>') !== false) {
+            return true;
+        }
+
+        return stripos($html, '</body>') !== false && stripos($html, '</html>') !== false;
+    }
+
+    /**
+     * Host-agnostic "do not cache" for the HTTP path: emit no-store headers and strip
+     * cache-tag headers so NO shared cache (SiteGround, LiteSpeed, W3TC, Varnish,
+     * Cloudflare, …) stores this page, and flip SiteGround's server switch too (SG
+     * ignores response headers for its own cache). Used for session/form pages and for
+     * renders that came back incomplete.
+     */
+    public static function block_http_cache($reason = 'HTTP_NOT_CACHEABLE') {
+        # Flip SiteGround's server switch FIRST (it sets its own sgo_* filters and
+        # DONOTCACHEPAGE — the only things SG honours), then emit the canonical no-store
+        # set LAST so it is the final word for every other shared cache. Reuses
+        # no_store_headers() rather than hand-rolling a second, weaker set: that one also
+        # carries X-Accel-Expires (nginx reads it ahead of Cache-Control) and
+        # Surrogate-Control, which a bare Cache-Control would miss on non-SiteGround hosts.
+        if (function_exists('metasync_otto_disable_sg_page_cache')) {
+            metasync_otto_disable_sg_page_cache();
+        }
+        if (!headers_sent()) {
+            foreach (self::no_store_headers($reason) as $name => $value) {
+                header($name . ': ' . $value);
+            }
+            header('Pragma: no-cache');
+            # Purge-by-tag headers would otherwise advertise this response as a cacheable,
+            # taggable object to a CDN that keys on them.
+            header_remove('Cache-Tag');
+            header_remove('Surrogate-Key');
+            header_remove('Edge-Cache-Tag');
+        }
+    }
+
+    /**
      * Send response headers indicating render method and status
      *
      * @param string $cache_status Cache status (HIT, MISS, etc.)
@@ -1158,37 +1408,25 @@ class Metasync_Otto_Render_Strategy {
         # Do NOT set s-maxage: it overrides hosting-level CDN purges (kinsta_cache_purge_full,
         # WpeCommon::purge_varnish_cache) and prevents OTTO updates from appearing after a cache clear.
         # Only set if WP Rocket is NOT active (let WP Rocket control cache headers)
-        if (!is_user_logged_in() && !$wp_rocket_active) {
-            $cache_duration = 3600; // 1 hour for browsers
-
-            # only the HTTP fallback path must force `private`. That path serves an
-            # internally-fetched copy of the page (handle_route_html) and keeps ONLY the body —
-            # the response `Set-Cookie` (e.g. PHPSESSID from Formidable etc.) is discarded — so the
-            # host/CDN cannot auto-skip caching form/session pages, and a shared copy would re-leak
-            # nonces across visitors (the regression).
-            #
-            # On the BUFFER path the visitor's own request renders the page, so its real `Set-Cookie`
-            # IS on the response; the host/CDN already auto-skips caching any response that sets a
-            # cookie, so form/session pages stay protected without us forcing `private`. Forcing it
-            # there blocked host/CDN caching site-wide → uncached PHP render on every hit → CPU spikes
-            # and slow first-load. So we let those pages be cached normally (no `private`).
-            if (self::get_current_method() === self::METHOD_HTTP) {
-                header('Cache-Control: private, max-age=' . $cache_duration);
-            }
-
-            # Do NOT emit `Vary: Accept-Encoding` here. Compression is a transport
-            # concern owned by the web server / compression module (mod_deflate,
-            # nginx `gzip_vary`, Cloudflare), which already appends this header
-            # whenever it gzip/brotli-encodes the response. OTTO's HTML does not
-            # vary by Accept-Encoding at the application level, so emitting it from
-            # PHP was purely redundant — and on hosts where the server ALSO sets it
-            # (the common case) the response carried a duplicate/merged
-            # `Vary: Accept-Encoding`, which makes Cloudflare APO and similar edge
-            # caches treat the page as non-cacheable and send every visitor to
-            # origin PHP. Leaving it to the compression layer yields exactly one,
-            # correct Vary. If a stricter Vary is ever required, add it through a
-            # single deduplicated writer, never a blind second `header()` call.
-        }
+        # No cache or Vary header is emitted for anonymous responses.
+        #
+        # The HTTP path deliberately emits NO `Cache-Control`, matching the BUFFER path:
+        # a plain page is left cacheable by the host, and any session/form page or
+        # incomplete render is blocked separately via block_http_cache() in
+        # render_via_http(). Forcing `private` here previously blocked host caching
+        # site-wide → uncached PHP render on every hit → CPU spikes and slow first load.
+        #
+        # `Vary: Accept-Encoding` is likewise left to the transport layer. Compression is
+        # owned by the web server / compression module (mod_deflate, nginx `gzip_vary`,
+        # Cloudflare), which already appends this header whenever it gzip/brotli-encodes
+        # the response. OTTO's HTML does not vary by Accept-Encoding at the application
+        # level, so emitting it from PHP was purely redundant — and on hosts where the
+        # server ALSO sets it (the common case) the response carried a duplicate/merged
+        # `Vary: Accept-Encoding`, which makes Cloudflare APO and similar edge caches
+        # treat the page as non-cacheable and send every visitor to origin PHP. Leaving
+        # it to the compression layer yields exactly one, correct Vary. If a stricter
+        # Vary is ever required, add it through a single deduplicated writer, never a
+        # blind second `header()` call.
 
         # Cache-tag headers for CDN purge-by-tag (Phase 4).
         # Only emitted on OTTO-processed singular pages when cache_tags_enabled is on.

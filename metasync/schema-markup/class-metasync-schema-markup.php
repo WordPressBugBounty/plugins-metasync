@@ -1875,9 +1875,12 @@ class Metasync_Schema_Markup
                 '@graph'   => $all_json_ld,
             ];
 
-            echo '<script type="application/ld+json" class="metasync-schema">' . "\n";
-            echo wp_json_encode($final_json_ld, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
-            echo "\n" . '</script>' . "\n";
+            $graph_json = metasync_safe_json_ld_encode($final_json_ld, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+            if (is_string($graph_json) && $graph_json !== '') {
+                echo '<script type="application/ld+json" class="metasync-schema">' . "\n";
+                echo $graph_json;
+                echo "\n" . '</script>' . "\n";
+            }
         }
 
         // OTTO is off: output the DB-persisted OTTO JSON-LD as its own standalone tag.
@@ -1898,7 +1901,7 @@ class Metasync_Schema_Markup
         if (!empty($otto_persisted_jsonld)) {
             echo '<script type="application/ld+json" class="metasync-schema metasync-otto-schema">' . "\n";
             // Escape `</` -> `<\/` to prevent `</script>` breakout; valid JSON, content unchanged.
-            echo str_replace('</', '<\/', $otto_persisted_jsonld); // phpcs:ignore WordPress.Security.EscapeOutput -- persisted JSON-LD string, only `</` escaped for safe embedding
+            echo metasync_escape_json_ld_for_script($otto_persisted_jsonld); // phpcs:ignore WordPress.Security.EscapeOutput -- persisted JSON-LD string, only `</` escaped for safe embedding
             echo "\n" . '</script>' . "\n";
         }
     }
@@ -3813,8 +3816,11 @@ class Metasync_Schema_Markup
             '@graph' => $all_json_ld
         ];
         
-        $formatted_json = wp_json_encode($final_json_ld, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
-        
+        $formatted_json = metasync_safe_json_ld_encode($final_json_ld, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+        if (!is_string($formatted_json) || $formatted_json === '') {
+            wp_send_json_error(['message' => 'Could not encode schema markup']);
+        }
+
         // Wrap in script tags for preview
         $formatted_json_with_tags = '<script type="application/ld+json" class="metasync-schema">' . "\n" . $formatted_json . "\n" . '</script>';
 

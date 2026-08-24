@@ -46,6 +46,8 @@ class Metasync_Activator
 		'metasync_process_seo_job',
 		'metasync_process_otto_crawl_url_job',
 		'metasync_process_otto_batch_cache_job',
+		'metasync_host_blocking_check',
+		'metasync_host_blocking_weekly_check',
 	];
 
 	/**
@@ -77,6 +79,14 @@ class Metasync_Activator
 		// Schedule cron for announce pings 2-5 (every 10 minutes)
 		if (!wp_next_scheduled('metasync_announce_cron')) {
 			wp_schedule_event(time() + 10 * MINUTE_IN_SECONDS, 'metasync_every_10_minutes', 'metasync_announce_cron');
+		}
+
+		// Detect a host that blocks GET/POST between this site and Search Atlas.
+		// Deferred to cron (~10 minutes out) rather than run here — a blocking HTTP call
+		// inside the activation request is exactly what has taken slow hosts down before,
+		// and a firewall-blocked request is the slowest kind there is.
+		if (class_exists('Metasync_Host_Blocking_Check')) {
+			Metasync_Host_Blocking_Check::schedule_initial_check();
 		}
 
 		// Set first activation flag for setup wizard

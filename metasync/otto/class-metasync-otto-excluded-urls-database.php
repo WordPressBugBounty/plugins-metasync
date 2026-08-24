@@ -201,50 +201,160 @@ class Metasync_Otto_Excluded_URLs_Database
 		$url = rtrim($url, '/');
 
 		foreach ($excluded_urls as $excluded) {
-			$pattern = trim($excluded->url_pattern);
-			$pattern = rtrim($pattern, '/');
-			$pattern_type = $excluded->pattern_type;
-
-			switch ($pattern_type) {
-				case 'exact':
-					if ($url === $pattern) {
-						return true;
-					}
-					break;
-
-				case 'contain':
-					if (strpos($url, $pattern) !== false) {
-						return true;
-					}
-					break;
-
-				case 'start':
-					if (strpos($url, $pattern) === 0) {
-						return true;
-					}
-					break;
-
-				case 'end':
-					if (substr($url, -strlen($pattern)) === $pattern) {
-						return true;
-					}
-					break;
-
-				case 'regex':
-					// Normalize with delimiters
-					$test_pattern = Metasync_Redirection::normalize_regex_pattern($pattern);
-					$prev_limit = ini_get('pcre.backtrack_limit');
-					ini_set('pcre.backtrack_limit', 10000);
-					$match = @preg_match($test_pattern, $url);
-					ini_set('pcre.backtrack_limit', $prev_limit);
-					if ($match) {
-						return true;
-					}
-					break;
+			if (self::pattern_matches($url, $excluded->url_pattern, $excluded->pattern_type)) {
+				return true;
 			}
 		}
 
 		return false;
+	}
+
+	/**
+	 * Match a URL against a single exclusion pattern.
+	 *
+	 * Single source of truth for exclusion matching. Both the queue/SEO-write path
+	 * (self::is_url_excluded()) and the visitor render gate
+	 * (metasync_is_otto_url_manually_excluded() in otto/otto_pixel.php) call this, so the
+	 * set of supported pattern types cannot drift apart between the two paths again.
+	 *
+	 * Failure is deliberately fail-open (return false = not excluded = OTTO still renders):
+	 * an unevaluable rule must not take the front end down. Regex rules that cannot be
+	 * compiled are logged once per request so a broken rule is diagnosable rather than
+	 * invisible.
+	 *
+	 * @param string $url          URL to test. Callers pass it trimmed with no trailing slash.
+	 * @param string $pattern      Raw url_pattern column value. Normalized here, per type.
+	 * @param string $pattern_type One of exact|contain|start|end|regex.
+	 * @return bool True when the URL matches the pattern.
+	 */
+	public static function pattern_matches($url, $pattern, $pattern_type)
+	{
+		// Literal patterns are compared against a URL the caller already stripped of its
+		// trailing slash, so strip the pattern the same way. A regex must NOT be stripped:
+		// in a `/.../`-delimited pattern the trailing slash is the closing delimiter, and
+		// removing it yields an uncompilable pattern (`/\/blog\//` becomes `/\/blog\`) that
+		// silently matches nothing.
+		$pattern = ($pattern_type === 'regex') ? trim($pattern) : rtrim(trim($pattern), '/');
+
+		switch ($pattern_type) {
+			case 'exact':
+				return $url === $pattern;
+
+			case 'contain':
+				return strpos($url, $pattern) !== false;
+
+			case 'start':
+				return strpos($url, $pattern) === 0;
+
+			case 'end':
+				return substr($url, -strlen($pattern)) === $pattern;
+
+			case 'regex':
+				return self::regex_matches($url, $pattern);
+		}
+
+		return false;
+	}
+
+	/**
+	 * Evaluate a single regex exclusion pattern against a URL.
+	 *
+	 * @param string $url     URL to test.
+	 * @param string $pattern Regex pattern, with or without delimiters.
+	 * @return bool True on a match. False on no match, or on any evaluation failure.
+	 */
+	private static function regex_matches($url, $pattern)
+	{
+		if ($pattern === '') {
+			return false;
+		}
+
+		if (!self::regex_normalizer_available()) {
+			return false;
+		}
+
+		// Normalize with delimiters
+		$test_pattern = Metasync_Redirection::normalize_regex_pattern($pattern);
+
+		// Cap backtracking so a pathological pattern cannot burn CPU on a visitor request.
+		// ini_set() sits in disable_functions on some hardened hosts and calling a disabled
+		// function raises an Error, not an Exception - which the callers' catch (Exception)
+		// would not contain, white-screening the front end. Only restore the limit if it was
+		// actually read and changed.
+		$prev_limit = function_exists('ini_get') ? ini_get('pcre.backtrack_limit') : false;
+		$capped     = ($prev_limit !== false && function_exists('ini_set')
+			&& ini_set('pcre.backtrack_limit', 10000) !== false);
+
+		$match = @preg_match($test_pattern, $url);
+
+		if ($capped) {
+			ini_set('pcre.backtrack_limit', $prev_limit);
+		}
+
+		if ($match === false) {
+			self::log_unusable_regex($pattern, $test_pattern);
+		}
+
+		return $match === 1;
+	}
+
+	/**
+	 * Load the class that owns the regex normalizer, once per request.
+	 *
+	 * normalize_regex_pattern() is a static on Metasync_Redirection. It normally resolves via
+	 * the Composer classmap registered in metasync.php, but release packages have shipped with
+	 * an incomplete classmap before (see docs/wiki/release-package-classmaps.md), so the file
+	 * is included explicitly rather than trusting the autoloader. If it is missing the caller
+	 * must not attempt the static call at all: that raises an Error, not an Exception, so the
+	 * callers' try/catch would not contain it and the front end would white-screen.
+	 *
+	 * Memoized because this runs on every front-end request - without it there would be one
+	 * filesystem stat per regex exclusion row per page load.
+	 *
+	 * @return bool True when the normalizer can be called.
+	 */
+	private static function regex_normalizer_available()
+	{
+		static $available = null;
+
+		if ($available === null) {
+			$class_path = dirname(__FILE__, 2) . '/redirections/class-metasync-redirection.php';
+			$available  = file_exists($class_path);
+
+			if ($available) {
+				require_once $class_path;
+			}
+		}
+
+		return $available;
+	}
+
+	/**
+	 * Log an exclusion regex that could not be evaluated, once per pattern per request.
+	 *
+	 * Without this the rule is skipped in total silence: the admin sees an active exclusion
+	 * and a page that is still being rewritten, with nothing to go on.
+	 *
+	 * @param string $pattern      The stored pattern.
+	 * @param string $test_pattern The pattern as handed to preg_match().
+	 * @return void
+	 */
+	private static function log_unusable_regex($pattern, $test_pattern)
+	{
+		static $logged = [];
+
+		$key = md5($pattern);
+		if (isset($logged[$key])) {
+			return;
+		}
+		$logged[$key] = true;
+
+		error_log(sprintf(
+			'MetaSync OTTO: skipped an exclusion rule whose regex could not be evaluated - stored "%s", compiled "%s" (%s)',
+			$pattern,
+			$test_pattern,
+			preg_last_error_msg()
+		));
 	}
 
 	/**

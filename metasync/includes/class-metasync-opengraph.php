@@ -46,6 +46,45 @@ class Metasync_OpenGraph {
     const META_BOX_ID = 'metasync_opengraph_meta_box';
 
     /**
+     * The social title/description keys the meta box pre-fills from the post
+     * title/excerpt and persists on save. These are the keys that can capture the
+     * "Auto Draft" placeholder WordPress gives a brand-new, still-untitled post.
+     */
+    const AUTO_DRAFT_PRONE_KEYS = [
+        '_metasync_og_title',
+        '_metasync_og_description',
+        '_metasync_twitter_title',
+        '_metasync_twitter_description',
+    ];
+
+    /**
+     * Site option holding every "Auto Draft" placeholder variant this install
+     * has actually seen, keyed by nothing, de-duplicated, capped. Core fills a
+     * new post's title with __( 'Auto Draft' ) in the *creating admin user's*
+     * locale, and that translation is not loaded on front-end requests, so no
+     * render-time literal/translation list can be complete. The registry is the
+     * locale-free source of truth: captured verbatim at creation time in admin,
+     * where the translation does resolve, and re-read anywhere.
+     */
+    const AUTO_DRAFT_PLACEHOLDER_OPTION = 'metasync_auto_draft_placeholders';
+
+    /**
+     * Upper bound on registered placeholder variants. Locales change rarely;
+     * the cap keeps the site option tiny no matter how many editors come and
+     * go with different locales.
+     */
+    const AUTO_DRAFT_PLACEHOLDER_CAP = 20;
+
+    /**
+     * Per-post flag marking "this post was saved while its title was still the
+     * untitled placeholder". Stores the exact placeholder string that was
+     * recognized at save time, so the render path can suppress by state (flag
+     * present + title still equals it) rather than by string matching alone —
+     * a genuinely-titled post never carries the flag.
+     */
+    const UNTITLED_FLAG_META = '_metasync_untitled_placeholder';
+
+    /**
      * Initialize the class and set its properties.
      */
     public function __construct($plugin_name, $version) {
@@ -64,12 +103,183 @@ class Metasync_OpenGraph {
     }
 
     /**
+     * Whether a value is the placeholder title WordPress assigns to a brand-new,
+     * still-untitled post.
+     *
+     * Core creates the row with a *translated* title —
+     * wp-admin/includes/post.php: 'post_title' => __( 'Auto Draft' ) — so matching
+     * only the English literal misses every localized site. Compare against the
+     * literal and the current locale's translation, so both an English install and
+     * a translated one are covered, as is a value stored before a locale switch.
+     * A third arm checks the captured-variant registry, because the translation
+     * only resolves in admin: on front-end requests __( 'Auto Draft' ) stays
+     * English even on a localized site, and a stored de_DE placeholder would
+     * otherwise pass every check above.
+     *
+     * Exact match after trim, never fuzzy: an editor who legitimately titles a post
+     * "Auto Draft" on purpose is a caller-side concern, and only the four social
+     * keys in AUTO_DRAFT_PRONE_KEYS are ever routed through here.
+     *
+     * @param mixed $value
+     * @return bool
+     */
+    public static function is_auto_draft_title($value) {
+        if (!is_string($value)) {
+            return false;
+        }
+        $value = trim($value);
+        if ($value === '') {
+            return false;
+        }
+        # 'default' text domain, matching the __() call core itself uses.
+        if ($value === 'Auto Draft' || $value === trim(__('Auto Draft'))) {
+            return true;
+        }
+        # Registry arm: a variant captured in another locale's admin request.
+        # Without it the guard above is English-only on every non-admin request,
+        # because core never loads the 'default' MO files out there.
+        return in_array($value, self::known_auto_draft_placeholders(), true);
+    }
+
+    /**
+     * Every placeholder variant known to this install: the English literal plus
+     * whatever has been captured into the site option so far.
+     *
+     * @return string[]
+     */
+    public static function known_auto_draft_placeholders() {
+        $stored = get_option(self::AUTO_DRAFT_PLACEHOLDER_OPTION, []);
+        if (!is_array($stored)) {
+            $stored = [];
+        }
+        $variants = ['Auto Draft'];
+        foreach ($stored as $variant) {
+            if (is_string($variant) && trim($variant) !== '' && !in_array(trim($variant), $variants, true)) {
+                $variants[] = trim($variant);
+            }
+        }
+        return $variants;
+    }
+
+    /**
+     * Capture a placeholder variant into the site option. Called from the
+     * admin save path, where the creating request's own __( 'Auto Draft' )
+     * has already verified the title *is* core's placeholder — so no
+     * translation is needed here, only de-duplication and capping.
+     *
+     * @param mixed $title Verbatim post title recognized as the placeholder.
+     * @return void
+     */
+    public static function remember_auto_draft_placeholder($title) {
+        $title = is_string($title) ? trim($title) : '';
+        if ($title === '' || $title === 'Auto Draft') {
+            return;
+        }
+        $known = self::known_auto_draft_placeholders();
+        if (in_array($title, $known, true)) {
+            return;
+        }
+        # Persist captured variants only: the English literal is seeded
+        # code-side by known_auto_draft_placeholders(), so storing it would be
+        # redundant state.
+        $captured = array_values(array_diff($known, ['Auto Draft']));
+        $captured[] = $title;
+        update_option(self::AUTO_DRAFT_PLACEHOLDER_OPTION, array_slice($captured, -self::AUTO_DRAFT_PLACEHOLDER_CAP), false);
+    }
+
+    /**
+     * admin_init callback: register the placeholder variant the current admin
+     * request's translation resolves to. remember_auto_draft_placeholder()
+     * de-duplicates, so repeated requests only cost one cached option read.
+     *
+     * @return void
+     */
+    public static function seed_auto_draft_placeholder() {
+        self::remember_auto_draft_placeholder(__('Auto Draft'));
+    }
+
+    /**
+     * Read a persisted social meta value, collapsing the "Auto Draft" placeholder
+     * to an empty string.
+     *
+     * Every consumer resolves these fields through a "first non-empty wins" chain
+     * (persisted key -> OTTO staging key -> real post title). A stored placeholder
+     * is truthy, so the chain would keep it; returning '' lets the chain fall
+     * through to the real title. That fixes rows already polluted before this fix
+     * shipped, at render time, without a DB migration.
+     *
+     * Public and static because the three consumers that actually emit or forward
+     * these values live in different classes: this emitter,
+     * Otto_html_class::apply_metabox_og_precedence(), and Metasync_Plugin_Sync's
+     * mirror into Yoast/RankMath/AIOSEO storage. Follows the same
+     * sanitize-at-the-source pattern as Metasync_Canonical_Sanitizer::sanitize().
+     *
+     * @param mixed $value Raw stored meta value.
+     * @return string
+     */
+    public static function strip_auto_draft_title($value) {
+        if (self::is_auto_draft_title($value)) {
+            return '';
+        }
+        return is_scalar($value) ? (string) $value : '';
+    }
+
+    /**
+     * Read one of the AUTO_DRAFT_PRONE_KEYS for a post with the placeholder
+     * collapsed to ''.
+     *
+     * @param int    $post_id
+     * @param string $key
+     * @return string
+     */
+    public static function get_social_meta($post_id, $key) {
+        return self::strip_auto_draft_title(get_post_meta($post_id, $key, true));
+    }
+
+    /**
+     * A post's title for social use, suppressing only WordPress's own placeholder.
+     *
+     * Distinct from strip_auto_draft_title(), which is for *stored* meta values:
+     * there the string is all we have, since a legacy row carries no clue about the
+     * status it was written under. A live post gives us both signals, so require
+     * both — the post is still an auto-draft AND its title is the placeholder. An
+     * editor who genuinely titles a published post "Auto Draft" (an article about
+     * the placeholder itself, say) keeps it as their og:title.
+     *
+     * @param WP_Post|mixed $post
+     * @return string
+     */
+    public static function social_post_title($post) {
+        if (!$post instanceof WP_Post) {
+            return '';
+        }
+        if ($post->post_status === 'auto-draft' && self::is_auto_draft_title($post->post_title)) {
+            return '';
+        }
+        # State-based arm: the post was saved while still untitled (flag set at
+        # save time, where translations resolve) and its title is still that
+        # flagged placeholder. This is what catches a placeholder-titled post
+        # that went on to be published — the status check above no longer
+        # matches it, and on a localized site the string checks cannot either.
+        $flagged = get_post_meta($post->ID, self::UNTITLED_FLAG_META, true);
+        if (is_string($flagged) && trim($flagged) !== '' && trim((string) $post->post_title) === trim($flagged)) {
+            return '';
+        }
+        return (string) $post->post_title;
+    }
+
+    /**
      * The default OG values the meta box pre-fills for a post: post title,
      * generated excerpt, and featured image. Computed with the same helpers the
      * meta box/emitter use, so a caller can compare a stored _metasync_og_* value
      * against the default and tell whether the user genuinely customized it (the
      * meta box persists these defaults on save, so a non-empty value alone does
      * not prove user intent).
+     *
+     * The title is returned empty on a still-untitled post rather than as the
+     * "Auto Draft" placeholder, so the meta box pre-fills nothing and callers
+     * comparing a stored value against this default don't read the placeholder as
+     * a deliberate override.
      *
      * @param int $post_id
      * @return array{title:string,description:string,image:string}
@@ -80,7 +290,7 @@ class Metasync_OpenGraph {
             return ['title' => '', 'description' => '', 'image' => ''];
         }
         return [
-            'title'       => (string) $post->post_title,
+            'title'       => self::social_post_title($post),
             'description' => (string) $this->get_post_excerpt($post),
             'image'       => (string) $this->get_featured_image_url($post->ID),
         ];
@@ -92,6 +302,9 @@ class Metasync_OpenGraph {
     public function init() {
         # Admin hooks
         add_action('add_meta_boxes', [$this, 'add_meta_box']);
+        # Runs before save_meta_box_data so the untitled flag it maintains is
+        # already current when the meta box save guard consults it.
+        add_action('save_post', [$this, 'track_untitled_post'], 5, 2);
         add_action('save_post', [$this, 'save_meta_box_data']);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_scripts']);
         
@@ -120,6 +333,17 @@ class Metasync_OpenGraph {
 
         # Register cross-plugin dedup filters (Yoast / Rank Math) when their plugins are active
         $this->register_dedup_filters();
+
+        # Keep the localized "Auto Draft" placeholder out of SEO-plugin titles
+        # for posts published while still untitled.
+        $this->register_untitled_title_filters();
+
+        # Seed the placeholder registry with this admin user's locale variant,
+        # so localized values are recognized everywhere even before any new
+        # post is created on a localized install.
+        if (is_admin()) {
+            add_action('admin_init', [self::class, 'seed_auto_draft_placeholder']);
+        }
 
         # Shared predicate so the legacy emitter (Metasync_Seo_Output::hook_metasync_metatags)
         # can suppress its own OG/Twitter blocks whenever this class will emit for the post
@@ -241,10 +465,12 @@ class Metasync_OpenGraph {
         # Add nonce for security
         wp_nonce_field('metasync_opengraph_nonce', 'metasync_opengraph_nonce');
 
-        # Get existing values
+        # Get existing values. The four social title/description keys are read through
+        # get_social_meta() so a row polluted with "Auto Draft" before this fix shipped
+        # shows the real pre-fill in the editor — and re-saving the post clears it.
         $og_enabled = get_post_meta($post->ID, '_metasync_og_enabled', true);
-        $og_title = get_post_meta($post->ID, '_metasync_og_title', true);
-        $og_description = get_post_meta($post->ID, '_metasync_og_description', true);
+        $og_title = self::get_social_meta($post->ID, '_metasync_og_title');
+        $og_description = self::get_social_meta($post->ID, '_metasync_og_description');
         $og_image = get_post_meta($post->ID, '_metasync_og_image', true);
         $og_url = get_post_meta($post->ID, '_metasync_og_url', true);
         $og_type = get_post_meta($post->ID, '_metasync_og_type', true);
@@ -252,8 +478,8 @@ class Metasync_OpenGraph {
         # Twitter Card fields
         $twitter_card = get_post_meta($post->ID, '_metasync_twitter_card', true);
         $twitter_site = get_post_meta($post->ID, '_metasync_twitter_site', true);
-        $twitter_title = get_post_meta($post->ID, '_metasync_twitter_title', true);
-        $twitter_description = get_post_meta($post->ID, '_metasync_twitter_description', true);
+        $twitter_title = self::get_social_meta($post->ID, '_metasync_twitter_title');
+        $twitter_description = self::get_social_meta($post->ID, '_metasync_twitter_description');
         $twitter_image = get_post_meta($post->ID, '_metasync_twitter_image', true);
         $twitter_image_alt = get_post_meta($post->ID, '_metasync_twitter_image_alt', true);
         
@@ -278,7 +504,9 @@ class Metasync_OpenGraph {
             $og_enabled = '1';
         }
         if (empty($og_title)) {
-            $og_title = $post->post_title;
+            # Never pre-fill WordPress's own "Auto Draft" placeholder: it would be
+            # submitted back as a real value and persist as the social title forever.
+            $og_title = self::social_post_title($post);
         }
         if (empty($og_description)) {
             $og_description = $this->get_post_excerpt($post);
@@ -386,9 +614,115 @@ class Metasync_OpenGraph {
         foreach ($all_fields as $field => $sanitize_callback) {
             if (isset($_POST[$field])) {
                 $value = call_user_func($sanitize_callback, $_POST[$field]);
+
+                # The meta box pre-fills empty social title/description fields from the
+                # post title, and on a brand-new post that title is the "Auto Draft"
+                # placeholder. Persisting it ships "Auto Draft" as the post's social
+                # title and description forever, so store empty instead and let the
+                # render-time fallback chain resolve the real title once one is set.
+                if (in_array($field, self::AUTO_DRAFT_PRONE_KEYS, true)
+                    && $this->is_auto_draft_prefill_echo($post_id, $value)
+                ) {
+                    $value = '';
+                }
+
                 update_post_meta($post_id, $field, $value);
             }
         }
+    }
+
+    /**
+     * Whether a submitted social field value is the meta box echoing back a
+     * placeholder pre-fill rather than something the editor typed.
+     *
+     * Two cases, both narrow on purpose so genuinely typed text is never discarded:
+     *   - the value is the "Auto Draft" placeholder itself; or
+     *   - the post is still an auto-draft and the value is just its title echoed
+     *     back, which is what the pre-fill submits when the editor never touched
+     *     the field.
+     *
+     * @param int   $post_id
+     * @param mixed $value Sanitized submitted value.
+     * @return bool
+     */
+    /**
+     * save_post tracker maintaining the untitled state this class suppresses by.
+     *
+     * Two jobs, both anchored at save time — the only place the "Auto Draft"
+     * translation reliably resolves — so the render path never has to guess:
+     *
+     * 1. Capture: when core creates an auto-draft, its title *is*
+     *    __( 'Auto Draft' ) in the creating request's locale (admin requests
+     *    carry the creating user's locale). Verified against that same __()
+     *    call here, then remembered verbatim, so every locale variant this
+     *    install ever uses is known to all contexts.
+     * 2. Flag: mark posts saved while still placeholder-titled (recognized via
+     *    literal + translation + the registry above, so REST/CLI saves — where
+     *    the translation stays English — still recognize a registry hit), and
+     *    clear the mark as soon as a real title arrives.
+     *
+     * @param int          $post_id
+     * @param WP_Post|mixed $post
+     * @return void
+     */
+    public function track_untitled_post($post_id, $post) {
+        if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id)) {
+            return;
+        }
+        if (!$post instanceof WP_Post) {
+            $post = get_post($post_id);
+        }
+        if (!$post instanceof WP_Post || $post->post_type === 'revision' || $post->post_status === 'trash') {
+            return;
+        }
+        if (!in_array($post->post_type, $this->get_supported_post_types(), true)) {
+            return;
+        }
+
+        $title = trim((string) $post->post_title);
+
+        # Capture: an auto-draft's title is core's placeholder in whatever
+        # locale resolved for the saving request — admin requests carry the
+        # creating user's locale; on untranslated requests (front end, REST,
+        # CLI) the equality below degenerates to the English literal, which
+        # remember_auto_draft_placeholder() already skips. Verified against
+        # __( 'Auto Draft' ), never trusted as a bare string, so a builder's
+        # custom-seeded auto-draft title is never captured.
+        if ($post->post_status === 'auto-draft'
+            && $title !== '' && $title === trim(__('Auto Draft'))) {
+            self::remember_auto_draft_placeholder($title);
+        }
+
+        # Flag maintenance: recognition is context-independent thanks to the
+        # registry (an untranslated REST/CLI save still matches a captured
+        # variant), so the flag can never go stale in either direction.
+        if (self::is_auto_draft_title($title)) {
+            update_post_meta($post_id, self::UNTITLED_FLAG_META, $title);
+        } else {
+            delete_post_meta($post_id, self::UNTITLED_FLAG_META);
+        }
+    }
+
+    private function is_auto_draft_prefill_echo($post_id, $value) {
+        if (self::is_auto_draft_title($value)) {
+            return true;
+        }
+        if (!is_string($value) || trim($value) === '') {
+            return false;
+        }
+        $post = get_post($post_id);
+        if (!$post instanceof WP_Post || trim($value) !== trim((string) $post->post_title)) {
+            return false;
+        }
+        if (get_post_status($post_id) === 'auto-draft') {
+            return true;
+        }
+        # State arm: the submitted value echoes a title that was flagged as the
+        # placeholder at save time. Covers a value the string checks above
+        # missed — e.g. a localized placeholder stored under an admin user
+        # whose locale differs from the one that created the post.
+        $flagged = get_post_meta($post_id, self::UNTITLED_FLAG_META, true);
+        return is_string($flagged) && trim($flagged) !== '' && trim($flagged) === trim($value);
     }
 
     /**
@@ -527,11 +861,13 @@ class Metasync_OpenGraph {
             return;
         }
 
-        # Get Open Graph data — check persisted key first, fall back to OTTO staging key, then post default
-        $og_title = get_post_meta($post->ID, '_metasync_og_title', true)
+        # Get Open Graph data — check persisted key first, fall back to OTTO staging key, then post default.
+        # get_social_meta() collapses a stored "Auto Draft" placeholder to '' so the chain
+        # falls through to the real title on rows polluted before this fix shipped.
+        $og_title = self::get_social_meta($post->ID, '_metasync_og_title')
             ?: get_post_meta($post->ID, '_metasync_otto_og_title', true)
-            ?: $post->post_title;
-        $og_description = get_post_meta($post->ID, '_metasync_og_description', true)
+            ?: self::social_post_title($post);
+        $og_description = self::get_social_meta($post->ID, '_metasync_og_description')
             ?: get_post_meta($post->ID, '_metasync_otto_og_description', true)
             ?: $this->get_post_excerpt($post);
         $og_image = get_post_meta($post->ID, '_metasync_og_image', true) ?: $this->get_featured_image_url($post->ID);
@@ -550,10 +886,10 @@ class Metasync_OpenGraph {
             $twitter_site = '@' . $twitter_username;
         }
         $twitter_creator = !empty($twitter_username) ? '@' . $twitter_username : '';
-        $twitter_title = get_post_meta($post->ID, '_metasync_twitter_title', true)
+        $twitter_title = self::get_social_meta($post->ID, '_metasync_twitter_title')
             ?: get_post_meta($post->ID, '_metasync_otto_twitter_title', true)
             ?: $og_title;
-        $twitter_description = get_post_meta($post->ID, '_metasync_twitter_description', true)
+        $twitter_description = self::get_social_meta($post->ID, '_metasync_twitter_description')
             ?: get_post_meta($post->ID, '_metasync_otto_twitter_description', true)
             ?: $og_description;
         $twitter_image = get_post_meta($post->ID, '_metasync_twitter_image', true) ?: $og_image;
@@ -919,6 +1255,75 @@ class Metasync_OpenGraph {
     }
 
     /**
+     * Hook the untitled-placeholder suppression into the title pipelines of
+     * the SEO plugins that can own the <title>/og:title/twitter:title output
+     * when MetaSync's own emitter stands down due to a conflict.
+     *
+     * Rank Math funnels <title>, og:title and twitter:title through one filter
+     * (rank_math/frontend/title wraps Paper::get_title()), so one hook covers
+     * all three. Yoast builds them from separate presenters, so it needs the
+     * title filter plus the og/twitter title filters.
+     *
+     * The hooks are registered unconditionally: each only fires while its
+     * plugin is actually generating a title, and the callback no-ops unless
+     * the current post carries the untitled flag.
+     *
+     * @return void
+     */
+    private function register_untitled_title_filters() {
+        add_filter('rank_math/frontend/title', [$this, 'strip_untitled_from_seo_title'], 99);
+        add_filter('wpseo_title', [$this, 'strip_untitled_from_seo_title'], 99);
+        add_filter('wpseo_opengraph_title', [$this, 'strip_untitled_from_seo_title'], 99);
+        add_filter('wpseo_twitter_title', [$this, 'strip_untitled_from_seo_title'], 99);
+    }
+
+    /**
+     * Remove the flagged placeholder from an SEO plugin's assembled title.
+     *
+     * The incoming value is the finished template output ("placeholder -
+     * Site name"), so the placeholder segment is cut out and any dangling
+     * separator tidied. An empty result (title was the placeholder alone)
+     * cannot be returned as-is: both plugins treat an empty value as "do
+     * nothing" and re-use their own generated title, so the site name is the
+     * replacement of last resort.
+     *
+     * @param mixed $title Assembled title from the SEO plugin.
+     * @return string
+     */
+    public function strip_untitled_from_seo_title($title) {
+        if (!is_string($title) || trim($title) === '') {
+            return $title;
+        }
+        $post = get_post();
+        if (!$post instanceof WP_Post) {
+            return $title;
+        }
+        $flagged = get_post_meta($post->ID, self::UNTITLED_FLAG_META, true);
+        if (!is_string($flagged) || trim($flagged) === '') {
+            return $title;
+        }
+        # Same state check as social_post_title(): only while the live title
+        # still *is* the flagged placeholder.
+        if (trim((string) $post->post_title) !== trim($flagged)) {
+            return $title;
+        }
+        if (strpos($title, $flagged) === false) {
+            return $title;
+        }
+        $remainder = trim(str_replace($flagged, '', $title));
+        # Tidy the separator(s) that flanked the removed segment.
+        $remainder = trim((string) preg_replace('/^[\s\-–—|·»•]+|[\s\-–—|·»•]+$/u', '', $remainder));
+        if ($remainder === '') {
+            $remainder = trim((string) get_bloginfo('name'));
+        }
+        if ($remainder === '') {
+            # A space, not '': an empty return is a no-op for these filters.
+            $remainder = ' ';
+        }
+        return $remainder;
+    }
+
+    /**
      * AJAX handler for generating social media preview
      */
     public function ajax_generate_preview() {
@@ -1159,9 +1564,16 @@ class Metasync_OpenGraph {
         $content = preg_replace('/\s+/', ' ', $content);
         $content = trim($content);
 
-        # If content is still empty or too short, fallback to post title
+        # If content is still empty or too short, fallback to post title. A brand-new
+        # post has no content and its title is the "Auto Draft" placeholder, which
+        # must not become the og:/twitter:description — strip it so the caller's
+        # fallback chain resolves to something real instead.
         if (empty($content) || strlen($content) < 20) {
-            $content = $post->post_title;
+            $content = self::social_post_title($post);
+        }
+
+        if ($content === '') {
+            return '';
         }
 
         # Generate excerpt

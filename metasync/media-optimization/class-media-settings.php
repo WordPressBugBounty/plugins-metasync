@@ -38,10 +38,22 @@ class Metasync_Media_Settings {
 
     /**
      * Get merged settings with defaults.
+     *
+     * AVIF is coerced back to WebP when the runtime cannot support it. A value of
+     * 'avif' can already be persisted (saved on a capable server, then the site
+     * moved or downgraded), so the coercion has to happen on read as well as on
+     * save — otherwise stored settings would keep driving AVIF conversion on a
+     * runtime that mis-measures the result. See supports_avif().
      */
     public static function get_settings(): array {
-        $saved = get_option(self::OPTION_KEY, []);
-        return wp_parse_args($saved, self::$defaults);
+        $saved    = get_option(self::OPTION_KEY, []);
+        $settings = wp_parse_args($saved, self::$defaults);
+
+        if (($settings['conversion_format'] ?? '') === 'avif' && !self::supports_avif()) {
+            $settings['conversion_format'] = 'webp';
+        }
+
+        return $settings;
     }
 
     /**
@@ -65,7 +77,7 @@ class Metasync_Media_Settings {
     public static function sanitize(array $input): array {
         return [
             'enable_conversion'          => !empty($input['enable_conversion']),
-            'conversion_format'          => in_array($input['conversion_format'] ?? '', ['webp', 'avif'], true) ? $input['conversion_format'] : 'webp',
+            'conversion_format'          => self::sanitize_conversion_format($input['conversion_format'] ?? ''),
             'conversion_quality'         => max(1, min(100, (int) ($input['conversion_quality'] ?? 82))),
             'conversion_strategy'        => in_array($input['conversion_strategy'] ?? '', ['replace', 'alongside'], true) ? $input['conversion_strategy'] : 'alongside',
             'convert_existing_sizes'     => !empty($input['convert_existing_sizes']),
@@ -80,9 +92,48 @@ class Metasync_Media_Settings {
     }
 
     /**
+     * Resolve the target conversion format, refusing AVIF the runtime can't measure.
+     *
+     * Anything unrecognised falls back to WebP, as does AVIF on a runtime or GD/
+     * Imagick build that cannot support it. This keeps an unsupported value from
+     * ever reaching the database.
+     */
+    private static function sanitize_conversion_format(string $format): string {
+        if ($format === 'avif' && self::supports_avif()) {
+            return 'avif';
+        }
+
+        return 'webp';
+    }
+
+    /**
+     * Minimum PHP version at which AVIF output can be measured correctly.
+     *
+     * getimagesize() only learned to read real AVIF dimensions in PHP 8.2. On
+     * 8.1 it returns 0x0 for a valid AVIF file (and a truthy [0,0] for a
+     * truncated header, where 8.2 returns false). Every dimension read in this
+     * module guards with `$info && $info[0] > 0 && $info[1] > 0`, so on 8.1 the
+     * guard fails and:
+     *   - the converter cannot sync post-downscale dimensions onto the
+     *     attachment, leaving stale oversized width/height in metadata, and
+     *   - the dimension injector then emits those stale values into the
+     *     rendered HTML, which is worse than emitting none because the browser
+     *     trusts them (a Core Web Vitals / CLS regression).
+     *
+     * imageavif() exists from 8.1 onward, so capability detection alone would
+     * pass and let an 8.1 site select AVIF. WebP is unaffected and is the
+     * default, so 8.1 sites are held to WebP until the runtime can measure AVIF.
+     */
+    const AVIF_MIN_PHP_VERSION_ID = 80200;
+
+    /**
      * Check if the server supports AVIF conversion.
      */
     public static function supports_avif(): bool {
+        // Encoding is not enough — the result also has to be measurable.
+        if (PHP_VERSION_ID < self::AVIF_MIN_PHP_VERSION_ID) {
+            return false;
+        }
         if (extension_loaded('imagick')) {
             try {
                 $formats = \Imagick::queryFormats('AVIF');

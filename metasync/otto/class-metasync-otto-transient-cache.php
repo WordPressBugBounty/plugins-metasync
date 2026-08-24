@@ -36,6 +36,11 @@ class Metasync_Otto_Transient_Cache {
      * Stale cache prefix (for fallback)
      */
     private const STALE_PREFIX = 'otto_stale_';
+
+    /**
+     * Stale fallback retention (12 hours), independent of the live cache TTL.
+     */
+    private const STALE_TTL = 12 * HOUR_IN_SECONDS;
     
     /**
      * TTL for "no suggestions" cache (5 minutes)
@@ -274,8 +279,8 @@ class Metasync_Otto_Transient_Cache {
                 # Has suggestions - cache for the admin-configured TTL (default 30 min)
                 $ttl = Metasync_Otto_Config::get_otto_cache_ttl_seconds();
                 set_transient($keys['transient'], $suggestions, $ttl);
-                # Also store as stale cache for fallback (2x the primary TTL)
-                set_transient($keys['stale'], $suggestions, $ttl * 2);
+                # Keep a longer fallback without reducing live suggestion freshness.
+                set_transient($keys['stale'], $suggestions, self::STALE_TTL);
                 self::$cache_status[$cache_status_key] = 'MISS'; // Cache miss, fetched from API
             } elseif ($suggestions !== false) {
                 # API responded 200 OK but genuinely no OTTO suggestions for this URL,

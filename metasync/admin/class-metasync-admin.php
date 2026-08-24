@@ -1647,7 +1647,7 @@ class Metasync_Admin
         <div style="margin-bottom: 30px; padding-top: 20px;">
             <h4 style="margin-top: 0; color: var(--dashboard-text-primary);"><?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> Cache TTL</h4>
             <p style="margin-bottom: 15px; color: var(--dashboard-text-secondary);">
-                Configure how long <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> API suggestions are cached before a fresh API call. Stale cache expires at 2× this value.
+                Configure how long <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> API suggestions are cached before a fresh API call. The stale fallback expires after 12 hours.
             </p>
 
             <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; margin-bottom: 20px;">

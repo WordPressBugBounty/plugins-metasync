@@ -40,9 +40,22 @@ if (!defined('WPINC')) {
                                         <?php disabled(!$capabilities['webp_support']); ?>>
                                         WebP <?php echo !$capabilities['webp_support'] ? esc_html__('(not supported)', 'metasync') : ''; ?>
                                     </option>
+                                    <?php
+                                    // Distinguish "this server can't encode AVIF" from "this PHP
+                                    // version can't measure it", so the reason is actionable.
+                                    $avif_needs_newer_php = PHP_VERSION_ID < Metasync_Media_Settings::AVIF_MIN_PHP_VERSION_ID;
+                                    ?>
                                     <option value="avif" <?php selected($settings['conversion_format'], 'avif'); ?>
                                         <?php disabled(!$capabilities['avif_support']); ?>>
-                                        AVIF <?php echo !$capabilities['avif_support'] ? esc_html__('(not supported)', 'metasync') : ''; ?>
+                                        AVIF <?php
+                                        if ($capabilities['avif_support']) {
+                                            echo '';
+                                        } elseif ($avif_needs_newer_php) {
+                                            echo esc_html__('(requires PHP 8.2 or later)', 'metasync');
+                                        } else {
+                                            echo esc_html__('(not supported)', 'metasync');
+                                        }
+                                        ?>
                                     </option>
                                 </select>
                             </div>
@@ -270,7 +283,12 @@ if (!defined('WPINC')) {
                         </span>
                     <?php else: ?>
                         <span class="metasync-capability-badge metasync-badge-warning">
-                            <span class="dashicons dashicons-warning"></span> <?php esc_html_e('Not Supported', 'metasync'); ?>
+                            <span class="dashicons dashicons-warning"></span>
+                            <?php
+                            echo PHP_VERSION_ID < Metasync_Media_Settings::AVIF_MIN_PHP_VERSION_ID
+                                ? esc_html__('Requires PHP 8.2+', 'metasync')
+                                : esc_html__('Not Supported', 'metasync');
+                            ?>
                         </span>
                     <?php endif; ?>
                 </div>

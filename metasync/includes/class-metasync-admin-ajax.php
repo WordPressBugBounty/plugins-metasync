@@ -488,89 +488,31 @@ class Metasync_Admin_Ajax
         }
     }
 
+    /**
+     * Manual "Host Blocking Test" — GET leg.
+     *
+     * The probe itself lives in Metasync_Host_Blocking_Check so the manual button and the
+     * automatic activation/weekly check share one implementation.
+     */
     public function ajax_test_host_blocking_get()
     {
-        check_ajax_referer('metasync_nonce', 'nonce');
-        if (!Metasync::current_user_has_plugin_access()) {
-            wp_send_json_error('Insufficient permissions');
-            return;
-        }
-
-        $endpoint = 'https://wp-check.searchatlas.com/ping';
-        $start_time = microtime(true);
-        
-        $response = wp_remote_get($endpoint, array(
-            'timeout' => 30,
-            'user-agent' => 'MetaSync Plugin Host Test',
-            'headers' => array(
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json',
-                'Origin' => home_url(),
-                'Referer' => admin_url(),
-                'X-WordPress-Site' => home_url()
-            )
-        ));
-        
-        $end_time = microtime(true);
-        $response_time = round(($end_time - $start_time) * 1000, 2);
-        
-        if (is_wp_error($response)) {
-            wp_send_json_success(array(
-                'method' => 'GET',
-                'status' => 'error',
-                'response_time' => $response_time . 'ms',
-                'error' => $response->get_error_message(),
-                'blocked' => true,
-                'details' => 'Request failed - possible blocking detected'
-            ));
-        } else {
-            $status_code = wp_remote_retrieve_response_code($response);
-            $body = wp_remote_retrieve_body($response);
-            $headers = wp_remote_retrieve_headers($response);
-            
-            $is_blocked = false;
-            $status_text = 'success';
-            $details = 'GET request completed successfully';
-            $parsed_response = null;
-            
-            if ($status_code === 200) {
-                $parsed_response = json_decode($body, true);
-                
-                if ($parsed_response && isset($parsed_response['results']['get'])) {
-                    $get_result = $parsed_response['results']['get'];
-                    $get_status_code = isset($get_result['statusCode']) ? $get_result['statusCode'] : null;
-                    
-                    if ($get_status_code !== 200) {
-                        $is_blocked = true;
-                        $status_text = 'error';
-                        $details = "GET request to target site returned status code {$get_status_code} - host blocking detected";
-                    }
-                } else {
-                    $is_blocked = true;
-                    $status_text = 'error';
-                    $details = 'Unable to parse response structure - possible blocking or endpoint issue';
-                }
-            } else {
-                $is_blocked = true;
-                $status_text = 'error';
-                $details = "External endpoint returned status code {$status_code} - possible blocking detected";
-            }
-            
-            wp_send_json_success(array(
-                'method' => 'GET',
-                'status' => $status_text,
-                'response_time' => $response_time . 'ms',
-                'status_code' => $status_code,
-                'body' => $body,
-                'headers' => $headers->getAll(),
-                'blocked' => $is_blocked,
-                'details' => $details,
-                'parsed_response' => $parsed_response
-            ));
-        }
+        $this->send_host_blocking_result('GET');
     }
 
+    /**
+     * Manual "Host Blocking Test" — POST leg.
+     */
     public function ajax_test_host_blocking_post()
+    {
+        $this->send_host_blocking_result('POST');
+    }
+
+    /**
+     * Shared auth + response wrapper for both manual host blocking legs.
+     *
+     * @param string $method 'GET' or 'POST'.
+     */
+    private function send_host_blocking_result($method)
     {
         check_ajax_referer('metasync_nonce', 'nonce');
         if (!Metasync::current_user_has_plugin_access()) {
@@ -578,88 +520,7 @@ class Metasync_Admin_Ajax
             return;
         }
 
-        $endpoint = 'https://wp-check.searchatlas.com/ping';
-        $start_time = microtime(true);
-        
-        $test_data = array(
-            'test' => 'host_blocking_test',
-            'timestamp' => current_time('mysql'),
-            'source' => 'metasync_plugin',
-            'method' => 'POST'
-        );
-        
-        $response = wp_remote_post($endpoint, array(
-            'timeout' => 30,
-            'user-agent' => 'MetaSync Plugin Host Test',
-            'headers' => array(
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json',
-                'Origin' => home_url(),
-                'Referer' => admin_url(),
-                'X-WordPress-Site' => home_url()
-            ),
-            'body' => json_encode($test_data)
-        ));
-        
-        $end_time = microtime(true);
-        $response_time = round(($end_time - $start_time) * 1000, 2);
-        
-        if (is_wp_error($response)) {
-            wp_send_json_success(array(
-                'method' => 'POST',
-                'status' => 'error',
-                'response_time' => $response_time . 'ms',
-                'error' => $response->get_error_message(),
-                'blocked' => true,
-                'details' => 'Request failed - possible blocking detected',
-                'sent_data' => $test_data
-            ));
-        } else {
-            $status_code = wp_remote_retrieve_response_code($response);
-            $body = wp_remote_retrieve_body($response);
-            $headers = wp_remote_retrieve_headers($response);
-            
-            $is_blocked = false;
-            $status_text = 'success';
-            $details = 'POST request completed successfully';
-            $parsed_response = null;
-            
-            if ($status_code === 200) {
-                $parsed_response = json_decode($body, true);
-                
-                if ($parsed_response && isset($parsed_response['results']['post'])) {
-                    $post_result = $parsed_response['results']['post'];
-                    $post_status_code = isset($post_result['statusCode']) ? $post_result['statusCode'] : null;
-                    
-                    if ($post_status_code !== 200) {
-                        $is_blocked = true;
-                        $status_text = 'error';
-                        $details = "POST request to target site returned status code {$post_status_code} - host blocking detected";
-                    }
-                } else {
-                    $is_blocked = true;
-                    $status_text = 'error';
-                    $details = 'Unable to parse response structure - possible blocking or endpoint issue';
-                }
-            } else {
-                $is_blocked = true;
-                $status_text = 'error';
-                $details = "External endpoint returned status code {$status_code} - possible blocking detected";
-            }
-            
-            wp_send_json_success(array(
-                'method' => 'POST',
-                'status' => $status_text,
-                'response_time' => $response_time . 'ms',
-                'status_code' => $status_code,
-                'body' => $body,
-                'headers' => $headers->getAll(),
-                'blocked' => $is_blocked,
-                'details' => $details,
-                'sent_data' => $test_data,
-                'parsed_response' => $parsed_response
-            ));
-        }
+        wp_send_json_success(Metasync_Host_Blocking_Check::get_instance()->run_check($method));
     }
 
     public function execute_transient_cleanup()

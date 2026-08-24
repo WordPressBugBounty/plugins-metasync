@@ -157,31 +157,34 @@ class Metasync_Custom_Pages_Admin
             }
             
             .metasync-page-status {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 13px;
+                font-weight: 500;
+                cursor: default;
+            }
+
+            .metasync-page-status::before {
+                content: '';
                 display: inline-block;
-                padding: 4px 10px;
-                border-radius: 4px;
-                font-size: 11px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: currentColor;
+                flex-shrink: 0;
             }
-            
+
             .metasync-page-status.metasync-status-publish {
-                background: #d4edda;
-                color: #155724;
-                border: 1px solid #c3e6cb;
+                color: #1e7e34;
             }
-            
+
             .metasync-page-status.metasync-status-draft {
-                background: #fff3cd;
-                color: #856404;
-                border: 1px solid #ffeaa7;
+                color: #a06800;
             }
-            
+
             .metasync-page-status.metasync-status-pending {
-                background: #d1ecf1;
                 color: #0c5460;
-                border: 1px solid #bee5eb;
             }
             
             .metasync-page-actions {
@@ -313,10 +316,10 @@ class Metasync_Custom_Pages_Admin
                                         </a>
                                     </strong>
                                     <?php if ($created_via_api === '1'): ?>
-                                        <span class="metasync-html-badge metasync-api-badge">API</span>
+                                        <span class="metasync-html-badge metasync-api-badge" title="This page was created through the MetaSync REST API">API</span>
                                     <?php endif; ?>
                                     <?php if ($html_enabled === '1'): ?>
-                                        <span class="metasync-html-badge">RAW HTML</span>
+                                        <span class="metasync-html-badge" title="This page uses Raw HTML mode: its content is edited as raw HTML instead of the block editor">RAW HTML</span>
                                     <?php endif; ?>
                                 </td>
                                 <td>
@@ -328,8 +331,19 @@ class Metasync_Custom_Pages_Admin
                                     </a>
                                 </td>
                                 <td>
+                                    <?php
+                                    $status_labels = array(
+                                        'publish' => 'Published',
+                                        'draft'   => 'Draft',
+                                        'pending' => 'Pending Review',
+                                        'private' => 'Private',
+                                    );
+                                    $status_label = isset($status_labels[$page->post_status])
+                                        ? $status_labels[$page->post_status]
+                                        : ucfirst($page->post_status);
+                                    ?>
                                     <span class="metasync-page-status metasync-status-<?php echo esc_attr($page->post_status); ?>">
-                                        <?php echo esc_html(ucfirst($page->post_status)); ?>
+                                        <?php echo esc_html($status_label); ?>
                                     </span>
                                 </td>
                                 <td class="metasync-page-actions">

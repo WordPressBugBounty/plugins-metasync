@@ -7,6 +7,10 @@
  * pages render MetaSync-managed values regardless of which plugin is
  * actually rendering the frontend.
  *
+ * Manually edited fields mirror immediately. Values that OTTO generated for
+ * itself are permitted into third-party storage only while the matching OTTO
+ * Persistence setting is enabled — see OTTO_PERSISTENCE_KEYS.
+ *
  * @package    MetaSync
  * @subpackage MetaSync/includes
  * @since      2.8.25
@@ -80,6 +84,32 @@ class Metasync_Plugin_Sync {
 	];
 
 	/**
+	 * Internal OTTO meta keys mapped to the OTTO Persistence setting that
+	 * governs whether their value may reach third-party SEO plugin storage.
+	 *
+	 * OTTO writes these keys on every sync regardless of any setting, because
+	 * its own render filters and the admin reporting columns read them. Copying
+	 * one into Yoast / Rank Math / AIOSEO is a different act: it is a permanent
+	 * write into another plugin's storage that outlives MetaSync, which is
+	 * exactly what the Persistence settings exist to control.
+	 *
+	 * Manually edited MetaSync fields are deliberately absent from this map.
+	 * Saving those in the editor is an explicit user action, so they sync
+	 * immediately and never consult these settings.
+	 *
+	 * @var array<string,string>
+	 */
+	const OTTO_PERSISTENCE_KEYS = [
+		'_metasync_otto_title'               => 'meta_title',
+		'_metasync_otto_description'         => 'meta_description',
+		'_metasync_otto_keywords'            => 'meta_keywords',
+		'_metasync_otto_og_title'            => 'og_title',
+		'_metasync_otto_og_description'      => 'og_description',
+		'_metasync_otto_twitter_title'       => 'twitter_title',
+		'_metasync_otto_twitter_description' => 'twitter_description',
+	];
+
+	/**
 	 * Get singleton instance.
 	 *
 	 * @return self
@@ -89,6 +119,33 @@ class Metasync_Plugin_Sync {
 			self::$instance = new self();
 		}
 		return self::$instance;
+	}
+
+	/**
+	 * Whether a meta key's value may be mirrored into third-party SEO storage.
+	 *
+	 * Returns true for every key that is not an internal OTTO key, so manually
+	 * edited MetaSync fields are unaffected. For the OTTO keys the matching
+	 * Persistence setting decides.
+	 *
+	 * The class_exists() guard mirrors the call sites in
+	 * otto/metasync-otto-seo-functions.php, including their fail-closed
+	 * behaviour: a partially updated install can leave this file newer than the
+	 * settings class, and with the class missing there is no setting that could
+	 * authorise a permanent write into another plugin's storage.
+	 *
+	 * @param string $meta_key Meta key being written.
+	 * @return bool True when the value may be synced.
+	 */
+	private function otto_persistence_allows($meta_key) {
+		if (!isset(self::OTTO_PERSISTENCE_KEYS[$meta_key])) {
+			return true;
+		}
+
+		return class_exists('Metasync_Otto_Persistence_Settings')
+			&& Metasync_Otto_Persistence_Settings::should_persist(
+				self::OTTO_PERSISTENCE_KEYS[$meta_key]
+			);
 	}
 
 	/**
@@ -187,7 +244,9 @@ class Metasync_Plugin_Sync {
 			'_metasync_focus_keyword'       => 'focus_keyword',
 			'_metasync_breadcrumb_title'    => 'breadcrumb_title',
 			'_metasync_robots_advanced'     => '_robots_advanced_json',
-			// OTTO volatile keys (SSR writes these even without persistence)
+			// Internal OTTO keys. OTTO stores these on every sync regardless of
+			// any setting; whether they may reach third-party storage is decided
+			// by OTTO_PERSISTENCE_KEYS above.
 			'_metasync_otto_title'              => 'title',
 			'_metasync_otto_description'        => 'desc',
 			'_metasync_otto_og_title'           => 'og_title',
@@ -201,6 +260,15 @@ class Metasync_Plugin_Sync {
 		];
 
 		if (!isset($watched[$meta_key])) {
+			return;
+		}
+
+		// An internal OTTO field reaches third-party SEO storage only while its
+		// OTTO Persistence setting is enabled. With the setting off the value
+		// stays stored under its own key -- OTTO keeps rendering and reporting
+		// on it -- but Yoast / Rank Math / AIOSEO are left untouched. Manually
+		// edited MetaSync fields are not in the map and so are never gated.
+		if (!$this->otto_persistence_allows($meta_key)) {
 			return;
 		}
 
@@ -293,6 +361,23 @@ class Metasync_Plugin_Sync {
 					unset($fields['canonical']);
 				}
 			}
+
+			// Same reasoning for the social title/description fields: on this
+			// fast-path the value arrives straight from the meta write, so a stored
+			// "Auto Draft" pre-fill placeholder would be mirrored verbatim into
+			// Yoast/RankMath/AIOSEO and emitted there as og:title. Drop it instead so
+			// each plugin keeps whatever it already has.
+			// @phpstan-ignore-next-line function.alreadyNarrowedType
+			if (method_exists('Metasync_OpenGraph', 'is_auto_draft_title')) {
+				foreach (['og_title', 'og_desc', 'twitter_title', 'twitter_desc'] as $social_field) {
+					if (array_key_exists($social_field, $fields)
+						&& Metasync_OpenGraph::is_auto_draft_title($fields[$social_field])
+					) {
+						unset($fields[$social_field]);
+					}
+				}
+			}
+
 			return $fields;
 		}
 
@@ -302,14 +387,47 @@ class Metasync_Plugin_Sync {
 			if (!isset($all_meta[$key])) {
 				return '';
 			}
-			return is_array($all_meta[$key]) ? $all_meta[$key][0] : $all_meta[$key];
+			$value = is_array($all_meta[$key]) ? $all_meta[$key][0] : $all_meta[$key];
+
+			// The meta box pre-fills the social title/description fields from the post
+			// title, which is the "Auto Draft" placeholder on a brand-new post. Collapse
+			// it to '' here so the placeholder is never mirrored into Yoast/RankMath/
+			// AIOSEO storage, where those plugins would emit it as og:title.
+			// Same sanitize-at-the-source placement as Metasync_Canonical_Sanitizer below.
+			//
+			// method_exists (not just class_exists) for the same reason
+			// sync_layer_handles() checks: this runs on meta writes during front-end
+			// requests, and a partially updated install can leave an older
+			// class-metasync-opengraph.php beside this file.
+			// @phpstan-ignore-next-line function.alreadyNarrowedType
+			if (method_exists('Metasync_OpenGraph', 'strip_auto_draft_title')
+				&& defined('Metasync_OpenGraph::AUTO_DRAFT_PRONE_KEYS')
+				&& in_array($key, Metasync_OpenGraph::AUTO_DRAFT_PRONE_KEYS, true)
+			) {
+				return Metasync_OpenGraph::strip_auto_draft_title($value);
+			}
+
+			return $value;
 		};
 
 		$data = [];
 
-		// Helper: first non-empty value from a list of meta keys
+		// Helper: first non-empty value from a list of meta keys.
+		//
+		// Internal OTTO keys are skipped while their OTTO Persistence setting is
+		// disabled. Gating here and not only in on_meta_updated() is what makes
+		// the setting hold for the callers that re-read meta themselves rather
+		// than passing a resolved field: the sync at the end of OTTO SSR
+		// processing (metasync_update_comprehensive_seo_fields), the MCP OTTO
+		// refresh tool, and the robots full-sync branch below.
+		//
+		// Each chain lists the manually edited key first and the internal OTTO
+		// key last, so a customer-entered value is unaffected and still wins.
 		$first = function (...$keys) use ($get) {
 			foreach ($keys as $key) {
+				if (!$this->otto_persistence_allows($key)) {
+					continue;
+				}
 				$val = $get($key);
 				if (!empty($val)) {
 					return $val;

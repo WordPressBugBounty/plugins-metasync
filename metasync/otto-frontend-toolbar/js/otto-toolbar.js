@@ -246,16 +246,25 @@
 				console.log('OTTO Toggle Response:', response);
 				
 				if (response.success) {
+					// Trust the effective status the server reports, not the state that
+					// was requested: a URL on the manual Excluded URLs list stays
+					// disabled however the per-page toggle is flipped.
+					let nowEnabled = (response.data && typeof response.data.is_disabled !== 'undefined')
+						? !response.data.is_disabled
+						: isChecked;
+
+					$toggle.prop('checked', nowEnabled);
+
 					// Update status text in tray
-					$('.otto-toggle-status-text').text(isChecked ? 'Enabled' : 'Disabled');
-					
+					$('.otto-toggle-status-text').text(nowEnabled ? 'Enabled' : 'Disabled');
+
 					// Update debug bar status
 					let $debugBar = $('#metasync-otto-debug-bar');
 					let ottoName = metasyncOttoDebug.ottoName || 'OTTO';
-					if (isChecked) {
+					if (nowEnabled) {
 						$debugBar.removeClass('otto-disabled').addClass('otto-enabled');
 						$debugBar.find('.otto-status-text').text(ottoName + ' Enabled');
-						
+
 						// Show Preview Original button when enabled
 						if ($('#otto-preview-btn').length === 0) {
 							let previewBtn = '<button type="button" class="otto-preview-btn" id="otto-preview-btn">' +
@@ -267,11 +276,17 @@
 					} else {
 						$debugBar.removeClass('otto-enabled').addClass('otto-disabled');
 						$debugBar.find('.otto-status-text').text(ottoName + ' Disabled');
-						
+
 						// Hide Preview Original button when disabled
 						$('#otto-preview-btn').remove();
 					}
-					
+
+					// The request could not take effect — say why rather than leaving
+					// the toggle to silently snap back.
+					if (nowEnabled !== isChecked && response.data && response.data.message) {
+						alert(response.data.message);
+					}
+
 					// Keep debug tray open - no page reload
 					console.log('OTTO status updated successfully. Debug tray remains open.');
 				} else {

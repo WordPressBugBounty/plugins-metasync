@@ -70,6 +70,8 @@ class Metasync_Settings_Fields {
                     'otto_disable_on_loggedin',
                     'otto_disable_preview_button',
                     'otto_wp_rocket_compat',
+                    'otto_sg_optimizer_compat',
+                    'bookingpress_session_compat',
                 )
             ),
             'edge_cache' => array(
@@ -1077,6 +1079,8 @@ class Metasync_Settings_Fields {
             'otto_disable_on_loggedin' => sprintf('Disable %s modifications when you are logged in to WordPress. This allows you to see and edit the original content without %s\'s enhancements during editing sessions.', $otto_name, $otto_name),
             'otto_disable_preview_button' => sprintf('Hide the %s frontend toolbar that displays the status indicator, preview button, and debug button. Enable this for a cleaner frontend experience.', $otto_name),
             'otto_wp_rocket_compat' => sprintf('WP Rocket Compatibility Mode: Controls how %s interacts with WP Rocket. "Auto" (recommended) allows both to work together by avoiding DONOTCACHEPAGE constant unless necessary for Brizy pages or SG Optimizer conflicts. This ensures WP Rocket\'s JavaScript delay and optimization features continue working.', $otto_name),
+            'otto_sg_optimizer_compat' => sprintf('SiteGround Optimizer Compatibility Mode: Controls how %s renders on SiteGround hosting. "Auto" (recommended) uses the internal HTTP fetch, which protects themes that defer inline CSS to the footer (e.g. Divi). "Buffer Mode" renders in-process with no internal fetch — faster on sites whose pages can never be host-cached, for example when a plugin starts a PHP session on every request (BookingPress sessions are removed automatically, so this does not apply to them).', $otto_name),
+            'bookingpress_session_compat' => 'BookingPress Session Compatibility: Controls whether MetaSync removes the PHP session BookingPress starts on every public page, so hosts such as SiteGround can page-cache the site again.',
             'otto_disable_for_bots' => sprintf('Enable bot detection to automatically skip %s processing for search engine crawlers, SEO tools, and other bots. This reduces unnecessary API calls and improves performance.', $otto_name),
             'otto_bot_whitelist' => sprintf('Enter bot names or user-agent patterns (one per line) that should always be processed by %s, even when "Disable for Bots" is enabled. For example: Googlebot, Bingbot. This allows you to ensure specific search engines always see your optimized content.', $otto_name),
             'otto_bot_blacklist' => sprintf('Enter bot names or user-agent patterns (one per line) that should always be blocked from %s processing, regardless of other settings. For example: BadBot, MaliciousCrawler. Use this to exclude problematic crawlers or unwanted traffic sources.', $otto_name),

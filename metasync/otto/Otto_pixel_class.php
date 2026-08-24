@@ -299,13 +299,11 @@ Class Metasync_otto_pixel{
         # comment out for fixing pagination issues
         # $route = rtrim($route, '/');
 
-        # Now that OTTO has confirmed suggestions to apply to this URL,
-        # disable SiteGround SG Optimizer page caching for THIS request only.
-        # Doing it here (instead of unconditionally on the `wp` hook) ensures
-        # pages without OTTO suggestions keep being served from SG's page cache.
-        if (function_exists('metasync_otto_disable_sg_page_cache')) {
-            metasync_otto_disable_sg_page_cache();
-        }
+        # SiteGround's page cache is no longer disabled up-front for every OTTO page.
+        # The cacheability decision now happens on the HTTP path in render_via_http(),
+        # AFTER the internal fetch — only session/form pages and incomplete renders are
+        # blocked, so plain content pages are finally cacheable. (SiteGround always uses
+        # the HTTP path; the disable is a no-op off SiteGround, so nothing else loses it.)
 
         # Analyze what OTTO is providing for SEO plugin blocking
         $blocking_flags = $this->analyze_otto_blocking($suggestions);
@@ -681,6 +679,14 @@ Class Metasync_otto_pixel{
 
         # check that route html is valid
         if(empty($route_html)){
+            # Fetch failed / empty (e.g. SG Optimizer truncated the internal response) —
+            # WordPress will serve the un-optimized page. Cap how long that copy may be
+            # cached, using the same mechanism as the deliberate skips above rather than a
+            # second, competing one: it reconciles existing directives, keeps logged-in
+            # responses fully no-store, and never grants caching nothing had granted.
+            if (function_exists('metasync_otto_limit_response_cache')) {
+                metasync_otto_limit_response_cache('HTTP_FETCH_FAILED');
+            }
             return false;
         }
 
@@ -797,8 +803,29 @@ Class Metasync_otto_pixel{
             }
         }
 
+        # Decide cacheability from the internal fetch + the final output, then serve.
+        # 1) Hand the visitor the session their page was built around (fixes forms that
+        #    were silently failing on the HTTP path because the fetch cookie was dropped).
+        # 2) Block shared caching when the fetched page set a cookie, when its own render
+        #    declared itself uncacheable (PHP's session cache-limiter — true for resumed
+        #    sessions too), when the visitor carries cart/auth cookies that change the
+        #    rendered content, or when the render came back incomplete.
+        # 3) A plain, complete page gets no cache header at all → the host finally caches
+        #    it (the SiteGround/Oxygen relief this ticket is about).
+        Metasync_Otto_Render_Strategy::passthrough_http_fetch_cookies();
+
+        $must_not_cache =
+            Metasync_Otto_Render_Strategy::http_fetch_had_cookie()
+            || Metasync_Otto_Render_Strategy::http_fetch_no_cache()
+            || Metasync_Otto_Render_Strategy::request_has_visitor_specific_cookie()
+            || !Metasync_Otto_Render_Strategy::http_output_is_complete($route_html_string);
+
         # Send response headers
         Metasync_Otto_Render_Strategy::send_headers($cache_status);
+
+        if ($must_not_cache) {
+            Metasync_Otto_Render_Strategy::block_http_cache();
+        }
 
         # continue to render the html
         echo $route_html_string;
