@@ -188,6 +188,12 @@ class Metasync_Redirections_Admin
                 $validation_errors[] = 'Destination URL is required for this redirect type.';
             } elseif (!$this->is_valid_url($trimmed_dest)) {
                 $validation_errors[] = 'Invalid destination URL format. URLs should start with / for relative paths or be complete URLs.';
+            } elseif (!Metasync_Redirection_Validator::is_safe_destination_syntax($trimmed_dest)) {
+                // Browsers treat backslashes as path separators, so '/\evil.com'
+                // passes wp_validate_redirect yet navigates off-site; a leading
+                // '//' is a protocol-relative host. Neither is a valid internal
+                // destination regardless of the external-redirects setting.
+                $validation_errors[] = 'Destination URL contains invalid characters.';
             } elseif (!get_option('metasync_allow_external_redirects', 0) && wp_validate_redirect($trimmed_dest, '') !== $trimmed_dest) {
                 $validation_errors[] = 'Destination URL must point to this site. External redirect destinations are not allowed. Enable "Allow External Redirects" in the Redirections settings to permit off-site redirects.';
             }
@@ -235,10 +241,11 @@ class Metasync_Redirections_Admin
                 return;
             }
 
-            // Reject patterns with nested quantifiers that could cause ReDoS
+            // Reject patterns with nested quantification that could cause ReDoS,
+            // including alternation blowup ('((a|a)*)*') the older guard missed.
             $raw_check = preg_replace('/^\S(.*)\S[a-zA-Z]*$/', '$1', $regex_pattern);
-            if (preg_match('/(\([^)]*[+*][^)]*\))[+*?{]|(\[[^\]]*\])[+*][+*?{]/', $raw_check)) {
-                set_transient('metasync_redirection_error_' . $uid, 'Regex pattern contains potentially unsafe nested quantifiers.', 45);
+            if (!Metasync_Redirection_Validator::is_regex_safe($raw_check)) {
+                set_transient('metasync_redirection_error_' . $uid, 'Regex pattern is too long or contains potentially unsafe nested quantifiers (including nested alternation).', 45);
                 $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
                 return;
             }
@@ -273,6 +280,7 @@ class Metasync_Redirections_Admin
         // Loop detection: refuse to persist a chain that would resolve back to any source
         if (!in_array($redirect_type, [410, 451])) {
             require_once dirname(__FILE__, 2) . '/redirections/class-metasync-redirection.php';
+            require_once dirname(__FILE__, 2) . '/redirections/class-metasync-redirection-validator.php';
             $redirection_helper = new Metasync_Redirection($this->db_redirection);
             foreach (array_keys($sources_from) as $source_url) {
                 $loop_error = $redirection_helper->validate_no_loop($source_url, $destination_url);

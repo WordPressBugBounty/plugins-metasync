@@ -15,7 +15,6 @@ if (!defined('ABSPATH')) {
 class Metasync_Smart_Lazy_Loader {
 
     private array $settings;
-    private int $img_counter = 0;
 
     public function __construct(array $settings) {
         $this->settings = $settings;
@@ -34,7 +33,7 @@ class Metasync_Smart_Lazy_Loader {
      * Process HTML content to add/manage lazy loading attributes.
      */
     public function process_content(string $content): string {
-        if (empty($content) || is_admin() || is_feed()) {
+        if (empty($content) || is_admin() || is_feed() || $this->is_amp_request()) {
             return $content;
         }
 
@@ -54,9 +53,15 @@ class Metasync_Smart_Lazy_Loader {
         $skip            = (int) ($this->settings['lcp_skip_count'] ?? 2);
         $exclude_classes = array_filter(array_map('trim', explode(',', $this->settings['exclude_classes'] ?? '')));
 
-        return preg_replace_callback('/<img\s[^>]+>/i', function ($matches) use ($skip, $exclude_classes) {
+        // The LCP budget is scoped to a single content block (the same
+        // semantics as core's wp_omit_loading_attr_threshold): an
+        // instance-wide counter shared across the_content, thumbnails, and
+        // widgets counted tags in filter-execution order, not document
+        // order, so the hero could still end up lazy-loaded.
+        $position = 0;
+
+        return preg_replace_callback('/<img\s[^>]+>/i', function ($matches) use ($skip, $exclude_classes, &$position) {
             $tag = $matches[0];
-            $this->img_counter++;
 
             // Already has a loading attribute - don't touch it
             if (preg_match('/\sloading\s*=/i', $tag)) {
@@ -73,8 +78,12 @@ class Metasync_Smart_Lazy_Loader {
                 }
             }
 
+            // Only images this filter actually modifies consume the budget;
+            // already-lazy and excluded tags above must not.
+            $position++;
+
             // Skip first N images to protect LCP
-            if ($this->img_counter <= $skip) {
+            if ($position <= $skip) {
                 return $this->inject_attribute($tag, 'loading', 'eager');
             }
 
@@ -90,15 +99,46 @@ class Metasync_Smart_Lazy_Loader {
      * Add loading="lazy" to <iframe> tags.
      */
     private function process_iframes(string $content): string {
-        return preg_replace_callback('/<iframe\s[^>]*>/i', function ($matches) {
+        // Same skip semantics as images: the first N iframes (typically
+        // above-fold embeds — a hero map or video) stay eager instead of
+        // being lazy-loaded unconditionally.
+        $skip     = (int) ($this->settings['lcp_skip_count'] ?? 2);
+        $position = 0;
+
+        return preg_replace_callback('/<iframe\s[^>]*>/i', function ($matches) use ($skip, &$position) {
             $tag = $matches[0];
 
             if (preg_match('/\sloading\s*=/i', $tag)) {
                 return $tag;
             }
 
+            $position++;
+            if ($position <= $skip) {
+                return $this->inject_attribute($tag, 'loading', 'eager');
+            }
+
             return $this->inject_attribute($tag, 'loading', 'lazy');
         }, $content);
+    }
+
+    /**
+     * True when the current request renders an AMP page. The AMP runtime
+     * manages its own loading strategy and rejects foreign attributes, so
+     * this filter is skipped there. The helper indirection keeps static
+     * analysis from assuming the AMP plugin's functions always exist.
+     */
+    private function is_amp_request(): bool {
+        if (self::func_is_available('amp_is_request')) {
+            return (bool) amp_is_request();
+        }
+        if (self::func_is_available('is_amp_endpoint')) {
+            return (bool) is_amp_endpoint();
+        }
+        return false;
+    }
+
+    private static function func_is_available(string $function): bool {
+        return function_exists($function);
     }
 
     /**

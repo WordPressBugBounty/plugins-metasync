@@ -24,6 +24,15 @@ class Metasync_Dimension_Injector {
     /** How long resolved dimensions stay cached, in seconds (7 days). */
     private const CACHE_TTL = 604800;
 
+    /** Transient key prefix for failed remote lookups (negative cache). */
+    private const FAIL_PREFIX = 'ms_dimfail_';
+
+    /** How long a failed remote lookup stays cached, in seconds (1 hour). */
+    private const FAIL_TTL = 3600;
+
+    /** Cap on bytes fetched from a remote image header sniff. */
+    private const REMOTE_MAX_BYTES = 65536;
+
     public function __construct() {
         add_filter('the_content', [$this, 'inject_dimensions'], 30);
         add_filter('post_thumbnail_html', [$this, 'inject_dimensions'], 30);
@@ -34,7 +43,7 @@ class Metasync_Dimension_Injector {
      * Find <img> tags missing width or height and inject dimensions.
      */
     public function inject_dimensions(string $content): string {
-        if (empty($content) || is_admin()) {
+        if (empty($content) || is_admin() || is_feed()) {
             return $content;
         }
 
@@ -252,6 +261,15 @@ class Metasync_Dimension_Injector {
             }
         }
 
+        // A sized variant with no registered sub-size (crop added after
+        // upload, third-party sizes) must not inherit the FULL-size
+        // dimensions — wrong width/height re-introduces the very layout
+        // shift this module exists to prevent. Leaving the tag alone is
+        // safer than injecting wrong values.
+        if (preg_match('/-\d+x\d+(?=\.\w+$)/', wp_basename($url))) {
+            return null;
+        }
+
         // Fall back to full size
         if (!empty($meta['width']) && !empty($meta['height'])) {
             return [
@@ -291,23 +309,37 @@ class Metasync_Dimension_Injector {
     /**
      * Fetch dimensions from a remote URL.
      * Downloads just enough bytes to read image headers.
+     *
+     * Server-side fetching of arbitrary <img src> values is an SSRF vector:
+     * content authors can plant internal, localhost, or cloud-metadata URLs
+     * that this server would otherwise probe on every pageview. Remote
+     * fetching is therefore opt-in — it only runs for hosts allowlisted via
+     * the 'metasync_dimension_remote_hosts' filter — and failures are
+     * negatively cached so they are not re-fetched on every request.
      */
     private function get_dims_from_remote(string $url): ?array {
-        if (strpos($url, 'http') !== 0) {
+        if (!$this->is_remote_fetch_allowed($url)) {
+            return null;
+        }
+
+        $fail_key = self::FAIL_PREFIX . md5($url);
+        if (get_transient($fail_key) !== false) {
             return null;
         }
 
         $response = wp_remote_get($url, [
-            'timeout' => 3,
-            'headers' => ['Range' => 'bytes=0-32767'],
+            'timeout'             => 3,
+            'headers'             => ['Range' => 'bytes=0-' . (self::REMOTE_MAX_BYTES - 1)],
+            'limit_response_size' => self::REMOTE_MAX_BYTES,
         ]);
 
-        if (is_wp_error($response)) {
-            return null;
+        $body = null;
+        if (!is_wp_error($response)) {
+            $body = wp_remote_retrieve_body($response);
         }
 
-        $body = wp_remote_retrieve_body($response);
         if (empty($body)) {
+            set_transient($fail_key, 1, self::FAIL_TTL);
             return null;
         }
 
@@ -324,7 +356,49 @@ class Metasync_Dimension_Injector {
             return ['width' => $info[0], 'height' => $info[1]];
         }
 
+        set_transient($fail_key, 1, self::FAIL_TTL);
         return null;
+    }
+
+    /**
+     * A remote URL may only be fetched when explicitly allowed.
+     *
+     * @param string $url Absolute image URL.
+     * @return bool True when the scheme is http(s), the URL passes core's
+     *              internal-address validation, and its host is allowlisted.
+     */
+    private function is_remote_fetch_allowed(string $url): bool {
+        /**
+         * Hosts whose images may be fetched server-side for dimension
+         * sniffing. Empty by default — remote dimension fetching is opt-in,
+         * which closes the SSRF surface until a site owner explicitly
+         * trusts specific hosts. Checked before any URL parsing so the
+         * default (fetch-disabled) path stays cheap.
+         *
+         * @param string[] $allowed_hosts List of hostnames.
+         */
+        $allowed_hosts = apply_filters('metasync_dimension_remote_hosts', []);
+        if (empty($allowed_hosts)) {
+            return false;
+        }
+
+        $scheme = wp_parse_url($url, PHP_URL_SCHEME);
+        if (!in_array($scheme, ['http', 'https'], true)) {
+            return false;
+        }
+
+        if (!wp_http_validate_url($url)) {
+            return false;
+        }
+
+        $host = strtolower((string) wp_parse_url($url, PHP_URL_HOST));
+        foreach ($allowed_hosts as $allowed) {
+            if (strtolower((string) $allowed) === $host) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

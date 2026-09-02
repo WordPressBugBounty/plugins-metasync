@@ -41,6 +41,7 @@ class Metasync_Dev_Panel {
 	 * Option name for storing the developer panel password.
 	 */
 	const PASSWORD_OPTION = 'metasync_dev_panel_password';
+	const PASSWORD_HASH_PREFIX = 'metasync-hash:';
 
 	/**
 	 * Authentication manager instance.
@@ -70,6 +71,45 @@ class Metasync_Dev_Panel {
 		add_action( 'wp_ajax_metasync_switch_endpoints', array( $this, 'ajax_switch_endpoints' ) );
 		add_action( 'wp_ajax_metasync_update_dev_password', array( $this, 'ajax_update_dev_password' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_scripts' ) );
+	}
+
+	/**
+	 * Hash and store the developer tools password.
+	 *
+	 * @param string $password Plaintext password.
+	 * @return bool Whether the option was updated.
+	 */
+	private function store_hashed_password( $password ) {
+		$stored = self::PASSWORD_HASH_PREFIX . wp_hash_password( $password );
+
+		return update_option( self::PASSWORD_OPTION, $stored );
+	}
+
+	/**
+	 * Verify the stored password and migrate legacy plaintext values on success.
+	 *
+	 * @param string $submitted Submitted plaintext password.
+	 * @return bool Whether the password is valid.
+	 */
+	private function verify_dev_password( $submitted ) {
+		$stored = get_option( self::PASSWORD_OPTION, '' );
+
+		if ( ! is_string( $stored ) || $stored === '' ) {
+			return false;
+		}
+
+		if ( strpos( $stored, self::PASSWORD_HASH_PREFIX ) === 0 ) {
+			$hash = substr( $stored, strlen( self::PASSWORD_HASH_PREFIX ) );
+
+			return wp_check_password( $submitted, $hash );
+		}
+
+		if ( hash_equals( $stored, $submitted ) ) {
+			$this->store_hashed_password( $submitted );
+			return true;
+		}
+
+		return false;
 	}
 
 	/**
@@ -172,8 +212,8 @@ class Metasync_Dev_Panel {
 		// Handle password setup submission
 		if ( isset( $_POST['dev_panel_setup_submit'] ) ) {
 			if ( wp_verify_nonce( $_POST['dev_panel_setup_nonce'], 'metasync_dev_panel_setup' ) ) {
-				$new_password = sanitize_text_field( $_POST['dev_panel_new_password'] );
-				$confirm_password = sanitize_text_field( $_POST['dev_panel_confirm_password'] );
+				$new_password     = isset( $_POST['dev_panel_new_password'] ) ? (string) wp_unslash( $_POST['dev_panel_new_password'] ) : '';
+				$confirm_password = isset( $_POST['dev_panel_confirm_password'] ) ? (string) wp_unslash( $_POST['dev_panel_confirm_password'] ) : '';
 
 				if ( empty( $new_password ) ) {
 					$setup_error = 'Password cannot be empty.';
@@ -182,7 +222,7 @@ class Metasync_Dev_Panel {
 				} elseif ( strlen( $new_password ) < 6 ) {
 					$setup_error = 'Password must be at least 6 characters long.';
 				} else {
-					$result = update_option( self::PASSWORD_OPTION, $new_password );
+					$result = $this->store_hashed_password( $new_password );
 					if ( $result ) {
 						// Grant access immediately
 						if ( $this->auth ) {
@@ -278,10 +318,10 @@ class Metasync_Dev_Panel {
 		// Handle password submission
 		if ( isset( $_POST['dev_panel_password_submit'] ) ) {
 			if ( wp_verify_nonce( $_POST['dev_panel_nonce'], 'metasync_dev_panel_nonce' ) ) {
-				$submitted_password = sanitize_text_field( $_POST['dev_panel_password'] );
-				$saved_password = get_option( self::PASSWORD_OPTION, '' );
+				$submitted_password = isset( $_POST['dev_panel_password'] ) ? (string) wp_unslash( $_POST['dev_panel_password'] ) : '';
 
-				if ( $this->auth && $this->auth->verify_and_grant( $submitted_password, $saved_password, false ) ) {
+				if ( $this->auth && $this->verify_dev_password( $submitted_password ) ) {
+					$this->auth->grant_transient_access();
 					// Refresh page to show authenticated state - add timestamp to prevent caching
 					wp_safe_redirect( add_query_arg( 'login', 'success', $_SERVER['REQUEST_URI'] ) );
 					exit;
@@ -377,7 +417,7 @@ class Metasync_Dev_Panel {
 		// Handle password update
 		if ( isset( $_POST['update_password_submit'] ) ) {
 			if ( wp_verify_nonce( $_POST['update_password_nonce'], 'metasync_update_dev_password' ) ) {
-				$new_password = sanitize_text_field( $_POST['dev_panel_new_password'] );
+				$new_password = isset( $_POST['dev_panel_new_password'] ) ? (string) wp_unslash( $_POST['dev_panel_new_password'] ) : '';
 
 				if ( empty( $new_password ) ) {
 					$message = 'Password cannot be empty.';
@@ -386,7 +426,7 @@ class Metasync_Dev_Panel {
 					$message = 'Password must be at least 6 characters long.';
 					$message_type = 'error';
 				} else {
-					$result = update_option( self::PASSWORD_OPTION, $new_password );
+					$result = $this->store_hashed_password( $new_password );
 					if ( $result ) {
 						$message = 'Password updated successfully!';
 						$message_type = 'success';
@@ -534,9 +574,9 @@ class Metasync_Dev_Panel {
 		// Verify nonce
 		check_ajax_referer( 'metasync_switch_endpoints', 'nonce' );
 
-		// Verify permissions (matches main plugin's access control)
-		if ( ! Metasync::current_user_has_plugin_access() ) {
-			wp_send_json_error( array( 'message' => 'Insufficient permissions' ) );
+		// Developer tools are administrator-only.
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => 'Insufficient permissions' ), 403 );
 			return;
 		}
 
@@ -576,9 +616,9 @@ class Metasync_Dev_Panel {
 		// Verify nonce
 		check_ajax_referer( 'metasync_update_dev_password', 'nonce' );
 
-		// Verify permissions (matches main plugin's access control)
-		if ( ! Metasync::current_user_has_plugin_access() ) {
-			wp_send_json_error( array( 'message' => 'Insufficient permissions' ) );
+		// Developer tools are administrator-only.
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => 'Insufficient permissions' ), 403 );
 			return;
 		}
 
@@ -589,7 +629,7 @@ class Metasync_Dev_Panel {
 		}
 
 		// Get new password
-		$new_password = isset( $_POST['dev_panel_password'] ) ? sanitize_text_field( $_POST['dev_panel_password'] ) : '';
+		$new_password = isset( $_POST['dev_panel_password'] ) ? (string) wp_unslash( $_POST['dev_panel_password'] ) : '';
 
 		if ( empty( $new_password ) ) {
 			wp_send_json_error( array( 'message' => 'Password cannot be empty' ) );
@@ -601,7 +641,7 @@ class Metasync_Dev_Panel {
 			return;
 		}
 
-		$result = update_option( self::PASSWORD_OPTION, $new_password );
+		$result = $this->store_hashed_password( $new_password );
 
 		if ( $result ) {
 			wp_send_json_success( array( 'message' => 'Password updated successfully' ) );

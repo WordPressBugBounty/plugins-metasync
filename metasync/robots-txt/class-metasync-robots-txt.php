@@ -116,7 +116,12 @@ class Metasync_Robots_Txt
         }
 
         // Match a Sitemap line pointing at one of MetaSync's own sitemap files.
-        $pattern = '#^[ \t]*Sitemap:[ \t]*\S*/(?:sitemap_index\.xml|sitemap\d*\.xml|news-sitemap\.xml|video-sitemap\.xml)[ \t]*\r?$#im';
+        // The pattern is anchored to this site's full home URL so only files
+        // MetaSync itself publishes are matched; a hand-added third-party
+        // Sitemap line (another host, or a different path on this host) is
+        // left in place, per the contract above.
+        $base = preg_quote(home_url('/'), '#');
+        $pattern = '#^[ \t]*Sitemap:[ \t]*' . $base . '(?:sitemap_index\.xml|sitemap\d*\.xml|news-sitemap\.xml|video-sitemap\.xml)[ \t]*\r?$#im';
         $filtered = preg_replace($pattern, '', $content);
 
         // Regex failure or nothing removed: return the original untouched.
@@ -136,52 +141,43 @@ class Metasync_Robots_Txt
      */
     public function read_robots_file()
     {
-        // Check virtual content first if virtual mode is active
-        if ($this->database->is_virtual_mode()) {
-            $virtual_content = $this->database->get_virtual_content();
-            if (false !== $virtual_content) {
-                return $virtual_content;
-            }
-        }
+        // The physical file is authoritative when it exists — virtual content
+        // is the fallback for hosts where no physical file can be written.
+        // Reading virtual first made a manually-created physical file invisible
+        // to the editor UI and to the pre-write backup, so the next UI save
+        // overwrote the manual file with stale virtual content while the
+        // backup captured that same stale content instead of the real file.
+        if (file_exists($this->robots_file_path)) {
+            // Try WP_Filesystem first
+            if (function_exists('WP_Filesystem')) {
+                require_once ABSPATH . 'wp-admin/includes/file.php';
+                WP_Filesystem();
+                global $wp_filesystem;
 
-        // Check if physical file exists
-        if (!file_exists($this->robots_file_path)) {
-            // Check if we have virtual content as fallback
-            $virtual_content = $this->database->get_virtual_content();
-            if (false !== $virtual_content) {
-                return $virtual_content;
-            }
-            // Return default robots.txt content
-            return $this->get_default_robots_content();
-        }
-
-        // Try WP_Filesystem first
-        if (function_exists('WP_Filesystem')) {
-            require_once ABSPATH . 'wp-admin/includes/file.php';
-            WP_Filesystem();
-            global $wp_filesystem;
-
-            if ($wp_filesystem && $wp_filesystem->exists($this->robots_file_path)) {
-                $content = $wp_filesystem->get_contents($this->robots_file_path);
-                if (false !== $content) {
-                    return $content;
+                if ($wp_filesystem && $wp_filesystem->exists($this->robots_file_path)) {
+                    $content = $wp_filesystem->get_contents($this->robots_file_path);
+                    if (false !== $content) {
+                        return $content;
+                    }
                 }
             }
-        }
 
-        // Fallback to native PHP file operations
-        $content = @file_get_contents($this->robots_file_path);
-
-        if (false === $content) {
-            // Check virtual content as last resort
-            $virtual_content = $this->database->get_virtual_content();
-            if (false !== $virtual_content) {
-                return $virtual_content;
+            // Fallback to native PHP file operations
+            $content = @file_get_contents($this->robots_file_path);
+            if (false !== $content) {
+                return $content;
             }
-            return new WP_Error('read_error', esc_html__('Could not read robots.txt file.', 'metasync'));
+            // Read of an existing file failed — fall through to virtual.
         }
 
-        return $content;
+        // No physical file (or it could not be read): serve virtual content.
+        $virtual_content = $this->database->get_virtual_content();
+        if (false !== $virtual_content) {
+            return $virtual_content;
+        }
+
+        // Return default robots.txt content
+        return $this->get_default_robots_content();
     }
 
     /**
@@ -500,21 +496,18 @@ class Metasync_Robots_Txt
      */
     public function update_sitemap_url($sitemap_url)
     {
-        // Check if we can write to robots.txt
-        if (!$this->is_writable()) {
-            return [
-                'success' => false,
-                'action' => 'error',
-                'message' => esc_html__('Cannot write to robots.txt. Please check file permissions.', 'metasync')
-            ];
-        }
+        // No filesystem writability pre-check here: write_robots_file() itself
+        // falls back to virtual storage when the physical file cannot be
+        // written, so gating on is_writable() blocked virtual-mode hosts —
+        // the exact hosts the fallback exists for — from ever recording their
+        // sitemap index line.
 
         // Check if file exists
         $file_exists = $this->file_exists();
 
         // Read current content
         $current_content = $this->read_robots_file();
-        
+
         if (is_wp_error($current_content)) {
             // If error reading, use default content
             $current_content = $this->get_default_robots_content();
@@ -524,60 +517,51 @@ class Metasync_Robots_Txt
         $sitemap_url = esc_url_raw($sitemap_url);
         $sitemap_line = "Sitemap: {$sitemap_url}";
 
-        // Check if there's already a Sitemap line
-        $has_sitemap = preg_match('/^Sitemap:\s*.+$/im', $current_content);
-
-        if ($has_sitemap) {
-            // Check if the sitemap URL is already correct
-            if (preg_match('/^Sitemap:\s*' . preg_quote($sitemap_url, '/') . '\s*$/im', $current_content)) {
-                // If file doesn't exist, we still need to create it even if content matches
-                if (!$file_exists) {
-                    $result = $this->write_robots_file($current_content);
-                    if (is_wp_error($result)) {
-                        return [
-                            'success' => false,
-                            'action' => 'error',
-                            'message' => $result->get_error_message()
-                        ];
-                    }
+        // Check if the sitemap URL is already correct
+        if (preg_match('/^Sitemap:\s*' . preg_quote($sitemap_url, '/') . '\s*$/im', $current_content)) {
+            // If file doesn't exist, we still need to create it even if content matches
+            if (!$file_exists) {
+                $result = $this->write_robots_file($current_content);
+                if (is_wp_error($result)) {
                     return [
-                        'success' => true,
-                        'action' => 'created',
-                        'message' => esc_html__('robots.txt file has been created with sitemap URL.', 'metasync')
+                        'success' => false,
+                        'action' => 'error',
+                        'message' => $result->get_error_message()
                     ];
                 }
                 return [
                     'success' => true,
-                    'action' => 'unchanged',
-                    'message' => esc_html__('Sitemap URL already exists in robots.txt.', 'metasync')
+                    'action' => 'created',
+                    'message' => esc_html__('robots.txt file has been created with sitemap URL.', 'metasync')
                 ];
             }
-
-            // Update existing Sitemap line(s) - replace all with the new one
-            $new_content = preg_replace('/^Sitemap:\s*.+$/im', $sitemap_line, $current_content);
-            
-            // Remove duplicate sitemap lines (keep only the first one)
-            $lines = explode("\n", $new_content);
-            $sitemap_found = false;
-            $filtered_lines = [];
-            foreach ($lines as $line) {
-                if (preg_match('/^Sitemap:/i', trim($line))) {
-                    if (!$sitemap_found) {
-                        $filtered_lines[] = $sitemap_line;
-                        $sitemap_found = true;
-                    }
-                    // Skip duplicate sitemap lines
-                } else {
-                    $filtered_lines[] = $line;
-                }
-            }
-            $new_content = implode("\n", $filtered_lines);
-            $action = 'updated';
-        } else {
-            // Add sitemap line at the end
-            $new_content = rtrim($current_content) . "\n\n" . $sitemap_line;
-            $action = 'added';
+            return [
+                'success' => true,
+                'action' => 'unchanged',
+                'message' => esc_html__('Sitemap URL already exists in robots.txt.', 'metasync')
+            ];
         }
+
+        // Manage only MetaSync's own sitemap index line. Every other Sitemap
+        // line — news, video, or one added by hand or by another plugin — must
+        // survive, matching the append-only contract of add_sitemap_url().
+        // Replacing every Sitemap line here durably destroyed those lines on
+        // term/delete-triggered regenerations, which skip the news/video
+        // re-adds.
+        $own_index_pattern = '#^[ \t]*Sitemap:[ \t]*' . preg_quote(home_url('/'), '#') . 'sitemap_index\.xml[ \t]*\r?$#im';
+        $without_own = preg_replace($own_index_pattern, '', $current_content);
+
+        if (null === $without_own) {
+            // Regex failure: fall back to appending without removing anything.
+            $without_own = $current_content;
+        }
+
+        $action = ($without_own !== $current_content) ? 'updated' : 'added';
+
+        // Clean up the blank lines left by removed lines, then append the
+        // current index URL once at the end.
+        $without_own = preg_replace("/\n{3,}/", "\n\n", $without_own);
+        $new_content = rtrim($without_own) . "\n" . $sitemap_line . "\n";
 
         // Write the updated content
         $result = $this->write_robots_file($new_content);

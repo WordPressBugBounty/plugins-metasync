@@ -115,6 +115,11 @@ class Metasync_Sitemap_News
 
         $posts = get_posts($args);
 
+        // Batch-resolve noindex status in a single query so posts the site
+        // owner marked noindex never enter the news sitemap (mirrors the main
+        // sitemap generator, which already excludes them).
+        $noindex_set = array_flip($this->get_noindex_post_ids(array_map('intval', wp_list_pluck($posts, 'ID'))));
+
         // Build excluded URLs set
         $excluded_urls = [];
         if (!empty($this->settings['excluded_urls'])) {
@@ -157,6 +162,11 @@ class Metasync_Sitemap_News
         $xml->appendChild($urlset);
 
         foreach ($posts as $post) {
+            // Posts marked noindex never belong in the news sitemap.
+            if (isset($noindex_set[(int) $post->ID])) {
+                continue;
+            }
+
             $permalink = get_permalink($post->ID);
 
             // Skip excluded URLs
@@ -180,9 +190,22 @@ class Metasync_Sitemap_News
             $publication->appendChild($pub_lang);
             $news->appendChild($publication);
 
+            // A valid publication date is required for news entries. Legacy
+            // rows with a zero GMT date ("0000-00-00 00:00:00") make
+            // strtotime() resolve before the epoch, which would serialise as
+            // a year -0001 date; fall back to the local post date and skip
+            // the entry entirely when both are unusable.
+            $pub_timestamp = strtotime($post->post_date_gmt);
+            if ($pub_timestamp === false || $pub_timestamp < 0) {
+                $pub_timestamp = strtotime($post->post_date);
+            }
+            if ($pub_timestamp === false || $pub_timestamp < 0) {
+                continue;
+            }
+
             $pub_date = $xml->createElement(
                 'news:publication_date',
-                gmdate('c', strtotime($post->post_date_gmt))
+                gmdate('c', $pub_timestamp)
             );
             $news->appendChild($pub_date);
 
@@ -205,6 +228,34 @@ class Metasync_Sitemap_News
         unset($posts);
 
         return $xml->saveXML();
+    }
+
+    /**
+     * Resolve which of the given post IDs are marked noindex.
+     *
+     * Mirrors the main sitemap generator's batch check: the robots metabox
+     * stores metasync_common_robots as a serialized array, and a post is
+     * noindex when that array contains 'noindex' => 'noindex'. One query per
+     * batch instead of a get_post_meta() call per post.
+     *
+     * @param int[] $post_ids Post IDs to inspect.
+     * @return int[] IDs that are noindex.
+     */
+    private function get_noindex_post_ids($post_ids)
+    {
+        global $wpdb;
+
+        if (empty($post_ids)) {
+            return [];
+        }
+
+        $id_placeholders = implode(',', array_fill(0, count($post_ids), '%d'));
+        return array_map('intval', (array) $wpdb->get_col(
+            $wpdb->prepare(
+                "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = 'metasync_common_robots' AND post_id IN ({$id_placeholders}) AND meta_value LIKE %s",
+                array_merge($post_ids, ['%"noindex";s:7:"noindex"%'])
+            )
+        ));
     }
 
     /**

@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.6.23
+ * Version:           2.6.24
  * Requires PHP:      8.1
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
@@ -41,7 +41,7 @@ require_once __DIR__ . '/includes/class-metasync-canonical-sanitizer.php';
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.6.23';
+$metasync_version = '2.6.24';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -119,6 +119,12 @@ if (!function_exists('metasync_is_non_metasync_admin_ajax')) {
 		static $result = null;
 		if ($result !== null) {
 			return $result;
+		}
+		// The MCP bridge intentionally boots WordPress with DOING_AJAX set, but it
+		// is a MetaSync entry point rather than an unrelated admin AJAX request.
+		// The constant is only ever defined as true by the bridge bootstraps.
+		if (defined('METASYNC_MCP_BRIDGE')) {
+			return ($result = false);
 		}
 		if (!defined('DOING_AJAX') || !DOING_AJAX) {
 			return ($result = false);
@@ -547,7 +553,7 @@ function metasync_handle_plugin_upgrade($upgrader, $hook_extra)
     }
 
     if ($should_import) {
-        Metasync_Activator::check_whitelabel_settings_update();
+        Metasync_Activator::check_whitelabel_settings_update(true);
     }
 }
 
@@ -558,23 +564,23 @@ add_action('upgrader_process_complete', 'metasync_handle_plugin_upgrade', 10, 2)
  * Fallback: Check for whitelabel file changes on admin pages
  * This handles edge cases where upgrader_process_complete doesn't fire
  * (e.g., FTP uploads, manual file replacements)
- * Only checks once per admin session to minimize performance impact
+ * Only checks once per admin request to minimize performance impact
  */
-// function metasync_check_whitelabel_on_admin()
-// {
-//     // Only check once per admin session to avoid overhead
-//     static $checked = false;
-//     if ($checked) {
-//         return;
-//     }
-//     $checked = true;
+function metasync_check_whitelabel_on_admin()
+{
+    static $checked = false;
+    if ($checked || !current_user_can('manage_options')) {
+        return;
+    }
+    $checked = true;
 
-//     require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-activator.php';
-//     Metasync_Activator::check_whitelabel_settings_update();
-// }
+    require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-activator.php';
+    Metasync_Activator::check_whitelabel_settings_update();
+}
 
-// Check for whitelabel changes on admin pages (fallback for edge cases)
-// add_action('admin_init', 'metasync_check_whitelabel_on_admin', 1);
+// Retry package imports on an authorized admin request when an update completed
+// through the public version-check or stale-classmap fallback path.
+add_action('admin_init', 'metasync_check_whitelabel_on_admin', 1);
 
 // Include Media Optimization Module
 if (!metasync_is_non_metasync_admin_ajax()) {

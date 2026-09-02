@@ -427,6 +427,23 @@ $stats = $importer->get_import_stats();
         </div>
     </div>
 
+    <div class="metasync-plugin-card metasync-csv-card" data-plugin="csv">
+        <div class="metasync-plugin-card__header">
+            <h3 class="metasync-plugin-card__title">CSV File</h3>
+            <span class="metasync-plugin-badge metasync-plugin-badge--available"><span>&#10003;</span> Ready</span>
+        </div>
+        <div class="metasync-plugin-card__content">
+            <div class="metasync-plugin-card__description">
+                Upload a .csv file with one redirection per row: <code>source,destination,http code</code>. The http code column is optional (301 by default; 301, 302, 307, 410, 451). A header row is detected and skipped, and duplicates are skipped automatically. Maximum size 2 MB.
+            </div>
+            <div style="margin-top: 12px;">
+                <input type="file" id="metasync-csv-file" accept=".csv,text/csv" style="max-width: 100%; color: var(--dashboard-text-secondary, #9ca3af); font-size: 13px;">
+            </div>
+        </div>
+        <button type="button" class="metasync-import-btn metasync-import-btn--csv" data-plugin="csv">Import CSV</button>
+        <div class="metasync-import-result" style="display: none;"></div>
+    </div>
+
     <div class="metasync-plugins-grid">
         <?php foreach ($available_plugins as $plugin): ?>
             <div class="metasync-plugin-card" data-plugin="<?php echo esc_attr($plugin['key']); ?>">

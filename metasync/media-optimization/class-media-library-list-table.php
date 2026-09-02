@@ -216,6 +216,18 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
         $format = get_post_meta($attachment_id, '_metasync_converted_format', true);
 
         if (!$format) {
+            // Natively-uploaded WebP/AVIF is already optimized and cannot be
+            // converted — the stats card counts these as optimized, so the
+            // row badge must agree instead of showing "Unoptimized" for the
+            // same image on the same screen.
+            $mime = get_post_mime_type($attachment_id);
+            if (in_array($mime, self::OPTIMIZED_MIME_TYPES, true)) {
+                return sprintf(
+                    '<span class="metasync-status-badge metasync-status-optimized">%s</span>',
+                    esc_html__('Optimized (native)', 'metasync')
+                );
+            }
+
             $file = get_attached_file($attachment_id);
             $size = ($file && file_exists($file)) ? size_format((int) filesize($file), 1) : '';
             $size_html = $size ? sprintf(
@@ -795,6 +807,60 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
     private const OPTIMIZED_MIME_TYPES = ['image/webp', 'image/avif'];
 
     public static function get_stats(): array {
+        // While a batch is running the browser polls every 500ms and every
+        // tick is a fresh PHP process, so library-wide scans cannot amortize.
+        // Derive the live numbers from the batch's own baseline + progress
+        // counters instead — zero queries per tick.
+        if (Metasync_Media_Batch_Optimizer::is_running()) {
+            $derived = self::derive_stats_from_batch();
+            if ($derived !== null) {
+                return $derived;
+            }
+        }
+
+        // Outside a batch, cache the three scans: the numbers only move on
+        // conversion, revert, or attachment deletion, each of which
+        // invalidates the transient.
+        $cached = get_transient(Metasync_Media_Batch_Optimizer::STATS_TRANSIENT);
+        if (is_array($cached) && isset($cached['total'], $cached['optimized'])) {
+            return $cached;
+        }
+
+        $stats = self::query_stats();
+        set_transient(Metasync_Media_Batch_Optimizer::STATS_TRANSIENT, $stats, 15 * MINUTE_IN_SECONDS);
+
+        return $stats;
+    }
+
+    /**
+     * Live stats for a running batch: its start-of-run baseline plus the
+     * batch's own progress counters. Every queued image was unoptimized at
+     * queue-build time, so each non-failed conversion moves exactly one
+     * image across.
+     */
+    private static function derive_stats_from_batch(): ?array {
+        $baseline = get_option(Metasync_Media_Batch_Optimizer::BASELINE_STATS_OPTION, []);
+        if (!is_array($baseline) || !isset($baseline['total'], $baseline['optimized'])) {
+            return null;
+        }
+
+        $progress  = Metasync_Media_Batch_Optimizer::get_progress();
+        $optimized = (int) $baseline['optimized'] + (int) $progress['processed'] - (int) $progress['failed'];
+        $total     = (int) $baseline['total'];
+
+        return [
+            'total'       => $total,
+            'optimized'   => $optimized,
+            'unoptimized' => max(0, $total - $optimized),
+            'percentage'  => $total > 0 ? round(($optimized / $total) * 100) : 0,
+        ];
+    }
+
+    /**
+     * The uncached library-wide scans. Called at most once per 15 minutes
+     * outside a batch, never during one.
+     */
+    private static function query_stats(): array {
         $total = (new WP_Query([
             'post_type'      => 'attachment',
             'post_status'    => 'inherit',

@@ -156,11 +156,6 @@ class Metasync_Connect_Manager
             return;
         }
 
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(array('message' => 'Insufficient permissions'));
-            return;
-        }
-
         if (!Metasync::current_user_has_plugin_access()) {
             wp_send_json_error(array('message' => 'Insufficient permissions'));
             return;
@@ -822,44 +817,40 @@ class Metasync_Connect_Manager
     }
 
     /**
-     * Return the cached JWT token, or false — never fetches a fresh one.
+     * Rotate the MCP signing secret so all previously issued tokens are invalid.
+     */
+    public function revoke_mcp_jwt_tokens()
+    {
+        delete_option('metasync_jwt_secret');
+        wp_cache_delete('metasync_jwt_secret', 'options');
+    }
+
+    /**
+     * Return a valid cached JWT without making a network request.
      *
-     * get_active_jwt_token() falls through to get_fresh_jwt_token() on a cache
-     * miss, which performs a blocking POST with a 15 second timeout. That is fine
-     * for admin and cron work but not for anything on a visitor's page render,
-     * where it would add up to 15 seconds to the response.
+     * Non-blocking telemetry must never refresh credentials as a side effect.
      *
-     * Callers on a request-path should use this and simply skip whatever they
-     * wanted the token for when it returns false. The next admin or cron request
-     * will repopulate the cache.
-     *
-     * @return string|false Cached token, or false when none is cached or it is
-     *                      within the expiry buffer.
+     * @return string|false Cached JWT token, or false when none is available.
      */
     public static function get_cached_jwt_token()
     {
         $api_key = Metasync::get_searchatlas_api_key();
-        if ($api_key === false) {
-            $api_key = '';
-        }
-
-        if (empty($api_key)) {
+        if ($api_key === false || $api_key === '') {
             return false;
         }
 
-        $cached_token_data = get_transient('metasync_jwt_token_' . md5($api_key));
-
-        if (!$cached_token_data || !is_array($cached_token_data)) {
+        $cache_key = 'metasync_jwt_token_' . md5($api_key);
+        $cached_token_data = get_transient($cache_key);
+        if (!is_array($cached_token_data) || empty($cached_token_data['token'])) {
             return false;
         }
 
-        # Same 5-minute expiry buffer get_active_jwt_token() applies.
-        $expires_with_buffer = $cached_token_data['expires'] - 300;
-        if (time() >= $expires_with_buffer || empty($cached_token_data['token'])) {
+        $expires = isset($cached_token_data['expires']) ? (int) $cached_token_data['expires'] : 0;
+        if ($expires <= time() + 300) {
             return false;
         }
 
-        return $cached_token_data['token'];
+        return (string) $cached_token_data['token'];
     }
 
     /**
@@ -1043,6 +1034,7 @@ class Metasync_Connect_Manager
             }
 
             $this->clear_jwt_token_cache();
+            $this->revoke_mcp_jwt_tokens();
             $cleared_data['jwt_token_cache'] = 'cleared';
 
             $this->cleanup_searchatlas_rate_limits();
@@ -1235,16 +1227,7 @@ class Metasync_Connect_Manager
     public function handle_whitelabel_session_logic()
     {
         $auth = new Metasync_Auth_Manager('whitelabel', 1800);
-
-        $admin_password = 'abracadabra@2020';
-
-        // Decrypted plaintext for verification; '' when unset or undecryptable.
-        $user_password = Metasync::get_whitelabel_password();
-
-        $valid_passwords = array($admin_password);
-        if (!empty($user_password)) {
-            $valid_passwords[] = $user_password;
-        }
+        $valid_passwords = $this->get_whitelabel_valid_passwords();
 
         if (isset($_POST['whitelabel_logout'])) {
             if (wp_verify_nonce($_POST['whitelabel_logout_nonce'] ?? '', 'whitelabel_logout_nonce')) {
@@ -1271,10 +1254,21 @@ class Metasync_Connect_Manager
      */
     public function handle_whitelabel_password_early()
     {
-        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['option_page']) && $_POST['option_page'] === Metasync_Admin::option_group) {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        if (
+            !isset($_POST['meta_sync_nonce'])
+            || !wp_verify_nonce(wp_unslash($_POST['meta_sync_nonce']), 'meta_sync_general_setting_nonce')
+        ) {
+            return;
+        }
+
+        if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['option_page']) && $_POST['option_page'] === Metasync_Admin::option_group) {
 
             if (isset($_POST[Metasync_Admin::option_key]['whitelabel']['settings_password'])) {
-                $submitted_password = sanitize_text_field($_POST[Metasync_Admin::option_key]['whitelabel']['settings_password']);
+                $submitted_password = sanitize_text_field(wp_unslash($_POST[Metasync_Admin::option_key]['whitelabel']['settings_password']));
 
                 $current_options = Metasync::get_option();
 
@@ -1288,5 +1282,17 @@ class Metasync_Connect_Manager
                 update_option(Metasync_Admin::option_key, $current_options);
             }
         }
+    }
+
+    /**
+     * Return the site-specific passwords accepted by the whitelabel gate.
+     *
+     * @return array<int, string>
+     */
+    private function get_whitelabel_valid_passwords()
+    {
+        $user_password = Metasync::get_whitelabel_password();
+
+        return $user_password === '' ? array() : array($user_password);
     }
 }

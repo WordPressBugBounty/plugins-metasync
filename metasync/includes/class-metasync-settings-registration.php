@@ -47,6 +47,31 @@ class Metasync_Settings_Registration
     }
 
     /**
+     * Handle saving the delete-data-on-uninstall toggle from the Reset
+     * Settings section. Stored in a dedicated option (not the main options
+     * blob) so the main settings form's sanitizer can never drop it and
+     * uninstall.php can read it directly.
+     */
+    private function handle_uninstall_data_toggle_save()
+    {
+        if (!isset($_POST['metasync_uninstall_data_toggle_form'])) {
+            return;
+        }
+
+        if (!isset($_POST['uninstall_data_toggle_nonce'])
+            || !wp_verify_nonce(sanitize_key(wp_unslash($_POST['uninstall_data_toggle_nonce'])), 'metasync_uninstall_data_toggle_nonce')
+            || !current_user_can('manage_options')) {
+            return;
+        }
+
+        update_option(
+            'metasync_delete_data_on_uninstall',
+            isset($_POST['metasync_delete_data_on_uninstall']) ? 'yes' : 'no',
+            false
+        );
+    }
+
+    /**
      * Handle saving plugin access roles from Advanced Settings.
      * Moved from Metasync_Admin – only called from settings_page_init().
      */
@@ -100,6 +125,7 @@ class Metasync_Settings_Registration
         Metasync_Debug_Manager::instance()->handle_clear_all_settings();
 
         $this->handle_plugin_access_roles_save();
+        $this->handle_uninstall_data_toggle_save();
 
         $SECTION_FEATURES               = Metasync_Admin::SECTION_FEATURES;
         $SECTION_METASYNC               = Metasync_Admin::SECTION_METASYNC;
@@ -2022,7 +2048,15 @@ class Metasync_Settings_Registration
             $new_input['localseo']['local_seo_name'] = sanitize_text_field($input['localseo']['local_seo_name']);
         }
         if (isset($input['localseo']['local_seo_logo'])) {
-            $new_input['localseo']['local_seo_logo'] = sanitize_url($input['localseo']['local_seo_logo']);
+            // The logo may be either a media-library attachment ID (what the
+            // media picker stores) or a raw URL. sanitize_url() is esc_url_raw(),
+            // which prepends a scheme to any value that has none — so an ID like
+            // "45589" would be rewritten to "http://45589" and the image lost.
+            // Keep the two formats apart so the ID survives a save.
+            $logo = trim((string) $input['localseo']['local_seo_logo']);
+            $new_input['localseo']['local_seo_logo'] = is_numeric($logo)
+                ? absint($logo)
+                : sanitize_url($logo);
         }
         if (isset($input['localseo']['local_seo_url'])) {
             $new_input['localseo']['local_seo_url'] = sanitize_url($input['localseo']['local_seo_url']);

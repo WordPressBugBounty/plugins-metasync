@@ -144,7 +144,7 @@ class Metasync_Robots_Txt_Database
                 "SELECT b.*, u.display_name as created_by_name
                 FROM {$this->table_name} b
                 LEFT JOIN {$wpdb->users} u ON b.created_by = u.ID
-                ORDER BY b.created_at DESC
+                ORDER BY b.created_at DESC, b.id DESC
                 LIMIT %d OFFSET %d",
                 $limit,
                 $offset
@@ -229,7 +229,7 @@ class Metasync_Robots_Txt_Database
         $ids_to_keep = $wpdb->get_col(
             $wpdb->prepare(
                 "SELECT id FROM {$this->table_name}
-                ORDER BY created_at DESC
+                ORDER BY created_at DESC, id DESC
                 LIMIT %d",
                 $keep_count
             )

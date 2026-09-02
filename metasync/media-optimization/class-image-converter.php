@@ -52,10 +52,77 @@ class Metasync_Image_Converter {
     private static float $timer_started_at = 0.0;
 
     /**
+     * While a batch run is in flight, per-image cache purges are suppressed
+     * (a thousand-image batch would otherwise trigger a thousand full-site
+     * purges) and a single purge fires once the batch finishes. See
+     * set_cache_purge_suppressed().
+     */
+    private static bool $cache_purge_suppressed = false;
+
+    /**
+     * Strip server-identifying absolute paths from log messages, keeping the
+     * upload-relative portion that actually identifies the file.
+     */
+    private static function redact_path(string $path): string {
+        $replacements = [];
+
+        $upload_dir = wp_get_upload_dir();
+        if (!empty($upload_dir['basedir'])) {
+            $replacements[] = [$upload_dir['basedir'] . '/', 'uploads/'];
+        }
+        if (defined('ABSPATH')) {
+            $replacements[] = [ABSPATH, ''];
+        }
+
+        foreach ($replacements as [$needle, $replacement]) {
+            if (strpos($path, $needle) === 0) {
+                return $replacement . substr($path, strlen($needle));
+            }
+        }
+
+        return basename($path);
+    }
+
+    /**
      * Get file extension for a given format.
      */
     private static function get_format_extension(string $format): string {
         return $format === 'avif' ? self::EXT_AVIF : self::EXT_WEBP;
+    }
+
+    /**
+     * Suppress (or re-enable) the per-image page-cache purge. The batch
+     * optimizer suppresses around its ticks and purges once at completion.
+     */
+    public static function set_cache_purge_suppressed(bool $suppressed): void {
+        self::$cache_purge_suppressed = $suppressed;
+    }
+
+    /**
+     * Purge page caches after an image's on-disk filenames changed (replace
+     * conversion or revert), so cached/edge pages cannot keep serving
+     * references to deleted files.
+     */
+    public static function purge_page_caches(): void {
+        if (self::$cache_purge_suppressed) {
+            return;
+        }
+
+        // Indirect guard so static analysis cannot narrow the class name and
+        // flag the check as redundant — the purger is plugin-loaded, but the
+        // converter can be exercised standalone (tests, tooling).
+        if (!self::class_is_available('Metasync_Cache_Purge')) {
+            return;
+        }
+
+        Metasync_Cache_Purge::purge_all('media_optimization');
+    }
+
+    /**
+     * @param string $class Class name to check.
+     */
+    private static function class_is_available(string $class): bool {
+        return class_exists($class);
     }
 
     public function __construct(array $settings) {
@@ -65,7 +132,7 @@ class Metasync_Image_Converter {
         add_filter('wp_generate_attachment_metadata', [$this, 'convert_on_upload'], 10, 2);
 
         // If "alongside" strategy, rewrite <img> tags to <picture>
-        if ($settings['conversion_strategy'] === 'alongside') {
+        if (($settings['conversion_strategy'] ?? '') === 'alongside') {
             // Core WordPress
             add_filter('the_content', [$this, 'rewrite_to_picture_tags'], 20);
             add_filter('post_thumbnail_html', [$this, 'rewrite_to_picture_tags'], 20);
@@ -151,6 +218,16 @@ class Metasync_Image_Converter {
             return false;
         }
 
+        // The exclusion list must gate batch/bulk/single-image conversions
+        // too, not just uploads — otherwise a bulk run converts files the
+        // site owner explicitly asked the module to leave alone. Both the
+        // stored path and the attachment URL are matched because exclusion
+        // entries may be written as either.
+        $exclusion_check = new self($settings);
+        if ($exclusion_check->is_excluded($file) || $exclusion_check->is_url_excluded((string) wp_get_attachment_url($attachment_id))) {
+            return false;
+        }
+
         // Request WordPress's image processing memory limit (typically 256MB) before heavy work
         wp_raise_memory_limit('image');
 
@@ -196,9 +273,13 @@ class Metasync_Image_Converter {
 
         if ($strategy === 'replace') {
             update_post_meta($attachment_id, '_metasync_replaced_original', '1');
+            // The original files are gone from disk now — cached pages still
+            // referencing them would serve broken images until their TTL.
+            self::purge_page_caches();
         }
 
         update_post_meta($attachment_id, '_metasync_converted_format', $format);
+        Metasync_Media_Batch_Optimizer::flush_stats_cache();
         return true;
     }
 
@@ -276,6 +357,11 @@ class Metasync_Image_Converter {
         delete_post_meta($attachment_id, '_metasync_converted_format');
         delete_post_meta($attachment_id, '_metasync_original_filesize');
         delete_post_meta($attachment_id, '_metasync_replaced_original');
+
+        // Cached pages may still contain <picture> markup referencing the
+        // converted files just deleted — flush them.
+        self::purge_page_caches();
+        Metasync_Media_Batch_Optimizer::flush_stats_cache();
         return true;
     }
 
@@ -455,14 +541,29 @@ class Metasync_Image_Converter {
             }
 
             $size_file = $upload_dir . '/' . $size_data['file'];
+
+            // A sub-size that is already in the target format (e.g. a prior
+            // replace run) maps onto itself: converting would rewrite the file
+            // in place and the unlink below would then delete it. Skip.
+            $size_ext    = self::get_format_extension($format);
+            $size_dest   = preg_replace(self::ORIGINAL_EXT_PATTERN, $size_ext, $size_file);
+            if ($size_dest === $size_file) {
+                continue;
+            }
+
             $size_converted = static::do_convert_file($size_file, $format, $quality);
 
-            if ($size_converted && $strategy === 'replace' && file_exists($size_converted) && filesize($size_converted) > 0) {
+            if ($size_converted && $size_converted !== $size_file && $strategy === 'replace' && file_exists($size_converted) && filesize($size_converted) > 0) {
+                // Rewrite content references BEFORE unlinking — galleries,
+                // widgets and hardcoded <img> tags point at sub-size URLs
+                // (photo-1024x768.jpg), and the original is unrecoverable
+                // once deleted.
+                self::rewrite_content_paths($size_file, $size_converted);
                 @unlink($size_file);
                 $size_data['file']     = basename($size_converted);
                 $size_data['mime-type'] = "image/{$format}";
             } elseif ($size_converted && $strategy === 'replace') {
-                error_log('[MetaSync Media Opt] Sub-size conversion produced invalid output, original preserved: ' . $size_file);
+                error_log('[MetaSync Media Opt] Sub-size conversion produced invalid output, original preserved: ' . self::redact_path($size_file));
             }
 
             // Release cyclic references between sub-size conversions
@@ -513,7 +614,7 @@ class Metasync_Image_Converter {
         }
 
         if (filesize($source) > self::MAX_CONVERT_BYTES) {
-            error_log('[MetaSync Media Opt] Source file exceeds MAX_CONVERT_BYTES limit, skipping: ' . $source);
+            error_log('[MetaSync Media Opt] Source file exceeds MAX_CONVERT_BYTES limit, skipping: ' . self::redact_path($source));
             return null;
         }
 
@@ -595,7 +696,7 @@ class Metasync_Image_Converter {
         if ($img->writeImage($dest)) {
             if (!file_exists($dest) || !filesize($dest)) {
                 @unlink($dest);
-                error_log('[MetaSync Media Opt] Imagick wrote 0-byte or missing output, discarding: ' . $dest);
+                error_log('[MetaSync Media Opt] Imagick wrote 0-byte or missing output, discarding: ' . self::redact_path($dest));
                 $img->destroy();
                 return null;
             }
@@ -664,7 +765,7 @@ class Metasync_Image_Converter {
 
         if (!$success || !file_exists($dest) || !filesize($dest)) {
             @unlink($dest);
-            error_log('[MetaSync Media Opt] GD produced empty or missing output, discarding: ' . $dest);
+            error_log('[MetaSync Media Opt] GD produced empty or missing output, discarding: ' . self::redact_path($dest));
             return null;
         }
 
@@ -676,15 +777,14 @@ class Metasync_Image_Converter {
      */
     private static function do_replace_original(int $id, string $old_path, string $new_path, array &$meta, string $fmt): void {
         if (!file_exists($new_path) || !filesize($new_path)) {
-            error_log('[MetaSync Media Opt] Converted file is missing or empty, original preserved: ' . $old_path);
+            error_log('[MetaSync Media Opt] Converted file is missing or empty, original preserved: ' . self::redact_path($old_path));
             return;
         }
 
-        // Capture old URL before deleting so we can rewrite post content references
-        $old_url = wp_get_attachment_url($id);
-
-        @unlink($old_path);
-
+        // Update the DB pointers and rewrite post content FIRST — only once
+        // every content reference points at the new file is it safe to unlink
+        // the original. Deleting first left a window where a failed rewrite
+        // meant permanent 404s with no original left to fall back to.
         wp_update_post([
             'ID'             => $id,
             'post_mime_type' => "image/{$fmt}",
@@ -702,34 +802,84 @@ class Metasync_Image_Converter {
             $meta['height'] = (int) $new_dims[1];
         }
 
-        // Rewrite hardcoded image URLs in post content to point to the new file
-        $new_url = wp_get_attachment_url($id);
-        if ($old_url && $new_url && $old_url !== $new_url) {
-            self::rewrite_content_urls($old_url, $new_url);
-        }
+        // Rewrite hardcoded image URLs in post content to point to the new file.
+        // Path-based, so it matches regardless of the hostname in the stored URL.
+        self::rewrite_content_paths($old_path, $new_path);
+
+        // Content now points at the converted file — the original is redundant.
+        @unlink($old_path);
     }
 
     /**
-     * Rewrite image URLs in all post content that references the old file path.
-     * Uses the path portion (e.g. /wp-content/uploads/…) so it works regardless
-     * of hostname changes (e.g. Cloudflare tunnel rotations).
+     * Rewrite image references in all post content from one upload file to
+     * another.
+     *
+     * Works on the URL path portion (e.g. /wp-content/uploads/2026/08/photo.jpg)
+     * derived from the absolute file paths, so rewrites are hostname-agnostic
+     * (surviving e.g. Cloudflare tunnel rotations) and can be driven by the
+     * file paths the converter already has — no need for the attachment URL,
+     * which is only trustworthy before the DB pointer flips.
+     *
+     * References with URL-encoded special characters (e.g. "my%20photo.jpg")
+     * never match the raw path, so the encoded variant is rewritten too when
+     * it differs.
+     *
+     * @param string $old_abspath Absolute path of the file being replaced.
+     * @param string $new_abspath Absolute path of its replacement.
      */
-    private static function rewrite_content_urls(string $old_url, string $new_url): void {
-        global $wpdb;
-
-        // Extract path portions to be hostname-agnostic
-        $old_path = wp_parse_url($old_url, PHP_URL_PATH);
-        $new_path = wp_parse_url($new_url, PHP_URL_PATH);
+    private static function rewrite_content_paths(string $old_abspath, string $new_abspath): void {
+        $old_path = self::abspath_to_url_path($old_abspath);
+        $new_path = self::abspath_to_url_path($new_abspath);
 
         if (!$old_path || !$new_path || $old_path === $new_path) {
             return;
         }
 
-        // Batch the UPDATE so a large wp_posts table is never locked by a single
-        // unbounded REPLACE. Each batch only rewrites rows that still
-        // contain the old path; once replaced they no longer match the LIKE, so
-        // the loop converges. The batch ceiling is a safety net against an
-        // unexpected non-converging loop (e.g. a DB-level error returning false).
+        self::rewrite_content_path_pair($old_path, $new_path);
+
+        // Also rewrite URL-encoded references ("photo%20name-300x200.jpg")
+        // when encoding changes the string.
+        $old_encoded = implode('/', array_map('rawurlencode', explode('/', $old_path)));
+        $new_encoded = implode('/', array_map('rawurlencode', explode('/', $new_path)));
+        if ($old_encoded !== $old_path) {
+            self::rewrite_content_path_pair($old_encoded, $new_encoded);
+        }
+    }
+
+    /**
+     * Map an absolute upload file path to its URL path portion
+     * (e.g. /wp-content/uploads/2026/08/photo.jpg). Returns null when the
+     * file lives outside the uploads directory.
+     */
+    private static function abspath_to_url_path(string $abspath): ?string {
+        $upload_dir = wp_get_upload_dir();
+        $base_path  = $base_url_path = null;
+
+        if (strpos($abspath, $upload_dir['basedir']) === 0) {
+            $base_path     = $upload_dir['basedir'];
+            $base_url_path = wp_parse_url($upload_dir['baseurl'], PHP_URL_PATH);
+        }
+
+        if (!$base_path || !is_string($base_url_path) || $base_url_path === '') {
+            return null;
+        }
+
+        $relative = substr($abspath, strlen($base_path));
+        return rtrim($base_url_path, '/') . '/' . ltrim($relative, '/');
+    }
+
+    /**
+     * Batched REPLACE of one URL path for another across wp_posts.
+     *
+     * Batching keeps a large wp_posts table from being locked by a single
+     * unbounded REPLACE. Each batch only rewrites rows that still contain the
+     * old path; once replaced they no longer match the LIKE, so the loop
+     * converges. The batch ceiling is a safety net against an unexpected
+     * non-converging loop (e.g. a DB-level error returning false).
+     */
+    private static function rewrite_content_path_pair(string $old_path, string $new_path): void {
+        global $wpdb;
+
         $batch_size  = 500;
         $like        = '%' . $wpdb->esc_like($old_path) . '%';
         $max_batches = 100000;
@@ -793,46 +943,21 @@ class Metasync_Image_Converter {
      * Protects existing <picture>, <script>, and <noscript> blocks from rewriting.
      */
     public function rewrite_full_html(string $html): string {
-        if (empty($html) || stripos($html, '</html>') === false) {
+        if (empty($html) || stripos($html, '</html>') === false || $this->is_amp_request()) {
             return $html;
         }
 
-        // Protect blocks that must not be rewritten
-        $protected = [];
-        $counter = 0;
-
-        // Existing <picture> blocks (already wrapped by filter hooks)
-        $html = preg_replace_callback('/<picture\b[^>]*>.*?<\/picture>/is', function ($m) use (&$protected, &$counter) {
-            $key = '<!--METASYNC_PROTECTED_' . $counter++ . '-->';
-            $protected[$key] = $m[0];
-            return $key;
-        }, $html);
-
-        // <script> blocks (JSON-LD contains image URLs)
-        $html = preg_replace_callback('/<script\b[^>]*>.*?<\/script>/is', function ($m) use (&$protected, &$counter) {
-            $key = '<!--METASYNC_PROTECTED_' . $counter++ . '-->';
-            $protected[$key] = $m[0];
-            return $key;
-        }, $html);
-
-        // <noscript> blocks (lazy-loading fallbacks)
-        $html = preg_replace_callback('/<noscript\b[^>]*>.*?<\/noscript>/is', function ($m) use (&$protected, &$counter) {
-            $key = '<!--METASYNC_PROTECTED_' . $counter++ . '-->';
-            $protected[$key] = $m[0];
-            return $key;
-        }, $html);
+        // Protect blocks that must not be rewritten (shared with the
+        // content-filter path): existing <picture>, <script> (JSON-LD holds
+        // image URLs), and <noscript> (lazy-loading fallbacks).
+        [$html, $protected] = $this->protect_rewritable_blocks($html);
 
         // Rewrite remaining <img> tags
         $html = preg_replace_callback('/<img\s[^>]+>/i', function ($matches) {
             return $this->maybe_wrap_img_tag($matches[0]);
         }, $html);
 
-        // Restore protected blocks
-        if (!empty($protected)) {
-            $html = strtr($html, $protected);
-        }
-
-        return $html;
+        return $this->restore_protected_blocks($html, $protected);
     }
 
     /**
@@ -840,18 +965,74 @@ class Metasync_Image_Converter {
      * Used by WordPress filter hooks for content fragments.
      */
     public function rewrite_to_picture_tags(string $content): string {
-        if (empty($content)) {
+        if (empty($content) || is_feed() || $this->is_amp_request()) {
             return $content;
         }
 
-        // Skip if already wrapped in <picture> (avoid double-wrapping from multiple filters)
-        if (strpos($content, '<picture>') !== false) {
-            return $content;
-        }
+        // Existing <picture> blocks (attributed or not) are protected per
+        // block below; a single earlier wrap no longer disables rewriting
+        // for the whole fragment, and <img>s inside script/noscript blocks
+        // are never touched.
+        [$content, $protected] = $this->protect_rewritable_blocks($content);
 
-        return preg_replace_callback('/<img\s[^>]+>/i', function ($matches) {
+        $content = preg_replace_callback('/<img\s[^>]+>/i', function ($matches) {
             return $this->maybe_wrap_img_tag($matches[0]);
         }, $content);
+
+        return $this->restore_protected_blocks($content, $protected);
+    }
+
+    /**
+     * Extract blocks that must never be rewritten (existing <picture>,
+     * <script>, <noscript>) into placeholders so the <img> rewrite cannot
+     * reach inside them.
+     *
+     * @return array{0:string, 1:array<string, string>} Rewritten HTML and placeholder map.
+     */
+    private function protect_rewritable_blocks(string $html): array {
+        $protected = [];
+        $counter   = 0;
+        $extract   = function ($m) use (&$protected, &$counter) {
+            $key = '<!--METASYNC_PROTECTED_' . $counter++ . '-->';
+            $protected[$key] = $m[0];
+            return $key;
+        };
+
+        $html = preg_replace_callback('/<picture\b[^>]*>.*?<\/picture>/is', $extract, $html);
+        $html = preg_replace_callback('/<script\b[^>]*>.*?<\/script>/is', $extract, $html);
+        $html = preg_replace_callback('/<noscript\b[^>]*>.*?<\/noscript>/is', $extract, $html);
+
+        return [$html, $protected];
+    }
+
+    /**
+     * Restore blocks extracted by protect_rewritable_blocks().
+     */
+    private function restore_protected_blocks(string $html, array $protected): string {
+        if (empty($protected)) {
+            return $html;
+        }
+        return strtr($html, $protected);
+    }
+
+    /**
+     * True when the current request renders an AMP page. The AMP runtime
+     * validates markup, so the <picture> wrapper is skipped there. The
+     * helper indirection keeps static analysis from assuming the AMP
+     * plugin's functions always exist.
+     */
+    private function is_amp_request(): bool {
+        if (self::func_is_available('amp_is_request')) {
+            return (bool) amp_is_request();
+        }
+        if (self::func_is_available('is_amp_endpoint')) {
+            return (bool) is_amp_endpoint();
+        }
+        return false;
+    }
+
+    private static function func_is_available(string $function): bool {
+        return function_exists($function);
     }
 
     /**
@@ -868,26 +1049,27 @@ class Metasync_Image_Converter {
         }
 
         $original_src = $src_match[1];
-        $format = $this->settings['conversion_format'];
-        $ext    = self::get_format_extension($format);
 
-        $converted_url = preg_replace(self::ORIGINAL_EXT_PATTERN, $ext, $original_src);
-
-        if ($converted_url === $original_src) {
+        // Exclusion entries may target the URL (full URL or path fragment).
+        if ($this->is_url_excluded($original_src)) {
             return $img_tag;
         }
 
-        $converted_path = $this->url_to_path($converted_url);
-        if (!$converted_path || !file_exists($converted_path)) {
+        // Serve whichever converted file actually exists: the current format
+        // first, then the other one. This keeps legacy conversions alive when
+        // the configured format flips (webp → avif or back) instead of
+        // silently orphaning every previously converted image.
+        $resolved = $this->resolve_converted_url($original_src);
+        if (!$resolved) {
             return $img_tag;
         }
 
+        [$converted_url, $format] = $resolved;
         $mime = $format === 'avif' ? 'image/avif' : 'image/webp';
 
         $source_srcset = '';
         if (preg_match('/srcset=["\']([^"\']+)["\']/i', $img_tag, $srcset_match)) {
-            $converted_srcset = preg_replace('/\.(jpe?g|png)/i', $ext, $srcset_match[1]);
-            $source_srcset = sprintf(' srcset="%s"', esc_attr($converted_srcset));
+            $source_srcset = sprintf(' srcset="%s"', esc_attr($this->resolve_srcset_candidates($srcset_match[1])));
         }
 
         $sizes_attr = '';
@@ -905,6 +1087,77 @@ class Metasync_Image_Converter {
     }
 
     /**
+     * Resolve the converted counterpart of an image URL.
+     *
+     * Tries the currently configured format first, then the other format, and
+     * only returns a URL whose file provably exists on disk. Null means "no
+     * converted file for this URL" — the caller leaves the tag untouched.
+     *
+     * @return array{0:string,1:string}|null [converted URL, format] or null.
+     */
+    private function resolve_converted_url(string $url): ?array {
+        $current = $this->settings['conversion_format'] ?? 'webp';
+        $formats = [$current];
+        $other   = $current === 'webp' ? 'avif' : 'webp';
+        $formats[] = $other;
+
+        foreach ($formats as $format) {
+            $candidate = preg_replace(self::ORIGINAL_EXT_PATTERN, self::get_format_extension($format), $url);
+
+            if ($candidate === null || $candidate === $url) {
+                continue;
+            }
+
+            $candidate_path = $this->url_to_path($candidate);
+            if ($candidate_path && file_exists($candidate_path)) {
+                return [$candidate, $format];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Build the <source> srcset with per-candidate file-existence checks.
+     *
+     * A srcset whose candidates were blindly extension-swapped serves 404s
+     * whenever a sub-size was never converted (conversion of sub-sizes off, a
+     * size added after conversion, a format switch) — and browsers do not fall
+     * back to the <img> when a <source> candidate fails to fetch. Candidates
+     * without a converted file on disk keep their ORIGINAL URL instead, which
+     * still loads, just unoptimized. When no candidate has a converted file
+     * the original srcset is returned unchanged.
+     */
+    private function resolve_srcset_candidates(string $srcset): string {
+        $candidates = preg_split('/\s*,\s*/', trim($srcset));
+        if (!$candidates) {
+            return $srcset;
+        }
+
+        $any_converted = false;
+        $out = [];
+
+        foreach ($candidates as $candidate) {
+            // Candidate is "URL [descriptor]" — rewrite only the URL part.
+            if (!preg_match('/^(\S+)(.*)$/', $candidate, $parts)) {
+                $out[] = $candidate;
+                continue;
+            }
+
+            $resolved = $this->resolve_converted_url($parts[1]);
+            if ($resolved) {
+                $any_converted = true;
+                $out[] = $resolved[0] . $parts[2];
+            } else {
+                // Keep the original URL so this descriptor still resolves.
+                $out[] = $candidate;
+            }
+        }
+
+        return $any_converted ? implode(', ', $out) : $srcset;
+    }
+
+    /**
      * Convert a URL to a local file path. Returns null if URL is external.
      * Falls back to path-portion matching when hostnames differ (e.g. Cloudflare tunnel rotation).
      */
@@ -912,6 +1165,12 @@ class Metasync_Image_Converter {
         $upload_dir = wp_get_upload_dir();
         $base_url   = $upload_dir['baseurl'];
         $base_path  = $upload_dir['basedir'];
+
+        // Filenames with URL-encoded characters (spaces, accents, UTF-8)
+        // must be decoded before mapping to a disk path — the existence
+        // checks that gate serving silently reject them otherwise and a
+        // successfully converted file is never served.
+        $url = rawurldecode($url);
 
         // Direct match (same hostname)
         if (strpos($url, $base_url) === 0) {
@@ -942,6 +1201,31 @@ class Metasync_Image_Converter {
         foreach ($exclude_urls as $pattern) {
             if (stripos($file, $pattern) !== false) {
                 return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check if a URL matches the URL-based exclusion patterns.
+     *
+     * Entries may be full URLs (scheme + host) or bare path fragments; the
+     * full-URL form never matches the path-only check in is_excluded(), so
+     * both the raw URL and its path portion are tested here.
+     */
+    private function is_url_excluded(string $url): bool {
+        $exclude_urls = array_filter(array_map('trim', explode(',', $this->settings['exclude_urls'] ?? '')));
+        if (empty($exclude_urls)) {
+            return false;
+        }
+
+        $candidates = [$url, (string) wp_parse_url($url, PHP_URL_PATH)];
+
+        foreach ($exclude_urls as $pattern) {
+            foreach ($candidates as $candidate) {
+                if ($candidate !== '' && stripos($candidate, $pattern) !== false) {
+                    return true;
+                }
             }
         }
         return false;

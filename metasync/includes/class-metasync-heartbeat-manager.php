@@ -155,9 +155,14 @@ class Metasync_Heartbeat_Manager
         # this call cannot succeed. This only helps when page traffic has tripped the
         # breaker first — an admin loading this page on an idle site still pays the
         # full 48s, which is why the retry budget itself is flagged for follow-up.
-        $endpoint_unhealthy = (class_exists('Metasync_API_Backoff_Manager')
+        #
+        # Both helpers are checked with class_provides() rather than class_exists():
+        # they live in files separate from this one, so a partially updated install
+        # can leave a previous copy of either class loaded that predates the method
+        # being called. See class_provides() for why that matters here.
+        $endpoint_unhealthy = (self::class_provides('Metasync_API_Backoff_Manager', 'is_endpoint_in_backoff')
                 && Metasync_API_Backoff_Manager::get_instance()->is_endpoint_in_backoff($api_url))
-            || (class_exists('Metasync_Otto_Transient_Cache')
+            || (self::class_provides('Metasync_Otto_Transient_Cache', 'is_host_breaker_open')
                 && Metasync_Otto_Transient_Cache::is_host_breaker_open($api_url));
 
         if ($endpoint_unhealthy) {
@@ -255,6 +260,30 @@ class Metasync_Heartbeat_Manager
     // ------------------------------------------------------------------
     //  Public-hash helpers (private)
     // ------------------------------------------------------------------
+
+    /**
+     * Is $method actually available on $class in this process right now?
+     *
+     * A partially updated install can leave a newer copy of one plugin file
+     * beside an older copy of another — stale opcache bytecode for a single file
+     * is enough. class_exists() is satisfied by the older copy, and calling a
+     * method it does not declare is a fatal: that is how the health checks in
+     * fetch_public_hash() brought down the whole Dashboard admin page with
+     * "Call to undefined method ...::is_host_breaker_open()".
+     *
+     * $class and $method are parameters rather than literals at the call site so
+     * the check survives static analysis, which would otherwise narrow a literal
+     * method_exists() on a known class to a constant true — the skew this guards
+     * against exists only at runtime.
+     *
+     * @param string $class  Class about to be called.
+     * @param string $method Method about to be called on it.
+     * @return bool
+     */
+    private static function class_provides($class, $method)
+    {
+        return class_exists($class) && method_exists($class, $method);
+    }
 
     private function validate_fetch_hash_inputs($uuid, $token)
     {

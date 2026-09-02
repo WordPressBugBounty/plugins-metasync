@@ -8,26 +8,6 @@
  *     └── .metasync-layout-promo (right promotional sidebar)
  */
 
-/* ── WP admin sidebar: keep it fixed on plugin pages ───────────────── */
-/* WordPress core removes .sticky-menu (position:fixed) when the admin
-   menu is taller than the viewport. Our plugin's expanded sub-menu
-   easily triggers this. Force the sidebar fixed with its own scroll
-   so it never drifts off-screen while the main content scrolls.       */
-
-body:has(.metasync-dashboard-wrap) #adminmenuwrap {
-    position: fixed !important;
-    top: var(--wp-admin--admin-bar--height, 32px);
-    bottom: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
-}
-
-body:has(.metasync-dashboard-wrap) #adminmenuback {
-    position: fixed !important;
-    top: var(--wp-admin--admin-bar--height, 32px);
-    bottom: 0;
-}
-
 /* ── Layout grid ────────────────────────────────────────────────────── */
 
 .metasync-layout {

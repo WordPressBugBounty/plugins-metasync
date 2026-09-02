@@ -48,6 +48,10 @@ add_action('init', 'metasync_media_optimization_init');
 // has since been disabled in settings.
 add_action('delete_attachment', ['Metasync_Image_Converter', 'cleanup_on_delete']);
 
+// Drop cached media-library stats when an attachment is deleted so the
+// admin stats card never counts removed images.
+add_action('delete_attachment', ['Metasync_Media_Batch_Optimizer', 'flush_stats_cache']);
+
 // Invalidate cached image dimensions when an attachment is deleted or its
 // metadata is (re)generated, so stale width/height are never injected after an
 // image is removed, replaced under the same filename, or its thumbnails are
@@ -117,6 +121,7 @@ function metasync_media_optimization_enqueue_assets($hook_suffix) {
             'revertDisabled' => __('Original image unavailable — revert is disabled', 'metasync'),
             'startBatch'     => __('Start optimizing all unoptimized images?', 'metasync'),
             'batchFailed'    => __('Failed to start batch optimization.', 'metasync'),
+            'batchStalled'   => __('Batch optimization stopped after repeated errors. Please reload the page and try again.', 'metasync'),
             'batchComplete'  => __('Batch optimization complete!', 'metasync'),
             'imagesProcessed' => __('images processed', 'metasync'),
             'failed'         => __('failed', 'metasync'),

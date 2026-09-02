@@ -792,6 +792,11 @@ class Metasync_Admin_Ajax
                 return;
             }
 
+            if (!current_user_can('manage_options')) {
+                wp_send_json_error(array('message' => 'You do not have permission to request a password recovery.'), 403);
+                return;
+            }
+
             $whitelabel_settings = Metasync::get_whitelabel_settings();
             $password = Metasync::get_whitelabel_password();
             $recovery_email = $whitelabel_settings['recovery_email'] ?? '';

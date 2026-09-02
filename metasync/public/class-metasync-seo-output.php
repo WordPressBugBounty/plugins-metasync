@@ -23,16 +23,12 @@ class Metasync_Seo_Output
 	private $plugin_name;
 	private $version;
 	private $common;
-	private $escapers;
-	private $replacements;
 	private $metasync_option_data;
 
 	public function __construct($plugin_name, $version)
 	{
 		$this->plugin_name = $plugin_name;
 		$this->version = $version;
-		$this->escapers = array("\\", "/", "\"");
-		$this->replacements = array("", "", "");
 		$this->common = new Metasync_Common();
 		$this->metasync_option_data = Metasync::get_option('general');
 
@@ -109,6 +105,12 @@ class Metasync_Seo_Output
 
 	function metasync_wp_robots_meta($robots)
 	{
+		// When the site is set to discourage search engines, core already
+		// emits noindex; blanking every directive here would strip that and
+		// make a discouraged site indexable. Leave the tags untouched.
+		if ((int) get_option('blog_public', 1) === 0) {
+			return $robots;
+		}
 		foreach ($robots as $key => $value) {
 			$robots[$key] = false;
 		}
@@ -554,7 +556,7 @@ class Metasync_Seo_Output
 		$schema = array(
 			'@context' => "http://schema.org",
 			'@type' => "Article",
-			'headline' => str_replace($this->escapers, $this->replacements, $post->post_title ?? ''),
+			'headline' => $post->post_title ?? '',
 			'image' => wp_get_attachment_image_url($thumbnail_id, 'full'),
 			'url' => get_permalink(),
 			'datePublished' => $post->post_modified,
@@ -565,7 +567,7 @@ class Metasync_Seo_Output
 			),
 			'publisher' => array(
 				'@type' => "Organization",
-				'name' => str_replace($this->escapers, $this->replacements, get_bloginfo('name') ?? ''),
+				'name' => get_bloginfo('name') ?? '',
 				'url' => get_site_url(),
 				'logo' => array(
 					'@type' => "ImageObject",
@@ -658,8 +660,8 @@ class Metasync_Seo_Output
 	 */
 	private function local_business_organization($entity, $options)
 	{
-		$name = str_replace($this->escapers, $this->replacements, $options['local_seo_name'] ?? '');
-		$entity['name'] = $name !== '' ? $name : str_replace($this->escapers, $this->replacements, get_bloginfo('name'));
+		$name = (string) ($options['local_seo_name'] ?? '');
+		$entity['name'] = $name !== '' ? $name : (string) get_bloginfo('name');
 
 		// The Business Type field stores a human-readable label (e.g. "Local
 		// Business", "Art Gallery"). schema.org @type tokens have no spaces, so
@@ -702,9 +704,9 @@ class Metasync_Seo_Output
 	 */
 	private function local_business_person($entity, $options)
 	{
-		$name = str_replace($this->escapers, $this->replacements, $options['local_seo_name'] ?? '');
+		$name = (string) ($options['local_seo_name'] ?? '');
 		$entity['@type'] = 'Person';
-		$entity['name'] = $name !== '' ? $name : str_replace($this->escapers, $this->replacements, get_bloginfo('name'));
+		$entity['name'] = $name !== '' ? $name : (string) get_bloginfo('name');
 
 		if (!empty($options['local_seo_phone'])) {
 			$entity['telephone'] = $options['local_seo_phone'];
@@ -748,11 +750,11 @@ class Metasync_Seo_Output
 
 		$entity['address'] = array(
 			'@type'           => 'PostalAddress',
-			'streetAddress'   => str_replace($this->escapers, $this->replacements, $street),
-			'addressLocality' => str_replace($this->escapers, $this->replacements, $locality),
-			'addressRegion'   => str_replace($this->escapers, $this->replacements, $region),
-			'postalCode'      => str_replace($this->escapers, $this->replacements, $postal),
-			'addressCountry'  => str_replace($this->escapers, $this->replacements, $country),
+			'streetAddress'   => $street,
+			'addressLocality' => $locality,
+			'addressRegion'   => $region,
+			'postalCode'      => $postal,
+			'addressCountry'  => $country,
 		);
 	}
 

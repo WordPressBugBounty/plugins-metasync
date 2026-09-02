@@ -139,6 +139,33 @@ class Metasync_Site_Health
 			? wp_date( 'Y-m-d H:i:s', $last_backoff_time ) . ' (' . human_time_diff( $last_backoff_time ) . ' ago)'
 			: __( 'Never' );
 
+		$otto_job_counts = class_exists( 'Metasync_Otto_Job_Status' ) ? Metasync_Otto_Job_Status::counts() : [];
+		$otto_job_fields = [];
+		if ( ! empty( $otto_job_counts ) ) {
+			$otto_job_fields = [
+				'otto_jobs_accepted' => [
+					'label' => __( 'Crawl Jobs - Accepted' ),
+					'value' => (int) $otto_job_counts['accepted'],
+				],
+				'otto_jobs_retrying' => [
+					'label' => __( 'Crawl Jobs - Retrying' ),
+					'value' => (int) $otto_job_counts['retrying'],
+				],
+				'otto_jobs_completed' => [
+					'label' => __( 'Crawl Jobs - Completed' ),
+					'value' => (int) $otto_job_counts['completed'],
+				],
+				'otto_jobs_failed' => [
+					'label' => __( 'Crawl Jobs - Failed' ),
+					'value' => (int) $otto_job_counts['failed'],
+				],
+				'otto_jobs_pending' => [
+					'label' => __( 'Crawl Jobs - Queued Overflow' ),
+					'value' => (int) $otto_job_counts['pending'],
+				],
+			];
+		}
+
 		$info['metasync'] = [
 			'label'  => $plugin_name,
 			'fields' => [
@@ -158,7 +185,7 @@ class Metasync_Site_Health
 					'label' => __( 'Queue - Failed Jobs (last 24h)' ),
 					'value' => isset( $failed_stats['count'] ) ? (int) $failed_stats['count'] : 0,
 				],
-			] + $performance_fields + [
+			] + $performance_fields + $otto_job_fields + [
 				'last_api_backoff' => [
 					'label' => __( 'Last API Backoff Event' ),
 					'value' => $last_backoff_value,
@@ -228,6 +255,12 @@ class Metasync_Site_Health
 			$tests['direct']['metasync_failed_actions'] = [
 				'label' => sprintf(__('%s Failed Actions'), Metasync::get_effective_plugin_name()),
 				'test'  => [$this, 'failed_actions_check']
+			];
+
+			// OTTO Crawl Job Reliability Health Check
+			$tests['direct']['metasync_otto_job_reliability'] = [
+				'label' => sprintf(__('%s Crawl Job Reliability'), Metasync::get_whitelabel_otto_name()),
+				'test'  => [$this, 'otto_job_reliability_check']
 			];
 
 			return $tests;
@@ -1199,5 +1232,121 @@ class Metasync_Site_Health
 			'description' => $description,
 			'test'        => 'metasync_failed_actions',
 		];
+	}
+
+	/**
+	 * Site Health test for OTTO crawl-notify background job reliability
+	 *
+	 * Reads the bounded per-URL status store (Metasync_Otto_Job_Status) that
+	 * the crawl-notify pipeline writes as its background jobs run, so an
+	 * administrator can see what actually happened to notified URLs — not just
+	 * that the webhook was acknowledged.
+	 *
+	 * Status levels:
+	 * - good:        no failed URLs and fewer than the threshold stuck retrying
+	 * - recommended: failed URLs exist or retrying count exceeds the threshold
+	 *
+	 * When WP-Cron is disabled (DISABLE_WP_CRON) without a visible system
+	 * crontab entry the pipeline cannot run at all, so an advisory is always
+	 * included in that case.
+	 *
+	 * @since    1.0.0
+	 * @return   array    Site Health test result
+	 */
+	public function otto_job_reliability_check()
+	{
+		$otto_name = Metasync::get_whitelabel_otto_name();
+
+		if ( ! class_exists( 'Metasync_Otto_Job_Status' ) ) {
+			return [
+				'label'       => sprintf( __( '%s crawl job tracking is unavailable' ), $otto_name ),
+				'status'      => 'good',
+				'badge'       => [
+					'label' => Metasync::get_effective_plugin_name(),
+					'color' => 'green',
+				],
+				'description' => '<p>' . esc_html__( 'The status store class is not loaded; nothing to report.' ) . '</p>',
+				'test'        => 'metasync_otto_job_reliability',
+			];
+		}
+
+		$counts = Metasync_Otto_Job_Status::counts();
+
+		$retrying_threshold = 25;
+		if ( $counts['failed'] > 0 || $counts['retrying'] > $retrying_threshold ) {
+			$status = 'recommended';
+			$label  = sprintf(
+				__( '%s crawl jobs need attention (%d failed, %d retrying)' ),
+				$otto_name,
+				$counts['failed'],
+				$counts['retrying']
+			);
+		} else {
+			$status = 'good';
+			$label  = sprintf( __( '%s crawl jobs are completing normally' ), $otto_name );
+		}
+
+		$description = sprintf(
+			'<p><strong>%s</strong></p><ul><li>%s <strong>%d</strong></li><li>%s <strong>%d</strong></li><li>%s <strong>%d</strong></li><li>%s <strong>%d</strong></li><li>%s <strong>%d</strong></li></ul>',
+			sprintf( __( '%s crawl job status (last 48 hours):' ), $otto_name ),
+			__( 'Accepted, awaiting run:' ),
+			$counts['accepted'],
+			__( 'Retrying after transient failures:' ),
+			$counts['retrying'],
+			__( 'Completed:' ),
+			$counts['completed'],
+			__( 'Failed (retries exhausted):' ),
+			$counts['failed'],
+			__( 'Queued past the per-batch cap:' ),
+			$counts['pending']
+		);
+
+		if ( $this->constant_is_truthy( 'DISABLE_WP_CRON' ) ) {
+			$description .= sprintf(
+				'<p><strong>%s</strong> %s</p>',
+				__( 'WP-Cron is disabled on this site.' ),
+				sprintf(
+					/* translators: %s: OTTO product name */
+					__( 'Background jobs only run if a system crontab (or equivalent) calls wp-cron.php. Without it, %s crawl notifications are queued but never processed.' ),
+					$otto_name
+				)
+			);
+		}
+
+		if ( $status !== 'good' ) {
+			$description .= sprintf(
+				'<p>%s %s &middot; %s</p>',
+				__( 'Quick links:' ),
+				$this->get_admin_link( '&tab=general', __( 'Review API Settings' ) ),
+				$this->get_admin_link( '-sync-log', __( 'View Changes Log' ) )
+			);
+		}
+
+		return [
+			'label'       => $label,
+			'status'      => $status,
+			'badge'       => [
+				'label' => Metasync::get_effective_plugin_name(),
+				'color' => $status === 'recommended' ? 'orange' : 'green',
+			],
+			'description' => $description,
+			'test'        => 'metasync_otto_job_reliability',
+		];
+	}
+
+	/**
+	 * Whether a named constant is defined and evaluates truthy.
+	 *
+	 * The constant name arrives as data so the value is resolved through
+	 * constant() at runtime; some constants are also loaded from WP stubs
+	 * with fixed values, which makes a direct `defined() && CONST` check
+	 * statically redundant even though the live value varies per site.
+	 *
+	 * @since 1.0.0
+	 * @param string $name Constant name, without the leading backslash.
+	 * @return bool
+	 */
+	private function constant_is_truthy( $name ) {
+		return defined( $name ) && filter_var( constant( $name ), FILTER_VALIDATE_BOOLEAN );
 	}
 }

@@ -218,6 +218,8 @@ class Metasync_Otto_Bot_Statistics_Database {
             'total_detections',
             'api_calls_saved',
             'search_engine_bots',
+            'cache_warmer_bots',
+            'perf_auditor_bots',
             'seo_tool_bots',
             'social_media_bots',
             'archiver_bots',
@@ -352,6 +354,8 @@ class Metasync_Otto_Bot_Statistics_Database {
             'api_calls_saved'  => 0,
             'breakdown'        => array(
                 'search_engine' => 0,
+                'cache_warmer'  => 0,
+                'perf_auditor'  => 0,
                 'seo_tool'      => 0,
                 'social_media'  => 0,
                 'archiver'      => 0,
@@ -373,6 +377,8 @@ class Metasync_Otto_Bot_Statistics_Database {
         $result['api_calls_saved']  = $val('api_calls_saved');
 
         $result['breakdown']['search_engine'] = $val('search_engine_bots');
+        $result['breakdown']['cache_warmer']  = $val('cache_warmer_bots');
+        $result['breakdown']['perf_auditor']  = $val('perf_auditor_bots');
         $result['breakdown']['seo_tool']      = $val('seo_tool_bots');
         $result['breakdown']['social_media']  = $val('social_media_bots');
         $result['breakdown']['archiver']      = $val('archiver_bots');
@@ -506,6 +512,8 @@ class Metasync_Otto_Bot_Statistics_Database {
     private function get_category_stat_key($bot_type) {
         $map = array(
             'search_engine' => 'search_engine_bots',
+            'cache_warmer'  => 'cache_warmer_bots',
+            'perf_auditor'  => 'perf_auditor_bots',
             'seo_tool'      => 'seo_tool_bots',
             'social_media'  => 'social_media_bots',
             'archiver'      => 'archiver_bots',

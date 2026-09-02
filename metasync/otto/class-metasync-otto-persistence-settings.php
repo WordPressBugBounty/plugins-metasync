@@ -6,9 +6,14 @@
  * to native WordPress fields (surviving plugin uninstallation).
  *
  * Each persistence flag controls whether stored data is RETAINED when OTTO
- * is disabled or paused — it does NOT gate whether data is written during
- * active syncs. During an active sync, all data types are always written to
- * their respective native fields regardless of these flags.
+ * is disabled or paused. OTTO always writes to its own _metasync_otto_* keys
+ * during an active sync regardless of these flags.
+ *
+ * The flags DO gate one thing: copying an OTTO-generated value into a
+ * third-party SEO plugin's storage (Yoast / Rank Math / AIOSEO), for posts
+ * and terms alike. That is a permanent write into another plugin's data which
+ * outlives MetaSync, so it happens only while the matching flag is enabled.
+ * Manually entered values are never gated.
  *
  * @package MetaSync
  * @since 2.6.0

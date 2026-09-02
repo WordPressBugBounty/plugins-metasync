@@ -332,6 +332,29 @@ class Metasync_Settings_Fields {
                 </button>
             </form>
         </div>
+        <div style="background: var(--dashboard-card-bg); padding: 20px; border-radius: 8px; margin-top: 20px;">
+            <h4 style="color: var(--dashboard-text-primary, #1e1e1e); margin: 0 0 12px 0; display: flex; align-items: center; gap: 8px;">
+                <span class="dashicons dashicons-universal-access-alt" style="font-size:18px;width:18px;height:18px;"></span>
+                <span>Delete data on uninstall</span>
+            </h4>
+            <p style="color: var(--dashboard-text-secondary); margin: 0 0 12px 0;">
+                By default, deleting the plugin keeps your data: sitemap and redirection settings, per-post SEO values, and the plugin's database tables stay in place in case you reinstall. Enable this to also remove all of that when the plugin itself is deleted from the Plugins screen.
+            </p>
+            <p style="color: var(--dashboard-text-secondary); margin: 0 0 12px 0;">
+                The Google service account and the IndexNow API key are always deleted on uninstall, regardless of this setting.
+            </p>
+            <form method="post" action="">
+                <?php wp_nonce_field('metasync_uninstall_data_toggle_nonce', 'uninstall_data_toggle_nonce'); ?>
+                <input type="hidden" name="metasync_uninstall_data_toggle_form" value="1" />
+                <label style="color: var(--dashboard-text-primary, #1e1e1e); display: flex; align-items: center; gap: 8px; margin: 0 0 12px 0; cursor: pointer;">
+                    <input type="checkbox" name="metasync_delete_data_on_uninstall" value="yes" <?php checked(get_option('metasync_delete_data_on_uninstall', 'no'), 'yes'); ?> />
+                    Delete all plugin data (tables, settings, per-post SEO values, logs) when the plugin is uninstalled
+                </label>
+                <button type="submit" class="button button-secondary">
+                    Save Uninstall Setting
+                </button>
+            </form>
+        </div>
         <script>
         function confirmClearSettings(event) {
             event.preventDefault();
@@ -1546,10 +1569,14 @@ class Metasync_Settings_Fields {
     public function local_seo_person_organization_callback()
     {
         $person_organization = Metasync::get_option('localseo')['local_seo_person_organization'] ?? '';
+        $valid_person_organizations = array('Person', 'Organization');
     ?>
         <div class="metasync-type-select-wrap">
             <select id="local_seo_person_organization" name="<?php echo esc_attr(Metasync_Admin::option_key . '[localseo][local_seo_person_organization]') ?>">
                 <?php
+                if (!in_array($person_organization, $valid_person_organizations, true)) {
+                    printf('<option value="0" selected="selected">Select Type</option>');
+                }
                 printf('<option value="Person" %s >Person</option>', selected('Person', esc_attr($person_organization)));
                 printf('<option value="Organization" %s >Organization</option>', selected('Organization', esc_attr($person_organization)));
                 ?>
@@ -1583,14 +1610,48 @@ class Metasync_Settings_Fields {
         printf(' <br><br> <span class="description bold"> Min Size: 160Χ90px, Max Size: 1920X1080px. </span> <br> <span class="description"> A squared image is preferred by the search engines. </span> <br><br> ');
 
         printf('<span class="metasync-logo-preview-wrap">');
-        printf('<img src="%s" id="local_seo_business_logo" width="300">', wp_get_attachment_image_src($local_seo_logo, 'medium')[0] ?? '');
 
-        $button_type = 'hidden';
-        if ($local_seo_logo) {
-            $button_type = 'button';
-        }
+        // The stored value may be an attachment ID or a raw URL, so resolve
+        // both the way the front-end schema output already does. Anything that
+        // resolves to nothing — a deleted attachment, a legacy value mangled by
+        // an earlier save — must render no preview at all, rather than an empty
+        // src next to an orphaned remove button.
+        $logo_url = $this->resolve_media_url($local_seo_logo, 'medium');
+
+        printf(
+            '<img src="%s" id="local_seo_business_logo" width="300"%s>',
+            esc_url($logo_url),
+            $logo_url ? '' : ' style="display:none"'
+        );
+
+        $button_type = $logo_url ? 'button' : 'hidden';
         printf('<input type="%s" class="button-secondary no-loading metasync-logo-remove-btn" id="local_seo_logo_close_btn" value="X">', $button_type);
         printf('</span>');
+    }
+
+    /**
+     * Resolve a stored media setting to a displayable URL.
+     *
+     * These settings accept either a media-library attachment ID or a raw URL;
+     * returns an empty string when the value resolves to neither, so callers
+     * can distinguish "no image" from "image we could not resolve".
+     *
+     * @param mixed  $value Attachment ID or URL as stored in the options.
+     * @param string $size  Registered image size to request for an attachment.
+     * @return string Resolved URL, or '' when there is nothing to show.
+     */
+    private function resolve_media_url($value, $size = 'medium')
+    {
+        if (empty($value)) {
+            return '';
+        }
+
+        if (is_numeric($value)) {
+            $url = wp_get_attachment_image_url((int) $value, $size);
+            return $url ? $url : '';
+        }
+
+        return (string) $value;
     }
 
     public function local_seo_url_callback()

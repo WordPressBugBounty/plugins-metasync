@@ -47,8 +47,6 @@ class Metasync_Rest_Api
 
 	private const namespace = "metasync/v1";
 
-	private $escapers;
-	private $replacements;
 	private $common;
 	private $allowed_attributes;
 	private $schema;
@@ -75,8 +73,6 @@ class Metasync_Rest_Api
 			'post_parent',
 			'post_status',
 		);
-		$this->escapers = array("\\", "/", "\"");
-		$this->replacements = array("", "", "");
 		$this->common = new Metasync_Common();
 		// get all options
 		$this->metasync_option_data = Metasync::get_option('general');
@@ -1691,65 +1687,6 @@ class Metasync_Rest_Api
 	}
 
 	/**
-	 * Index a post with Google Indexing API
-	 * 
-	 * @param int $post_id WordPress post ID
-	 * @param string $post_type WordPress post type (post, page, etc.)
-	 * @param string $post_status WordPress post status (publish, draft, etc.)
-	 */
-	public function metasync_google_index_post($post_id, $post_type, $post_status)
-	{
-		// Only index published posts/pages
-		if ($post_status !== 'publish') {
-			return;
-		}
-
-		// Only index posts and pages (can be extended as needed)
-		$allowed_post_types = array('post', 'page');
-		if (!in_array($post_type, $allowed_post_types)) {
-			return;
-		}
-
-		try {
-			// Load Google Index functionality if not already loaded
-			if (!function_exists('google_index_post')) {
-				$google_index_path = plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php';
-				if (file_exists($google_index_path)) {
-					require_once $google_index_path;
-				} else {
-					error_log('MetaSync Google Index: google-index-init.php not found at ' . $google_index_path);
-					return;
-				}
-			}
-
-			// Attempt to index the post with Google
-			if (function_exists('google_index_post')) {
-				$result = google_index_post($post_id, $post_type, 'update');
-				
-				if (isset($result['success']) && $result['success']) {
-					error_log(sprintf(
-						'MetaSync Google Index: Successfully indexed %s (ID: %d, Type: %s)',
-						get_the_title($post_id),
-						$post_id,
-						$post_type
-					));
-				} else {
-					error_log(sprintf(
-						'MetaSync Google Index: Failed to index %s (ID: %d, Type: %s) - %s',
-						get_the_title($post_id),
-						$post_id,
-						$post_type,
-						isset($result['error']['message']) ? $result['error']['message'] : 'Unknown error'
-					));
-				}
-			}
-		} catch (Exception $e) {
-			// Log any exceptions but don't break the main functionality
-			error_log('MetaSync Google Index Exception: ' . $e->getMessage());
-		}
-	}
-
-	/**
 	 * Remove a leading <h1> from post content when it duplicates the post title.
 	 *
 	 * Themes that render post_title as an H1 produce a duplicate heading when the
@@ -2166,11 +2103,15 @@ class Metasync_Rest_Api
 			}
 
 			// Add custom fields to posts and pages
-			foreach ($post_meta as $key => $value) {
-				// if (!empty($value) && !is_null($value)) {
-					add_post_meta($post_id, $key, $value, true);
-				// }
-			}
+			$this->metasync_apply_builder_meta($post_id, $post_meta, false);
+
+			// A freshly inserted post has no template of its own yet; match it to
+			// the one this site uses for its other posts.
+			$this->metasync_adopt_site_post_template(
+				$post_id,
+				isset($new_post['post_type']) ? $new_post['post_type'] : 'post',
+				(NULL === $getPostID_byURL)
+			);
 			
 
 			$attachment_id = '';
@@ -2190,6 +2131,12 @@ class Metasync_Rest_Api
 			}
 			if (!empty($redirection)) {
 				update_post_meta($post_id, 'metasync_post_redirection_meta', $redirection);
+				// REST/Gutenberg saves never reach the metabox nonce path, so
+				// the stored meta would never materialize a redirect row.
+				// Sync it here, same as the classic save hook does.
+				if (class_exists('Metasync_Post_Meta_Settings')) {
+					Metasync_Post_Meta_Settings::sync_post_redirect_rule($post_id, $redirection);
+				}
 			}
 
 			$post_cattegories = [];
@@ -2253,9 +2200,6 @@ class Metasync_Rest_Api
 				} catch (Exception $e) {
 					error_log('MetaSync: Analytics tracking failed for Content Genius - ' . $e->getMessage());
 				}
-
-			// Google Indexing Integration
-			$this->metasync_google_index_post($post_id, $new_post['post_type'], $new_post['post_status']);
 			}
 
 			# For standard synced posts, learn (once per post-type) whether the
@@ -2876,9 +2820,7 @@ class Metasync_Rest_Api
 
 			$resp_update = $this->update_object($post_id, $update_params);
 			if(isset($content['elementor_meta_data'])){
-				foreach ($content['elementor_meta_data'] as $key => $value) {
-					update_post_meta($post_id, $key, $value);
-				}
+				$this->metasync_apply_builder_meta($post_id, $content['elementor_meta_data']);
 				if ( did_action( 'elementor/loaded' ) ) {
 					// Clear Elementor cache for the specified post ID
 					\Elementor\Plugin::instance()->files_manager->clear_cache();
@@ -2895,6 +2837,13 @@ class Metasync_Rest_Api
 				delete_post_meta($post_id, '_elementor_page_settings');
 			}
 
+			// Existing post: records the template decision without changing it.
+			$this->metasync_adopt_site_post_template(
+				$post_id,
+				get_post_type($post_id),
+				false
+			);
+
 			$redirection = array();
 			if (!empty($post['redirection_enable']) && !is_null($post['redirection_enable'])) {
 				$redirection['enable'] = sanitize_text_field($post['redirection_enable']);
@@ -2907,6 +2856,12 @@ class Metasync_Rest_Api
 			}
 			if (!empty($redirection)) {
 				update_post_meta($post_id, 'metasync_post_redirection_meta', $redirection);
+				// REST/Gutenberg saves never reach the metabox nonce path, so
+				// the stored meta would never materialize a redirect row.
+				// Sync it here, same as the classic save hook does.
+				if (class_exists('Metasync_Post_Meta_Settings')) {
+					Metasync_Post_Meta_Settings::sync_post_redirect_rule($post_id, $redirection);
+				}
 			}
 
 
@@ -2946,12 +2901,7 @@ class Metasync_Rest_Api
 					}
 				# update the content
 					// add and update the post meta
-				 foreach ($post_meta_data as $key => $value) {
-					// if (!empty($value) && !is_null($value)) {
-						
-					update_post_meta($post_id, $key, $value);
-					// 
-				}
+				$this->metasync_apply_builder_meta($post_id, $post_meta_data);
 				#check if the elementor plugin is active
 				if ( did_action( 'elementor/loaded' ) ) {
 					# Clear Elementor cache for the specified post ID
@@ -3099,18 +3049,7 @@ class Metasync_Rest_Api
 				// Change the page template from default to  Metasync Template
 				$pageTemplate = Metasync_Template::TEMPLATE_NAME;
 			}
-			if ($pageTemplate !== 'default') {
-				update_post_meta($post_id, '_wp_page_template', $pageTemplate);
-			} else {
-				// Clear stale templates that conflict with the active page builder.
-				// e.g. metasync-blank from a previous OTTO sync, or elementor_canvas
-				// written by the HTML-to-builder converter on an Oxygen site.
-				$current = get_post_meta($post_id, '_wp_page_template', true);
-				$stale_templates = array(Metasync_Template::TEMPLATE_NAME, 'elementor_canvas', 'elementor_header_footer');
-				if (in_array($current, $stale_templates, true)) {
-					delete_post_meta($post_id, '_wp_page_template');
-				}
-			}
+			$this->metasync_write_page_template($post_id, $pageTemplate);
 		}
 
 		return rest_ensure_response($createPages);
@@ -3192,18 +3131,224 @@ class Metasync_Rest_Api
 				// Change the page template from default to  Metasync Template
 				$pageTemplate = Metasync_Template::TEMPLATE_NAME;
 			}
-			if ($pageTemplate !== 'default') {
-				update_post_meta($post_id, '_wp_page_template', $pageTemplate);
-			} else {
-				// Clear stale templates that conflict with the active page builder.
-				$current = get_post_meta($post_id, '_wp_page_template', true);
-				$stale_templates = array(Metasync_Template::TEMPLATE_NAME, 'elementor_canvas', 'elementor_header_footer');
-				if (in_array($current, $stale_templates, true)) {
-					delete_post_meta($post_id, '_wp_page_template');
-				}
-			}
+			$this->metasync_write_page_template($post_id, $pageTemplate);
 		}
 		return rest_ensure_response($updatePages->data);
+	}
+
+	/**
+	 * The page template this site actually uses for a given post type.
+	 *
+	 * Content Genius has no idea which template a site's posts are built on, and
+	 * neither does the converter. Hardcoding one downgraded every synced post;
+	 * leaving the field empty is no better, because WordPress then falls back to
+	 * the theme's default single template -- on a theme-builder site that is a
+	 * bare, unstyled layout.
+	 *
+	 * So infer it: whatever the clear majority of this site's existing published
+	 * entries of the same type already use.
+	 *
+	 * @param string $post_type
+	 * @return string Template slug, or '' when the site has no clear convention.
+	 */
+	private function metasync_prevailing_post_template($post_type)
+	{
+		$post_type = sanitize_key($post_type);
+
+		if ('' === $post_type) {
+			return '';
+		}
+
+		$cache_key = 'metasync_prevailing_tpl_' . $post_type;
+		$cached    = get_transient($cache_key);
+
+		if (false !== $cached) {
+			return is_string($cached) ? $cached : '';
+		}
+
+		global $wpdb;
+
+		// Never propagate a template this plugin wrote itself.
+		$owned        = $this->metasync_plugin_owned_templates();
+		$placeholders = implode(',', array_fill(0, count($owned), '%s'));
+
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT pm.meta_value AS tpl, COUNT(*) AS hits
+				 FROM {$wpdb->postmeta} pm
+				 INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+				 WHERE pm.meta_key = '_wp_page_template'
+				   AND pm.meta_value <> ''
+				   AND pm.meta_value <> 'default'
+				   AND pm.meta_value NOT IN ($placeholders)
+				   AND p.post_type = %s
+				   AND p.post_status = 'publish'
+				 GROUP BY pm.meta_value
+				 ORDER BY hits DESC",
+				array_merge($owned, array($post_type))
+			)
+		);
+
+		$prevailing = '';
+
+		if (!empty($rows)) {
+			// Measure the majority against every published entry of this type,
+			// not just the ones that set a template. Counting only the latter
+			// would let a handful of outliers on a special template read as a
+			// site-wide convention on a site whose posts otherwise use the
+			// theme default.
+			$total = (int) $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = %s AND post_status = 'publish'",
+					$post_type
+				)
+			);
+
+			$top = (int) $rows[0]->hits;
+
+			// Only adopt a convention that is genuinely a convention: several
+			// posts, and a clear majority of the site's published entries.
+			if ($top >= 3 && $total > 0 && ($top / $total) >= 0.6) {
+				$prevailing = (string) $rows[0]->tpl;
+			}
+		}
+
+		set_transient($cache_key, $prevailing, 6 * HOUR_IN_SECONDS);
+
+		return $prevailing;
+	}
+
+	/**
+	 * Give a synced post the template the rest of the site uses.
+	 *
+	 * Only ever fills a blank -- an existing choice is never touched.
+	 *
+	 * Beyond brand-new inserts this also covers two cases that cannot regress
+	 * anything a visitor is currently seeing: posts this plugin created itself
+	 * (marked with `metasync_post`), and posts that have never been published.
+	 * Everything else -- content the site author built by hand -- is left alone.
+	 *
+	 * @param int    $post_id
+	 * @param string $post_type
+	 * @param bool   $is_new    Whether this sync actually inserted the post.
+	 * @return void
+	 */
+	private function metasync_adopt_site_post_template($post_id, $post_type, $is_new)
+	{
+		if (!$post_id) {
+			return;
+		}
+
+		$current = (string) get_post_meta($post_id, '_wp_page_template', true);
+
+		if ('' !== $current && 'default' !== $current) {
+			return;
+		}
+
+		$is_plugin_post  = ('yes' === get_post_meta($post_id, 'metasync_post', true));
+		$never_published = in_array(get_post_status($post_id), array('draft', 'pending', 'auto-draft'), true);
+
+		if (!$is_new && !$is_plugin_post && !$never_published) {
+			return;
+		}
+
+		$prevailing = $this->metasync_prevailing_post_template($post_type);
+
+		if ('' === $prevailing) {
+			return;
+		}
+
+		update_post_meta($post_id, '_wp_page_template', $prevailing);
+	}
+
+	/**
+	 * Page templates this plugin writes itself.
+	 *
+	 * Only these may be cleared when a sync carries the neutral 'default' value.
+	 * Anything else stored in `_wp_page_template` was chosen in the editor and
+	 * has to survive the sync -- notably 'elementor_header_footer' (Elementor
+	 * Full Width), which the plugin never writes, so finding it there always
+	 * means the user selected it.
+	 *
+	 * @return array
+	 */
+	private function metasync_plugin_owned_templates()
+	{
+		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-template.php';
+
+		return array(Metasync_Template::TEMPLATE_NAME, 'elementor_canvas');
+	}
+
+	/**
+	 * Whether converter-generated builder meta may set `_wp_page_template`.
+	 *
+	 * Everything reaching this point was asserted by the converter, not chosen
+	 * by anyone -- including 'elementor_canvas', which it emits for every page.
+	 * So the incoming value carries no authority: builder meta may fill a blank
+	 * and may replace a template this plugin wrote itself, but it must never
+	 * overwrite one selected in the editor.
+	 *
+	 * Deliberate templates (OTTO pages, landing pages) do not come through here;
+	 * they are written by metasync_write_page_template().
+	 *
+	 * @param int $post_id
+	 * @return bool
+	 */
+	private function metasync_can_write_page_template($post_id)
+	{
+		$current = get_post_meta($post_id, '_wp_page_template', true);
+
+		// Nothing worth keeping.
+		if ('' === $current || 'default' === $current) {
+			return true;
+		}
+
+		// Only replace leftovers this plugin put there in the first place.
+		return in_array($current, $this->metasync_plugin_owned_templates(), true);
+	}
+
+	/**
+	 * Store a page template, preserving one the user selected.
+	 *
+	 * @param int    $post_id
+	 * @param string $pageTemplate
+	 * @return void
+	 */
+	private function metasync_write_page_template($post_id, $pageTemplate)
+	{
+		if ('default' !== $pageTemplate) {
+			update_post_meta($post_id, '_wp_page_template', $pageTemplate);
+			return;
+		}
+
+		$current = get_post_meta($post_id, '_wp_page_template', true);
+
+		if ('' !== $current && in_array($current, $this->metasync_plugin_owned_templates(), true)) {
+			delete_post_meta($post_id, '_wp_page_template');
+		}
+	}
+
+	/**
+	 * Apply builder meta while protecting the post's chosen page template.
+	 *
+	 * @param int   $post_id
+	 * @param array $meta
+	 * @param bool  $overwrite Replace existing meta, or only add when absent.
+	 * @return void
+	 */
+	private function metasync_apply_builder_meta($post_id, array $meta, $overwrite = true)
+	{
+		foreach ($meta as $key => $value) {
+			if ('_wp_page_template' === $key && !$this->metasync_can_write_page_template($post_id)) {
+				continue;
+			}
+
+			if ($overwrite) {
+				update_post_meta($post_id, $key, $value);
+			} else {
+				add_post_meta($post_id, $key, $value, true);
+			}
+		}
 	}
 
 	public function delete_page()

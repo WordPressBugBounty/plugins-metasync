@@ -59,6 +59,7 @@ class MCP_Tool_Create_Redirect extends MCP_Tool_Base {
 
         // Load database class
         require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'redirections/class-metasync-redirection-database.php';
+        require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'redirections/class-metasync-redirection-validator.php';
         $db = new Metasync_Redirection_Database();
 
         $source = $this->sanitize_url($params['source']);
@@ -66,6 +67,14 @@ class MCP_Tool_Create_Redirect extends MCP_Tool_Base {
         $http_code = isset($params['type']) ? $this->sanitize_integer($params['type']) : 301;
         $description = isset($params['description']) ? $this->sanitize_textarea($params['description']) : '';
 
+        if (!empty($destination) && !Metasync_Redirection_Validator::is_safe_destination_syntax($destination)) {
+            // Backslashes and protocol-relative hosts bypass host validation in
+            // browsers while looking internal to wp_validate_redirect.
+            return [
+                'error' => 'invalid_destination_syntax',
+                'message' => 'Destination URL contains invalid characters (backslashes or protocol-relative hosts are not accepted).',
+            ];
+        }
         if (!get_option('metasync_allow_external_redirects', 0) && !empty($destination) && wp_validate_redirect($destination, '') !== $destination) {
             return [
                 'error' => 'external_destination',
@@ -330,10 +339,22 @@ class MCP_Tool_Update_Redirect extends MCP_Tool_Base {
         }
 
         // Build update args
+        if (!class_exists('Metasync_Redirection_Validator')) {
+            require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'redirections/class-metasync-redirection-validator.php';
+        }
         $update_args = ['updated_at' => current_time('mysql')];
+        // Declared up front so the later loop-guard and reachability blocks —
+        // which run under the same isset() condition — have a defined value.
+        $destination = '';
 
         if (isset($params['destination'])) {
             $destination = $this->sanitize_url($params['destination']);
+            if (!empty($destination) && !Metasync_Redirection_Validator::is_safe_destination_syntax($destination)) {
+                return [
+                    'error' => 'invalid_destination_syntax',
+                    'message' => 'Destination URL contains invalid characters (backslashes or protocol-relative hosts are not accepted).',
+                ];
+            }
             if (!get_option('metasync_allow_external_redirects', 0) && !empty($destination) && wp_validate_redirect($destination, '') !== $destination) {
                 return [
                     'error' => 'external_destination',
@@ -349,6 +370,34 @@ class MCP_Tool_Update_Redirect extends MCP_Tool_Base {
 
         if (isset($params['status'])) {
             $update_args['status'] = $this->sanitize_string($params['status']);
+        }
+
+        // Loop guard, mirroring the create tool: updating A→B while B→A
+        // already exists wires up an instant ping-pong. 410/451 send no
+        // Location header, so they are exempt.
+        if (isset($params['destination'])) {
+            $effective_code = isset($update_args['http_code']) ? (int) $update_args['http_code'] : (int) $redirect->http_code;
+            if (!in_array($effective_code, [410, 451], true)) {
+                require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'redirections/class-metasync-redirection.php';
+                $db_ref = $db;
+                $redirection_helper = new Metasync_Redirection($db_ref);
+                $stored_sources = json_decode((string) $redirect->sources_from, true);
+                if ($stored_sources === null && (string) $redirect->sources_from !== 'null') {
+                    $stored_sources = unserialize($redirect->sources_from, ['allowed_classes' => false]); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
+                }
+                if (is_array($stored_sources)) {
+                    foreach ($stored_sources as $stored_key => $stored_value) {
+                        $source = is_int($stored_key) ? (string) $stored_value : (string) $stored_key;
+                        $loop_chain = [];
+                        if ($redirection_helper->would_create_loop($source, $destination, $loop_chain)) {
+                            return [
+                                'error' => 'loop_detected',
+                                'chain' => $loop_chain,
+                            ];
+                        }
+                    }
+                }
+            }
         }
 
         // Update redirect

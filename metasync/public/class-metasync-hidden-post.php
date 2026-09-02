@@ -302,14 +302,9 @@ class MetaSyncHiddenPostManager
         # Get the preview URL of the post
         $post_url = get_permalink($post_id);
 
-        # Initialize cURL to fetch the post HTML
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $post_url); # Set the URL to fetch
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); # Return the response as a string
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); # Follow redirects if any
-        $html = curl_exec($ch); # Execute the request and store the HTML response
-        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE); # Capture the HTTP status code
-        curl_close($ch); # Close the cURL session
+        $probe_result = $this->fetch_post_html($post_url);
+        $html = $probe_result['body'];
+        $http_code = $probe_result['status'];
 
         # Only trust the probe when we verifiably fetched the test post.
         # A cache 404, bot challenge, or security-plugin block used to parse as
@@ -404,6 +399,31 @@ class MetaSyncHiddenPostManager
         # Return the content that needs to be prepended
         return [
             'content' => $prepend_content
+        ];
+    }
+
+    /**
+     * Fetch the hidden test post for content detection.
+     *
+     * @param string $post_url Hidden test post URL.
+     * @return array{body: string|false, status: int}
+     */
+    protected function fetch_post_html($post_url)
+    {
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $post_url); # Set the URL to fetch
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); # Return the response as a string
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); # Follow redirects if any
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10); # Bound connection establishment
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15); # Bound the complete request
+        curl_setopt($ch, CURLOPT_MAXREDIRS, 5); # Bound redirect chains
+        $html = curl_exec($ch); # Execute the request and store the HTML response
+        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE); # Capture the HTTP status code
+        curl_close($ch); # Close the cURL session
+
+        return [
+            'body' => $html,
+            'status' => (int) $http_code,
         ];
     }
 

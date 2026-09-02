@@ -11,6 +11,8 @@ if (!defined('WPINC')) {
     die;
 }
 
+require_once __DIR__ . '/privacy.php';
+
 /**
  * WordPress Error Handler Class
  */
@@ -337,10 +339,12 @@ class MetaSync_WordPress_Error_Handler {
                 'multisite' => is_multisite()
             ),
             'request_info' => array(
-                'url' => $_SERVER['REQUEST_URI'] ?? 'unknown',
+                'url' => metasync_telemetry_request_path(),
                 'method' => $_SERVER['REQUEST_METHOD'] ?? 'unknown',
                 'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
-                'referer' => $_SERVER['HTTP_REFERER'] ?? 'none'
+                'referer' => isset($_SERVER['HTTP_REFERER'])
+                    ? metasync_telemetry_request_path($_SERVER['HTTP_REFERER'])
+                    : 'none'
             )
         ));
         
@@ -502,7 +506,7 @@ class MetaSync_WordPress_Error_Handler {
 // Initialize the error handler immediately when this file is loaded
 // This ensures we catch errors that happen during plugin initialization
 // Must be initialized early to catch parse errors and fatal errors
-if (class_exists('MetaSync_WordPress_Error_Handler')) {
+if (!metasync_telemetry_is_disabled() && class_exists('MetaSync_WordPress_Error_Handler')) {
     new MetaSync_WordPress_Error_Handler();
 }
 ?>

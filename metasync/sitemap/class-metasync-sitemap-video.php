@@ -109,8 +109,7 @@ class Metasync_Sitemap_Video
                 'post_status'            => 'publish',
                 'posts_per_page'         => $posts_per_page,
                 'paged'                  => $page,
-                'orderby'                => 'date',
-                'order'                  => 'DESC',
+                'orderby'                => ['date' => 'DESC', 'ID' => 'DESC'],
                 'no_found_rows'          => true,
                 'update_post_term_cache' => false,
                 'update_post_meta_cache' => false,
@@ -126,9 +125,19 @@ class Metasync_Sitemap_Video
                 break;
             }
 
+            // Batch-resolve noindex status for the page in a single query so
+            // posts the site owner marked noindex never enter the video
+            // sitemap (mirrors the main sitemap generator).
+            $noindex_set = array_flip($this->get_noindex_post_ids(array_map('intval', wp_list_pluck($posts, 'ID'))));
+
             foreach ($posts as $post) {
                 if ($total_video_entries >= $this->max_video_entries) {
                     break 2;
+                }
+
+                // Posts marked noindex never belong in the video sitemap.
+                if (isset($noindex_set[(int) $post->ID])) {
+                    continue;
                 }
 
                 $permalink = get_permalink($post->ID);
@@ -142,6 +151,15 @@ class Metasync_Sitemap_Video
 
                 if (empty($videos)) {
                     continue;
+                }
+
+                // publication_date is optional; legacy zero-GMT rows
+                // ("0000-00-00 00:00:00") would otherwise serialise as a
+                // pre-epoch (year -0001) timestamp. Fall back to the local
+                // post date, then omit the element if both are unusable.
+                $pub_timestamp = strtotime($post->post_date_gmt);
+                if ($pub_timestamp === false || $pub_timestamp < 0) {
+                    $pub_timestamp = strtotime($post->post_date);
                 }
 
                 $url_element = $xml->createElement('url');
@@ -179,9 +197,20 @@ class Metasync_Sitemap_Video
                     $description->appendChild($xml->createTextNode($this->sanitize_xml_text($video['description'])));
                     $video_element->appendChild($description);
 
+                    // Direct media files (self-hosted <video>/<source> src)
+                    // are the only entries that may use content_loc. YouTube,
+                    // Vimeo, and VideoPress URLs point at a player page, not a
+                    // media file, so they are emitted as player_loc — sending a
+                    // watch page as content_loc is invalid under the Google
+                    // video sitemap protocol.
                     if (!empty($video['url'])) {
-                        $content_loc = $xml->createElement('video:content_loc', esc_url($video['url']));
-                        $video_element->appendChild($content_loc);
+                        if (!empty($video['direct_media'])) {
+                            $content_loc = $xml->createElement('video:content_loc', esc_url($video['url']));
+                            $video_element->appendChild($content_loc);
+                        } else {
+                            $player_loc = $xml->createElement('video:player_loc', esc_url($video['url']));
+                            $video_element->appendChild($player_loc);
+                        }
                     }
 
                     if (!empty($video['duration'])) {
@@ -189,11 +218,13 @@ class Metasync_Sitemap_Video
                         $video_element->appendChild($duration);
                     }
 
-                    $pub_date = $xml->createElement(
-                        'video:publication_date',
-                        gmdate('c', strtotime($post->post_date_gmt))
-                    );
-                    $video_element->appendChild($pub_date);
+                    if ($pub_timestamp !== false && $pub_timestamp >= 0) {
+                        $pub_date = $xml->createElement(
+                            'video:publication_date',
+                            gmdate('c', $pub_timestamp)
+                        );
+                        $video_element->appendChild($pub_date);
+                    }
 
                     $url_element->appendChild($video_element);
                     $has_valid_video = true;
@@ -220,6 +251,56 @@ class Metasync_Sitemap_Video
         }
 
         return $xml->saveXML();
+    }
+
+    /**
+     * Resolve which of the given post IDs are marked noindex.
+     *
+     * Mirrors the main sitemap generator's batch check: the robots metabox
+     * stores metasync_common_robots as a serialized array, and a post is
+     * noindex when that array contains 'noindex' => 'noindex'. One query per
+     * batch instead of a get_post_meta() call per post.
+     *
+     * @param int[] $post_ids Post IDs to inspect.
+     * @return int[] IDs that are noindex.
+     */
+    private function get_noindex_post_ids($post_ids)
+    {
+        global $wpdb;
+
+        if (empty($post_ids)) {
+            return [];
+        }
+
+        $id_placeholders = implode(',', array_fill(0, count($post_ids), '%d'));
+        return array_map('intval', (array) $wpdb->get_col(
+            $wpdb->prepare(
+                "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = 'metasync_common_robots' AND post_id IN ({$id_placeholders}) AND meta_value LIKE %s",
+                array_merge($post_ids, ['%"noindex";s:7:"noindex"%'])
+            )
+        ));
+    }
+
+    /**
+     * Whether a URL points at a media file rather than a player page.
+     *
+     * Used for the manual video override, where the stored URL may be either
+     * a self-hosted file or an embed/watch page on a video platform.
+     *
+     * @param string $url Candidate video URL.
+     * @return bool True when the URL path ends in a media-file extension.
+     */
+    private function is_direct_media_url($url)
+    {
+        $path = (string) wp_parse_url($url, PHP_URL_PATH);
+        if ($path === '') {
+            return false;
+        }
+        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        $media_extensions = [
+            'mp4', 'm4v', 'webm', 'ogv', 'ogg', 'mov', 'avi', 'mkv', 'wmv', 'flv', 'mpg', 'mpeg', 'm3u8', 'mpd',
+        ];
+        return in_array($extension, $media_extensions, true);
     }
 
     /**
@@ -251,11 +332,12 @@ class Metasync_Sitemap_Video
             }
 
             $videos[] = [
-                'url'         => $manual_url,
-                'thumbnail'   => $manual_thumbnail,
-                'title'       => !empty($manual_title) ? $manual_title : $post->post_title,
-                'description' => !empty($manual_desc) ? $manual_desc : $this->get_post_description($post),
-                'duration'    => $manual_duration,
+                'url'          => $manual_url,
+                'direct_media' => $this->is_direct_media_url($manual_url),
+                'thumbnail'    => $manual_thumbnail,
+                'title'        => !empty($manual_title) ? $manual_title : $post->post_title,
+                'description'  => !empty($manual_desc) ? $manual_desc : $this->get_post_description($post),
+                'duration'     => $manual_duration,
             ];
         }
 
@@ -324,13 +406,14 @@ class Metasync_Sitemap_Video
                 $thumbnail = $this->get_self_hosted_thumbnail($post);
 
                 $videos[] = [
-                    'url'         => $video_src,
-                    'thumbnail'   => $thumbnail,
-                    'title'       => $post->post_title,
-                    'description' => $this->get_post_description($post),
-                    'duration'    => get_post_meta($post->ID, '_metasync_video_duration', true),
-                    '_provider'   => 'self_hosted',
-                    '_video_id'   => md5($video_src),
+                    'url'          => $video_src,
+                    'direct_media' => true,
+                    'thumbnail'    => $thumbnail,
+                    'title'        => $post->post_title,
+                    'description'  => $this->get_post_description($post),
+                    'duration'     => get_post_meta($post->ID, '_metasync_video_duration', true),
+                    '_provider'    => 'self_hosted',
+                    '_video_id'    => md5($video_src),
                 ];
             }
         }
@@ -344,13 +427,14 @@ class Metasync_Sitemap_Video
                 $thumbnail = $this->get_self_hosted_thumbnail($post);
 
                 $videos[] = [
-                    'url'         => $video_src,
-                    'thumbnail'   => $thumbnail,
-                    'title'       => $post->post_title,
-                    'description' => $this->get_post_description($post),
-                    'duration'    => get_post_meta($post->ID, '_metasync_video_duration', true),
-                    '_provider'   => 'self_hosted',
-                    '_video_id'   => md5($video_src),
+                    'url'          => $video_src,
+                    'direct_media' => true,
+                    'thumbnail'    => $thumbnail,
+                    'title'        => $post->post_title,
+                    'description'  => $this->get_post_description($post),
+                    'duration'     => get_post_meta($post->ID, '_metasync_video_duration', true),
+                    '_provider'    => 'self_hosted',
+                    '_video_id'    => md5($video_src),
                 ];
             }
         }

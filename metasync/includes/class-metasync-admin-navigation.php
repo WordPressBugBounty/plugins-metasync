@@ -1778,13 +1778,17 @@ class Metasync_Admin_Navigation
         ?>
             </main><!-- /.metasync-layout-main -->
 
-            <?php if ($show_promo):
-                $general      = Metasync::get_option('general') ?? [];
-                $is_connected = Metasync_Heartbeat_Manager::instance()->is_heartbeat_connected($general);
+            <?php
+            // The sidebar exists to get an unconnected site connected. Once the
+            // site is linked it has nothing further to offer, so the whole
+            // column is dropped and the grid reflows to two columns.
+            $show_promo = $show_promo && ! Metasync_Heartbeat_Manager::instance()
+                ->is_heartbeat_connected(Metasync::get_option('general') ?? []);
+            if ($show_promo):
             ?>
             <!-- Right promo sidebar -->
             <aside class="metasync-layout-promo">
-                <?php $this->render_promo_sidebar($is_connected); ?>
+                <?php $this->render_promo_sidebar(); ?>
             </aside>
             <?php endif; ?>
 
@@ -1841,8 +1845,16 @@ class Metasync_Admin_Navigation
             }
         }
 
+        $total_items = count($seo_items) + count($plugin_items);
+
         ?>
         <nav class="metasync-sidenav">
+
+            <?php if ($total_items === 0): ?>
+            <div class="metasync-sidenav-empty">
+                <?php esc_html_e('No pages are available.', 'metasync'); ?>
+            </div>
+            <?php else: ?>
 
             <!-- SEO Features group -->
             <div class="metasync-sidenav-group">
@@ -1911,6 +1923,8 @@ class Metasync_Admin_Navigation
             </div>
             <?php endif; ?>
 
+            <?php endif; ?>
+
         </nav>
         <?php
     }
@@ -1918,22 +1932,26 @@ class Metasync_Admin_Navigation
     /**
      * Render the right promotional sidebar.
      *
-     * @param bool $is_connected  Whether the plugin is authenticated.
+     * Only reached while the site is unconnected; the caller drops the
+     * whole column once the plugin is linked.
      */
-    public function render_promo_sidebar($is_connected = false)
+    public function render_promo_sidebar()
     {
         $plugin_name      = Metasync::get_effective_plugin_name();
         $otto_name        = Metasync::get_whitelabel_otto_name();
         $settings_url     = esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug));
         $homepage         = Metasync::HOMEPAGE_DOMAIN;
-        $is_default_brand = ( $plugin_name === 'Search Atlas' );
+        $docs_url         = Metasync::DOCUMENTATION_DOMAIN;
+        // These links point at Search Atlas properties, so they only belong
+        // here while the plugin runs under its own name AND branding — a
+        // reseller can leave the name untouched and still be whitelabeled.
+        $is_default_brand = ( $plugin_name === 'Search Atlas' ) && ! Metasync::is_whitelabel_enabled();
         $whitelabel       = Metasync::get_whitelabel_settings();
         $custom_links     = isset($whitelabel['quick_links']) && is_array($whitelabel['quick_links'])
                               ? array_filter($whitelabel['quick_links'], function($l) { return !empty($l['url']); })
                               : [];
         ?>
 
-        <?php if (!$is_connected): ?>
         <!-- Connect CTA card -->
         <div class="metasync-promo-card metasync-promo-card--connect">
             <div class="metasync-promo-card-header">
@@ -1955,34 +1973,6 @@ class Metasync_Admin_Navigation
                 Connect Now
             </a>
         </div>
-        <?php else: ?>
-        <!-- Connected — feature highlights -->
-        <div class="metasync-promo-card metasync-promo-card--accent">
-            <div class="metasync-promo-card-header">
-                <div class="metasync-promo-card-icon">
-                    <span class="dashicons dashicons-performance"></span>
-                </div>
-                <div>
-                    <h3><?php echo esc_html($otto_name); ?> Active</h3>
-                </div>
-            </div>
-            <p class="metasync-promo-tagline">Your site is connected and <?php echo esc_html($otto_name); ?> is optimizing pages automatically.</p>
-            <ul class="metasync-promo-benefits">
-                <li><span class="promo-check">&#10003;</span> Schema markup auto-applied</li>
-                <li><span class="promo-check">&#10003;</span> Meta titles &amp; descriptions optimized</li>
-                <li><span class="promo-check">&#10003;</span> Internal linking suggestions active</li>
-            </ul>
-            <?php if ($is_default_brand): ?>
-            <a href="<?php echo esc_url($homepage); ?>" target="_blank" rel="noopener" class="metasync-promo-btn metasync-promo-btn--outline">
-                View <?php echo esc_html($plugin_name); ?> Dashboard
-            </a>
-            <?php elseif (!empty($whitelabel['domain'])): ?>
-            <a href="<?php echo esc_url($whitelabel['domain']); ?>" target="_blank" rel="noopener" class="metasync-promo-btn metasync-promo-btn--outline">
-                View <?php echo esc_html($plugin_name); ?> Dashboard
-            </a>
-            <?php endif; ?>
-        </div>
-        <?php endif; ?>
 
         <?php
         // Quick Links: show default links for default brand, custom links if whitelabeled + provided, hide if whitelabeled + none
@@ -1994,10 +1984,18 @@ class Metasync_Admin_Navigation
             <h3 style="margin:0 0 12px;font-size:13px;font-weight:700;color:var(--dashboard-text-primary);">Quick Links</h3>
             <ul class="metasync-promo-links">
             <?php if ($is_default_brand): ?>
+                <li><a href="<?php echo esc_url($docs_url); ?>" target="_blank" rel="noopener"><span class="dashicons dashicons-book-alt"></span> Documentation</a></li>
                 <li><a href="<?php echo esc_url($homepage . '/blog/'); ?>" target="_blank" rel="noopener"><span class="dashicons dashicons-rss"></span> SEO Blog</a></li>
-                <li><a href="<?php echo esc_url($homepage . '/academy/'); ?>" target="_blank" rel="noopener"><span class="dashicons dashicons-welcome-learn-more"></span> SEO Academy</a></li>
+                <li><a href="<?php echo esc_url($homepage . '/contact/'); ?>" target="_blank" rel="noopener"><span class="dashicons dashicons-email-alt"></span> Contact Support</a></li>
                 <li><a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-setup-wizard')); ?>"><span class="dashicons dashicons-admin-customizer"></span> Setup Wizard</a></li>
+                <?php
+                // Mirrors the gate that decides whether the page is registered
+                // at all. Without it the link outlives the page for any user
+                // the access rules hide it from, and leads nowhere.
+                if (Metasync_Access_Control::user_can_access('hide_report_issue')):
+                ?>
                 <li><a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-report-issue')); ?>"><span class="dashicons dashicons-sos"></span> Report Issue</a></li>
+                <?php endif; ?>
             <?php else: ?>
                 <?php foreach ($custom_links as $link): ?>
                 <li><a href="<?php echo esc_url($link['url']); ?>" <?php echo !empty($link['external']) ? 'target="_blank" rel="noopener"' : ''; ?>><span class="dashicons dashicons-admin-links"></span> <?php echo esc_html($link['label'] ?: $link['url']); ?></a></li>

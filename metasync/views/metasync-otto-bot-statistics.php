@@ -38,6 +38,8 @@ $bot_filtering_enabled = isset($general_options['otto_disable_for_bots']) ? (boo
 // Breakdown label config (reused in table)
 $breakdown_labels = array(
     'search_engine' => array('label' => 'Search Engines', 'icon' => 'search',        'color' => '#667eea'),
+    'cache_warmer'  => array('label' => 'Cache Warmers',  'icon' => 'performance',   'color' => '#667eea'),
+    'perf_auditor'  => array('label' => 'Perf Auditors',  'icon' => 'dashboard',     'color' => '#667eea'),
     'seo_tool'      => array('label' => 'SEO Tools',      'icon' => 'chart-line',    'color' => '#667eea'),
     'social_media'  => array('label' => 'Social Media',   'icon' => 'share',         'color' => '#667eea'),
     'archiver'      => array('label' => 'Archivers',      'icon' => 'archive',       'color' => '#667eea'),

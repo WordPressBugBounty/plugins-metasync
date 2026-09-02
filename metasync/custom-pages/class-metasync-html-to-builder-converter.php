@@ -1266,18 +1266,31 @@ class Metasync_HTML_To_Builder_Converter
 			'</body>'
 		], '', $modified_html));
 
+		$meta_data = array(
+			'_elementor_data' => $json_output,
+			'_elementor_edit_mode' => 'builder',
+			'_elementor_version' => defined('ELEMENTOR_VERSION') ? ELEMENTOR_VERSION : '3.0.0',
+		);
+
+		// Only pages get an explicit page template. A post's template is a
+		// deliberate choice made in the editor -- Elementor Full Width
+		// ('elementor_header_footer') on an Elementor theme-builder site, or a
+		// theme template file -- and the sync has no way to know what it should
+		// be. Emitting 'default' here silently downgraded every synced post to
+		// the theme's plain single template, discarding that choice.
+		$is_page = isset($options['post_type']) && $options['post_type'] === 'page';
+
+		if ($is_page) {
+			$meta_data['_elementor_page_settings'] = array(
+				'template' => 'elementor_canvas',
+				'custom_css' => ''
+			);
+			$meta_data['_wp_page_template'] = 'elementor_canvas';
+		}
+
 		return array(
 			'content' => $content,
-			'meta_data' => array(
-				'_elementor_data' => $json_output,
-				'_elementor_edit_mode' => 'builder',
-				'_elementor_version' => defined('ELEMENTOR_VERSION') ? ELEMENTOR_VERSION : '3.0.0',
-				'_elementor_page_settings' => array(
-					'template' => $options['post_type'] === 'page' ? 'elementor_canvas' : 'default',
-					'custom_css' => ''
-				),
-				'_wp_page_template' => $options['post_type'] === 'page' ? 'elementor_canvas' : 'default'
-			),
+			'meta_data' => $meta_data,
 			'css_content' => $css_content
 		);
 	}

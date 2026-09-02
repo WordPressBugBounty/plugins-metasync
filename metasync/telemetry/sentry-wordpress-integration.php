@@ -4,6 +4,8 @@ if (!defined('ABSPATH')) {
 	exit;
 }
 
+require_once __DIR__ . '/privacy.php';
+
 /**
  * WordPress-Native Sentry Integration
  * 
@@ -96,6 +98,10 @@ class MetaSync_Sentry_WordPress {
      * @return bool True if a request was dispatched, false if it could not be.
      */
     public function captureMessageNonBlocking($message, $level = 'info', $extra = []) {
+        if (metasync_telemetry_is_disabled()) {
+            return false;
+        }
+
         # Mirrors sendToSentry()'s preconditions.
         if ($this->isLocalhost()) {
             return false;
@@ -433,6 +439,10 @@ class MetaSync_Sentry_WordPress {
      * @return bool|array Success status, or array with success and event_id
      */
     private function sendToSentry($data, $item_type = 'event', $attachment = null) {
+        if (metasync_telemetry_is_disabled()) {
+            return false;
+        }
+
         // Skip sending to Sentry if running on localhost/development environment
         if ($this->isLocalhost()) {
             return false;
@@ -711,7 +721,7 @@ class MetaSync_Sentry_WordPress {
             // Add dynamic data that changes per request
             $cached_context['memory_usage'] = memory_get_usage(true);
             $cached_context['memory_peak'] = memory_get_peak_usage(true);
-            $cached_context['request_uri'] = $_SERVER['REQUEST_URI'] ?? 'unknown';
+            $cached_context['request_uri'] = metasync_telemetry_request_path();
             return $cached_context;
         }
         
@@ -735,7 +745,7 @@ class MetaSync_Sentry_WordPress {
             // Dynamic data added per request
             'memory_usage' => memory_get_usage(true),
             'memory_peak' => memory_get_peak_usage(true),
-            'request_uri' => $_SERVER['REQUEST_URI'] ?? 'unknown'
+            'request_uri' => metasync_telemetry_request_path()
         ];
         
         // Cache static context for 1 hour
@@ -875,6 +885,10 @@ $metasync_sentry_wordpress = null;
  */
 function init_metasync_sentry_wordpress() {
     global $metasync_sentry_wordpress;
+
+    if (metasync_telemetry_is_disabled()) {
+        return null;
+    }
     
     $dsn = '';
     
@@ -906,6 +920,9 @@ function init_metasync_sentry_wordpress() {
  */
 function metasync_sentry_capture_exception($exception, $extra = []) {
     global $metasync_sentry_wordpress;
+    if (metasync_telemetry_is_disabled()) {
+        return false;
+    }
     if (!$metasync_sentry_wordpress) {
         $metasync_sentry_wordpress = init_metasync_sentry_wordpress();
     }
@@ -921,6 +938,9 @@ function metasync_sentry_capture_exception($exception, $extra = []) {
  */
 function metasync_sentry_capture_message($message, $level = 'info', $extra = [], $attachment = null) {
     global $metasync_sentry_wordpress;
+    if (metasync_telemetry_is_disabled()) {
+        return false;
+    }
     if (!$metasync_sentry_wordpress) {
         $metasync_sentry_wordpress = init_metasync_sentry_wordpress();
     }
@@ -941,6 +961,9 @@ function metasync_sentry_capture_message($message, $level = 'info', $extra = [],
  */
 function metasync_sentry_capture_message_nonblocking($message, $level = 'info', $extra = []) {
     global $metasync_sentry_wordpress;
+    if (metasync_telemetry_is_disabled()) {
+        return false;
+    }
     if (!$metasync_sentry_wordpress) {
         $metasync_sentry_wordpress = init_metasync_sentry_wordpress();
     }
@@ -959,6 +982,9 @@ function metasync_sentry_capture_message_nonblocking($message, $level = 'info', 
  */
 function metasync_sentry_capture_feedback($feedback, $attachment = null) {
     global $metasync_sentry_wordpress;
+    if (metasync_telemetry_is_disabled()) {
+        return false;
+    }
     if (!$metasync_sentry_wordpress) {
         $metasync_sentry_wordpress = init_metasync_sentry_wordpress();
     }

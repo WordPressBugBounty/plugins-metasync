@@ -518,6 +518,20 @@ class Metasync
 		require_once plugin_dir_path(dirname(__FILE__)) . 'bing-index/class-metasync-bing-instant-index.php';
 		add_action('template_redirect', array('Metasync_Bing_Instant_Index', 'serve_virtual_key_file'), 0);
 
+		// Scheduled IndexNow submissions, deferred from save_post so a slow
+		// IndexNow round-trip cannot stall the editor or REST write. Registered
+		// statically because the class is loaded but never instantiated on
+		// cron loads. The hook name matches the uninstall cron sweep exactly.
+		add_action('metasync_bing_indexnow_submit_event', array('Metasync_Bing_Instant_Index', 'run_scheduled_submit'), 10, 1);
+
+		// Construct the robots.txt manager on the public load path so its
+		// `robots_txt` filter is registered before a plain GET /robots.txt is
+		// served. The filter is attached in the singleton's constructor, and
+		// previously only admin screens built the instance — so the virtual
+		// robots.txt rules and sitemap lines never rendered on the frontend.
+		require_once plugin_dir_path(dirname(__FILE__)) . 'robots-txt/class-metasync-robots-txt.php';
+		Metasync_Robots_Txt::get_instance();
+
 		// One-time upgrade: regenerate sitemap to remove any Beaver Builder template entries
 		if ( ! get_option( 'metasync_sitemap_bb_exclusion_applied' ) ) {
 			$this->loader->add_action('init', $this, 'maybe_regenerate_sitemap_after_upgrade');

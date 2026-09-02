@@ -4,6 +4,8 @@ if (!defined('ABSPATH')) {
 	exit;
 }
 
+require_once __DIR__ . '/privacy.php';
+
 /**
  * Request monitoring
  * 
@@ -68,6 +70,10 @@ class Metasync_Telemetry_Request_Monitor {
     # let's monitor outgoing logs
     function api_monitor_outgoing($preempt, $args, $url){
 
+        if (metasync_telemetry_is_disabled()) {
+            return $preempt;
+        }
+
         # ignore wp chron requests
         if(strpos($url, 'wp-cron.php') !== false){
             return $preempt;
@@ -83,8 +89,8 @@ class Metasync_Telemetry_Request_Monitor {
             'timestamp' => $this->log_timestamp(),
             'type' => 'outgoing_request',
             'method' => $args['method'] ?? 'undefined',
-            'request_url' => $url,
-            'args' => $args
+            'request_url' => metasync_telemetry_request_path($url),
+            'args' => $this->sanitize_args($args)
         ];
 
         # send the request with telemetry manager
@@ -99,6 +105,10 @@ class Metasync_Telemetry_Request_Monitor {
     # monitor incoming
     function api_monitor_incoming($result, $server, $request){
 
+        if (metasync_telemetry_is_disabled()) {
+            return $result;
+        }
+
         # check that the route is permitted for logging
         if ( empty($request->get_route()) || $this->log_uri_permitted($request->get_route()) == False ){
             return $result;
@@ -110,17 +120,8 @@ class Metasync_Telemetry_Request_Monitor {
             'timestamp' => $this->log_timestamp(),
             'type' => 'incoming_request',
             'method' => $request->get_method(),
-            'uri' => $request->get_route(),
-            'headers' => $request->get_headers(),
-            'body' => $request->get_params()
+            'uri' => metasync_telemetry_request_path($request->get_route())
         ];
-
-        # if the request is not GET attach get params
-        if($request->get_method() !== 'GET'){
-
-            #append request get params
-            $request_data['_GET_params'] = $_GET;
-        }
 
         $this->telemetry_manager->send_message('Incoming Request', 'info', $request_data);
 
@@ -136,6 +137,9 @@ class Metasync_Telemetry_Request_Monitor {
     # monitor the response to an outgoing API call
     # function monitor_outgoing_response($response, $context, $url, $parsed_args){
     function monitor_outgoing_response($response, $parsed_args, $url){
+        if (metasync_telemetry_is_disabled()) {
+            return $response;
+        }
         
         # Skip logging for wp-cron requests
         if (strpos($url, 'wp-cron.php') !== false) {
@@ -152,7 +156,7 @@ class Metasync_Telemetry_Request_Monitor {
             'timestamp' => $this->log_timestamp(),
             'type' => 'outgoing_response',
             'status_code' => $response['response']['code'] ?? '',
-            'url' => $url, 
+            'url' => metasync_telemetry_request_path($url),
             'response_data' => $this->sanitize_outgoing_response($response),
             'args' => $this->sanitize_args($parsed_args)
         ];
@@ -167,6 +171,9 @@ class Metasync_Telemetry_Request_Monitor {
 
     # monitor the response to an incoming api call
     function monitor_incoming_response($response, $server, $request){
+        if (metasync_telemetry_is_disabled()) {
+            return $response;
+        }
         
         # check that the route is permitted for logging
         if ( empty($request->get_route()) || $this->log_uri_permitted($request->get_route()) == False ){
@@ -178,7 +185,7 @@ class Metasync_Telemetry_Request_Monitor {
             'timestamp' => $this->log_timestamp(),
             'type' => 'incoming_response',
             'status_code' => $response->get_status() ?? '',
-            'url' =>  $request->get_route(),
+            'url' =>  metasync_telemetry_request_path($request->get_route()),
             'method' => $request->get_method(),
             'response_data' => $this->sanitize_response_data($response), 
             'request_data' => $this->sanitize_request_data($request)
@@ -205,10 +212,7 @@ class Metasync_Telemetry_Request_Monitor {
         }
         
         return array(
-            'status' => method_exists($response, 'get_status') ? $response->get_status() : null,
-            'data' => method_exists($response, 'get_data') ? $response->get_data() : null,
-            'headers' => method_exists($response, 'get_headers') ? $response->get_headers() : null,
-            'links' => method_exists($response, 'get_links') ? $response->get_links() : null
+            'status' => method_exists($response, 'get_status') ? $response->get_status() : null
         );
     }
     
@@ -225,10 +229,9 @@ class Metasync_Telemetry_Request_Monitor {
         
         return array(
             'method' => method_exists($request, 'get_method') ? $request->get_method() : null,
-            'route' => method_exists($request, 'get_route') ? $request->get_route() : null,
-            'params' => method_exists($request, 'get_params') ? $request->get_params() : null,
-            'headers' => method_exists($request, 'get_headers') ? $request->get_headers() : null,
-            'body' => method_exists($request, 'get_body') ? $request->get_body() : null
+            'route' => method_exists($request, 'get_route')
+                ? metasync_telemetry_request_path($request->get_route())
+                : null
         );
     }
     
@@ -251,18 +254,6 @@ class Metasync_Telemetry_Request_Monitor {
                 'code' => $response['response']['code'] ?? null,
                 'message' => $response['response']['message'] ?? null
             );
-        }
-        
-        if (isset($response['headers'])) {
-            $sanitized['headers'] = $response['headers'];
-        }
-        
-        if (isset($response['body'])) {
-            $sanitized['body'] = $response['body'];
-        }
-        
-        if (isset($response['cookies'])) {
-            $sanitized['cookies'] = $response['cookies'];
         }
         
         return $sanitized;
@@ -288,20 +279,6 @@ class Metasync_Telemetry_Request_Monitor {
             if (isset($args[$key])) {
                 $sanitized[$key] = $args[$key];
             }
-        }
-        
-        // Sanitize headers if present
-        if (isset($args['headers']) && is_array($args['headers'])) {
-            $sanitized['headers'] = $args['headers'];
-        }
-        
-        // Sanitize body if present (but limit size)
-        if (isset($args['body'])) {
-            $body = $args['body'];
-            if (is_string($body) && strlen($body) > 1000) {
-                $body = substr($body, 0, 1000) . '... [truncated]';
-            }
-            $sanitized['body'] = $body;
         }
         
         return $sanitized;

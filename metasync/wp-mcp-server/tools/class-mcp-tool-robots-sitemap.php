@@ -100,7 +100,14 @@ class MCP_Tool_Update_Robots_Txt extends MCP_Tool_Base {
 
         $robots_txt = Metasync_Robots_Txt::get_instance();
 
-        // Write using plugin's method (automatically creates backup)
+        // The plugin's write path stores a backup only when it can read a
+        // non-empty previous robots.txt. Mirror that exact condition here —
+        // evaluated before the write replaces the content — so the response
+        // reports backup_created truthfully instead of always claiming one.
+        $current_content = $robots_txt->read_robots_file();
+        $backup_created = !is_wp_error($current_content) && !empty(trim($current_content));
+
+        // Write using plugin's method (backs up previous content when one applies)
         $result = $robots_txt->write_robots_file($content);
 
         if (is_wp_error($result)) {
@@ -111,8 +118,10 @@ class MCP_Tool_Update_Robots_Txt extends MCP_Tool_Base {
             'file_path' => ABSPATH . 'robots.txt',
             'bytes_written' => strlen($content),
             'url' => site_url('robots.txt'),
-            'backup_created' => true
-        ], 'Robots.txt updated successfully (backup created)');
+            'backup_created' => $backup_created
+        ], $backup_created
+            ? 'Robots.txt updated successfully (backup created)'
+            : 'Robots.txt updated successfully (no previous content to back up)');
     }
 }
 
@@ -139,7 +148,7 @@ class MCP_Tool_Get_Sitemap_Status extends MCP_Tool_Base {
 
     public function execute($params) {
         $this->validate_params($params);
-        $this->require_capability('read');
+        $this->require_capability('manage_options');
 
         // Load MetaSync sitemap generator for authoritative existence check
         require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'sitemap/class-metasync-sitemap-generator.php';
@@ -232,6 +241,10 @@ class MCP_Tool_Regenerate_Sitemap extends MCP_Tool_Base {
 
         if (is_wp_error($result)) {
             throw new Exception($result->get_error_message());
+        }
+
+        if (false === $result) {
+            throw new Exception('Sitemap generation failed: the sitemap data could not be stored, so no sitemap is being served.');
         }
 
         // Get sitemap info
@@ -340,9 +353,20 @@ class MCP_Tool_Add_Robots_Rule extends MCP_Tool_Base {
         $rule = trim($params['rule']);
         $user_agent = isset($params['user_agent']) ? trim($params['user_agent']) : '*';
 
-        // Get current content
-        $robots_file = ABSPATH . 'robots.txt';
-        $content = file_exists($robots_file) ? file_get_contents($robots_file) : '';
+        // Load MetaSync Robots.txt class
+        if (!class_exists('Metasync_Robots_Txt')) {
+            require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'robots-txt/class-metasync-robots-txt.php';
+        }
+
+        $robots_txt = Metasync_Robots_Txt::get_instance();
+
+        // Get current content through the plugin's reader so virtual-mode
+        // content is seen; writing through the plugin's writer so a backup
+        // row is recorded and the virtual fallback is available. A raw
+        // file_put_contents here created a physical file that shadowed all
+        // virtual content on read-only hosts.
+        $read = $robots_txt->read_robots_file();
+        $content = is_wp_error($read) ? '' : $read;
 
         // Parse content to find or create user-agent block
         $lines = explode("\n", $content);
@@ -381,11 +405,11 @@ class MCP_Tool_Add_Robots_Rule extends MCP_Tool_Base {
 
         $new_content = implode("\n", $new_lines);
 
-        // Write to file
-        $result = file_put_contents($robots_file, $new_content);
+        // Write through the plugin's writer (backup + virtual fallback)
+        $result = $robots_txt->write_robots_file($new_content);
 
-        if ($result === false) {
-            throw new Exception('Failed to write robots.txt file');
+        if (is_wp_error($result)) {
+            throw new Exception($result->get_error_message());
         }
 
         return $this->success([
@@ -429,14 +453,22 @@ class MCP_Tool_Remove_Robots_Rule extends MCP_Tool_Base {
 
         $rule = trim($params['rule']);
 
-        // Get current content
-        $robots_file = ABSPATH . 'robots.txt';
-
-        if (!file_exists($robots_file)) {
-            throw new Exception('robots.txt file does not exist');
+        // Load MetaSync Robots.txt class
+        if (!class_exists('Metasync_Robots_Txt')) {
+            require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'robots-txt/class-metasync-robots-txt.php';
         }
 
-        $content = file_get_contents($robots_file);
+        $robots_txt = Metasync_Robots_Txt::get_instance();
+
+        // Read through the plugin's reader: on a virtual-mode site there is no
+        // physical robots.txt, and a raw file_get_contents hard-failed here,
+        // making virtual-stored rules impossible to remove through this tool.
+        $content = $robots_txt->read_robots_file();
+
+        if (is_wp_error($content)) {
+            throw new Exception($content->get_error_message());
+        }
+
         $lines = explode("\n", $content);
         $new_lines = [];
         $removed = false;
@@ -455,11 +487,11 @@ class MCP_Tool_Remove_Robots_Rule extends MCP_Tool_Base {
 
         $new_content = implode("\n", $new_lines);
 
-        // Write to file
-        $result = file_put_contents($robots_file, $new_content);
+        // Write through the plugin's writer (backup + virtual fallback)
+        $result = $robots_txt->write_robots_file($new_content);
 
-        if ($result === false) {
-            throw new Exception('Failed to write robots.txt file');
+        if (is_wp_error($result)) {
+            throw new Exception($result->get_error_message());
         }
 
         return $this->success([

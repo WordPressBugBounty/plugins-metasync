@@ -867,7 +867,7 @@ if (!defined('ABSPATH')) {
 					<input type="search" id="monitor-search-input" name="s_404"
 						   value="<?php echo esc_attr($list_state['s_404'] ?? ''); ?>"
 						   placeholder="Search URIs or User Agents...">
-					<input type="submit" id="monitor-search-submit" class="button" value="Search">
+					<input type="submit" name="search_submit" id="monitor-search-submit" class="button" value="Search">
 				</p>
 			</div>
 		</div>

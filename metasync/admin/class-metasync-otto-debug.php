@@ -37,9 +37,6 @@ class Metasync_Otto_Debug {
         // Add admin menu
         add_action('admin_menu', array($this, 'add_debug_menu'));
         
-        // Add magic word handler
-        add_action('admin_init', array($this, 'handle_magic_word_access'));
-        
         // Add AJAX handlers
         add_action('wp_ajax_metasync_otto_debug_test_api', array($this, 'ajax_test_otto_api'));
         add_action('wp_ajax_metasync_otto_debug_test_notification', array($this, 'ajax_test_notification_endpoint'));
@@ -56,13 +53,7 @@ class Metasync_Otto_Debug {
      * Add debug menu (developer only - hidden by default)
      */
     public function add_debug_menu() {
-        // Check if user has developer capabilities
-        if (!Metasync::current_user_has_plugin_access()) {
-            return;
-        }
-        
-        // Check if debug access is enabled via magic word
-        if (!$this->is_debug_access_enabled()) {
+        if (!current_user_can('manage_options')) {
             return;
         }
         
@@ -79,167 +70,11 @@ class Metasync_Otto_Debug {
     }
     
     /**
-     * Add magic word handler for direct access
-     */
-    public function handle_magic_word_access() {
-        // Check if magic word is provided
-        if (isset($_GET['metasync_debug']) && $_GET['metasync_debug'] === 'abracadabra@2020') {
-            // Enable debug access via user meta (persistent, no sessions needed)
-            $current_user = wp_get_current_user();
-            if ($current_user && $current_user->ID) {
-                update_user_meta($current_user->ID, 'metasync_debug_enabled', 'true');
-            }
-
-            // Redirect to admin with debug access enabled
-            $redirect_url = admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-otto-debug');
-            wp_redirect($redirect_url);
-            exit;
-        }
-    }
-    
-    /**
-     * Check if debug access is enabled via magic word system
-     * Hidden from regular users, only accessible with secret key
-     */
-    private function is_debug_access_enabled() {
-        // Magic word for developer access
-        $magic_word = 'abracadabra@2020';
-
-        // Check if magic word is provided in URL parameter
-        if (isset($_GET['metasync_debug']) && $_GET['metasync_debug'] === $magic_word) {
-            // Enable debug access via user meta (persistent, no sessions needed)
-            $current_user = wp_get_current_user();
-            if ($current_user && $current_user->ID) {
-                update_user_meta($current_user->ID, 'metasync_debug_enabled', 'true');
-            }
-            return true;
-        }
-
-        // Check if debug access is enabled via user meta (for persistent access)
-        $current_user = wp_get_current_user();
-        if ($current_user && $current_user->ID) {
-            $debug_enabled = get_user_meta($current_user->ID, 'metasync_debug_enabled', true);
-            if ($debug_enabled === 'true') {
-                return true;
-            }
-        }
-
-        return false;
-    }
-    
-    /**
-     * Check if current user is a developer
-     * Multiple methods to identify developers without requiring WP_DEBUG
-     */
-    private function is_developer_user($user) {
-        // Method 1: Check for specific user meta
-        $is_developer = get_user_meta($user->ID, 'metasync_developer', true);
-        if ($is_developer === 'true') {
-            return true;
-        }
-        
-        // Method 2: Check for specific user roles
-        $developer_roles = array('administrator', 'developer', 'super_admin');
-        $user_roles = $user->roles;
-        
-        foreach ($developer_roles as $role) {
-            if (in_array($role, $user_roles)) {
-                return true;
-            }
-        }
-        
-        // Method 3: Check for specific capabilities
-        if ($user->has_cap('manage_options') && $user->has_cap('edit_plugins')) {
-            return true;
-        }
-        
-        // Method 4: Check for specific email domains (optional)
-        $email_domain = substr(strrchr($user->user_email, "@"), 1);
-        $developer_domains = array('searchatlas.com', 'yourcompany.com'); // Add your company domains
-        
-        if (in_array($email_domain, $developer_domains)) {
-            return true;
-        }
-        
-        // Method 5: Check for specific username patterns
-        $username_patterns = array('/^dev_/', '/^admin_/', '/^support_/');
-        foreach ($username_patterns as $pattern) {
-            if (preg_match($pattern, $user->user_login)) {
-                return true;
-            }
-        }
-        
-        return false;
-    }
-    
-    /**
-     * Helper function to enable developer access for a specific user
-     * Call this function to grant debug access to a user
-     * 
-     * Usage: Metasync_Otto_Debug::enable_developer_access($user_id);
-     */
-    public static function enable_developer_access($user_id) {
-        update_user_meta($user_id, 'metasync_debug_enabled', 'true');
-    }
-    
-    /**
-     * Helper function to disable developer access for a specific user
-     * 
-     * Usage: Metasync_Otto_Debug::disable_developer_access($user_id);
-     */
-    public static function disable_developer_access($user_id) {
-        delete_user_meta($user_id, 'metasync_debug_enabled');
-    }
-    
-    /**
-     * Get the magic word for debug access
-     * 
-     * Usage: Metasync_Otto_Debug::get_magic_word();
-     */
-    public static function get_magic_word() {
-        return 'abracadabra@2020';
-    }
-    
-    /**
-     * Generate debug access URL
-     * 
-     * Usage: Metasync_Otto_Debug::get_debug_access_url();
-     */
-    public static function get_debug_access_url() {
-        $admin_url = admin_url('admin.php');
-        $magic_word = self::get_magic_word();
-        return add_query_arg('metasync_debug', $magic_word, $admin_url);
-    }
-    
-    /**
-     * Quick enable debug access for current user
-     * 
-     * Usage: Metasync_Otto_Debug::quick_enable_debug();
-     */
-    public static function quick_enable_debug() {
-        $current_user = wp_get_current_user();
-        if ($current_user && $current_user->ID) {
-            update_user_meta($current_user->ID, 'metasync_debug_enabled', 'true');
-            return true;
-        }
-        return false;
-    }
-    
-    /**
      * Create the debug page
      */
     public function create_debug_page() {
-        // Check if this is a magic word access request
-        if (isset($_GET['metasync_debug']) && $_GET['metasync_debug'] === 'abracadabra@2020') {
-            // Enable debug access via user meta (persistent, no sessions needed)
-            $current_user = wp_get_current_user();
-            if ($current_user && $current_user->ID) {
-                update_user_meta($current_user->ID, 'metasync_debug_enabled', 'true');
-            }
-
-            // Show access granted message
-            $this->show_access_granted_page();
-            return;
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
         }
 
         $whitelabel_otto_name = Metasync::get_whitelabel_otto_name();
@@ -379,108 +214,17 @@ class Metasync_Otto_Debug {
     }
     
     /**
-     * Show access granted page
-     */
-    private function show_access_granted_page() {
-        $whitelabel_otto_name = Metasync::get_whitelabel_otto_name();
-        $current_user = wp_get_current_user();
-        ?>
-        <div class="wrap">
-            <h1><?php echo esc_html($whitelabel_otto_name); ?> Debug Access Granted</h1>
-            
-            <div class="notice notice-success">
-                <p><strong>Debug Access Enabled!</strong></p>
-                <p>You now have access to the <?php echo esc_html($whitelabel_otto_name); ?> Debug page.</p>
-            </div>
-            
-            <div class="card">
-                <h2>Next Steps</h2>
-                <ol>
-                    <li><strong>Access Debug Page:</strong> The "<?php echo esc_html($whitelabel_otto_name); ?> Debug" menu should now be visible in the <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> plugin menu</li>
-                    <li><strong>Use Diagnostics:</strong> Click on "<?php echo esc_html($whitelabel_otto_name); ?> Debug" to access comprehensive diagnostic tools</li>
-                    <li><strong>Troubleshoot Issues:</strong> Use the debug tools to identify why <?php echo esc_html($whitelabel_otto_name); ?> changes may not be applied</li>
-                </ol>
-            </div>
-            
-            <div class="card">
-                <h2>Access Information</h2>
-                <table class="form-table">
-                    <tr>
-                        <th scope="row">Magic Word</th>
-                        <td><code>abracadabra@2020</code></td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Current User</th>
-                        <td><?php echo esc_html($current_user->user_login); ?> (ID: <?php echo $current_user->ID; ?>)</td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Access Type</th>
-                        <td>User Meta (persistent)</td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Debug Page URL</th>
-                        <td><code><?php echo esc_html(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-otto-debug')); ?></code></td>
-                    </tr>
-                </table>
-            </div>
-
-            <div class="card">
-                <h2>Security Notes</h2>
-                <ul>
-                    <li><strong>Persistent Access:</strong> This access is stored in your user profile and persists across sessions</li>
-                    <li><strong>Magic Word:</strong> Keep the magic word <code>abracadabra@2020</code> confidential</li>
-                    <li><strong>Developer Only:</strong> This debug page is intended for plugin developers only</li>
-                    <li><strong>To Revoke Access:</strong> Use <code>Metasync_Otto_Debug::disable_developer_access(<?php echo $current_user->ID; ?>)</code></li>
-                </ul>
-            </div>
-            
-            <div class="card">
-                <h2>Quick Access</h2>
-                <p>To access the debug page directly, use this URL:</p>
-                <p><a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-otto-debug')); ?>" class="button button-primary">Open <?php echo esc_html($whitelabel_otto_name); ?> Debug Page</a></p>
-                
-                <p>Or add the magic word to any WordPress admin URL:</p>
-                <p><code>?metasync_debug=abracadabra@2020</code></p>
-            </div>
-            
-            <style>
-            .card {
-                background: #fff;
-                border: 1px solid #ccd0d4;
-                border-radius: 4px;
-                padding: 20px;
-                margin: 20px 0;
-                box-shadow: 0 1px 1px rgba(0,0,0,.04);
-            }
-            .card h2 {
-                margin-top: 0;
-                color: #23282d;
-                border-bottom: 1px solid #eee;
-                padding-bottom: 10px;
-            }
-            .form-table th {
-                width: 200px;
-            }
-            </style>
-        </div>
-        <?php
-    }
-    
-    /**
      * Render developer access status section
      */
     private function render_developer_access_status() {
         $current_user = wp_get_current_user();
-        $is_debug_enabled = $this->is_debug_access_enabled();
-        $debug_meta = get_user_meta($current_user->ID, 'metasync_debug_enabled', true);
-        
         ?>
         <div class="debug-section">
-            <h3><span class="status-indicator <?php echo $is_debug_enabled ? 'status-success' : 'status-warning'; ?>"></span>Developer Access Status</h3>
+            <h3><span class="status-indicator status-success"></span>Administrator Access</h3>
             
-            <div class="debug-item <?php echo $is_debug_enabled ? 'success' : 'warning'; ?>">
+            <div class="debug-item success">
                 <strong>Debug Access:</strong>
-                <span class="debug-value"><?php echo $is_debug_enabled ? 'Granted' : 'Not Granted'; ?></span>
+                <span class="debug-value">Granted via manage_options</span>
             </div>
             
             <div class="debug-item info">
@@ -493,45 +237,10 @@ class Metasync_Otto_Debug {
                 <span class="debug-value"><?php echo implode(', ', $current_user->roles); ?></span>
             </div>
             
-            <div class="debug-item info">
-                <strong>Email Domain:</strong>
-                <span class="debug-value"><?php echo esc_html(substr(strrchr($current_user->user_email, "@"), 1)); ?></span>
-            </div>
-            
-            <div class="debug-item info">
-                <strong>Debug Meta:</strong>
-                <span class="debug-value"><?php echo $debug_meta ? esc_html($debug_meta) : 'Not Set'; ?></span>
-            </div>
-            
-            <?php if (!$is_debug_enabled): ?>
-            <div class="debug-item warning">
-                <strong>Enable Debug Access:</strong>
-                <p><strong>Method 1 - Magic Word (Recommended):</strong></p>
-                <p>Add this parameter to any WordPress admin URL:</p>
-                <div class="debug-value">
-                    <code>?metasync_debug=abracadabra@2020</code>
-                </div>
-                <p><strong>Example:</strong> <code><?php echo esc_html(admin_url('admin.php?metasync_debug=abracadabra@2020')); ?></code></p>
-                
-                <p><strong>Method 2 - User Meta:</strong></p>
-                <p>Run this code in WordPress:</p>
-                <div class="debug-value">
-                    <code>Metasync_Otto_Debug::enable_developer_access(<?php echo $current_user->ID; ?>);</code>
-                </div>
-                
-                <p><strong>Method 3 - WordPress CLI:</strong></p>
-                <div class="debug-value">
-                    <code>wp user meta update <?php echo $current_user->ID; ?> metasync_debug_enabled true</code>
-                </div>
-            </div>
-            <?php else: ?>
             <div class="debug-item success">
                 <strong>Debug Access Active</strong>
                 <p>You have access to all <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> debug tools and diagnostics.</p>
-                <p><strong>Magic Word:</strong> <code>abracadabra@2020</code></p>
-                <p><strong>Access URL:</strong> <code><?php echo esc_html(self::get_debug_access_url()); ?></code></p>
             </div>
-            <?php endif; ?>
         </div>
         <?php
     }
@@ -1052,7 +761,7 @@ class Metasync_Otto_Debug {
     public function ajax_test_otto_api() {
         check_ajax_referer('metasync_otto_debug', 'nonce');
         
-        if (!Metasync::current_user_has_plugin_access()) {
+        if (!current_user_can('manage_options')) {
             wp_die('Unauthorized');
         }
         
@@ -1108,7 +817,7 @@ class Metasync_Otto_Debug {
     public function ajax_test_notification_endpoint() {
         check_ajax_referer('metasync_otto_debug', 'nonce');
         
-        if (!Metasync::current_user_has_plugin_access()) {
+        if (!current_user_can('manage_options')) {
             wp_die('Unauthorized');
         }
         
@@ -1151,7 +860,7 @@ class Metasync_Otto_Debug {
     public function ajax_clear_otto_cache() {
         check_ajax_referer('metasync_otto_debug', 'nonce');
         
-        if (!Metasync::current_user_has_plugin_access()) {
+        if (!current_user_can('manage_options')) {
             wp_die('Unauthorized');
         }
         
@@ -1183,7 +892,7 @@ class Metasync_Otto_Debug {
     public function ajax_simulate_crawl_notification() {
         check_ajax_referer('metasync_otto_debug', 'nonce');
         
-        if (!Metasync::current_user_has_plugin_access()) {
+        if (!current_user_can('manage_options')) {
             wp_die('Unauthorized');
         }
         
@@ -1222,7 +931,7 @@ class Metasync_Otto_Debug {
         try {
             check_ajax_referer('metasync_otto_debug', 'nonce');
 
-            if (!Metasync::current_user_has_plugin_access()) {
+            if (!current_user_can('manage_options')) {
                 wp_die('Unauthorized');
             }
 
@@ -1267,7 +976,7 @@ class Metasync_Otto_Debug {
     public function ajax_emulate_otto_changes() {
         check_ajax_referer('metasync_otto_debug', 'nonce');
         
-        if (!Metasync::current_user_has_plugin_access()) {
+        if (!current_user_can('manage_options')) {
             wp_die('Unauthorized');
         }
         
@@ -1490,7 +1199,7 @@ class Metasync_Otto_Debug {
         try {
             check_ajax_referer('metasync_otto_debug', 'nonce');
 
-            if (!Metasync::current_user_has_plugin_access()) {
+            if (!current_user_can('manage_options')) {
                 wp_send_json_error('Unauthorized');
             }
 
@@ -1514,7 +1223,7 @@ class Metasync_Otto_Debug {
         try {
             check_ajax_referer('metasync_otto_debug', 'nonce');
 
-            if (!Metasync::current_user_has_plugin_access()) {
+            if (!current_user_can('manage_options')) {
                 wp_send_json_error('Unauthorized');
             }
 

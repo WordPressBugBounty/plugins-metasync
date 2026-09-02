@@ -95,7 +95,7 @@ class Metasync_Schema_Markup
             'metasync-schema-markup',
             "Schema Markup by $plugin_name",
             [$this, 'schema_markup_meta_box_display'],
-            ['post', 'page'],
+            $this->get_schema_supported_post_types(),
             'normal',
             'default'
         );
@@ -3388,36 +3388,48 @@ class Metasync_Schema_Markup
      * Per-type suppression: only suppress the specific @type that a competing
      * plugin is known to output, not all MetaSync schema.
      *
-     * @param string $type Schema.org type name
+     * The type key is matched case-insensitively. Stored per-post type keys use
+     * mixed casing — the metabox dropdown and the MCP tool enum both offer
+     * 'article', 'product' and 'recipe' in lowercase while the remaining keys
+     * ('LocalBusiness', 'NewsArticle', 'Organization', …) keep their Schema.org
+     * casing — and the hardcoded callers in output_schema_markup() pass the
+     * Schema.org spelling. Comparing the raw value against a single casing can
+     * therefore only ever match part of the key set, so both sides are folded to
+     * lowercase here. This mirrors the strtolower() matching the external
+     * importer already uses on incoming schema types.
+     *
+     * @param string $type Schema.org type name or stored schema type key
      * @return bool True if MetaSync should output this type; false to suppress
      */
     private function should_output_schema_type($type)
     {
+        $type_key = strtolower((string) $type);
+
         // Yoast SEO — outputs these types via its schema graph
         if (class_exists('WPSEO_Schema_Context')) {
-            $yoast_types = ['Article', 'NewsArticle', 'WebSite', 'Organization', 'Person', 'WebPage', 'BreadcrumbList'];
-            if (in_array($type, $yoast_types, true)) {
+            $yoast_types = ['article', 'newsarticle', 'website', 'organization', 'person', 'webpage', 'breadcrumblist'];
+            if (in_array($type_key, $yoast_types, true)) {
                 return false;
             }
         }
 
         // Yoast Local SEO — specifically for LocalBusiness
-        if ($type === 'LocalBusiness' && class_exists('WPSEO_Local_Core')) {
+        if ($type_key === 'localbusiness' && class_exists('WPSEO_Local_Core')) {
             return false;
         }
 
         // Rank Math — outputs these types via its schema module
         if (class_exists('RankMath\\Schema\\JsonLD')) {
-            $rankmath_types = ['Article', 'NewsArticle', 'WebSite', 'Organization', 'Person', 'WebPage', 'BreadcrumbList'];
-            if (in_array($type, $rankmath_types, true)) {
+            $rankmath_types = ['article', 'newsarticle', 'website', 'organization', 'person', 'webpage', 'breadcrumblist'];
+            if (in_array($type_key, $rankmath_types, true)) {
                 return false;
             }
         }
 
         // AIOSEO — outputs these types when its schema feature is active
         if (has_filter('aioseo_schema')) {
-            $aioseo_types = ['Article', 'NewsArticle', 'WebSite', 'Organization', 'Person', 'WebPage', 'BreadcrumbList'];
-            if (in_array($type, $aioseo_types, true)) {
+            $aioseo_types = ['article', 'newsarticle', 'website', 'organization', 'person', 'webpage', 'breadcrumblist'];
+            if (in_array($type_key, $aioseo_types, true)) {
                 return false;
             }
         }
@@ -3673,25 +3685,67 @@ class Metasync_Schema_Markup
     }
 
     /**
+     * Post types the schema markup UI is registered for
+     *
+     * Single source of truth shared by the meta box registration and the AJAX
+     * handlers so the two cannot drift apart.
+     *
+     * @return array List of supported post type slugs
+     */
+    private function get_schema_supported_post_types()
+    {
+        return ['post', 'page'];
+    }
+
+    /**
+     * Resolve and authorize the post targeted by a schema markup AJAX request
+     *
+     * Terminates the request with a JSON error when the current user may not
+     * edit the requested post, when the post does not exist, or when the post
+     * type is not one the schema UI applies to. A missing post and a forbidden
+     * post return the same 403 response so the endpoint cannot be used to
+     * enumerate which post IDs exist.
+     *
+     * @param int $post_id Requested post ID
+     * @return WP_Post The authorized post object
+     */
+    private function authorize_schema_post_request($post_id)
+    {
+        $post = get_post($post_id);
+
+        if (!$post || !current_user_can('edit_post', $post_id)) {
+            wp_send_json_error(['message' => 'Permission denied'], 403);
+        } elseif (!in_array($post->post_type, $this->get_schema_supported_post_types(), true)) {
+            wp_send_json_error(['message' => 'Unsupported post type'], 400);
+        }
+
+        return $post;
+    }
+
+    /**
      * AJAX handler for getting schema fields
      */
     public function ajax_get_schema_fields()
     {
         // Verify nonce
         if (empty($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'metasync_schema_fields_nonce')) {
-            wp_die('Security check failed');
+            wp_send_json_error(['message' => 'Security check failed'], 403);
         }
 
         $schema_type = sanitize_text_field($_POST['schema_type']);
         $index = isset($_POST['index']) ? intval($_POST['index']) : 0;
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
-        
+
         // Set global post for override fields rendering
         if ($post_id) {
             global $post;
-            $post = get_post($post_id);
+            $post = $this->authorize_schema_post_request($post_id);
+        } elseif (!current_user_can('edit_posts')) {
+            // No post context: the markup rendered below carries no post data,
+            // but the editor UI is still limited to users who may author posts.
+            wp_send_json_error(['message' => 'Permission denied'], 403);
         }
-        
+
         ob_start();
         $this->render_schema_fields($schema_type, [], $index);
         $html = ob_get_clean();
@@ -3705,8 +3759,8 @@ class Metasync_Schema_Markup
     public function ajax_preview_schema()
     {
         // Verify nonce
-        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'metasync_preview_schema_nonce')) {
-            wp_send_json_error(['message' => 'Security check failed']);
+        if (!isset($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'metasync_preview_schema_nonce')) {
+            wp_send_json_error(['message' => 'Security check failed'], 403);
         }
 
         // Get post ID
@@ -3715,11 +3769,8 @@ class Metasync_Schema_Markup
             wp_send_json_error(['message' => 'Invalid post ID']);
         }
 
-        // Get post object
-        $post = get_post($post_id);
-        if (!$post) {
-            wp_send_json_error(['message' => 'Post not found']);
-        }
+        // Get post object, enforcing that the current user may edit it
+        $post = $this->authorize_schema_post_request($post_id);
 
         // Check if schema is enabled
         $schema_enabled = isset($_POST['schema_enabled']) && $_POST['schema_enabled'];

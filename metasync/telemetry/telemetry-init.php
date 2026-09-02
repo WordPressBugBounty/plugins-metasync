@@ -15,10 +15,14 @@ if (!defined('WPINC')) {
     die;
 }
 
-// Class files are autoloaded by Composer. Procedural/side-effect files stay explicit.
-require_once plugin_dir_path(__FILE__) . 'sentry-wordpress-integration.php';
-require_once plugin_dir_path(__FILE__) . 'wordpress-error-handler.php';
-require_once plugin_dir_path(__FILE__) . 'sentry-helper.php';
+require_once plugin_dir_path(__FILE__) . 'privacy.php';
+
+// Side-effectful telemetry files must not load after either opt-out path.
+if (!metasync_telemetry_is_disabled()) {
+    require_once plugin_dir_path(__FILE__) . 'sentry-wordpress-integration.php';
+    require_once plugin_dir_path(__FILE__) . 'wordpress-error-handler.php';
+    require_once plugin_dir_path(__FILE__) . 'sentry-helper.php';
+}
 
 
 /**
@@ -66,7 +70,7 @@ function init_metasync_telemetry() {
     }
     
     // Check if telemetry is explicitly disabled
-    if (defined('METASYNC_DISABLE_TELEMETRY') && constant('METASYNC_DISABLE_TELEMETRY')) {
+    if (metasync_telemetry_is_disabled()) {
         return;
     }
 
@@ -137,7 +141,7 @@ function init_metasync_telemetry() {
 }
 
 // Only initialize telemetry if not explicitly disabled
-if (!defined('METASYNC_DISABLE_TELEMETRY') || !constant('METASYNC_DISABLE_TELEMETRY')) {
+if (!metasync_telemetry_is_disabled()) {
     // Add hook - memory check is now handled inside the function for efficiency
     add_action('plugins_loaded', 'init_metasync_telemetry', 5);
 }
@@ -148,6 +152,10 @@ if (!defined('METASYNC_DISABLE_TELEMETRY') || !constant('METASYNC_DISABLE_TELEME
  * @return Metasync_Telemetry_Manager|null Null when the class cannot be loaded.
  */
 function metasync_telemetry() {
+    if (metasync_telemetry_is_disabled()) {
+        return null;
+    }
+
     if (!class_exists('Metasync_Telemetry_Manager')) {
         $manager_file = plugin_dir_path(__FILE__) . 'class-telemetry-manager.php';
         if (is_readable($manager_file)) {

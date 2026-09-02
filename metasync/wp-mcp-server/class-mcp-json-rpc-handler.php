@@ -64,7 +64,7 @@ class MCP_JSON_RPC_Handler {
      * Handle incoming JSON-RPC request
      *
      * @param string $request_body Raw request body
-     * @return array Response array
+     * @return array|null Response array, or null for a notification
      */
     public function handle_request($request_body) {
         // Parse JSON
@@ -89,18 +89,34 @@ class MCP_JSON_RPC_Handler {
 
         // Check if handler exists
         if (!isset($this->handlers[$method])) {
+            if (!array_key_exists('id', $request)) {
+                return null;
+            }
+
             return $this->error_response($id, self::ERROR_METHOD_NOT_FOUND, "Method not found: {$method}");
         }
 
         try {
             // Call handler
             $result = call_user_func($this->handlers[$method], $params);
+            if (!array_key_exists('id', $request)) {
+                return null;
+            }
+
             return $this->success_response($id, $result);
         } catch (InvalidArgumentException $e) {
+            if (!array_key_exists('id', $request)) {
+                return null;
+            }
+
             return $this->error_response($id, self::ERROR_INVALID_PARAMS, $e->getMessage());
         } catch (Exception $e) {
             // Log error
             error_log('MCP JSON-RPC Error: ' . $e->getMessage());
+            if (!array_key_exists('id', $request)) {
+                return null;
+            }
+
             return $this->error_response($id, self::ERROR_INTERNAL_ERROR, $e->getMessage());
         }
     }

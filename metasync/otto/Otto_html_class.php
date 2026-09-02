@@ -1003,6 +1003,17 @@ Class Metasync_otto_html{
         # Get the response code
         $response_code = wp_remote_retrieve_response_code($route_html);
 
+        // Requests follows redirects and returns the final body with its final
+        // status. Do not put that body on the original route when a redirect
+        // changed the URL: doing so creates a soft redirect with mismatched
+        // content and SEO metadata. The normal WordPress request can handle
+        // the redirect, and OTTO will process the destination on its own URL.
+        $effective_url = $this->get_effective_fetch_url($route_html);
+        if ($effective_url !== '' && !$this->fetch_url_matches_route($effective_url, $route, $request_body)) {
+            error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ' DEBUG: SKIPPED - internal fetch followed redirect from ' . $route . ' to ' . $effective_url);
+            return false;
+        }
+
         # Capture the internal fetch's `Set-Cookie`. On the HTTP path OTTO keeps only the
         # body below and would otherwise discard this — but it is both the form/session
         # signal for the caching decision AND (same-origin only) the session the visitor
@@ -1321,6 +1332,109 @@ Class Metasync_otto_html{
         $result_html = $this->repair_double_encoded_entities($result_html);
 
         return $result_html;
+    }
+
+    /**
+     * Read the final URL from the WordPress HTTP response when Requests has
+     * followed one or more redirects. Older HTTP transports may not expose it;
+     * in that case the empty result leaves the existing fail-open behavior.
+     *
+     * @param mixed $response wp_remote_get() response.
+     * @return string Final URL, or an empty string when unavailable.
+     */
+    private function get_effective_fetch_url($response)
+    {
+        if (!is_array($response) || empty($response['http_response']) || !is_object($response['http_response'])) {
+            return '';
+        }
+
+        $http_response = $response['http_response'];
+        if (!method_exists($http_response, 'get_response_object')) {
+            return '';
+        }
+
+        $requests_response = $http_response->get_response_object();
+        if (!is_object($requests_response) || empty($requests_response->url) || !is_string($requests_response->url)) {
+            return '';
+        }
+
+        return $requests_response->url;
+    }
+
+    /**
+     * Determine whether a followed response still represents the requested
+     * route. The internal fetch may use a rewritten host for tunnel support,
+     * so both the original and transport hosts are accepted; the path and
+     * non-OTTO query parameters must remain identical.
+     *
+     * @param string $effective_url Final URL reported by Requests.
+     * @param string $route         Original route supplied to OTTO.
+     * @param string $fetch_url     URL actually passed to wp_remote_get().
+     * @return bool True when no meaningful redirect changed the route.
+     */
+    private function fetch_url_matches_route($effective_url, $route, $fetch_url)
+    {
+        $effective = parse_url($effective_url);
+        $requested = parse_url($route);
+        $transport = parse_url($fetch_url);
+        if (!is_array($effective) || !is_array($requested)) {
+            return true;
+        }
+
+        $effective_path = isset($effective['path']) ? $effective['path'] : '/';
+        $requested_path = isset($requested['path']) ? $requested['path'] : '/';
+        if ($effective_path !== $requested_path) {
+            return false;
+        }
+
+        $allowed_hosts = [];
+        foreach ([$requested, $transport] as $parts) {
+            if (!empty($parts['host'])) {
+                $host = strtolower($parts['host']);
+                if (!empty($parts['port'])) {
+                    $host .= ':' . $parts['port'];
+                }
+                $allowed_hosts[] = $host;
+            }
+        }
+        if (!empty($effective['host'])) {
+            $effective_host = strtolower($effective['host']);
+            if (!empty($effective['port'])) {
+                $effective_host .= ':' . $effective['port'];
+            }
+            if (!empty($allowed_hosts) && !in_array($effective_host, $allowed_hosts, true)) {
+                return false;
+            }
+        }
+
+        return $this->without_otto_fetch_params($effective['query'] ?? '')
+            === $this->without_otto_fetch_params($requested['query'] ?? '');
+    }
+
+    /**
+     * Remove parameters used only to mark OTTO's internal request.
+     *
+     * @param string $query Query string without the leading '?'.
+     * @return string Query with OTTO markers removed.
+     */
+    private function without_otto_fetch_params($query)
+    {
+        $query = (string) $query;
+        if ($query === '') {
+            return '';
+        }
+
+        $parts = [];
+        foreach (explode('&', $query) as $part) {
+            $name = strstr($part, '=', true);
+            $name = $name === false ? $part : $name;
+            if (in_array($name, ['is_otto_page_fetch', 'otto_block_title', 'otto_block_desc'], true)) {
+                continue;
+            }
+            $parts[] = $part;
+        }
+
+        return implode('&', $parts);
     }
 
     /**

@@ -364,7 +364,7 @@ class Metasync_Post_Meta_Settings
 		// match) using the same DB layer as ?page=...-redirections&action=add. This
 		// keeps a single redirect code path — the existing handle_template_redirect()
 		// serves it — instead of a duplicate per-post frontend handler.
-		$this->sync_post_redirect_rule($post_id, is_array($post_redirection_meta) ? $post_redirection_meta : []);
+		self::sync_post_redirect_rule($post_id, is_array($post_redirection_meta) ? $post_redirection_meta : []);
 	}
 
 	/**
@@ -374,10 +374,14 @@ class Metasync_Post_Meta_Settings
 	 * create is remembered in post meta so repeated saves update — never duplicate — it,
 	 * and disabling the meta box removes it.
 	 *
+	 * Static: besides the metabox save hook, the REST handlers call this after
+	 * writing metasync_post_redirection_meta, because platform/Gutenberg saves
+	 * never pass through the classic nonce-gated save path.
+	 *
 	 * @param int   $post_id The post being saved.
 	 * @param array $meta    Sanitized meta box values (enable/type/url).
 	 */
-	private function sync_post_redirect_rule($post_id, $meta)
+	public static function sync_post_redirect_rule($post_id, $meta)
 	{
 		// Never act on autosaves or revisions — their permalink isn't the public URL.
 		if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id) || !class_exists('Metasync_Redirection_Database')) {
@@ -387,7 +391,10 @@ class Metasync_Post_Meta_Settings
 		$db = new Metasync_Redirection_Database();
 		$existing_row_id = (int) get_post_meta($post_id, '_metasync_post_redirect_row_id', true);
 
-		$enabled = isset($meta['enable']) && $meta['enable'] === 'true';
+		// The metabox posts the literal string 'true', but REST/platform
+		// writes pass through sanitize_text_field() and may arrive as '1',
+		// 'on', or boolean true. Normalize so every spelling behaves alike.
+		$enabled = isset($meta['enable']) && in_array($meta['enable'], ['true', '1', 1, true, 'on', 'yes'], true);
 		$type    = isset($meta['type']) ? (int) $meta['type'] : 301;
 		$dest    = isset($meta['url']) ? trim((string) $meta['url']) : '';
 		$is_gone = in_array($type, [410, 451], true);
@@ -409,6 +416,23 @@ class Metasync_Post_Meta_Settings
 		}
 		$parsed      = wp_parse_url($permalink);
 		$source_path = isset($parsed['path']) ? $parsed['path'] : '/';
+
+		// Same loop guard as the admin form — creating or updating this post's
+		// rule must not wire its permalink into a cycle (e.g. another rule
+		// already redirects the chosen destination back here). On a loop we
+		// keep the previously stored rule and skip the write. The guard above
+		// already returned when a non-410/451 type had an empty destination,
+		// so $dest is known non-empty here.
+		if (!$is_gone) {
+			if (!class_exists('Metasync_Redirection')) {
+				require_once dirname(__FILE__, 2) . '/redirections/class-metasync-redirection.php';
+			}
+			$db_ref = $db;
+			$redirection_helper = new Metasync_Redirection($db_ref);
+			if ($redirection_helper->validate_no_loop($source_path, $dest) !== null) {
+				return;
+			}
+		}
 
 		$data = [
 			'sources_from'    => serialize([$source_path => 'exact']),

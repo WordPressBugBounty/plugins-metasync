@@ -164,6 +164,17 @@ class Metasync_Error_Monitor
         // Initialize redirection database
         require_once dirname(__FILE__, 2) . '/redirections/class-metasync-redirection-database.php';
         $db_redirection = new Metasync_Redirection_Database();
+
+        // Loop guard: a 404 whose suggested target is itself redirected back
+        // to the 404ing URI would ping-pong forever. Mirrors the admin form.
+        if (!class_exists('Metasync_Redirection')) {
+            require_once dirname(__FILE__, 2) . '/redirections/class-metasync-redirection.php';
+        }
+        $db_ref = $db_redirection;
+        $redirection_helper = new Metasync_Redirection($db_ref);
+        if ($redirection_helper->validate_no_loop($uri, $redirect_to) !== null) {
+            return false;
+        }
         
         $data = [
             'sources_from' => serialize([$uri => 'exact']),

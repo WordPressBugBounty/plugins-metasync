@@ -60,7 +60,7 @@ class MetaSync_DBMigration
 				http_code SMALLINT(4) unsigned NOT NULL DEFAULT 301,
 				hits_count BIGINT(20) unsigned NOT NULL DEFAULT '0',
 				status VARCHAR(25) NOT NULL DEFAULT 'active',
-				pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex') NOT NULL DEFAULT 'exact',
+				pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex', 'wildcard') NOT NULL DEFAULT 'exact',
 				regex_pattern TEXT NULL,
 				description TEXT NULL,
 				created_at DATETIME NOT NULL DEFAULT '0000-00-00 00:00:00',
@@ -79,7 +79,7 @@ class MetaSync_DBMigration
 			$columns = $wpdb->get_col("DESCRIBE {$tableNameRedirection}");
 
 			if (!in_array('pattern_type', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD COLUMN pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex') NOT NULL DEFAULT 'exact' AFTER status");
+				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD COLUMN pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex', 'wildcard') NOT NULL DEFAULT 'exact' AFTER status");
 			}
 
 			if (!in_array('regex_pattern', $columns)) {
@@ -113,12 +113,29 @@ class MetaSync_DBMigration
 
 		// One-time migration: auto-enable external redirects if the site already has any
 		if (!get_option('metasync_external_redirects_migrated')) {
-			$home_prefix = $wpdb->esc_like(trailingslashit(home_url()));
+			// Compare against every home-URL variant (http/https, www/non-www),
+			// not just the exact home_url() string — otherwise same-site
+			// destinations such as 'https://example.com/about' on a
+			// www-prefixed site count as external and silently flip the setting.
+			$home_host = wp_parse_url(home_url(), PHP_URL_HOST);
+			$home_host = is_string($home_host) ? strtolower(preg_replace('/^www\./i', '', $home_host)) : '';
+			$params = ['http%'];
+			if ($home_host !== '') {
+				$not_like = '';
+				foreach (['http://', 'https://'] as $scheme) {
+					foreach ([$home_host, 'www.' . $home_host] as $host) {
+						$not_like .= ' AND url_redirect_to NOT LIKE %s';
+						$params[] = $wpdb->esc_like($scheme . $host) . '%';
+					}
+				}
+			} else {
+				$not_like = ' AND url_redirect_to NOT LIKE %s';
+				$params[] = $wpdb->esc_like(trailingslashit(home_url())) . '%';
+			}
 			$external_count = $wpdb->get_var(
 				$wpdb->prepare(
-					"SELECT COUNT(*) FROM {$tableNameRedirection} WHERE url_redirect_to LIKE %s AND url_redirect_to NOT LIKE %s",
-					'http%',
-					$home_prefix . '%'
+					"SELECT COUNT(*) FROM {$tableNameRedirection} WHERE url_redirect_to LIKE %s{$not_like}",
+					...$params
 				)
 			);
 			if ($external_count > 0) {
@@ -359,7 +376,7 @@ class MetaSync_DBMigration
 			
 			// Add pattern_type column if it doesn't exist
 			if (!in_array('pattern_type', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD COLUMN pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex') NOT NULL DEFAULT 'exact' AFTER status");
+				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD COLUMN pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex', 'wildcard') NOT NULL DEFAULT 'exact' AFTER status");
 			}
 			
 			// Add regex_pattern column if it doesn't exist

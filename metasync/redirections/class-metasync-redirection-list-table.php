@@ -615,11 +615,13 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 	 */
 	public function current_action()
 	{
-		// A "Filter"/query submit is not a bulk action. WP core's own
+		// A "Filter"/"Search" submit is not a bulk action. WP core's own
 		// current_action() short-circuits on filter_action for exactly this
 		// reason, and dropping that check makes ticking rows, choosing a bulk
-		// action and then clicking Filter silently run the action.
-		if (!empty($_REQUEST['filter_action'])) {
+		// action and then clicking Filter silently run the action. The Search
+		// submit posts no filter_action, so it needs its own named marker to
+		// stop the same silent delete when it shares a form with the dropdown.
+		if (!empty($_REQUEST['filter_action']) || !empty($_REQUEST['search_submit'])) {
 			return false;
 		}
 

@@ -12,6 +12,8 @@
 if (!defined('ABSPATH')) {
     exit; // Exit if accessed directly
 }
+
+require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
 ?>
 
 <?php $this->render_layout_open('XML Sitemap', 'xml_sitemap', 'Manage your XML sitemap settings and status.'); ?>
@@ -200,14 +202,7 @@ if (!defined('ABSPATH')) {
                         <th scope="row"><?php esc_html_e('Post Types', 'metasync'); ?></th>
                         <td>
                             <?php
-                            $all_public_pts = get_post_types(['public' => true], 'objects');
-                            $general_filtered_pts = [];
-                            $general_excluded = ['attachment', 'revision', 'nav_menu_item', 'elementor_library', 'ct_template', 'oxy_user_library', 'brizy-template', 'fusion_template', 'fusion_tb_section', 'ae_global_templates', 'custom_css', 'customize_changeset', 'oembed_cache', 'user_request', 'wp_block', 'wp_template', 'wp_template_part', 'wp_global_styles', 'wp_navigation', 'acf-field-group', 'acf-field', 'fl-builder-template', 'fl-theme-layout'];
-                            foreach ($all_public_pts as $pt) {
-                                if (!in_array($pt->name, $general_excluded, true)) {
-                                    $general_filtered_pts[] = $pt;
-                                }
-                            }
+                            $general_filtered_pts = metasync_get_sitemap_post_type_objects();
                             $sitemap_configured = !empty($sitemap_settings['_configured']);
                             $selected_sitemap_pts = !empty($sitemap_settings['post_types']) ? (array) $sitemap_settings['post_types'] : [];
                             $gen_pts_scrollable = count($general_filtered_pts) > 10;
@@ -288,13 +283,14 @@ if (!defined('ABSPATH')) {
                         <td>
                             <?php
                             $all_taxonomies = get_taxonomies(['public' => true], 'objects');
+                            $filtered_taxonomies = metasync_get_sitemap_taxonomy_picker_taxonomies($all_taxonomies);
                             $selected_sitemap_taxes = !empty($sitemap_settings['taxonomies']) ? (array) $sitemap_settings['taxonomies'] : [];
-                            $gen_tax_scrollable = count($all_taxonomies) > 10;
+                            $gen_tax_scrollable = count($filtered_taxonomies) > 10;
                             if ($gen_tax_scrollable) : ?>
                                 <input type="text" class="metasync-checkbox-search" placeholder="<?php esc_attr_e('Filter taxonomies...', 'metasync'); ?>">
                             <?php endif; ?>
                             <div class="metasync-checkbox-list <?php echo $gen_tax_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
-                                <?php foreach ($all_taxonomies as $tax) : ?>
+                                <?php foreach ($filtered_taxonomies as $tax) : ?>
                                     <label>
                                         <input type="checkbox" name="sitemap_taxonomies[]" value="<?php echo esc_attr($tax->name); ?>"
                                             <?php checked(!$sitemap_configured || in_array($tax->name, $selected_sitemap_taxes, true)); ?> />
@@ -691,11 +687,7 @@ if (!defined('ABSPATH')) {
                         <th scope="row"><?php esc_html_e('Post Types', 'metasync'); ?><?php Metasync::render_tooltip_icon('news_sitemap_post_types', 'Choose which content types are included in your Google News sitemap. Only select types that qualify as news content — including everything can hurt News eligibility.'); ?></th>
                         <td>
                             <?php
-                            $public_post_types = get_post_types(['public' => true], 'objects');
-                            $filtered_pts = [];
-                            foreach ($public_post_types as $pt) {
-                                if ($pt->name !== 'attachment') $filtered_pts[] = $pt;
-                            }
+                            $filtered_pts = metasync_get_sitemap_post_type_objects();
                             $selected_post_types = isset($news_settings['post_types']) ? (array) $news_settings['post_types'] : ['post'];
                             $pts_scrollable = count($filtered_pts) > 10;
                             if ($pts_scrollable) : ?>
@@ -954,11 +946,7 @@ if (!defined('ABSPATH')) {
                         <th scope="row"><?php esc_html_e('Post Types', 'metasync'); ?><?php Metasync::render_tooltip_icon('video_sitemap_post_types', 'Choose which content types are scanned for embedded videos to include in your video sitemap.'); ?></th>
                         <td>
                             <?php
-                            $public_post_types = get_post_types(['public' => true], 'objects');
-                            $vid_filtered_pts = [];
-                            foreach ($public_post_types as $pt) {
-                                if ($pt->name !== 'attachment') $vid_filtered_pts[] = $pt;
-                            }
+                            $vid_filtered_pts = metasync_get_sitemap_post_type_objects();
                             $selected_video_pts = isset($video_settings['post_types']) ? (array) $video_settings['post_types'] : ['post', 'page'];
                             $vid_pts_scrollable = count($vid_filtered_pts) > 10;
                             if ($vid_pts_scrollable) : ?>

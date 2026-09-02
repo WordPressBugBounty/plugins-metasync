@@ -247,15 +247,15 @@ function metasync_init_mcp_server() {
 	$safe_register('MCP_Tool_System_Diagnostics');
 	$safe_register('MCP_Tool_List_All_Plugins');
 	$safe_register('MCP_Tool_Get_Cron_Jobs');
-	$safe_register('MCP_Tool_Get_WP_Option');
+	// $safe_register('MCP_Tool_Get_WP_Option'); // DISABLED - may expose protected option values.
 
 	// SEO Inventory (1 tool)
 	$safe_register('MCP_Tool_List_Posts_SEO_Inventory');
 
-	// Read-Only Database Access (3 tools)
+	// Read-Only Database Access (2 tools - direct SQL queries disabled for safety)
 	$safe_register('MCP_Tool_DB_Tables');
 	$safe_register('MCP_Tool_DB_Describe');
-	$safe_register('MCP_Tool_DB_Select');
+	// $safe_register('MCP_Tool_DB_Select'); // DISABLED - safety
 
 	// Breadcrumb Tools (1 tool)
 	$safe_register('MCP_Tool_Get_Breadcrumb_Path');

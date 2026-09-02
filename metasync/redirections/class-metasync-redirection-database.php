@@ -44,7 +44,7 @@ class Metasync_Redirection_Database
 		$columns = $wpdb->get_col("DESCRIBE {$table_name}");
 		
 		$required_columns = [
-			'pattern_type' => "ALTER TABLE {$table_name} ADD COLUMN pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex') NOT NULL DEFAULT 'exact' AFTER status",
+			'pattern_type' => "ALTER TABLE {$table_name} ADD COLUMN pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex', 'wildcard') NOT NULL DEFAULT 'exact' AFTER status",
 			'regex_pattern' => "ALTER TABLE {$table_name} ADD COLUMN regex_pattern TEXT NULL AFTER pattern_type",
 			'description' => "ALTER TABLE {$table_name} ADD COLUMN description TEXT NULL AFTER regex_pattern",
 			'created_at' => "ALTER TABLE {$table_name} ADD COLUMN created_at DATETIME NOT NULL DEFAULT '0000-00-00 00:00:00' AFTER description",
@@ -57,7 +57,17 @@ class Metasync_Redirection_Database
 				$wpdb->query($sql);
 			}
 		}
-		
+
+		// Widen pattern_type for installs whose column predates wildcard
+		// matching — column-exists checks never re-ALTER, so the enum would
+		// otherwise keep silently rejecting wildcard rows.
+		if (in_array('pattern_type', $columns)) {
+			$column_info = $wpdb->get_row($wpdb->prepare("SHOW COLUMNS FROM {$table_name} LIKE %s", 'pattern_type'));
+			if ($column_info && strpos((string) $column_info->Type, 'wildcard') === false) {
+				$wpdb->query("ALTER TABLE {$table_name} MODIFY COLUMN pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex', 'wildcard') NOT NULL DEFAULT 'exact'");
+			}
+		}
+
 		// Check and add indexes
 		$indexes = $wpdb->get_results("SHOW INDEX FROM {$table_name}");
 		$index_names = array_column($indexes, 'Key_name');
@@ -109,7 +119,11 @@ class Metasync_Redirection_Database
 			return $cached_redirections;
 		}
 
-		$redirections = $wpdb->get_results($wpdb->prepare("SELECT * FROM `$tableName` WHERE status = %s ORDER BY created_at DESC", 'active'));
+		// id tiebreaker: created_at has one-second resolution, so rows created in
+		// the same second (bulk import, migrations) would come back in arbitrary
+		// order — and the engine's first-match-wins scan would then be
+		// nondeterministic between requests.
+		$redirections = $wpdb->get_results($wpdb->prepare("SELECT * FROM `$tableName` WHERE status = %s ORDER BY created_at DESC, id DESC", 'active'));
 
 		// Cache for 1 hour
 		wp_cache_set($cache_key, $redirections, 'metasync', HOUR_IN_SECONDS);
@@ -184,13 +198,17 @@ class Metasync_Redirection_Database
 		
 		$tableName = $this->get_table_name();
 		$row = $wpdb->get_row($wpdb->prepare("SELECT * FROM `$tableName` WHERE `id` = %s ", $id));
-		if (!$row) return;
+		if (!$row) return false;
 		
 		$args['updated_at'] = current_time('mysql');
-		$wpdb->update($tableName, $args, ['id' => $id]);
+		$result = $wpdb->update($tableName, $args, ['id' => $id]);
 		
 		// Clear cache after updating
 		$this->clear_cache();
+
+		// Row count on success (0 = no-op write), false on query failure —
+		// callers checking `=== false` could never fire against void.
+		return $result;
 	}
 
 	/**
@@ -258,11 +276,17 @@ class Metasync_Redirection_Database
 	public function update_counter($row)
 	{
 		global $wpdb;
-		$update_data = [
-			'last_accessed_at'  => current_time('mysql'),
-			'hits_count' => absint($row->hits_count) + 1,
-		];
-		$wpdb->update($this->get_table_name(), $update_data, ['id' => $row->id]);
+		// Atomic increment. The $row object comes from getAllActiveRecords(),
+		// which can be an hour-stale cache hit, and concurrent requests that
+		// both read the same hits_count would lose every hit but one. Bump in
+		// SQL so the stored counter is correct regardless of what $row saw.
+		$wpdb->query(
+			$wpdb->prepare(
+				"UPDATE `" . $this->get_table_name() . "` SET `hits_count` = `hits_count` + 1, `last_accessed_at` = %s WHERE `id` = %d",
+				current_time('mysql'),
+				absint($row->id)
+			)
+		);
 	}
 
 	/**

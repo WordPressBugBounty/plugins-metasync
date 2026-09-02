@@ -959,6 +959,7 @@ class Metasync_Compatibility_Checker
             'bricks' => [
                 'name'         => 'Bricks Builder',
                 'plugin_files' => [ 'bricks/bricks.php' ],
+                'theme_name'   => 'Bricks',
                 'supported'    => true,
                 'version'      => '1.11',
             ],

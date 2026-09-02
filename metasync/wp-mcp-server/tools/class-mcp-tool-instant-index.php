@@ -365,7 +365,7 @@ class MCP_Tool_Update_Instant_Index_Settings extends MCP_Tool_Base {
             throw new Exception('Google Index Direct module is not available');
         }
 
-        $options = get_option('metasync_options_instant_indexing', ['json_key' => '', 'post_types' => []]);
+        $options = get_option('metasync_options_instant_indexing', ['post_types' => []]);
 
         // Update JSON key if provided
         if (isset($params['json_key'])) {
@@ -383,8 +383,13 @@ class MCP_Tool_Update_Instant_Index_Settings extends MCP_Tool_Base {
                 throw new Exception('Failed to save service account configuration');
             }
 
-            // Also store raw JSON in legacy option for settings page display
-            $options['json_key'] = $json_key;
+            // Credentials live only in the canonical option, which is what the
+            // admin "clear configuration" action removes. Purge any legacy
+            // json_key left behind by earlier writes so the two stores cannot
+            // drift apart (the legacy copy used to survive a clear).
+            if (is_array($options) && array_key_exists('json_key', $options)) {
+                unset($options['json_key']);
+            }
         }
 
         // Update post types if provided
@@ -405,7 +410,7 @@ class MCP_Tool_Update_Instant_Index_Settings extends MCP_Tool_Base {
             $options['post_types'] = $post_types;
         }
 
-        // Save legacy options (post_types + json_key for display)
+        // The instant-indexing option now only carries the post-type selection.
         update_option('metasync_options_instant_indexing', $options);
 
         $service_info = google_index_direct()->get_service_account_info();

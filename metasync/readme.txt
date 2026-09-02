@@ -4,7 +4,7 @@ Tags: seo, ai seo, otto, otto seo, schema
 Requires at least: 6.3
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 2.6.23
+Stable tag: 2.6.24
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -96,6 +96,41 @@ Yes, along with a lot more - the plugin also includes media optimization, code s
 2.6.22 fixes OTTO breaking Divi-built pages and stops a partly finished update from taking your site's front end down. Update as soon as you can.
 
 == Changelog ==
+= 2.6.24 =
+* Improvement: OTTO crawl notifications are now held in a durable queue with bounded retries and backoff, so large webhook batches are no longer silently truncated and each URL's outcome is recorded
+* Improvement: The sitemap settings screen no longer offers page-builder and internal post types in its post-type pickers
+* Improvement: The sitemap taxonomy picker now lists only genuine content taxonomies, hiding navigation menus, link categories and similar internal ones
+* Improvement: The promotional sidebar is now hidden once the site is connected, giving admin pages their full width back, and Quick Links point to working pages — the dead SEO Academy link is gone, Documentation and Contact Support were added, and branded links are hidden on whitelabeled installs
+* Improvement: The Local Business Type selector now shows a neutral "Select Type" placeholder instead of appearing pre-selected when no type has been chosen
+* Improvement: The Compatibility page now detects Bricks Builder when it is installed as a theme rather than a plugin
+* Security: MCP JWT tokens are now bound to the API key that issued them, so rotating the key or disconnecting the site revokes existing tokens immediately instead of leaving them valid for 24 hours
+* Security: Failed MCP API-key authentication attempts are now counted, throttled and locked out instead of being accepted at unlimited speed
+* Security: The schema markup editor's background requests now require edit permission on the target post, so lower-privileged users can no longer read other authors' drafts, private posts or password-protected content
+* Security: Removed the shared whitelabel/debug credential, required administrator rights for OTTO debug tools, gated Google Index credential and destructive debug actions, disabled raw database and option reads over MCP, and reduced telemetry to path-only context that honors opt-out
+* Security: The HTML editor and whitelabel recovery now require the matching capability, Developer Tools passwords are hashed and migrated off plaintext, and both MCP bridges run through one authenticated, rate-limited handler
+* Security: Redirect destinations are now validated before use, closing an open-redirect risk in the redirections module
+* Fix: A /sitemapN.xml URL with no sitemap behind it now returns 404 instead of serving the home page under a 200, which was creating unlimited soft-404 duplicate URLs for crawlers
+* Fix: Sitemap generation now reports a real failure when the sitemap could not be stored, instead of showing success while the site serves no sitemap
+* Fix: Opening an OTTO preview no longer signs administrators out of wp-admin or breaks the admin session check
+* Fix: MetaSync no longer emits a second Article JSON-LD block on posts that already have one from Yoast, Rank Math or AIOSEO
+* Fix: Slashes, backslashes and quotes are preserved in Local Business and Article schema values, so a name like 24/7 "Test" Plumbing is no longer output as 247 Test Plumbing
+* Fix: Search engine crawlers whose user agent omits the brand name (Yahoo's Slurp, Applebot, Sogou, Exabot and others) are now recognized as search engines and served optimized pages instead of being throttled
+* Fix: OTTO's category and tag SEO values are no longer mirrored into Yoast / Rank Math / AIOSEO storage when the matching OTTO Persistence setting is turned off
+* Fix: OTTO's structured data is no longer copied into Rank Math or Yoast storage when the structured data Persistence setting is turned off
+* Fix: Rank Math's robots tag is now suppressed when MetaSync holds a robots value for the post, so exactly one robots meta tag ships
+* Fix: Removing MetaSync's breadcrumb from a third-party schema graph no longer breaks Rank Math's own schema logic
+* Fix: Posts synced from Content Genius keep the page template the site actually uses, instead of being forced onto the theme's plain template and losing their layout
+* Fix: Redirects now preserve the incoming query string, including through redirect chains, and OTTO no longer serves mismatched HTML and SEO metadata when its internal fetch is redirected elsewhere
+* Fix: The WordPress admin sidebar no longer drifts down the screen while scrolling on MetaSync admin pages
+* Fix: The connect status box no longer squeezes the "Website Not Registered" message into a one-word-per-line column with a detached warning icon
+* Fix: The "Page Builder Detected" notice now appears only on the plugin settings screen where the setting lives, instead of repeating on every plugin page
+* Fix: Previewing a draft no longer serves the home page instead of the draft on sites using SiteGround Optimizer — OTTO now skips WordPress core preview requests
+* Fix: The Local Business logo is no longer lost when the settings are saved — the selected image survives the save instead of being rewritten into a broken link, so both the admin preview and the logo published in structured data stay correct
+* Fix: The SearchAtlas Dashboard admin page no longer fatals after an in-place upgrade when one plugin file is still being served from a stale cache
+* Fix: Redirections sweep — 24 verified issues fixed, including importers failing on serialized data, the search box triggering a bulk delete, a hit-counter race, non-deterministic rule ordering, duplicate rules on re-import, missing redirect-loop guards and silently dropped save failures
+* Fix: Media optimization sweep — 18 verified issues fixed, including data loss in the replace strategy (sub-size originals deleted while only the full-size URL was rewritten), an author-role privilege escalation, srcset entries pointing at missing files, and a race between cron and browser batch ticks
+* Fix: Robots / sitemap / indexing sweep — 25 verified issues fixed, including core's "discourage search engines" setting being overwritten, the virtual robots.txt never being served on the frontend, IndexNow rejecting platform keys, existing Sitemap: lines being destroyed on update, and uninstall leaving everything behind
+
 = 2.6.23 =
 * Improvement: The plugin now automatically detects when a host is blocking GET/POST traffic to Search Atlas, both on activation and on a weekly recheck, instead of requiring the site owner to run the check manually
 * Improvement: Pages that don't rely on sessions can now be cached by the host again on SiteGround/Oxygen sites using OTTO's HTTP render path, restoring page-load speed

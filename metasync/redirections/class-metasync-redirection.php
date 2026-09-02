@@ -18,6 +18,10 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+if (!class_exists('Metasync_Redirection_Validator')) {
+    require_once dirname(__FILE__) . '/class-metasync-redirection-validator.php';
+}
+
 class Metasync_Redirection
 {
 
@@ -68,6 +72,13 @@ class Metasync_Redirection
             $is_pattern = false;
 
             foreach ($source_urls as $source_key => $source_value) {
+                // Legacy list-format rows store the URL as the VALUE under a
+                // numeric key ('0' => '/old'); modern rows key by URL with the
+                // pattern type as the value. Remap so the legacy source lands
+                // in the exact index instead of '/0'.
+                if ((is_int($source_key) || ctype_digit((string) $source_key)) && is_string($source_value) && $source_value !== '') {
+                    $source_key = $source_value;
+                }
                 $pattern_type = in_array($source_value, array('exact', 'contain', 'start', 'end', 'wildcard', 'regex'))
                     ? $source_value
                     : ($global_pattern_type ? $global_pattern_type : 'exact');
@@ -155,6 +166,13 @@ class Metasync_Redirection
             return;
         }
 
+        # CSV is a file upload, not a plugin, so it takes its own path with
+        # upload validation before the importer sees the temp file.
+        if ($plugin === 'csv') {
+            $this->handle_csv_import_ajax();
+            return;
+        }
+
         try {
             # Perform import
             $result = $this->importer->import_from_plugin($plugin);
@@ -173,6 +191,42 @@ class Metasync_Redirection
         }
     }
 
+    /**
+     * Handle the AJAX CSV import: validate the upload, then hand the temp
+     * file to the importer. The readme has advertised CSV import since 2.5.x;
+     * this is the first implementation of it.
+     */
+    private function handle_csv_import_ajax()
+    {
+        $file = isset($_FILES['csv_file']) && is_array($_FILES['csv_file']) ? $_FILES['csv_file'] : [];
+
+        // wp_send_json_error() ends the request, so no return is needed (or
+        // reachable) after any of these guards.
+        if (empty($file['tmp_name']) || (isset($file['error']) && (int) $file['error'] !== UPLOAD_ERR_OK)) {
+            wp_send_json_error(['message' => 'Upload failed. Please choose a .csv file and try again.']);
+        }
+
+        if (!is_uploaded_file($file['tmp_name'])) {
+            wp_send_json_error(['message' => 'Invalid upload.']);
+        }
+
+        if (!preg_match('/\.csv$/i', (string) $file['name'])) {
+            wp_send_json_error(['message' => 'Only .csv files are supported.']);
+        }
+
+        if ((int) $file['size'] > 2 * MB_IN_BYTES) {
+            wp_send_json_error(['message' => 'The CSV file is too large. Maximum size is 2 MB.']);
+        }
+
+        $result = $this->importer->import_csv_file($file['tmp_name']);
+
+        if (!empty($result['success'])) {
+            wp_send_json_success($result);
+        } else {
+            wp_send_json_error($result);
+        }
+    }
+
     public function get_current_page_url()
     {
         $server_data =  metasync_sanitize_input_array($_SERVER);
@@ -181,7 +235,7 @@ class Metasync_Redirection
         return sanitize_url($link);
     }
 
-    public function source_url_redirection(object $row, string $uri)
+    public function source_url_redirection(object $row, string $uri, string $incoming_query = '')
     {
         // Optimize: unserialize only once
         $sources_from = unserialize($row->sources_from, ['allowed_classes' => false]); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
@@ -195,6 +249,12 @@ class Metasync_Redirection
 
             // Ensure source_key is always a string (handles numeric array indexes)
             $source_key = (string) $source_key;
+
+            // Legacy list-format rows store the URL as the VALUE under a
+            // numeric key ('0' => '/old'); remap so matching uses the URL.
+            if (ctype_digit($source_key) && is_string($source_value) && $source_value !== '') {
+                $source_key = $source_value;
+            }
 
             // Determine pattern type: use source value if it's a valid pattern, otherwise use global pattern_type
             $pattern_type = in_array($source_value, ['exact', 'contain', 'start', 'end', 'wildcard', 'regex'])
@@ -338,6 +398,7 @@ class Metasync_Redirection
                 if ($row->url_redirect_to) {
                     // Replace wildcards or $1 placeholders in destination URL
                     $destination = $this->process_destination_url($row->url_redirect_to, $captured_path);
+                    $destination = $this->append_query_string($destination, $incoming_query);
                     $is_exact = isset($row->pattern_type) && $row->pattern_type === 'exact';
                     if (get_option('metasync_allow_external_redirects', 0) && $is_exact) {
                         $destination = esc_url_raw($destination);
@@ -346,7 +407,16 @@ class Metasync_Redirection
                         }
                         wp_redirect($destination, $row->http_code);
                     } else {
-                        wp_redirect(wp_validate_redirect($destination, home_url()), $row->http_code);
+                        // Stored destinations can carry backslashes (imports,
+                        // older rows). Browsers read them as path separators, so
+                        // '/\evil.com' would slip past wp_validate_redirect and
+                        // still navigate off-site. Normalize first, and bounce
+                        // anything still syntactically evasive to the home page.
+                        $checked = Metasync_Redirection_Validator::normalize_destination($destination);
+                        if (!Metasync_Redirection_Validator::is_safe_destination_syntax($checked)) {
+                            $checked = home_url();
+                        }
+                        wp_redirect(wp_validate_redirect($checked, home_url()), $row->http_code);
                     }
                     die;
                 }
@@ -376,13 +446,15 @@ class Metasync_Redirection
         $scheme = isset($parsed['scheme']) ? $parsed['scheme'] : 'https';
         $host = isset($parsed['host']) ? $parsed['host'] : '';
         $base = $scheme . '://' . $host;
+        // Track the query separately from the path: sources match on the path
+        // only, and each destination may carry its own query. Folding the
+        // query into $uri (as this used to) made '/old?x=1' miss an '/old'
+        // rule and swallowed destination queries along the chain.
         $uri = isset($parsed['path']) ? $parsed['path'] : '/';
-        if (!empty($parsed['query'])) {
-            $uri .= '?' . $parsed['query'];
-        }
+        $query = isset($parsed['query']) ? $parsed['query'] : '';
         $seen = array();
         for ($i = 0; $i < $max_hops; $i++) {
-            $uri_key = $uri;
+            $uri_key = $query === '' ? $uri : $uri . '?' . $query;
             if (isset($seen[$uri_key])) {
                 break; // cycle detected
             }
@@ -391,6 +463,7 @@ class Metasync_Redirection
             if ($dest === null) {
                 break;
             }
+            $dest = $this->append_query_string($dest, $query);
             if (strpos($dest, 'http') === 0) {
                 $url = $dest;
                 $parsed = parse_url($url);
@@ -398,12 +471,12 @@ class Metasync_Redirection
                 $host = isset($parsed['host']) ? $parsed['host'] : '';
                 $base = $scheme . '://' . $host;
                 $uri = isset($parsed['path']) ? $parsed['path'] : '/';
-                if (!empty($parsed['query'])) {
-                    $uri .= '?' . $parsed['query'];
-                }
+                $query = isset($parsed['query']) ? $parsed['query'] : '';
             } else {
-                $uri = (isset($dest[0]) && $dest[0] === '/') ? $dest : '/' . $dest;
-                $url = $base . $uri;
+                $dest_parts = explode('?', $dest, 2);
+                $uri = (isset($dest_parts[0][0]) && $dest_parts[0][0] === '/') ? $dest_parts[0] : '/' . $dest_parts[0];
+                $query = isset($dest_parts[1]) ? $dest_parts[1] : '';
+                $url = $base . $uri . ($query === '' ? '' : '?' . $query);
             }
         }
         return $url;
@@ -419,6 +492,13 @@ class Metasync_Redirection
      */
     private function get_redirect_destination_for_uri($uri)
     {
+        // Defensive: callers may pass a path?query form; sources match on the
+        // path only, exactly like the live template-redirect path.
+        $qpos = strpos((string) $uri, '?');
+        if ($qpos !== false) {
+            $uri = substr($uri, 0, $qpos);
+        }
+
         $redirections = $this->db_redirection->getAllActiveRecords();
         if (empty($redirections)) {
             return null;
@@ -645,6 +725,12 @@ class Metasync_Redirection
             $global_pattern_type = isset($row->pattern_type) ? $row->pattern_type : null;
 
             foreach ($source_urls as $source_key => $source_value) {
+                // Legacy list-format rows store the URL as the VALUE under a
+                // numeric key ('0' => '/old'); remap so health checks match
+                // the URL rather than a bogus '/0'.
+                if ((is_int($source_key) || ctype_digit((string) $source_key)) && is_string($source_value) && $source_value !== '') {
+                    $source_key = $source_value;
+                }
                 $pattern_type = in_array($source_value, array('exact', 'contain', 'start', 'end', 'wildcard', 'regex'))
                     ? $source_value
                     : ($global_pattern_type ? $global_pattern_type : 'exact');
@@ -759,6 +845,12 @@ class Metasync_Redirection
                         $post_id = url_to_postid(site_url($current . '/'));
                     }
                     $is_dead = ($post_id === 0);
+                    // url_to_postid() knows only posts and pages — a taxonomy
+                    // archive (category/tag/custom term URL) returns 0 and a
+                    // healthy destination was flagged dead. Resolve those too.
+                    if ($is_dead && $this->uri_resolves_to_term_archive($current)) {
+                        $is_dead = false;
+                    }
                 }
                 $status = $is_dead ? 'dead_end' : 'ok';
             }
@@ -775,6 +867,66 @@ class Metasync_Redirection
         }
 
         return $results;
+    }
+
+    /**
+     * Whether a URI path resolves to a taxonomy archive (category, tag, or a
+     * custom taxonomy term). url_to_postid() returns 0 for these, so without
+     * this check the health check reports them as dead ends.
+     *
+     * @param string $path URI path, e.g. /category/news/.
+     * @return bool True when the path maps to an existing term archive.
+     */
+    private function uri_resolves_to_term_archive($path)
+    {
+        if (!function_exists('get_term_by') || !function_exists('get_taxonomies')) {
+            return false;
+        }
+
+        $path = trim((string) $path, '/');
+        if ($path === '') {
+            return false;
+        }
+        $segments = explode('/', $path);
+        $first = array_shift($segments);
+        if ($first === '' || empty($segments)) {
+            return false;
+        }
+
+        // Built-in taxonomies honor the category_base/tag_base options; the
+        // defaults are 'category' and 'tag'.
+        $category_base = trim((string) get_option('category_base'), '/');
+        $tag_base = trim((string) get_option('tag_base'), '/');
+        $bases = array(
+            $category_base !== '' ? $category_base : 'category' => 'category',
+            $tag_base !== '' ? $tag_base : 'tag' => 'post_tag',
+        );
+        $taxonomy = isset($bases[$first]) ? $bases[$first] : null;
+
+        // Custom taxonomies carry their own rewrite base (defaults to the
+        // taxonomy name).
+        if ($taxonomy === null) {
+            foreach (get_taxonomies(array('publicly_queryable' => true, '_builtin' => false), 'objects') as $tax_object) {
+                $base = isset($tax_object->rewrite['slug']) ? trim((string) $tax_object->rewrite['slug'], '/') : $tax_object->name;
+                if ($base === $first) {
+                    $taxonomy = $tax_object->name;
+                    break;
+                }
+            }
+        }
+        if ($taxonomy === null) {
+            return false;
+        }
+
+        // get_term_by() returns WP_Term|false for a registered taxonomy — never
+        // a WP_Error — so a false check is the whole story here.
+        $term = get_term_by('slug', implode('/', $segments), $taxonomy);
+        if ($term === false) {
+            // Hierarchical terms live at parent/child paths, and the child's
+            // own slug is only the last segment.
+            $term = get_term_by('slug', end($segments), $taxonomy);
+        }
+        return ($term !== false);
     }
 
     /**
@@ -816,6 +968,12 @@ class Metasync_Redirection
         foreach ($source_urls as $source_key => $source_value) {
             $match_found = false;
             $captured_path = ''; // Used for wildcard/regex replacement in destination (e.g. * or $1)
+
+            // Legacy list-format rows store the URL as the VALUE under a
+            // numeric key ('0' => '/old'); remap so matching uses the URL.
+            if ((is_int($source_key) || ctype_digit((string) $source_key)) && is_string($source_value) && $source_value !== '') {
+                $source_key = $source_value;
+            }
 
             // Resolve pattern type: per-source value (exact, contain, start, end, wildcard, regex) or row-level default
             $pattern_type = in_array($source_value, array('exact', 'contain', 'start', 'end', 'wildcard', 'regex'))
@@ -982,6 +1140,37 @@ class Metasync_Redirection
     }
 
     /**
+     * Preserve query parameters from the incoming request when redirecting.
+     *
+     * Redirect matching intentionally ignores the query string, but the
+     * browser-visible redirect must not silently discard it. Keep the stored
+     * destination query intact and append the incoming query verbatim so
+     * encoded values and repeated parameters survive unchanged.
+     *
+     * @param string $destination Destination URL or path.
+     * @param string $query       Incoming query without the leading '?'.
+     * @return string Destination with the incoming query appended.
+     */
+    private function append_query_string($destination, $query)
+    {
+        $destination = (string) $destination;
+        $query = ltrim((string) $query, '?');
+        if ($query === '') {
+            return $destination;
+        }
+
+        $fragment = '';
+        $fragment_pos = strpos($destination, '#');
+        if ($fragment_pos !== false) {
+            $fragment = substr($destination, $fragment_pos);
+            $destination = substr($destination, 0, $fragment_pos);
+        }
+
+        $separator = strpos($destination, '?') === false ? '?' : '&';
+        return $destination . $separator . $query . $fragment;
+    }
+
+    /**
      * Handle template redirect for frontend redirections
      */
     public function handle_template_redirect()
@@ -992,10 +1181,23 @@ class Metasync_Redirection
         }
 
         // Get current URI
-        $uri = $_SERVER['REQUEST_URI'];
+        $request_uri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '/';
+
+        // Keep the raw query for the redirect destination. It is deliberately
+        // excluded from matching below, but must survive the browser redirect.
+        $query_pos = strpos($request_uri, '?');
+        $incoming_query = $query_pos === false ? '' : substr($request_uri, $query_pos + 1);
 
         // Remove query string for matching
-        $uri = strtok($uri, '?');
+        $uri = $query_pos === false ? $request_uri : substr($request_uri, 0, $query_pos);
+
+        // REQUEST_URI arrives percent-encoded while stored sources are raw
+        // UTF-8, so a stored '/日本' could never match '/%E6%97%A5%E6%9C%AC'.
+        // Decode before matching; the stored destination still drives output.
+        $decoded_uri = rawurldecode((string) $uri);
+        if ($decoded_uri !== '') {
+            $uri = $decoded_uri;
+        }
 
         // Build the lookup index (lazy, once per request)
         $this->ensure_redirect_index();
@@ -1008,14 +1210,14 @@ class Metasync_Redirection
         $normalized_uri = rtrim($normalized_uri, '/') ?: '/';
 
         if (isset($this->exact_index[$normalized_uri])) {
-            if ($this->source_url_redirection($this->exact_index[$normalized_uri], $uri)) {
+            if ($this->source_url_redirection($this->exact_index[$normalized_uri], $uri, $incoming_query)) {
                 return;
             }
         }
 
         // Fallback: scan only pattern-based rows (wildcard, regex, contain, start, end)
         foreach ($this->pattern_index as $redirection) {
-            if ($this->source_url_redirection($redirection, $uri)) {
+            if ($this->source_url_redirection($redirection, $uri, $incoming_query)) {
                 return;
             }
         }

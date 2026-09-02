@@ -94,6 +94,95 @@ if (!function_exists('metasync_get_custom_page_exclusion_meta_query')) {
     }
 }
 
+if (!function_exists('metasync_get_sitemap_post_type_objects')) {
+    /**
+     * Return the post types that may be selected by a sitemap picker.
+     *
+     * Sitemap settings are shared by the general, news, and video sitemap
+     * screens. Keep their visibility rules in one helper so the three pickers
+     * cannot drift apart when a page builder or WordPress adds an internal
+     * post type.
+     *
+     * @return array<int, WP_Post_Type> Viewable public post type objects.
+     */
+    function metasync_get_sitemap_post_type_objects(): array
+    {
+        $default_excluded_post_types = [
+            'attachment',
+            'revision',
+            'nav_menu_item',
+            'elementor_library',
+            'elementor-hf',
+            'e-floating-buttons',
+            'bricks_template',
+            'ct_template',
+            'oxy_user_library',
+            'brizy-template',
+            'fusion_template',
+            'fusion_tb_section',
+            'ae_global_templates',
+            'custom_css',
+            'customize_changeset',
+            'oembed_cache',
+            'user_request',
+            'wp_block',
+            'wp_template',
+            'wp_template_part',
+            'wp_global_styles',
+            'wp_navigation',
+            'acf-field-group',
+            'acf-field',
+            'fl-builder-template',
+            'fl-theme-layout',
+            'wpr_mega_menu',
+            'wpr_templates',
+        ];
+
+        /**
+         * Allow integrations to remove additional internal post types from
+         * all sitemap post-type pickers.
+         *
+         * @param string[] $excluded_post_types Post type slugs to exclude.
+         */
+        /** @var mixed $filtered_excluded_post_types */
+        $filtered_excluded_post_types = apply_filters(
+            'metasync_sitemap_excluded_post_types',
+            $default_excluded_post_types
+        );
+        $excluded_post_types = is_array($filtered_excluded_post_types)
+            ? $filtered_excluded_post_types
+            : $default_excluded_post_types;
+
+        /**
+         * Allow integrations and tests to adjust the public post-type objects
+         * before the common exclusion and viewability rules are applied.
+         *
+         * @param array<string, WP_Post_Type> $post_types Public post types.
+         */
+        /** @var mixed $filtered_post_types */
+        $filtered_post_types = apply_filters(
+            'metasync_sitemap_post_types',
+            get_post_types(['public' => true], 'objects')
+        );
+        $post_types = is_array($filtered_post_types) ? $filtered_post_types : [];
+        $filtered = [];
+        foreach ($post_types as $post_type) {
+            if (!is_object($post_type) || empty($post_type->name)) {
+                continue;
+            }
+            if (in_array($post_type->name, $excluded_post_types, true)) {
+                continue;
+            }
+            if (!is_post_type_viewable($post_type)) {
+                continue;
+            }
+            $filtered[] = $post_type;
+        }
+
+        return $filtered;
+    }
+}
+
 if (!function_exists('metasync_discard_buffered_output')) {
     /**
      * Discard any pending output buffers before emitting a machine-readable body.

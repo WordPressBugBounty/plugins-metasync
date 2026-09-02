@@ -125,6 +125,20 @@ class Metasync_Otto_Transient_Cache {
     private $last_fetch_was_404 = false;
 
     /**
+     * Whether the last fetch_from_api() failure was permanent (a 4xx refusal
+     * such as 400/401/403, i.e. an answer retrying cannot change).
+     *
+     * Like the 404 flag above, this is tracked explicitly because the return
+     * value cannot carry it: warm failures return plain false whether the API
+     * timed out (retryable) or rejected the request outright (permanent).
+     * Callers that own a retry policy — the crawl-notify job — read this to
+     * fail fast instead of burning the full attempt budget on rejections.
+     *
+     * @var bool
+     */
+    private $last_failure_permanent = false;
+
+    /**
      * OTTO API endpoint
      */
     private $api_endpoint;
@@ -417,7 +431,21 @@ class Metasync_Otto_Transient_Cache {
 
         return $result;
     }
-    
+
+    /**
+     * Whether the last warm/fetch failure was a permanent 4xx refusal.
+     *
+     * Meaningful only after warm_cache() returned false: a true here means the
+     * API answered and refused the request, so retrying is futile. Transport
+     * failures, 5xx, rate limits, lock contention, and an open circuit breaker
+     * all leave this false.
+     *
+     * @return bool
+     */
+    public function last_failure_is_permanent() {
+        return $this->last_failure_permanent;
+    }
+
     /**
      * Fetch suggestions from OTTO API
      *
@@ -427,6 +455,7 @@ class Metasync_Otto_Transient_Cache {
     private function fetch_from_api($url) {
         # Reset per call so a previous 404 cannot influence this one's handling.
         $this->last_fetch_was_404 = false;
+        $this->last_failure_permanent = false;
 
         # Check if endpoint is in backoff mode (explicit check for better error handling)
         if (class_exists('Metasync_API_Backoff_Manager')) {
@@ -537,6 +566,15 @@ class Metasync_Otto_Transient_Cache {
                     error_log('MetaSync OTTO: Serving suggestions from cache - source temporarily unavailable');
                     return $stale;
                 }
+            }
+
+            # Any other non-200 is a 4xx refusal (400/401/403/410 …): the API
+            # rejected the request itself — bad key, revoked project, malformed
+            # target. Retrying cannot change that answer, so flag it for
+            # callers that own a retry policy; they fail fast instead of
+            # spending the full attempt budget on guaranteed rejections.
+            if ($response_code < 500 && $response_code !== 429) {
+                $this->last_failure_permanent = true;
             }
             return false;
         }

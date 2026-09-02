@@ -125,6 +125,10 @@ class Metasync_HTML_Visual_Editor
             wp_die(__('Invalid page ID.'));
         }
 
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_die(__('You do not have sufficient permissions to access this page.'));
+        }
+
         // Get post
         $post = get_post($post_id);
 
@@ -242,9 +246,18 @@ class Metasync_HTML_Visual_Editor
 
         // Get data
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
+
+        if (!$post_id) {
+            wp_send_json_error(array('message' => __('Invalid data', 'metasync')));
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_send_json_error(array('message' => __('Permission denied', 'metasync')), 403);
+        }
+
         $html_content = isset($_POST['html']) ? wp_kses_post($_POST['html']) : '';
 
-        if (!$post_id || empty($html_content)) {
+        if (empty($html_content)) {
             wp_send_json_error(array('message' => __('Invalid data', 'metasync')));
         }
 

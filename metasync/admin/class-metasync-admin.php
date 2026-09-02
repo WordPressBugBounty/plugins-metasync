@@ -971,6 +971,17 @@ class Metasync_Admin
                 $this->version,
                 true
             );
+
+            // Keeps core's admin-menu pinning in step with pages whose height
+            // changes after load. Depends on 'common' so core has bound its
+            // own handlers before this runs.
+            wp_enqueue_script(
+                $this->plugin_name . '-admin-menu-height',
+                plugin_dir_url(__FILE__) . 'js/metasync-admin-menu-height.js',
+                array('jquery', 'common'),
+                $this->version,
+                true
+            );
         }
 
         $per_page_screens = [
@@ -1467,12 +1478,42 @@ class Metasync_Admin
 
     /**
      * Settings of HeartBeat API for admin area.
-     * Set time interval of send request.
+     *
+     * The only thing the plugin rides the beat for is a periodic admin
+     * telemetry ping (the `heartbeat-send` handler in admin/js/metasync-admin.js),
+     * so it slows the beat down rather than speeding it up. Two contexts are
+     * left on whatever core decided, because core leans on the beat there:
+     *
+     * - The front end, where the beat drives wp-auth-check — the "your session
+     *   has expired, log in again" prompt.
+     * - The editor screens, where each tick renews the post lock. A lock only
+     *   lives for wp_check_post_lock_window() seconds (150 by default), so any
+     *   interval longer than that drops the lock between beats and lets a
+     *   second editor silently take over a post someone still has open.
+     *
+     * Core clamps this to 1-3600 seconds in wp-includes/js/heartbeat.js, so an
+     * over-long interval is not corrected on our behalf.
+     *
+     * @param array $settings Heartbeat settings array.
+     * @return array Heartbeat settings array.
      */
     function metasync_heartbeat_settings($settings)
     {
-        global $heartbeat_frequency;
-        $settings['interval'] = 300;
+        if (!is_admin()) {
+            return $settings;
+        }
+
+        # $pagenow is set in wp-includes/vars.php, long before this filter runs;
+        # core's own wp_heartbeat_set_suspension() reads it exactly this way.
+        global $pagenow;
+        $lock_dependent_screens = array('post.php', 'post-new.php', 'customize.php');
+        if (isset($pagenow) && in_array($pagenow, $lock_dependent_screens, true)) {
+            return $settings;
+        }
+
+        # 60s matches heartbeat.js's own default and stays well inside the
+        # 150s post-lock window, so nothing core does can fall through a gap.
+        $settings['interval'] = 60;
         return $settings;
     }
 
@@ -2729,6 +2770,13 @@ class Metasync_Admin
         if (isset($_POST['metasync_media_optimization_nonce'])) {
             check_admin_referer('metasync_save_media_optimization', 'metasync_media_optimization_nonce');
 
+            // Settings shape the whole site's conversion pipeline — restrict
+            // the save (and the reset) to site admins, not just anyone who can
+            // open the page via plugin_access_roles.
+            if (!current_user_can('manage_options')) {
+                wp_die(__('Sorry, you are not allowed to manage media optimization settings.', 'metasync'));
+            }
+
             // Handle reset to defaults
             if (!empty($_POST['metasync_media_reset'])) {
                 $defaults = Metasync_Media_Settings::get_defaults();
@@ -2820,6 +2868,13 @@ class Metasync_Admin
             wp_send_json_error(__('Invalid attachment ID.', 'metasync'));
         }
 
+        // Ownership: under the replace strategy this permanently deletes the
+        // attachment's original file, so upload_files alone is not enough —
+        // the caller must be allowed to edit this specific attachment.
+        if (!current_user_can('edit_post', $attachment_id)) {
+            wp_send_json_error(__('Permission denied.', 'metasync'));
+        }
+
         require_once plugin_dir_path(dirname(__FILE__)) . 'media-optimization/class-media-settings.php';
         require_once plugin_dir_path(dirname(__FILE__)) . 'media-optimization/class-image-converter.php';
         $settings = Metasync_Media_Settings::get_settings();
@@ -2871,6 +2926,12 @@ class Metasync_Admin
         $attachment_id = isset($_POST['attachment_id']) ? absint($_POST['attachment_id']) : 0;
         if (!$attachment_id) {
             wp_send_json_error(__('Invalid attachment ID.', 'metasync'));
+        }
+
+        // Ownership: reverting deletes the attachment's converted files, so
+        // restrict it to users who may edit this specific attachment.
+        if (!current_user_can('edit_post', $attachment_id)) {
+            wp_send_json_error(__('Permission denied.', 'metasync'));
         }
 
         // Replace-strategy conversions have no original to restore — reverting
@@ -2932,6 +2993,13 @@ class Metasync_Admin
     {
         check_ajax_referer('metasync_media_opt_nonce', 'nonce');
 
+        // Read-only progress/stats polling — the same capability that can
+        // open the media optimization page is enough, but a nonce alone
+        // never was.
+        if (!current_user_can('upload_files')) {
+            wp_send_json_error(__('Permission denied.', 'metasync'));
+        }
+
         require_once plugin_dir_path(dirname(__FILE__)) . 'media-optimization/class-media-batch-optimizer.php';
         require_once plugin_dir_path(dirname(__FILE__)) . 'media-optimization/class-media-library-list-table.php';
 
@@ -2964,8 +3032,17 @@ class Metasync_Admin
 
         $success = 0;
         $failed  = 0;
+        $denied  = 0;
 
         foreach ($ids as $id) {
+            // Per-attachment ownership: replace mode deletes originals, so
+            // upload_files alone must not allow converting images the caller
+            // does not own/cannot edit.
+            if (!current_user_can('edit_post', $id)) {
+                $denied++;
+                continue;
+            }
+
             if (Metasync_Image_Converter::convert_attachment($id, $settings)) {
                 $success++;
             } else {
@@ -2976,6 +3053,7 @@ class Metasync_Admin
         wp_send_json_success([
             'success' => $success,
             'failed'  => $failed,
+            'denied'  => $denied,
         ]);
     }
 
@@ -3000,9 +3078,17 @@ class Metasync_Admin
         $success = 0;
         $failed  = 0;
         $skipped = 0;
+        $denied  = 0;
         $errors  = [];
 
         foreach ($ids as $id) {
+            // Per-attachment ownership: reverting deletes the attachment's
+            // converted files, so restrict it per image, not per role.
+            if (!current_user_can('edit_post', $id)) {
+                $denied++;
+                continue;
+            }
+
             $format = get_post_meta($id, '_metasync_converted_format', true);
 
             if (!$format) {
@@ -3032,6 +3118,7 @@ class Metasync_Admin
             'success' => $success,
             'failed'  => $failed,
             'skipped' => $skipped,
+            'denied'  => $denied,
             'errors'  => $errors,
         ]);
     }
@@ -3156,6 +3243,8 @@ class Metasync_Admin
                 echo '<div class="notice notice-error"><p>' . esc_html(
                     sprintf(__('Settings saved but sitemap generation failed: %s', 'metasync'), $result->get_error_message())
                 ) . '</p></div>';
+            } elseif (false === $result) {
+                echo '<div class="notice notice-error"><p>' . esc_html__('Settings saved but sitemap generation failed: the sitemap data could not be stored, so no sitemap is being served. Check your object cache and database write settings, then try again.', 'metasync') . '</p></div>';
             } else {
                 echo '<div class="notice notice-success"><p>' . esc_html__('Sitemap content settings saved and sitemap regenerated!', 'metasync') . '</p></div>';
             }
@@ -3308,6 +3397,8 @@ class Metasync_Admin
                     echo '<div class="notice notice-error"><p>' . esc_html(
                         sprintf(__('Sitemap generation failed: %s', 'metasync'), $error_msg)
                     ) . '</p></div>';
+                } elseif (false === $result) {
+                    echo '<div class="notice notice-error"><p>' . esc_html__('Sitemap generation failed: the sitemap data could not be stored, so no sitemap is being served. Check your object cache and database write settings, then try again.', 'metasync') . '</p></div>';
                 } else {
                     $message = esc_html__('Sitemap generated successfully!', 'metasync');
                     if (!empty($extras)) {
@@ -3530,6 +3621,7 @@ class Metasync_Admin
         $post_types_settings = isset($options['post_types']) && is_array($options['post_types']) ? $options['post_types'] : [];
         ?>
         <form method="POST" action="">
+            <?php wp_nonce_field('metasync_instant_indexing_settings', 'metasync_instant_indexing_nonce'); ?>
             <?php include plugin_dir_path(dirname(__FILE__)) . 'views/metasync-google-instant-post-types.php'; ?>
             <div class="dashboard-card" style="padding: 20px;">
                 <?php submit_button('Save Post Types', 'primary', 'submit', false, array('class' => 'button button-primary')); ?>
@@ -5132,6 +5224,12 @@ class Metasync_Admin
      * "Default Page Builder" setting has never been explicitly saved.
      */
     public function display_page_builder_notice() {
+        // Only relevant on the plugin's own settings page — avoid repeating
+        // this notice across every admin screen.
+        if (!isset($_GET['page']) || $_GET['page'] !== self::$page_slug) {
+            return;
+        }
+
         $configured = Metasync::get_option('general')['default_page_builder'] ?? '';
 
         // Setting already saved — nothing to warn about
@@ -6323,6 +6421,16 @@ class Metasync_Admin
             return;
         }
 
+        // This handler runs on admin_init, which also fires inside
+        // admin-ajax.php before its login gate, so a bare isset() check let
+        // any request (including logged-out ones) rewrite the auto-submit
+        // post types. Require the nonce and plugin access before writing.
+        if (!isset($_POST['metasync_instant_indexing_nonce'])
+            || !wp_verify_nonce(sanitize_key(wp_unslash($_POST['metasync_instant_indexing_nonce'])), 'metasync_instant_indexing_settings')
+            || !Metasync::current_user_has_plugin_access()) {
+            return;
+        }
+
         // Save post types for Google Instant Indexing auto-submit
         if (isset($_POST['metasync_post_types'])) {
             $post_data = metasync_sanitize_input_array($_POST);
@@ -6408,10 +6516,22 @@ class Metasync_Admin
             $options = get_option('metasync_options_instant_indexing', ['post_types' => []]);
             $post_types = isset($options['post_types']) && is_array($options['post_types']) ? $options['post_types'] : [];
 
-            if (in_array($post->post_type, $post_types) && function_exists('google_index_direct')) {
-                $service_info = google_index_direct()->get_service_account_info();
-                if (!isset($service_info['error'])) {
-                    google_index_direct()->index_post($post_id, $post->post_type, 'update');
+            if (in_array($post->post_type, $post_types)) {
+                // save_post is the single owner of auto-submit and also fires
+                // on REST-created posts, where nothing else may have loaded
+                // the Google Index helpers yet — load them on demand instead
+                // of silently skipping.
+                if (!function_exists('google_index_direct')) {
+                    $google_index_path = plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php';
+                    if (file_exists($google_index_path)) {
+                        require_once $google_index_path;
+                    }
+                }
+                if (function_exists('google_index_direct')) {
+                    $service_info = google_index_direct()->get_service_account_info();
+                    if (!isset($service_info['error'])) {
+                        google_index_direct()->index_post($post_id, $post->post_type, 'update');
+                    }
                 }
             }
         }

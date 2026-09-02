@@ -605,6 +605,79 @@ class Metasync_Otto_Frontend_Toolbar {
 	}
 
 	/**
+	 * Whether this request is the front-end OTTO preview.
+	 *
+	 * The `otto_preview=1` flag is only ever produced by openPreview() in
+	 * otto-frontend-toolbar/js/otto-toolbar.js, which appends it to
+	 * window.location.href of the front-end page the toolbar is sitting on and
+	 * loads the result in an iframe. So the flag is only meaningful on a
+	 * front-end page view, and honouring it anywhere else is what turns a
+	 * display feature into an authentication bug: disable_auth_for_preview()
+	 * runs on `determine_current_user`, which every request resolves, so a
+	 * wp-admin or admin-ajax URL that merely carries the parameter is served
+	 * as if nobody were logged in and every nonce and capability check fails.
+	 *
+	 * REST is checked twice on purpose. REST_REQUEST is only defined once the
+	 * REST server takes over on `parse_request`, and `determine_current_user`
+	 * can resolve earlier than that — anything calling wp_get_current_user()
+	 * on `init` caches the answer before the constant exists — so the request
+	 * path is matched against the REST root as well.
+	 *
+	 * @return bool True when the flag should be honoured.
+	 */
+	private static function is_frontend_preview_request() {
+		if ( ! isset( $_GET['otto_preview'] ) || $_GET['otto_preview'] !== '1' ) {
+			return false;
+		}
+
+		// The preview is an iframe navigation, never a form post. Refusing to
+		// de-authenticate a write keeps a stray parameter on a front-end POST
+		// (a comment, a checkout) from stripping the submitter's identity.
+		if ( isset( $_SERVER['REQUEST_METHOD'] ) && strtoupper( $_SERVER['REQUEST_METHOD'] ) !== 'GET' ) {
+			return false;
+		}
+
+		// is_admin() already covers admin-ajax, but wp_doing_ajax() is named
+		// separately so the intent survives anyone revisiting this.
+		if ( is_admin() || ( function_exists( 'wp_doing_ajax' ) && wp_doing_ajax() ) ) {
+			return false;
+		}
+
+		if ( self::is_rest_request() ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Whether this request is being served by the REST API.
+	 *
+	 * @return bool
+	 */
+	private static function is_rest_request() {
+		if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
+			return true;
+		}
+
+		if ( empty( $_SERVER['REQUEST_URI'] ) || ! function_exists( 'rest_get_url_prefix' ) ) {
+			return false;
+		}
+
+		$path = wp_parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH );
+		if ( ! is_string( $path ) || $path === '' ) {
+			return false;
+		}
+
+		$prefix = trim( (string) rest_get_url_prefix(), '/' );
+		if ( $prefix === '' ) {
+			return false;
+		}
+
+		return strpos( trailingslashit( $path ), '/' . $prefix . '/' ) !== false;
+	}
+
+	/**
 	 * Disable authentication for preview mode
 	 * This allows logged-in users to preview the page as if they were logged out
 	 *
@@ -612,12 +685,11 @@ class Metasync_Otto_Frontend_Toolbar {
 	 * @return int|bool Modified user ID or false
 	 */
 	public function disable_auth_for_preview( $user_id ) {
-		// Check if this is a preview request
-		if ( isset( $_GET['otto_preview'] ) && $_GET['otto_preview'] === '1' ) {
+		if ( self::is_frontend_preview_request() ) {
 			// Return false to indicate no user is logged in
 			return false;
 		}
-		
+
 		return $user_id;
 	}
 
@@ -626,17 +698,21 @@ class Metasync_Otto_Frontend_Toolbar {
 	 * Ensures the preview iframe doesn't use the parent page's authentication
 	 */
 	public function clear_auth_cookies_for_preview() {
-		// Check if this is a preview request
-		if ( isset( $_GET['otto_preview'] ) && $_GET['otto_preview'] === '1' ) {
-			// Clear WordPress auth cookies for this request only
-			// This prevents the logged-in state from the parent page affecting the iframe
-			$_COOKIE = array_filter( $_COOKIE, function( $key ) {
-				// Remove WordPress auth cookies
-				return strpos( $key, 'wordpress_logged_in_' ) === false &&
-				       strpos( $key, 'wordpress_' ) === false &&
-				       $key !== 'wp-settings-' . get_current_user_id() &&
-				       $key !== 'wp-settings-time-' . get_current_user_id();
-			}, ARRAY_FILTER_USE_KEY );
+		if ( ! self::is_frontend_preview_request() ) {
+			return;
+		}
+
+		// Drop the three authentication cookies for this request only, by their
+		// exact names. The previous filter dropped every cookie whose name
+		// merely contained "wordpress_" anywhere in it, which swept up
+		// unrelated third-party cookies, and compared the rest against
+		// 'wp-settings-' . get_current_user_id() — a value that resolves the
+		// current user, which this class has by then already forced to 0, so
+		// that arm could never match the real cookie in any case.
+		foreach ( array( 'AUTH_COOKIE', 'SECURE_AUTH_COOKIE', 'LOGGED_IN_COOKIE' ) as $constant ) {
+			if ( defined( $constant ) ) {
+				unset( $_COOKIE[ constant( $constant ) ] );
+			}
 		}
 	}
 

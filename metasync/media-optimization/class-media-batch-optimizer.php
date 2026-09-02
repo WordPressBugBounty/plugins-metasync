@@ -17,6 +17,21 @@ class Metasync_Media_Batch_Optimizer {
 
     private const QUEUE_OPTION    = 'metasync_batch_optimize_queue';
     private const PROGRESS_OPTION = 'metasync_batch_optimize_progress';
+    private const LOCK_OPTION     = 'metasync_batch_optimize_lock';
+
+    /** Transient holding the cached media-library stats (shared with the list table). */
+    public const STATS_TRANSIENT = 'metasync_media_stats';
+
+    /** Start-of-run stats snapshot; live batch stats are derived from it. */
+    public const BASELINE_STATS_OPTION = 'metasync_batch_baseline_stats';
+
+    /**
+     * Age (seconds) after which a batch lock is considered abandoned by a
+     * crashed process and may be stolen. Ticks are capped well below this
+     * (CRON_TIME_LIMIT for cron; one batch for AJAX), so a live holder is
+     * never stolen.
+     */
+    private const LOCK_STALE_AFTER = 120;
     private const CRON_HOOK       = 'metasync_media_batch_optimize_cron';
     private const DEFAULT_BATCH_SIZE    = 10;
     private const MIN_BATCH_SIZE       = 2;
@@ -138,6 +153,14 @@ class Metasync_Media_Batch_Optimizer {
 
         update_option(self::QUEUE_OPTION, $ids, false);
 
+        // Snapshot the stats BEFORE the status flips to running: while
+        // running, get_stats() derives live numbers from this baseline and
+        // the batch progress instead of scanning the library every tick.
+        self::flush_stats_cache();
+        if (self::class_is_available('Metasync_Media_Library_List_Table')) {
+            update_option(self::BASELINE_STATS_OPTION, Metasync_Media_Library_List_Table::get_stats(), false);
+        }
+
         $progress = [
             'total'      => count($ids),
             'processed'  => 0,
@@ -167,6 +190,9 @@ class Metasync_Media_Batch_Optimizer {
         update_option(self::PROGRESS_OPTION, $progress, false);
 
         delete_option(self::QUEUE_OPTION);
+        delete_option(self::BASELINE_STATS_OPTION);
+        self::flush_stats_cache();
+        self::release_lock();
         wp_clear_scheduled_hook(self::CRON_HOOK);
     }
 
@@ -208,39 +234,114 @@ class Metasync_Media_Batch_Optimizer {
             return $progress;
         }
 
-        $queue = get_option(self::QUEUE_OPTION, []);
-
-        if (empty($queue)) {
-            self::complete_batch();
-            return self::get_progress();
+        if (!self::acquire_lock()) {
+            // Another tick (cron or browser tab) owns the batch right now.
+            return $progress;
         }
 
-        $settings = get_option('metasync_batch_optimize_settings', []);
+        // One purge at completion covers the whole run; per-image purges
+        // inside a batch would hammer the purge pipeline hundreds of times.
+        Metasync_Image_Converter::set_cache_purge_suppressed(true);
 
-        // Request WordPress's image processing memory limit (typically 256MB) before heavy work
-        wp_raise_memory_limit('image');
+        try {
+            $queue = get_option(self::QUEUE_OPTION, []);
 
-        $batch = array_splice($queue, 0, self::get_batch_size());
-
-        foreach ($batch as $attachment_id) {
-            // Re-check status in case cancel was triggered mid-batch
-            $current = get_option(self::PROGRESS_OPTION, []);
-            if (($current['status'] ?? '') !== 'running') {
-                break;
+            if (empty($queue)) {
+                self::complete_batch();
+                return self::get_progress();
             }
 
-            self::convert_single($attachment_id, $settings, $progress);
+            $settings = get_option('metasync_batch_optimize_settings', []);
+
+            // Request WordPress's image processing memory limit (typically 256MB) before heavy work
+            wp_raise_memory_limit('image');
+
+            $batch = array_splice($queue, 0, self::get_batch_size());
+
+            foreach ($batch as $attachment_id) {
+                // Re-check status in case cancel was triggered mid-batch
+                $current = get_option(self::PROGRESS_OPTION, []);
+                if (($current['status'] ?? '') !== 'running') {
+                    break;
+                }
+
+                self::convert_single($attachment_id, $settings, $progress);
+            }
+
+            // Re-check before persisting: a cancel that landed mid-tick
+            // deletes the queue option, and writing this stale copy back
+            // would resurrect the cancelled batch.
+            $status_now = get_option(self::PROGRESS_OPTION, []);
+            if (($status_now['status'] ?? '') === 'running') {
+                update_option(self::QUEUE_OPTION, $queue, false);
+                self::merge_progress_counters($progress);
+
+                if (empty($queue)) {
+                    self::complete_batch();
+                    return self::get_progress();
+                }
+            }
+        } finally {
+            Metasync_Image_Converter::set_cache_purge_suppressed(false);
+            self::release_lock();
         }
 
-        update_option(self::QUEUE_OPTION, $queue, false);
-        update_option(self::PROGRESS_OPTION, $progress, false);
+        return self::get_progress();
+    }
 
-        if (empty($queue)) {
-            self::complete_batch();
-            return self::get_progress();
+    /**
+     * Atomically acquire the batch lock.
+     *
+     * add_option() is an INSERT guarded by a unique key, so of two
+     * concurrent ticks (cron + any open browser tabs) exactly one wins;
+     * the others see false and skip. A lock older than LOCK_STALE_AFTER
+     * belongs to a crashed process and is stolen.
+     */
+    private static function acquire_lock(): bool {
+        $existing = get_option(self::LOCK_OPTION);
+
+        if ($existing && (time() - (int) $existing) < self::LOCK_STALE_AFTER) {
+            return false;
         }
 
-        return $progress;
+        if ($existing) {
+            delete_option(self::LOCK_OPTION);
+        }
+
+        return (bool) add_option(self::LOCK_OPTION, time(), '', false);
+    }
+
+    private static function release_lock(): void {
+        delete_option(self::LOCK_OPTION);
+    }
+
+    /**
+     * Drop the cached media-library stats so the next read recomputes from
+     * the database. Called after every conversion/revert and on attachment
+     * deletion, so the stats card can never show stale numbers.
+     */
+    public static function flush_stats_cache(): void {
+        delete_transient(self::STATS_TRANSIENT);
+    }
+
+    private static function class_is_available(string $class): bool {
+        return class_exists($class);
+    }
+
+    /**
+     * Persist processed/failed counters without clobbering a concurrent
+     * status change (cancel/complete) — only the counters are ours, the
+     * status field is owned by whoever changed it.
+     */
+    private static function merge_progress_counters(array $progress): void {
+        $fresh = get_option(self::PROGRESS_OPTION, []);
+        if (!is_array($fresh) || ($fresh['status'] ?? '') !== 'running') {
+            return;
+        }
+
+        $fresh['processed'] = $progress['processed'];
+        $fresh['failed']    = $progress['failed'];
+        update_option(self::PROGRESS_OPTION, $fresh, false);
     }
 
     /**
@@ -255,37 +356,61 @@ class Metasync_Media_Batch_Optimizer {
             return;
         }
 
-        $queue = get_option(self::QUEUE_OPTION, []);
-
-        if (empty($queue)) {
-            self::complete_batch();
+        if (!self::acquire_lock()) {
+            // An AJAX tick or another cron process owns the batch.
             return;
         }
 
-        $settings   = get_option('metasync_batch_optimize_settings', []);
-        $start      = time();
-        $time_limit = self::get_safe_time_limit();
+        Metasync_Image_Converter::set_cache_purge_suppressed(true);
 
-        // Request WordPress's image processing memory limit (typically 256MB) before heavy work
-        wp_raise_memory_limit('image');
+        try {
+            $queue = get_option(self::QUEUE_OPTION, []);
 
-        // Process images until time limit or queue empty.
-        // Batch size is re-computed each iteration so it adapts as memory fills up.
-        while (!empty($queue) && (time() - $start) < $time_limit) {
-            $batch = array_splice($queue, 0, self::get_batch_size());
-
-            foreach ($batch as $attachment_id) {
-                self::convert_single($attachment_id, $settings, $progress);
+            if (empty($queue)) {
+                self::complete_batch();
+                return;
             }
 
-            // Save progress after each batch (in case of crash)
-            update_option(self::PROGRESS_OPTION, $progress, false);
-        }
+            $settings   = get_option('metasync_batch_optimize_settings', []);
+            $start      = time();
+            $time_limit = self::get_safe_time_limit();
 
-        update_option(self::QUEUE_OPTION, $queue, false);
+            // Request WordPress's image processing memory limit (typically 256MB) before heavy work
+            wp_raise_memory_limit('image');
 
-        if (empty($queue)) {
-            self::complete_batch();
+            // Process images until time limit or queue empty.
+            // Batch size is re-computed each iteration so it adapts as memory fills up.
+            while (!empty($queue) && (time() - $start) < $time_limit) {
+                // A cancel landing mid-run stops the loop at the next batch.
+                $current = get_option(self::PROGRESS_OPTION, []);
+                if (($current['status'] ?? '') !== 'running') {
+                    break;
+                }
+
+                $batch = array_splice($queue, 0, self::get_batch_size());
+
+                foreach ($batch as $attachment_id) {
+                    self::convert_single($attachment_id, $settings, $progress);
+                }
+
+                // Save counters after each batch (in case of crash) without
+                // resurrecting a concurrent cancel/complete.
+                self::merge_progress_counters($progress);
+            }
+
+            // Re-check before the final queue write: a cancelled batch must
+            // not be resurrected by this stale copy.
+            $status_now = get_option(self::PROGRESS_OPTION, []);
+            if (($status_now['status'] ?? '') === 'running') {
+                update_option(self::QUEUE_OPTION, $queue, false);
+
+                if (empty($queue)) {
+                    self::complete_batch();
+                }
+            }
+        } finally {
+            Metasync_Image_Converter::set_cache_purge_suppressed(false);
+            self::release_lock();
         }
     }
 
@@ -312,14 +437,26 @@ class Metasync_Media_Batch_Optimizer {
      */
     private static function complete_batch(): void {
         $progress = self::get_progress();
+        $finalized = false;
         if ($progress['status'] === 'running') {
             $progress['status'] = 'completed';
             update_option(self::PROGRESS_OPTION, $progress, false);
+            $finalized = true;
         }
 
         delete_option(self::QUEUE_OPTION);
         delete_option('metasync_batch_optimize_settings');
+        delete_option(self::BASELINE_STATS_OPTION);
+        self::flush_stats_cache();
+        self::release_lock();
         wp_clear_scheduled_hook(self::CRON_HOOK);
+
+        // Every conversion in the run was purge-suppressed; this single
+        // purge invalidates all pages that referenced any converted image.
+        if ($finalized) {
+            Metasync_Image_Converter::set_cache_purge_suppressed(false);
+            Metasync_Image_Converter::purge_page_caches();
+        }
     }
 
     /**

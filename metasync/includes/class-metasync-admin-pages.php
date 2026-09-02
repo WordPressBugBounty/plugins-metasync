@@ -334,12 +334,14 @@ class Metasync_Admin_Pages
                             </div>
                         </form>
 
+                        <?php if (current_user_can('manage_options')): ?>
                         <div style="text-align: center; margin-top: 20px;">
                             <a href="#" id="metasync-forgot-password-link" style="color: #2271b1; text-decoration: none; font-size: 14px;">
                                 Forgot Password?
                             </a>
                             <div id="metasync-recovery-message" style="margin-top: 15px; padding: 12px; border-radius: 6px; display: none;"></div>
                         </div>
+                        <?php endif; ?>
 
                     </div>
                     
@@ -353,6 +355,7 @@ class Metasync_Admin_Pages
                             }
                         });
 
+                        <?php if (current_user_can('manage_options')): ?>
                         $('#metasync-forgot-password-link').on('click', function(e) {
                             e.preventDefault();
 
@@ -394,6 +397,7 @@ class Metasync_Admin_Pages
                                 }
                             });
                         });
+                        <?php endif; ?>
                     });
                     </script>
         <?php
@@ -1501,6 +1505,8 @@ class Metasync_Admin_Pages
                 if (is_wp_error($result)) {
                     error_log('[MetaSync] Sitemap generation failed: ' . $result->get_error_message());
                     echo '<div class="notice notice-error"><p>' . esc_html__('Sitemap generation failed. Please try again or check the error logs.', 'metasync') . '</p></div>';
+                } elseif (false === $result) {
+                    echo '<div class="notice notice-error"><p>' . esc_html__('Sitemap generation failed: the sitemap data could not be stored, so no sitemap is being served. Check your object cache and database write settings, then try again.', 'metasync') . '</p></div>';
                 } else {
                     $message = esc_html__('Sitemap generated successfully!', 'metasync');
                     if ($disabled_plugins) {

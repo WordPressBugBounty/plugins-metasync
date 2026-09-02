@@ -163,7 +163,15 @@ class MCP_Tool_Trigger_Otto_Optimization extends MCP_Tool_Base {
             if (!function_exists('metasync_process_otto_seo_data')) {
                 return ['success' => false, 'reason' => 'not_available'];
             }
-            return (bool) metasync_process_otto_seo_data($url);
+            // The sync returns an outcome string (success / no_change /
+            // retryable / permanent / deferred); a no-change result is a
+            // successful sync, and anything else carries its reason through.
+            $outcome = metasync_process_otto_seo_data($url);
+            if ($outcome === Metasync_Otto_Job_Status::OUTCOME_SUCCESS
+                || $outcome === Metasync_Otto_Job_Status::OUTCOME_NO_CHANGE) {
+                return true;
+            }
+            return ['success' => false, 'reason' => is_string($outcome) ? $outcome : 'unknown'];
         });
 
         // Step 3: plugin_sync (may not be available yet)

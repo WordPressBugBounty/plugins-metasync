@@ -19,6 +19,24 @@ if (!defined('ABSPATH')) {
 class Metasync_Term_Plugin_Sync {
 
     /**
+     * OTTO-generated term fields and their matching Persistence settings.
+     *
+     * Manually entered term fields are deliberately not gated; callers mark
+     * only the comprehensive OTTO sync as generated below.
+     *
+     * @var array<string,string>
+     */
+    private const OTTO_PERSISTENCE_KEYS = [
+        'title'         => 'meta_title',
+        'desc'          => 'meta_description',
+        'og_title'      => 'og_title',
+        'og_desc'       => 'og_description',
+        'twitter_title' => 'twitter_title',
+        'twitter_desc'  => 'twitter_description',
+        'canonical'     => 'canonical_url',
+    ];
+
+    /**
      * Singleton instance.
      *
      * @var self|null
@@ -52,9 +70,14 @@ class Metasync_Term_Plugin_Sync {
      * @param string $taxonomy Taxonomy slug (unused by the plugins but kept
      *                         in the signature for future use / logging).
      * @param array  $data     Canonical key/value pairs.
+     * @param bool   $otto_generated Whether the values came from OTTO. A single
+     *                         call must not mix OTTO-generated and manually
+     *                         entered fields: the flag applies to every entry
+     *                         in $data, so a mixed call could only gate all of
+     *                         them or none. Split the call instead.
      * @return array Results keyed by plugin: ['yoast'=>bool,'rankmath'=>bool,'aioseo'=>bool].
      */
-    public function sync_term($term_id, $taxonomy, array $data) {
+    public function sync_term($term_id, $taxonomy, array $data, $otto_generated = false) {
         // Explicit static recursion guard — prevents re-entrant calls for the same
         // term (e.g. if a term_meta hook triggers another sync_term() call).
         static $syncing = [];
@@ -68,6 +91,25 @@ class Metasync_Term_Plugin_Sync {
 
             if ($term_id <= 0 || empty($data)) {
                 return $results;
+            }
+
+            // OTTO-generated values may reach third-party storage only while
+            // their matching Persistence setting is enabled. The class_exists
+            // guard is fail-closed so a partial install cannot authorise a
+            // permanent write. Manual term updates use the default false flag
+            // and remain ungated, matching the post-side bridge semantics.
+            if ($otto_generated) {
+                foreach (self::OTTO_PERSISTENCE_KEYS as $field => $setting) {
+                    if (array_key_exists($field, $data)
+                        && (!class_exists('Metasync_Otto_Persistence_Settings')
+                            || !Metasync_Otto_Persistence_Settings::should_persist($setting))) {
+                        unset($data[$field]);
+                    }
+                }
+
+                if (empty($data)) {
+                    return $results;
+                }
             }
 
             // Never mirror a corrupted or non-URL canonical into third-party

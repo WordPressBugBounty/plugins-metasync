@@ -317,6 +317,7 @@ class Metasync_Sitemap_Generator
         // Meta updates that affect indexability.
         add_action('added_post_meta',   array($this, 'bust_sitemap_on_meta_update'), 10, 3);
         add_action('updated_post_meta', array($this, 'bust_sitemap_on_meta_update'), 10, 3);
+        add_action('deleted_post_meta', array($this, 'bust_sitemap_on_meta_update'), 10, 3);
 
         // Async warm-up listener.
         add_action('metasync_sitemap_async_warmup_event', array($this, 'async_warmup_handler'));
@@ -358,16 +359,20 @@ class Metasync_Sitemap_Generator
     /**
      * Conditionally bust the sitemap cache when meta affecting indexability changes.
      *
-     * Only `_metasync_robots_index` and `_metasync_canonical_url` trigger a bust;
+     * Only `_metasync_robots_index`, `_metasync_canonical_url`, and
+     * `metasync_common_robots` (the robots metabox array, which carries the
+     * per-post noindex toggle the sitemap excludes on) trigger a bust;
      * unrelated keys (e.g. `_edit_lock`) are ignored.
      *
-     * @param int    $meta_id   ID of the metadata entry.
+     * @param int|int[] $meta_id ID of the metadata entry (an array of IDs for
+     *                           the deleted_post_meta hook); unused here.
      * @param int    $object_id Object the metadata is attached to.
      * @param string $meta_key  The meta key being updated.
      */
     public function bust_sitemap_on_meta_update($meta_id, $object_id, $meta_key)
     {
-        if ($meta_key !== '_metasync_robots_index' && $meta_key !== '_metasync_canonical_url') {
+        $bust_keys = array('_metasync_robots_index', '_metasync_canonical_url', 'metasync_common_robots');
+        if (!in_array($meta_key, $bust_keys, true)) {
             return;
         }
         $this->bust_sitemap_cache();
@@ -395,9 +400,6 @@ class Metasync_Sitemap_Generator
             // Clean up any orphaned temp files from previous crashed generations
             $this->cleanup_temp_sitemap_files();
 
-            // Resolve streaming preference once for the entire generation cycle
-            $force_memory = (bool) apply_filters('metasync_sitemap_force_memory', false);
-
             // Collect all URLs
             $all_urls = $this->collect_all_urls();
 
@@ -415,10 +417,14 @@ class Metasync_Sitemap_Generator
                 $sitemap_filename = $this->get_sitemap_filename($sitemap_number);
                 $sitemap_path = ABSPATH . $sitemap_filename;
 
-                $result = $this->generate_sitemap_file($sitemap_path, $urls, $force_memory);
+                $result = $this->generate_sitemap_file($sitemap_path, $urls);
 
                 if ($result === false) {
-                    continue; // Skip this file if write permission issue
+                    // The chunk could not be stored, so it cannot be served.
+                    // Carrying on would publish an index that points at a
+                    // sitemap which does not exist, and report success while
+                    // doing it.
+                    return false;
                 }
 
                 if (is_wp_error($result)) {
@@ -455,7 +461,7 @@ class Metasync_Sitemap_Generator
             }
 
             // Generate sitemap index file (includes all sitemaps)
-            $index_result = $this->generate_sitemap_index($index_entries, $force_memory);
+            $index_result = $this->generate_sitemap_index($index_entries);
 
             if ($index_result === false) {
                 return false; // Return false instead of WP_Error to prevent Sentry capture
@@ -508,6 +514,7 @@ class Metasync_Sitemap_Generator
             'nav_menu_item',
             'elementor_library',
             'elementor-hf',
+            'e-floating-buttons',
             'ct_template',
             'oxy_user_library',
             'brizy-template',
@@ -627,8 +634,7 @@ class Metasync_Sitemap_Generator
                 'post_status'            => 'publish',
                 'posts_per_page'         => $chunk_size,
                 'paged'                  => $paged,
-                'orderby'                => 'modified',
-                'order'                  => 'DESC',
+                'orderby'                => ['modified' => 'DESC', 'ID' => 'DESC'],
                 'no_found_rows'          => true,
                 'update_post_term_cache' => true,
                 'update_post_meta_cache' => false,
@@ -899,146 +905,13 @@ class Metasync_Sitemap_Generator
      *
      * @param string $path The file path
      * @param array $urls Array of URL data
-     * @param bool $force_memory Whether to skip streaming and use in-memory generation
-     * @return bool|WP_Error True on success, WP_Error on failure
+     * @return bool|WP_Error True on success, false when the sitemap could not be
+     *                       stored, WP_Error on failure
      */
-    private function generate_sitemap_file($path, $urls, $force_memory = false)
+    private function generate_sitemap_file($path, $urls)
     {
         $xml_content = $this->build_sitemap_xml_string($urls);
-        $this->store_virtual_sitemap_file(basename($path), $xml_content);
-        return true;
-    }
-
-    /**
-     * Stream sitemap URLs to a temp file using XMLWriter, then atomic-rename.
-     *
-     * @param string $dir Directory for the temp file (must be same mount as $final_path)
-     * @param string $final_path Final destination path
-     * @param array $urls Array of URL data
-     * @return bool True on success, false on failure
-     */
-    private function stream_sitemap_urls($dir, $final_path, $urls)
-    {
-        $writer = new XMLWriter();
-        $tmp_path = tempnam($dir, 'metasync-sitemap-tmp-');
-        if ($tmp_path === false) {
-            return false;
-        }
-        // tempnam creates the file; rename it with .xml extension for clarity
-        $tmp_xml_path = $tmp_path . '.xml';
-        rename($tmp_path, $tmp_xml_path);
-        $tmp_path = $tmp_xml_path;
-
-        if ($writer->openUri($tmp_path) === false) {
-            $this->safe_unlink($tmp_path);
-            return false;
-        }
-
-        $stream_ok = true;
-
-        try {
-            $writer->setIndent(true);
-            $writer->startDocument('1.0', 'UTF-8');
-            $writer->startElement('urlset');
-            $writer->writeAttribute('xmlns', 'http://www.sitemaps.org/schemas/sitemap/0.9');
-            $writer->writeAttribute('xmlns:xsi', 'http://www.w3.org/2001/XMLSchema-instance');
-            $writer->writeAttribute(
-                'xsi:schemaLocation',
-                'http://www.sitemaps.org/schemas/sitemap/0.9 http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd'
-            );
-
-            foreach ($urls as $url_data) {
-                $writer->startElement('url');
-                $writer->writeElement('loc', esc_url($url_data['loc']));
-                if (!empty($url_data['lastmod'])) {
-                    $writer->writeElement('lastmod', gmdate('Y-m-d\TH:i:s+00:00', strtotime($url_data['lastmod'])));
-                }
-                $writer->writeElement('changefreq', $url_data['changefreq']);
-                $writer->writeElement('priority', $url_data['priority']);
-                $writer->endElement();
-                $writer->flush();
-            }
-
-            $writer->endElement();
-            $writer->endDocument();
-            $writer->flush();
-        } catch (Exception $e) {
-            $stream_ok = false;
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('MetaSync: XMLWriter streaming error: ' . $e->getMessage());
-            }
-        }
-
-        unset($writer);
-
-        if ($stream_ok && file_exists($tmp_path) && rename($tmp_path, $final_path)) {
-            return true;
-        }
-
-        $this->safe_unlink($tmp_path);
-        return false;
-    }
-
-    /**
-     * Stream sitemap index entries to a temp file using XMLWriter, then atomic-rename.
-     *
-     * @param string $dir Directory for the temp file
-     * @param string $final_path Final destination path
-     * @param array $sitemap_files Array of sitemap file info
-     * @return bool True on success, false on failure
-     */
-    private function stream_sitemap_index($dir, $final_path, $sitemap_files)
-    {
-        $writer = new XMLWriter();
-        $tmp_path = tempnam($dir, 'metasync-sitemap-tmp-');
-        if ($tmp_path === false) {
-            return false;
-        }
-        $tmp_xml_path = $tmp_path . '.xml';
-        rename($tmp_path, $tmp_xml_path);
-        $tmp_path = $tmp_xml_path;
-
-        if ($writer->openUri($tmp_path) === false) {
-            $this->safe_unlink($tmp_path);
-            return false;
-        }
-
-        $stream_ok = true;
-
-        try {
-            $writer->setIndent(true);
-            $writer->startDocument('1.0', 'UTF-8');
-            $writer->startElement('sitemapindex');
-            $writer->writeAttribute('xmlns', 'http://www.sitemaps.org/schemas/sitemap/0.9');
-
-            foreach ($sitemap_files as $sitemap) {
-                $writer->startElement('sitemap');
-                $writer->writeElement('loc', esc_url($sitemap['url']));
-                if (!empty($sitemap['lastmod'])) {
-                    $writer->writeElement('lastmod', gmdate('Y-m-d\TH:i:s+00:00', strtotime($sitemap['lastmod'])));
-                }
-                $writer->endElement();
-                $writer->flush();
-            }
-
-            $writer->endElement();
-            $writer->endDocument();
-            $writer->flush();
-        } catch (Exception $e) {
-            $stream_ok = false;
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('MetaSync: XMLWriter streaming error: ' . $e->getMessage());
-            }
-        }
-
-        unset($writer);
-
-        if ($stream_ok && file_exists($tmp_path) && rename($tmp_path, $final_path)) {
-            return true;
-        }
-
-        $this->safe_unlink($tmp_path);
-        return false;
+        return $this->store_virtual_sitemap_file(basename($path), $xml_content);
     }
 
     /**
@@ -1174,14 +1047,13 @@ class Metasync_Sitemap_Generator
      * Generate the sitemap index file
      *
      * @param array $sitemap_files Array of sitemap file info
-     * @param bool $force_memory Whether to skip streaming and use in-memory generation
-     * @return bool|WP_Error True on success, WP_Error on failure
+     * @return bool|WP_Error True on success, false when the index could not be
+     *                       stored, WP_Error on failure
      */
-    private function generate_sitemap_index($sitemap_files, $force_memory = false)
+    private function generate_sitemap_index($sitemap_files)
     {
         $xml_content = $this->build_sitemap_index_xml_string($sitemap_files);
-        $this->store_virtual_sitemap_file('sitemap_index.xml', $xml_content);
-        return true;
+        return $this->store_virtual_sitemap_file('sitemap_index.xml', $xml_content);
     }
 
     /**
@@ -1263,9 +1135,15 @@ class Metasync_Sitemap_Generator
         $url->appendChild($loc_element);
 
         if (!empty($lastmod)) {
-            $lastmod_formatted = gmdate('Y-m-d\TH:i:s+00:00', strtotime($lastmod));
-            $lastmod_element = $xml->createElement('lastmod', $lastmod_formatted);
-            $url->appendChild($lastmod_element);
+            $lastmod_timestamp = strtotime($lastmod);
+            // Legacy zero dates ("0000-00-00 00:00:00") make strtotime()
+            // return a pre-epoch timestamp, which would serialise as a
+            // year -0001 lastmod. lastmod is optional — skip it instead.
+            if ($lastmod_timestamp !== false && $lastmod_timestamp >= 0) {
+                $lastmod_formatted = gmdate('Y-m-d\TH:i:s+00:00', $lastmod_timestamp);
+                $lastmod_element = $xml->createElement('lastmod', $lastmod_formatted);
+                $url->appendChild($lastmod_element);
+            }
         }
 
         $changefreq_element = $xml->createElement('changefreq', $changefreq);
@@ -1892,7 +1770,11 @@ class Metasync_Sitemap_Generator
             return false;
         }
 
-        $this->store_virtual_sitemap_file('news-sitemap.xml', $xml);
+        // Only advertise the sitemap once it is actually stored — otherwise
+        // robots.txt and the Google ping point at content that cannot be served.
+        if (false === $this->store_virtual_sitemap_file('news-sitemap.xml', $xml)) {
+            return false;
+        }
 
         // Add to robots.txt
         if (!class_exists('Metasync_Robots_Txt')) {
@@ -1929,7 +1811,10 @@ class Metasync_Sitemap_Generator
             return false;
         }
 
-        $this->store_virtual_sitemap_file('video-sitemap.xml', $xml);
+        // Same as the news sitemap: only advertise it once it is actually stored.
+        if (false === $this->store_virtual_sitemap_file('video-sitemap.xml', $xml)) {
+            return false;
+        }
 
         // Add to robots.txt
         if (!class_exists('Metasync_Robots_Txt')) {
@@ -2029,14 +1914,31 @@ class Metasync_Sitemap_Generator
     /**
      * Store virtual sitemap file content using individual transients.
      *
+     * The transient is the only durable copy of a virtual sitemap, so a failed
+     * write means the site has no sitemap to serve. Report that to the caller
+     * instead of claiming success.
+     *
      * @param string $filename The sitemap filename (e.g., 'sitemap.xml', 'sitemap_index.xml')
      * @param string $content The XML content
-     * @return bool True on success
+     * @return bool True on success, false when the content could not be stored
      */
     public function store_virtual_sitemap_file($filename, $content)
     {
         $cache_key = 'metasync_vsm_' . md5($filename);
-        set_transient($cache_key, $content, 30 * DAY_IN_SECONDS);
+        $stored = set_transient($cache_key, $content, 30 * DAY_IN_SECONDS);
+
+        if (false === $stored) {
+            // set_transient() also returns false when the stored value is
+            // unchanged, because update_option() short-circuits identical
+            // values. Only treat this as a failure when the content cannot be
+            // read back.
+            $stored = (get_transient($cache_key) === $content);
+        }
+
+        if (false === $stored) {
+            error_log('MetaSync: failed to store virtual sitemap "' . $filename . '" — the sitemap will not be served.');
+            return false;
+        }
 
         // Track which virtual sitemaps exist
         $index = get_option('metasync_sitemap_virtual_index', []);
@@ -2106,6 +2008,10 @@ class Metasync_Sitemap_Generator
 
         $filename = '';
 
+        // Whether our own rewrite rule claimed this URL. Only those requests may
+        // be hard-404'd when no sitemap exists — see the miss handling below.
+        $matched_rewrite = false;
+
         // Primary path: query var set by our rewrite rule.
         $qv = get_query_var('metasync_sitemap');
         if (!empty($qv)) {
@@ -2113,6 +2019,7 @@ class Metasync_Sitemap_Generator
             if (!preg_match('/^(news-|video-)?sitemap(_index)?\d*\.xml$/', $filename)) {
                 return;
             }
+            $matched_rewrite = true;
         } else {
             // Fallback path: REQUEST_URI regex for sites where rewrite rules are
             // not engaged (e.g. pretty permalinks disabled or pre-flush state).
@@ -2150,28 +2057,74 @@ class Metasync_Sitemap_Generator
         // Regenerate-on-miss: if the transient expired, rebuild on the spot
         // instead of returning 404. Only regenerate for known sitemaps to
         // prevent DoS via requests to non-existent sitemap numbers.
+        //
+        // The rebuild walks the whole content base, so a crawler fetching the
+        // index and its children in parallel right after the transients
+        // expire used to trigger one full regeneration per concurrent
+        // request. A cross-request lock lets a single request rebuild while
+        // the others briefly poll for its result instead of racing it.
         if (false === $virtual_content) {
-            if ($filename === 'news-sitemap.xml') {
-                $this->generate_news_sitemap();
-            } elseif ($filename === 'video-sitemap.xml') {
-                $this->generate_video_sitemap();
-            } elseif ($this->is_sitemap_enabled()) {
-                // only rebuild the general sitemap when the feature is
-                // actually in use. Never fabricate a sitemap the site has not
-                // opted into — the previous `empty($known_files)` fallback
-                // regenerated our sitemap on ANY request, which silently undid
-                // "Delete All Sitemaps" and shadowed a third-party sitemap.
-                $known_files = get_option('metasync_sitemap_files', []);
-                $known_names = array_column($known_files, 'filename');
-                $known_names[] = 'sitemap_index.xml';
-                if (in_array($filename, $known_names, true)) {
-                    $this->generate_sitemap();
+            $lock_name = 'metasync_vsm_regenlock_' . md5($filename);
+            if ($this->acquire_regen_lock($lock_name)) {
+                // Double-check inside the lock: another request may have
+                // rebuilt this file between our miss and the acquire.
+                $virtual_content = $this->get_virtual_sitemap_file($filename);
+                if (false === $virtual_content) {
+                    if ($filename === 'news-sitemap.xml') {
+                        $this->generate_news_sitemap();
+                    } elseif ($filename === 'video-sitemap.xml') {
+                        $this->generate_video_sitemap();
+                    } elseif ($this->is_sitemap_enabled()) {
+                        // only rebuild the general sitemap when the feature is
+                        // actually in use. Never fabricate a sitemap the site has not
+                        // opted into — the previous `empty($known_files)` fallback
+                        // regenerated our sitemap on ANY request, which silently undid
+                        // "Delete All Sitemaps" and shadowed a third-party sitemap.
+                        $known_files = get_option('metasync_sitemap_files', []);
+                        $known_names = array_column($known_files, 'filename');
+                        $known_names[] = 'sitemap_index.xml';
+                        if (in_array($filename, $known_names, true)) {
+                            $this->generate_sitemap();
+                        }
+                    }
+                    $virtual_content = $this->get_virtual_sitemap_file($filename);
                 }
+                delete_option($lock_name);
+            } else {
+                // Another request is rebuilding this sitemap. Poll briefly
+                // for its result instead of starting a duplicate full
+                // rebuild; on timeout fall through to the normal miss
+                // handling below.
+                $deadline = microtime(true) + 5;
+                do {
+                    usleep(250000);
+                    $virtual_content = $this->get_virtual_sitemap_file($filename);
+                } while (false === $virtual_content && microtime(true) < $deadline);
             }
-            $virtual_content = $this->get_virtual_sitemap_file($filename);
         }
 
         if (false === $virtual_content) {
+            // Our rewrite rule claimed this URL but the site has no sitemap for
+            // it — e.g. /sitemap7.xml on a site with a single sitemap. Returning
+            // here hands the request back to the template loader, which renders
+            // the home page under a 200 because `metasync_sitemap` is not a
+            // content query var. That turns `^sitemap(\d*)\.xml$` into an
+            // unlimited supply of soft-404 duplicate-content URLs. Send a real
+            // 404 with no body instead.
+            //
+            // Only the rewrite-matched path is 404'd. The REQUEST_URI fallback
+            // above is unanchored and also matches nested paths such as
+            // /blog/sitemap.xml, plus sitemaps owned by another provider on
+            // installs where our rules are not engaged; those must keep falling
+            // through to whoever can serve them.
+            if ($matched_rewrite) {
+                metasync_discard_buffered_output();
+                status_header(404);
+                nocache_headers();
+                header('X-Robots-Tag: noindex');
+                exit;
+            }
+
             return;
         }
 
@@ -2181,5 +2134,35 @@ class Metasync_Sitemap_Generator
         status_header(200);
         echo $virtual_content;
         exit;
+    }
+
+    /**
+     * Atomically acquire the regenerate-on-miss lock for a sitemap file.
+     *
+     * A plain set_transient() cannot arbitrate a race: whether it adds or
+     * updates is not atomic, so simultaneous requests can all believe they
+     * won. add_option() performs a unique-key INSERT, which the database
+     * serializes, so exactly one request acquires the lock even on installs
+     * without a persistent object cache.
+     *
+     * The option value is the acquisition timestamp. A rebuild that crashes
+     * without releasing would otherwise pin the sitemap forever, so an
+     * attempt against a lock older than the TTL clears it and retries.
+     *
+     * @param string $lock_name Full option name for the lock.
+     * @return bool True when this request acquired the lock.
+     */
+    private function acquire_regen_lock($lock_name)
+    {
+        $existing = get_option($lock_name);
+        if (false !== $existing) {
+            if ((int) $existing >= time() - 300) {
+                return false;
+            }
+            // Expired lock from a crashed rebuild: clear it and try to win
+            // the INSERT below.
+            delete_option($lock_name);
+        }
+        return (bool) add_option($lock_name, time(), '', false);
     }
 }

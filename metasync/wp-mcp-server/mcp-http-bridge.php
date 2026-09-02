@@ -26,7 +26,7 @@
  * Environment Variables:
  *   WP_MCP_PORT=3000          - HTTP server port
  *   WP_MCP_HOST=localhost     - HTTP server host
- *   WP_MCP_API_KEY=secret     - Optional API key for authentication
+ *   WP_MCP_API_KEY=secret     - Required API key for authentication
  *
  * @package    Metasync
  * @subpackage Metasync/wp-mcp-server
@@ -198,7 +198,7 @@ function handle_http_request() {
 		exit(0);
 	}
 
-	// Check authentication if API key is set
+	// Authenticate every bridge request.
 	check_authentication();
 
 	// Read request body
@@ -211,32 +211,14 @@ function handle_http_request() {
 		exit(0);
 	}
 
-	try {
-		// Parse JSON-RPC request
-		$request = json_decode($request_body, true);
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			throw new Exception('Invalid JSON: ' . json_last_error_msg());
-		}
-
-		// Process MCP request
-		$response = process_mcp_request($request);
-
-		// Send response
-		http_response_code(200);
-		header('Content-Type: application/json');
-		echo json_encode($response);
-
-	} catch (Exception $e) {
-		http_response_code(500);
-		header('Content-Type: application/json');
-		echo json_encode([
-			'jsonrpc' => '2.0',
-			'id' => isset($request['id']) ? $request['id'] : null,
-			'error' => [
-				'code' => -32603,
-				'message' => $e->getMessage()
-			]
-		]);
+	$result = process_mcp_request($request_body);
+	header('Content-Type: application/json');
+	http_response_code($result['status']);
+	foreach ($result['headers'] as $name => $value) {
+		header($name . ': ' . $value);
+	}
+	if ($result['body'] !== null) {
+		echo json_encode($result['body']);
 	}
 }
 
@@ -292,16 +274,10 @@ function process_http_request($http_request) {
 	}
 
 	// Check authentication — deny by default when no API key is configured
-	$api_key = getenv('WP_MCP_API_KEY');
-	if (!$api_key) {
+	$auth_result = authenticate_bridge_key($headers['x-api-key'] ?? '');
+	if (is_wp_error($auth_result)) {
 		$response_headers[0] = 'HTTP/1.1 401 Unauthorized';
-		$body = json_encode(['error' => 'MCP bridge authentication not configured. Set WP_MCP_API_KEY environment variable.']);
-		$response_headers[] = 'Content-Length: ' . strlen($body);
-		return implode("\r\n", $response_headers) . "\r\n\r\n" . $body;
-	}
-	if (!isset($headers['x-api-key']) || !hash_equals($api_key, $headers['x-api-key'])) {
-		$response_headers[0] = 'HTTP/1.1 401 Unauthorized';
-		$body = json_encode(['error' => 'Invalid or missing API key']);
+		$body = json_encode(['error' => $auth_result->get_error_message()]);
 		$response_headers[] = 'Content-Length: ' . strlen($body);
 		return implode("\r\n", $response_headers) . "\r\n\r\n" . $body;
 	}
@@ -317,33 +293,18 @@ function process_http_request($http_request) {
 		return implode("\r\n", $response_headers) . "\r\n\r\n" . $body;
 	}
 
-	try {
-		// Parse JSON-RPC request
-		$request = json_decode($request_body, true);
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			throw new Exception('Invalid JSON: ' . json_last_error_msg());
-		}
-
-		// Process MCP request
-		$response = process_mcp_request($request);
-		$body = json_encode($response);
-
-		$response_headers[] = 'Content-Length: ' . strlen($body);
-		return implode("\r\n", $response_headers) . "\r\n\r\n" . $body;
-
-	} catch (Exception $e) {
-		$response_headers[0] = 'HTTP/1.1 500 Internal Server Error';
-		$body = json_encode([
-			'jsonrpc' => '2.0',
-			'id' => isset($request['id']) ? $request['id'] : null,
-			'error' => [
-				'code' => -32603,
-				'message' => $e->getMessage()
-			]
-		]);
-		$response_headers[] = 'Content-Length: ' . strlen($body);
-		return implode("\r\n", $response_headers) . "\r\n\r\n" . $body;
+	$result = process_mcp_request($request_body);
+	if ($result['status'] === 429) {
+		$response_headers[0] = 'HTTP/1.1 429 Too Many Requests';
+	} elseif ($result['status'] >= 400) {
+		$response_headers[0] = 'HTTP/1.1 ' . $result['status'] . ' Error';
 	}
+	foreach ($result['headers'] as $name => $value) {
+		$response_headers[] = $name . ': ' . $value;
+	}
+	$body = $result['body'] === null ? '' : json_encode($result['body']);
+	$response_headers[] = 'Content-Length: ' . strlen($body);
+	return implode("\r\n", $response_headers) . "\r\n\r\n" . $body;
 }
 
 /**
@@ -386,21 +347,11 @@ function set_cors_headers() {
  * Check authentication
  */
 function check_authentication() {
-	$api_key = getenv('WP_MCP_API_KEY');
-	if (!$api_key) {
-		// Deny by default when no API key is configured
+	$auth_result = authenticate_bridge_key($_SERVER['HTTP_X_API_KEY'] ?? '');
+	if (is_wp_error($auth_result)) {
 		http_response_code(401);
 		header('Content-Type: application/json');
-		echo json_encode(['error' => 'MCP bridge authentication not configured. Set WP_MCP_API_KEY environment variable.']);
-		exit(0);
-	}
-
-	$provided_key = $_SERVER['HTTP_X_API_KEY'] ?? '';
-
-	if (!hash_equals($api_key, $provided_key)) {
-		http_response_code(401);
-		header('Content-Type: application/json');
-		echo json_encode(['error' => 'Invalid or missing API key']);
+		echo json_encode(['error' => $auth_result->get_error_message()]);
 		exit(0);
 	}
 }
@@ -411,7 +362,7 @@ function check_authentication() {
 function handle_health_check() {
 	global $metasync_mcp_server;
 
-	$tools_count = count($metasync_mcp_server->get_tools());
+	$tools_count = $metasync_mcp_server->get_tool_registry()->get_tool_count();
 
 	http_response_code(200);
 	header('Content-Type: application/json');
@@ -426,138 +377,25 @@ function handle_health_check() {
 }
 
 /**
- * Process MCP JSON-RPC request
+ * Authenticate a bridge request through the shared MCP server.
  *
- * @param array $request JSON-RPC request
- * @return array JSON-RPC response
+ * @param string $provided_key API key supplied by the transport.
+ * @return true|WP_Error
  */
-function process_mcp_request($request) {
+function authenticate_bridge_key($provided_key) {
 	global $metasync_mcp_server;
 
-	$method = $request['method'] ?? '';
-	$params = $request['params'] ?? [];
-	$id = $request['id'] ?? null;
-
-	switch ($method) {
-		case 'initialize':
-			return handle_initialize($id, $params);
-
-		case 'notifications/initialized':
-			// Client confirms initialization - no response needed for notification
-			return null;
-
-		case 'tools/list':
-			return handle_tools_list($id);
-
-		case 'tools/call':
-			return handle_tools_call($id, $params);
-
-		case 'ping':
-			return [
-				'jsonrpc' => '2.0',
-				'id' => $id,
-				'result' => [
-					'status' => 'ok',
-					'timestamp' => time()
-				]
-			];
-
-		default:
-			throw new Exception("Unknown method: $method");
-	}
+	return $metasync_mcp_server->authenticate_bridge_request($provided_key);
 }
 
 /**
- * Handle initialize request
+ * Process a raw JSON-RPC request through the shared MCP server path.
+ *
+ * @param string $request_body Raw JSON-RPC request body.
+ * @return array Processing result with body, status, and headers.
  */
-function handle_initialize($id, $params) {
-	$client_info = $params['clientInfo'] ?? [];
-
-	return [
-		'jsonrpc' => '2.0',
-		'id' => $id,
-		'result' => [
-			'protocolVersion' => '2024-11-05',
-			'capabilities' => [
-				'tools' => (object)[]
-			],
-			'serverInfo' => [
-				'name' => 'wordpress-metasync',
-				'version' => defined('METASYNC_VERSION') ? METASYNC_VERSION : '2.0.0'
-			]
-		]
-	];
-}
-
-/**
- * Handle tools/list request
- */
-function handle_tools_list($id) {
+function process_mcp_request($request_body) {
 	global $metasync_mcp_server;
 
-	$tools = [];
-	$tool_objects = $metasync_mcp_server->get_tools();
-
-	foreach ($tool_objects as $tool) {
-		$tools[] = [
-			'name' => $tool->get_name(),
-			'description' => $tool->get_description(),
-			'inputSchema' => $tool->get_input_schema()
-		];
-	}
-
-	return [
-		'jsonrpc' => '2.0',
-		'id' => $id,
-		'result' => [
-			'tools' => $tools
-		]
-	];
-}
-
-/**
- * Handle tools/call request
- */
-function handle_tools_call($id, $params) {
-	global $metasync_mcp_server;
-
-	$tool_name = $params['name'] ?? '';
-	$arguments = $params['arguments'] ?? [];
-
-	if (empty($tool_name)) {
-		throw new Exception('Tool name is required');
-	}
-
-	// Find tool
-	$tool = $metasync_mcp_server->get_tool($tool_name);
-	if (!$tool) {
-		throw new Exception("Tool not found: $tool_name");
-	}
-
-	// Execute tool
-	$result = $tool->execute($arguments);
-
-	// Format result as MCP response
-	$content = [];
-
-	if (is_array($result) || is_object($result)) {
-		$content[] = [
-			'type' => 'text',
-			'text' => json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-		];
-	} else {
-		$content[] = [
-			'type' => 'text',
-			'text' => (string)$result
-		];
-	}
-
-	return [
-		'jsonrpc' => '2.0',
-		'id' => $id,
-		'result' => [
-			'content' => $content,
-			'isError' => false
-		]
-	];
+	return $metasync_mcp_server->process_json_rpc_request($request_body);
 }

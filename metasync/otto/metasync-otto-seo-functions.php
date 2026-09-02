@@ -16,12 +16,18 @@ if (!defined('ABSPATH')) {
 
 /**
  * Fetch SEO data from OTTO API
- * 
- * @param string $route The URL route
- * @param string $uuid The OTTO UUID
- * @return array|false SEO data array or false on failure
+ *
+ * @param string $route   The URL route
+ * @param string $uuid    The OTTO UUID
+ * @param string|null &$failure Out failure classification: 'retryable' for
+ *                        transport errors, timeouts, 408/429/5xx (retrying can
+ *                        help); 'permanent' for other 4xx (auth/input errors —
+ *                        the same request can never succeed). Null on success.
+ * @return array|false SEO data array (possibly empty — OTTO holding nothing
+ *                     for this URL is a valid answer) or false on failure.
  */
-function metasync_fetch_otto_seo_data($route, $uuid) {
+function metasync_fetch_otto_seo_data($route, $uuid, &$failure = null) {
+    $failure = null;
     $route = esc_url_raw($route);
 
     # Get OTTO API endpoint (use endpoint manager if available)
@@ -51,8 +57,9 @@ function metasync_fetch_otto_seo_data($route, $uuid) {
         )
     ));
 
-    # Check for HTTP errors
+    # Check for HTTP errors (transport-level: DNS, connection, timeout)
     if (is_wp_error($response)) {
+        $failure = 'retryable';
         return false;
     }
 
@@ -64,17 +71,26 @@ function metasync_fetch_otto_seo_data($route, $uuid) {
     }
 
     if ($response_code !== 200) {
+        # 408 request timeout and all 5xx are transient server states; 429 is
+        # throttling. Everything else (400/401/403/404...) is a request the
+        # server will reject again no matter how often it is retried.
+        $failure = ($response_code === 408 || $response_code === 429 || $response_code >= 500)
+            ? 'retryable'
+            : 'permanent';
         return false;
     }
 
     # Parse response body
     $body = wp_remote_retrieve_body($response);
     if (empty($body)) {
+        # A 200 with an empty body is a truncated/failed read, not an answer.
+        $failure = 'retryable';
         return false;
     }
 
     $data = json_decode($body, true);
     if (json_last_error() !== JSON_ERROR_NONE) {
+        $failure = 'retryable';
         return false;
     }
 
@@ -1050,44 +1066,58 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             update_post_meta($post_id, 'metasync_schema_markup', wp_slash($existing_schema));
             $fields_updated['structured_data_persisted'] = true;
 
-            # Cross-plugin schema persistence: sync structured_data to RankMath, Yoast, AIOSEO
-            if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
-                $rankmath_schemas = metasync_convert_jsonld_to_rankmath($structured_data);
-                foreach ($rankmath_schemas as $schema_type => $schema_data) {
-                    update_post_meta($post_id, 'rank_math_schema_' . $schema_type, wp_slash($schema_data));
+            # Cross-plugin schema persistence: sync structured_data to RankMath, Yoast, AIOSEO.
+            # Copying OTTO's schema into another plugin's storage is a permanent write that
+            # outlives MetaSync, so it is allowed only while the structured_data Persistence
+            # setting is on. The class_exists() repeat keeps this check fail-closed on its own
+            # terms: a partial install with the settings class missing must not authorise a
+            # write into third-party storage. The otto_jsonld copy above is OUR key and stays
+            # ungated — OTTO's own rendering reads it on every sync.
+            #
+            # PHPStan resolves the class from the classmap and calls the left side
+            # always true. It is true in a complete install; the guard is there for
+            # the partial one, which static analysis cannot see.
+            # @phpstan-ignore-next-line booleanAnd.leftAlwaysTrue
+            if (class_exists('Metasync_Otto_Persistence_Settings') &&
+                Metasync_Otto_Persistence_Settings::should_persist('structured_data')) {
+                if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
+                    $rankmath_schemas = metasync_convert_jsonld_to_rankmath($structured_data);
+                    foreach ($rankmath_schemas as $schema_type => $schema_data) {
+                        update_post_meta($post_id, 'rank_math_schema_' . $schema_type, wp_slash($schema_data));
+                    }
                 }
-            }
-            if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
-                $yoast_types = metasync_extract_yoast_schema_types($structured_data);
-                if (!empty($yoast_types['article_type'])) {
-                    update_post_meta($post_id, '_yoast_wpseo_schema_article_type', $yoast_types['article_type']);
-                }
-                if (!empty($yoast_types['page_type'])) {
-                    update_post_meta($post_id, '_yoast_wpseo_schema_page_type', $yoast_types['page_type']);
-                }
-                // Also update Yoast's indexable cache so the change renders immediately
-                if (!empty($yoast_types['article_type']) || !empty($yoast_types['page_type'])) {
-                    global $wpdb;
-                    $yoast_indexable_table = $wpdb->prefix . 'yoast_indexable';
-                    $update_cols = array();
-                    $update_vals = array();
+                if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
+                    $yoast_types = metasync_extract_yoast_schema_types($structured_data);
                     if (!empty($yoast_types['article_type'])) {
-                        $update_cols[] = 'schema_article_type = %s';
-                        $update_vals[] = $yoast_types['article_type'];
+                        update_post_meta($post_id, '_yoast_wpseo_schema_article_type', $yoast_types['article_type']);
                     }
                     if (!empty($yoast_types['page_type'])) {
-                        $update_cols[] = 'schema_page_type = %s';
-                        $update_vals[] = $yoast_types['page_type'];
+                        update_post_meta($post_id, '_yoast_wpseo_schema_page_type', $yoast_types['page_type']);
                     }
-                    $update_vals[] = $post_id;
-                    $wpdb->query($wpdb->prepare(
-                        "UPDATE {$yoast_indexable_table} SET " . implode(', ', $update_cols) . " WHERE object_id = %d AND object_type = 'post'",
-                        $update_vals
-                    ));
+                    // Also update Yoast's indexable cache so the change renders immediately
+                    if (!empty($yoast_types['article_type']) || !empty($yoast_types['page_type'])) {
+                        global $wpdb;
+                        $yoast_indexable_table = $wpdb->prefix . 'yoast_indexable';
+                        $update_cols = array();
+                        $update_vals = array();
+                        if (!empty($yoast_types['article_type'])) {
+                            $update_cols[] = 'schema_article_type = %s';
+                            $update_vals[] = $yoast_types['article_type'];
+                        }
+                        if (!empty($yoast_types['page_type'])) {
+                            $update_cols[] = 'schema_page_type = %s';
+                            $update_vals[] = $yoast_types['page_type'];
+                        }
+                        $update_vals[] = $post_id;
+                        $wpdb->query($wpdb->prepare(
+                            "UPDATE {$yoast_indexable_table} SET " . implode(', ', $update_cols) . " WHERE object_id = %d AND object_type = 'post'",
+                            $update_vals
+                        ));
+                    }
                 }
+                // AIOSEO schema persistence skipped — AIOSEO Free locks Article/custom schema behind Pro paywall.
+                // The graphs array (Pro-only) and default.graphName (UI-gated) cannot reliably render OTTO schema on Free.
             }
-            // AIOSEO schema persistence skipped — AIOSEO Free locks Article/custom schema behind Pro paywall.
-            // The graphs array (Pro-only) and default.graphName (UI-gated) cannot reliably render OTTO schema on Free.
         }
 
         # UN-DEPLOY CLEAR — OTTO sent no structured data this sync, so remove the
@@ -1740,7 +1770,7 @@ function metasync_update_comprehensive_taxonomy_seo_fields($term_id, $taxonomy, 
             if (!empty($twitter_description)) { $sync_data['twitter_desc']  = $twitter_description; }
 
             if (!empty($sync_data)) {
-                Metasync_Term_Plugin_Sync::get_instance()->sync_term($term_id, $taxonomy, $sync_data);
+                Metasync_Term_Plugin_Sync::get_instance()->sync_term($term_id, $taxonomy, $sync_data, true);
             }
         }
 

@@ -69,7 +69,7 @@ class Metasync_Activator
 
 		// Import whitelabel settings only if the JSON file is new or changed
 		// (prevents overwriting admin UI changes on every deactivate/activate cycle)
-		self::check_whitelabel_settings_update();
+		self::check_whitelabel_settings_update(true);
 
 		// Pre-SSO announce: tell backend plugin is installed (PR4 - heartbeat reliability)
 		update_option('metasync_announce_attempt_count', 0);
@@ -206,19 +206,28 @@ class Metasync_Activator
 	 * Check if whitelabel settings file has been updated and import if needed
 	 * This method should be called on init to detect plugin uploads/updates
 	 *
+	 * @param bool $trusted_update_context True only for core activation/upgrader hooks.
+	 * @return bool Whether the file was already current or imported successfully.
 	 * @since 2.5.0
 	 */
-	public static function check_whitelabel_settings_update()
+	public static function check_whitelabel_settings_update($trusted_update_context = false)
 	{
+		if (!$trusted_update_context && !current_user_can('manage_options')) {
+			return false;
+		}
+
 		$json_file = self::get_whitelabel_settings_file();
 
 		if ($json_file === false) {
-			return;
+			return false;
 		}
 
 		// Get current file modification time and content hash
 		$file_mtime = filemtime($json_file);
 		$file_hash = md5_file($json_file);
+		if (!is_int($file_mtime) || !is_string($file_hash)) {
+			return false;
+		}
 
 		// Get stored file info
 		$stored_mtime = get_option('metasync_whitelabel_file_mtime', 0);
@@ -227,44 +236,54 @@ class Metasync_Activator
 		// Check if file has changed (either modification time or content)
 		if ($file_mtime > $stored_mtime || $file_hash !== $stored_hash) {
 			// File has changed, import settings
-			self::import_whitelabel_settings();
+			if (!self::import_whitelabel_settings()) {
+				return false;
+			}
 
-			// Store new file info
+			// Record the file only after the complete import succeeds.
 			update_option('metasync_whitelabel_file_mtime', $file_mtime);
 			update_option('metasync_whitelabel_file_hash', $file_hash);
 		}
+
+		return true;
 	}
 
 	/**
 	 * Import whitelabel settings from JSON file if available
 	 * Checks for whitelabel-settings.json in the plugin directory or extracted zip
 	 *
-	 * This method is public to allow calling during both activation and plugin updates.
+	 * @return bool Whether the complete import succeeded.
 	 * @since 2.5.0
 	 */
-	public static function import_whitelabel_settings()
+	private static function import_whitelabel_settings()
 	{
 		$json_file = self::get_whitelabel_settings_file();
 
 		if ($json_file === false) {
-			return;
+			return false;
 		}
 
 		// Read JSON file
 		$json_content = file_get_contents($json_file);
 		if ($json_content === false) {
-			return;
+			return false;
 		}
 
 		// Decode JSON
 		$import_data = json_decode($json_content, true);
 		if ($import_data === null || json_last_error() !== JSON_ERROR_NONE) {
-			return;
+			return false;
 		}
 
 		// Validate import data structure
 		if (!isset($import_data['whitelabel_settings']) || !is_array($import_data['whitelabel_settings'])) {
-			return;
+			return false;
+		}
+
+		$plugin_file = plugin_dir_path(dirname(__FILE__)) . 'metasync.php';
+		$original_plugin_content = file_get_contents($plugin_file);
+		if ($original_plugin_content === false) {
+			return false;
 		}
 
 		// Get current options
@@ -305,6 +324,14 @@ class Metasync_Activator
 			}
 		}
 
+		// Validate and persist the public plugin headers before any other import side effect.
+		$header_data = array(
+			'general_settings' => $options['general'] ?? array(),
+		);
+		if (!self::update_plugin_file_headers($header_data, $plugin_file)) {
+			return false;
+		}
+
 		// Restore bundled icon: if the icon value is a __bundled_icon__{ext} marker,
 		// copy the bundled file from the plugin directory to uploads and update the URL.
 		$icon_value = $options['general']['white_label_plugin_menu_icon'] ?? '';
@@ -334,12 +361,17 @@ class Metasync_Activator
 
 		// Save updated options
 		update_option('metasync_options', $options);
-
-		// Update the plugin file headers so whitelabel shows even when deactivated
-		self::update_plugin_file_headers($import_data);
+		if (get_option('metasync_options', null) !== $options) {
+			if (self::atomically_replace_plugin_file($plugin_file, $original_plugin_content)) {
+				wp_cache_delete('plugins', 'plugins');
+			}
+			return false;
+		}
 
 		// Optionally delete the JSON file after successful import (uncomment if desired)
 		// unlink($json_file);
+
+		return true;
 	}
 
 	/**
@@ -351,6 +383,10 @@ class Metasync_Activator
 	 */
 	public static function sync_plugin_file_headers()
 	{
+		if (!current_user_can('manage_options')) {
+			return false;
+		}
+
 		$options = get_option('metasync_options', array());
 		$general = $options['general'] ?? array();
 
@@ -359,7 +395,7 @@ class Metasync_Activator
 			'general_settings' => $general,
 		);
 
-		self::update_plugin_file_headers($import_data);
+		return self::update_plugin_file_headers($import_data);
 	}
 
 	/**
@@ -370,17 +406,17 @@ class Metasync_Activator
 	 * @param array $import_data The imported whitelabel data
 	 * @since 2.5.0
 	 */
-	private static function update_plugin_file_headers($import_data)
+	private static function update_plugin_file_headers($import_data, $plugin_file = null)
 	{
-		$plugin_file = plugin_dir_path(dirname(__FILE__)) . 'metasync.php';
+		$plugin_file = $plugin_file ?: plugin_dir_path(dirname(__FILE__)) . 'metasync.php';
 
 		if (!file_exists($plugin_file) || !is_writable($plugin_file)) {
-			return;
+			return false;
 		}
 
 		$content = file_get_contents($plugin_file);
 		if ($content === false) {
-			return;
+			return false;
 		}
 
 		$general = $import_data['general_settings'] ?? array();
@@ -411,6 +447,8 @@ class Metasync_Activator
 		);
 
 		$modified = false;
+		$original_content = $content;
+		$url_fields = array('white_label_plugin_author_uri', 'white_label_plugin_uri');
 
 		foreach ($header_map as $setting_key => $field_config) {
 			$header_field = $field_config['header'];
@@ -420,26 +458,149 @@ class Metasync_Activator
 				? $general[$setting_key]
 				: $field_config['default'];
 
+			if (!is_string($new_value) || !self::is_valid_plugin_header_value($new_value, in_array($setting_key, $url_fields, true))) {
+				return false;
+			}
+
 			// Match the header line: " * Field Name:       any value"
 			// Handles varying whitespace between field name and value
 			$pattern = '/^(\s*\*\s*' . preg_quote($header_field, '/') . ':\s*)(.+)$/m';
 
-			if (preg_match($pattern, $content, $matches)) {
-				// Only replace if the value actually differs from what's in the file
-				if (trim($matches[2]) !== trim($new_value)) {
-					// Escape both backslashes and $ signs for preg_replace replacement string
-					$escaped_value = str_replace(array('\\', '$'), array('\\\\', '\\$'), $new_value);
-					$content = preg_replace($pattern, '${1}' . $escaped_value, $content, 1);
-					$modified = true;
+			if (preg_match_all($pattern, $content, $matches) !== 1) {
+				return false;
+			}
+
+			// Only replace if the value actually differs from what's in the file.
+			if (trim($matches[2][0]) !== trim($new_value)) {
+				$content = preg_replace_callback(
+					$pattern,
+					static function ($match) use ($new_value) {
+						return $match[1] . $new_value;
+					},
+					$content,
+					1,
+					$replacement_count
+				);
+
+				if (!is_string($content) || $replacement_count !== 1) {
+					return false;
 				}
+				$modified = true;
 			}
 		}
 
-		if ($modified) {
-			file_put_contents($plugin_file, $content);
-
-			// Clear WordPress plugin cache so it reads the updated headers
-			wp_cache_delete('plugins', 'plugins');
+		if (!self::is_valid_transformed_plugin_file($original_content, $content, $header_map)) {
+			return false;
 		}
+
+		if (!$modified) {
+			return true;
+		}
+
+		if (!self::atomically_replace_plugin_file($plugin_file, $content)) {
+			return false;
+		}
+
+		// Clear WordPress plugin cache so it reads the updated headers.
+		wp_cache_delete('plugins', 'plugins');
+
+		return true;
+	}
+
+	/**
+	 * Validate a value before placing it inside the plugin's PHP docblock.
+	 */
+	private static function is_valid_plugin_header_value($value, $is_url)
+	{
+		if (
+			$value === ''
+			|| preg_match('/^[\p{L}\p{M}\p{N}\p{P}\p{S}\p{Zs}]+$/u', $value) !== 1
+			|| preg_match('/\*\/|<\?php|\?>/i', $value) !== 0
+		) {
+			return false;
+		}
+
+		if (!$is_url) {
+			return true;
+		}
+
+		if (filter_var($value, FILTER_VALIDATE_URL) === false) {
+			return false;
+		}
+
+		$scheme = strtolower((string) parse_url($value, PHP_URL_SCHEME));
+
+		return in_array($scheme, array('http', 'https'), true);
+	}
+
+	/**
+	 * Validate the complete transformed PHP file and its header structure.
+	 */
+	private static function is_valid_transformed_plugin_file($original, $transformed, $header_map)
+	{
+		if (!is_string($transformed) || strpos($transformed, '<?php') !== 0) {
+			return false;
+		}
+
+		if (
+			substr_count($original, '<?php') !== substr_count($transformed, '<?php')
+			|| substr_count($original, '?>') !== substr_count($transformed, '?>')
+		) {
+			return false;
+		}
+
+		foreach ($header_map as $field_config) {
+			$pattern = '/^\s*\*\s*' . preg_quote($field_config['header'], '/') . ':\s*.+$/m';
+			if (preg_match_all($pattern, $transformed) !== 1) {
+				return false;
+			}
+		}
+
+		try {
+			$tokens = token_get_all($transformed, TOKEN_PARSE);
+		} catch (ParseError $error) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Replace a plugin file from a same-directory temporary file.
+	 */
+	private static function atomically_replace_plugin_file($plugin_file, $content, $rename_file = null)
+	{
+		$directory = dirname($plugin_file);
+		$temp_file = tempnam($directory, '.metasync-header-');
+		if ($temp_file === false) {
+			return false;
+		}
+
+		$permissions = fileperms($plugin_file);
+		$written = file_put_contents($temp_file, $content, LOCK_EX);
+		if ($written !== strlen($content)) {
+			@unlink($temp_file);
+			return false;
+		}
+
+		if ($permissions !== false) {
+			@chmod($temp_file, $permissions & 0777);
+		}
+
+		if ($rename_file === null) {
+			$rename_file = static function ($source, $destination) {
+				return @rename($source, $destination);
+			};
+		}
+
+		// The temporary file is on the same filesystem, so a successful rename is
+		// atomic. On failure the original path has not been touched.
+		if ($rename_file($temp_file, $plugin_file)) {
+			return true;
+		}
+
+		@unlink($temp_file);
+
+		return false;
 	}
 }

@@ -125,6 +125,17 @@ class Google_Index_Admin
             !isset($_FILES['google_index_service_account_file'])) {
             return; // No Google Index data to process
         }
+
+        if (!$this->authorize_settings_request()) {
+            return;
+        }
+
+        // Clearing does not need to load or inspect credential contents.
+        if (isset($_POST['google_index_clear_config'])) {
+            delete_option('google_index_service_account');
+            $this->add_settings_notice('Service account configuration cleared successfully!', 'success');
+            return;
+        }
         
         // Load Google Index functionality
         if (!function_exists('google_index_save_service_account')) {
@@ -154,14 +165,8 @@ class Google_Index_Admin
             }
         }
         
-        // Handle clear configuration
-        if (isset($_POST['google_index_clear_config'])) {
-            delete_option('google_index_service_account');
-            // Success messages shown after redirect (to prevent interfering with MetaSync flow)
-            $this->add_settings_notice('Service account configuration cleared successfully!', 'success');
-        }
         // Process service account JSON if provided
-        elseif (!empty($service_account_json) && trim($service_account_json) !== '') {
+        if (!empty($service_account_json) && trim($service_account_json) !== '') {
             
             // Skip if it contains redacted private key (user didn't paste new JSON)
             if (strpos($service_account_json, '-----REDACTED-----') !== false) {
@@ -283,8 +288,8 @@ class Google_Index_Admin
     public function ajax_test_connection()
     {
         // Check nonce and permissions
-        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'metasync_google_index_direct_test') ||
-            !Metasync::current_user_has_plugin_access()) {
+        if (!current_user_can('manage_options') ||
+            !wp_verify_nonce(wp_unslash($_POST['nonce'] ?? ''), 'metasync_google_index_direct_test')) {
             wp_die('Security check failed');
         }
         
@@ -313,6 +318,38 @@ class Google_Index_Admin
                 'message' => 'Test failed: ' . $e->getMessage()
             ]);
         }
+    }
+
+    /**
+     * Authorize the shared MetaSync settings AJAX action before secret handling.
+     */
+    private function authorize_settings_request()
+    {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions.'), 403);
+        }
+
+        $action = isset($_POST['action']) ? sanitize_key(wp_unslash($_POST['action'])) : '';
+        $nonce_field = '';
+        $nonce_action = '';
+
+        if ($action === 'meta_sync_save_settings') {
+            $nonce_field = 'meta_sync_nonce';
+            $nonce_action = 'meta_sync_general_setting_nonce';
+        } elseif ($action === 'meta_sync_save_seo_controls') {
+            $nonce_field = 'meta_sync_seo_controls_nonce';
+            $nonce_action = 'meta_sync_seo_controls_nonce';
+        }
+
+        if (
+            $nonce_field === ''
+            || !isset($_POST[$nonce_field])
+            || !wp_verify_nonce(wp_unslash($_POST[$nonce_field]), $nonce_action)
+        ) {
+            wp_send_json_error(array('message' => 'Invalid nonce'), 403);
+        }
+
+        return true;
     }
     
     /**

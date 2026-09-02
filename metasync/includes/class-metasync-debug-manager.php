@@ -77,8 +77,14 @@ class Metasync_Debug_Manager
         if (!Metasync::current_user_has_plugin_access()) {
             return;
         }
+
+        $can_manage_debug_settings = current_user_can('manage_options');
+        if (isset($_POST['wp_debug_nonce']) && !$can_manage_debug_settings) {
+            return;
+        }
     
-        if (isset($_POST['wp_debug_log_enabled']) && 
+        if ($can_manage_debug_settings &&
+            isset($_POST['wp_debug_log_enabled']) &&
             isset($_POST['wp_debug_enabled']) && 
             isset($_POST['wp_debug_display_enabled']) &&
             isset($_POST['wp_debug_nonce']) &&
@@ -101,7 +107,7 @@ class Metasync_Debug_Manager
                 'WordPress debug settings updated successfully.',
                 'updated'
             );
-        } elseif (isset($_POST['wp_debug_nonce']) && !wp_verify_nonce($_POST['wp_debug_nonce'], 'metasync_wp_debug_settings')) {
+        } elseif ($can_manage_debug_settings && isset($_POST['wp_debug_nonce']) && !wp_verify_nonce($_POST['wp_debug_nonce'], 'metasync_wp_debug_settings')) {
             add_settings_error(
                 'metasync_messages',
                 'metasync_message',
@@ -281,7 +287,13 @@ class Metasync_Debug_Manager
         }
 
         if ($changed) {
-            require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-activator.php';
+            if (!current_user_can('manage_options')) {
+                return;
+            }
+
+            if (!class_exists('Metasync_Activator')) {
+                require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-activator.php';
+            }
             Metasync_Activator::sync_plugin_file_headers();
         }
     }
@@ -789,6 +801,10 @@ define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</
      */
     public function handle_error_log_operations()
     {
+        if ((isset($_POST['clear_log']) || isset($_POST['clear_error_summary'])) && !current_user_can('manage_options')) {
+            return;
+        }
+
         if (isset($_POST['clear_log'])) {
             if (wp_verify_nonce($_POST['clear_log_nonce'], 'metasync_clear_log_nonce')) {
                 $log_file = WP_CONTENT_DIR . '/metasync_data/plugin_errors.log';
@@ -839,6 +855,10 @@ define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</
      */
     public function handle_clear_all_settings()
     {
+        if (isset($_POST['clear_all_settings']) && !current_user_can('manage_options')) {
+            return;
+        }
+
         if (isset($_POST['clear_all_settings'])) {
             if (wp_verify_nonce($_POST['clear_all_settings_nonce'], 'metasync_clear_all_settings_nonce')) {
                 

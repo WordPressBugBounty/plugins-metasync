@@ -41,6 +41,8 @@
     var i18n = config.i18n || {};
     var batchActive = false;
     var fallbackPoll = null;
+    var batchErrorCount = 0;
+    var BATCH_MAX_ERRORS = 5;
 
     function sanitizeHtml(str) {
         var div = document.createElement('div');
@@ -237,6 +239,12 @@
                 document.getElementById('metasync-batch-progress').style.display = 'none';
                 if (optimizeAllBtn) optimizeAllBtn.disabled = false;
                 location.reload();
+            })
+            .catch(function() {
+                // The cancel request failed (expired nonce, network drop) —
+                // the server may still be running the batch, so resync the
+                // UI from a fresh page load instead of leaving it stuck.
+                location.reload();
             });
         });
     }
@@ -288,7 +296,16 @@
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            if (!data.success || !batchActive) return;
+            if (!batchActive) return;
+
+            // A tick rejection (expired nonce, lost capabilities) used to
+            // stall the loop silently with the progress bar frozen.
+            if (!data.success) {
+                onBatchError();
+                return;
+            }
+
+            batchErrorCount = 0;
 
             var progress = data.data;
             showBatchProgress(progress);
@@ -301,10 +318,31 @@
             }
         })
         .catch(function() {
-            if (batchActive) {
-                setTimeout(processNextBatch, 5000);
+            // Transient network errors retry with a backoff, but only a
+            // bounded number of times — retrying forever on an expired
+            // nonce kept the batch UI "running" indefinitely with no error.
+            if (!batchActive) return;
+
+            batchErrorCount++;
+            if (batchErrorCount >= BATCH_MAX_ERRORS) {
+                onBatchError();
+                return;
             }
+
+            setTimeout(processNextBatch, 5000);
         });
+    }
+
+    /**
+     * Surface a stalled/failed batch and stop all polling. The server-side
+     * batch itself keeps its own state; reloading shows the real status.
+     */
+    function onBatchError() {
+        batchActive = false;
+        stopFallbackPoll();
+        document.getElementById('metasync-batch-progress').style.display = 'none';
+        if (optimizeAllBtn) optimizeAllBtn.disabled = false;
+        alert(i18n.batchStalled || 'Batch optimization stopped after repeated errors. Please reload the page and try again.');
     }
 
     function onBatchFinished(progress) {

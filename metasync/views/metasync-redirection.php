@@ -870,6 +870,32 @@ if (!defined('ABSPATH')) {
 		</form>
 	</div>
 
+
+	<!-- Auto-Redirect on Slug Change Setting -->
+	<?php
+	if (isset($_POST['metasync_save_auto_redirect']) && current_user_can('manage_options') && wp_verify_nonce($_POST['_metasync_auto_redirect_nonce'], 'metasync_auto_redirect_toggle')) {
+		$auto_redirect = isset($_POST['metasync_auto_redirect_enabled']) ? 1 : 0;
+		update_option('metasync_auto_redirect_enabled', $auto_redirect, true);
+		echo '<div class="notice notice-success is-dismissible"><p>Auto-redirect setting updated.</p></div>';
+	}
+	$auto_redirect_current = get_option('metasync_auto_redirect_enabled', 1);
+	?>
+	<div style="background: var(--dashboard-card-bg, #1a1f26); border: 1px solid var(--dashboard-border, #374151); border-radius: 8px; padding: 12px 16px; margin: 15px 0; display: flex; align-items: center; gap: 12px;">
+		<form method="post" style="display: flex; align-items: center; gap: 12px; margin: 0;">
+			<?php wp_nonce_field('metasync_auto_redirect_toggle', '_metasync_auto_redirect_nonce'); ?>
+			<label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--dashboard-text-primary, #fff); font-weight: 500;">
+				<input type="checkbox" name="metasync_auto_redirect_enabled" value="1" <?php checked($auto_redirect_current, 1); ?> onchange="this.form.submit();" style="width: 16px; height: 16px; margin: 0; flex-shrink: 0;">
+				Auto-Redirect on Slug Change
+			</label>
+			<input type="hidden" name="metasync_save_auto_redirect" value="1">
+			<?php if ($auto_redirect_current) : ?>
+				<span style="color: var(--dashboard-text-secondary, #9ca3af); font-size: 13px;">Redirects are created automatically when a post or page slug changes.</span>
+			<?php else : ?>
+				<span style="color: var(--dashboard-warning, #f59e0b); font-size: 13px;">Auto-redirects are paused. Slug changes will not create redirect rules (useful during migrations or bulk edits).</span>
+			<?php endif; ?>
+		</form>
+	</div>
+
 	<!-- Forms are NOT created automatically, so you need to wrap the table in one to use features like bulk actions -->
 	<form id="redirection-form" method="post" action="">
 		<?php wp_nonce_field('metasync_redirection_form', 'metasync_redirection_nonce'); ?>
@@ -916,7 +942,7 @@ if (!defined('ABSPATH')) {
 			<div class="metasync-search-box">
 				<label class="screen-reader-text" for="redirections-search-input">Search Redirections:</label>
 				<input type="search" id="redirections-search-input" name="s_redir" value="<?php echo esc_attr($list_state['s_redir'] ?? ''); ?>" placeholder="Search redirections...">
-				<input type="submit" id="redirections-search-submit" class="button" value="Search">
+				<input type="submit" name="search_submit" id="redirections-search-submit" class="button" value="Search">
 			</div>
 		</div>
 		

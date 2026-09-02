@@ -22,10 +22,36 @@ require_once plugin_dir_path( __FILE__ ) . '/Otto_html_class.php';
 require_once plugin_dir_path( __FILE__ ) . '/Otto_pixel_class.php';
 require_once plugin_dir_path( __FILE__ ) . '/metasync-otto-seo-functions.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-transient-cache.php';
+require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-job-status.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-render-strategy.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-config.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-bot-detector.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-bot-statistics-database.php';
+
+/**
+ * Is $method actually available on $class in this process right now?
+ *
+ * A partially updated install can leave a newer copy of one plugin file beside
+ * an older copy of another — stale opcache bytecode for a single file is enough.
+ * class_exists() is satisfied by the older copy, and calling a method it does
+ * not declare is a fatal. Everything in this file runs on the front end, so that
+ * fatal is a white screen on every page view rather than a degraded feature.
+ *
+ * Defined here rather than pulled from a shared utility class on purpose: a
+ * helper loaded from another file could itself be the stale one.
+ *
+ * $class and $method are parameters rather than literals at the call site so the
+ * check survives static analysis, which would otherwise narrow a literal
+ * method_exists() on a known class to a constant true — the skew this guards
+ * against exists only at runtime.
+ *
+ * @param string $class  Class about to be called.
+ * @param string $method Method about to be called on it.
+ * @return bool
+ */
+function metasync_otto_class_provides($class, $method) {
+    return class_exists($class) && method_exists($class, $method);
+}
 
 # OPTIMIZED: get the metasync options (cached in static class)
 $metasync_options = Metasync_Otto_Config::get_options();
@@ -70,6 +96,47 @@ add_action('wp_head', function(){
 }, 1); # Priority 1 to output early in head
 
 /**
+ * Scheduling seam for the OTTO pipeline.
+ *
+ * wp_schedule_single_event() returns false on failure and the old pipeline
+ * ignored it, so a broken cron table acknowledged URLs that were never
+ * queued. Every schedule in this pipeline goes through this seam so the
+ * return value is honored (and tests can observe scheduling).
+ */
+function metasync_otto_schedule_single_event($timestamp, $hook, $args = array()) {
+    return wp_schedule_single_event($timestamp, $hook, $args) === true;
+}
+
+/**
+ * Dedupe seam: does this URL already have live per-URL work in flight?
+ *
+ * Combines the durable status store with the raw cron table so a re-delivered
+ * webhook cannot stack a second job behind a live one.
+ */
+function metasync_otto_job_already_scheduled($route) {
+    if (class_exists('Metasync_Otto_Job_Status', false)
+        && Metasync_Otto_Job_Status::has_active($route)) {
+        return true;
+    }
+    return wp_next_scheduled('metasync_process_otto_crawl_url_job', array($route)) !== false;
+}
+
+/**
+ * Cron-table dedupe seam: does a per-URL cron event already exist for this URL?
+ *
+ * The pending-queue drainer must dedupe against the scheduler table only.
+ * Every URL it takes off the durable queue carries a fresh webhook
+ * accepted/batch_overflow ledger row; that row exists so a re-delivered
+ * webhook cannot stack a second job behind live work, and consulting it
+ * from the drainer — after take_pending() has already removed the URL
+ * from the queue — silently dropped every overflow URL instead of
+ * draining it. Only a real, still-pending cron event may veto here.
+ */
+function metasync_otto_job_event_pending($route) {
+    return wp_next_scheduled('metasync_process_otto_crawl_url_job', array($route)) !== false;
+}
+
+/**
  * Start end point to handle requests on page updates
  * The Otto Crawler will call this end point once a page is updated
  **/
@@ -106,26 +173,23 @@ function metasync_otto_crawl_notify($request){
 
     # Defer the expensive per-URL work (OTTO API fetch, post meta sync,
     # per-URL cache purge) to background jobs. The webhook caller enforces a
-    # strict response-time budget; doing this work inline previously blocked
-    # the response for up to 30s × N URLs and timed the caller out.
-    # Each URL gets its own scheduled event so failures are isolated.
+    # strict response-time budget, so the response acknowledges SCHEDULING,
+    # never execution. The per-URL status store records what actually
+    # happened to each URL once the jobs run.
     #
-    # Cap the number of per-URL cron jobs scheduled per webhook batch.
-    # Large crawl batches (100+ URLs) previously created hundreds of cron events
-    # that overwhelmed WP-Cron on shared/managed hosts like WP Engine. Excess
-    # URLs beyond the cap are silently skipped — OTTO will re-crawl them on the
-    # next webhook cycle.
+    # Cap the number of per-URL cron jobs scheduled per webhook batch so a
+    # large crawl cannot overwhelm WP-Cron on shared hosts. URLs past the cap
+    # are queued durably and worked off by a self-rescheduling drainer job —
+    # never silently dropped.
     $max_jobs_per_batch = defined('METASYNC_MAX_JOBS_PER_BATCH') ? METASYNC_MAX_JOBS_PER_BATCH : 25;
     $now = time();
     $routes_to_process = array();
-    $scheduled_count = 0;
+    $accepted = 0;
+    $deferred = 0;
+    $rejected = 0;
+    $scheduled_this_batch = 0;
 
     foreach($data['urls'] AS $key => $url){
-        # Enforce per-batch cap to prevent cron overload
-        if ($scheduled_count >= $max_jobs_per_batch) {
-            break;
-        }
-
         # prepare the route
         $route = $data['domain'] . $url;
 
@@ -146,53 +210,88 @@ function metasync_otto_crawl_notify($request){
             continue;
         }
 
+        # Every valid URL belongs to the batched cache-purge set even when its
+        # per-URL meta-sync job is deduped or deferred: the crawler hit all of
+        # them, so the caches for all of them must be refreshed.
+        $routes_to_process[] = $route;
+
+        # Duplicate delivery: an active job already owns this URL. Idempotent
+        # no-op — not re-scheduled, not queued, not counted as new work.
+        if (metasync_otto_job_already_scheduled($route)) {
+            continue;
+        }
+
+        if ($scheduled_this_batch >= $max_jobs_per_batch) {
+            # Batch overflow: queue durably for the drainer instead of dropping.
+            if (Metasync_Otto_Job_Status::enqueue_pending($route)) {
+                Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_ACCEPTED, 'queue', 0, 'batch_overflow');
+                $deferred++;
+            } else {
+                $rejected++;
+            }
+            continue;
+        }
+
         # Queue the per-URL processing for background execution. The handler
         # (metasync_handle_otto_crawl_url_job) performs transient warming,
         # SEO meta sync, and per-URL host cache purge.
         # Offset each event by $key seconds to avoid wp_schedule_single_event()
         # silently dropping duplicates when timestamp + hook + args collide.
-        wp_schedule_single_event($now + $key, 'metasync_process_otto_crawl_url_job', array($route));
-
-        $routes_to_process[] = $route;
-        $scheduled_count++;
+        # A false return means cron refused the event — fall back to the
+        # durable queue rather than acknowledging a URL nobody will process.
+        if (metasync_otto_schedule_single_event($now + $key, 'metasync_process_otto_crawl_url_job', array($route))) {
+            Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_ACCEPTED, 'queue', 0, '');
+            $accepted++;
+            $scheduled_this_batch++;
+        } elseif (Metasync_Otto_Job_Status::enqueue_pending($route)) {
+            Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_ACCEPTED, 'queue', 0, 'cron_refused');
+            $deferred++;
+        } else {
+            $rejected++;
+        }
     }
 
-    # Schedule a single batch job for cache warming and edge CDN purge.
-    # These operations benefit from batching: warm_urls() uses concurrent
-    # fire-and-forget requests, and edge providers (Cloudflare, Fastly)
-    # support multi-URL purge in a single API call.
+    # Schedule a single batch job for the edge CDN purge.
+    # The batch waits for per-URL stragglers (retries) before purging, so a
+    # retried URL's fresh content is what reaches the edge. Multi-URL purge
+    # in a single API call keeps edge-provider request counts low.
     if (!empty($routes_to_process)) {
         $batch_time = $now + count($data['urls']) + 5; // run after all per-URL jobs
-        wp_schedule_single_event($batch_time, 'metasync_process_otto_batch_cache_job', array($routes_to_process));
+        metasync_otto_schedule_single_event($batch_time, 'metasync_process_otto_batch_cache_job', array($routes_to_process));
     }
 
-    # Track OTTO optimization event in GA4 (local, non-blocking)
-    try {
-        Metasync_GA4::get_instance()->track_otto_optimization($data);
-    } catch (Exception $e) {
-        // Analytics tracking failed, continue
+    # Work off any overflow (or cron-refused URLs) from the durable queue.
+    if ($deferred > 0) {
+        metasync_otto_schedule_single_event($now + 120, 'metasync_otto_pending_drainer', array());
     }
 
-    # Return 200 immediately so the webhook caller does not time out.
+    # Return 200 immediately so the webhook caller does not time out, with an
+    # honest accounting of what happened to the batch.
     return new WP_REST_Response(array(
         'success' => true,
         'message' => 'OTTO crawl notification received',
+        'accepted' => $accepted,
+        'deferred' => $deferred,
+        'rejected' => $rejected,
     ), 200);
 }
 
 /**
  * Background handler for a single OTTO crawl-notify URL.
  *
- * Runs the per-URL sequence that was previously inline in metasync_otto_crawl_notify():
- * warm the OTTO transient cache, sync SEO post meta, and clear the per-URL host cache.
+ * Pipeline per URL:
+ *   1. Warm the OTTO transient cache — this is the ONE live API call the job
+ *      makes; the warmed suggestions are handed to the meta sync so the
+ *      endpoint is never fetched twice per URL.
+ *   2. Sync SEO post meta (metasync_process_otto_seo_data) and branch on its
+ *      outcome: only SUCCESS / NO_CHANGE reach the purge step.
+ *   3. Clear the per-URL host cache and re-warm it.
  *
- * Cache warming and edge CDN purge are handled separately by
- * metasync_handle_otto_batch_cache_job() in a single batched event, because
- * those operations benefit from multi-URL batching (fewer API calls).
- *
- * On failure, retries up to METASYNC_OTTO_JOB_MAX_RETRIES times with 60s backoff.
- * After all retries are exhausted the failure is recorded via
- * metasync_record_failed_action() for surfacing in Site Health.
+ * Retryable outcomes (API timeout / 5xx / 429 / lock contention / CPU deferral)
+ * retry with exponential backoff up to METASYNC_OTTO_JOB_MAX_RETRIES; the
+ * exhaustion event is recorded via metasync_record_failed_action() for
+ * Site Health. Permanent outcomes (not connected, excluded/404 URL, API auth
+ * or input error) never retry and never purge.
  *
  * @param string $route       Fully-qualified URL to process.
  * @param int    $retry_count Current retry attempt (0 = first run).
@@ -207,54 +306,125 @@ function metasync_handle_otto_crawl_url_job($route = '', $retry_count = 0) {
         return;
     }
 
+    $max_retries = defined('METASYNC_OTTO_JOB_MAX_RETRIES') ? METASYNC_OTTO_JOB_MAX_RETRIES : 3;
+
+    # Shared retry/terminal bookkeeping so every failure path stays consistent.
+    $schedule_retry = function ($reason) use ($route, $retry_count, $max_retries) {
+        if ($retry_count < $max_retries) {
+            # Exponential backoff (60s, 120s, 240s) plus jitter so a batch of
+            # failures cannot stampede the API on the same tick.
+            $delay = 60 * pow(2, $retry_count) + wp_rand(0, 15);
+            $scheduled = metasync_otto_schedule_single_event(time() + $delay, 'metasync_process_otto_crawl_url_job', array($route, $retry_count + 1));
+            if (!$scheduled && Metasync_Otto_Job_Status::enqueue_pending($route)) {
+                Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_ACCEPTED, 'queue', $retry_count + 1, $reason . '/cron_refused');
+            } else {
+                Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_RETRYING, 'job', $retry_count + 1, $reason);
+            }
+            error_log('MetaSync OTTO: retrying crawl-url job for ' . $route . ' (attempt ' . ($retry_count + 1) . '/' . $max_retries . ') reason=' . $reason . ' in ' . $delay . 's');
+        } else {
+            metasync_record_failed_action('metasync_process_otto_crawl_url_job');
+            Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_FAILED, 'job', $retry_count, 'exhausted:' . $reason);
+            error_log('MetaSync OTTO: background crawl-url job permanently failed for ' . $route . ' after ' . $max_retries . ' retries, last reason=' . $reason);
+        }
+    };
+
     try {
-        # Step 1: Warm OTTO transient cache (fetch fresh suggestions from OTTO API into WP transient)
+        # Not connected: retrying cannot help, and there is nothing to purge.
         $otto_uuid = Metasync_Otto_Config::get_otto_uuid();
-        if (!empty($otto_uuid)) {
-            $transient_cache = new Metasync_Otto_Transient_Cache($otto_uuid);
-            $transient_cache->warm_cache($route);
+        # A corrupted option row can hold a non-string UUID; the docblock
+        # contract alone does not enforce that at runtime.
+        # @phpstan-ignore-next-line function.alreadyNarrowedType
+        if (!is_string($otto_uuid) || $otto_uuid === '') {
+            Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_FAILED, 'job', $retry_count, 'not_connected');
+            return;
+        }
+
+        # Step 1: Warm OTTO transient cache (fetch fresh suggestions from OTTO
+        # API into WP transient — the rate limiter, circuit breaker, and
+        # request lock all live inside this call).
+        $transient_cache = new Metasync_Otto_Transient_Cache($otto_uuid);
+        $warmed = $transient_cache->warm_cache($route);
+        if ($warmed === false) {
+            # A 4xx refusal (bad key, revoked project) is permanent: retrying
+            # cannot change the answer, so fail fast instead of burning the
+            # attempt budget on warm calls that will keep being rejected.
+            if ($transient_cache->last_failure_is_permanent()) {
+                metasync_record_failed_action('metasync_process_otto_crawl_url_job');
+                Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_FAILED, 'job', $retry_count, 'permanent:warm_rejected');
+                error_log('MetaSync OTTO: crawl-url job failed permanently for ' . $route . ' (warm request rejected by the API)');
+                return;
+            }
+            # Transient API failure (timeout / 5xx / breaker open). No meta
+            # write, no purge — straight to the retry path.
+            $schedule_retry('warm_failed');
+            return;
         }
 
         # Step 2: Write SEO post meta synchronously BEFORE the cache purge.
-        # This ensures the DB is fully up-to-date when Kinsta (or any host) re-populates
-        # the cache on the very next request — eliminating the race condition where the
-        # 1-second scheduled job hadn't run yet and stale meta got cached.
-        # allow_defer=false: do NOT reschedule a new metasync_process_seo_job cron
-        # event from this synchronous path — the crawl_url_job retry mechanism already
-        # handles failures, and rescheduling here caused an unbounded cron pile-up.
-        metasync_process_otto_seo_data($route, false);
+        # This ensures the DB is fully up-to-date when the host re-populates
+        # the cache on the very next request. The warmed suggestions are
+        # passed through so the sync makes NO second API call.
+        # allow_defer=false: the crawl_url_job retry mechanism owns failure
+        # handling here; letting the sync self-reschedule caused an
+        # unbounded cron pile-up.
+        # warm_cache() may hand back a non-array truthy on contract drift;
+        # the sync treats that as "no prefetched suggestions".
+        # @phpstan-ignore-next-line function.alreadyNarrowedType
+        $prefetched = is_array($warmed) ? $warmed : null;
+        $outcome = metasync_process_otto_seo_data($route, false, 0, $prefetched);
 
-        # Step 3: Clear the per-URL cache entry
+        if ($outcome === Metasync_Otto_Job_Status::OUTCOME_RETRYABLE
+            || $outcome === Metasync_Otto_Job_Status::OUTCOME_DEFERRED) {
+            $schedule_retry('outcome_' . $outcome);
+            return;
+        }
+
+        if ($outcome !== Metasync_Otto_Job_Status::OUTCOME_SUCCESS
+            && $outcome !== Metasync_Otto_Job_Status::OUTCOME_NO_CHANGE) {
+            # Permanent failure: no retry, no purge — caches must keep serving
+            # the last good content.
+            Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_FAILED, 'meta', $retry_count, 'permanent:' . $outcome);
+            return;
+        }
+
+        # Step 3: meta is current (changed or confirmed unchanged) — clear the
+        # per-URL host cache entry and re-warm it so OTTO-modified output is
+        # what gets stored.
         $otto_pixel = new Metasync_otto_pixel(false);
         $otto_pixel->refresh_cache($route);
         Metasync_Cache_Purge::purge_single_url($route);
+        Metasync_Cache_Purge::warm_urls(array($route));
+
+        # A URL that completed on a retry missed its batch's edge purge (the
+        # batch only waits so long). Late completers purge the edge themselves.
+        if ($retry_count > 0) {
+            Metasync_Edge_Cache_Purge::purge(array($route));
+        }
+
+        Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_COMPLETED, 'job', $retry_count, $outcome);
 
     } catch (Exception $e) {
-        $max_retries = defined('METASYNC_OTTO_JOB_MAX_RETRIES') ? METASYNC_OTTO_JOB_MAX_RETRIES : 3;
-
-        if ($retry_count < $max_retries) {
-            # Schedule a retry with exponential backoff: 60s, 120s, 240s
-            $delay = 60 * pow(2, $retry_count);
-            wp_schedule_single_event(time() + $delay, 'metasync_process_otto_crawl_url_job', array($route, $retry_count + 1));
-            error_log('MetaSync OTTO: retrying crawl-url job for ' . $route . ' (attempt ' . ($retry_count + 1) . '/' . $max_retries . ') in ' . $delay . 's: ' . $e->getMessage());
-        } else {
-            metasync_record_failed_action('metasync_process_otto_crawl_url_job');
-            error_log('MetaSync OTTO: background crawl-url job permanently failed for ' . $route . ' after ' . $max_retries . ' retries: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-        }
+        $schedule_retry('exception:' . $e->getMessage());
     }
 }
 
 /**
- * Batch handler for cache warming and edge CDN purge.
+ * Batch handler for the edge CDN purge.
  *
- * Runs after all per-URL jobs have had time to complete. Batching these
- * operations avoids N separate API calls to edge providers (Cloudflare
- * supports up to 30 tags per request) and lets warm_urls() issue concurrent
- * fire-and-forget requests.
+ * Runs after all per-URL jobs have had time to complete. Per-URL host caches
+ * are cleared and re-warmed by the individual jobs; this batched event only
+ * handles the edge CDN purge, which benefits from multi-URL API calls
+ * (Cloudflare, Fastly, Akamai, Sucuri, Sevella, etc.).
  *
- * @param array $routes List of fully-qualified URLs to warm and purge.
+ * URLs still retrying are stragglers: the batch waits (up to
+ * METASYNC_OTTO_BATCH_MAX_WAITS reschedules 60s apart) so their freshly
+ * synced content — not stale content — reaches the edge. URLs that complete
+ * after the wait budget purge the edge themselves from the retry path.
+ *
+ * @param array $routes     List of fully-qualified URLs in this batch.
+ * @param int   $wait_count How many times this batch has already waited.
  */
-function metasync_handle_otto_batch_cache_job($routes = array()) {
+function metasync_handle_otto_batch_cache_job($routes = array(), $wait_count = 0) {
     // WP-Cron events persist independently of plugin code. A stale or malformed
     // event may therefore invoke this callback without its required route list.
     // Docblock type isn't enforced at runtime; a stale cron record can pass a non-array.
@@ -264,19 +434,92 @@ function metasync_handle_otto_batch_cache_job($routes = array()) {
         return;
     }
 
-    try {
-        # Re-populate the cache so OTTO-modified output is what gets stored.
-        # Per-URL host cache was already cleared by individual jobs.
-        # warm_urls() hits each URL with a non-blocking request so our code —
-        # with fresh transients and post meta — is first to populate the host cache.
-        Metasync_Cache_Purge::warm_urls($routes);
+    $max_waits = defined('METASYNC_OTTO_BATCH_MAX_WAITS') ? METASYNC_OTTO_BATCH_MAX_WAITS : 3;
+    // Docblock type isn't enforced at runtime; a stale cron record can pass a non-numeric.
+    // @phpstan-ignore-next-line function.alreadyNarrowedType
+    $wait_count = is_numeric($wait_count) ? (int) $wait_count : 0;
 
+    # Split the batch: terminally-done URLs vs. URLs with work still in
+    # flight. Unknown-state URLs (legacy events scheduled before the status
+    # store existed, or deduped duplicates whose entry expired) count as done
+    # — their per-URL job has either finished or never will, and both mean
+    # the edge purge should not stall behind them.
+    $ready = array();
+    $stragglers = 0;
+    foreach ($routes as $route) {
+        $entry = Metasync_Otto_Job_Status::get($route);
+        $state = is_array($entry) && isset($entry['state']) ? $entry['state'] : null;
+        if ($state === Metasync_Otto_Job_Status::STATE_RETRYING
+            || $state === Metasync_Otto_Job_Status::STATE_ACCEPTED) {
+            $stragglers++;
+        } else {
+            # completed / failed / unknown: nothing left to wait for.
+            $ready[] = $route;
+        }
+    }
+
+    # Still live work in the batch and wait budget left: hold the edge purge.
+    if ($stragglers > 0 && $wait_count < $max_waits) {
+        metasync_otto_schedule_single_event(time() + 60, 'metasync_process_otto_batch_cache_job', array($routes, $wait_count + 1));
+        return;
+    }
+
+    if (empty($ready)) {
+        return;
+    }
+
+    try {
         # Purge edge CDN caches (Cloudflare, Fastly, Akamai, Sucuri, Sevalla, etc.)
         # Tag-based providers purge only the affected posts; full-flush providers fire once per batch.
-        Metasync_Edge_Cache_Purge::purge($routes);
+        Metasync_Edge_Cache_Purge::purge($ready);
     } catch (Exception $e) {
         metasync_record_failed_action('metasync_process_otto_batch_cache_job');
-        error_log('MetaSync OTTO: batch cache job failed for ' . count($routes) . ' URLs: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        error_log('MetaSync OTTO: batch cache job failed for ' . count($ready) . ' URLs: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    }
+}
+
+/**
+ * Drainer: work off URLs that could not be scheduled inline (batch overflow
+ * or a cron that refused the event) from the durable pending queue.
+ *
+ * Processes at most 25 URLs per run to stay friendly to WP-Cron, schedules
+ * the same batched edge purge as the webhook path for the chunk it handled,
+ * and reschedules itself while the queue is non-empty. URLs it takes off
+ * the queue are scheduled unconditionally unless a real cron event already
+ * exists for them — the webhook's overflow bookkeeping must never veto,
+ * because by then the URL has already left the durable queue.
+ */
+function metasync_handle_otto_pending_drainer() {
+    $chunk = Metasync_Otto_Job_Status::take_pending(25);
+    if (empty($chunk)) {
+        return;
+    }
+
+    $now = time();
+    $scheduled = 0;
+    foreach ($chunk as $key => $route) {
+        # This run owns the chunk: take_pending() already removed these URLs
+        # from the durable queue, so skipping here would drop them. Only a
+        # real cron event vetoes — the webhook's overflow ledger row must
+        # not (see metasync_otto_job_event_pending).
+        if (metasync_otto_job_event_pending($route)) {
+            continue;
+        }
+        if (metasync_otto_schedule_single_event($now + $key, 'metasync_process_otto_crawl_url_job', array($route))) {
+            Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_ACCEPTED, 'drain', 0, '');
+            $scheduled++;
+        } else {
+            # Cron still refusing: put it back at the end of the queue.
+            Metasync_Otto_Job_Status::enqueue_pending($route);
+        }
+    }
+
+    if ($scheduled > 0) {
+        metasync_otto_schedule_single_event($now + count($chunk) + 5, 'metasync_process_otto_batch_cache_job', array($chunk));
+    }
+
+    if (Metasync_Otto_Job_Status::pending_count() > 0) {
+        metasync_otto_schedule_single_event($now + 60, 'metasync_otto_pending_drainer', array());
     }
 }
 
@@ -387,6 +630,22 @@ function metasync_start_otto(){
     # issue GET; POST/PUT/etc. are form or cart submissions that must pass
     # through untouched. (OTTO's own internal fetches use GET.)
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+        return;
+    }
+
+    # Never run OTTO on WordPress core draft/pending previews
+    # (?p=<ID>&preview=true, with preview_id/preview_nonce on the full link).
+    # Previews are per-user, non-cacheable, and routed purely by query string —
+    # and OTTO's route identity ignores the query string, so a processed preview
+    # is answered with the route's public page (the homepage for /?p=…) instead
+    # of the draft the editor asked for. Skip early and let WP render it.
+    if (
+        (isset($_GET['preview']) && $_GET['preview'] === 'true') ||
+        !empty($_GET['preview_id'])
+    ) {
+        if (!defined('DONOTCACHEPAGE')) {
+            define('DONOTCACHEPAGE', true);
+        }
         return;
     }
 
@@ -535,10 +794,12 @@ function metasync_start_otto(){
     }
 
     # Protocol paths and static assets that are never OTTO-able content.
-    # class_exists guard matches how this function treats the render strategy
-    # further down: if the class is missing we fail open and let the request
-    # proceed rather than fatal.
-    if (class_exists('Metasync_Otto_Render_Strategy')
+    # The guard fails open — if the strategy is unavailable we let the request
+    # proceed rather than fatal. metasync_otto_class_provides() rather than a
+    # bare class_exists(): a partially updated install can leave an older copy of
+    # the strategy class loaded that predates is_non_content_path(), which
+    # satisfies class_exists() and then fatals on every front-end request.
+    if (metasync_otto_class_provides('Metasync_Otto_Render_Strategy', 'is_non_content_path')
         && Metasync_Otto_Render_Strategy::is_non_content_path($request_path)) {
         return;
     }
@@ -552,14 +813,24 @@ function metasync_start_otto(){
         $bot_detector->push_crawl_log_to_sa( $detection, $current_url );
     }
 
-    # Throttle OTTO rendering for non-search-engine bots: at most one render
-    # per URL+bot every 5 minutes. Humans and verified search engines
-    # (Googlebot, Bingbot, etc.) are never throttled — their hits always get
-    # full OTTO content so indexing remains current. SEO tools, AI scrapers,
-    # uptime monitors, and unverified crawlers are de-duplicated so repeat
-    # hits don't re-trigger the expensive DOM-rewriting path.
+    # Throttle OTTO rendering for bots that are not exempt: at most one render
+    # per URL+bot every 5 minutes. Humans, search engines (Googlebot, Bingbot,
+    # Yahoo's Slurp, Sogou, Exabot, Applebot, ...), host cache warmers and
+    # synthetic performance auditors are never throttled — their hits always get
+    # full OTTO content, so indexing stays current, the page cache can actually
+    # be filled, and audit tools measure what a real visitor sees. SEO tools,
+    # social crawlers, archivers, AI scrapers, uptime monitors and unrecognized
+    # crawlers are de-duplicated so repeat hits don't re-trigger the expensive
+    # DOM-rewriting path.
+    #
+    # Two complementary gates, deliberately kept separate:
+    #   - is_unthrottled_category() consults the classifier's explicit per-bot
+    #     category map, so the exempt set is defined in exactly one place.
+    #   - metasync_otto_is_unthrottled_infrastructure_agent() matches the raw
+    #     user-agent (plus a query marker and a site filter), which catches
+    #     preload agents that have no entry in the map at all.
     if ( $detection['is_bot']
-        && $detection['bot_type'] !== 'search_engine'
+        && ! Metasync_Otto_Bot_Detector::is_unthrottled_category( $detection['bot_type'] )
         && ! metasync_otto_is_unthrottled_infrastructure_agent( $detection ) ) {
         $normalized_url = strtok( $current_url, '?' );
         if ( $normalized_url === false ) {
@@ -1384,12 +1655,18 @@ add_action('wp', 'metasync_start_otto');
 
   # ENHANCED OTTO SEO INTEGRATION
   # Register async SEO processing hook
-  add_action('metasync_process_seo_job', 'metasync_process_otto_seo_data', 10, 3);
+  add_action('metasync_process_seo_job', 'metasync_process_otto_seo_data', 10, 4);
   add_action('metasync_process_otto_crawl_url_job', 'metasync_handle_otto_crawl_url_job', 10, 2);
-  add_action('metasync_process_otto_batch_cache_job', 'metasync_handle_otto_batch_cache_job');
+  add_action('metasync_process_otto_batch_cache_job', 'metasync_handle_otto_batch_cache_job', 10, 2);
+  add_action('metasync_otto_pending_drainer', 'metasync_handle_otto_pending_drainer');
 
   # Process OTTO SEO data and update WordPress meta fields for SEO plugins
   # This function now runs asynchronously via WordPress cron system
+  #
+  # Returns one of the Metasync_Otto_Job_Status::OUTCOME_* strings so callers
+  # can distinguish success, confirmed no-change, retryable failure, permanent
+  # failure, and CPU deferral — a bare boolean cannot drive correct retry and
+  # purge decisions.
   #
   # @param string $route         Fully-qualified URL to process.
   # @param bool   $allow_defer   When false, skip CPU-deferral rescheduling (used when
@@ -1397,8 +1674,12 @@ add_action('wp', 'metasync_start_otto');
   #                               mechanism already handles failures).
   # @param int    $deferral_count How many times this job has already been deferred for
   #                               CPU load. Prevents infinite reschedule loops.
+  # @param array|null $prefetched_seo_data Suggestions already fetched by the transient
+  #                               warm step. When an array it is used as-is so the job
+  #                               makes exactly ONE API call per URL; the endpoint is
+  #                               only fetched here when no prefetch was provided.
 
-function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_count = 0) {
+function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_count = 0, $prefetched_seo_data = null) {
     # Maximum number of times a job can be deferred before it is dropped.
     $max_deferrals = defined('METASYNC_SEO_JOB_MAX_DEFERRALS') ? METASYNC_SEO_JOB_MAX_DEFERRALS : 5;
     $lock_key      = null;
@@ -1407,7 +1688,7 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
     try {
         # Validate input
         if (empty($route) || !is_string($route)) {
-            return false;
+            return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
         }
 
         # CPU load check — defer if server is under load.
@@ -1418,12 +1699,12 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
         if (!Metasync_CPU_Monitor::is_load_safe()) {
             if ($allow_defer) {
                 if ($deferral_count < $max_deferrals) {
-                    wp_schedule_single_event(
+                    metasync_otto_schedule_single_event(
                         time() + 60,
                         'metasync_process_seo_job',
                         array($route, true, $deferral_count + 1)
                     );
-                    return false;
+                    return Metasync_Otto_Job_Status::OUTCOME_DEFERRED;
                 }
                 # deferral budget exhausted — RUN the job late instead
                 # of dropping it. The write is idempotent and bounded, and a
@@ -1431,9 +1712,10 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                 # arrives. No new cron events are created, so the
                 # anti-pile-up guarantee is preserved. Fall through.
             } else {
-                # allow_defer=false (sync path): return false without creating
-                # cron events — OTTO's next crawl re-triggers this URL.
-                return false;
+                # allow_defer=false (sync path): report retryable without creating
+                # cron events — the crawl-url job's retry mechanism (or OTTO's
+                # next crawl) re-triggers this URL.
+                return Metasync_Otto_Job_Status::OUTCOME_RETRYABLE;
             }
         }
 
@@ -1444,13 +1726,13 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
         $lock_key = 'metasync_seo_lock_' . md5($route);
         if (get_transient($lock_key) !== false) {
             if ($allow_defer && $deferral_count < $max_deferrals) {
-                wp_schedule_single_event(
+                metasync_otto_schedule_single_event(
                     time() + 30,
                     'metasync_process_seo_job',
                     array($route, true, $deferral_count + 1)
                 );
             }
-            return false;
+            return Metasync_Otto_Job_Status::OUTCOME_RETRYABLE;
         }
         set_transient($lock_key, true, 120);
         $lock_acquired = true;
@@ -1461,14 +1743,14 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
         # Skip excluded URLs - don't process SEO data for them
         if (metasync_is_otto_url_excluded($route)) {
             //error_log('MetaSync OTTO: Skipping SEO processing for excluded URL: ' . $route);
-            return false;
+            return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
         }
 
         # Pre-flight 404 check: exclude URLs that would return 404 before making API call
         if (!metasync_otto_is_url_available($route)) {
             error_log("MetaSync OTTO: Skipping SEO processing for URL that would return 404: {$route}");
             metasync_otto_auto_exclude_404_url($route);
-            return false;
+            return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
         }
 
         # Get OTTO UUID from settings
@@ -1476,17 +1758,33 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
         $otto_uuid = Metasync_Otto_Config::get_otto_uuid();
 
         if (empty($otto_uuid)) {
-            return false;
+            return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
         }
 
         # Meta descriptions are always enabled by default - no check needed
 
-        # Fetch SEO data from OTTO API
-        $seo_data = metasync_fetch_otto_seo_data($route, $otto_uuid);
-
-        if (!$seo_data) {
-            metasync_record_failed_action( 'metasync_process_seo_job' );
-            return false;
+        # Obtain the OTTO suggestions for this URL. When the caller already
+        # warmed the transient cache (crawl-url job), those suggestions are
+        # handed in and NO second API call is made — the endpoint, rate
+        # limiter, and breaker are only hit once per URL.
+        # An empty array is a legitimate answer ("OTTO holds nothing for this
+        # URL") and must not be treated as a fetch failure; only a strict
+        # false from the fetcher is a failure.
+        if (is_array($prefetched_seo_data)) {
+            $seo_data = $prefetched_seo_data;
+        } else {
+            $failure_class = null;
+            $seo_data = metasync_fetch_otto_seo_data($route, $otto_uuid, $failure_class);
+            if ($seo_data === false) {
+                if ($failure_class === Metasync_Otto_Job_Status::OUTCOME_PERMANENT) {
+                    # Auth/input-level rejection from the API — retrying the
+                    # same request cannot help.
+                    return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
+                }
+                # Timeout / 5xx / 429 / empty body / bad JSON: retryable.
+                metasync_record_failed_action( 'metasync_process_seo_job' );
+                return Metasync_Otto_Job_Status::OUTCOME_RETRYABLE;
+            }
         }
 
         # Mark this URL as crawled by OTTO for SSR
@@ -1567,7 +1865,7 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                     if (metasync_would_term_return_404($category->term_id, 'category', $route)) {
                         error_log("MetaSync OTTO: Skipping SEO processing for category that would return 404: {$route} (Category ID: {$category->term_id})");
                         metasync_otto_auto_exclude_404_url($route);
-                        return false;
+                        return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
                     }
                     
                     # Update comprehensive category SEO meta fields
@@ -1649,10 +1947,10 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                             }
                         }
 
-                        return true;
+                        return Metasync_Otto_Job_Status::OUTCOME_SUCCESS;
                     }
 
-                    return false;
+                    return Metasync_Otto_Job_Status::OUTCOME_NO_CHANGE;
                 }
             }
 
@@ -1667,7 +1965,7 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                     if (metasync_would_term_return_404($term->term_id, 'product_cat', $route)) {
                         error_log("MetaSync OTTO: Skipping SEO processing for product category that would return 404: {$route} (Term ID: {$term->term_id})");
                         metasync_otto_auto_exclude_404_url($route);
-                        return false;
+                        return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
                     }
                     
                     # Update comprehensive taxonomy SEO meta fields
@@ -1750,10 +2048,10 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                             }
                         }
                         
-                        return true;
+                        return Metasync_Otto_Job_Status::OUTCOME_SUCCESS;
                     }
                     
-                    return false;
+                    return Metasync_Otto_Job_Status::OUTCOME_NO_CHANGE;
                 }
             }
             
@@ -1778,7 +2076,7 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                     if (metasync_would_page_return_404($home_page->ID, $route)) {
                         error_log("MetaSync OTTO: Skipping SEO processing for home page that would return 404: {$route} (Post ID: {$home_page->ID}, Status: {$home_page->post_status})");
                         metasync_otto_auto_exclude_404_url($route);
-                        return false;
+                        return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
                     }
                     
                     # Update comprehensive home page SEO meta fields
@@ -1862,10 +2160,10 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                             }
                         }
                         
-                        return true;
+                        return Metasync_Otto_Job_Status::OUTCOME_SUCCESS;
                     }
                     
-                    return false;
+                    return Metasync_Otto_Job_Status::OUTCOME_NO_CHANGE;
                 }
             }
 
@@ -1880,7 +2178,7 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                     if (metasync_would_page_return_404($posts_page->ID, $route)) {
                         error_log("MetaSync OTTO: Skipping SEO processing for blog page that would return 404: {$route} (Post ID: {$posts_page->ID}, Status: {$posts_page->post_status})");
                         metasync_otto_auto_exclude_404_url($route);
-                        return false;
+                        return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
                     }
 
                     # Update comprehensive blog page SEO meta fields
@@ -1964,10 +2262,10 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                             }
                         }
 
-                        return true;
+                        return Metasync_Otto_Job_Status::OUTCOME_SUCCESS;
                     }
 
-                    return false;
+                    return Metasync_Otto_Job_Status::OUTCOME_NO_CHANGE;
                 }
             }
 
@@ -1977,7 +2275,7 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                 error_log("MetaSync OTTO: Skipping SEO processing for URL that would return 404 (no matching entity): {$route}");
                 metasync_otto_auto_exclude_404_url($route);
             }
-            return false;
+            return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
         }
         
         # Verify this is actually a post, page, or WooCommerce product
@@ -1988,14 +2286,14 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
 
         if (!$post || !in_array($post->post_type, $supported_post_types)) {
             # Skip unsupported post types
-            return false;
+            return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
         }
 
         # Check if page would return 404 before applying OTTO changes
         if (metasync_would_page_return_404($post_id, $route)) {
             error_log("MetaSync OTTO: Skipping SEO processing for URL that would return 404: {$route} (Post ID: {$post_id}, Status: {$post->post_status})");
             metasync_otto_auto_exclude_404_url($route);
-            return false;
+            return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
         }
 
         # Update comprehensive SEO meta fields
@@ -2079,14 +2377,14 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                 }
             }
 
-            return true;
+            return Metasync_Otto_Job_Status::OUTCOME_SUCCESS;
         }
 
-        return false;
+        return Metasync_Otto_Job_Status::OUTCOME_NO_CHANGE;
 
     } catch (Exception $e) {
         metasync_record_failed_action( 'metasync_process_seo_job' );
-        return false;
+        return Metasync_Otto_Job_Status::OUTCOME_RETRYABLE;
     } finally {
         # Release the concurrency lock only if we actually acquired it.
         # Early returns (CPU deferral, lock contention) must NOT delete a lock

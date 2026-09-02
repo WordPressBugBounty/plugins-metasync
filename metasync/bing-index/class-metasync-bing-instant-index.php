@@ -339,9 +339,105 @@ class Metasync_Bing_Instant_Index
 
 		header('Content-type: application/json');
 
-		$result = $this->indexnow_api($send_url);
+		$result = $this->submit_urls_chunked($send_url);
 		wp_send_json($result);
 		wp_die();
+	}
+
+	/**
+	 * Filter a URL list down to valid IndexNow submissions for this site.
+	 *
+	 * IndexNow rejects a whole request when any URL in it is malformed or
+	 * belongs to a different host, so one stray line in the console textarea
+	 * used to sink every other URL in the batch.
+	 *
+	 * @param array $urls Raw URL list.
+	 * @return array Filtered, de-duplicated list of this site's URLs.
+	 */
+	private function filter_indexnow_urls($urls)
+	{
+		$site_host = strtolower((string) wp_parse_url(get_site_url(), PHP_URL_HOST));
+		if ('' === $site_host) {
+			return [];
+		}
+
+		$filtered = [];
+		foreach ((array) $urls as $url) {
+			$url = trim((string) $url);
+			if ('' === $url) {
+				continue;
+			}
+			$host = strtolower((string) wp_parse_url($url, PHP_URL_HOST));
+			if ($host !== $site_host) {
+				continue;
+			}
+			// Key-cast de-dupes while preserving first-seen order.
+			$filtered[$url] = $url;
+		}
+		return array_values($filtered);
+	}
+
+	/**
+	 * Submit a URL list through IndexNow, chunked to the protocol limit.
+	 *
+	 * IndexNow accepts at most 10,000 URLs per request; larger lists must be
+	 * split. URLs are first filtered to this site's host. A single chunk is
+	 * passed straight through so the existing duplicate-detection behavior
+	 * and message shapes are preserved verbatim.
+	 *
+	 * @param array $urls URLs to submit.
+	 * @return array Response data.
+	 */
+	public function submit_urls_chunked($urls)
+	{
+		$urls = $this->filter_indexnow_urls($urls);
+
+		if (empty($urls)) {
+			return [
+				'success' => false,
+				'message' => 'No valid URLs from this site found to submit.',
+			];
+		}
+
+		$chunks = array_chunk($urls, 10000);
+
+		if (1 === count($chunks)) {
+			return $this->indexnow_api($chunks[0]);
+		}
+
+		$success = true;
+		$submitted = 0;
+		$failed_messages = [];
+		foreach ($chunks as $chunk) {
+			$result = $this->indexnow_api($chunk);
+			if (!empty($result['success'])) {
+				$submitted += count($chunk);
+			} else {
+				$success = false;
+				$failed_messages[] = isset($result['message'])
+					? (string) $result['message']
+					: 'Unknown error';
+			}
+		}
+
+		if ($success) {
+			return [
+				'success' => true,
+				'message' => sprintf('Submitted %d URLs across %d IndexNow requests.', $submitted, count($chunks)),
+				'submitted' => $submitted,
+			];
+		}
+
+		return [
+			'success' => false,
+			'message' => sprintf(
+				'Submitted %d of %d URLs. Failures: %s',
+				$submitted,
+				count($urls),
+				implode(' | ', array_slice(array_unique($failed_messages), 0, 3))
+			),
+			'submitted' => $submitted,
+		];
 	}
 
 	/**
@@ -580,7 +676,13 @@ class Metasync_Bing_Instant_Index
 	 */
 	public function auto_submit_on_publish($post_id, $post, $update)
 	{
-		// Check if auto-submit is enabled
+		// Respect the Indexation Control on/off toggle: auto-submit must stay
+		// silent when the feature is disabled, mirroring the row-action gate.
+		$seo_controls = Metasync::get_option('seo_controls');
+		if (!($seo_controls['enable_binginstantindex'] ?? false)) {
+			return;
+		}
+
 		$post_types = $this->get_setting('post_types', []);
 
 		// Only submit if post type is in the enabled list and post is published
@@ -590,9 +692,70 @@ class Metasync_Bing_Instant_Index
 
 		// Get the permalink
 		$url = get_permalink($post_id);
+		if (!is_string($url) || '' === $url) {
+			return;
+		}
 
-		// Submit to IndexNow
-		$this->indexnow_api([$url]);
+		// Hand the URL to a single immediate cron event instead of submitting
+		// inline. The synchronous path ran a 30-second-timeout HTTP call with
+		// up to three retry sleeps inside save_post, so one slow IndexNow
+		// round-trip stalled the editor save (and REST writes) behind it.
+		// wp_next_scheduled guards against piling duplicates when save_post
+		// fires more than once for the same URL in quick succession.
+		if (!wp_next_scheduled('metasync_bing_indexnow_submit_event', [$url])) {
+			wp_schedule_single_event(time(), 'metasync_bing_indexnow_submit_event', [$url]);
+		}
+	}
+
+	/**
+	 * Run a scheduled IndexNow submission for one URL.
+	 *
+	 * Registered as a static hook callback: this class is only loaded (not
+	 * instantiated) on most loads, so the handler boots its own instance.
+	 * The constructor does no I/O beyond merging default settings.
+	 *
+	 * @param string $url URL to submit.
+	 * @return void
+	 */
+	public static function run_scheduled_submit($url)
+	{
+		$instance = new self();
+		$instance->submit_url_scheduled($url);
+	}
+
+	/**
+	 * Submit one URL from the scheduled event, re-checking the feature toggle.
+	 *
+	 * The toggle may have been switched off between the save_post scheduling
+	 * and the cron run; a scheduled submission must respect it exactly like
+	 * the synchronous path did.
+	 *
+	 * @param string $url URL to submit.
+	 * @return void
+	 */
+	private function submit_url_scheduled($url)
+	{
+		$seo_controls = Metasync::get_option('seo_controls');
+		if (!($seo_controls['enable_binginstantindex'] ?? false)) {
+			return;
+		}
+
+		$result = $this->submit_urls_chunked([$url]);
+		// The 15-minute duplicate-skip is an expected outcome, not a failure.
+		$is_duplicate_skip = stripos((string) ($result['message'] ?? ''), 'duplicate') !== false;
+		if (empty($result['success']) && !$is_duplicate_skip) {
+			$message = isset($result['message']) ? (string) $result['message'] : 'Unknown error';
+			if (class_exists('Metasync_Error_Logger')) {
+				Metasync_Error_Logger::log(
+					Metasync_Error_Logger::CATEGORY_NETWORK_ERROR,
+					Metasync_Error_Logger::SEVERITY_WARNING,
+					'IndexNow auto-submit failed: ' . $message,
+					['url' => $url]
+				);
+			} else {
+				error_log('MetaSync IndexNow auto-submit failed for ' . $url . ': ' . $message);
+			}
+		}
 	}
 
 	/**
@@ -626,7 +789,12 @@ class Metasync_Bing_Instant_Index
 	/**
 	 * Validate API key format.
 	 *
-	 * IndexNow API keys must be hexadecimal strings (8-128 characters).
+	 * IndexNow API keys are 8-128 character tokens. Classic keys are
+	 * hexadecimal, but the platform provisions keys in the form
+	 * "index-now-<uuid>", so hyphens and underscores must be accepted too —
+	 * the same charset the virtual key-serving path already allows. Rejecting
+	 * those shapes here aborted every submission before any HTTP call while
+	 * key verification still showed green.
 	 *
 	 * @param string $api_key The API key to validate.
 	 * @return bool True if valid, false otherwise.
@@ -639,8 +807,9 @@ class Metasync_Bing_Instant_Index
 			return false;
 		}
 
-		// Must be hexadecimal (0-9, a-f, A-F)
-		return ctype_xdigit($api_key);
+		// Hexadecimal keys (0-9, a-f, A-F) plus platform-provisioned
+		// "index-now-<uuid>" style tokens (hyphens/underscores allowed).
+		return (bool) preg_match('/^[A-Za-z0-9_-]{8,128}$/', $api_key);
 	}
 
 	/**

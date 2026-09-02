@@ -33,57 +33,130 @@ class Metasync_Otto_Bot_Detector {
     private static $instance = null;
 
     /**
-     * Common search engine bot signatures
+     * Known bot signatures, each mapped to an explicit category.
      *
-     * @var array
+     * The key is a user-agent substring matched case-insensitively; the value is
+     * the category. Every entry carries an intentional category — nothing relies
+     * on an implicit fallthrough — because the category decides whether OTTO's
+     * render throttle applies (see metasync_start_otto() in otto_pixel.php).
+     *
+     * Categories, and the policy each one encodes:
+     *
+     *   search_engine  Never throttled. A crawler that builds a search index we
+     *                  want to rank in must always receive the full OTTO output,
+     *                  or it indexes un-optimized HTML.
+     *   cache_warmer   Never throttled. Host page-cache preloaders exist purely
+     *                  to populate the cache; a throttled response also sets
+     *                  DONOTCACHEPAGE, so throttling one means the cache can
+     *                  never fill and every human visitor pays an uncached render.
+     *   perf_auditor   Never throttled. Synthetic auditors are what customers
+     *                  measure the site with, so they must see what a real
+     *                  visitor sees.
+     *   seo_tool       Throttled, deliberately. Third-party SEO crawlers do not
+     *                  feed any search index, so serving them a throttled page
+     *                  cannot affect rankings, and their crawl volume is high
+     *                  enough that exempting them would defeat the throttle.
+     *   social_media   Throttled. Share-preview crawlers read the OG/Twitter
+     *                  tags, which the throttled response still contains.
+     *   archiver       Throttled. Snapshot/AI-training crawlers do not influence
+     *                  ranking for this site.
+     *   generic        Throttled. Unrecognized or low-value crawlers.
+     *
+     * Order matters: the first substring that matches wins, so a more specific
+     * signature must precede a broader one that would also match it
+     * (e.g. 'Applebot-Extended' before 'Applebot').
+     *
+     * Note that no needle is a bare brand word. Matching on bare brands is what
+     * previously mis-sorted crawlers whose product token omits the brand name
+     * (Yahoo's 'Slurp', Sogou, Exalead's 'Exabot', Apple's 'Applebot').
+     *
+     * Reverse-DNS verification of the Googlebot/Bingbot claim is deliberately NOT
+     * performed here. detect() runs inline on every front-end request, and a
+     * reverse lookup costs a blocking DNS round trip — on a timeout, seconds —
+     * on the render-critical path, which is a worse regression than the spoofing
+     * it would prevent. Spoofing a search-engine UA only buys an attacker the
+     * unthrottled render path (more of our CPU), not content access or data, so
+     * the trade is not worth paying on every request. Doing it safely needs a
+     * cached, non-blocking resolver, which is left to dedicated work; the
+     * coarse is_bot_ip() range check remains the cheap first-pass filter.
+     *
+     * @var array<string, string> Map of user-agent substring => category.
      */
     private $common_bots = array(
-        'Googlebot',
-        'Googlebot-Image',
-        'Googlebot-News',
-        'Googlebot-Video',
-        'Google-InspectionTool',
-        'Storebot-Google',
-        'GoogleOther',
-        'Bingbot',
-        'BingPreview',
-        'Slurp',                // Yahoo
-        'DuckDuckBot',          // DuckDuckGo
-        'Baiduspider',          // Baidu
-        'YandexBot',            // Yandex
-        'Sogou',                // Sogou
-        'Exabot',               // Exalead
-        'facebot',              // Facebook
-        'ia_archiver',          // Alexa
-        'AdsBot-Google',
-        'Mediapartners-Google',
-        'APIs-Google',
-        'AhrefsBot',
-        'SemrushBot',
-        'MJ12bot',              // Majestic
-        'DotBot',               // Moz
-        'Applebot',             // Apple
-        'LinkedInBot',
-        'Twitterbot',
-        'PinterestBot',
-        'rogerbot',             // Moz
-        'Screaming Frog',
-        'SiteAuditBot',
-        'ArchiveBot',
-        'archive.org_bot',
-        'CCBot',                // Common Crawl
-        'BLEXBot',
-        'SEOkicks',
-        'Qwantify',
-        'PetalBot',             // Huawei
-        'MauiBot',
-        'AlphaBot',
-        'SiteImprove',
-        'serpstatbot',
-        'WhatWeb',
-        'ZoominfoBot',
-        'SeekportBot',
-        'DataForSeoBot'
+        // Search engines — crawlers that build an index we want to rank in.
+        'Googlebot'             => 'search_engine',
+        'Googlebot-Image'       => 'search_engine',
+        'Googlebot-News'        => 'search_engine',
+        'Googlebot-Video'       => 'search_engine',
+        'Google-InspectionTool' => 'search_engine', // Search Console live test
+        'Storebot-Google'       => 'search_engine',
+        'GoogleOther'           => 'search_engine',
+        'AdsBot-Google'         => 'search_engine',
+        'Mediapartners-Google'  => 'search_engine',
+        'APIs-Google'           => 'search_engine',
+        'Bingbot'               => 'search_engine',
+        'BingPreview'           => 'search_engine',
+        'Slurp'                 => 'search_engine', // Yahoo
+        'DuckDuckBot'           => 'search_engine', // DuckDuckGo
+        'Baiduspider'           => 'search_engine', // Baidu
+        'YandexBot'             => 'search_engine', // Yandex
+        'Sogou'                 => 'search_engine', // Sogou
+        'Exabot'                => 'search_engine', // Exalead
+        'Applebot-Extended'     => 'archiver',      // Apple AI training, not search
+        'Applebot'              => 'search_engine', // Apple (Siri/Spotlight)
+        'PetalBot'              => 'search_engine', // Huawei Petal Search
+        'Qwantify'              => 'search_engine', // Qwant
+        'SeekportBot'           => 'search_engine', // Seekport
+
+        // Cache warmers — host preloaders that populate the page cache.
+        'PageCacheBot'          => 'cache_warmer',  // WP Cloud (Desktop|Mobile)
+        'WP Rocket'             => 'cache_warmer',  // WP Rocket preload
+        'wprocket'              => 'cache_warmer',
+        'lscache_runner'        => 'cache_warmer',  // LiteSpeed Cache crawler
+        'SG Optimizer'          => 'cache_warmer',  // SiteGround
+        'sg-optimizer'          => 'cache_warmer',
+        'NitroPack'             => 'cache_warmer',
+
+        // Performance auditors — what customers measure the site with.
+        'Chrome-Lighthouse'     => 'perf_auditor',
+        'lighthouse'            => 'perf_auditor',
+        'pagespeed'             => 'perf_auditor',  // PageSpeed Insights
+        'GTmetrix'              => 'perf_auditor',
+        'WebPageTest'           => 'perf_auditor',
+        'Pingdom'               => 'perf_auditor',
+
+        // SEO tools — throttled on purpose; they feed no search index.
+        'AhrefsBot'             => 'seo_tool',
+        'SemrushBot'            => 'seo_tool',
+        'MJ12bot'               => 'seo_tool',      // Majestic
+        'DotBot'                => 'seo_tool',      // Moz
+        'rogerbot'              => 'seo_tool',      // Moz
+        'Screaming Frog'        => 'seo_tool',
+        'SiteAuditBot'          => 'seo_tool',
+        'serpstatbot'           => 'seo_tool',
+        'DataForSeoBot'         => 'seo_tool',
+        'SEOkicks'              => 'seo_tool',
+        'SiteImprove'           => 'seo_tool',
+
+        // Social media — share-preview crawlers.
+        'facebot'               => 'social_media',  // Facebook
+        'facebookexternalhit'   => 'social_media',
+        'LinkedInBot'           => 'social_media',
+        'Twitterbot'            => 'social_media',
+        'PinterestBot'          => 'social_media',
+
+        // Archivers and snapshot/AI-training crawlers.
+        'ia_archiver'           => 'archiver',      // Internet Archive / Alexa
+        'archive.org_bot'       => 'archiver',
+        'ArchiveBot'            => 'archiver',
+        'CCBot'                 => 'archiver',      // Common Crawl
+
+        // Recognized but low-value crawlers.
+        'BLEXBot'               => 'generic',
+        'MauiBot'               => 'generic',
+        'AlphaBot'              => 'generic',
+        'ZoominfoBot'           => 'generic',
+        'WhatWeb'               => 'generic',
     );
 
     /**
@@ -221,18 +294,17 @@ class Metasync_Otto_Bot_Detector {
             return $result;
         }
 
-        // Check against common bots list
-        foreach ($this->common_bots as $bot) {
-            if (stripos($user_agent, $bot) !== false) {
-                $result['is_bot'] = true;
-                $result['bot_name'] = $bot;
-                $result['bot_type'] = $this->categorize_bot($bot);
-                $result['detection_method'] = 'user_agent_match';
+        // Check against the known bot signatures.
+        $match = $this->match_bot_signature($user_agent);
+        if ($match !== null) {
+            $result['is_bot'] = true;
+            $result['bot_name'] = $match[0];
+            $result['bot_type'] = $match[1];
+            $result['detection_method'] = 'user_agent_match';
 
-                // Cache and return
-                $this->detection_cache = $result;
-                return $result;
-            }
+            // Cache and return
+            $this->detection_cache = $result;
+            return $result;
         }
 
         // Check against bot patterns
@@ -324,39 +396,78 @@ class Metasync_Otto_Bot_Detector {
     }
 
     /**
-     * Categorize bot type
+     * Find the first known bot signature contained in a user agent.
      *
-     * @param string $bot_name Bot name
-     * @return string Bot category
+     * Single source of truth for turning a user agent into a signature and a
+     * category: both detect() and categorize_bot() resolve through this method,
+     * so the two can never disagree.
+     *
+     * @param string $user_agent Raw user agent string.
+     * @return array|null array(0 => matched signature, 1 => category), or null when
+     *                    no known signature is present.
      */
-    private function categorize_bot($bot_name) {
-        $bot_lower = strtolower($bot_name);
+    private function match_bot_signature($user_agent) {
+        // categorize_bot() is public, so loose input is normalized here rather
+        // than letting a non-string reach stripos(), where passing null has been
+        // deprecated since PHP 8.1.
+        $user_agent = (string) $user_agent;
 
-        // Search engines
-        if (stripos($bot_lower, 'google') !== false) return 'search_engine';
-        if (stripos($bot_lower, 'bing') !== false) return 'search_engine';
-        if (stripos($bot_lower, 'yahoo') !== false) return 'search_engine';
-        if (stripos($bot_lower, 'yandex') !== false) return 'search_engine';
-        if (stripos($bot_lower, 'baidu') !== false) return 'search_engine';
-        if (stripos($bot_lower, 'duckduck') !== false) return 'search_engine';
+        if ($user_agent === '') {
+            return null;
+        }
 
-        // SEO tools
-        if (stripos($bot_lower, 'ahrefs') !== false) return 'seo_tool';
-        if (stripos($bot_lower, 'semrush') !== false) return 'seo_tool';
-        if (stripos($bot_lower, 'moz') !== false) return 'seo_tool';
-        if (stripos($bot_lower, 'majestic') !== false) return 'seo_tool';
-        if (stripos($bot_lower, 'screaming') !== false) return 'seo_tool';
+        foreach ($this->common_bots as $signature => $category) {
+            if (stripos($user_agent, $signature) !== false) {
+                return array($signature, $category);
+            }
+        }
 
-        // Social media
-        if (stripos($bot_lower, 'facebook') !== false) return 'social_media';
-        if (stripos($bot_lower, 'twitter') !== false) return 'social_media';
-        if (stripos($bot_lower, 'linkedin') !== false) return 'social_media';
-        if (stripos($bot_lower, 'pinterest') !== false) return 'social_media';
+        return null;
+    }
 
-        // Archive
-        if (stripos($bot_lower, 'archive') !== false) return 'archiver';
+    /**
+     * Categorize a bot from its user agent.
+     *
+     * Matching is performed against the user agent itself, using the explicit
+     * $common_bots map. It deliberately does NOT match brand names against the
+     * detected bot's name: a crawler's product token frequently omits its
+     * brand (Yahoo ships 'Slurp', Exalead 'Exabot', Apple 'Applebot'), so
+     * brand matching silently mis-sorted real search engines into the throttled
+     * bucket and served them un-optimized HTML.
+     *
+     * An unrecognized crawler is 'generic', which is throttled — the safe
+     * default, since every category that bypasses the throttle is enumerated.
+     *
+     * @param string $user_agent Raw user agent string.
+     * @return string One of: search_engine, cache_warmer, perf_auditor, seo_tool,
+     *                social_media, archiver, generic.
+     */
+    public function categorize_bot($user_agent) {
+        $match = $this->match_bot_signature($user_agent);
 
-        return 'other';
+        return $match === null ? 'generic' : $match[1];
+    }
+
+    /**
+     * Categories whose requests must never hit OTTO's render throttle.
+     *
+     * Exposed so the throttle gate in otto_pixel.php and this classifier cannot
+     * drift apart: the gate asks this method rather than hard-coding the list.
+     *
+     * @return string[] Category names exempt from the render throttle.
+     */
+    public static function get_unthrottled_categories() {
+        return array('search_engine', 'cache_warmer', 'perf_auditor');
+    }
+
+    /**
+     * Whether a detected category is exempt from OTTO's render throttle.
+     *
+     * @param string|null $bot_type Category from detect()'s 'bot_type'.
+     * @return bool True when the request must bypass the render throttle.
+     */
+    public static function is_unthrottled_category($bot_type) {
+        return in_array($bot_type, self::get_unthrottled_categories(), true);
     }
 
     /**
@@ -484,6 +595,28 @@ class Metasync_Otto_Bot_Detector {
     }
 
     /**
+     * Is $method actually available on $class in this process right now?
+     *
+     * A partially updated install can leave a newer copy of one plugin file
+     * beside an older copy of another — stale opcache bytecode for a single file
+     * is enough. class_exists() is satisfied by the older copy, and calling a
+     * method it does not declare is a fatal. This runs on the front end, so that
+     * fatal is a white screen rather than a degraded feature.
+     *
+     * $class and $method are parameters rather than literals at the call site so
+     * the check survives static analysis, which would otherwise narrow a literal
+     * method_exists() on a known class to a constant true — the skew this guards
+     * against exists only at runtime.
+     *
+     * @param string $class  Class about to be called.
+     * @param string $method Method about to be called on it.
+     * @return bool
+     */
+    private static function class_provides( $class, $method ) {
+        return class_exists( $class ) && method_exists( $class, $method );
+    }
+
+    /**
      * Push bot crawl log to SearchAtlas backend API (non-blocking fire-and-forget).
      *
      * Real search engine bots do not execute JavaScript, so the JS tracker
@@ -531,7 +664,7 @@ class Metasync_Otto_Bot_Detector {
         }
 
         // Backoff covers explicit 429/503 responses...
-        if (class_exists('Metasync_API_Backoff_Manager')
+        if (self::class_provides('Metasync_API_Backoff_Manager', 'is_endpoint_in_backoff')
             && Metasync_API_Backoff_Manager::get_instance()->is_endpoint_in_backoff($endpoint)) {
             return;
         }
@@ -539,7 +672,11 @@ class Metasync_Otto_Bot_Detector {
         // ...and the circuit breaker covers what backoff is blind to: timeouts,
         // refused connections and DNS failures. Same host, so the suggestions
         // path's breaker is authoritative for this endpoint too.
-        if (class_exists('Metasync_Otto_Transient_Cache')
+        //
+        // class_provides() rather than class_exists(): a partially updated install
+        // can leave an older copy of the cache class loaded that predates
+        // is_host_breaker_open(), and calling it would fatal on the front end.
+        if (self::class_provides('Metasync_Otto_Transient_Cache', 'is_host_breaker_open')
             && Metasync_Otto_Transient_Cache::is_host_breaker_open($endpoint)) {
             return;
         }

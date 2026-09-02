@@ -1355,14 +1355,19 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     /* Removed translateY animation - was too distracting */
 }
 
-/* Connect Status Messages - Dashboard Style */
+/* Connect Status Messages - Dashboard Style
+   The box holds two block children — .metasync-sa-connect-status-content and
+   .metasync-sa-connect-actions — so it must stack. As a row, the actions block
+   sized to its buttons while the content block (flex: 1, so flex-basis: 0) was
+   squeezed into whatever was left, wrapping the message one word per line. */
 .metasync-dashboard-wrap .metasync-sa-connect-status,
 .metasync-dashboard-wrap #sa-connect-status-message {
     margin-top: 16px;
     padding: 16px 20px;
     border-radius: 12px;
     display: flex;
-    align-items: flex-start;
+    flex-direction: column;
+    align-items: stretch;
     gap: 12px;
     font-weight: 500;
     /* Removed slideInNotice animation - was too distracting */
@@ -1620,28 +1625,37 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 
 /* Connect Status Message Content */
 .metasync-dashboard-wrap .metasync-sa-connect-status-content {
-    flex: 1;
+    /* min-width: 0 keeps a long unbroken string (a pasted URL, a UUID) from
+       setting the flex item's min-content width and re-inflating the box. */
+    flex: 0 0 auto;
+    min-width: 0;
+    /* Spacing between content and actions is the container's gap now. */
+    margin-bottom: 0;
 }
 
 .metasync-dashboard-wrap .metasync-sa-connect-status-title {
     font-weight: 600;
     font-size: 15px;
     margin-bottom: 8px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    /* Block, not flex. WordPress core's emoji script rewrites the leading
+       emoji into <img class="emoji">; as a flex container that image became a
+       flex item of its own and, under align-items: center, floated to the
+       vertical middle of a wrapped title. Inline flow keeps it on the first
+       line and wraps with the text. The title string already carries the
+       separating space, so the old gap is not needed. */
+    display: block;
 }
 
 .metasync-dashboard-wrap .metasync-sa-connect-status-message {
     font-size: 14px;
     line-height: 1.5;
     opacity: 0.9;
-    margin-bottom: 12px;
+    margin-bottom: 0;
 }
 
 /* Existing Connect Actions Container */
 .metasync-dashboard-wrap .metasync-sa-connect-actions {
-    margin-top: 16px;
+    margin-top: 0;
     display: flex;
     gap: 12px;
     flex-wrap: wrap;
@@ -1720,8 +1734,6 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     .metasync-dashboard-wrap .metasync-sa-connect-status {
         padding: 16px;
         margin-top: 12px;
-        flex-direction: column;
-        align-items: flex-start;
         gap: 8px;
     }
     

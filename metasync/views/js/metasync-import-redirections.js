@@ -15,7 +15,9 @@ jQuery(document).ready(function ($) {
     var nonce = metasyncImportRedirData.nonce;
     var redirectUrl = metasyncImportRedirData.redirectUrl;
 
-    $('.metasync-import-btn:not(:disabled)').on('click', function () {
+    // The CSV button reuses the .metasync-import-btn styling but is a file
+    // upload, so the generic plugin handler must skip it.
+    $('.metasync-import-btn:not(:disabled):not(.metasync-import-btn--csv)').on('click', function () {
         var button = $(this);
         var card = button.closest('.metasync-plugin-card');
         var plugin = button.data('plugin');
@@ -86,6 +88,85 @@ jQuery(document).ready(function ($) {
                 button.removeClass('metasync-import-btn--importing');
                 button.prop('disabled', false);
                 button.text('Import Redirections');
+
+                resultDiv.removeClass('metasync-import-result--success').addClass('metasync-import-result--error');
+                resultDiv.empty()
+                    .append($('<span>').addClass('metasync-import-result__title').text('Connection Error'))
+                    .append($('<div>').addClass('metasync-import-result__details').text('Unable to connect to server. Please check your connection and try again.'));
+                resultDiv.show();
+            }
+        });
+    });
+
+    // CSV upload — the readme-promised import path. Sends the chosen file to
+    // the same AJAX action with plugin=csv and renders the same result UI.
+    $('.metasync-import-btn--csv').on('click', function () {
+        var button = $(this);
+        var card = button.closest('.metasync-plugin-card');
+        var resultDiv = card.find('.metasync-import-result');
+        var fileInput = document.getElementById('metasync-csv-file');
+        var file = fileInput && fileInput.files && fileInput.files.length ? fileInput.files[0] : null;
+
+        if (!file) {
+            resultDiv.removeClass('metasync-import-result--success').addClass('metasync-import-result--error');
+            resultDiv.empty()
+                .append($('<span>').addClass('metasync-import-result__title').text('Choose a File'))
+                .append($('<div>').addClass('metasync-import-result__details').text('Select a .csv file to import first.'));
+            resultDiv.show();
+            return;
+        }
+
+        button.prop('disabled', true);
+        button.addClass('metasync-import-btn--importing');
+        button.html('<span class="metasync-loading-spinner"></span> Importing...');
+        resultDiv.hide();
+
+        var formData = new FormData();
+        formData.append('action', 'metasync_import_redirections');
+        formData.append('plugin', 'csv');
+        formData.append('nonce', nonce);
+        formData.append('csv_file', file);
+
+        $.ajax({
+            url: ajaxurl,
+            type: 'POST',
+            data: formData,
+            contentType: false,
+            processData: false,
+            timeout: 120000,
+            success: function (response) {
+                button.prop('disabled', false);
+                button.removeClass('metasync-import-btn--importing');
+
+                if (response && response.success) {
+                    var importedCount = response.data && response.data.imported ? parseInt(response.data.imported, 10) : 0;
+                    button.addClass('metasync-import-btn--success').text('Imported');
+
+                    resultDiv.removeClass('metasync-import-result--error').addClass('metasync-import-result--success');
+                    resultDiv.empty()
+                        .append($('<span>').addClass('metasync-import-result__title').text('Import Complete'))
+                        .append($('<div>').addClass('metasync-import-result__details').text(response.data && response.data.message ? response.data.message : 'Import finished.'));
+                    resultDiv.show();
+
+                    if (importedCount > 0) {
+                        setTimeout(function () {
+                            window.location.href = redirectUrl;
+                        }, 2000);
+                    }
+                } else {
+                    button.text('Import CSV');
+
+                    resultDiv.removeClass('metasync-import-result--success').addClass('metasync-import-result--error');
+                    resultDiv.empty()
+                        .append($('<span>').addClass('metasync-import-result__title').text('Import Failed'))
+                        .append($('<div>').addClass('metasync-import-result__details').text(response && response.data && response.data.message ? response.data.message : 'Import failed. Please try again.'));
+                    resultDiv.show();
+                }
+            },
+            error: function () {
+                button.prop('disabled', false);
+                button.removeClass('metasync-import-btn--importing');
+                button.text('Import CSV');
 
                 resultDiv.removeClass('metasync-import-result--success').addClass('metasync-import-result--error');
                 resultDiv.empty()

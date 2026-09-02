@@ -43,6 +43,15 @@ class Metasync_SEO_Conflict_Handler {
     private $aioseo_has_description_cache = null;
 
     /**
+     * Cached per-plugin robots-suppression decisions for the current
+     * request (the Rank Math main + advanced robots filters both invoke
+     * the check during wp_head).
+     *
+     * @var array<string, bool>
+     */
+    private $robots_suppress_cache = [];
+
+    /**
      * Cached result: whether the current post has been synced via.
      *
      * @var array Keyed by post_id => bool
@@ -474,6 +483,7 @@ class Metasync_SEO_Conflict_Handler {
         $this->has_description_cache = null;
         $this->aioseo_has_description_cache = null;
         $this->sync_cache = [];
+        $this->robots_suppress_cache = [];
         $this->live_suggestions_cache = null;
     }
 
@@ -775,6 +785,52 @@ class Metasync_SEO_Conflict_Handler {
     }
 
     /**
+     * Shared suppression decision for a third-party plugin's robots meta tag.
+     *
+     * Both the AIOSEO and Rank Math robots filters consult this so their
+     * behaviour stays identical by construction: MetaSync holds an
+     * intentional robots value for the current post, the post is not
+     * synced to that plugin as its primary output owner, and the current
+     * view is one where MetaSync actually emits its own robots tag.
+     *
+     * The singular guard matters on taxonomy archives: there
+     * get_current_object_id() returns a TERM id, and reading post meta
+     * with it would consult an unrelated post — suppressing the
+     * third-party tag on a page where MetaSync's replacement emitter
+     * never runs (hook_metasync_metatags() returns early off-singular),
+     * leaving the archive with no robots meta at all.
+     *
+     * @param  string $plugin_slug Plugin slug ('aioseo' or 'rankmath').
+     * @return bool True when the third-party robots tag should be removed.
+     */
+    private function should_suppress_third_party_robots($plugin_slug) {
+        if (!isset($this->robots_suppress_cache[$plugin_slug])) {
+            $this->robots_suppress_cache[$plugin_slug] = $this->compute_should_suppress_third_party_robots($plugin_slug);
+        }
+        return $this->robots_suppress_cache[$plugin_slug];
+    }
+
+    /**
+     * Uncached suppression decision; see should_suppress_third_party_robots().
+     *
+     * @param  string $plugin_slug Plugin slug ('aioseo' or 'rankmath').
+     * @return bool True when the third-party robots tag should be removed.
+     */
+    private function compute_should_suppress_third_party_robots($plugin_slug) {
+        $post_id = $this->get_current_object_id();
+        if (!$post_id || !is_singular()) {
+            return false;
+        }
+
+        // Post synced to this plugin — let it read from its own storage.
+        if ($this->is_primary_output_plugin($post_id, $plugin_slug)) {
+            return false;
+        }
+
+        return $this->metasync_has_robots($post_id);
+    }
+
+    /**
      * Filter AIOSEO robots meta output.
      *
      * When MetaSync has an intentional robots value (admin checkbox or REST API),
@@ -782,23 +838,16 @@ class Metasync_SEO_Conflict_Handler {
      * hook_metasync_metatags() will output the MetaSync value instead.
      *
      * AIOSEO passes an array like ['noindex' => 'noindex', 'nofollow' => 'nofollow'].
-     * Returning an empty array suppresses AIOSEO's robots tag entirely.
+     * Returning an empty array suppresses AIOSEO's robots tag entirely. Unlike
+     * the Rank Math path this keeps no noindex floor on non-public sites —
+     * AIOSEO's array shape for that case is not yet verified, so the floor is
+     * deliberately Rank Math-only until it can be confirmed against AIOSEO.
      *
      * @param  array $robots AIOSEO's computed robots attributes array.
      * @return array
      */
     public function filter_aioseo_robots($robots) {
-        $post_id = $this->get_current_object_id();
-        if (!$post_id) {
-            return $robots;
-        }
-
-        // Post synced to AIOSEO — let AIOSEO read from its own storage.
-        if ($this->is_primary_output_plugin($post_id, 'aioseo')) {
-            return $robots;
-        }
-
-        if ($this->metasync_has_robots($post_id)) {
+        if ($this->should_suppress_third_party_robots('aioseo')) {
             // MetaSync has robots — suppress AIOSEO's tag.
             return [];
         }
@@ -1322,6 +1371,86 @@ class Metasync_SEO_Conflict_Handler {
 
         // Canonical — override RankMath's canonical with the MetaSync/OTTO value when set
         add_filter('rank_math/frontend/canonical', [$this, 'filter_rankmath_canonical'], 999);
+
+        // Robots — suppress Rank Math's tag when MetaSync holds an intentional
+        // robots value for the post, mirroring the AIOSEO path. The advanced
+        // directives (max-snippet, max-video-preview, max-image-preview) run
+        // through a separate filter and must be suppressed alongside the main
+        // tag, or they survive as an orphaned meta tag.
+        add_filter('rank_math/frontend/robots', [$this, 'filter_rankmath_robots'], 999);
+        add_filter('rank_math/frontend/advanced_robots', [$this, 'filter_rankmath_advanced_robots'], 999);
+    }
+
+    /**
+     * Filter Rank Math robots meta output.
+     *
+     * When MetaSync holds an intentional robots value (admin checkbox or REST
+     * API), suppress Rank Math's robots tag to avoid duplicates. MetaSync's
+     * own output in hook_metasync_metatags() will output the MetaSync value
+     * instead. The suppression decision is shared with the AIOSEO path so the
+     * two plugins behave identically.
+     *
+     * Registered against rank_math/frontend/robots (the main directives);
+     * the max-* directives are handled separately in
+     * filter_rankmath_advanced_robots(). Returning an empty array suppresses
+     * the tag entirely, except when Rank Math forces a noindex (see
+     * site_forces_noindex()), in which case a bare noindex/nofollow floor
+     * survives so the page stays deindexed even though MetaSync replaces
+     * every other directive.
+     *
+     * @param  array $robots Rank Math's computed robots attributes array.
+     * @return array
+     */
+    public function filter_rankmath_robots($robots) {
+        if ($this->should_suppress_third_party_robots('rankmath')) {
+            // MetaSync has robots — suppress Rank Math's tag. Keep only the
+            // noindex Rank Math forces on non-public sites and replytocom
+            // URLs alive: MetaSync's replacement value carries no such
+            // directive, so a full suppression would leave those pages
+            // indexable even though the site asked not to be indexed.
+            if ($this->site_forces_noindex()) {
+                return ['index' => 'noindex', 'follow' => 'nofollow'];
+            }
+            return [];
+        }
+
+        return $robots;
+    }
+
+    /**
+     * Filter Rank Math's advanced (max-*) robots directives.
+     *
+     * Shares the suppression decision with the main robots filter; Rank Math
+     * merges the advanced payload into the same <meta name="robots"> tag, so
+     * when MetaSync replaces the tag the max-* directives must vanish with
+     * it. No noindex floor here — the main filter already carries it, and a
+     * second copy would just collide in Rank Math's array merge.
+     *
+     * @param  array $robots Rank Math's advanced robots attributes array.
+     * @return array
+     */
+    public function filter_rankmath_advanced_robots($robots) {
+        if ($this->should_suppress_third_party_robots('rankmath')) {
+            return [];
+        }
+
+        return $robots;
+    }
+
+    /**
+     * Whether the current request carries a noindex that Rank Math forces
+     * independently of any per-post setting — a non-public site
+     * (blog_public = 0, "Discourage search engines") or a ?replytocom=
+     * comment-reply URL. Mirrors Rank Math's respect_settings_for_robots().
+     *
+     * @return bool
+     */
+    private function site_forces_noindex() {
+        if (0 === absint(get_option('blog_public')) || isset($_GET['replytocom'])) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -1608,6 +1737,25 @@ class Metasync_SEO_Conflict_Handler {
      * @return array
      */
     private function strip_breadcrumb_from_graph($graph) {
+        // Rank Math's graph is keyed by entity name (e.g. 'WebPage', 'ProfilePage')
+        // and later filters/consumers look entries up by those keys (see
+        // RankMath\Schema\Frontend::remove_person_entity(), hooked on
+        // rank_math/schema/validated_data, which reads $data['ProfilePage']).
+        // AIOSEO/Yoast pass a plain numeric list. Re-index with array_values()
+        // unless the graph carries string keys — a string-keyed graph is Rank
+        // Math's shape and must be preserved untouched. This is deliberately
+        // broader than array_is_list(): a numeric-keyed AIOSEO/Yoast graph
+        // that a third-party filter left with a gap (e.g. an earlier unset())
+        // still needs forcing back into a gap-free list, or json_encode()
+        // would serialize it as a JSON object instead of an array.
+        $has_string_keys = false;
+        foreach (array_keys($graph) as $key) {
+            if (is_string($key)) {
+                $has_string_keys = true;
+                break;
+            }
+        }
+
         // Collect @ids of BreadcrumbList nodes being removed.
         $removed_ids = [];
 
@@ -1641,7 +1789,7 @@ class Metasync_SEO_Conflict_Handler {
         }
         unset($entry);
 
-        return array_values($graph);
+        return $has_string_keys ? $graph : array_values($graph);
     }
 
     /**

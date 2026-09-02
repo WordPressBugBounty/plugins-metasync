@@ -15,11 +15,26 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+if (!class_exists('Metasync_Redirection_Validator')) {
+    require_once dirname(__FILE__) . '/class-metasync-redirection-validator.php';
+}
+
 class Metasync_Redirection_Importer
 {
+    /**
+     * Maximum rows accepted from one CSV import. A malformed or oversized
+     * export must not turn into an unbounded loop or a memory blow-up.
+     */
+    const CSV_MAX_ROWS = 20000;
+
     private $db_redirection;
 
     private $redirection_helper = null;
+
+    /**
+     * @var array<string, true>|null Memoized exact-key index of stored sources.
+     */
+    private $source_index_cache = null;
 
     /**
      * Supported plugins for import
@@ -215,19 +230,38 @@ class Metasync_Redirection_Importer
         $imported = 0;
         $skipped = 0;
         $loop_skipped = 0;
+        $parse_skipped = 0;
+        $unsafe_skipped = 0;
+        $conditional_skipped = 0;
+
+        # Exact-key index of every source already stored. One SELECT plus one
+        # unserialize pass replaces the per-row LIKE rescan (quadratic on big
+        # tables) and stops substring false-positives (/a "matching" /about).
+        $existing_sources = $this->get_existing_source_index();
 
         foreach ($redirects as $redirect) {
-            $http_code = intval($redirect->action_code ?? 301);
-            $target_url = $redirect->action_data ?? '';
-
-            # For 410 and 451, target URL can be empty (they don't redirect)
-            if (empty($target_url) && !in_array($http_code, [410, 451])) {
-                $skipped++;
+            # Conditional redirects (query/referrer/agent/… matches) only fire
+            # under conditions MetaSync cannot represent. Importing them as
+            # unconditional redirects would silently change their semantics.
+            if (isset($redirect->match_type) && $redirect->match_type !== '' && $redirect->match_type !== 'url') {
+                $conditional_skipped++;
                 continue;
             }
 
-            # Check if already exists
-            if ($this->redirection_exists($redirect->url)) {
+            $http_code = intval($redirect->action_code ?? 301);
+
+            # action_data is a JSON envelope ('{"url":"…"}'), never a plain URL.
+            # Storing it raw produced redirects to a literal '{"url":…}' string.
+            $target_url = $this->extract_destination($redirect->action_data ?? '');
+
+            # For 410 and 451, target URL can be empty (they don't redirect)
+            if ($target_url === null || ($target_url === '' && !in_array($http_code, [410, 451]))) {
+                $parse_skipped++;
+                continue;
+            }
+
+            # Check if already exists (exact source-key match)
+            if (isset($existing_sources[$redirect->url])) {
                 $skipped++;
                 continue;
             }
@@ -236,8 +270,13 @@ class Metasync_Redirection_Importer
             $pattern_type = 'exact';
             $regex_pattern = null;
 
-            # Check if it's a regex
+            # Check if it's a regex. Foreign patterns arrive unvalidated —
+            # screen them with the same ReDoS guard the admin form applies.
             if (isset($redirect->regex) && $redirect->regex == 1) {
+                if (!Metasync_Redirection_Validator::is_regex_safe((string) $redirect->url)) {
+                    $parse_skipped++;
+                    continue;
+                }
                 $pattern_type = 'regex';
                 $regex_pattern = $redirect->url;
             }
@@ -260,7 +299,7 @@ class Metasync_Redirection_Importer
             ];
 
             if (!$this->is_safe_destination($target_url, $http_code)) {
-                $skipped++;
+                $unsafe_skipped++;
                 continue;
             }
             $args['url_redirect_to'] = $target_url;
@@ -272,10 +311,24 @@ class Metasync_Redirection_Importer
 
             if ($this->db_redirection->add($args)) {
                 $imported++;
+                $existing_sources[$redirect->url] = true;
+                $this->remember_imported_source($redirect->url);
             }
         }
 
         $message = "Successfully imported $imported redirections from Redirection plugin.";
+        if ($skipped > 0) {
+            $message .= " Skipped $skipped already-existing redirection(s).";
+        }
+        if ($parse_skipped > 0) {
+            $message .= " Skipped $parse_skipped redirection(s) with an unreadable destination.";
+        }
+        if ($unsafe_skipped > 0) {
+            $message .= " Skipped $unsafe_skipped redirection(s) with an off-site destination.";
+        }
+        if ($conditional_skipped > 0) {
+            $message .= " Skipped $conditional_skipped conditional redirection(s); conditions are not supported.";
+        }
         if ($loop_skipped > 0) {
             $message .= " Skipped $loop_skipped redirect(s) that would have created loops.";
         }
@@ -285,7 +338,10 @@ class Metasync_Redirection_Importer
             'message' => $message,
             'imported' => $imported,
             'skipped' => $skipped,
-            'loop_skipped' => $loop_skipped
+            'loop_skipped' => $loop_skipped,
+            'skipped_parse' => $parse_skipped,
+            'skipped_unsafe' => $unsafe_skipped,
+            'skipped_conditional' => $conditional_skipped
         ];
     }
 
@@ -461,7 +517,11 @@ class Metasync_Redirection_Importer
                 return 'skipped';
             }
 
-            # Determine pattern type
+            # Determine pattern type. Foreign regex patterns get the same
+            # ReDoS screen the admin form applies.
+            if ($format === 'regex' && !Metasync_Redirection_Validator::is_regex_safe($origin)) {
+                return 'skipped';
+            }
             $pattern_type = ($format === 'regex') ? 'regex' : 'exact';
             $regex_pattern = ($format === 'regex') ? $origin : null;
 
@@ -492,6 +552,7 @@ class Metasync_Redirection_Importer
             }
 
             if ($this->db_redirection->add($args)) {
+                $this->remember_imported_source($origin);
                 return true;
             }
 
@@ -542,7 +603,11 @@ class Metasync_Redirection_Importer
                 return 'skipped';
             }
 
-            # Determine pattern type
+            # Determine pattern type. Foreign regex patterns get the same
+            # ReDoS screen the admin form applies.
+            if ($format === 'regex' && !Metasync_Redirection_Validator::is_regex_safe($origin)) {
+                return 'skipped';
+            }
             $pattern_type = ($format === 'regex') ? 'regex' : 'exact';
             $regex_pattern = ($format === 'regex') ? $origin : null;
 
@@ -573,6 +638,7 @@ class Metasync_Redirection_Importer
             }
 
             if ($this->db_redirection->add($args)) {
+                $this->remember_imported_source($origin);
                 return true;
             }
 
@@ -620,62 +686,65 @@ class Metasync_Redirection_Importer
         $skipped = 0;
         $errors = [];
         $loop_skipped = 0;
+        $parse_skipped = 0;
+        $unsafe_skipped = 0;
+        $inactive_skipped = 0;
+
+        # Exact-key index of every source already stored — one pass instead of a
+        # per-row LIKE rescan, with no substring false-positives.
+        $existing_sources = $this->get_existing_source_index();
 
         foreach ($redirects as $redirect) {
             try {
-                # Rank Math uses 'sources' field - it's a serialized PHP array
-                $source_url = '';
-                $comparison_type = 'exact'; // Default to exact
-
-                if (isset($redirect->sources)) {
-                    # First, try to unserialize (Rank Math format)
-                    $unserialized = @maybe_unserialize($redirect->sources);
-
-                    if (is_array($unserialized) && !empty($unserialized)) {
-                        # Rank Math format: array of arrays with 'pattern', 'comparison', 'ignore' keys
-                        $first_source = reset($unserialized);
-
-                        if (is_array($first_source) && isset($first_source['pattern'])) {
-                            # Extract the actual URL pattern
-                            $source_url = $first_source['pattern'];
-
-                            # Extract comparison type (exact, regex, contains, starts, ends)
-                            if (isset($first_source['comparison'])) {
-                                $comparison_type = $first_source['comparison'];
-                            }
-                        } elseif (is_string($first_source)) {
-                            # Simple string format
-                            $source_url = $first_source;
-                        }
-                    } elseif (is_string($unserialized)) {
-                        # Direct string value
-                        $source_url = $unserialized;
-                    } else {
-                        # Try as JSON
-                        $parsed = json_decode($redirect->sources, true);
-                        if (json_last_error() === JSON_ERROR_NONE && is_array($parsed)) {
-                            $source_url = is_array($parsed) ? reset($parsed) : $parsed;
-                        } else {
-                            # Last resort - use as-is
-                            $source_url = $redirect->sources;
-                        }
-                    }
-                } elseif (isset($redirect->url_from)) {
-                    $source_url = $redirect->url_from;
-                }
-
-                # Clean up the source URL
-                $source_url = trim($source_url);
-
-                if (empty($source_url)) {
-                    $errors[] = 'Empty source URL in redirect ID: ' . ($redirect->id ?? 'unknown');
-                    $skipped++;
+                # Rank Math keeps disabled redirects in the same table; only
+                # enabled rows must come across.
+                if (isset($redirect->status) && !in_array((string) $redirect->status, ['active', 'enabled', '1', ''], true)) {
+                    $inactive_skipped++;
                     continue;
                 }
 
-                # Check if already exists
-                if ($this->redirection_exists($source_url)) {
-                    $skipped++;
+                # Rank Math uses 'sources' field - it's a serialized PHP array of
+                # ['pattern' => …, 'comparison' => …] entries. Keep ALL of them:
+                # taking only the first silently dropped every extra source.
+                $row_sources = [];
+
+                if (isset($redirect->sources)) {
+                    $unserialized = @maybe_unserialize($redirect->sources);
+
+                    if (!is_array($unserialized) || empty($unserialized)) {
+                        # Try as JSON before giving up on the blob
+                        $parsed = json_decode((string) $redirect->sources, true);
+                        if (json_last_error() === JSON_ERROR_NONE && is_array($parsed) && !empty($parsed)) {
+                            $unserialized = $parsed;
+                        }
+                    }
+
+                    if (is_array($unserialized) && !empty($unserialized)) {
+                        foreach ($unserialized as $source_entry) {
+                            if (is_array($source_entry)) {
+                                if (empty($source_entry['pattern']) || !is_string($source_entry['pattern'])) {
+                                    continue;
+                                }
+                                $row_sources[trim($source_entry['pattern'])] = isset($source_entry['comparison'])
+                                    ? (string) $source_entry['comparison']
+                                    : 'exact';
+                            } elseif (is_string($source_entry) && trim($source_entry) !== '') {
+                                $row_sources[trim($source_entry)] = 'exact';
+                            }
+                        }
+                    } elseif (is_string($unserialized) && trim($unserialized) !== '') {
+                        # Direct string value
+                        $row_sources[trim($unserialized)] = 'exact';
+                    }
+                }
+
+                if (empty($row_sources) && isset($redirect->url_from) && trim((string) $redirect->url_from) !== '') {
+                    $row_sources[trim((string) $redirect->url_from)] = 'exact';
+                }
+
+                if (empty($row_sources)) {
+                    $errors[] = 'Empty source URL in redirect ID: ' . ($redirect->id ?? 'unknown');
+                    $parse_skipped++;
                     continue;
                 }
 
@@ -690,16 +759,39 @@ class Metasync_Redirection_Importer
                     'ends' => 'end'
                 ];
 
-                $pattern_type = isset($pattern_type_map[$comparison_type])
-                    ? $pattern_type_map[$comparison_type]
-                    : 'exact';
+                # Drop sources that already exist; if every source is a duplicate
+                # the whole row is one, otherwise import the remainder.
+                $sources = [];
+                foreach ($row_sources as $source_pattern => $comparison_type) {
+                    if (isset($existing_sources[$source_pattern])) {
+                        continue;
+                    }
+                    $sources[$source_pattern] = isset($pattern_type_map[$comparison_type])
+                        ? $pattern_type_map[$comparison_type]
+                        : 'exact';
+                }
 
-                # For regex patterns, store the pattern
-                $regex_pattern = ($pattern_type === 'regex') ? $source_url : null;
+                if (empty($sources)) {
+                    $skipped++;
+                    continue;
+                }
 
-                $sources = [
-                    $source_url => $pattern_type
-                ];
+                # Row-level pattern type only matters when there is a single source;
+                # with several, per-source types in the serialized map drive matching.
+                $pattern_type = count($sources) === 1 ? reset($sources) : 'exact';
+
+                # For regex patterns, store the first regex source as the pattern
+                $regex_pattern = null;
+                if ($pattern_type === 'regex') {
+                    $regex_pattern = (string) key($sources);
+                    if (!Metasync_Redirection_Validator::is_regex_safe($regex_pattern)) {
+                        $errors[] = 'Skipped unsafe regex pattern: ' . $regex_pattern;
+                        $parse_skipped++;
+                        continue;
+                    }
+                }
+
+                $source_url = (string) key($sources);
 
                 $target_url = $redirect->url_to ?? '';
                 $http_code = intval($redirect->header_code ?? 301);
@@ -707,7 +799,7 @@ class Metasync_Redirection_Importer
                 # For 410 and 451, target URL can be empty (they don't redirect)
                 if (empty($target_url) && !in_array($http_code, [410, 451])) {
                     $errors[] = 'Empty target URL for source: ' . $source_url;
-                    $skipped++;
+                    $parse_skipped++;
                     continue;
                 }
 
@@ -725,20 +817,28 @@ class Metasync_Redirection_Importer
                 ];
 
                 if (!$this->is_safe_destination($target_url, $http_code)) {
-                    $skipped++;
+                    $unsafe_skipped++;
                     continue;
                 }
                 $args['url_redirect_to'] = $target_url;
 
-                if (!in_array($http_code, [410, 451]) && $this->get_redirection_helper()->validate_no_loop($source_url, $target_url) !== null) {
-                    $loop_skipped++;
-                    continue;
+                if (!in_array($http_code, [410, 451])) {
+                    foreach (array_keys($sources) as $loop_source) {
+                        if ($this->get_redirection_helper()->validate_no_loop($loop_source, $target_url) !== null) {
+                            $loop_skipped++;
+                            continue 2;
+                        }
+                    }
                 }
 
                 $result = $this->db_redirection->add($args);
 
                 if ($result !== false && $result > 0) {
                     $imported++;
+                    foreach (array_keys($sources) as $imported_source) {
+                        $existing_sources[$imported_source] = true;
+                        $this->remember_imported_source($imported_source);
+                    }
                 } else {
                     $errors[] = 'Failed to insert redirect: ' . $source_url . ' -> ' . $target_url;
                     if ($wpdb->last_error) {
@@ -753,13 +853,22 @@ class Metasync_Redirection_Importer
         }
 
         # Return success if we processed redirections (even if all skipped)
-        $has_results = ($imported + $skipped + $loop_skipped) > 0;
+        $has_results = ($imported + $skipped + $loop_skipped + $parse_skipped + $unsafe_skipped + $inactive_skipped) > 0;
 
         $message = $imported > 0
             ? "Successfully imported $imported redirections from Rank Math."
             : ($skipped > 0
                 ? "All redirections already exist. Skipped $skipped duplicates."
                 : "No redirections found to import. " . (count($errors) > 0 ? implode(' ', array_slice($errors, 0, 2)) : ''));
+        if ($inactive_skipped > 0) {
+            $message .= " Skipped $inactive_skipped disabled redirection(s).";
+        }
+        if ($parse_skipped > 0) {
+            $message .= " Skipped $parse_skipped redirection(s) with unreadable source or destination.";
+        }
+        if ($unsafe_skipped > 0) {
+            $message .= " Skipped $unsafe_skipped redirection(s) with an off-site destination.";
+        }
         if ($loop_skipped > 0) {
             $message .= " Skipped $loop_skipped redirect(s) that would have created loops.";
         }
@@ -770,6 +879,9 @@ class Metasync_Redirection_Importer
             'imported' => $imported,
             'skipped' => $skipped,
             'loop_skipped' => $loop_skipped,
+            'skipped_parse' => $parse_skipped,
+            'skipped_unsafe' => $unsafe_skipped,
+            'skipped_inactive' => $inactive_skipped,
             'errors' => $errors
         ];
     }
@@ -800,6 +912,7 @@ class Metasync_Redirection_Importer
         $imported = 0;
         $skipped = 0;
         $loop_skipped = 0;
+        $parse_skipped = 0;
 
         foreach ($redirects as $redirect) {
             $http_code = intval($redirect->redirect_code ?? 301);
@@ -822,6 +935,10 @@ class Metasync_Redirection_Importer
             $regex_pattern = null;
 
             if (isset($redirect->regex) && $redirect->regex == 1) {
+                if (!Metasync_Redirection_Validator::is_regex_safe((string) $redirect->source_url)) {
+                    $parse_skipped++;
+                    continue;
+                }
                 $pattern_type = 'regex';
                 $regex_pattern = $redirect->source_url;
             }
@@ -856,10 +973,14 @@ class Metasync_Redirection_Importer
 
             if ($this->db_redirection->add($args)) {
                 $imported++;
+                $this->remember_imported_source($redirect->source_url);
             }
         }
 
         $message = "Successfully imported $imported redirections from All in One SEO.";
+        if ($parse_skipped > 0) {
+            $message .= " Skipped $parse_skipped redirection(s) with an unreadable source or destination.";
+        }
         if ($loop_skipped > 0) {
             $message .= " Skipped $loop_skipped redirect(s) that would have created loops.";
         }
@@ -869,7 +990,8 @@ class Metasync_Redirection_Importer
             'message' => $message,
             'imported' => $imported,
             'skipped' => $skipped,
-            'loop_skipped' => $loop_skipped
+            'loop_skipped' => $loop_skipped,
+            'skipped_parse' => $parse_skipped
         ];
     }
 
@@ -938,6 +1060,7 @@ class Metasync_Redirection_Importer
 
             if ($this->db_redirection->add($args)) {
                 $imported++;
+                $this->remember_imported_source($old_url);
             }
         }
 
@@ -977,6 +1100,13 @@ class Metasync_Redirection_Importer
             return false;
         }
 
+        # Backslashes never belong in a URL, but browsers read them as path
+        # separators: '/\evil.com' slips past wp_validate_redirect (parse_url
+        # sees no host) and still navigates off-site. Reject outright.
+        if (!Metasync_Redirection_Validator::is_safe_destination_syntax($url)) {
+            return false;
+        }
+
         if (get_option('metasync_allow_external_redirects', 0)) {
             return true;
         }
@@ -985,22 +1115,288 @@ class Metasync_Redirection_Importer
     }
 
     /**
-     * Check if a redirection already exists
+     * Extract the destination URL from the Redirection plugin's action_data column.
      *
-     * @param string $source_url Source URL to check
-     * @return bool True if exists, false otherwise
+     * action_data is normally a JSON envelope ('{"url":"https://…"}'); older rows
+     * and other action types store plain strings, arrays or serialized values.
+     * Storing the raw envelope as the destination makes the redirect point at a
+     * literal '{"url":…}' string, so parse the envelope and only accept a URL.
+     *
+     * @param mixed $action_data Raw action_data value from the source table.
+     * @return string|null Destination URL ('' when absent), or null when unparseable.
+     */
+    private function extract_destination($action_data)
+    {
+        if ($action_data === null || $action_data === '') {
+            return '';
+        }
+
+        $value = $action_data;
+
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            if ($trimmed === '') {
+                return '';
+            }
+            if ($trimmed[0] === '{' || $trimmed[0] === '[') {
+                $decoded = json_decode($trimmed, true);
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    return null;
+                }
+                $value = $decoded;
+            } elseif (str_starts_with($trimmed, 'a:') || str_starts_with($trimmed, 's:')) {
+                $unserialized = @unserialize($trimmed, ['allowed_classes' => false]);
+                $value = ($unserialized !== false || $trimmed === 'b:0;') ? $unserialized : null;
+            } else {
+                return $trimmed;
+            }
+        }
+
+        if (is_array($value)) {
+            if (isset($value['url']) && is_string($value['url'])) {
+                return trim($value['url']);
+            }
+            $first = reset($value);
+            if (is_array($first) && isset($first['url']) && is_string($first['url'])) {
+                return trim($first['url']);
+            }
+            if (is_string($first)) {
+                return trim($first);
+            }
+            return null;
+        }
+
+        return is_string($value) ? trim($value) : null;
+    }
+
+    /**
+     * Build an exact-key index of every source URL already stored in the
+     * redirections table.
+     *
+     * One SELECT plus one unserialize pass replaces the previous per-row
+     * `sources_from LIKE '%…%'` lookup, which rescanned the whole table for
+     * every imported row (O(N²) on large tables) and matched substrings —
+     * importing /a reported the existing /about as a duplicate.
+     *
+     * Legacy rows that predate keyed sources store a numeric list; for those
+     * the VALUE is the source URL.
+     *
+     * @return array<string, true> Source URL/path keys.
+     */
+    private function get_existing_source_index()
+    {
+        if ($this->source_index_cache !== null) {
+            return $this->source_index_cache;
+        }
+
+        $index = [];
+        $rows = $this->db_redirection->getAllRecords();
+        if (empty($rows)) {
+            return $index;
+        }
+
+        foreach ($rows as $row) {
+            $sources = !empty($row->sources_from)
+                ? @unserialize($row->sources_from, ['allowed_classes' => false])
+                : [];
+            if (!is_array($sources)) {
+                continue;
+            }
+            foreach ($sources as $source_key => $source_value) {
+                // Numeric keys mark legacy list rows; the value is the URL there.
+                $key = is_int($source_key) ? (string) $source_value : (string) $source_key;
+                if ($key !== '') {
+                    $index[$key] = true;
+                }
+            }
+        }
+
+        $this->source_index_cache = $index;
+
+        return $index;
+    }
+
+    /**
+     * Record a source imported during this request so the memoized index —
+     * and with it every later duplicate check — knows about it.
+     *
+     * @param string $source Source URL/path just stored.
+     */
+    private function remember_imported_source($source)
+    {
+        $source = (string) $source;
+        if ($source !== '' && $this->source_index_cache !== null) {
+            $this->source_index_cache[$source] = true;
+        }
+    }
+
+    /**
+     * Import redirections from an uploaded CSV file.
+     *
+     * The readme has advertised ".csv file" import since the importer UI
+     * shipped; this is the implementation. Expected columns per row:
+     * source, destination, http code (optional, 301 by default). A header
+     * row is detected and skipped, and every row passes the same dedup,
+     * off-site, and loop guards the plugin imports use.
+     *
+     * @param string $file_path Path to the uploaded CSV temp file.
+     * @return array Result with success status, message, and counters.
+     */
+    public function import_csv_file($file_path)
+    {
+        $handle = @fopen($file_path, 'r');
+
+        if (!$handle) {
+            return [
+                'success' => false,
+                'message' => 'Could not read the uploaded CSV file.',
+                'imported' => 0,
+                'skipped' => 0,
+                'loop_skipped' => 0
+            ];
+        }
+
+        $imported = 0;
+        $skipped = 0;
+        $parse_skipped = 0;
+        $unsafe_skipped = 0;
+        $loop_skipped = 0;
+        $row_index = 0;
+        $truncated = false;
+
+        $allowed_codes = [301, 302, 307, 410, 451];
+        $existing_sources = $this->get_existing_source_index();
+
+        while (($raw = fgets($handle)) !== false) {
+            # Bound the run: an oversized or malformed export must not turn
+            # into an unbounded loop over the temp file.
+            if ($row_index >= self::CSV_MAX_ROWS) {
+                $truncated = true;
+                break;
+            }
+
+            $row = str_getcsv($raw, ',', '"', '\\');
+
+            # Header row ("source,destination,...") — skip it once.
+            if ($row_index === 0 && isset($row[0]) && in_array(strtolower(trim((string) $row[0])), ['source', 'origin', 'from'], true)) {
+                $row_index++;
+                continue;
+            }
+
+            $row_index++;
+
+            # str_getcsv() always returns an array, so a short row is the only
+            # unusable shape to screen for here.
+            if (count($row) < 2) {
+                if (trim((string) $raw) !== '') {
+                    $parse_skipped++;
+                }
+                continue;
+            }
+
+            $source = trim((string) $row[0]);
+            $target = trim((string) $row[1]);
+            $http_code = isset($row[2]) && trim((string) $row[2]) !== '' ? (int) trim((string) $row[2]) : 301;
+
+            if ($source === '' || !in_array($http_code, $allowed_codes, true) || ($target === '' && !in_array($http_code, [410, 451], true))) {
+                $parse_skipped++;
+                continue;
+            }
+
+            # Skip rows whose source already has a rule.
+            if (isset($existing_sources[(string) $source])) {
+                $skipped++;
+                continue;
+            }
+
+            $sources = [
+                $source => 'exact'
+            ];
+
+            $args = [
+                'sources_from' => serialize($sources),
+                'url_redirect_to' => $target,
+                'http_code' => $http_code,
+                'hits_count' => 0,
+                'status' => 'active',
+                'pattern_type' => 'exact',
+                'regex_pattern' => null,
+                'description' => 'Imported from CSV file',
+                'created_at' => current_time('mysql'),
+                'updated_at' => current_time('mysql')
+            ];
+
+            if (!$this->is_safe_destination($target, $http_code)) {
+                $unsafe_skipped++;
+                continue;
+            }
+            $args['url_redirect_to'] = $target;
+
+            if (!in_array($http_code, [410, 451], true) && $this->get_redirection_helper()->validate_no_loop($source, $target) !== null) {
+                $loop_skipped++;
+                continue;
+            }
+
+            if ($this->db_redirection->add($args)) {
+                $imported++;
+                $existing_sources[(string) $source] = true;
+                $this->remember_imported_source($source);
+            }
+        }
+        fclose($handle);
+
+        if ($imported === 0 && $skipped === 0 && $parse_skipped === 0 && $unsafe_skipped === 0 && $loop_skipped === 0) {
+            return [
+                'success' => false,
+                'message' => 'No redirections found in the CSV file. Expected columns: source, destination, http code (optional).',
+                'imported' => 0,
+                'skipped' => 0,
+                'loop_skipped' => 0
+            ];
+        }
+
+        $message = "Successfully imported $imported redirections from CSV.";
+        if ($skipped > 0) {
+            $message .= " Skipped $skipped already-existing redirection(s).";
+        }
+        if ($parse_skipped > 0) {
+            $message .= " Skipped $parse_skipped invalid redirection(s).";
+        }
+        if ($unsafe_skipped > 0) {
+            $message .= " Skipped $unsafe_skipped redirection(s) with an off-site destination.";
+        }
+        if ($loop_skipped > 0) {
+            $message .= " Skipped $loop_skipped redirect(s) that would have created loops.";
+        }
+        if ($truncated) {
+            $message .= ' Import stopped after ' . self::CSV_MAX_ROWS . ' rows; split larger files and import them separately.';
+        }
+
+        return [
+            'success' => true,
+            'message' => $message,
+            'imported' => $imported,
+            'skipped' => $skipped,
+            'loop_skipped' => $loop_skipped,
+            'skipped_parse' => $parse_skipped,
+            'skipped_unsafe' => $unsafe_skipped,
+            'truncated' => $truncated
+        ];
+    }
+
+    /**
+     * Check whether a redirection already exists for a source.
+     *
+     * Exact key match against the memoized index; never a substring test,
+     * so importing /a no longer "matches" an existing /about.
+     *
+     * @param string $source_url Source URL to check.
+     * @return bool True if a redirect already stores this exact source.
      */
     private function redirection_exists($source_url)
     {
-        global $wpdb;
-        $table_name = $wpdb->prefix . Metasync_Redirection_Database::$table_name;
-
-        $count = $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM $table_name WHERE sources_from LIKE %s",
-            '%' . $wpdb->esc_like($source_url) . '%'
-        ));
-
-        return $count > 0;
+        $index = $this->get_existing_source_index();
+        return isset($index[(string) $source_url]);
     }
 
     /**
