@@ -639,6 +639,12 @@ Class Metasync_otto_html{
      * @return string
      */
     private function apply_canonical_via_string($html, $replacement_data) {
+        # Canonical feature switched off — do not apply OTTO's canonical, and do
+        # not strip the canonical the page already carries.
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::CANONICAL)) {
+            return $html;
+        }
+
         if (!is_string($html) || empty($replacement_data['header_replacements']) || !is_array($replacement_data['header_replacements'])) {
             return $html;
         }
@@ -1152,6 +1158,13 @@ Class Metasync_otto_html{
                 } elseif ($type === 'meta') {
                     $name = $item['name'] ?? '';
                     $property = $item['property'] ?? '';
+
+                    # Skip entries owned by a switched-off feature, so OTTO
+                    # neither writes its tag nor strips the page's own.
+                    if ($this->replacement_is_feature_disabled($name, $property)) {
+                        continue;
+                    }
+
                     $new_value = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 
                     if (!empty($name)) {
@@ -1236,9 +1249,11 @@ Class Metasync_otto_html{
         if (!empty($replacement_data['header_html_insertion'])) {
             # Escape JSON-LD payload closers first; the DOM path inserts the
             # same escaped bytes, so the already-applied check must match them.
-            $escaped_header_insertion = metasync_escape_json_ld_blocks_in_html($replacement_data['header_html_insertion']);
+            $escaped_header_insertion = $this->strip_disabled_features_from_insertion(
+                metasync_escape_json_ld_blocks_in_html($replacement_data['header_html_insertion'])
+            );
             $header_html_check = trim($escaped_header_insertion);
-            if (strpos($result_html, $header_html_check) === false) {
+            if ($header_html_check !== '' && strpos($result_html, $header_html_check) === false) {
                 $header_html_insertion = preg_replace(
                     '/<script(\s[^>]*)type\s*=\s*(["\'])application\/ld\+json\2/i',
                     '<script$1type=$2application/ld+json$2 data-otto="true"',
@@ -2225,6 +2240,30 @@ Class Metasync_otto_html{
     }
 
     /**
+     * Whether a meta tag carries the marker that means "the customer typed this".
+     *
+     * The sidebar stamps two different values on the same attribute: "custom" for
+     * a value the customer set, and "imported" for one migrated from another SEO
+     * plugin as a last-resort fallback. Only the first outranks OTTO — imported
+     * values are migration data, not a per-post decision, so OTTO must beat them.
+     *
+     * Matching the attribute NAME alone therefore promotes an imported tag to
+     * keeper and deletes OTTO's, which is the precedence inversion this check
+     * exists to prevent. Match the value exactly instead.
+     *
+     * Shared by both dedup passes rather than inlined twice: their keeper
+     * detection has already drifted apart once (see deduplicate_description_tags,
+     * which had to special-case the OTTO markers the generic pass misses), and a
+     * second copy of this rule would be free to drift the same way.
+     *
+     * @param  string $tag A single <meta ...> tag.
+     * @return bool
+     */
+    private static function tag_is_customer_authored($tag) {
+        return (bool) preg_match('/data-metasync-seo\s*=\s*["\']custom["\']/i', $tag);
+    }
+
+    /**
      * Replace the first <meta $attr="$val"> content with $content_escaped (marked
      * data-metasync-seo="custom"); insert one after <head> if none is present.
      * Helper for apply_custom_seo_precedence().
@@ -2361,6 +2400,11 @@ Class Metasync_otto_html{
             # handle canonical links
             if($data['type'] == 'link' && $data['rel'] === 'canonical'){
 
+                # Canonical feature switched off — leave the page's canonical be.
+                if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::CANONICAL)) {
+                    continue;
+                }
+
                 # Protect manually-set canonical from OTTO override.
                 # Validated: a legacy row corrupted to "Array" must not
                 # count as a manual canonical and block OTTO's correct value.
@@ -2423,6 +2467,11 @@ Class Metasync_otto_html{
         # Protect manually-set robots meta from OTTO override
         # If the user set noindex via Common Robots Meta or meta_robots, honour it
         if (!empty($name) && $name === 'robots') {
+            # Both robots features switched off — OTTO must not write the tag,
+            # leaving whatever core or a third-party plugin produced in place.
+            if (Metasync_Feature_Flags::robots_fully_disabled()) {
+                return;
+            }
             if (function_exists('is_singular') && is_singular()) {
                 $post_id = get_the_ID();
                 if ($post_id) {
@@ -2459,6 +2508,23 @@ Class Metasync_otto_html{
 
         # extract name value
         $name = $data['name'] ?? false;
+
+        # Social feature switched off — OTTO must not create or rewrite any
+        # og:*/twitter:* tag. Both attributes are checked because either can
+        # carry either prefix depending on how the suggestion was authored.
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
+            foreach ([$property, $name] as $candidate) {
+                if (!is_string($candidate) || $candidate === '') {
+                    continue;
+                }
+                $candidate = strtolower(trim($candidate));
+                if (strncmp($candidate, 'og:', 3) === 0
+                    || strncmp($candidate, 'twitter:', 8) === 0
+                    || strncmp($candidate, 'article:', 8) === 0) {
+                    return;
+                }
+            }
+        }
 
         # set the selector
         $meta_selector = '';
@@ -2688,6 +2754,12 @@ Class Metasync_otto_html{
      * @return string HTML with at most one tag per OG/Twitter property.
      */
     private function deduplicate_og_twitter_tags($html) {
+        # Social feature switched off — MetaSync adds no OG/Twitter tags here, so
+        # whatever the page or a third-party plugin emitted is left as it is.
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
+            return $html;
+        }
+
         # OG properties to deduplicate
         $og_properties = [
             'og:title', 'og:description', 'og:url', 'og:type',
@@ -2758,6 +2830,11 @@ Class Metasync_otto_html{
      * @return string
      */
     private function apply_metabox_og_precedence($html) {
+        # Social feature switched off — the meta box values must not be injected.
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
+            return $html;
+        }
+
         if (!function_exists('get_queried_object_id') || !function_exists('is_singular')) {
             return $html;
         }
@@ -2955,7 +3032,7 @@ Class Metasync_otto_html{
         $custom_tag = null;
         $otto_tag = null;
         foreach ($all_tags as $tag) {
-            if ($custom_tag === null && stripos($tag, 'data-metasync-seo') !== false) {
+            if ($custom_tag === null && self::tag_is_customer_authored($tag)) {
                 $custom_tag = $tag;
             }
             if ($otto_tag === null && stripos($tag, 'data-otto') !== false) {
@@ -2993,7 +3070,8 @@ Class Metasync_otto_html{
      * This runs at the buffer level — after every source has written its tag —
      * and keeps exactly ONE, by precedence (matching the SEO sidebar's documented
      * "custom always wins over OTTO" intent):
-     *   1. custom sidebar (data-metasync-seo)
+     *   1. custom sidebar (data-metasync-seo="custom" exactly; an "imported"
+     *      value is migration data and must lose to OTTO)
      *   2. OTTO (data-otto-pixel OR data-metasync-otto OR data-otto)
      *   3. first occurrence
      *
@@ -3024,7 +3102,7 @@ Class Metasync_otto_html{
         $custom_tag = null;
         $otto_tag   = null;
         foreach ($all_tags as $tag) {
-            if ($custom_tag === null && stripos($tag, 'data-metasync-seo') !== false) {
+            if ($custom_tag === null && self::tag_is_customer_authored($tag)) {
                 $custom_tag = $tag;
             }
             if ($otto_tag === null && (
@@ -3064,6 +3142,12 @@ Class Metasync_otto_html{
      * @return string HTML with at most one canonical tag.
      */
     private function deduplicate_canonical_tags($html) {
+        # Canonical feature switched off — leave every canonical on the page,
+        # including any a third-party SEO plugin owns.
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::CANONICAL)) {
+            return $html;
+        }
+
         $pattern = '/<link\s[^>]*rel=["\']canonical["\'][^>]*\/?>/i';
 
         if (preg_match_all($pattern, $html, $matches) <= 1) {
@@ -3095,6 +3179,98 @@ Class Metasync_otto_html{
     }
 
     /**
+     * Whether a switched-off feature owns this header_replacements entry.
+     *
+     * The string fallbacks rewrite meta tags with a bare preg_replace, so they
+     * cannot lean on the DOM path's per-element guards. A disabled feature must
+     * not have OTTO write its tag, and — because these fallbacks delete every
+     * match before re-inserting — must not have the page's own tag removed
+     * either.
+     *
+     * @param  string $name     The entry's `name` attribute, if any.
+     * @param  string $property The entry's `property` attribute, if any.
+     * @return bool True when the entry must be skipped.
+     */
+    private function replacement_is_feature_disabled($name, $property) {
+        foreach ([$name, $property] as $attribute) {
+            if ($attribute === '') {
+                continue;
+            }
+            $attribute = strtolower(trim($attribute));
+
+            if ($attribute === 'robots') {
+                if (Metasync_Feature_Flags::robots_fully_disabled()) {
+                    return true;
+                }
+                continue;
+            }
+
+            if (strncmp($attribute, 'og:', 3) === 0
+                || strncmp($attribute, 'twitter:', 8) === 0
+                || strncmp($attribute, 'article:', 8) === 0) {
+                if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Removes markup owned by a switched-off feature from an OTTO header
+     * insertion.
+     *
+     * header_html_insertion is a raw-HTML channel, not a JSON-LD one: the same
+     * payload can carry a canonical link and og/twitter meta tags as well as
+     * structured data. Each is therefore dropped against its own switch, so a
+     * disabled feature neither injects markup nor — because the matching dedup
+     * pass has stood down too — leaves a duplicate behind.
+     *
+     * Runs after metasync_escape_json_ld_blocks_in_html(), so a payload that
+     * itself contains a `</script>` sequence cannot cut a match short.
+     *
+     * @param  string $html Header insertion HTML, already block-escaped.
+     * @return string
+     */
+    private function strip_disabled_features_from_insertion($html) {
+        if ($html === '') {
+            return $html;
+        }
+
+        $patterns = [];
+
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SCHEMA)) {
+            $patterns[] = '/<script(?:\s[^>]*)?type\s*=\s*(["\'])application\/ld\+json\1[^>]*>[\s\S]*?<\/script>\s*/i';
+        }
+
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::CANONICAL)) {
+            $patterns[] = '/<link\b[^>]*\brel\s*=\s*(["\'])canonical\1[^>]*>\s*/i';
+        }
+
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
+            # og:*, twitter:* and article:* all belong to the social feature, and
+            # either attribute can carry either prefix depending on the payload.
+            $patterns[] = '/<meta\b[^>]*\b(?:property|name)\s*=\s*(["\'])(?:og|twitter|article):[^"\']*\1[^>]*>\s*/i';
+        }
+
+        if (Metasync_Feature_Flags::robots_fully_disabled()) {
+            $patterns[] = '/<meta\b[^>]*\bname\s*=\s*(["\'])robots\1[^>]*>\s*/i';
+        }
+
+        foreach ($patterns as $pattern) {
+            $stripped = preg_replace($pattern, '', $html);
+            # preg_replace returns null on failure; keeping the current string is
+            # safer than emitting nothing at all.
+            if ($stripped !== null) {
+                $html = $stripped;
+            }
+        }
+
+        return $html;
+    }
+
+    /**
      * Deduplicate JSON-LD schema blocks.
      *
      * When OTTO and a third-party SEO plugin both inject <script type="application/ld+json">
@@ -3105,6 +3281,12 @@ Class Metasync_otto_html{
      * @return string
      */
     private function deduplicate_schema_tags($html) {
+        # Schema feature switched off — MetaSync injects no JSON-LD here, so the
+        # page's existing blocks (core, theme or another SEO plugin) are untouched.
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SCHEMA)) {
+            return $html;
+        }
+
         // Find all JSON-LD script blocks
         $pattern = '/<script(\s[^>]*)type\s*=\s*(["\'])application\/ld\+json\2[^>]*>\s*([\s\S]*?)<\/script>/i';
         if (preg_match_all($pattern, $html, $matches, PREG_SET_ORDER) <= 1) {
@@ -3244,8 +3426,13 @@ Class Metasync_otto_html{
             $marker = $is_amp_page ? '' : self::HEAD_OPTIMIZED_MARKER;
 
             # Escape JSON-LD payload closers so a `</script>` inside a JSON
-            # string value cannot terminate the element early (XSS/page corruption).
-            $escaped_header_insertion = metasync_escape_json_ld_blocks_in_html($data['header_html_insertion']);
+            # string value cannot terminate the element early (XSS/page corruption),
+            # then drop whatever belongs to a switched-off feature. This is the DOM
+            # insertion path and it runs before the string fallbacks, so it needs the
+            # same filtering they apply.
+            $escaped_header_insertion = $this->strip_disabled_features_from_insertion(
+                metasync_escape_json_ld_blocks_in_html($data['header_html_insertion'])
+            );
 
             $head->outertext = '<head>' . $marker . $escaped_header_insertion . $head->innertext . '</head>';
 
@@ -3555,6 +3742,13 @@ Class Metasync_otto_html{
                     } elseif ($type === 'meta') {
                         $name = $item['name'] ?? '';
                         $property = $item['property'] ?? '';
+
+                        # Skip entries owned by a switched-off feature, so OTTO
+                        # neither writes its tag nor strips the page's own.
+                        if ($this->replacement_is_feature_disabled($name, $property)) {
+                            continue;
+                        }
+
                         $new_value = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 
                         if (!empty($name)) {
@@ -3633,9 +3827,11 @@ Class Metasync_otto_html{
             if (!empty($replacement_data['header_html_insertion'])) {
                 # Escape JSON-LD payload closers first; the DOM path inserts the
                 # same escaped bytes, so the already-applied check must match them.
-                $escaped_header_insertion = metasync_escape_json_ld_blocks_in_html($replacement_data['header_html_insertion']);
+                $escaped_header_insertion = $this->strip_disabled_features_from_insertion(
+                    metasync_escape_json_ld_blocks_in_html($replacement_data['header_html_insertion'])
+                );
                 $header_html_check = trim($escaped_header_insertion);
-                if (strpos($result_html, $header_html_check) === false) {
+                if ($header_html_check !== '' && strpos($result_html, $header_html_check) === false) {
                     $header_html_insertion = preg_replace(
                         '/<script(\s[^>]*)type\s*=\s*(["\'])application\/ld\+json\2/i',
                         '<script$1type=$2application/ld+json$2 data-otto="true"',
@@ -3902,6 +4098,14 @@ Class Metasync_otto_html{
         if (!empty($remove_description_tags) && is_array($remove_description_tags) && !$has_custom_description) {
             # Remove only the specific description tags that Otto is providing
             foreach ($remove_description_tags as $selector) {
+                # With the social feature switched off MetaSync writes no
+                # og:/twitter: tag of its own, so deleting the page's would leave
+                # it with none. The plain description belongs to a different
+                # feature and is unaffected.
+                if ($this->selector_is_social($selector)
+                    && Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
+                    continue;
+                }
                 $tags = $this->dom->find($selector);
                 foreach ($tags as $tag) {
                     # Remove the tag
@@ -3910,7 +4114,10 @@ Class Metasync_otto_html{
             }
         }
 
-        if ($remove_title && !$has_custom_title) {
+        # og:title / twitter:title are social tags, so the social switch decides
+        # whether MetaSync may take the page's away (keep main <title>).
+        if ($remove_title && !$has_custom_title
+            && Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::SOCIAL_OG)) {
             # Remove Open Graph and Twitter title tags (keep main <title>)
             $title_selectors = [
                 'meta[property=og:title]',
@@ -3927,6 +4134,23 @@ Class Metasync_otto_html{
 
         # Save changes
         $this->save_reload();
+    }
+
+    /**
+     * Whether a DOM selector targets an Open Graph / Twitter / article tag.
+     *
+     * The description selectors reach this class from the caller, so they have
+     * to be inspected rather than assumed.
+     *
+     * @param  string $selector SimpleHtmlDom selector.
+     * @return bool
+     */
+    private function selector_is_social($selector) {
+        $selector = strtolower($selector);
+
+        return strpos($selector, 'og:') !== false
+            || strpos($selector, 'twitter:') !== false
+            || strpos($selector, 'article:') !== false;
     }
 
     /**

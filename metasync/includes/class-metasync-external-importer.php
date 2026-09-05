@@ -303,6 +303,33 @@ class Metasync_External_Importer
                         WHERE ((title IS NOT NULL AND title != '') OR (description IS NOT NULL AND description != ''))
                         AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
                     ");
+
+                    // Per-post overrides are the exception. AIOSEO also serves a
+                    // title and description for every post from its site-wide
+                    // templates, and those are what the import mainly picks up —
+                    // so a site that never overrode an individual post still has
+                    // plenty to migrate. Counting overrides alone reported zero
+                    // there, which rendered the card "Unavailable" with a disabled
+                    // button and made the import impossible to start.
+                    $templates = $this->get_aioseo_post_type_templates();
+                    if (!empty($templates)) {
+                        $post_types        = array_keys($templates);
+                        $type_placeholders = implode(', ', array_fill(0, count($post_types), '%s'));
+
+                        $template_count = (int) $wpdb->get_var($wpdb->prepare(
+                            "SELECT COUNT(*)
+                             FROM {$wpdb->posts}
+                             WHERE post_status = 'publish'
+                             AND post_type IN ({$type_placeholders})",
+                            $post_types
+                        ));
+
+                        // Take the larger of the two. Templates configured for a
+                        // post type with no published posts would otherwise report
+                        // zero and disable the card, hiding override rows that do
+                        // exist — the same dead end from the other direction.
+                        $count = max($count, $template_count);
+                    }
                 }
                 break;
         }
@@ -1746,6 +1773,65 @@ class Metasync_External_Importer
     }
 
     /**
+     * Tokens whose value is the post's own body or excerpt.
+     *
+     * Keyed by source plugin. These are the only tokens that can carry the text
+     * a password withholds; everything else (title, author, dates, taxonomy) is
+     * already public on a protected post.
+     *
+     * @param string $plugin 'yoast', 'rankmath', or 'aioseo'.
+     * @return string[]
+     */
+    private function content_derived_tokens($plugin) {
+        switch ($plugin) {
+            case 'yoast':
+                return ['%%excerpt%%', '%%excerpt_only%%'];
+
+            case 'rankmath':
+                return ['%excerpt%', '%excerpt_only%'];
+
+            case 'aioseo':
+                return [
+                    '#post_content',
+                    '#post_excerpt',
+                    '#post_excerpt_only',
+                    '#attachment_description',
+                    '#attachment_caption',
+                ];
+        }
+
+        return [];
+    }
+
+    /**
+     * Whether a raw template would publish text that a post password withholds.
+     *
+     * WordPress keeps a protected post's body and excerpt behind the password
+     * but leaves the post itself published, so an import walks straight past the
+     * usual visibility checks: the source plugin stores a template, we resolve it
+     * against the raw row, and the body ends up in a meta description that every
+     * visitor and crawler can read without ever entering the password.
+     *
+     * @param string  $text   Raw value from the source plugin.
+     * @param WP_Post $post   Post the value belongs to.
+     * @param string  $plugin Source plugin.
+     * @return bool
+     */
+    private function references_protected_content($text, $post, $plugin) {
+        if (empty($post->post_password)) {
+            return false;
+        }
+
+        foreach ($this->content_derived_tokens($plugin) as $token) {
+            if (strpos($text, $token) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Resolve SEO placeholder tokens to their actual values.
      *
      * Tries each source plugin's own replacement engine first so the result
@@ -1765,6 +1851,15 @@ class Metasync_External_Importer
         $post = get_post($post_id);
         if (!$post) {
             return $text;
+        }
+
+        // Drop the whole value rather than resolve the content token to nothing
+        // and keep the rest. A half-template ("Title |") is worse than no import:
+        // it still occupies the meta key, and it still outranks whatever OTTO
+        // would have recommended for a page we know nothing publishable about.
+        // Callers skip empty values, so nothing is persisted.
+        if ($this->references_protected_content($text, $post, $plugin)) {
+            return '';
         }
 
         // Yoast SEO — %%var%% tokens
@@ -2013,13 +2108,128 @@ class Metasync_External_Importer
     }
 
     /**
-     * Every smart-tag id AIOSEO defines, taken from its own Tags class.
+     * AIOSEO's site-wide title / meta description templates, per post type.
      *
-     * Used for detection as well as replacement, so a value still holding a
-     * tag we cannot resolve outside AIOSEO (#custom_field, #tax_name) is
-     * treated as unresolved rather than written to post meta. Restricting
-     * detection to AIOSEO's real vocabulary means ordinary text containing a
-     * hash — "#1 Rated Clinic", "#hashtag" — is never mistaken for a tag.
+     * A post with no per-post override still gets a title and description from
+     * these — AIOSEO's own getPostDescription() falls back to the post type
+     * template before anything else. Reading only the per-post columns therefore
+     * imports nothing at all on a site that never overrode individual posts,
+     * which is the common case: templates are the default, overrides are the
+     * exception.
+     *
+     * Stored in the 'aioseo_options_dynamic' option, which may be a JSON string
+     * or an already-decoded array depending on how it was written — same as
+     * get_aioseo_separator() above, and read straight from the option so it keeps
+     * working once AIOSEO is deactivated.
+     *
+     * A post type is included only when AIOSEO is set to show SEO for it AND
+     * WordPress registers it as public. The public test is deliberately
+     * $obj->public rather than is_post_type_viewable(): a logging CPT registered
+     * public=false, publicly_queryable=true is "viewable" by that helper, and
+     * would drag hundreds of internal records into the import.
+     *
+     * @return array<string,array{title:string,description:string}> Keyed by post type.
+     */
+    private function get_aioseo_post_type_templates() {
+        $options = get_option('aioseo_options_dynamic', '');
+        if (is_string($options) && $options !== '') {
+            $options = json_decode($options, true);
+        }
+        if (!is_array($options)) {
+            return [];
+        }
+
+        $post_types = $options['searchAppearance']['postTypes'] ?? [];
+        if (!is_array($post_types)) {
+            return [];
+        }
+
+        $templates = [];
+
+        foreach ($post_types as $post_type => $config) {
+            if (!is_array($config)) {
+                continue;
+            }
+
+            // 'show' false means AIOSEO emits no SEO for the post type at all.
+            if (isset($config['show']) && !$config['show']) {
+                continue;
+            }
+
+            $object = get_post_type_object($post_type);
+            if (!$object || empty($object->public)) {
+                continue;
+            }
+
+            $title       = isset($config['title']) && is_string($config['title']) ? $config['title'] : '';
+            $description = isset($config['metaDescription']) && is_string($config['metaDescription'])
+                ? $config['metaDescription']
+                : '';
+
+            if ($title === '' && $description === '') {
+                continue;
+            }
+
+            $templates[$post_type] = [
+                'title'       => $title,
+                'description' => $description,
+            ];
+        }
+
+        return $templates;
+    }
+
+    /**
+     * Trim a template-derived meta description to a sane length.
+     *
+     * AIOSEO does not truncate — its sanitize() only collapses whitespace — so a
+     * post type whose template is '#post_content' renders the entire body as the
+     * description. Copying that verbatim into post meta would hand every page a
+     * multi-thousand-character description, so template-derived values are cut at
+     * a word boundary instead. Values the customer typed on the post itself are
+     * never passed through here.
+     *
+     * @param string $text  Resolved description.
+     * @param int    $limit Maximum length in characters.
+     * @return string       Trimmed description.
+     */
+    private function truncate_meta_description($text, $limit = 160) {
+        $text = trim(preg_replace('/\s+/u', ' ', (string) $text));
+
+        if ($text === '' || mb_strlen($text) <= $limit) {
+            return $text;
+        }
+
+        // Leave room for the ellipsis so the result never exceeds $limit.
+        $clipped = mb_substr($text, 0, $limit - 1);
+
+        // Cut back to the last whole word so the value never ends mid-word.
+        $last_space = mb_strrpos($clipped, ' ');
+        if ($last_space !== false && $last_space > 0) {
+            $clipped = mb_substr($clipped, 0, $last_space);
+        }
+
+        $trimmed = rtrim($clipped, " \t\n\r\0\x0B.,;:!?-");
+
+        // Punctuation-only input would otherwise collapse to a bare ellipsis.
+        return ($trimmed === '' ? $clipped : $trimmed) . '…';
+    }
+
+    /**
+     * Every smart-tag id AIOSEO defines, taken from its own Tags class
+     * (all-in-one-seo-pack/app/Common/Utils/Tags.php) plus the ids the Pro
+     * build adds for WooCommerce.
+     *
+     * Used for detection as well as replacement: a tag missing from this list
+     * is neither resolved nor flagged, so it would be written to post meta as
+     * literal text. Restricting detection to AIOSEO's real vocabulary means
+     * ordinary text containing a hash — "#1 Rated Clinic", "#hashtag" — is
+     * never mistaken for a tag, and tokens AIOSEO does not define (#category_title,
+     * #tag_title) stay literal exactly as AIOSEO itself renders them.
+     *
+     * Supersets are safe in any order thanks to the negative lookahead used
+     * for matching: #post_date cannot consume the start of #post_date_w3c,
+     * nor #featured_image the start of #featured_image_url.
      *
      * @return string[]
      */
@@ -2031,13 +2241,16 @@ class Metasync_External_Importer
             'author_url', 'blog_link', 'blog_title', 'categories', 'category',
             'category_link', 'category_link_alt', 'current_date', 'current_day',
             'current_month', 'current_year', 'custom_field', 'description',
-            'featured_image', 'page_number', 'parent_title', 'permalink',
-            'post_content', 'post_date', 'post_day', 'post_excerpt',
-            'post_excerpt_only', 'post_link', 'post_link_alt', 'post_month',
+            'event_end_date', 'event_start_date', 'featured_image',
+            'featured_image_url', 'page_number', 'parent_title', 'permalink',
+            'post_content', 'post_date', 'post_date_w3c', 'post_day',
+            'post_excerpt', 'post_excerpt_only', 'post_link', 'post_link_alt',
+            'post_modified_date', 'post_modified_date_w3c', 'post_month',
             'post_title', 'post_year', 'search_term', 'separator_sa',
             'site_description', 'site_link', 'site_link_alt', 'site_title',
             'tagline', 'tax_name', 'tax_parent_name', 'taxonomy_description',
-            'taxonomy_title',
+            'taxonomy_title', 'woocommerce_brand', 'woocommerce_price',
+            'woocommerce_sku',
         ];
     }
 
@@ -2065,6 +2278,14 @@ class Metasync_External_Importer
         if (!$post) {
             return $text;
         }
+
+        // Tags that carry an argument have to be handled before the plain ones.
+        // The plain pattern's lookahead permits '-', so '#custom_field-price'
+        // would otherwise match bare '#custom_field' and leave an orphan
+        // '-price' glued to the resolved value. AIOSEO splits these out for the
+        // same reason (Tags::replaceTags() skips them, then parseCustomFields()
+        // and parseTaxonomyNames() run afterwards).
+        $text = $this->resolve_aioseo_parameterised_tags($text, $post_id);
 
         // Resolve only the tags the text actually references. Building every
         // value up front meant generating an excerpt for every imported post,
@@ -2097,12 +2318,101 @@ class Metasync_External_Importer
     }
 
     /**
+     * Resolve the two AIOSEO tags that take an argument after a hyphen:
+     * '#custom_field-{meta_key}' and '#tax_name-{taxonomy}'.
+     *
+     * Patterns and fallback order mirror AIOSEO's parseCustomFields() and
+     * parseTaxonomyNames(), including the detail that a bare '#custom_field' or
+     * '#tax_name' with no argument resolves to an empty string rather than
+     * being left in place.
+     *
+     * @param string $text    Text that may contain parameterised tags.
+     * @param int    $post_id Post ID used for context.
+     * @return string         Text with parameterised tags replaced.
+     */
+    private function resolve_aioseo_parameterised_tags($text, $post_id) {
+        $text = preg_replace_callback(
+            '/#custom_field-([a-zA-Z0-9_-]+)/i',
+            function ($m) use ($post_id) {
+                return $this->resolve_aioseo_custom_field($m[1], $post_id);
+            },
+            $text
+        );
+
+        $text = preg_replace_callback(
+            '/#tax_name-([a-zA-Z0-9_-]+)/i',
+            function ($m) use ($post_id) {
+                return $this->resolve_aioseo_taxonomy_name($m[1], $post_id);
+            },
+            $text
+        );
+
+        // With no argument AIOSEO drops the token entirely.
+        $text = preg_replace('/#custom_field(?![a-zA-Z0-9_-])/i', '', (string) $text);
+        $text = preg_replace('/#tax_name(?![a-zA-Z0-9_-])/i', '', (string) $text);
+
+        return (string) $text;
+    }
+
+    /**
+     * Value of a custom field referenced by '#custom_field-{key}'.
+     *
+     * ACF is consulted first when present, matching AIOSEO's own order, so a
+     * field with both an ACF definition and raw post meta resolves the way the
+     * live site rendered it. Non-scalar values (arrays, objects) have no textual
+     * form and become an empty string.
+     *
+     * @param string $field_key Meta key captured from the tag.
+     * @param int    $post_id   Post ID.
+     * @return string           Field value as text.
+     */
+    private function resolve_aioseo_custom_field($field_key, $post_id) {
+        $value = '';
+
+        if (function_exists('get_field')) {
+            $value = get_field($field_key, $post_id);
+        }
+
+        if (empty($value)) {
+            $value = get_post_meta($post_id, $field_key, true);
+        }
+
+        return is_scalar($value) ? wp_strip_all_tags((string) $value) : '';
+    }
+
+    /**
+     * Term name for the taxonomy referenced by '#tax_name-{taxonomy}'.
+     *
+     * AIOSEO prefers its own "primary term" for the taxonomy and falls back to
+     * the first assigned term. We have no primary-term store to read once
+     * AIOSEO is gone, so the first assigned term is used directly.
+     *
+     * @param string $taxonomy Taxonomy slug captured from the tag.
+     * @param int    $post_id  Post ID.
+     * @return string          Term name, or '' when unavailable.
+     */
+    private function resolve_aioseo_taxonomy_name($taxonomy, $post_id) {
+        if (!taxonomy_exists($taxonomy)) {
+            return '';
+        }
+
+        $terms = get_the_terms($post_id, $taxonomy);
+        if (empty($terms) || is_wp_error($terms)) {
+            return '';
+        }
+
+        $term = reset($terms);
+
+        return (string) $term->name;
+    }
+
+    /**
      * Value for a single AIOSEO tag in the context of one post.
      *
-     * Returns null for tags that cannot be resolved without AIOSEO's own
-     * engine (#custom_field, #tax_name, the attachment tags). Callers leave
-     * those in place so the value is reported and skipped rather than saved
-     * half-resolved.
+     * Every tag AIOSEO can render for a post is resolved here. The two that take
+     * an argument (#custom_field, #tax_name) are handled before this switch and
+     * so return null, which callers treat as "leave in place" — a leftover then
+     * gets reported and the write skipped rather than saved half-resolved.
      *
      * @param string  $tag     AIOSEO tag id, without the leading '#'.
      * @param int     $post_id Post ID.
@@ -2111,6 +2421,14 @@ class Metasync_External_Importer
      * @return string|null     Replacement value, or null if unresolvable.
      */
     private function resolve_aioseo_tag($tag, $post_id, $post, $sep) {
+        // Second line of defence behind the whole-value check in
+        // resolve_seo_placeholders(). Any future caller that reaches a single
+        // tag directly still cannot read out a protected post's body.
+        if (!empty($post->post_password)
+            && in_array('#' . $tag, $this->content_derived_tokens('aioseo'), true)) {
+            return '';
+        }
+
         switch ($tag) {
             case 'site_title':
             case 'blog_title':
@@ -2129,17 +2447,21 @@ class Metasync_External_Importer
 
             case 'post_excerpt_only':
                 // Manual excerpt only — AIOSEO never falls back for this one.
-                return isset($post->post_excerpt) ? (string) $post->post_excerpt : '';
+                return isset($post->post_excerpt)
+                    ? $this->strip_builder_markup((string) $post->post_excerpt)
+                    : '';
 
             case 'post_excerpt':
                 // Manual excerpt if set, otherwise a content-derived one, which
                 // is what AIOSEO does. This is the expensive branch, so it only
                 // runs when the template actually references the tag.
                 $manual = isset($post->post_excerpt) ? (string) $post->post_excerpt : '';
-                return $manual !== '' ? $manual : wp_strip_all_tags((string) get_the_excerpt($post));
+                return $this->strip_builder_markup(
+                    $manual !== '' ? $manual : (string) get_the_excerpt($post)
+                );
 
             case 'post_content':
-                return wp_strip_all_tags((string) $post->post_content);
+                return $this->strip_builder_markup((string) $post->post_content);
 
             case 'separator_sa':
                 return (string) $sep;
@@ -2217,18 +2539,84 @@ class Metasync_External_Importer
             case 'featured_image':
                 return (string) get_the_post_thumbnail_url($post_id, 'full');
 
+            case 'featured_image_url':
+                $thumbnail_id = get_post_thumbnail_id($post_id);
+                if (!$thumbnail_id) {
+                    return '';
+                }
+                $src = wp_get_attachment_image_src($thumbnail_id, 'full');
+                return (is_array($src) && !empty($src[0])) ? (string) $src[0] : '';
+
+            case 'alt_tag':
+                // AIOSEO reads the alt off the post id itself, not off the
+                // featured image's attachment. Mirror that: on an ordinary post
+                // this is empty, which is what the live site rendered.
+                return (string) get_post_meta($post_id, '_wp_attachment_image_alt', true);
+
+            case 'attachment_caption':
+                return (string) wp_get_attachment_caption($post_id);
+
+            case 'attachment_description':
+                return $this->strip_builder_markup((string) $post->post_content);
+
+            case 'post_modified_date':
+                return (string) get_the_modified_date('', $post_id);
+
+            case 'post_date_w3c':
+                return (string) mysql2date(DATE_W3C, $post->post_date, false);
+
+            case 'post_modified_date_w3c':
+                return (string) mysql2date(DATE_W3C, $post->post_modified, false);
+
+            case 'woocommerce_sku':
+                return (string) get_post_meta($post_id, '_sku', true);
+
+            case 'woocommerce_price':
+                return (string) get_post_meta($post_id, '_price', true);
+
             // AIOSEO renders these empty in a single-post context.
             case 'description':
             case 'page_number':
             case 'search_term':
             case 'archive_date':
             case 'archive_title':
+            // Term-context only. AIOSEO resolves #tax_parent_name off a term id,
+            // so it is empty for a post.
+            case 'tax_parent_name':
+            // Supplied by AIOSEO's event add-on, which has no data to read here.
+            case 'event_start_date':
+            case 'event_end_date':
+            case 'woocommerce_brand':
                 return '';
         }
 
-        // #custom_field, #tax_name, #tax_parent_name, #alt_tag and the
-        // attachment tags need AIOSEO's own parsers.
+        // #custom_field and #tax_name take an argument and are resolved ahead of
+        // this switch, in resolve_aioseo_parameterised_tags().
         return null;
+    }
+
+    /**
+     * Reduce raw post content to plain prose.
+     *
+     * Page-builder pages are almost entirely shortcode markup, so a description
+     * template built on the content imports as '[et_pb_section][et_pb_row]…'
+     * without this. AIOSEO strips shortcodes too, but strip_shortcodes() only
+     * removes tags that are *registered* at the time it runs, and a builder
+     * registers its own only in the contexts it renders in — not necessarily
+     * during an import request. So sweep any remaining shortcode-shaped tokens
+     * as well, which also covers content left behind by a builder that is no
+     * longer installed.
+     *
+     * @param string $content Raw post content.
+     * @return string         Plain text.
+     */
+    private function strip_builder_markup($content) {
+        $content = strip_shortcodes($content);
+
+        // Opening/closing shortcode-shaped tokens: [tag], [tag a="b"], [/tag].
+        $content = preg_replace('/\[\/?[a-z][a-z0-9_-]*(?:\s[^\]]*)?\]/i', ' ', (string) $content);
+
+        return trim(preg_replace('/\s+/u', ' ', wp_strip_all_tags((string) $content)));
     }
 
     /**
@@ -2327,6 +2715,278 @@ class Metasync_External_Importer
         }
 
         return $resolved;
+    }
+
+    /**
+     * Sanitize an imported value according to what its destination key holds.
+     *
+     * Kept in one place because the post and term writers must agree: they are
+     * two copies of the same rule, and the pair has already had to be patched in
+     * lockstep once (image keys were reaching the free-text sanitizer).
+     *
+     * An image key goes through esc_url_raw(), which returns '' for anything it
+     * will not vouch for — a bare word, a javascript: scheme, a mangled host.
+     * Callers must treat that '' as "could not sanitize", not as "empty value";
+     * the two mean different things to an overwrite run.
+     *
+     * @param  string $value    Resolved value from the source plugin.
+     * @param  string $meta_key Imported destination key.
+     * @return string           Sanitized value, or '' if it did not survive.
+     */
+    private function sanitize_imported_value($value, $meta_key) {
+        if ($meta_key === Metasync_Seo_Precedence::KEY_IMPORTED_TITLE) {
+            return sanitize_text_field($value);
+        }
+
+        if (in_array($meta_key, array(
+            Metasync_Seo_Precedence::KEY_IMPORTED_OG_IMAGE,
+            Metasync_Seo_Precedence::KEY_IMPORTED_TWITTER_IMAGE,
+        ), true)) {
+            return esc_url_raw($value);
+        }
+
+        return sanitize_textarea_field($value);
+    }
+
+    /**
+     * Persist an imported title or description on its low-priority key.
+     *
+     * Every importer routes through here so the three source plugins cannot
+     * drift apart on the rules that matter: imported values never land on the
+     * customer-override keys, a value that resolves to nothing is not written,
+     * and an overwrite run clears a now-stale value instead of preserving it.
+     *
+     * @param int    $post_id    Post being imported.
+     * @param string $raw        Raw value from the source plugin.
+     * @param string $plugin     'yoast', 'rankmath', or 'aioseo'.
+     * @param string $meta_key   Imported destination key.
+     * @param bool   $overwrite  Whether the run replaces existing values.
+     * @param array  $unresolved Collected failures, appended to by reference.
+     * @param bool   $truncate   Trim to meta-description length first.
+     * @return bool              Whether the post's meta changed.
+     */
+    private function store_imported_post_value($post_id, $raw, $plugin, $meta_key, $overwrite, array &$unresolved, $truncate = false) {
+        if ($raw === '') {
+            return false;
+        }
+
+        $existing = get_post_meta($post_id, $meta_key, true);
+        if (!empty($existing) && !$overwrite) {
+            return false;
+        }
+
+        $resolved = $this->resolve_import_value($raw, $post_id, $plugin, $meta_key, $unresolved);
+
+        if ($resolved !== null && $truncate) {
+            $resolved = $this->truncate_meta_description($resolved);
+        }
+
+        if ($resolved !== null && trim($resolved) !== '') {
+            $sanitized = $this->sanitize_imported_value($resolved, $meta_key);
+
+            // The source gave us something, but it could not survive
+            // sanitization — an og:image/twitter:image URL rejected by
+            // esc_url_raw() is the case this guards. Writing the resulting ''
+            // would blank a good stored image and still report the import as a
+            // success. Skip instead: no write, no success, and whatever is
+            // already stored stays. A genuinely empty source is a different
+            // thing and is handled by the overwrite branch below.
+            if ($sanitized === '') {
+                return false;
+            }
+
+            // update_post_meta() unslashes what it is given, so a value holding
+            // a backslash ("AC\DC") would be stored stripped ("ACDC"). Slash it
+            // here so the round trip through meta storage is lossless.
+            update_post_meta($post_id, $meta_key, wp_slash($sanitized));
+            return true;
+        }
+
+        // Overwrite means "make this match the source". The source now yields
+        // nothing, so a value left from an earlier run is stale — clear it so
+        // re-importing repairs rather than preserves. Only ever touches the
+        // imported key, never anything the customer typed.
+        if ($overwrite && !empty($existing)) {
+            delete_post_meta($post_id, $meta_key);
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Resolve placeholder tokens in a value imported for a taxonomy term.
+     *
+     * The post resolver cannot be reused. Every token it answers comes off a
+     * WP_Post, and a term has no post to answer from — asking it would either
+     * blank the value or, worse, resolve it against whatever post happens to
+     * share the term's ID. The vocabularies barely overlap anyway: a term
+     * template is built from the term's own name and description, so this is a
+     * deliberately small, separate map.
+     *
+     * @param string  $text   Raw value from the source plugin.
+     * @param WP_Term $term   Term the value belongs to.
+     * @param string  $plugin 'yoast', 'rankmath', or 'aioseo'.
+     * @return string         Resolved string.
+     */
+    private function resolve_term_placeholders($text, $term, $plugin) {
+        if (empty($text) || empty($term->term_id)) {
+            return (string) $text;
+        }
+
+        // Yoast and Rank Math both accept a term in place of a post, so their
+        // own engines still give the exact string the source site rendered.
+        if ($plugin === 'yoast' && class_exists('WPSEO_Replace_Vars')) {
+            try {
+                $replacer = new WPSEO_Replace_Vars();
+                $resolved = $replacer->replace($text, $term);
+                if (is_string($resolved) && $resolved !== '') {
+                    return $resolved;
+                }
+            } catch (Exception $e) {
+                // fall through to manual replacement
+            }
+        }
+
+        if ($plugin === 'rankmath' && function_exists('rank_math_replace_vars')) {
+            try {
+                $resolved = rank_math_replace_vars($text, $term);
+                if (is_string($resolved) && $resolved !== '') {
+                    return $resolved;
+                }
+            } catch (Exception $e) {
+                // fall through to manual replacement
+            }
+        }
+
+        // AIOSEO's replaceTags() takes a post ID. Handing it a term ID does not
+        // fail — it resolves against whatever post shares that ID and returns
+        // another page's title, so the native engine is deliberately skipped
+        // here and the manual map below is the only path for AIOSEO terms.
+        return $this->manually_replace_term_placeholders($text, $term, $plugin);
+    }
+
+    /**
+     * Manual token replacement for term values.
+     *
+     * @param string  $text
+     * @param WP_Term $term
+     * @param string  $plugin
+     * @return string
+     */
+    private function manually_replace_term_placeholders($text, $term, $plugin) {
+        $site_name = (string) get_bloginfo('name');
+        $site_desc = (string) get_bloginfo('description');
+        $sep       = $this->resolve_source_separator($plugin);
+        $year      = (string) gmdate('Y');
+
+        $term_name = (string) $term->name;
+        $term_desc = wp_strip_all_tags((string) $term->description);
+
+        $map = [
+            // ── Yoast (%%var%%) ──────────────────────────────────────────────
+            '%%term_title%%'           => $term_name,
+            '%%term_description%%'     => $term_desc,
+            '%%category%%'             => $term_name,
+            '%%category_description%%' => $term_desc,
+            '%%tag%%'                  => $term_name,
+            '%%sitename%%'             => $site_name,
+            '%%sitedesc%%'             => $site_desc,
+            '%%sep%%'                  => $sep,
+            '%%currentyear%%'          => $year,
+            '%%page%%'                 => '',
+            '%%pagenumber%%'           => '',
+            '%%pagetotal%%'            => '',
+            // ── Rank Math (%var%) ────────────────────────────────────────────
+            '%term%'                   => $term_name,
+            '%term_description%'       => $term_desc,
+            '%category%'               => $term_name,
+            '%tag%'                    => $term_name,
+            '%sitename%'               => $site_name,
+            '%sitedesc%'               => $site_desc,
+            '%sep%'                    => $sep,
+            '%currentyear%'            => $year,
+            '%page%'                   => '',
+            // ── AIOSEO (#var) ────────────────────────────────────────────────
+            '#taxonomy_title'          => $term_name,
+            '#taxonomy_description'    => $term_desc,
+            '#archive_title'           => $term_name,
+            '#site_title'              => $site_name,
+            '#blog_title'              => $site_name,
+            '#site_description'        => $site_desc,
+            '#tagline'                 => $site_desc,
+            '#separator_sa'            => $sep,
+            '#current_year'            => $year,
+            '#page_number'             => '',
+        ];
+
+        // Longest token first, so a short token never eats the start of a
+        // longer one (#site_title must not consume #site_description).
+        uksort($map, function ($a, $b) {
+            return strlen($b) - strlen($a);
+        });
+
+        $resolved = str_replace(array_keys($map), array_values($map), $text);
+
+        return trim(preg_replace('/\s+/', ' ', $resolved));
+    }
+
+    /**
+     * Persist an imported term title or description on its low-priority key.
+     *
+     * Mirrors store_imported_post_value(): imported values never land on the
+     * key that means "the customer set this", a value that resolves to nothing
+     * is not written, and an overwrite run clears a now-stale value.
+     *
+     * @param WP_Term $term      Term being imported.
+     * @param string  $raw       Raw value from the source plugin.
+     * @param string  $plugin    'yoast', 'rankmath', or 'aioseo'.
+     * @param string  $meta_key  Imported destination key.
+     * @param bool    $overwrite Whether the run replaces existing values.
+     * @return bool              Whether the term's meta changed.
+     */
+    private function store_imported_term_value($term, $raw, $plugin, $meta_key, $overwrite) {
+        if ($raw === '') {
+            return false;
+        }
+
+        $term_id  = (int) $term->term_id;
+        $existing = get_term_meta($term_id, $meta_key, true);
+        if (!empty($existing) && !$overwrite) {
+            return false;
+        }
+
+        $resolved = $this->resolve_term_placeholders($raw, $term, $plugin);
+
+        // A token we do not know would otherwise be stored literally and render
+        // as '#taxonomy_title' on the archive — the defect this path exists to
+        // prevent. Skipping leaves the slot free for OTTO.
+        if ($this->has_unresolved_placeholders($resolved, $plugin)) {
+            return false;
+        }
+
+        if (trim($resolved) !== '') {
+            $sanitized = $this->sanitize_imported_value($resolved, $meta_key);
+
+            // See store_imported_post_value(): a value the source supplied but
+            // sanitization rejected must not blank an existing one, and must
+            // not count as a successful update.
+            if ($sanitized === '') {
+                return false;
+            }
+
+            // update_term_meta() unslashes what it stores; slash first so a
+            // backslash in the value survives the round trip.
+            update_term_meta($term_id, $meta_key, wp_slash($sanitized));
+            return true;
+        }
+
+        if ($overwrite && !empty($existing)) {
+            delete_term_meta($term_id, $meta_key);
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -2465,6 +3125,7 @@ class Metasync_External_Importer
 
         $imported_count = 0;
         $skipped_count = 0;
+        $unresolved = [];
 
         foreach ($posts as $post_obj) {
             $post_id = $post_obj->post_id;
@@ -2474,13 +3135,14 @@ class Metasync_External_Importer
             if ($import_titles) {
                 $yoast_title = get_post_meta($post_id, '_yoast_wpseo_title', true);
                 if (!empty($yoast_title)) {
-                    $existing_title = get_post_meta($post_id, '_metasync_seo_title', true);
-
-                    if (empty($existing_title) || $overwrite) {
-                        $yoast_title = $this->resolve_seo_placeholders($yoast_title, $post_id, 'yoast');
-                        update_post_meta($post_id, '_metasync_seo_title', sanitize_text_field($yoast_title));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $yoast_title,
+                        'yoast',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_TITLE,
+                        $overwrite,
+                        $unresolved
+                    );
                 }
             }
 
@@ -2488,13 +3150,14 @@ class Metasync_External_Importer
             if ($import_descriptions) {
                 $yoast_desc = get_post_meta($post_id, '_yoast_wpseo_metadesc', true);
                 if (!empty($yoast_desc)) {
-                    $existing_desc = get_post_meta($post_id, '_metasync_seo_desc', true);
-
-                    if (empty($existing_desc) || $overwrite) {
-                        $yoast_desc = $this->resolve_seo_placeholders($yoast_desc, $post_id, 'yoast');
-                        update_post_meta($post_id, '_metasync_seo_desc', sanitize_textarea_field($yoast_desc));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $yoast_desc,
+                        'yoast',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_DESC,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
             }
 
@@ -2502,42 +3165,50 @@ class Metasync_External_Importer
             if ($import_social_text) {
                 $yoast_og_title = get_post_meta($post_id, '_yoast_wpseo_opengraph-title', true);
                 if (!empty($yoast_og_title)) {
-                    $existing = get_post_meta($post_id, '_metasync_og_title', true);
-                    if (empty($existing) || $overwrite) {
-                        $yoast_og_title = $this->resolve_seo_placeholders($yoast_og_title, $post_id, 'yoast');
-                        update_post_meta($post_id, '_metasync_og_title', sanitize_text_field($yoast_og_title));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $yoast_og_title,
+                        'yoast',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_OG_TITLE,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
 
                 $yoast_og_desc = get_post_meta($post_id, '_yoast_wpseo_opengraph-description', true);
                 if (!empty($yoast_og_desc)) {
-                    $existing = get_post_meta($post_id, '_metasync_og_description', true);
-                    if (empty($existing) || $overwrite) {
-                        $yoast_og_desc = $this->resolve_seo_placeholders($yoast_og_desc, $post_id, 'yoast');
-                        update_post_meta($post_id, '_metasync_og_description', sanitize_textarea_field($yoast_og_desc));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $yoast_og_desc,
+                        'yoast',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_OG_DESC,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
 
                 $yoast_tw_title = get_post_meta($post_id, '_yoast_wpseo_twitter-title', true);
                 if (!empty($yoast_tw_title)) {
-                    $existing = get_post_meta($post_id, '_metasync_twitter_title', true);
-                    if (empty($existing) || $overwrite) {
-                        $yoast_tw_title = $this->resolve_seo_placeholders($yoast_tw_title, $post_id, 'yoast');
-                        update_post_meta($post_id, '_metasync_twitter_title', sanitize_text_field($yoast_tw_title));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $yoast_tw_title,
+                        'yoast',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_TWITTER_TITLE,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
 
                 $yoast_tw_desc = get_post_meta($post_id, '_yoast_wpseo_twitter-description', true);
                 if (!empty($yoast_tw_desc)) {
-                    $existing = get_post_meta($post_id, '_metasync_twitter_description', true);
-                    if (empty($existing) || $overwrite) {
-                        $yoast_tw_desc = $this->resolve_seo_placeholders($yoast_tw_desc, $post_id, 'yoast');
-                        update_post_meta($post_id, '_metasync_twitter_description', sanitize_textarea_field($yoast_tw_desc));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $yoast_tw_desc,
+                        'yoast',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_TWITTER_DESC,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
             }
 
@@ -2545,20 +3216,26 @@ class Metasync_External_Importer
             if ($import_social_images) {
                 $yoast_og_image = get_post_meta($post_id, '_yoast_wpseo_opengraph-image', true);
                 if (!empty($yoast_og_image)) {
-                    $existing_og = get_post_meta($post_id, '_metasync_og_image', true);
-                    if (empty($existing_og) || $overwrite) {
-                        update_post_meta($post_id, '_metasync_og_image', esc_url_raw($yoast_og_image));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $yoast_og_image,
+                        'yoast',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_OG_IMAGE,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
 
                 $yoast_twitter_image = get_post_meta($post_id, '_yoast_wpseo_twitter-image', true);
                 if (!empty($yoast_twitter_image)) {
-                    $existing_twitter = get_post_meta($post_id, '_metasync_twitter_image', true);
-                    if (empty($existing_twitter) || $overwrite) {
-                        update_post_meta($post_id, '_metasync_twitter_image', esc_url_raw($yoast_twitter_image));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $yoast_twitter_image,
+                        'yoast',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_TWITTER_IMAGE,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
             }
 
@@ -2572,7 +3249,7 @@ class Metasync_External_Importer
         $processed = $offset + count($posts);
         $is_complete = $processed >= $total_posts;
 
-        return [
+        return $this->attach_unresolved_report([
             'success' => true,
             'imported' => $imported_count,
             'skipped' => $skipped_count,
@@ -2583,7 +3260,7 @@ class Metasync_External_Importer
             'message' => $is_complete
                 ? "Import complete! Imported {$imported_count} posts, skipped {$skipped_count} posts."
                 : "Processing... {$imported_count} imported, {$skipped_count} skipped."
-        ];
+        ], $unresolved);
     }
 
     /**
@@ -2650,6 +3327,7 @@ class Metasync_External_Importer
 
         $imported_count = 0;
         $skipped_count = 0;
+        $unresolved = [];
 
         foreach ($posts as $post_obj) {
             $post_id = $post_obj->post_id;
@@ -2659,13 +3337,14 @@ class Metasync_External_Importer
             if ($import_titles) {
                 $rm_title = get_post_meta($post_id, 'rank_math_title', true);
                 if (!empty($rm_title)) {
-                    $existing_title = get_post_meta($post_id, '_metasync_seo_title', true);
-
-                    if (empty($existing_title) || $overwrite) {
-                        $rm_title = $this->resolve_seo_placeholders($rm_title, $post_id, 'rankmath');
-                        update_post_meta($post_id, '_metasync_seo_title', sanitize_text_field($rm_title));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $rm_title,
+                        'rankmath',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_TITLE,
+                        $overwrite,
+                        $unresolved
+                    );
                 }
             }
 
@@ -2673,13 +3352,14 @@ class Metasync_External_Importer
             if ($import_descriptions) {
                 $rm_desc = get_post_meta($post_id, 'rank_math_description', true);
                 if (!empty($rm_desc)) {
-                    $existing_desc = get_post_meta($post_id, '_metasync_seo_desc', true);
-
-                    if (empty($existing_desc) || $overwrite) {
-                        $rm_desc = $this->resolve_seo_placeholders($rm_desc, $post_id, 'rankmath');
-                        update_post_meta($post_id, '_metasync_seo_desc', sanitize_textarea_field($rm_desc));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $rm_desc,
+                        'rankmath',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_DESC,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
             }
 
@@ -2687,42 +3367,50 @@ class Metasync_External_Importer
             if ($import_social_text) {
                 $rm_og_title = get_post_meta($post_id, 'rank_math_facebook_title', true);
                 if (!empty($rm_og_title)) {
-                    $existing = get_post_meta($post_id, '_metasync_og_title', true);
-                    if (empty($existing) || $overwrite) {
-                        $rm_og_title = $this->resolve_seo_placeholders($rm_og_title, $post_id, 'rankmath');
-                        update_post_meta($post_id, '_metasync_og_title', sanitize_text_field($rm_og_title));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $rm_og_title,
+                        'rankmath',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_OG_TITLE,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
 
                 $rm_og_desc = get_post_meta($post_id, 'rank_math_facebook_description', true);
                 if (!empty($rm_og_desc)) {
-                    $existing = get_post_meta($post_id, '_metasync_og_description', true);
-                    if (empty($existing) || $overwrite) {
-                        $rm_og_desc = $this->resolve_seo_placeholders($rm_og_desc, $post_id, 'rankmath');
-                        update_post_meta($post_id, '_metasync_og_description', sanitize_textarea_field($rm_og_desc));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $rm_og_desc,
+                        'rankmath',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_OG_DESC,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
 
                 $rm_tw_title = get_post_meta($post_id, 'rank_math_twitter_title', true);
                 if (!empty($rm_tw_title)) {
-                    $existing = get_post_meta($post_id, '_metasync_twitter_title', true);
-                    if (empty($existing) || $overwrite) {
-                        $rm_tw_title = $this->resolve_seo_placeholders($rm_tw_title, $post_id, 'rankmath');
-                        update_post_meta($post_id, '_metasync_twitter_title', sanitize_text_field($rm_tw_title));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $rm_tw_title,
+                        'rankmath',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_TWITTER_TITLE,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
 
                 $rm_tw_desc = get_post_meta($post_id, 'rank_math_twitter_description', true);
                 if (!empty($rm_tw_desc)) {
-                    $existing = get_post_meta($post_id, '_metasync_twitter_description', true);
-                    if (empty($existing) || $overwrite) {
-                        $rm_tw_desc = $this->resolve_seo_placeholders($rm_tw_desc, $post_id, 'rankmath');
-                        update_post_meta($post_id, '_metasync_twitter_description', sanitize_textarea_field($rm_tw_desc));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $rm_tw_desc,
+                        'rankmath',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_TWITTER_DESC,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
             }
 
@@ -2730,20 +3418,26 @@ class Metasync_External_Importer
             if ($import_social_images) {
                 $rm_og_image = get_post_meta($post_id, 'rank_math_facebook_image', true);
                 if (!empty($rm_og_image)) {
-                    $existing_og = get_post_meta($post_id, '_metasync_og_image', true);
-                    if (empty($existing_og) || $overwrite) {
-                        update_post_meta($post_id, '_metasync_og_image', esc_url_raw($rm_og_image));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $rm_og_image,
+                        'rankmath',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_OG_IMAGE,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
 
                 $rm_twitter_image = get_post_meta($post_id, 'rank_math_twitter_image', true);
                 if (!empty($rm_twitter_image)) {
-                    $existing_twitter = get_post_meta($post_id, '_metasync_twitter_image', true);
-                    if (empty($existing_twitter) || $overwrite) {
-                        update_post_meta($post_id, '_metasync_twitter_image', esc_url_raw($rm_twitter_image));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $rm_twitter_image,
+                        'rankmath',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_TWITTER_IMAGE,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
             }
 
@@ -2757,7 +3451,7 @@ class Metasync_External_Importer
         $processed = $offset + count($posts);
         $is_complete = $processed >= $total_posts;
 
-        return [
+        return $this->attach_unresolved_report([
             'success' => true,
             'imported' => $imported_count,
             'skipped' => $skipped_count,
@@ -2768,7 +3462,7 @@ class Metasync_External_Importer
             'message' => $is_complete
                 ? "Import complete! Imported {$imported_count} posts, skipped {$skipped_count} posts."
                 : "Processing... {$imported_count} imported, {$skipped_count} skipped."
-        ];
+        ], $unresolved);
     }
 
     /**
@@ -2802,63 +3496,134 @@ class Metasync_External_Importer
             ];
         }
 
-        // Build WHERE clause
-        $where_conditions = [];
+        // Columns read off the AIOSEO row, excluding post_id. The same list gates
+        // row selection, so deriving both from one array keeps them in step — a
+        // WHERE that admitted a column the SELECT did not fetch would read a
+        // property that isn't there.
+        $value_columns = [];
         if ($import_titles) {
-            $where_conditions[] = '(title IS NOT NULL AND title != \'\')';
+            $value_columns[] = 'title';
         }
         if ($import_descriptions) {
-            $where_conditions[] = '(description IS NOT NULL AND description != \'\')';
+            $value_columns[] = 'description';
         }
         if ($import_social_text) {
-            $where_conditions[] = '(og_title IS NOT NULL AND og_title != \'\')';
-            $where_conditions[] = '(og_description IS NOT NULL AND og_description != \'\')';
-            $where_conditions[] = '(twitter_title IS NOT NULL AND twitter_title != \'\')';
-            $where_conditions[] = '(twitter_description IS NOT NULL AND twitter_description != \'\')';
+            $value_columns[] = 'og_title';
+            $value_columns[] = 'og_description';
+            $value_columns[] = 'twitter_title';
+            $value_columns[] = 'twitter_description';
         }
         if ($import_social_images) {
-            $where_conditions[] = '(og_image_custom_url IS NOT NULL AND og_image_custom_url != \'\')';
-            $where_conditions[] = '(twitter_image_custom_url IS NOT NULL AND twitter_image_custom_url != \'\')';
+            $value_columns[] = 'og_image_custom_url';
+            $value_columns[] = 'twitter_image_custom_url';
         }
-        $where_clause = implode(' OR ', $where_conditions);
 
-        // Build SELECT columns
-        $select_columns = ['post_id'];
-        if ($import_titles) {
-            $select_columns[] = 'title';
-        }
-        if ($import_descriptions) {
-            $select_columns[] = 'description';
-        }
-        if ($import_social_text) {
-            $select_columns[] = 'og_title';
-            $select_columns[] = 'og_description';
-            $select_columns[] = 'twitter_title';
-            $select_columns[] = 'twitter_description';
-        }
-        if ($import_social_images) {
-            $select_columns[] = 'og_image_custom_url';
-            $select_columns[] = 'twitter_image_custom_url';
-        }
-        $select_clause = implode(', ', $select_columns);
+        $build_has_value_clause = function ($prefix) use ($value_columns) {
+            $conditions = [];
+            foreach ($value_columns as $column) {
+                $col          = $prefix . $column;
+                $conditions[] = "({$col} IS NOT NULL AND {$col} != '')";
+            }
+            return implode(' OR ', $conditions);
+        };
 
-        // Get total count
-        $total_posts = (int) $wpdb->get_var("
-            SELECT COUNT(post_id)
-            FROM {$table}
-            WHERE ({$where_clause})
-            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-        ");
+        $where_clause          = $build_has_value_clause('');
+        $joined_has_value      = $build_has_value_clause('a.');
 
-        // Get batch of posts
-        $posts = $wpdb->get_results($wpdb->prepare("
-            SELECT {$select_clause}
-            FROM {$table}
-            WHERE ({$where_clause})
-            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-            ORDER BY post_id ASC
-            LIMIT %d OFFSET %d
-        ", $batch_size, $offset));
+        // AIOSEO serves a title and description for every post through its
+        // site-wide templates, not only for posts carrying a per-post override.
+        // Walking the AIOSEO table alone therefore reaches almost nothing on a
+        // typical site — overrides are the exception, templates are the rule. So
+        // when templates are in play, anchor the walk on the posts table and join
+        // the AIOSEO row in; the per-post value still wins wherever it exists.
+        $templates = ($import_titles || $import_descriptions)
+            ? $this->get_aioseo_post_type_templates()
+            : [];
+
+        $template_post_types = [];
+        foreach ($templates as $post_type => $template) {
+            if (($import_titles && $template['title'] !== '')
+                || ($import_descriptions && $template['description'] !== '')) {
+                $template_post_types[] = $post_type;
+            }
+        }
+
+        if (!empty($template_post_types)) {
+            $type_placeholders = implode(', ', array_fill(0, count($template_post_types), '%s'));
+
+            // Template mode visits every published post, not just the few with an
+            // override, and AIOSEO's default description template is #post_excerpt
+            // — which on a post without a manual excerpt runs the whole the_content
+            // filter chain. On page-builder content that is a large fraction of a
+            // second each, so the caller's batch of 50 can outlive a proxy read
+            // timeout. Smaller batches cost more requests and finish.
+            $batch_size = min($batch_size, 20);
+
+            // COUNT and SELECT must describe the identical row set. is_complete
+            // compares (offset + rows returned) against this count and the client
+            // loops until they meet, with no iteration cap — a count broader than
+            // the select spins forever, a narrower one stops early and silently
+            // drops the remainder. Counting the joined set rather than the posts
+            // table alone also keeps cardinality identical if the AIOSEO table
+            // ever held two rows for one post: its post_id index is not unique.
+            //
+            // The post-type list governs which posts get a *template*, so it must
+            // not also decide which posts get read at all: a post type with no
+            // template — one AIOSEO never configured, one with SEO switched off,
+            // one registered non-public — can still carry per-post overrides that
+            // the override-only walk always imported. The second arm keeps every
+            // row holding real AIOSEO data in scope whatever its post type, so
+            // adding a template never removes anything from the import.
+            $from_clause = "FROM {$wpdb->posts} p
+                LEFT JOIN {$table} a ON a.post_id = p.ID
+                WHERE p.post_status = 'publish'
+                AND (p.post_type IN ({$type_placeholders}) OR ({$joined_has_value}))";
+
+            $total_posts = (int) $wpdb->get_var(
+                $wpdb->prepare("SELECT COUNT(*) {$from_clause}", $template_post_types)
+            );
+
+            $joined_columns = array_map(
+                function ($column) {
+                    return "a.{$column}";
+                },
+                $value_columns
+            );
+            // At least one import flag is set — the "no import options selected"
+            // guard above returns before this point — so there is always at
+            // least one value column to select.
+            $joined_select = 'p.ID AS post_id, p.post_type AS post_type, '
+                . implode(', ', $joined_columns);
+
+            $posts = $wpdb->get_results($wpdb->prepare(
+                "SELECT {$joined_select}
+                 {$from_clause}
+                 ORDER BY p.ID ASC
+                 LIMIT %d OFFSET %d",
+                array_merge($template_post_types, [$batch_size, $offset])
+            ));
+        } else {
+            // No usable templates — e.g. only the social options are selected, or
+            // aioseo_options_dynamic is missing. Fall back to the original
+            // override-only walk so those sites behave exactly as before.
+            $select_clause = implode(', ', array_merge(['post_id'], $value_columns));
+
+            $total_posts = (int) $wpdb->get_var("
+                SELECT COUNT(post_id)
+                FROM {$table}
+                WHERE ({$where_clause})
+                AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+            ");
+
+            $posts = $wpdb->get_results($wpdb->prepare("
+                SELECT {$select_clause}
+                FROM {$table}
+                WHERE ({$where_clause})
+                AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+                ORDER BY post_id ASC
+                LIMIT %d OFFSET %d
+            ", $batch_size, $offset));
+        }
 
         $imported_count = 0;
         $skipped_count = 0;
@@ -2868,80 +3633,111 @@ class Metasync_External_Importer
             $post_id = $aioseo_data->post_id;
             $updated = false;
 
-            // Import title
-            if ($import_titles && !empty($aioseo_data->title)) {
-                $existing_title = get_post_meta($post_id, '_metasync_seo_title', true);
+            // Present only on the template-anchored query; the fallback walk has
+            // no join to read it from.
+            $post_type = isset($aioseo_data->post_type)
+                ? (string) $aioseo_data->post_type
+                : (string) get_post_type($post_id);
 
-                if (empty($existing_title) || $overwrite) {
-                    $aioseo_title = $this->resolve_import_value($aioseo_data->title, $post_id, 'aioseo', '_metasync_seo_title', $unresolved);
-                    if ($aioseo_title !== null) {
-                        update_post_meta($post_id, '_metasync_seo_title', sanitize_text_field($aioseo_title));
-                        $updated = true;
-                    }
+            $title_template = $templates[$post_type]['title'] ?? '';
+            $desc_template  = $templates[$post_type]['description'] ?? '';
+
+            // Import title.
+            //
+            // The per-post value wins; the site-wide template is the fallback,
+            // matching the order AIOSEO itself resolves in. Destination and
+            // write rules come from store_imported_post_value().
+            if ($import_titles) {
+                $raw_title = !empty($aioseo_data->title) ? (string) $aioseo_data->title : '';
+
+                if ($raw_title === '' && $title_template !== '') {
+                    $raw_title = $title_template;
                 }
+
+                $updated = $this->store_imported_post_value(
+                    $post_id,
+                    $raw_title,
+                    'aioseo',
+                    Metasync_Seo_Precedence::KEY_IMPORTED_TITLE,
+                    $overwrite,
+                    $unresolved
+                );
             }
 
-            // Import description
-            if ($import_descriptions && !empty($aioseo_data->description)) {
-                $existing_desc = get_post_meta($post_id, '_metasync_seo_desc', true);
+            // Import description — same reasoning as the title above.
+            if ($import_descriptions) {
+                $raw_desc           = !empty($aioseo_data->description) ? (string) $aioseo_data->description : '';
+                $desc_from_template = false;
 
-                if (empty($existing_desc) || $overwrite) {
-                    $aioseo_desc = $this->resolve_import_value($aioseo_data->description, $post_id, 'aioseo', '_metasync_seo_desc', $unresolved);
-                    if ($aioseo_desc !== null) {
-                        update_post_meta($post_id, '_metasync_seo_desc', sanitize_textarea_field($aioseo_desc));
-                        $updated = true;
-                    }
+                if ($raw_desc === '' && $desc_template !== '') {
+                    $raw_desc           = $desc_template;
+                    $desc_from_template = true;
                 }
+
+                // Only template-derived values are trimmed. A '#post_content'
+                // template resolves to the whole body, and AIOSEO emits that
+                // untruncated — copying it verbatim would give every page a
+                // multi-thousand-character description. What the customer
+                // typed on the post is left exactly as they wrote it.
+                $updated = $this->store_imported_post_value(
+                    $post_id,
+                    $raw_desc,
+                    'aioseo',
+                    Metasync_Seo_Precedence::KEY_IMPORTED_DESC,
+                    $overwrite,
+                    $unresolved,
+                    $desc_from_template
+                ) || $updated;
             }
 
             // Import social text
             if ($import_social_text) {
                 $aioseo_og_title = isset($aioseo_data->og_title) ? $aioseo_data->og_title : '';
                 if (!empty($aioseo_og_title)) {
-                    $existing = get_post_meta($post_id, '_metasync_og_title', true);
-                    if (empty($existing) || $overwrite) {
-                        $aioseo_og_title = $this->resolve_import_value($aioseo_og_title, $post_id, 'aioseo', '_metasync_og_title', $unresolved);
-                        if ($aioseo_og_title !== null) {
-                            update_post_meta($post_id, '_metasync_og_title', sanitize_text_field($aioseo_og_title));
-                            $updated = true;
-                        }
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $aioseo_og_title,
+                        'aioseo',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_OG_TITLE,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
 
                 $aioseo_og_desc = isset($aioseo_data->og_description) ? $aioseo_data->og_description : '';
                 if (!empty($aioseo_og_desc)) {
-                    $existing = get_post_meta($post_id, '_metasync_og_description', true);
-                    if (empty($existing) || $overwrite) {
-                        $aioseo_og_desc = $this->resolve_import_value($aioseo_og_desc, $post_id, 'aioseo', '_metasync_og_description', $unresolved);
-                        if ($aioseo_og_desc !== null) {
-                            update_post_meta($post_id, '_metasync_og_description', sanitize_textarea_field($aioseo_og_desc));
-                            $updated = true;
-                        }
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $aioseo_og_desc,
+                        'aioseo',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_OG_DESC,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
 
                 $aioseo_tw_title = isset($aioseo_data->twitter_title) ? $aioseo_data->twitter_title : '';
                 if (!empty($aioseo_tw_title)) {
-                    $existing = get_post_meta($post_id, '_metasync_twitter_title', true);
-                    if (empty($existing) || $overwrite) {
-                        $aioseo_tw_title = $this->resolve_import_value($aioseo_tw_title, $post_id, 'aioseo', '_metasync_twitter_title', $unresolved);
-                        if ($aioseo_tw_title !== null) {
-                            update_post_meta($post_id, '_metasync_twitter_title', sanitize_text_field($aioseo_tw_title));
-                            $updated = true;
-                        }
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $aioseo_tw_title,
+                        'aioseo',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_TWITTER_TITLE,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
 
                 $aioseo_tw_desc = isset($aioseo_data->twitter_description) ? $aioseo_data->twitter_description : '';
                 if (!empty($aioseo_tw_desc)) {
-                    $existing = get_post_meta($post_id, '_metasync_twitter_description', true);
-                    if (empty($existing) || $overwrite) {
-                        $aioseo_tw_desc = $this->resolve_import_value($aioseo_tw_desc, $post_id, 'aioseo', '_metasync_twitter_description', $unresolved);
-                        if ($aioseo_tw_desc !== null) {
-                            update_post_meta($post_id, '_metasync_twitter_description', sanitize_textarea_field($aioseo_tw_desc));
-                            $updated = true;
-                        }
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $aioseo_tw_desc,
+                        'aioseo',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_TWITTER_DESC,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
             }
 
@@ -2949,20 +3745,26 @@ class Metasync_External_Importer
             if ($import_social_images) {
                 $aioseo_og_image = isset($aioseo_data->og_image_custom_url) ? $aioseo_data->og_image_custom_url : '';
                 if (!empty($aioseo_og_image)) {
-                    $existing_og = get_post_meta($post_id, '_metasync_og_image', true);
-                    if (empty($existing_og) || $overwrite) {
-                        update_post_meta($post_id, '_metasync_og_image', esc_url_raw($aioseo_og_image));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $aioseo_og_image,
+                        'aioseo',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_OG_IMAGE,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
 
                 $aioseo_twitter_image = isset($aioseo_data->twitter_image_custom_url) ? $aioseo_data->twitter_image_custom_url : '';
                 if (!empty($aioseo_twitter_image)) {
-                    $existing_twitter = get_post_meta($post_id, '_metasync_twitter_image', true);
-                    if (empty($existing_twitter) || $overwrite) {
-                        update_post_meta($post_id, '_metasync_twitter_image', esc_url_raw($aioseo_twitter_image));
-                        $updated = true;
-                    }
+                    $updated = $this->store_imported_post_value(
+                        $post_id,
+                        (string) $aioseo_twitter_image,
+                        'aioseo',
+                        Metasync_Seo_Precedence::KEY_IMPORTED_TWITTER_IMAGE,
+                        $overwrite,
+                        $unresolved
+                    ) || $updated;
                 }
             }
 
@@ -2974,7 +3776,11 @@ class Metasync_External_Importer
         }
 
         $processed = $offset + count($posts);
-        $is_complete = $processed >= $total_posts;
+        // An empty batch always ends the run. The client loops on !is_complete
+        // with no iteration cap, so if the count and the select ever disagreed,
+        // a batch returning no rows would leave processed stuck below total and
+        // spin forever against the server.
+        $is_complete = $processed >= $total_posts || empty($posts);
 
         return $this->attach_unresolved_report([
             'success' => true,
@@ -3071,12 +3877,18 @@ class Metasync_External_Importer
             ];
         }
 
+        // Title and description are handled separately below: they go to the
+        // imported keys so they lose to OTTO, and they need their tokens
+        // resolved. The rest keep their own keys.
         $field_map = [
-            'wpseo_title'                 => '_metasync_metatitle',
-            'wpseo_desc'                  => '_metasync_metadesc',
             'wpseo_opengraph-title'       => '_metasync_og_title',
             'wpseo_opengraph-description' => '_metasync_og_description',
             'wpseo_canonical'             => '_metasync_canonical_url',
+        ];
+
+        $imported_map = [
+            'wpseo_title' => Metasync_Seo_Precedence::KEY_IMPORTED_TITLE,
+            'wpseo_desc'  => Metasync_Seo_Precedence::KEY_IMPORTED_DESC,
         ];
 
         $imported = 0;
@@ -3089,6 +3901,16 @@ class Metasync_External_Importer
             $yoast_meta = WPSEO_Taxonomy_Meta::get_term_meta($term->term_id, $term->taxonomy);
             if (!is_array($yoast_meta)) {
                 $yoast_meta = [];
+            }
+
+            foreach ($imported_map as $src_key => $dest_key) {
+                $term_updated = $this->store_imported_term_value(
+                    $term,
+                    isset($yoast_meta[$src_key]) ? (string) $yoast_meta[$src_key] : '',
+                    'yoast',
+                    $dest_key,
+                    $overwrite
+                ) || $term_updated;
             }
 
             foreach ($field_map as $src_key => $dest_key) {
@@ -3106,6 +3928,11 @@ class Metasync_External_Importer
                 if ($dest_key === '_metasync_canonical_url') {
                     $src_value = Metasync_Canonical_Sanitizer::sanitize_for_save($src_value);
                     if ($src_value === '') {
+                        continue;
+                    }
+                } else {
+                    $src_value = $this->resolve_term_placeholders($src_value, $term, 'yoast');
+                    if (trim($src_value) === '') {
                         continue;
                     }
                 }
@@ -3169,12 +3996,17 @@ class Metasync_External_Importer
             ];
         }
 
+        // See import_yoast_term_meta(): title and description are routed to the
+        // imported keys and token-resolved; the rest keep their own keys.
         $field_map = [
-            'rank_math_title'                => '_metasync_metatitle',
-            'rank_math_description'          => '_metasync_metadesc',
             'rank_math_facebook_title'       => '_metasync_og_title',
             'rank_math_facebook_description' => '_metasync_og_description',
             'rank_math_canonical_url'        => '_metasync_canonical_url',
+        ];
+
+        $imported_map = [
+            'rank_math_title'       => Metasync_Seo_Precedence::KEY_IMPORTED_TITLE,
+            'rank_math_description' => Metasync_Seo_Precedence::KEY_IMPORTED_DESC,
         ];
 
         $imported = 0;
@@ -3182,6 +4014,16 @@ class Metasync_External_Importer
 
         foreach ($terms as $term) {
             $term_updated = false;
+
+            foreach ($imported_map as $src_key => $dest_key) {
+                $term_updated = $this->store_imported_term_value(
+                    $term,
+                    (string) get_term_meta($term->term_id, $src_key, true),
+                    'rankmath',
+                    $dest_key,
+                    $overwrite
+                ) || $term_updated;
+            }
 
             foreach ($field_map as $src_key => $dest_key) {
                 $src_value = get_term_meta($term->term_id, $src_key, true);
@@ -3198,6 +4040,11 @@ class Metasync_External_Importer
                 if ($dest_key === '_metasync_canonical_url') {
                     $src_value = Metasync_Canonical_Sanitizer::sanitize_for_save($src_value);
                     if ($src_value === '') {
+                        continue;
+                    }
+                } else {
+                    $src_value = $this->resolve_term_placeholders($src_value, $term, 'rankmath');
+                    if (trim($src_value) === '') {
                         continue;
                     }
                 }
@@ -3277,15 +4124,38 @@ class Metasync_External_Importer
                 continue;
             }
 
+            // The resolver needs the term's own name and description, and a row
+            // can outlive the term it points at.
+            $term = get_term($term_id);
+            if (!$term || is_wp_error($term)) {
+                $skipped++;
+                continue;
+            }
+
             $term_updated = false;
 
+            // See import_yoast_term_meta(): title and description are routed to
+            // the imported keys and token-resolved; the rest keep their own keys.
             $field_map = [
-                'title'         => '_metasync_metatitle',
-                'description'   => '_metasync_metadesc',
                 'og_title'      => '_metasync_og_title',
                 'og_description' => '_metasync_og_description',
                 'canonical_url' => '_metasync_canonical_url',
             ];
+
+            $imported_map = [
+                'title'       => Metasync_Seo_Precedence::KEY_IMPORTED_TITLE,
+                'description' => Metasync_Seo_Precedence::KEY_IMPORTED_DESC,
+            ];
+
+            foreach ($imported_map as $column => $dest_key) {
+                $term_updated = $this->store_imported_term_value(
+                    $term,
+                    isset($row->$column) ? (string) $row->$column : '',
+                    'aioseo',
+                    $dest_key,
+                    $overwrite
+                ) || $term_updated;
+            }
 
             foreach ($field_map as $column => $dest_key) {
                 $value = isset($row->$column) ? $row->$column : '';
@@ -3302,6 +4172,11 @@ class Metasync_External_Importer
                 if ($dest_key === '_metasync_canonical_url') {
                     $value = Metasync_Canonical_Sanitizer::sanitize_for_save($value);
                     if ($value === '') {
+                        continue;
+                    }
+                } else {
+                    $value = $this->resolve_term_placeholders($value, $term, 'aioseo');
+                    if (trim($value) === '' || $this->has_unresolved_placeholders($value, 'aioseo')) {
                         continue;
                     }
                 }

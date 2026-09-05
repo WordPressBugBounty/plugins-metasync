@@ -1816,6 +1816,25 @@ class Metasync_Sitemap_Generator
             return false;
         }
 
+        // Record why entries were left out, so the admin screen can name the
+        // actual cause instead of reporting a bare "0 URLs", which reads as
+        // "this is normal" even on a site full of videos.
+        //
+        // Written AFTER the store succeeds: diagnostics that describe a
+        // sitemap which was never published would be reported against the
+        // older document still being served.
+        update_option(
+            'metasync_video_sitemap_diagnostics',
+            [
+                'skipped_no_thumbnail'        => $video->get_skipped_no_thumbnail_count(),
+                'skipped_no_thumbnail_ids'    => $video->get_skipped_no_thumbnail_post_ids(),
+                'skipped_no_thumbnail_videos' => $video->get_skipped_no_thumbnail_video_count(),
+                'skipped_duplicate_thumbnail' => $video->get_skipped_duplicate_thumbnail_count(),
+                'generated_at'                => current_time('mysql'),
+            ],
+            false
+        );
+
         // Add to robots.txt
         if (!class_exists('Metasync_Robots_Txt')) {
             $robots_txt_file = plugin_dir_path(dirname(__FILE__)) . 'robots-txt/class-metasync-robots-txt.php';

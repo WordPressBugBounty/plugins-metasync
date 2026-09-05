@@ -1108,12 +1108,12 @@ class Metasync_Settings_Fields {
             'otto_bot_whitelist' => sprintf('Enter bot names or user-agent patterns (one per line) that should always be processed by %s, even when "Disable for Bots" is enabled. For example: Googlebot, Bingbot. This allows you to ensure specific search engines always see your optimized content.', $otto_name),
             'otto_bot_blacklist' => sprintf('Enter bot names or user-agent patterns (one per line) that should always be blocked from %s processing, regardless of other settings. For example: BadBot, MaliciousCrawler. Use this to exclude problematic crawlers or unwanted traffic sources.', $otto_name),
             'otto_bot_statistics_link' => 'View detailed bot detection statistics including total hits, API calls saved, breakdown by bot type, and unique bot entries with hit counts.',
-            'disable_common_robots_metabox' => 'Hide the Common Robots meta box from post and page edit screens. This removes the robots meta tag controls (index/noindex, follow/nofollow) from the editor interface.',
-            'disable_advance_robots_metabox' => 'Hide the Advanced Robots meta box from post and page edit screens. This removes advanced robots directives like max-snippet, max-image-preview, and max-video-preview settings.',
-            'disable_redirection_metabox' => 'Hide the Redirection meta box from post and page edit screens. This removes the URL redirect configuration options from the editor interface.',
-            'disable_canonical_metabox' => 'Hide the Canonical URL meta box from post and page edit screens. This removes the canonical URL override field from the editor interface.',
-            'disable_social_opengraph_metabox' => 'Hide the Social Media & Open Graph meta box from post and page edit screens. This removes Facebook, Twitter, and other social media meta tag controls from the editor.',
-            'disable_schema_markup_metabox' => 'Hide the Schema Markup meta box from post and page edit screens. This removes the structured data (Article, FAQ, Product, Recipe, etc.) configuration from the editor interface.',
+            'disable_common_robots_metabox' => sprintf('Hide the Common Robots meta box and stop %1$s emitting index/noindex and follow/nofollow directives on the front end. %1$s also stops overriding WordPress core or another SEO plugin\'s robots tag. Saved values are kept and restored if you re-enable this.', Metasync::get_effective_plugin_name('MetaSync')),
+            'disable_advance_robots_metabox' => sprintf('Hide the Advanced Robots meta box and stop %1$s emitting max-snippet, max-image-preview and max-video-preview directives, including the site-wide advanced defaults. Saved values are kept and restored if you re-enable this.', Metasync::get_effective_plugin_name('MetaSync')),
+            'disable_redirection_metabox' => 'Hide the Redirection meta box and stop redirects configured through it from running. Rules added by hand on the Redirections screen keep working. Saved redirects are kept and resume if you re-enable this.',
+            'disable_canonical_metabox' => sprintf('Hide the Canonical meta box and stop %1$s emitting or overriding the canonical URL on every render path. WordPress core and third-party canonicals are left in place. Saved values are kept and restored if you re-enable this.', Metasync::get_effective_plugin_name('MetaSync')),
+            'disable_social_opengraph_metabox' => sprintf('Hide the Social Media & Open Graph meta box and stop %1$s emitting any Open Graph, Twitter or article tags. Tags from another SEO plugin are left in place. Saved values are kept and restored if you re-enable this.', Metasync::get_effective_plugin_name('MetaSync')),
+            'disable_schema_markup_metabox' => sprintf('Hide the Schema Markup meta box and stop %1$s emitting any JSON-LD, including the site-wide Local SEO markup and OTTO structured data. Breadcrumb markup has its own setting. Saved values are kept and restored if you re-enable this.', Metasync::get_effective_plugin_name('MetaSync')),
             'disable_seo_metabox' => 'Hide the SEO Title & Meta Description meta box from post and page edit screens. This removes the Classic editor SEO fields (the Gutenberg sidebar is unaffected).',
             'open_external_links' => sprintf('Automatically add target="_blank" attribute to external links appearing in your posts, pages, and other post types when rendered by %s.', $otto_name),
             'content_genius_sync_roles' => 'Select which WordPress user roles should be synchronized with Content Genius. This determines which users will have their profiles and permissions synced for content collaboration.',
@@ -1600,9 +1600,16 @@ class Metasync_Settings_Fields {
     {
         $local_seo_logo = Metasync::get_option('localseo')['local_seo_logo'] ?? '';
 
+        // Rows saved by the legacy sanitizer hold the corrupted form of
+        // an attachment ID ("http://45589"). Repair it before anything reads
+        // the value — both so the preview resolves and so the hidden input
+        // re-submits the recovered ID instead of the corrupted string, which
+        // would otherwise survive every subsequent Save Settings.
+        $local_seo_logo = metasync_repair_scheme_prefixed_media_id($local_seo_logo);
+
         printf(
             '<input type="hidden" id="local_seo_logo" name="' . Metasync_Admin::option_key . '[localseo][local_seo_logo]" value="%s" size="50" />',
-            isset(Metasync::get_option('localseo')['local_seo_logo']) ? esc_attr(Metasync::get_option('localseo')['local_seo_logo']) : ''
+            esc_attr((string) $local_seo_logo)
         );
 
         printf(' <br> <input class="button-secondary no-loading" type="button" id="logo_upload_button" value="Add or Upload File">');
@@ -1642,6 +1649,14 @@ class Metasync_Settings_Fields {
      */
     private function resolve_media_url($value, $size = 'medium')
     {
+        if (empty($value)) {
+            return '';
+        }
+
+        // A row saved by the legacy sanitizer stores a corrupted attachment ID ("http://45589"),
+        // which is neither resolvable as an ID nor a usable image URL.
+        $value = metasync_repair_scheme_prefixed_media_id($value);
+
         if (empty($value)) {
             return '';
         }

@@ -33,6 +33,10 @@
             // OTTO keys for fallback (read-only, used to prefill if manual fields are empty)
             ottoTitle: '_metasync_otto_title',
             ottoDescription: '_metasync_otto_description',
+            // Imported keys (read-only). Rank BELOW OTTO — used only when OTTO
+            // has no suggestion for the post.
+            importedTitle: '_metasync_imported_seo_title',
+            importedDescription: '_metasync_imported_seo_desc',
             // OTTO focus keyword (read-only display only)
             ottoKeywords: '_metasync_otto_keywords',
             // OTTO disabled per-post flag
@@ -195,17 +199,19 @@
     const SeoTitleInput = () => {
         const metaKey = config.metaKeys.seoTitle;
         const ottoKey = config.metaKeys.ottoTitle;
+        const importedKey = config.metaKeys.importedTitle;
         const limits = config.limits.seoTitle;
 
-        // Get both manual and OTTO values
+        // Get manual, OTTO and imported values.
         // Use PHP-provided hasMetaKeys to check if meta key exists in database
-        const { manualValue, ottoValue } = useSelect((select) => {
+        const { manualValue, ottoValue, importedValue } = useSelect((select) => {
             const meta = select('core/editor').getEditedPostAttribute('meta') || {};
             return {
                 manualValue: meta[metaKey] || '',
                 ottoValue: meta[ottoKey] || '',
+                importedValue: meta[importedKey] || '',
             };
-        }, [metaKey, ottoKey]);
+        }, [metaKey, ottoKey, importedKey]);
 
         const { editPost } = useDispatch('core/editor');
 
@@ -219,10 +225,12 @@
         // - If user has edited during this session, show manual value (even if empty)
         // - If manual value exists in database (even empty), show it
         // - Otherwise show OTTO as prefill
-        const shouldShowOttoFallback = !hasBeenEdited && !hasMetaKeyInDb && ottoValue;
-        const displayValue = shouldShowOttoFallback ? ottoValue : (manualValue || '');
-        
-        // Track if showing OTTO value (for visual indicator)
+        // Imported values rank below OTTO, so only surface one when OTTO is silent.
+        const fallbackValue = ottoValue || importedValue;
+        const shouldShowOttoFallback = !hasBeenEdited && !hasMetaKeyInDb && fallbackValue;
+        const displayValue = shouldShowOttoFallback ? fallbackValue : (manualValue || '');
+
+        // Track if showing a prefilled (non-manual) value, for the visual indicator
         const isOttoValue = shouldShowOttoFallback;
 
         const handleChange = (value) => {
@@ -259,17 +267,19 @@
     const MetaDescriptionInput = () => {
         const metaKey = config.metaKeys.metaDescription;
         const ottoKey = config.metaKeys.ottoDescription;
+        const importedKey = config.metaKeys.importedDescription;
         const limits = config.limits.metaDescription;
 
-        // Get both manual and OTTO values
+        // Get manual, OTTO and imported values.
         // Use PHP-provided hasMetaKeys to check if meta key exists in database
-        const { manualValue, ottoValue } = useSelect((select) => {
+        const { manualValue, ottoValue, importedValue } = useSelect((select) => {
             const meta = select('core/editor').getEditedPostAttribute('meta') || {};
             return {
                 manualValue: meta[metaKey] || '',
                 ottoValue: meta[ottoKey] || '',
+                importedValue: meta[importedKey] || '',
             };
-        }, [metaKey, ottoKey]);
+        }, [metaKey, ottoKey, importedKey]);
 
         const { editPost } = useDispatch('core/editor');
 
@@ -430,12 +440,14 @@
             // Get manual values first, then fall back to OTTO values
             const manualTitle = meta[config.metaKeys.seoTitle] || '';
             const ottoTitle = meta[config.metaKeys.ottoTitle] || '';
+            const importedTitle = meta[config.metaKeys.importedTitle] || '';
             const manualDesc = meta[config.metaKeys.metaDescription] || '';
             const ottoDesc = meta[config.metaKeys.ottoDescription] || '';
-            
+            const importedDesc = meta[config.metaKeys.importedDescription] || '';
+
             return {
-                seoTitle: manualTitle || ottoTitle,  // Manual > OTTO
-                metaDescription: manualDesc || ottoDesc,  // Manual > OTTO
+                seoTitle: manualTitle || ottoTitle || importedTitle,  // Manual > OTTO > imported
+                metaDescription: manualDesc || ottoDesc || importedDesc,  // Manual > OTTO > imported
                 postTitle: editor.getEditedPostAttribute('title') || '',
                 permalink: editor.getPermalink() || '',
                 excerpt: editor.getEditedPostAttribute('excerpt') || '',

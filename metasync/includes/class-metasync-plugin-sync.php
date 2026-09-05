@@ -378,7 +378,7 @@ class Metasync_Plugin_Sync {
 				}
 			}
 
-			return $fields;
+			return $this->apply_feature_flags_to_payload($fields);
 		}
 
 		$all_meta = get_post_custom($post_id);
@@ -436,11 +436,18 @@ class Metasync_Plugin_Sync {
 			return '';
 		};
 
-		// title: sidebar > persisted OTTO > volatile OTTO
-		$data['title'] = $first('_metasync_seo_title', '_metasync_metatitle', '_metasync_otto_title');
+		// Order comes from Metasync_Seo_Precedence, the one place it is defined.
+		//
+		// Imported values come last so a sync triggered by something else still
+		// reports a title rather than an empty one. They are deliberately NOT in
+		// WATCHED_KEYS or the on_meta_updated map above: a sync mirrors the
+		// canonical value into an active third-party plugin's own storage, and
+		// that plugin renders at a higher effective precedence than OTTO — so
+		// syncing on an imported write would put the imported title back in
+		// front of OTTO, which is the exact behaviour this key exists to avoid.
+		$data['title'] = $first(...Metasync_Seo_Precedence::keys(Metasync_Seo_Precedence::FIELD_TITLE));
 
-		// desc: sidebar > persisted OTTO > volatile OTTO
-		$data['desc'] = $first('_metasync_seo_desc', '_metasync_metadesc', '_metasync_otto_description');
+		$data['desc'] = $first(...Metasync_Seo_Precedence::keys(Metasync_Seo_Precedence::FIELD_DESCRIPTION));
 
 		// Robots directives: check _metasync_robots_advanced JSON first,
 		// then fall back to metasync_common_robots array + metasync_advance_robots array
@@ -448,7 +455,11 @@ class Metasync_Plugin_Sync {
 		$robots_json = !empty($robots_json_raw) ? json_decode($robots_json_raw, true) : null;
 
 		if (is_array($robots_json)) {
-			$data['noindex'] = !empty($robots_json['noindex']);
+			$data['noindex'] = $this->resolve_synced_noindex(
+				$robots_json,
+				$get('_metasync_robots_index'),
+				$get('metasync_common_robots')
+			);
 			$data['nofollow'] = !empty($robots_json['nofollow']);
 			$data['noarchive'] = !empty($robots_json['noarchive']);
 			$data['nosnippet'] = !empty($robots_json['nosnippet']);
@@ -457,9 +468,13 @@ class Metasync_Plugin_Sync {
 			$data['max_image_preview'] = $robots_json['max_image_preview'] ?? $robots_json['max-image-preview'] ?? null;
 			$data['max_video_preview'] = isset($robots_json['max_video_preview']) ? (int) $robots_json['max_video_preview'] : (isset($robots_json['max-video-preview']) ? (int) $robots_json['max-video-preview'] : null);
 		} else {
-			// noindex from dedicated key
-			$robots_index = $get('_metasync_robots_index');
-			$data['noindex'] = ($robots_index === 'noindex');
+			// noindex: dedicated key, falling back to the Common Robots checkbox
+			// array — same sources the front-end emitter honours.
+			$data['noindex'] = $this->resolve_synced_noindex(
+				null,
+				$get('_metasync_robots_index'),
+				$get('metasync_common_robots')
+			);
 
 			// Common robots array (serialized)
 			$common_raw = $get('metasync_common_robots');
@@ -513,7 +528,86 @@ class Metasync_Plugin_Sync {
 		$data['focus_keyword'] = $first('_metasync_focus_keyword', '_metasync_otto_keywords');
 		$data['breadcrumb_title'] = $get('_metasync_breadcrumb_title');
 
+		return $this->apply_feature_flags_to_payload($data);
+	}
+
+	/**
+	 * Drop payload keys whose owning feature is switched off in Editor Settings.
+	 *
+	 * A disabled meta box means MetaSync must not interfere with that feature
+	 * anywhere: it emits nothing, suppresses nothing, and — the part this
+	 * guard covers — does not mirror its values into Yoast / Rank Math /
+	 * AIOSEO storage. Without the drop, a sync fired while the feature is off
+	 * resolves the MetaSync value with the feature already stripped and then
+	 * writes that result over the third-party plugin's own value (Rank Math's
+	 * stored noindex replaced by a plain 'index'). The writers are all
+	 * array_key_exists-guarded, so removing a key here skips every write of it.
+	 *
+	 * @param  array $data Canonical payload keyed by canonical field name.
+	 * @return array
+	 */
+	private function apply_feature_flags_to_payload(array $data) {
+		if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::COMMON_ROBOTS)) {
+			unset(
+				$data['noindex'],
+				$data['nofollow'],
+				$data['noarchive'],
+				$data['nosnippet'],
+				$data['noimageindex']
+			);
+		}
+		if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::ADVANCE_ROBOTS)) {
+			unset(
+				$data['max_snippet'],
+				$data['max_image_preview'],
+				$data['max_video_preview']
+			);
+		}
+		if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
+			unset(
+				$data['og_title'],
+				$data['og_desc'],
+				$data['og_image'],
+				$data['twitter_title'],
+				$data['twitter_desc'],
+				$data['twitter_card']
+			);
+		}
+		if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::CANONICAL)) {
+			unset($data['canonical']);
+		}
+
 		return $data;
+	}
+
+	/**
+	 * Resolve the noindex directive for syncing the way the front-end emitter
+	 * does: any of the three sources saying noindex wins, and none can veto
+	 * another. The JSON rebuilt by sync_legacy_to_json() deliberately omits
+	 * noindex, so reading the JSON alone reported a checkbox-only noindex as
+	 * false — and the writers translated that into an explicit 'index' that
+	 * overwrote a noindex the third-party plugin already held.
+	 *
+	 * @param  mixed $robots_json  Decoded _metasync_robots_advanced payload (or null).
+	 * @param  mixed $robots_index Raw _metasync_robots_index meta value.
+	 * @param  mixed $common_raw   Raw metasync_common_robots meta value.
+	 * @return bool
+	 */
+	private function resolve_synced_noindex($robots_json, $robots_index, $common_raw) {
+		if (is_array($robots_json) && !empty($robots_json['noindex'])) {
+			return true;
+		}
+		if ($robots_index === 'noindex') {
+			return true;
+		}
+		if (!empty($common_raw)) {
+			$common = maybe_unserialize($common_raw);
+			if (is_array($common) && !empty($common['noindex'])) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	// ------------------------------------------------------------------

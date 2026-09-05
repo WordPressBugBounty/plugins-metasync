@@ -3429,3 +3429,14 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 [data-theme="dark"] .metasync-dashboard-wrap .notice-dismiss:focus::before {
     color: var(--dashboard-text-primary) !important;
 }
+
+/* Remove WordPress footer space on MetaSync admin pages. */
+body:has(.metasync-dashboard-wrap) #wpbody-content,
+body:has(.metasync-otto-debug) #wpbody-content {
+    padding-bottom: 0;
+}
+
+body:has(.metasync-dashboard-wrap) #wpfooter,
+body:has(.metasync-otto-debug) #wpfooter {
+    display: none;
+}

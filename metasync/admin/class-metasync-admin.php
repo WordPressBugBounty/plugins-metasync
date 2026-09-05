@@ -3309,6 +3309,10 @@ class Metasync_Admin
                 'auto_detect'   => isset($_POST['auto_detect']),
                 'taxonomies'    => $video_taxonomies,
                 'excluded_urls' => sanitize_textarea_field(wp_unslash($_POST['video_excluded_urls'] ?? '')),
+                // This array replaces the stored option wholesale, so every
+                // setting must be represented here or it is wiped on save.
+                'video_url_meta_keys'       => sanitize_textarea_field(wp_unslash($_POST['video_url_meta_keys'] ?? '')),
+                'video_thumbnail_meta_keys' => sanitize_textarea_field(wp_unslash($_POST['video_thumbnail_meta_keys'] ?? '')),
             ];
 
             // Always invalidate old cache before saving new settings

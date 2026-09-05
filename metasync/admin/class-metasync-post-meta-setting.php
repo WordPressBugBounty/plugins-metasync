@@ -18,6 +18,17 @@ if (!defined('ABSPATH')) {
 
 class Metasync_Post_Meta_Settings
 {
+	/**
+	 * Description written onto every redirection row this meta box owns.
+	 *
+	 * Rows created here live in the shared redirections table alongside rules
+	 * added by hand on the Redirections screen, and carry no other marker. The
+	 * prefix is therefore how the redirect engine tells the two apart, so that
+	 * switching the Redirection feature off stops these rows without touching
+	 * anyone's manually-added rules.
+	 */
+	const POST_REDIRECT_DESCRIPTION_PREFIX = 'Post redirection meta box for post #';
+
 	private $common;
 
 	public function __construct()
@@ -381,10 +392,38 @@ class Metasync_Post_Meta_Settings
 	 * @param int   $post_id The post being saved.
 	 * @param array $meta    Sanitized meta box values (enable/type/url).
 	 */
+	/**
+	 * Whether a redirection row was created by the per-post Redirection meta box.
+	 *
+	 * @param  object $row Row from the redirections table.
+	 * @return bool True for rows this meta box owns.
+	 */
+	public static function owns_redirect_row($row)
+	{
+		// A row missing the column, or carrying a non-string, is not ours.
+		// isset() on a non-object is simply false, so no type check is needed.
+		if (!isset($row->description) || !is_string($row->description)) {
+			return false;
+		}
+
+		return strncmp(
+			$row->description,
+			self::POST_REDIRECT_DESCRIPTION_PREFIX,
+			strlen(self::POST_REDIRECT_DESCRIPTION_PREFIX)
+		) === 0;
+	}
+
 	public static function sync_post_redirect_rule($post_id, $meta)
 	{
 		// Never act on autosaves or revisions — their permalink isn't the public URL.
 		if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id) || !class_exists('Metasync_Redirection_Database')) {
+			return;
+		}
+
+		// Redirection feature switched off. Return before touching the table so a
+		// disabled feature neither creates new rows nor deletes the row a post
+		// already owns — re-enabling must restore the redirect exactly as it was.
+		if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::REDIRECTION)) {
 			return;
 		}
 
@@ -441,7 +480,7 @@ class Metasync_Post_Meta_Settings
 			'status'          => 'active',
 			'pattern_type'    => 'exact',
 			'regex_pattern'   => null,
-			'description'     => sprintf('Post redirection meta box for post #%d', $post_id),
+			'description'     => self::POST_REDIRECT_DESCRIPTION_PREFIX . $post_id,
 		];
 
 		// Update the row we own if it still exists; otherwise create it and remember its id.
@@ -606,22 +645,38 @@ class Metasync_Post_Meta_Settings
 		global $post;
 		$seo_title = get_post_meta($post->ID, '_metasync_seo_title', true);
 		$seo_desc  = get_post_meta($post->ID, '_metasync_seo_desc', true);
-		$otto_title = get_post_meta($post->ID, '_metasync_otto_title', true);
-		$otto_desc  = get_post_meta($post->ID, '_metasync_otto_description', true);
+
+		// Values brought in by the external SEO importer apply only where OTTO
+		// has no suggestion, so show them as the placeholder in exactly that
+		// case. Without this the field looks empty after an import and the user
+		// concludes nothing was imported. Which tier fills the placeholder is
+		// Metasync_Seo_Precedence's call, not this screen's.
+		$title_fallback = Metasync_Seo_Precedence::fallback($post->ID, Metasync_Seo_Precedence::FIELD_TITLE);
+		$desc_fallback  = Metasync_Seo_Precedence::fallback($post->ID, Metasync_Seo_Precedence::FIELD_DESCRIPTION);
+
+		$title_placeholder = $title_fallback['value'];
+		$desc_placeholder  = $desc_fallback['value'];
+
+		$title_is_imported = $title_fallback['source'] === Metasync_Seo_Precedence::SOURCE_IMPORTED;
 
 		wp_nonce_field('metasync_seo_meta_nonce', 'metasync_seo_meta_nonce');
 		?>
 		<p style="color: #666; margin-bottom: 12px;">
 			<?php printf(esc_html__('Set the SEO Title and Meta Description for this post. Leave the field blank to use %s suggestion.', 'metasync'), esc_html(Metasync::get_whitelabel_otto_name())); ?>
 		</p>
+		<?php if ($title_is_imported) : ?>
+			<p style="color: #666; margin-bottom: 12px;">
+				<?php printf(esc_html__('The greyed-out value below was imported from another SEO plugin. It is used only until %s has a suggestion for this page.', 'metasync'), esc_html(Metasync::get_whitelabel_otto_name())); ?>
+			</p>
+		<?php endif; ?>
 		<table class="form-table" style="margin: 0;">
 			<tr>
 				<th scope="row"><label for="metasync_seo_title"><?php esc_html_e('SEO Title', 'metasync'); ?></label></th>
-				<td><input type="text" id="metasync_seo_title" name="metasync_seo_title" value="<?php echo esc_attr($seo_title); ?>" class="large-text" placeholder="<?php echo esc_attr($otto_title); ?>" /></td>
+				<td><input type="text" id="metasync_seo_title" name="metasync_seo_title" value="<?php echo esc_attr($seo_title); ?>" class="large-text" placeholder="<?php echo esc_attr($title_placeholder); ?>" /></td>
 			</tr>
 			<tr>
 				<th scope="row"><label for="metasync_seo_desc"><?php esc_html_e('Meta Description', 'metasync'); ?></label></th>
-				<td><textarea id="metasync_seo_desc" name="metasync_seo_desc" class="large-text" rows="3" placeholder="<?php echo esc_attr($otto_desc); ?>"><?php echo esc_textarea($seo_desc); ?></textarea></td>
+				<td><textarea id="metasync_seo_desc" name="metasync_seo_desc" class="large-text" rows="3" placeholder="<?php echo esc_attr($desc_placeholder); ?>"><?php echo esc_textarea($seo_desc); ?></textarea></td>
 			</tr>
 		</table>
 		<?php

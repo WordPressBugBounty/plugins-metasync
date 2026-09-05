@@ -1416,6 +1416,27 @@ function metasync_otto_flush_render_failure_reports() {
 }
 
 /**
+ * Whether MetaSync is still emitting Open Graph / Twitter tags.
+ *
+ * The Social Media & Open Graph switch stops MetaSync writing those tags on
+ * every render path, so the suppression below has to stand down with it —
+ * removing another plugin's og:/twitter: tag while contributing none of our own
+ * would leave the page with no social tags at all.
+ *
+ * The class_exists() guard keeps this usable if the flags file has not loaded
+ * yet; treating that window as "enabled" preserves the previous behaviour.
+ *
+ * @return bool
+ */
+function metasync_otto_social_output_enabled() {
+    if (!class_exists('Metasync_Feature_Flags')) {
+        return true;
+    }
+
+    return Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::SOCIAL_OG);
+}
+
+/**
  * Block SEO plugins conditionally based on what Otto is providing
  * Only blocks title if Otto has title, only blocks description if Otto has description
  * This prevents duplicate SEO tags while allowing fallback to SEO plugins when Otto has no data.
@@ -1457,9 +1478,17 @@ function metasync_otto_block_seo_plugins($block_title = false, $block_descriptio
 
             # Remove description presenters only when OTTO has a description
             if ($block_description) {
+                # The plain meta description belongs to the SEO title/description
+                # feature, which has its own setting.
                 $presenters_to_remove[] = 'Yoast\WP\SEO\Presenters\Meta_Description_Presenter';
-                $presenters_to_remove[] = 'Yoast\WP\SEO\Presenters\Open_Graph\Description_Presenter';
-                $presenters_to_remove[] = 'Yoast\WP\SEO\Presenters\Twitter\Description_Presenter';
+
+                # The OG/Twitter descriptions are social tags. With that feature
+                # switched off MetaSync writes none of its own, so Yoast's must be
+                # left alone rather than removed with nothing to replace them.
+                if (metasync_otto_social_output_enabled()) {
+                    $presenters_to_remove[] = 'Yoast\WP\SEO\Presenters\Open_Graph\Description_Presenter';
+                    $presenters_to_remove[] = 'Yoast\WP\SEO\Presenters\Twitter\Description_Presenter';
+                }
             }
 
             foreach ($presenters as $key => $presenter) {
@@ -1494,23 +1523,30 @@ function metasync_otto_block_seo_plugins($block_title = false, $block_descriptio
         is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
 
         if ($block_title) {
+            # The document title belongs to the SEO title feature, which has its
+            # own setting; only the og:/twitter: unsets below are social.
             add_filter('aioseo_title', '__return_empty_string', 999);
-            add_filter('aioseo_facebook_tags', function($meta) {
-                if (is_array($meta)) { unset($meta['og:title']); }
-                return $meta;
-            }, 999);
-            add_filter('aioseo_twitter_tags', function($meta) {
-                if (is_array($meta)) { unset($meta['twitter:title']); }
-                return $meta;
-            }, 999);
+
+            if (metasync_otto_social_output_enabled()) {
+                add_filter('aioseo_facebook_tags', function($meta) {
+                    if (is_array($meta)) { unset($meta['og:title']); }
+                    return $meta;
+                }, 999);
+                add_filter('aioseo_twitter_tags', function($meta) {
+                    if (is_array($meta)) { unset($meta['twitter:title']); }
+                    return $meta;
+                }, 999);
+            }
         }
 
         if ($block_description) {
             # Use granular tag list when available to only block what OTTO provides
             $tags = !empty($description_tags) ? $description_tags : [];
             $block_standard  = empty($tags) || in_array('meta[name=description]', $tags);
-            $block_og_desc   = empty($tags) || in_array('meta[property=og:description]', $tags);
-            $block_tw_desc   = empty($tags) || in_array('meta[name=twitter:description]', $tags);
+            # Social tags only get blocked while MetaSync is still emitting them.
+            $social_enabled  = metasync_otto_social_output_enabled();
+            $block_og_desc   = $social_enabled && (empty($tags) || in_array('meta[property=og:description]', $tags));
+            $block_tw_desc   = $social_enabled && (empty($tags) || in_array('meta[name=twitter:description]', $tags));
 
             if ($block_standard) {
                 add_filter('aioseo_description', '__return_empty_string', 999);

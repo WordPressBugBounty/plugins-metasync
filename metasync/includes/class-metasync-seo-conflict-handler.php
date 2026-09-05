@@ -36,6 +36,13 @@ class Metasync_SEO_Conflict_Handler {
     private $has_description_cache = null;
 
     /**
+     * Resolved MetaSync title per post id, for this request only.
+     *
+     * @var array<int,string>
+     */
+    private $title_value_cache = [];
+
+    /**
      * Cached result for whether AIOSEO provides a description for the current page.
      *
      * @var bool|null
@@ -230,7 +237,7 @@ class Metasync_SEO_Conflict_Handler {
         // (`_metasync_metadesc`) set via MCP, OTTO, or the importer.
         $term = $this->get_current_term();
         if ($term) {
-            $term_desc = get_term_meta($term->term_id, '_metasync_metadesc', true);
+            $term_desc = $this->get_metasync_term_description($term);
             if (!empty($term_desc)) {
                 $this->has_description_cache = true;
                 return true;
@@ -258,19 +265,12 @@ class Metasync_SEO_Conflict_Handler {
             return '';
         }
 
-        // 1. SEO sidebar (highest priority — user-edited)
-        $desc = get_post_meta($post_id, '_metasync_seo_desc', true);
-        if (!empty($desc)) {
-            return $desc;
-        }
-
-        // 2. OTTO description
-        $desc = get_post_meta($post_id, '_metasync_otto_description', true);
-        if (!empty($desc)) {
-            return $desc;
-        }
-
-        return '';
+        // The full chain, from Metasync_Seo_Precedence. It has to be the same
+        // chain the description filters hand to a third-party plugin: if this
+        // reported a narrower set, MetaSync's own emitter would think it held
+        // nothing, emit anyway, and the page would carry two identical
+        // description tags.
+        return $this->metasync_description_value($post_id);
     }
 
     /**
@@ -287,6 +287,13 @@ class Metasync_SEO_Conflict_Handler {
         $post_id = $this->get_current_object_id();
 
         if (!$post_id) {
+            return '';
+        }
+
+        // Post-scoped values only. On an archive $post_id is a term id and every
+        // read below would answer for an unrelated post. get_metasync_description()
+        // gates the same way through metasync_description_value().
+        if (!$this->current_object_is_post()) {
             return '';
         }
 
@@ -367,6 +374,16 @@ class Metasync_SEO_Conflict_Handler {
      */
     public function og_title_needs_replacement() {
         if (!$this->suppresses_third_party_og_title()) {
+            return false;
+        }
+
+        // Nothing to replace once the social filters are writing MetaSync's own
+        // og:title into the plugin's tag — emitting here too would duplicate it
+        // rather than fill a gap. This is only reached for a post that holds a
+        // page title and no OG-specific one.
+        $post_id_for_og = $this->get_current_object_id();
+        if ($post_id_for_og
+            && $this->metasync_social_value(Metasync_Seo_Precedence::FIELD_OG_TITLE, $post_id_for_og) !== '') {
             return false;
         }
 
@@ -462,6 +479,13 @@ class Metasync_SEO_Conflict_Handler {
             return '';
         }
 
+        // Canonical feature switched off. Returning empty makes every canonical
+        // filter fall back to the third-party plugin's own value rather than
+        // overriding it with a MetaSync canonical the user has disabled.
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::CANONICAL)) {
+            return '';
+        }
+
         // Validate both sources: legacy rows corrupted to the literal "Array"
         // (or stored as arrays) must never be emitted as a canonical.
         $canonical = Metasync_Canonical_Sanitizer::sanitize(
@@ -538,7 +562,13 @@ class Metasync_SEO_Conflict_Handler {
             'aioseo'   => is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') || is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php'),
         ];
 
-        $has_any_sync = $post_id > 0 && ($this->is_post_synced($post_id, 'yoast') || $this->is_post_synced($post_id, 'rankmath') || $this->is_post_synced($post_id, 'aioseo'));
+        // The sync stamp is post meta. On an archive $post_id is a term id, so
+        // consulting it would adopt an unrelated post's sync state and hand this
+        // archive's output to the wrong plugin. Archives fall through to the
+        // unsynced branch below, which is what they are.
+        $has_any_sync = $post_id > 0
+            && $this->current_object_is_post()
+            && ($this->is_post_synced($post_id, 'yoast') || $this->is_post_synced($post_id, 'rankmath') || $this->is_post_synced($post_id, 'aioseo'));
 
         if ($has_any_sync) {
             // Synced: primary = first active + synced plugin
@@ -628,8 +658,18 @@ class Metasync_SEO_Conflict_Handler {
             $this->aioseo_has_description_cache = !empty($description);
         }
 
-        // Primary plugin check — only the designated plugin outputs.
         $post_id = $this->get_current_object_id();
+
+        // If we hold a description, we write it. The sync stamp records that a
+        // sync happened; it does not decide who renders. The mirrored copy lives
+        // in the plugin's own storage and can be edited or overwritten there —
+        // deferring to it hands our tag over with nothing saying so.
+        $ours = $this->metasync_description_value($post_id);
+        if ($ours !== '') {
+            return $ours;
+        }
+
+        // Primary plugin check — only the designated plugin outputs.
         if ($post_id && $this->has_active_seo_plugin()) {
             if ($this->is_primary_output_plugin($post_id, 'aioseo')) {
                 return $description;
@@ -644,7 +684,7 @@ class Metasync_SEO_Conflict_Handler {
         // directly so AIOSEO renders it.
         $term = $this->get_current_term();
         if ($term) {
-            $term_desc = get_term_meta($term->term_id, '_metasync_metadesc', true);
+            $term_desc = $this->get_metasync_term_description($term);
             if (!empty($term_desc)) {
                 return $term_desc;
             }
@@ -670,21 +710,37 @@ class Metasync_SEO_Conflict_Handler {
     public function filter_aioseo_title($title) {
         // Primary plugin check — only the designated plugin outputs.
         $post_id = $this->get_current_object_id();
+
+        // If we hold a title, we write it — the same rule the description path
+        // follows. The sync stamp records that a sync happened; it does not decide
+        // who renders. The mirrored copy lives in the plugin's own storage and can
+        // be edited there, and deferring to it hands our tag over silently.
+        //
+        // A value, never '': on classic themes the plugin owns the sole <title>
+        // renderer and OTTO's buffer replaces the tag afterwards, so blanking it
+        // would leave nothing for OTTO to replace.
+        $ours = $this->metasync_title_value($post_id);
+        if ($ours !== '') {
+            return $ours;
+        }
+
+        // Taxonomy archives resolve against term meta, not post meta. Resolve
+        // the term before plugin ownership checks so a multi-plugin archive is
+        // not suppressed by an unrelated primary-plugin decision.
+        $term = $this->get_current_term();
+        if ($term) {
+            $term_title = $this->get_metasync_term_title($term);
+            if (!empty($term_title)) {
+                return $term_title;
+            }
+        }
+
         if ($post_id && $this->has_active_seo_plugin()) {
             if ($this->is_primary_output_plugin($post_id, 'aioseo')) {
                 return $title;
             }
             if ($this->is_primary_output_plugin($post_id, 'yoast') || $this->is_primary_output_plugin($post_id, 'rankmath')) {
                 return '';
-            }
-        }
-
-        // Term archives: return MetaSync term title directly.
-        $term = $this->get_current_term();
-        if ($term) {
-            $term_title = get_term_meta($term->term_id, '_metasync_metatitle', true);
-            if (!empty($term_title)) {
-                return $term_title;
             }
         }
 
@@ -717,24 +773,33 @@ class Metasync_SEO_Conflict_Handler {
             return $meta;
         }
 
-        // Post synced to AIOSEO — let AIOSEO read from its own storage.
-        if ($post_id && $this->is_primary_output_plugin($post_id, 'aioseo')) {
-            return $meta;
-        }
-
-        // og:title — suppress when OTTO has og:title OR MetaSync has title
-        if ($this->otto_has_tag('og:title') || ($post_id && $this->metasync_has_title($post_id))) {
+        // og:title — ours when we hold one, otherwise drop it only if OTTO is
+        // injecting its own through the buffer. The sync stamp no longer decides
+        // this: AIOSEO's own copy can be edited there and would silently win.
+        $ours = $this->metasync_social_value(Metasync_Seo_Precedence::FIELD_OG_TITLE, $post_id);
+        if ($ours !== '') {
+            $meta['og:title'] = $ours;
+        } elseif ($this->otto_has_tag('og:title')) {
             unset($meta['og:title']);
         }
 
-        // og:description — suppress when OTTO has og:description OR MetaSync has description
-        if ($this->otto_has_tag('og:description') || $this->metasync_has_description()) {
+        // og:description — same rule.
+        $ours = $this->metasync_social_value(Metasync_Seo_Precedence::FIELD_OG_DESCRIPTION, $post_id);
+        if ($ours !== '') {
+            $meta['og:description'] = $ours;
+        } elseif ($this->otto_has_tag('og:description')) {
             unset($meta['og:description']);
         }
 
         // og:url, og:type, og:locale, og:site_name — suppress when OTTO has og:title
-        // (OTTO injects these structural OG tags alongside og:title in its block)
-        if ($this->otto_has_tag('og:title')) {
+        // (OTTO injects these structural OG tags alongside og:title in its block).
+        //
+        // Still skipped for a post synced to AIOSEO. Only the two tags above stopped
+        // deferring to the sync stamp; these structural tags carry no MetaSync value
+        // to put in their place, so changing when they are dropped is not this
+        // change's business.
+        if (!($post_id && $this->is_primary_output_plugin($post_id, 'aioseo'))
+            && $this->otto_has_tag('og:title')) {
             unset($meta['og:url'], $meta['og:type'], $meta['og:locale'], $meta['og:site_name']);
         }
 
@@ -763,21 +828,27 @@ class Metasync_SEO_Conflict_Handler {
             return $meta;
         }
 
-        // Post synced to AIOSEO — let AIOSEO read from its own storage.
-        if ($post_id && $this->is_primary_output_plugin($post_id, 'aioseo')) {
-            return $meta;
-        }
-
-        if ($this->otto_has_tag('twitter:title') || ($post_id && $this->metasync_has_title($post_id))) {
+        // See filter_aioseo_facebook_tags() for why the sync stamp no longer
+        // decides who renders these.
+        $ours = $this->metasync_social_value(Metasync_Seo_Precedence::FIELD_TWITTER_TITLE, $post_id);
+        if ($ours !== '') {
+            $meta['twitter:title'] = $ours;
+        } elseif ($this->otto_has_tag('twitter:title')) {
             unset($meta['twitter:title']);
         }
 
-        if ($this->otto_has_tag('twitter:description') || $this->metasync_has_description()) {
+        $ours = $this->metasync_social_value(Metasync_Seo_Precedence::FIELD_TWITTER_DESCRIPTION, $post_id);
+        if ($ours !== '') {
+            $meta['twitter:description'] = $ours;
+        } elseif ($this->otto_has_tag('twitter:description')) {
             unset($meta['twitter:description']);
         }
 
-        // twitter:card — suppress when OTTO has any twitter tag
-        if ($this->otto_has_tag('twitter:title') || $this->otto_has_tag('twitter:description')) {
+        // twitter:card — suppress when OTTO has any twitter tag. See the
+        // structural block in filter_aioseo_facebook_tags() for why this one
+        // still defers to the sync stamp.
+        if (!($post_id && $this->is_primary_output_plugin($post_id, 'aioseo'))
+            && ($this->otto_has_tag('twitter:title') || $this->otto_has_tag('twitter:description'))) {
             unset($meta['twitter:card']);
         }
 
@@ -887,6 +958,25 @@ class Metasync_SEO_Conflict_Handler {
      * @return bool
      */
     public function metasync_has_robots($post_id) {
+        // Both robots features switched off: MetaSync has no robots value to
+        // offer, so it must not claim ownership of the tag. Reporting false here
+        // also stops the third-party robots suppression filters, leaving the
+        // other plugin's directives in place instead of blanking them.
+        if (Metasync_Feature_Flags::robots_fully_disabled()) {
+            return false;
+        }
+
+        // Both storage formats below hold common-half directives (noindex,
+        // nofollow, noarchive, nosnippet, noimageindex). With that half switched
+        // off the emitter drops every one of them, so claiming the tag here
+        // would suppress the third party's robots tag and then emit nothing —
+        // leaving a page that asked to be noindex fully indexable. The advanced
+        // half being on does not help: it owns only the max-* directives, which
+        // neither of these keys carries.
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::COMMON_ROBOTS)) {
+            return false;
+        }
+
         $meta_robots = get_post_meta($post_id, 'meta_robots', true);
         if (!empty($meta_robots)) {
             return true;
@@ -907,6 +997,14 @@ class Metasync_SEO_Conflict_Handler {
      * @return bool
      */
     private function metasync_has_title($post_id) {
+        // Term archives answer from term meta, and answer FIRST: $post_id is the
+        // term's id here, so the post-meta reads below would consult whatever
+        // post shares that number and report its title as this archive's.
+        $term = $this->get_current_term();
+        if ($term) {
+            return !empty($this->get_metasync_term_title($term));
+        }
+
         // Social Media & Open Graph meta box, when genuinely customized. Counted
         // here so a post whose ONLY title is the OG one still suppresses the
         // third-party tag — otherwise the plugin keeps rendering its own and the
@@ -923,16 +1021,6 @@ class Metasync_SEO_Conflict_Handler {
         $otto_title = get_post_meta($post_id, '_metasync_otto_title', true);
         if (!empty($otto_title)) {
             return true;
-        }
-
-        // Term-level fallback: on taxonomy archives the "object" is a term,
-        // so read `_metasync_metatitle` from term meta when we're rendering one.
-        $term = $this->get_current_term();
-        if ($term) {
-            $term_title = get_term_meta($term->term_id, '_metasync_metatitle', true);
-            if (!empty($term_title)) {
-                return true;
-            }
         }
 
         return false;
@@ -1039,6 +1127,13 @@ class Metasync_SEO_Conflict_Handler {
             return false;
         }
 
+        // OTTO stores nothing in term meta — on an archive it arrives through the
+        // output-buffer pass instead. Without this the post-meta read below would
+        // report an unrelated post's OTTO tag as this archive's.
+        if (!$this->current_object_is_post()) {
+            return false;
+        }
+
         if ($this->has_active_seo_plugin() && !$this->otto_has_live_suggestions()) {
             return false;
         }
@@ -1073,6 +1168,13 @@ class Metasync_SEO_Conflict_Handler {
      * @return bool
      */
     private function og_output_disabled($post_id) {
+        // Feature switched off site-wide. Checked before the per-post opt-out so
+        // it applies even when no post is in scope: MetaSync emits no social tags,
+        // so it must leave the third-party plugin's alone.
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
+            return true;
+        }
+
         return $post_id && get_post_meta($post_id, '_metasync_og_enabled', true) === '0';
     }
 
@@ -1139,13 +1241,42 @@ class Metasync_SEO_Conflict_Handler {
     public function filter_yoast_title($title) {
         $post_id = $this->get_current_object_id();
 
+        // If we hold a title, we write it — the same rule the description path
+        // follows. The sync stamp records that a sync happened; it does not decide
+        // who renders. The mirrored copy lives in the plugin's own storage and can
+        // be edited there, and deferring to it hands our tag over silently.
+        //
+        // A value, never '': on classic themes the plugin owns the sole <title>
+        // renderer and OTTO's buffer replaces the tag afterwards, so blanking it
+        // would leave nothing for OTTO to replace.
+        $ours = $this->metasync_title_value($post_id);
+        if ($ours !== '') {
+            return $ours;
+        }
+
+
+        // Taxonomy archives resolve against term meta, not post meta. Resolve
+        // the term before plugin ownership checks so a multi-plugin archive is
+        // not suppressed by an unrelated primary-plugin decision.
+        $term = $this->get_current_term();
+        if ($term) {
+            $term_title = $this->get_metasync_term_title($term);
+            if (!empty($term_title)) {
+                return $term_title;
+            }
+        }
+
         // When Yoast is the primary output plugin, let it through.
         // For synced posts, Yoast reads from its own storage (already has the value).
         // For unsynced posts as primary, still check for MetaSync sidebar override.
         if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
-            // Even in passthrough, a sidebar title override takes precedence
-            $sidebar_title = get_post_meta($post_id, '_metasync_seo_title', true);
-            if (!empty($sidebar_title)) {
+            // Even in passthrough, a MetaSync title takes precedence. Resolved
+            // through metasync_title_value() rather than read straight off
+            // `_metasync_seo_title`: that skipped the rest of the chain, and on
+            // an archive it read post meta with a term id, answering with
+            // whatever post happened to share that number.
+            $sidebar_title = $this->metasync_title_value($post_id);
+            if ($sidebar_title !== '') {
                 return $sidebar_title;
             }
             return $title;
@@ -1158,19 +1289,10 @@ class Metasync_SEO_Conflict_Handler {
             }
         }
 
-        // Term-level archives
-        $term = $this->get_current_term();
-        if ($term) {
-            $term_title = get_term_meta($term->term_id, '_metasync_metatitle', true);
-            if (!empty($term_title)) {
-                return $term_title;
-            }
-        }
-
         // MetaSync sidebar has an explicit title — return it so Yoast renders it.
         if ($post_id) {
-            $sidebar_title = get_post_meta($post_id, '_metasync_seo_title', true);
-            if (!empty($sidebar_title)) {
+            $sidebar_title = $this->metasync_title_value($post_id);
+            if ($sidebar_title !== '') {
                 return $sidebar_title;
             }
         }
@@ -1186,30 +1308,107 @@ class Metasync_SEO_Conflict_Handler {
     /**
      * Filter Yoast SEO description output.
      *
-     * On term archives: the term-level sync writes MetaSync's description
-     * into Yoast's native storage, so Yoast already computes the correct
-     * value — let it through.
+     * On term archives: return MetaSync's resolved term value directly. The
+     * native plugin field may be empty even when the precedence chain has a
+     * value, and MetaSync's own archive emitter does not provide a fallback.
      *
      * On singular pages: suppress when OTTO or MetaSync sidebar provides
      * the description (MetaSync outputs its own tag).
      */
+    /**
+     * Replace a mirrored OTTO description that is dead data for this post.
+     *
+     * MetaSync syncs its resolved description into the active plugin's own
+     * storage, so that plugin renders it. When the per-post "Disable OTTO"
+     * toggle is set, OTTO stands down everywhere else — but the copy already
+     * written to the third-party plugin keeps rendering, and OTTO reads as
+     * "disabled but still leaking SEO".
+     *
+     * Only acts when the incoming value is byte-identical to OTTO's stored
+     * description: that proves the sync wrote it, so a description the customer
+     * typed into Rank Math or Yoast themselves is never touched. Falls through
+     * the same precedence the rest of the plugin uses — customer-typed, then
+     * imported — and suppresses if neither exists.
+     *
+     * @param string $description Description the third-party plugin is about to emit.
+     * @param int    $post_id     Post ID.
+     * @return string|null        Replacement, or null to leave the value alone.
+     */
+    private function replace_dead_otto_description($description, $post_id) {
+        if (!$post_id || !class_exists('Metasync_Otto_Frontend_Toolbar')) {
+            return null;
+        }
+
+        // The per-post OTTO toggle and OTTO's stored description are post-scoped.
+        // On an archive $post_id is a term id, and the byte-comparison below would
+        // match an unrelated post's OTTO description and return that post's value
+        // as this archive's.
+        if (!$this->current_object_is_post()) {
+            return null;
+        }
+
+        if (!Metasync_Otto_Frontend_Toolbar::is_otto_disabled($post_id)) {
+            return null;
+        }
+
+        $otto_desc = get_post_meta($post_id, '_metasync_otto_description', true);
+        if (empty($otto_desc) || (string) $description !== (string) $otto_desc) {
+            return null;
+        }
+
+        // Falls through the same chain as everywhere else, with the OTTO tiers
+        // dropped because OTTO has stood down for this post. Suppresses when
+        // nothing is left.
+        if (!self::precedence_available()) {
+            return '';
+        }
+
+        return Metasync_Seo_Precedence::value(
+            $post_id,
+            Metasync_Seo_Precedence::FIELD_DESCRIPTION,
+            Metasync_Seo_Precedence::TYPE_POST,
+            array('include_otto' => false)
+        );
+    }
+
     public function filter_yoast_description($description) {
         $post_id = $this->get_current_object_id();
+
+        // A synced OTTO description is dead data once OTTO is switched off
+        // for this post; serving it would leak SEO OTTO has stood down from.
+        $replacement = $this->replace_dead_otto_description($description, $post_id);
+        if ($replacement !== null) {
+            return $replacement;
+        }
+
+        // If we hold a description, we write it. The sync stamp records that a
+        // sync happened; it does not decide who renders. The mirrored copy lives
+        // in the plugin's own storage and can be edited or overwritten there —
+        // deferring to it hands our tag over with nothing saying so.
+        $ours = $this->metasync_description_value($post_id);
+        if ($ours !== '') {
+            return $ours;
+        }
+
+        // On taxonomy archives the queried-object id is a term id, not a post
+        // id. Yoast may have no native term description to return (the value
+        // can exist only in MetaSync's precedence tiers), so hand it the
+        // resolved term value directly. MetaSync's own wp_head emitter exits
+        // early for archives and cannot provide a fallback tag.
+        $term = $this->get_current_term();
+        if ($term) {
+            $term_desc = $this->get_metasync_term_description($term);
+            if (!empty($term_desc)) {
+                return $term_desc;
+            }
+        }
+
         if ($post_id && $this->has_active_seo_plugin()) {
             if ($this->is_primary_output_plugin($post_id, 'yoast')) {
                 return $description;
             }
             if ($this->is_primary_output_plugin($post_id, 'rankmath') || $this->is_primary_output_plugin($post_id, 'aioseo')) {
                 return '';
-            }
-        }
-
-        // Term archives: MetaSync syncs to Yoast storage — let Yoast render it.
-        $term = $this->get_current_term();
-        if ($term) {
-            $term_desc = get_term_meta($term->term_id, '_metasync_metadesc', true);
-            if (!empty($term_desc)) {
-                return $description;
             }
         }
 
@@ -1228,12 +1427,22 @@ class Metasync_SEO_Conflict_Handler {
         if ($this->og_output_disabled($post_id)) {
             return $value;
         }
-        if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
-            return $value;
+
+        // If we hold a value, we write it. The sync stamp records that a sync
+        // happened; it does not decide who renders. The mirrored copy in the
+        // plugin's own storage can be edited or overwritten there, and deferring
+        // to it hands our tag over without anything saying so.
+        $ours = $this->metasync_social_value(Metasync_Seo_Precedence::FIELD_OG_TITLE, $post_id);
+        if ($ours !== '') {
+            return $ours;
         }
-        if ($this->otto_has_tag('og:title') || ($post_id && $this->metasync_has_title($post_id))) {
+
+        // OTTO injects some social tags through the output buffer without ever
+        // persisting them, so its own tag check still has to run.
+        if ($this->otto_has_tag('og:title')) {
             return '';
         }
+
         return $value;
     }
 
@@ -1246,12 +1455,22 @@ class Metasync_SEO_Conflict_Handler {
         if ($this->og_output_disabled($post_id)) {
             return $value;
         }
-        if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
-            return $value;
+
+        // If we hold a value, we write it. The sync stamp records that a sync
+        // happened; it does not decide who renders. The mirrored copy in the
+        // plugin's own storage can be edited or overwritten there, and deferring
+        // to it hands our tag over without anything saying so.
+        $ours = $this->metasync_social_value(Metasync_Seo_Precedence::FIELD_OG_DESCRIPTION, $post_id);
+        if ($ours !== '') {
+            return $ours;
         }
-        if ($this->otto_has_tag('og:description') || $this->metasync_has_description()) {
+
+        // OTTO injects some social tags through the output buffer without ever
+        // persisting them, so its own tag check still has to run.
+        if ($this->otto_has_tag('og:description')) {
             return '';
         }
+
         return $value;
     }
 
@@ -1282,12 +1501,22 @@ class Metasync_SEO_Conflict_Handler {
         if ($this->og_output_disabled($post_id)) {
             return $value;
         }
-        if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
-            return $value;
+
+        // If we hold a value, we write it. The sync stamp records that a sync
+        // happened; it does not decide who renders. The mirrored copy in the
+        // plugin's own storage can be edited or overwritten there, and deferring
+        // to it hands our tag over without anything saying so.
+        $ours = $this->metasync_social_value(Metasync_Seo_Precedence::FIELD_TWITTER_TITLE, $post_id);
+        if ($ours !== '') {
+            return $ours;
         }
-        if ($this->otto_has_tag('twitter:title') || ($post_id && $this->metasync_has_title($post_id))) {
+
+        // OTTO injects some social tags through the output buffer without ever
+        // persisting them, so its own tag check still has to run.
+        if ($this->otto_has_tag('twitter:title')) {
             return '';
         }
+
         return $value;
     }
 
@@ -1300,12 +1529,22 @@ class Metasync_SEO_Conflict_Handler {
         if ($this->og_output_disabled($post_id)) {
             return $value;
         }
-        if ($post_id && $this->is_primary_output_plugin($post_id, 'yoast')) {
-            return $value;
+
+        // If we hold a value, we write it. The sync stamp records that a sync
+        // happened; it does not decide who renders. The mirrored copy in the
+        // plugin's own storage can be edited or overwritten there, and deferring
+        // to it hands our tag over without anything saying so.
+        $ours = $this->metasync_social_value(Metasync_Seo_Precedence::FIELD_TWITTER_DESCRIPTION, $post_id);
+        if ($ours !== '') {
+            return $ours;
         }
-        if ($this->otto_has_tag('twitter:description') || $this->metasync_has_description()) {
+
+        // OTTO injects some social tags through the output buffer without ever
+        // persisting them, so its own tag check still has to run.
+        if ($this->otto_has_tag('twitter:description')) {
             return '';
         }
+
         return $value;
     }
 
@@ -1360,17 +1599,18 @@ class Metasync_SEO_Conflict_Handler {
         add_filter('rank_math/frontend/title', [$this, 'filter_rankmath_title'], 999);
         add_filter('rank_math/frontend/description', [$this, 'filter_rankmath_description'], 999);
 
-        // OG/Twitter description — per-tag suppression, mirroring the Yoast filters.
-        // Without these Rank Math renders its own og:description alongside the one
-        // MetaSync emits, leaving two conflicting tags on the page.
-        add_filter('rank_math/opengraph/facebook/og_description', [$this, 'filter_rankmath_og_description'], 999);
-        add_filter('rank_math/opengraph/twitter/twitter_description', [$this, 'filter_rankmath_twitter_description'], 999);
-
         // Suppress RankMath schema/JSON-LD when OTTO has structured data
         add_filter('rank_math/json_ld', [$this, 'filter_rankmath_schema'], 999);
 
         // Canonical — override RankMath's canonical with the MetaSync/OTTO value when set
         add_filter('rank_math/frontend/canonical', [$this, 'filter_rankmath_canonical'], 999);
+
+        // Social — Rank Math renders these from its own storage, so without these
+        // filters MetaSync has no way to reach og:/twitter: on a Rank Math page.
+        add_filter('rank_math/opengraph/facebook/og_title', [$this, 'filter_rankmath_og_title'], 999);
+        add_filter('rank_math/opengraph/facebook/og_description', [$this, 'filter_rankmath_og_description'], 999);
+        add_filter('rank_math/opengraph/twitter/twitter_title', [$this, 'filter_rankmath_twitter_title'], 999);
+        add_filter('rank_math/opengraph/twitter/twitter_description', [$this, 'filter_rankmath_twitter_description'], 999);
 
         // Robots — suppress Rank Math's tag when MetaSync holds an intentional
         // robots value for the post, mirroring the AIOSEO path. The advanced
@@ -1379,6 +1619,82 @@ class Metasync_SEO_Conflict_Handler {
         // tag, or they survive as an orphaned meta tag.
         add_filter('rank_math/frontend/robots', [$this, 'filter_rankmath_robots'], 999);
         add_filter('rank_math/frontend/advanced_robots', [$this, 'filter_rankmath_advanced_robots'], 999);
+    }
+
+    /**
+     * Shared body for the Rank Math social filters.
+     *
+     * Same rule as the Yoast and AIOSEO paths: when MetaSync holds a value for
+     * this specific tag we write it, and when it holds nothing we leave Rank
+     * Math's own tag alone. Each tag consults its OWN chain — twitter:description
+     * resolves to _metasync_twitter_description, not the og one — because sharing
+     * a chain would decide one tag on the strength of another's value and leave
+     * either a duplicate or a blank.
+     *
+     * @param  string $value    Rank Math's computed value.
+     * @param  string $field    A Metasync_Seo_Precedence social field constant.
+     * @param  string $otto_tag Matching OTTO tag name.
+     * @return string
+     */
+    private function filter_rankmath_social($value, $field, $otto_tag) {
+        $post_id = $this->get_current_object_id();
+
+        if ($this->og_output_disabled($post_id)) {
+            return $value;
+        }
+
+        $ours = $this->metasync_social_value($field, $post_id);
+        if ($ours !== '') {
+            return $ours;
+        }
+
+        // OTTO injects some social tags through the output buffer without ever
+        // persisting them, so its own tag check still has to run.
+        if ($this->otto_has_tag($otto_tag)) {
+            return '';
+        }
+
+        return $value;
+    }
+
+    /**
+     * Filter Rank Math's og:title output.
+     *
+     * @param  string $value Rank Math's computed og:title.
+     * @return string
+     */
+    public function filter_rankmath_og_title($value) {
+        return $this->filter_rankmath_social($value, Metasync_Seo_Precedence::FIELD_OG_TITLE, 'og:title');
+    }
+
+    /**
+     * Filter Rank Math's og:description output.
+     *
+     * @param  string $value Rank Math's computed og:description.
+     * @return string
+     */
+    public function filter_rankmath_og_description($value) {
+        return $this->filter_rankmath_social($value, Metasync_Seo_Precedence::FIELD_OG_DESCRIPTION, 'og:description');
+    }
+
+    /**
+     * Filter Rank Math's twitter:title output.
+     *
+     * @param  string $value Rank Math's computed twitter:title.
+     * @return string
+     */
+    public function filter_rankmath_twitter_title($value) {
+        return $this->filter_rankmath_social($value, Metasync_Seo_Precedence::FIELD_TWITTER_TITLE, 'twitter:title');
+    }
+
+    /**
+     * Filter Rank Math's twitter:description output.
+     *
+     * @param  string $value Rank Math's computed twitter:description.
+     * @return string
+     */
+    public function filter_rankmath_twitter_description($value) {
+        return $this->filter_rankmath_social($value, Metasync_Seo_Precedence::FIELD_TWITTER_DESCRIPTION, 'twitter:description');
     }
 
     /**
@@ -1481,6 +1797,31 @@ class Metasync_SEO_Conflict_Handler {
      */
     public function filter_rankmath_title($title) {
         $post_id = $this->get_current_object_id();
+
+        // If we hold a title, we write it — the same rule the description path
+        // follows. The sync stamp records that a sync happened; it does not decide
+        // who renders. The mirrored copy lives in the plugin's own storage and can
+        // be edited there, and deferring to it hands our tag over silently.
+        //
+        // A value, never '': on classic themes the plugin owns the sole <title>
+        // renderer and OTTO's buffer replaces the tag afterwards, so blanking it
+        // would leave nothing for OTTO to replace.
+        $ours = $this->metasync_title_value($post_id);
+        if ($ours !== '') {
+            return $ours;
+        }
+
+        // Taxonomy archives resolve against term meta, not post meta. Resolve
+        // the term before plugin ownership checks so a multi-plugin archive is
+        // not suppressed by an unrelated primary-plugin decision.
+        $term = $this->get_current_term();
+        if ($term) {
+            $term_title = $this->get_metasync_term_title($term);
+            if (!empty($term_title)) {
+                return $term_title;
+            }
+        }
+
         // If another plugin is the primary output owner, suppress Rank Math.
         if ($post_id && $this->has_active_seo_plugin()) {
             if ($this->is_primary_output_plugin($post_id, 'rankmath')) {
@@ -1492,23 +1833,12 @@ class Metasync_SEO_Conflict_Handler {
             }
         }
 
-        // Term-level archives (category/tag/custom taxonomy): when MetaSync has
-        // an explicit `_metasync_metatitle`, return it so Rank Math renders the
-        // MetaSync-managed archive title inside <title>.
-        $term = $this->get_current_term();
-        if ($term) {
-            $term_title = get_term_meta($term->term_id, '_metasync_metatitle', true);
-            if (!empty($term_title)) {
-                return $term_title;
-            }
-        }
-
         $post_id = $this->get_current_object_id();
 
         // MetaSync sidebar has an explicit title — return it so Rank Math renders it.
         if ($post_id) {
-            $sidebar_title = get_post_meta($post_id, '_metasync_seo_title', true);
-            if (!empty($sidebar_title)) {
+            $sidebar_title = $this->metasync_title_value($post_id);
+            if ($sidebar_title !== '') {
                 return $sidebar_title;
             }
         }
@@ -1523,9 +1853,9 @@ class Metasync_SEO_Conflict_Handler {
     /**
      * Filter RankMath description output.
      *
-     * On term archives: the term-level sync writes MetaSync's description
-     * into Rank Math's native term meta, so Rank Math already computes the
-     * correct value — let it through.
+     * On term archives: return MetaSync's resolved term value directly. Rank
+     * Math may compute an empty native value even when the precedence chain has
+     * a value, and MetaSync's own archive emitter does not provide a fallback.
      *
      * On singular pages: suppress when OTTO or MetaSync sidebar provides
      * the description.
@@ -1535,6 +1865,36 @@ class Metasync_SEO_Conflict_Handler {
      */
     public function filter_rankmath_description($description) {
         $post_id = $this->get_current_object_id();
+
+        // A synced OTTO description is dead data once OTTO is switched off
+        // for this post; serving it would leak SEO OTTO has stood down from.
+        $replacement = $this->replace_dead_otto_description($description, $post_id);
+        if ($replacement !== null) {
+            return $replacement;
+        }
+
+        // If we hold a description, we write it. The sync stamp records that a
+        // sync happened; it does not decide who renders. The mirrored copy lives
+        // in the plugin's own storage and can be edited or overwritten there —
+        // deferring to it hands our tag over with nothing saying so.
+        $ours = $this->metasync_description_value($post_id);
+        if ($ours !== '') {
+            return $ours;
+        }
+
+        // On taxonomy archives the queried-object id is a term id, not a post
+        // id. Rank Math may have no native term description to return (the
+        // value can exist only in MetaSync's precedence tiers), so hand it the
+        // resolved term value directly. MetaSync's own wp_head emitter exits
+        // early for archives and cannot provide a fallback tag.
+        $term = $this->get_current_term();
+        if ($term) {
+            $term_desc = $this->get_metasync_term_description($term);
+            if (!empty($term_desc)) {
+                return $term_desc;
+            }
+        }
+
         if ($post_id && $this->has_active_seo_plugin()) {
             if ($this->is_primary_output_plugin($post_id, 'rankmath')) {
                 return $description;
@@ -1544,70 +1904,11 @@ class Metasync_SEO_Conflict_Handler {
             }
         }
 
-        // Term archives: MetaSync syncs to Rank Math storage — let it render.
-        $term = $this->get_current_term();
-        if ($term) {
-            $term_desc = get_term_meta($term->term_id, '_metasync_metadesc', true);
-            if (!empty($term_desc)) {
-                return $description;
-            }
-        }
-
         if ($this->otto_has_tag('description') || $this->metasync_has_description()) {
             return '';
         }
 
         return $description;
-    }
-
-    /**
-     * Filter Rank Math's og:description / twitter:description output.
-     *
-     * Mirrors filter_yoast_og_description(): suppress when OTTO has the tag or
-     * MetaSync has an intentional description, so exactly one description tag
-     * reaches the page. Returning '' removes Rank Math's.
-     *
-     * @param  string $value Rank Math's computed description.
-     * @return string
-     */
-    public function filter_rankmath_og_description($value) {
-        return $this->filter_rankmath_social_description($value, 'og:description');
-    }
-
-    /**
-     * Filter Rank Math's twitter:description output.
-     *
-     * Kept separate from the og:description filter so each consults its OWN
-     * OTTO key — twitter:description resolves to _metasync_otto_twitter_description,
-     * not the og one. Sharing a callback would suppress Rank Math's tag on the
-     * strength of the wrong key, either leaving a duplicate or a blank.
-     *
-     * @param  string $value Rank Math's computed description.
-     * @return string
-     */
-    public function filter_rankmath_twitter_description($value) {
-        return $this->filter_rankmath_social_description($value, 'twitter:description');
-    }
-
-    /**
-     * Shared body for the two Rank Math social-description filters.
-     *
-     * @param  string $value    Rank Math's computed description.
-     * @param  string $otto_tag OTTO tag identifier to test for this specific tag.
-     * @return string
-     */
-    private function filter_rankmath_social_description($value, $otto_tag) {
-        $post_id = $this->get_current_object_id();
-        if ($post_id && $this->og_output_disabled($post_id)) {
-            return $value;
-        }
-        if ($post_id && $this->is_primary_output_plugin($post_id, 'rankmath')) {
-            return $value;
-        }
-        if ($this->otto_has_tag($otto_tag) || $this->metasync_has_description()) {
-            return '';
-        }
-        return $value;
     }
 
     /**
@@ -1756,38 +2057,50 @@ class Metasync_SEO_Conflict_Handler {
             }
         }
 
-        // Collect @ids of BreadcrumbList nodes being removed.
+        // Collect @ids of BreadcrumbList nodes being removed. Track removal
+        // separately from the id list: a BreadcrumbList may carry no @id, in
+        // which case it is removed but contributes nothing to $removed_ids.
         $removed_ids = [];
+        $removed_any = false;
 
         foreach ($graph as $key => $entry) {
             if (is_array($entry) && isset($entry['@type']) && $entry['@type'] === 'BreadcrumbList') {
                 if (!empty($entry['@id'])) {
                     $removed_ids[] = $entry['@id'];
                 }
+                $removed_any = true;
                 unset($graph[$key]);
             }
         }
 
-        // Remove dangling breadcrumb references from WebPage-type nodes.
-        foreach ($graph as $key => &$entry) {
-            if (!is_array($entry) || !isset($entry['@type'])) {
-                continue;
-            }
+        // Remove dangling breadcrumb references from any node that carries one.
+        // Gating this on @type === 'WebPage' missed every WebPage subtype the
+        // SEO plugins actually emit — Rank Math uses 'CollectionPage' for
+        // archives and 'ItemPage' for products — so the BreadcrumbList was
+        // removed while the reference to it survived. The subtype set is
+        // open-ended, so match on the reference itself rather than the type.
+        //
+        // Only run when this method actually removed a BreadcrumbList. If it
+        // removed nothing, no reference in this graph was invalidated here, and
+        // stripping one would break a relationship that is still intact — the
+        // list may simply live in another JSON-LD block on the page.
+        if ($removed_any) {
+            foreach ($graph as $key => &$entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
 
-            $type = $entry['@type'];
-            $is_page_type = $type === 'WebPage'
-                || (is_array($type) && in_array('WebPage', $type, true));
-
-            if ($is_page_type && isset($entry['breadcrumb'])) {
-                // Remove if the reference points to a stripped node, or if
-                // no BreadcrumbList remains in this graph at all.
-                $ref_id = is_array($entry['breadcrumb']) ? ($entry['breadcrumb']['@id'] ?? '') : '';
-                if (empty($removed_ids) || empty($ref_id) || in_array($ref_id, $removed_ids, true)) {
-                    unset($entry['breadcrumb']);
+                if (isset($entry['breadcrumb'])) {
+                    // Remove if the reference points to a stripped node, or if
+                    // the removed list carried no @id to match against.
+                    $ref_id = is_array($entry['breadcrumb']) ? ($entry['breadcrumb']['@id'] ?? '') : '';
+                    if (empty($removed_ids) || empty($ref_id) || in_array($ref_id, $removed_ids, true)) {
+                        unset($entry['breadcrumb']);
+                    }
                 }
             }
+            unset($entry);
         }
-        unset($entry);
 
         return $has_string_keys ? $graph : array_values($graph);
     }
@@ -1827,6 +2140,12 @@ class Metasync_SEO_Conflict_Handler {
      * @return bool
      */
     private function otto_has_schema_for_current_page() {
+        // Schema feature switched off: MetaSync contributes no JSON-LD, so the
+        // third-party plugin's graph must be left intact rather than emptied.
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SCHEMA)) {
+            return false;
+        }
+
         if (!$this->is_otto_active()) {
             return false;
         }
@@ -1856,6 +2175,24 @@ class Metasync_SEO_Conflict_Handler {
      *
      * @return int 0 when unknown.
      */
+    /**
+     * Whether get_current_object_id() is currently answering with a post id.
+     *
+     * On a taxonomy archive the queried object is a term, so that method returns
+     * a TERM id. Reading post meta with it answers with whatever post happens to
+     * share that number — a collision that is ordinary rather than exotic on any
+     * site with a few dozen terms. Every post-meta read keyed on
+     * get_current_object_id() has to gate on this.
+     *
+     * A term is the only case: on the static posts page and the front page the
+     * queried object is a real page, and its id is a genuine post id.
+     *
+     * @return bool
+     */
+    private function current_object_is_post() {
+        return !$this->get_current_term();
+    }
+
     private function get_current_object_id() {
         // Singular pages (posts, pages, CPTs, attachments)
         if (is_singular()) {
@@ -1875,6 +2212,286 @@ class Metasync_SEO_Conflict_Handler {
         }
 
         return 0;
+    }
+
+    /**
+     * MetaSync's title for a taxonomy archive, highest tier first.
+     *
+     * The order comes from Metasync_Seo_Precedence: on a term
+     * `_metasync_metatitle` means "someone set this deliberately" — the MCP
+     * taxonomy tool is its only writer — and an import sits one tier below on
+     * `_metasync_imported_seo_title`, so a bulk import can no longer take the
+     * slot a deliberate value occupies.
+     *
+     * Terms carry no OTTO meta at all, which is why that chain is shorter than
+     * the post one and why the same key can mean something different on a post
+     * without ambiguity. OTTO reaches an archive through the output-buffer pass,
+     * which runs after these filters and still overrides what we return.
+     *
+     * @param  \WP_Term $term Term being rendered.
+     * @return string         Title, or '' when MetaSync has none.
+     */
+    private function get_metasync_term_title($term) {
+        if (empty($term->term_id) || !self::precedence_available()) {
+            return '';
+        }
+
+        return Metasync_Seo_Precedence::value(
+            $term->term_id,
+            Metasync_Seo_Precedence::FIELD_TITLE,
+            Metasync_Seo_Precedence::TYPE_TERM
+        );
+    }
+
+    /**
+     * MetaSync's description for a taxonomy archive. See get_metasync_term_title().
+     *
+     * @param  \WP_Term $term Term being rendered.
+     * @return string         Description, or '' when MetaSync has none.
+     */
+    private function get_metasync_term_description($term) {
+        if (empty($term->term_id) || !self::precedence_available()) {
+            return '';
+        }
+
+        return Metasync_Seo_Precedence::value(
+            $term->term_id,
+            Metasync_Seo_Precedence::FIELD_DESCRIPTION,
+            Metasync_Seo_Precedence::TYPE_TERM
+        );
+    }
+
+    /**
+     * The social value MetaSync holds for a tag, if any.
+     *
+     * Social fields carry their own values rather than deriving from the page
+     * title and description, so they are asked about on their own chain: a post
+     * can have an OG title and no SEO title, and the page-title chain would
+     * answer "we hold nothing" for a value we do hold. That mismatch is what let
+     * a third-party plugin's own OG tag outrank ours.
+     *
+     * @param  string $field   A Metasync_Seo_Precedence social field constant.
+     * @param  int    $post_id Post being rendered.
+     * @return string          '' when MetaSync holds nothing for this tag.
+     */
+    private function metasync_social_value($field, $post_id) {
+        if (!$post_id || !self::precedence_available()) {
+            return '';
+        }
+
+        // Social values are per-post. On an archive the queried-object id is a
+        // term id, and reading post meta with it would answer with whatever post
+        // happens to share that number — another page's og:title.
+        if (!is_singular()) {
+            return '';
+        }
+
+        // The OG meta box pre-fills every field from the post and PERSISTS those
+        // defaults on save, so a non-empty value does not prove the customer chose
+        // it. Only a value that differs from the default counts as theirs; an
+        // auto-filled one must not outrank OTTO. Same comparison
+        // Otto_html_class::apply_metabox_og_precedence() makes — without it the two
+        // disagree, and a page can lose the tag entirely because each side expects
+        // the other to supply it.
+        $customized = $this->customized_metabox_value($post_id, $field);
+        if ($customized !== '') {
+            return $customized;
+        }
+
+        // Auto-filled or unset: skip MetaSync's own tier and take the rest of the
+        // chain — OTTO, then whatever an import brought in.
+        $value = Metasync_Seo_Precedence::value(
+            $post_id,
+            $field,
+            Metasync_Seo_Precedence::TYPE_POST,
+            array('include_metasync' => false)
+        );
+        if ($value !== '') {
+            return $value;
+        }
+
+        // A social description with no OG-specific value of its own falls back to
+        // the page description, which is what MetaSync's own emitter has always
+        // done. Without this the plugin renders its own og:description while the
+        // sidebar emits ours, and the page carries both.
+        if ($field === Metasync_Seo_Precedence::FIELD_OG_DESCRIPTION
+            || $field === Metasync_Seo_Precedence::FIELD_TWITTER_DESCRIPTION) {
+            return $this->metasync_description_value($post_id);
+        }
+
+        // Social titles fall back to the page title for the same reason, and it
+        // is the fallback Metasync_OpenGraph already uses. It also keeps the
+        // WP-609 replacement path from firing: with the plugin rendering our
+        // title there is no suppressed tag left to replace.
+        if ($field === Metasync_Seo_Precedence::FIELD_OG_TITLE
+            || $field === Metasync_Seo_Precedence::FIELD_TWITTER_TITLE) {
+            return Metasync_Seo_Precedence::value($post_id, Metasync_Seo_Precedence::FIELD_TITLE);
+        }
+
+        return '';
+    }
+
+    /**
+     * A social meta box value, but only when the customer genuinely set it.
+     *
+     * The box pre-fills Title from the post title, Description from the excerpt
+     * and Image from the featured image, and persists whatever is in those fields
+     * on save. So "non-empty" is not intent — a field is the customer's only when
+     * it differs from the default it was pre-filled with.
+     *
+     * Compared per field rather than letting the Twitter fields inherit the OG
+     * verdict, so a customized og:title cannot silently promote an auto-filled
+     * twitter:title.
+     *
+     * @param  int    $post_id
+     * @param  string $field   A Metasync_Seo_Precedence social field constant.
+     * @return string          '' when unset, auto-filled, or not determinable.
+     */
+    private function customized_metabox_value($post_id, $field) {
+        $map = array(
+            Metasync_Seo_Precedence::FIELD_OG_TITLE            => array('_metasync_og_title', 'title'),
+            Metasync_Seo_Precedence::FIELD_OG_DESCRIPTION      => array('_metasync_og_description', 'description'),
+            Metasync_Seo_Precedence::FIELD_OG_IMAGE            => array('_metasync_og_image', 'image'),
+            Metasync_Seo_Precedence::FIELD_TWITTER_TITLE       => array('_metasync_twitter_title', 'title'),
+            Metasync_Seo_Precedence::FIELD_TWITTER_DESCRIPTION => array('_metasync_twitter_description', 'description'),
+            Metasync_Seo_Precedence::FIELD_TWITTER_IMAGE       => array('_metasync_twitter_image', 'image'),
+        );
+
+        if (!isset($map[$field])) {
+            return '';
+        }
+
+        list($meta_key, $default_key) = $map[$field];
+
+        $stored = (string) get_post_meta($post_id, $meta_key, true);
+        if ($stored === '') {
+            return '';
+        }
+
+        // A stored "Auto Draft" placeholder was never something the customer typed —
+        // it is the meta box's own pre-fill from a still-untitled post, persisted
+        // verbatim. Comparing only against the post's *current* title (below) misses
+        // this once the post is later given a real title: the placeholder no longer
+        // matches the default, so it reads as a deliberate customization and gets
+        // handed to a third-party SEO plugin as-is (WP-640). Collapse it here too,
+        // the same way the render-time resolver already does for MetaSync's own tag.
+        if (class_exists('Metasync_OpenGraph')
+            && in_array($meta_key, Metasync_OpenGraph::AUTO_DRAFT_PRONE_KEYS, true)
+            && Metasync_OpenGraph::is_auto_draft_title($stored)
+        ) {
+            return '';
+        }
+
+        // The title default is the post title, which we can read without help. The
+        // description and image defaults come from the emitter's own resolver so
+        // they match it exactly.
+        if ($default_key === 'title') {
+            $post    = get_post($post_id);
+            $default = ($post instanceof WP_Post) ? (string) $post->post_title : '';
+
+            return $stored === $default ? '' : $stored;
+        }
+
+        if (!class_exists('Metasync_OpenGraph') || !Metasync_OpenGraph::get_instance()) {
+            // Cannot prove it was auto-filled, so do not demote a value the
+            // customer may well have typed. Erring the other way would silently
+            // drop real values whenever the emitter is unavailable.
+            return $stored;
+        }
+
+        $defaults = Metasync_OpenGraph::get_instance()->get_default_og_values($post_id);
+        $default  = (string) $defaults[$default_key];
+
+        return $stored === $default ? '' : $stored;
+    }
+
+    /**
+     * The page title MetaSync holds for a post, if any.
+     *
+     * The full chain — what the customer typed, then OTTO, then a value brought
+     * in from another SEO plugin — so a third-party plugin can never render its
+     * own title over one of ours. OTTO's tiers drop out on their own when the
+     * per-post toggle is off.
+     *
+     * Cached for the request: three plugins' title filters can each ask, and on
+     * a page where nothing is set that is otherwise four meta reads apiece.
+     *
+     * @param  int $post_id Post being rendered.
+     * @return string       '' when MetaSync holds nothing.
+     */
+    private function metasync_title_value($post_id) {
+        if (!$post_id || !self::precedence_available()) {
+            return '';
+        }
+
+        if ($this->get_current_term()) {
+            return '';
+        }
+
+        if (array_key_exists($post_id, $this->title_value_cache)) {
+            return $this->title_value_cache[$post_id];
+        }
+
+        $this->title_value_cache[$post_id] = Metasync_Seo_Precedence::value(
+            $post_id,
+            Metasync_Seo_Precedence::FIELD_TITLE
+        );
+
+        return $this->title_value_cache[$post_id];
+    }
+
+    /**
+     * The meta description MetaSync holds for a post, if any.
+     *
+     * The full chain — what the customer typed, then OTTO, then a value brought
+     * in from another SEO plugin — so a third-party plugin can never render its
+     * own description over one of ours. OTTO's tiers drop out on their own when
+     * the per-post toggle is off, so a stood-down suggestion is not served.
+     *
+     * @param  int $post_id Post being rendered.
+     * @return string       '' when MetaSync holds nothing.
+     */
+    private function metasync_description_value($post_id) {
+        if (!$post_id || !self::precedence_available()) {
+            return '';
+        }
+
+        // On a taxonomy archive the queried-object id is a term id; reading post
+        // meta with it would answer with whatever post shares that number. The
+        // term branch in each filter handles archives.
+        if ($this->get_current_term()) {
+            return '';
+        }
+
+        return Metasync_Seo_Precedence::value(
+            $post_id,
+            Metasync_Seo_Precedence::FIELD_DESCRIPTION
+        );
+    }
+
+    /**
+     * Make sure the precedence resolver is loaded before calling it.
+     *
+     * These filters run on wp_head, so an unresolvable class here takes the
+     * front end down rather than degrading. A partial update can leave newer
+     * PHP files beside an older committed autoload classmap that has never
+     * heard of this class, so fall back to requiring the file directly and
+     * report honestly if it is genuinely absent. Same reasoning as the post-meta
+     * sync bridges in class-metasync.php.
+     *
+     * @return bool
+     */
+    private static function precedence_available() {
+        if (class_exists('Metasync_Seo_Precedence')) {
+            return true;
+        }
+
+        $file = plugin_dir_path(__FILE__) . 'class-metasync-seo-precedence.php';
+        if (is_readable($file)) {
+            require_once $file;
+        }
+
+        return class_exists('Metasync_Seo_Precedence');
     }
 
     /**

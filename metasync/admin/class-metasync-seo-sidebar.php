@@ -34,6 +34,21 @@ class Metasync_SEO_Sidebar {
     const META_DESCRIPTION = '_metasync_seo_desc';
 
     /**
+     * Meta keys for values brought in by the external SEO importer.
+     *
+     * Deliberately separate from META_SEO_TITLE / META_DESCRIPTION. Those two
+     * mean "the customer typed this" and therefore outrank OTTO — the Classic
+     * meta box tells the user as much ("Leave the field blank to use OTTO's
+     * suggestion"). A bulk import is not a per-post customer decision, so
+     * writing it there silently opted every imported post out of OTTO.
+     *
+     * These keys render only where OTTO has no suggestion. See
+     * filter_document_title_imported() and output_seo_meta_description().
+     */
+    const META_IMPORTED_SEO_TITLE = Metasync_Seo_Precedence::KEY_IMPORTED_TITLE;
+    const META_IMPORTED_DESCRIPTION = Metasync_Seo_Precedence::KEY_IMPORTED_DESC;
+
+    /**
      * Meta key for the OTTO focus keyword (read-only, written by OTTO)
      */
     const META_OTTO_KEYWORDS = '_metasync_otto_keywords';
@@ -94,6 +109,13 @@ class Metasync_SEO_Sidebar {
         add_action('wp_head', array($this, 'output_seo_meta_description'), 2);
         add_filter('pre_get_document_title', array($this, 'filter_document_title'), 100);
         add_filter('document_title_parts', array($this, 'filter_document_title_parts'), 100);
+
+        // Imported values sit BELOW OTTO. Priority 98 runs before OTTO's own
+        // pre_get_document_title callback (priority 99, see
+        // otto/metasync-otto-seo-functions.php), so OTTO overwrites this value
+        // whenever it has a suggestion and leaves it alone when it does not.
+        // The customer's own title at priority 100 still beats both.
+        add_filter('pre_get_document_title', array($this, 'filter_document_title_imported'), 98);
     }
 
     /**
@@ -207,20 +229,16 @@ class Metasync_SEO_Sidebar {
 
         $conflict_handler = Metasync_SEO_Conflict_Handler::get_instance();
 
-        // og:title / twitter:title replacement.
+        // og:title / twitter:title replacement (WP-609).
         //
-        // On a Yoast/AIOSEO page the conflict handler suppresses that plugin's
-        // og:title when MetaSync has a title, but Metasync_OpenGraph::output_opengraph_tags()
-        // bails whenever an SEO plugin is active — leaving the page with no og:title at all.
-        // Emit the same title the suppression keyed off, so the title path is symmetric with
-        // the description path below. og_title_needs_replacement() is deliberately narrow: it
-        // is false on MetaSync-only sites (the consolidated emitter still renders og:title
-        // there), on synced posts (the plugin renders its own), and when the OG toggle is off.
-        //
-        // Emitted BEFORE the description defer gate below: that gate is about the plugin
-        // owning the *description*, which does not imply it renders the title. A post whose
-        // sync timestamp names a plugin that is not the active one still has its og:title
-        // suppressed, so returning early there would leave the page with none.
+        // Still needed, but for a narrower case than when it was written. The
+        // conflict-handler filters now hand a third-party plugin MetaSync's OG
+        // title whenever one is set, so that plugin renders it and nothing is
+        // required here. What the filters cannot cover is a post holding a page
+        // title and no OG-specific value: there they pass the plugin's own tag
+        // through, and without this block the page carries the plugin's og:title
+        // while <title> carries ours. og_title_needs_replacement() returns false
+        // once the filters are supplying the tag, so the two never both emit.
         if ($conflict_handler->og_title_needs_replacement()) {
             $title = $conflict_handler->get_metasync_title();
             if (!empty($title)) {
@@ -230,26 +248,30 @@ class Metasync_SEO_Sidebar {
             }
         }
 
-        // When synced to an active SEO plugin, that plugin outputs
-        // the description from its native storage — skip MetaSync's own tag.
-        // But only defer if the plugin's field is actually populated.
-        // A stale/partial sync (timestamp present, plugin field empty) would
-        // otherwise drop the description entirely — so fall through and emit
-        // MetaSync's own custom tag as the fallback.
+        // With an active third-party SEO plugin, that plugin emits the description
+        // tag and the conflict handler hands it MetaSync's value when MetaSync
+        // holds one. Emitting here as well would put two identical description
+        // tags on the page.
+        //
+        // The condition is "will that plugin render a description", not "has a
+        // sync run": a timestamp only records that a sync happened, and the
+        // mirrored copy can be edited or emptied in the plugin afterwards. When
+        // neither side holds anything we fall through, so a stale or partial sync
+        // cannot drop the description entirely.
         $defer_meta_description = false;
         if ($conflict_handler->has_active_seo_plugin()) {
-            $sync_ts = get_post_meta($post_id, '_metasync_plugin_sync_ts', true);
-            if (!empty($sync_ts) && $conflict_handler->active_plugin_has_description($post_id)) {
+            if ($conflict_handler->metasync_has_description()
+                || $conflict_handler->active_plugin_has_description($post_id)) {
                 $defer_meta_description = true;
             }
         }
 
-        // The Open Graph tags need their own decision. The check above asks whether
-        // the plugin holds a META description, which says nothing about whether it
-        // renders an og:description — Yoast renders one either way, falling back to
-        // its meta description and then the excerpt. Deferring the plain tag while
-        // still emitting ours produced two conflicting og:description tags.
-        $defer_og_description = $conflict_handler->third_party_owns_og_description();
+        // With a plugin active the conflict handler now supplies og:/twitter:
+        // description too — falling back to the page description when no
+        // OG-specific value is set — so that plugin renders exactly one. Emitting
+        // here as well is always a second tag, never a replacement.
+        $defer_og_description = $conflict_handler->has_active_seo_plugin()
+            || $conflict_handler->third_party_owns_og_description();
 
         if ($defer_meta_description && $defer_og_description) {
             return;
@@ -258,27 +280,54 @@ class Metasync_SEO_Sidebar {
         // Get the custom SEO description (takes priority)
         $description = get_post_meta($post_id, self::META_DESCRIPTION, true);
 
+        // Fall back to an imported description ONLY when the customer has not
+        // set one and OTTO has no suggestion for this post. Imported values are
+        // migration data, not a per-post customer decision, so they must never
+        // displace OTTO. Emitted without the data-metasync-seo="custom" marker
+        // so Otto_html_class::force_custom_meta() does not mistake it for an
+        // explicit override.
+        $is_imported_fallback = false;
+        if (empty($description)) {
+            $otto_description = $this->otto_disabled_for_post($post_id)
+                ? ''
+                : get_post_meta($post_id, '_metasync_otto_description', true);
+            if (empty($otto_description)) {
+                $imported = get_post_meta($post_id, self::META_IMPORTED_DESCRIPTION, true);
+                if (!empty($imported) && is_string($imported) && !$this->third_party_owns_output()) {
+                    $description          = $imported;
+                    $is_imported_fallback = true;
+                }
+            }
+        }
+
         // Output meta description tags if custom value exists
         // This will be output BEFORE OTTO processes the page, and since we're using
         // a high priority filter, it will override OTTO's meta description
         if (!empty($description)) {
             $description_escaped = esc_attr($description);
+            $marker = $is_imported_fallback ? ' data-metasync-seo="imported"' : ' data-metasync-seo="custom"';
             // Standard meta description
             if (!$defer_meta_description) {
-                echo '<meta name="description" content="' . $description_escaped . '" data-metasync-seo="custom" />' . "\n";
+                echo '<meta name="description" content="' . $description_escaped . '"' . $marker . ' />' . "\n";
             }
 
-            // og:description / twitter:description are Open Graph & social tags, gated by
-            // the per-post "Enable Open Graph & Social Media Tags" toggle. Only an explicit
-            // '0' opt-out disables them (unset/empty counts as enabled), mirroring
-            // Metasync_OpenGraph::will_emit(). When disabled, MetaSync emits no OG/Twitter
-            // description so it neither overrides a third-party plugin's tag nor leaves
-            // one sourced from our database.
-            if (!$defer_og_description && get_post_meta($post_id, '_metasync_og_enabled', true) !== '0') {
+            // og:description / twitter:description are Open Graph & social tags, so they
+            // answer to the site-wide Social Media & Open Graph switch as well as the
+            // per-post "Enable Open Graph & Social Media Tags" toggle. For the per-post
+            // toggle only an explicit '0' opt-out disables them (unset/empty counts as
+            // enabled), mirroring Metasync_OpenGraph::will_emit(). When either says no,
+            // MetaSync emits no OG/Twitter description, so it neither overrides a
+            // third-party plugin's tag nor leaves one sourced from our database.
+            //
+            // The plain <meta name="description"> above is deliberately NOT gated here:
+            // it belongs to the SEO title/description feature, which has its own setting.
+            if (!$defer_og_description
+                && Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::SOCIAL_OG)
+                && get_post_meta($post_id, '_metasync_og_enabled', true) !== '0') {
                 // Open Graph description
-                echo '<meta property="og:description" content="' . $description_escaped . '" data-metasync-seo="custom" />' . "\n";
+                echo '<meta property="og:description" content="' . $description_escaped . '"' . $marker . ' />' . "\n";
                 // Twitter description
-                echo '<meta name="twitter:description" content="' . $description_escaped . '" data-metasync-seo="custom" />' . "\n";
+                echo '<meta name="twitter:description" content="' . $description_escaped . '"' . $marker . ' />' . "\n";
             }
         }
     }
@@ -311,6 +360,83 @@ class Metasync_SEO_Sidebar {
 
         // Return custom SEO title if set
         return !empty($seo_title) ? $seo_title : $title;
+    }
+
+    /**
+     * Whether the per-post "Disable OTTO" toggle is set for this post.
+     *
+     * OTTO stands down completely for such a post, so its persisted suggestion is
+     * dead data. Treating that dead value as "OTTO has something to say" would
+     * block the imported fallback and leave the page with no description at all —
+     * OTTO suppressed, imported suppressed, nothing emitted.
+     *
+     * @param int $post_id Post ID.
+     * @return bool True when OTTO is switched off for this post.
+     */
+    private function otto_disabled_for_post($post_id) {
+        if (!class_exists('Metasync_Otto_Frontend_Toolbar')) {
+            return false;
+        }
+
+        return (bool) Metasync_Otto_Frontend_Toolbar::is_otto_disabled($post_id);
+    }
+
+    /**
+     * Whether a third-party SEO plugin is the one actually rendering this page.
+     *
+     * Mirrors the guard OTTO's own filters use
+     * (otto/metasync-otto-seo-functions.php): when an active plugin owns output
+     * and OTTO has nothing live to say, leave that plugin's tags alone.
+     *
+     * Gates the *imported* value only. Imported values are migration data with
+     * no per-post customer intent behind them, so they must never compete with a
+     * plugin the customer is still using. The description emitter is an echo on
+     * wp_head rather than a filter return, so without this it would add a second
+     * <meta name="description"> next to the third-party plugin's own.
+     *
+     * @return bool True when MetaSync should stand down for imported values.
+     */
+    private function third_party_owns_output() {
+        if (!class_exists('Metasync_SEO_Conflict_Handler')) {
+            return false;
+        }
+
+        $handler = Metasync_SEO_Conflict_Handler::get_instance();
+
+        return $handler->has_active_seo_plugin() && !$handler->otto_has_live_suggestions();
+    }
+
+    /**
+     * Supply an imported SEO title as a fallback BELOW OTTO.
+     *
+     * Registered at priority 98 so OTTO's own callback (priority 99) runs
+     * afterwards: OTTO overwrites this whenever it has a suggestion, and
+     * returns the title untouched when it does not — which is exactly when the
+     * imported value should show. The customer's own title (priority 100) still
+     * wins over both.
+     *
+     * @param string $title Current title.
+     * @return string       Imported title when it should apply, else unchanged.
+     */
+    public function filter_document_title_imported($title) {
+        if (is_admin() || !is_singular()) {
+            return $title;
+        }
+
+        $post_id = get_the_ID();
+        if (!$post_id) {
+            return $title;
+        }
+
+        // Never outrank a third-party SEO plugin that is the one actually
+        // rendering this page.
+        if ($this->third_party_owns_output()) {
+            return $title;
+        }
+
+        $imported = get_post_meta($post_id, self::META_IMPORTED_SEO_TITLE, true);
+
+        return (!empty($imported) && is_string($imported)) ? $imported : $title;
     }
 
     /**
@@ -459,6 +585,23 @@ class Metasync_SEO_Sidebar {
                     return current_user_can('edit_post', $object_id);
                 },
             ));
+
+            // Register imported SEO meta for REST API (read-only fallback shown
+            // as a placeholder only when OTTO has no suggestion)
+            foreach (array(self::META_IMPORTED_SEO_TITLE, self::META_IMPORTED_DESCRIPTION) as $imported_key) {
+                register_post_meta($post_type, $imported_key, array(
+                    'show_in_rest' => true,
+                    'single' => true,
+                    'type' => 'string',
+                    'auth_callback' => function($allowed, $meta_key, $object_id) use ($post_type) {
+                        if (empty($object_id)) {
+                            $pt_obj = get_post_type_object($post_type);
+                            return $pt_obj ? current_user_can($pt_obj->cap->edit_posts) : current_user_can('edit_posts');
+                        }
+                        return current_user_can('edit_post', $object_id);
+                    },
+                ));
+            }
 
             // Register OTTO focus keyword for REST API (read-only display in sidebar)
             register_post_meta($post_type, self::META_OTTO_KEYWORDS, array(
@@ -762,6 +905,10 @@ class Metasync_SEO_Sidebar {
                 // OTTO keys for fallback (read-only, used to prefill if manual fields are empty)
                 'ottoTitle' => '_metasync_otto_title',
                 'ottoDescription' => '_metasync_otto_description',
+                // Imported keys (read-only). Rank below OTTO — used as the
+                // placeholder only when OTTO has no suggestion for the post.
+                'importedTitle' => self::META_IMPORTED_SEO_TITLE,
+                'importedDescription' => self::META_IMPORTED_DESCRIPTION,
                 // OTTO focus keyword (read-only display only)
                 'ottoKeywords' => self::META_OTTO_KEYWORDS,
                 // OTTO disabled per-post flag

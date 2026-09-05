@@ -105,11 +105,27 @@ class Metasync_Seo_Output
 
 	function metasync_wp_robots_meta($robots)
 	{
+		// Both robots features switched off — MetaSync emits no robots tag of its
+		// own, so blanking core's directives here would leave the page with no
+		// robots tag at all. Hand core's array back untouched.
+		if (Metasync_Feature_Flags::robots_fully_disabled()) {
+			return $robots;
+		}
 		// When the site is set to discourage search engines, core already
 		// emits noindex; blanking every directive here would strip that and
 		// make a discouraged site indexable. Leave the tags untouched.
 		if ((int) get_option('blog_public', 1) === 0) {
 			return $robots;
+		}
+		// On a singular view MetaSync only owns the tag when it actually resolves
+		// a value. With one robots half switched off the resolved value can come
+		// back empty — every directive the post had belonged to the disabled half
+		// — and blanking core here would leave the page with no robots tag at all.
+		if (function_exists('is_singular') && is_singular()) {
+			$post_id = get_the_ID();
+			if ($post_id && $this->resolve_robots_value(get_post_meta($post_id)) === '') {
+				return $robots;
+			}
 		}
 		foreach ($robots as $key => $value) {
 			$robots[$key] = false;
@@ -218,15 +234,24 @@ class Metasync_Seo_Output
 			if (!$conflict_handler->has_active_seo_plugin()) {
 				$archive_url = $this->get_archive_canonical_url();
 				if (!empty($archive_url)) {
-					printf("\t<link rel=\"canonical\" href=\"%s\" />\n", esc_url($archive_url));
-					printf("\t<meta property=\"og:url\" content=\"%s\" />\n", esc_url($archive_url));
+					// The canonical link and og:url are owned by two different
+					// feature switches, so each is emitted on its own terms.
+					if (Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::CANONICAL)) {
+						printf("\t<link rel=\"canonical\" href=\"%s\" />\n", esc_url($archive_url));
+					}
+					if (Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::SOCIAL_OG)) {
+						printf("\t<meta property=\"og:url\" content=\"%s\" />\n", esc_url($archive_url));
+					}
 				}
 			}
 			return;
 		}
 
 		// Singular post/page: suppress WP core's canonical and let MetaSync handle it.
-		if (!$conflict_handler->has_active_seo_plugin()) {
+		// With the canonical feature switched off MetaSync emits none of its own, so
+		// core's must be left in place rather than removed.
+		if (!$conflict_handler->has_active_seo_plugin()
+			&& Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::CANONICAL)) {
 			remove_action('wp_head', 'rel_canonical');
 		}
 
@@ -299,7 +324,8 @@ class Metasync_Seo_Output
 
 		# Canonical: output <link rel="canonical"> only when no third-party SEO plugin
 		# handles it, to avoid duplicate canonical tags in the page source.
-		if (!$conflict_handler->has_active_seo_plugin()) {
+		if (!$conflict_handler->has_active_seo_plugin()
+			&& Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::CANONICAL)) {
 			$list_page_meta['canonical'] = $this->get_canonical_url($post);
 		}
 
@@ -450,20 +476,25 @@ class Metasync_Seo_Output
 			// duplicates the other plugin's og:*/twitter:*/article:* tags.
 			$has_seo_plugin = $conflict_handler->has_active_seo_plugin();
 
+			// The Social Media & Open Graph feature owns every tag emitted below —
+			// Facebook, Open Graph and Twitter alike. Switched off, this legacy
+			// fallback must stay silent just like the canonical emitter does.
+			$social_enabled = Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::SOCIAL_OG);
+
 			$common_meta_settings = Metasync::get_option('common_meta_settings') ?? [];
 
-			if (!$otto_has_og && !$has_seo_plugin && isset($common_meta_settings['facebook_meta_tags'])) {
+			if ($social_enabled && !$otto_has_og && !$has_seo_plugin && isset($common_meta_settings['facebook_meta_tags'])) {
 				foreach ($facebookMetaKeys as $metaKey => $metaValue) {
 					$this->print_metatag($metaKey, $metaValue, 'content', 'property');
 				}
 			}
 
-			if (!$otto_has_og && !$og2_will_emit && !$has_seo_plugin && isset($common_meta_settings['open_graph_meta_tags'])) {
+			if ($social_enabled && !$otto_has_og && !$og2_will_emit && !$has_seo_plugin && isset($common_meta_settings['open_graph_meta_tags'])) {
 				foreach ($ogMetaKeys as $metaKey => $metaValue) {
 					$this->print_metatag($metaKey, $metaValue, 'content', 'property');
 				}
 			}
-			if (!$otto_has_twitter && !$og2_will_emit && !$has_seo_plugin && isset($common_meta_settings['twitter_meta_tags'])) {
+			if ($social_enabled && !$otto_has_twitter && !$og2_will_emit && !$has_seo_plugin && isset($common_meta_settings['twitter_meta_tags'])) {
 				foreach ($twitterMetaKeys as $metaKey => $metaValue) {
 					$this->print_metatag($metaKey, $metaValue, 'content', 'name');
 				}
@@ -593,6 +624,12 @@ class Metasync_Seo_Output
 			return;
 		}
 
+		// The Schema Markup switch covers every JSON-LD block MetaSync owns,
+		// site-wide Local SEO markup included — not just the per-post editor box.
+		if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SCHEMA)) {
+			return;
+		}
+
 		$schema = $this->build_local_business_schema();
 		if (empty($schema)) {
 			return;
@@ -675,9 +712,7 @@ class Metasync_Seo_Output
 		$entity['@type'] = $schema_type;
 
 		if (!empty($options['local_seo_logo'])) {
-			$logo_url = is_numeric($options['local_seo_logo'])
-				? wp_get_attachment_image_url($options['local_seo_logo'], 'full')
-				: $options['local_seo_logo'];
+			$logo_url = $this->resolve_local_seo_logo_url($options['local_seo_logo'], 'full');
 			if ($logo_url) {
 				$entity['logo'] = $logo_url;
 			}
@@ -713,9 +748,7 @@ class Metasync_Seo_Output
 		}
 
 		if (!empty($options['local_seo_logo'])) {
-			$logo_url = is_numeric($options['local_seo_logo'])
-				? wp_get_attachment_image_url($options['local_seo_logo'], 'full')
-				: $options['local_seo_logo'];
+			$logo_url = $this->resolve_local_seo_logo_url($options['local_seo_logo'], 'full');
 			if ($logo_url) {
 				$entity['image'] = $logo_url;
 			}
@@ -725,6 +758,31 @@ class Metasync_Seo_Output
 		$this->local_business_add_address($entity, $options);
 
 		return $entity;
+	}
+
+	/**
+	 * Resolve the stored Local Business logo to a publishable image URL.
+	 *
+	 * The setting holds either a media-library attachment ID or a raw URL.
+	 * Rows saved by the legacy sanitizer hold the corrupted form of an
+	 * ID ("http://45589"), which is neither numeric nor a resolvable URL, and
+	 * would otherwise be published verbatim as broken structured data. Repair
+	 * that shape first, then resolve the ID or trust the URL as stored.
+	 *
+	 * @param mixed  $logo Stored logo value.
+	 * @param string $size Registered image size to request for an attachment.
+	 * @return string|false Resolved image URL, or false when there is none.
+	 */
+	private function resolve_local_seo_logo_url($logo, $size = 'full')
+	{
+		$logo = metasync_repair_scheme_prefixed_media_id($logo);
+
+		if (is_numeric($logo)) {
+			$url = wp_get_attachment_image_url($logo, $size);
+			return $url ? $url : false;
+		}
+
+		return $logo ? $logo : false;
 	}
 
 	/**
@@ -892,6 +950,148 @@ class Metasync_Seo_Output
 	}
 
 	/**
+	 * Resolve the robots meta value, honouring the two robots feature switches.
+	 *
+	 * Common and advanced directives share one `<meta name="robots">` tag, and
+	 * they can arrive together from any single storage format — a REST
+	 * `meta_robots` string may hold "noindex, max-snippet:50". So rather than
+	 * gate each storage branch, the full value is resolved first and then the
+	 * directives belonging to a disabled half are dropped. That way every
+	 * storage path is covered, including the ones that return early.
+	 *
+	 * @param  array $all_meta Result of get_post_meta($id) (all meta as arrays).
+	 * @return string Robots directive string, or empty.
+	 */
+	private function resolve_robots_value($all_meta) {
+		// Neither half is enabled: contribute nothing at all, so core's own
+		// robots tag survives untouched.
+		if (Metasync_Feature_Flags::robots_fully_disabled()) {
+			return '';
+		}
+
+		return $this->filter_robots_by_enabled_features(
+			$this->resolve_robots_value_raw($all_meta),
+			$all_meta
+		);
+	}
+
+	/**
+	 * Drops directives owned by a disabled robots feature.
+	 *
+	 * The three max-* directives are the "advanced" half; everything else
+	 * (noindex, nofollow, noarchive, nosnippet, noimageindex) is "common".
+	 *
+	 * The raw resolver already dropped serving directives when the post carries
+	 * noindex. If the common half is then switched off that noindex disappears
+	 * too, so the strip no longer has anything to justify it — the advanced
+	 * directives it removed belong to a half the user left enabled. They are
+	 * therefore re-derived from the raw meta once the surviving directives are
+	 * known.
+	 *
+	 * @param  string $value    Fully resolved robots string.
+	 * @param  array  $all_meta Raw meta, used to recover stripped directives.
+	 * @return string Filtered robots string, or empty when nothing survives.
+	 */
+	private function filter_robots_by_enabled_features($value, $all_meta = []) {
+		$value = (string) $value;
+		if ($value === '') {
+			return '';
+		}
+
+		$common_enabled   = Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::COMMON_ROBOTS);
+		$advanced_enabled = Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::ADVANCE_ROBOTS);
+		if ($common_enabled && $advanced_enabled) {
+			return $value;
+		}
+
+		$kept = [];
+		foreach (explode(',', $value) as $directive) {
+			$directive = trim($directive);
+			if ($directive === '') {
+				continue;
+			}
+			$is_advanced = stripos($directive, 'max-snippet') === 0
+				|| stripos($directive, 'max-image-preview') === 0
+				|| stripos($directive, 'max-video-preview') === 0;
+
+			if ($is_advanced ? $advanced_enabled : $common_enabled) {
+				$kept[] = $directive;
+			}
+		}
+
+		// Advanced still on, but the noindex that suppressed its serving
+		// directives has just been filtered out with the common half. Re-resolve
+		// them from the raw meta, since nothing on the page justifies the strip
+		// any more. Reaching here with an empty $kept means the common half is
+		// off (both-enabled returned early above), so this is exactly the
+		// stripped case and not a genuinely empty robots value.
+		if ($advanced_enabled && empty($kept) && !empty($all_meta)) {
+			foreach (explode(',', $this->resolve_advanced_directives($all_meta)) as $directive) {
+				$directive = trim($directive);
+				if ($directive !== '') {
+					$kept[] = $directive;
+				}
+			}
+		}
+
+		return !empty($kept) ? implode(', ', array_unique($kept)) : '';
+	}
+
+	/**
+	 * Resolves only the advanced (max-*) directives, ignoring noindex.
+	 *
+	 * Mirrors the advanced branches of resolve_robots_value_raw() without its
+	 * serving-directive strip, so a post whose noindex belongs to a disabled
+	 * feature keeps the max-* directives the user still has switched on.
+	 *
+	 * @param  array $all_meta Result of get_post_meta($id) (all meta as arrays).
+	 * @return string Comma-separated advanced directives, or empty.
+	 */
+	private function resolve_advanced_directives($all_meta) {
+		$directives = [];
+
+		$advanced_raw = $all_meta['_metasync_robots_advanced'][0] ?? '';
+		if (!empty($advanced_raw)) {
+			$advanced = json_decode($advanced_raw, true);
+			if (is_array($advanced) && !empty($advanced)) {
+				if (isset($advanced['max_snippet'])) {
+					$directives[] = 'max-snippet:' . (int) $advanced['max_snippet'];
+				}
+				if (isset($advanced['max_image_preview'])) {
+					$directives[] = 'max-image-preview:' . esc_attr($advanced['max_image_preview']);
+				}
+				if (isset($advanced['max_video_preview'])) {
+					$directives[] = 'max-video-preview:' . (int) $advanced['max_video_preview'];
+				}
+				if (!empty($directives)) {
+					return implode(', ', $directives);
+				}
+			}
+		}
+
+		$adv_raw = $all_meta['metasync_advance_robots'][0] ?? '';
+		if (!empty($adv_raw)) {
+			$adv = maybe_unserialize($adv_raw);
+			if (is_array($adv)) {
+				if (!empty($adv['max-snippet']['enable'])) {
+					$length = isset($adv['max-snippet']['length']) ? (int) $adv['max-snippet']['length'] : -1;
+					$directives[] = 'max-snippet:' . $length;
+				}
+				if (!empty($adv['max-video-preview']['enable'])) {
+					$length = isset($adv['max-video-preview']['length']) ? (int) $adv['max-video-preview']['length'] : -1;
+					$directives[] = 'max-video-preview:' . $length;
+				}
+				if (!empty($adv['max-image-preview']['enable'])) {
+					$length = isset($adv['max-image-preview']['length']) ? sanitize_text_field($adv['max-image-preview']['length']) : 'large';
+					$directives[] = 'max-image-preview:' . $length;
+				}
+			}
+		}
+
+		return !empty($directives) ? implode(', ', $directives) : '';
+	}
+
+	/**
 	 * Resolve the robots meta value from all storage formats.
 	 *
 	 * Priority order:
@@ -906,7 +1106,7 @@ class Metasync_Seo_Output
 	 * @param  array $all_meta Result of get_post_meta($id) (all meta as arrays).
 	 * @return string Robots directive string (e.g. "nofollow, noarchive, max-snippet:-1") or empty.
 	 */
-	private function resolve_robots_value($all_meta) {
+	private function resolve_robots_value_raw($all_meta) {
 		$directives = [];
 
 		// Merge noindex from _metasync_robots_index (separate key, not part of advanced JSON)

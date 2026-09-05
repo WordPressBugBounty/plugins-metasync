@@ -50,10 +50,24 @@ class Metasync_Otto_Debug {
     
     
     /**
-     * Add debug menu (developer only - hidden by default)
+     * Whether debug tooling is allowed to run at all right now.
+     *
+     * `manage_options` alone isn't a real restriction — every site admin has
+     * it, so this page and its AJAX handlers were reachable by anyone on any
+     * site. Hard-disabled: the menu item, the page, and every AJAX handler
+     * are unreachable for all users on all sites, no toggle or capability
+     * bypasses this. The class and its methods are left in place; only
+     * access is blocked.
+     */
+    private static function is_debug_tools_enabled() {
+        return false;
+    }
+
+    /**
+     * Add debug menu (internal only - hidden on customer production sites)
      */
     public function add_debug_menu() {
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_options') || !self::is_debug_tools_enabled()) {
             return;
         }
         
@@ -73,7 +87,7 @@ class Metasync_Otto_Debug {
      * Create the debug page
      */
     public function create_debug_page() {
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_options') || !self::is_debug_tools_enabled()) {
             wp_die('Unauthorized');
         }
 
@@ -761,7 +775,7 @@ class Metasync_Otto_Debug {
     public function ajax_test_otto_api() {
         check_ajax_referer('metasync_otto_debug', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_options') || !self::is_debug_tools_enabled()) {
             wp_die('Unauthorized');
         }
         
@@ -817,7 +831,7 @@ class Metasync_Otto_Debug {
     public function ajax_test_notification_endpoint() {
         check_ajax_referer('metasync_otto_debug', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_options') || !self::is_debug_tools_enabled()) {
             wp_die('Unauthorized');
         }
         
@@ -860,7 +874,7 @@ class Metasync_Otto_Debug {
     public function ajax_clear_otto_cache() {
         check_ajax_referer('metasync_otto_debug', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_options') || !self::is_debug_tools_enabled()) {
             wp_die('Unauthorized');
         }
         
@@ -892,7 +906,7 @@ class Metasync_Otto_Debug {
     public function ajax_simulate_crawl_notification() {
         check_ajax_referer('metasync_otto_debug', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_options') || !self::is_debug_tools_enabled()) {
             wp_die('Unauthorized');
         }
         
@@ -931,7 +945,7 @@ class Metasync_Otto_Debug {
         try {
             check_ajax_referer('metasync_otto_debug', 'nonce');
 
-            if (!current_user_can('manage_options')) {
+            if (!current_user_can('manage_options') || !self::is_debug_tools_enabled()) {
                 wp_die('Unauthorized');
             }
 
@@ -976,7 +990,7 @@ class Metasync_Otto_Debug {
     public function ajax_emulate_otto_changes() {
         check_ajax_referer('metasync_otto_debug', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_options') || !self::is_debug_tools_enabled()) {
             wp_die('Unauthorized');
         }
         
@@ -1199,7 +1213,7 @@ class Metasync_Otto_Debug {
         try {
             check_ajax_referer('metasync_otto_debug', 'nonce');
 
-            if (!current_user_can('manage_options')) {
+            if (!current_user_can('manage_options') || !self::is_debug_tools_enabled()) {
                 wp_send_json_error('Unauthorized');
             }
 
@@ -1223,7 +1237,7 @@ class Metasync_Otto_Debug {
         try {
             check_ajax_referer('metasync_otto_debug', 'nonce');
 
-            if (!current_user_can('manage_options')) {
+            if (!current_user_can('manage_options') || !self::is_debug_tools_enabled()) {
                 wp_send_json_error('Unauthorized');
             }
 

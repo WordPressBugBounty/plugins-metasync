@@ -19,40 +19,60 @@ class Metasync_SEO_Health
 	private static $instance = null;
 
 	/**
-	 * Meta keys for cross-plugin SEO title detection.
-	 * Keys are meta_key, values are display source label (empty = MetaSync).
+	 * Third-party and legacy keys checked after MetaSync's own chain.
 	 *
-	 * `_metasync_seo_title` must stay first: it is the SEO sidebar / Classic meta box
-	 * field and outranks everything else (see class-metasync-plugin-sync.php:296 and
-	 * class-metasync-seo-sidebar.php:274). The meta box save writes ONLY that key and
-	 * never mirrors into `_metasync_metatitle`, so omitting it here makes the resolver
-	 * return OTTO's title while the customer's own value is what actually renders.
+	 * MetaSync's tiers are not listed here — they come from
+	 * Metasync_Seo_Precedence, the one place the order is defined. These are the
+	 * cross-plugin keys SEO Health looks at once MetaSync has nothing.
 	 */
-	const TITLE_META_KEYS = array(
-		'_metasync_seo_title'       => '',
-		'_metasync_metatitle'       => '',
-		'_metasync_otto_title'      => 'OTTO',
-		'_yoast_wpseo_title'        => 'Yoast',
-		'rank_math_title'           => 'Rank Math',
-		'_aioseo_title'             => 'AIOSEO',
-		'_metasync_og_title'        => 'OG',
+	const THIRD_PARTY_TITLE_KEYS = array(
+		'_yoast_wpseo_title'           => 'Yoast',
+		'rank_math_title'              => 'Rank Math',
+		'_aioseo_title'                => 'AIOSEO',
+		'_metasync_og_title'           => 'OG',
 	);
 
 	/**
-	 * Meta keys for cross-plugin SEO description detection.
-	 *
-	 * `_metasync_seo_desc` leads for the same reason as `_metasync_seo_title` above.
+	 * @see THIRD_PARTY_TITLE_KEYS
 	 */
-	const DESC_META_KEYS = array(
-		'_metasync_seo_desc'            => '',
-		'_metasync_metadesc'            => '',
-		'_metasync_otto_description'    => 'OTTO',
+	const THIRD_PARTY_DESC_KEYS = array(
 		'_yoast_wpseo_metadesc'         => 'Yoast',
 		'rank_math_description'         => 'Rank Math',
 		'_aioseo_description'           => 'AIOSEO',
 		'meta_description'              => '',
 		'_metasync_og_description'      => 'OG',
 	);
+
+	/**
+	 * Meta keys for cross-plugin SEO title detection, highest tier first.
+	 *
+	 * `_metasync_seo_title` leads: it is the SEO sidebar / Classic meta box
+	 * field and outranks everything else. The meta box save writes ONLY that key
+	 * and never mirrors into `_metasync_metatitle`, so omitting it would make
+	 * the resolver report OTTO's title while the customer's own value is what
+	 * actually renders.
+	 *
+	 * @return array<string,string> Meta key => display source label.
+	 */
+	public static function title_meta_keys()
+	{
+		return Metasync_Seo_Precedence::chain(Metasync_Seo_Precedence::FIELD_TITLE)
+			+ self::THIRD_PARTY_TITLE_KEYS;
+	}
+
+	/**
+	 * Meta keys for cross-plugin SEO description detection, highest tier first.
+	 *
+	 * `_metasync_imported_seo_desc` sits BELOW OTTO: it holds values brought in
+	 * by the external importer, which must not displace an OTTO recommendation.
+	 *
+	 * @return array<string,string> Meta key => display source label.
+	 */
+	public static function desc_meta_keys()
+	{
+		return Metasync_Seo_Precedence::chain(Metasync_Seo_Precedence::FIELD_DESCRIPTION)
+			+ self::THIRD_PARTY_DESC_KEYS;
+	}
 
 	/**
 	 * Transient key for summary stats.
@@ -62,13 +82,13 @@ class Metasync_SEO_Health
 
 	/**
 	 * Get the versioned transient key.
-	 * Changes automatically whenever TITLE_META_KEYS or DESC_META_KEYS are modified.
+	 * Changes automatically whenever the resolved key chain is modified.
 	 *
 	 * @return string
 	 */
 	private static function get_stats_transient_key()
 	{
-		$fingerprint = md5(serialize(self::TITLE_META_KEYS) . serialize(self::DESC_META_KEYS));
+		$fingerprint = md5(serialize(self::title_meta_keys()) . serialize(self::desc_meta_keys()));
 		return self::STATS_TRANSIENT_KEY . '_' . substr($fingerprint, 0, 8);
 	}
 
@@ -172,7 +192,7 @@ class Metasync_SEO_Health
 	 */
 	public static function get_seo_meta_with_fallback($post_id, $field)
 	{
-		$meta_keys = ($field === 'title') ? self::TITLE_META_KEYS : self::DESC_META_KEYS;
+		$meta_keys = ($field === 'title') ? self::title_meta_keys() : self::desc_meta_keys();
 
 		foreach ($meta_keys as $meta_key => $source) {
 			$value = get_post_meta($post_id, $meta_key, true);

@@ -65,6 +65,21 @@ class Metasync_Debug_Mode_Manager
     const CRON_HOOK = 'metasync_check_debug_limits';
 
     /**
+     * Outcomes of a wp-config.php constant write.
+     *
+     * WRITE_PARTIAL matters: some constants are live on disk, so the caller must not
+     * report "off" - that hides the dashboard widget and stops the auto-disable cron.
+     */
+    const WRITE_OK = 'ok';
+    const WRITE_PARTIAL = 'partial';
+    const WRITE_FAILED = 'failed';
+
+    /**
+     * Maximum queued admin notices.
+     */
+    const MAX_NOTICES = 5;
+
+    /**
      * Option key for debug mode settings
      *
      * @var string
@@ -174,6 +189,8 @@ class Metasync_Debug_Mode_Manager
      */
     public function enable_debug_mode($indefinite = false)
     {
+        $previousSettings = get_option(self::OPTION_KEY);
+
         $settings = array(
             'enabled' => true,
             'enabled_at' => current_time('timestamp'),
@@ -185,11 +202,29 @@ class Metasync_Debug_Mode_Manager
 
         if ($result) {
             // Enable WP_DEBUG constants via ConfigController
-            $this->update_wp_debug_constants(true);
+            $write = $this->update_wp_debug_constants(true);
 
-            // Ensure cron job is scheduled (safety net)
+            // Ensure cron job is scheduled (safety net). Scheduled before the write is
+            // judged, because the partial-write branch below deliberately leaves debug
+            // enabled on the assumption this cron can still clean it up.
             if (!wp_next_scheduled(self::CRON_HOOK)) {
                 wp_schedule_event(time(), 'hourly', self::CRON_HOOK);
+            }
+
+            if (self::WRITE_OK !== $write) {
+                // Only roll the tracking state back when nothing reached wp-config.php.
+                // After a partial write the constants that landed are live, and a state of
+                // "off" would hide the dashboard widget and make the auto-disable cron
+                // skip - leaving debug on with nothing left to turn it off.
+                if (self::WRITE_FAILED === $write) {
+                    if (false !== $previousSettings) {
+                        update_option(self::OPTION_KEY, $previousSettings);
+                    } else {
+                        delete_option(self::OPTION_KEY);
+                    }
+                }
+
+                return false;
             }
 
             // Clear any previous notices
@@ -210,6 +245,8 @@ class Metasync_Debug_Mode_Manager
      */
     public function disable_debug_mode($reason = 'manual')
     {
+        $previousSettings = get_option(self::OPTION_KEY);
+
         $settings = $this->get_settings();
         $settings['enabled'] = false;
         $settings['disabled_at'] = current_time('timestamp');
@@ -219,7 +256,17 @@ class Metasync_Debug_Mode_Manager
 
         if ($result) {
             // Disable WP_DEBUG constants via ConfigController
-            $this->update_wp_debug_constants(false);
+            if (self::WRITE_OK !== $this->update_wp_debug_constants(false)) {
+                // Debug is still on in wp-config.php, wholly or partly. Restore the
+                // enabled state so it matches the file: that keeps the dashboard widget
+                // visible and the auto-disable cron running, which is what will eventually
+                // clear it. Reporting "disabled" here would hide both.
+                if (false !== $previousSettings) {
+                    update_option(self::OPTION_KEY, $previousSettings);
+                }
+
+                return false;
+            }
 
             // Add admin notice
             $this->add_notice(
@@ -307,11 +354,15 @@ class Metasync_Debug_Mode_Manager
 
         // Check if 24 hours have passed
         if ($elapsed_time >= self::DEBUG_DURATION) {
-            $this->disable_debug_mode('auto_expired');
-            $this->add_notice(
-                'Debug mode auto-disabled after 24 hours.',
-                'warning'
-            );
+            // Only announce the auto-disable if it actually succeeded. This runs hourly,
+            // so claiming it unconditionally would repeat the message every hour on a site
+            // where wp-config.php cannot be written.
+            if ($this->disable_debug_mode('auto_expired')) {
+                $this->add_notice(
+                    'Debug mode auto-disabled after 24 hours.',
+                    'warning'
+                );
+            }
         }
     }
 
@@ -479,18 +530,55 @@ class Metasync_Debug_Mode_Manager
      * Update WP_DEBUG constants via ConfigController
      *
      * @param bool $enable Whether to enable or disable
-     * @return void
+     * @return string One of self::WRITE_OK, self::WRITE_PARTIAL or self::WRITE_FAILED.
      */
     private function update_wp_debug_constants($enable)
     {
+        $previousEnabled = get_option('wp_debug_enabled', 'false');
+        $previousLog = get_option('wp_debug_log_enabled', 'false');
+
         try {
             update_option('wp_debug_enabled', $enable ? 'true' : 'false');
             update_option('wp_debug_log_enabled', $enable ? 'true' : 'false');
 
             $config_controller = new ConfigControllerMetaSync();
-            $config_controller->store();
-        } catch (Exception $e) {
+
+            $reason = '';
+            $partial = false;
+            if (!$config_controller->isReady()) {
+                $reason = $config_controller->getConfigError() !== ''
+                    ? $config_controller->getConfigError()
+                    : 'the file is not writable.';
+            } elseif (!$config_controller->store()) {
+                $reason = $config_controller->getConfigError() !== ''
+                    ? $config_controller->getConfigError()
+                    : 'the write did not complete.';
+                $partial = $config_controller->hadPartialWrite();
+            }
+
+            if ('' !== $reason) {
+                if (!$partial) {
+                    // Nothing reached the file, so the flags can safely go back.
+                    update_option('wp_debug_enabled', $previousEnabled);
+                    update_option('wp_debug_log_enabled', $previousLog);
+                }
+
+                // admin_notices never fires during a REST request, so the controller's own
+                // notice would be discarded - use the transient notices the admin reads.
+                $this->add_notice('wp-config.php could not be updated: ' . $reason, 'error');
+                error_log('MetaSync: wp-config.php not updated - ' . $reason);
+
+                return $partial ? self::WRITE_PARTIAL : self::WRITE_FAILED;
+            }
+
+            return self::WRITE_OK;
+        } catch (\Throwable $e) {
+            // Throwable rather than Exception: an Error here would be a fatal on what is
+            // an ordinary REST request.
+            update_option('wp_debug_enabled', $previousEnabled);
+            update_option('wp_debug_log_enabled', $previousLog);
             error_log('MetaSync: Error updating wp-config.php - ' . $e->getMessage());
+            return self::WRITE_FAILED;
         }
     }
 
@@ -508,11 +596,40 @@ class Metasync_Debug_Mode_Manager
             $notices = array();
         }
 
+        // Skip an identical message that is already queued. The limit checks run hourly,
+        // so a persistent failure would otherwise append the same notice every hour -
+        // and set_transient() refreshes the TTL each time, so the queue never expires.
+        foreach ($notices as $existing) {
+            if (isset($existing['message'], $existing['type'])
+                && $existing['message'] === $message
+                && $existing['type'] === $type) {
+                return;
+            }
+        }
+
         $notices[] = array(
             'message' => $message,
             'type' => $type,
             'timestamp' => current_time('timestamp')
         );
+
+        // Keep the queue bounded so the admin screen cannot be flooded. Drop informational
+        // notices first: evicting oldest-first would discard an error about wp-config.php
+        // not being writable in favour of routine status messages.
+        if (count($notices) > self::MAX_NOTICES) {
+            $errors = array_values(array_filter($notices, function ($notice) {
+                return isset($notice['type']) && 'error' === $notice['type'];
+            }));
+            $others = array_values(array_filter($notices, function ($notice) {
+                return !isset($notice['type']) || 'error' !== $notice['type'];
+            }));
+
+            $keepOthers = max(0, self::MAX_NOTICES - count($errors));
+            $notices = array_merge(
+                array_slice($errors, -self::MAX_NOTICES),
+                array_slice($others, -$keepOthers)
+            );
+        }
 
         set_transient(self::NOTICE_TRANSIENT, $notices, DAY_IN_SECONDS);
     }

@@ -385,9 +385,22 @@ class Metasync_Breadcrumbs {
         if (is_tax()) {
             $term = get_queried_object();
             if ($term) {
-                $taxonomy_obj = get_taxonomy($term->taxonomy);
-                if ($taxonomy_obj) {
-                    $trail[] = array('label' => $taxonomy_obj->labels->name, 'url' => '');
+                // Walk term ancestors so nested terms keep their parents, and so
+                // every intermediate crumb carries a real URL. The taxonomy label
+                // itself has no archive of its own to link to, so emitting it here
+                // produced an intermediate ListItem with no `item` property, which
+                // Google rejects.
+                $ancestors = array_reverse(get_ancestors($term->term_id, $term->taxonomy, 'taxonomy'));
+                foreach ($ancestors as $ancestor_id) {
+                    $ancestor = get_term($ancestor_id, $term->taxonomy);
+                    if (is_wp_error($ancestor) || !$ancestor) {
+                        continue;
+                    }
+                    $ancestor_link = get_term_link($ancestor);
+                    $trail[] = array(
+                        'label' => $this->format_archive_label($ancestor->name),
+                        'url'   => is_wp_error($ancestor_link) ? '' : $ancestor_link,
+                    );
                 }
                 $trail[] = array('label' => $this->format_archive_label($term->name), 'url' => '');
             }
@@ -407,7 +420,14 @@ class Metasync_Breadcrumbs {
         $trail = array();
 
         // Shop page.
+        // wc_get_page_id() returns -1 (not 0) when the shop page is unset. -1 is
+        // truthy, so an unguarded check yields get_the_title(-1) === '' and
+        // get_permalink(-1) === false — an intermediate crumb with neither name
+        // nor URL.
         $shop_page_id = function_exists('wc_get_page_id') ? wc_get_page_id('shop') : 0;
+        if ($shop_page_id < 1) {
+            $shop_page_id = 0;
+        }
         $shop_label   = $shop_page_id ? get_the_title($shop_page_id) : __('Shop', 'metasync');
         $shop_url     = $shop_page_id ? get_permalink($shop_page_id) : '';
 

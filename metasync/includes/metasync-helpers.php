@@ -183,6 +183,42 @@ if (!function_exists('metasync_get_sitemap_post_type_objects')) {
     }
 }
 
+if (!function_exists('metasync_repair_scheme_prefixed_media_id')) {
+    /**
+     * Recover a media-library attachment ID from the corrupted value the legacy
+     * logo sanitizer wrote.
+     *
+     * The legacy save path ran the Local Business logo through
+     * sanitize_url() (= esc_url_raw()), which prepends a scheme to any value
+     * that has none. A stored attachment ID such as "45589" therefore became
+     * "http://45589". That shape is unambiguous — "https?://" followed by
+     * digits only, with no dot and no path, which can never be a resolvable
+     * host — so the digits are exactly the original attachment ID and
+     * recovering them is mechanically safe.
+     *
+     * Values that are not of that shape are returned untouched, so this is
+     * safe to call on every read of a media setting: a real URL (which always
+     * carries a dot in its host) and a plain attachment ID both pass through.
+     *
+     * Used by the schema output, the admin preview, and the one-time database
+     * repair migration, so all three can never disagree.
+     *
+     * @param mixed $value Stored media setting (attachment ID, URL, or corrupted value).
+     * @return string|int The attachment ID when $value was corrupted, $value otherwise.
+     */
+    function metasync_repair_scheme_prefixed_media_id($value){
+        if (is_numeric($value) || !is_string($value)) {
+            return $value;
+        }
+
+        if (!preg_match('/^https?:\/\/(\d+)\/?$/i', trim($value), $matches)) {
+            return $value;
+        }
+
+        return (int) $matches[1];
+    }
+}
+
 if (!function_exists('metasync_discard_buffered_output')) {
     /**
      * Discard any pending output buffers before emitting a machine-readable body.

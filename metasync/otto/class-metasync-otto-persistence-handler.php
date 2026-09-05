@@ -263,7 +263,7 @@ class Metasync_Otto_Persistence_Handler {
     /**
      * Persist link corrections to post content
      * Updates href attributes in the actual post_content
-     * 
+     *
      * @param int $post_id WordPress post ID
      * @param array $link_data Array of old_url => new_url
      * @return array Results with counts and details
@@ -283,6 +283,15 @@ class Metasync_Otto_Persistence_Handler {
                 'success' => false,
                 'updated_count' => 0,
                 'message' => 'Link corrections persistence is disabled',
+            ];
+        }
+
+        # Fail-closed guard: Only modify post_content if post explicitly uses Gutenberg blocks
+        if (!function_exists('has_blocks') || !has_blocks($post_id)) {
+            return [
+                'success' => false,
+                'updated_count' => 0,
+                'message' => 'Post does not use Gutenberg blocks - content modifications skipped',
             ];
         }
 
@@ -319,7 +328,7 @@ class Metasync_Otto_Persistence_Handler {
 
             # Count occurrences before replacement
             $count_before = substr_count($content, $old_url);
-            
+
             if ($count_before > 0) {
                 # Replace in content (handles both href="..." and href='...')
                 $content = str_replace($old_url, $new_url, $content);
@@ -336,7 +345,7 @@ class Metasync_Otto_Persistence_Handler {
         if ($content !== $original_content) {
             $result = wp_update_post([
                 'ID' => $post_id,
-                'post_content' => $content,
+                'post_content' => wp_slash($content),
             ], true);
 
             if (is_wp_error($result)) {
@@ -374,163 +383,19 @@ class Metasync_Otto_Persistence_Handler {
     }
 
     /**
-     * Build a heading's new inner HTML, preserving the author's inline markup.
-     *
-     * Delegates to Metasync_otto_html so the render paths and this persistence
-     * path share one rule. Loads that file on demand — persistence runs from
-     * REST/cron contexts where otto_pixel.php (which normally requires it) may
-     * not have loaded. The method is static, so no DOM library is touched.
-     *
-     * @param string $inner_html       Current inner HTML of the heading.
-     * @param string $replacement_text New heading text.
-     * @return string|null New inner HTML, or null to leave the heading alone.
-     */
-    private static function build_heading_inner_html($inner_html, $replacement_text) {
-        if (!class_exists('Metasync_otto_html')) {
-            require_once plugin_dir_path(__FILE__) . 'Otto_html_class.php';
-        }
-
-        return Metasync_otto_html::build_heading_inner_html($inner_html, $replacement_text);
-    }
-
-    /**
-     * Persist heading changes to post content
-     * Updates heading text in the actual post_content
+     * Persist heading changes (Deprecated/Disabled)
+     * Headings persistence into post_content is disabled to prevent data corruption.
+     * OTTO runtime SSR handles heading substitutions safely in-memory.
      *
      * @param int $post_id WordPress post ID
      * @param array $heading_data Array of heading changes
      * @return array Results with counts and details
      */
     public static function persist_heading_changes($post_id, $heading_data) {
-        if (empty($heading_data) || !is_array($heading_data)) {
-            return [
-                'success' => false,
-                'updated_count' => 0,
-                'message' => 'No heading data provided',
-            ];
-        }
-
-        # Check if persistence is enabled
-        if (!self::should_persist('heading_changes')) {
-            return [
-                'success' => false,
-                'updated_count' => 0,
-                'message' => 'Heading changes persistence is disabled',
-            ];
-        }
-
-        $post = get_post($post_id);
-        if (!$post) {
-            return [
-                'success' => false,
-                'updated_count' => 0,
-                'message' => 'Post not found',
-            ];
-        }
-
-        if (!current_user_can('edit_post', $post_id)) {
-            return [
-                'success' => false,
-                'updated_count' => 0,
-                'message' => 'Insufficient permissions to edit this post',
-            ];
-        }
-
-        $content = $post->post_content;
-        $original_content = $content;
-        $updated_count = 0;
-        $updated_headings = [];
-
-        foreach ($heading_data as $heading) {
-            if (empty($heading['type']) || empty($heading['current_value']) || empty($heading['recommended_value'])) {
-                continue;
-            }
-
-            $tag = strtolower(sanitize_text_field($heading['type'])); # h1, h2, h3, etc.
-            $current_value = $heading['current_value'];
-            $recommended_value = sanitize_text_field($heading['recommended_value']);
-
-            if ($current_value === $recommended_value) {
-                continue;
-            }
-
-            # Build regex to match the heading tag — use callback to strip inline HTML (e.g. <span>) for comparison
-            $pattern = '/(<' . preg_quote($tag, '/') . '[^>]*>)(.*?)(<\/' . preg_quote($tag, '/') . '>)/is';
-
-            $normalized_current = trim(preg_replace('/\s+/', ' ', html_entity_decode($current_value, ENT_QUOTES, 'UTF-8')));
-            $count = 0;
-            $new_content = preg_replace_callback(
-                $pattern,
-                function ($m) use ($normalized_current, $recommended_value, &$count) {
-                    $inner_text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($m[2]), ENT_QUOTES, 'UTF-8')));
-                    if (strcasecmp($inner_text, $normalized_current) !== 0) {
-                        return $m[0];
-                    }
-
-                    # Keep the author's inline formatting. This writes to
-                    # post_content, so flattening a heading here destroys the
-                    # markup permanently — skip rather than damage the content.
-                    $new_inner = self::build_heading_inner_html($m[2], $recommended_value);
-                    if ($new_inner === null) {
-                        return $m[0];
-                    }
-
-                    $count++;
-                    return $m[1] . $new_inner . $m[3];
-                },
-                $content
-            );
-            
-            if ($count > 0 && $new_content !== null) {
-                $content = $new_content;
-                $updated_count += $count;
-                $updated_headings[] = [
-                    'type' => $tag,
-                    'old_value' => $current_value,
-                    'new_value' => $recommended_value,
-                    'occurrences' => $count,
-                ];
-            }
-        }
-
-        # Only update if content changed
-        if ($content !== $original_content) {
-            $result = wp_update_post([
-                'ID' => $post_id,
-                'post_content' => $content,
-            ], true);
-
-            if (is_wp_error($result)) {
-                return [
-                    'success' => false,
-                    'updated_count' => 0,
-                    'message' => 'Failed to update post: ' . $result->get_error_message(),
-                ];
-            }
-
-            # Clear post cache
-            clean_post_cache($post_id);
-
-            $result = [
-                'success' => true,
-                'updated_count' => $updated_count,
-                'updated_headings' => $updated_headings,
-                'message' => sprintf('Updated %d heading(s) in post content', $updated_count),
-            ];
-
-            # Log to sync history
-            self::log_to_sync_history('heading_changes', $post_id, [
-                'updated_count' => $updated_count,
-                'updated_headings' => $updated_headings,
-            ]);
-
-            return $result;
-        }
-
         return [
             'success' => false,
             'updated_count' => 0,
-            'message' => 'No matching headings found in post content',
+            'message' => 'Heading changes persistence into post_content is disabled',
         ];
     }
 

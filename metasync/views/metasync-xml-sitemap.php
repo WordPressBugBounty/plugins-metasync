@@ -845,13 +845,54 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
         $video_conflict_name = $video_checker->get_conflict_plugin_name();
         $mss_brand = Metasync::get_effective_plugin_name();
 
-        # Flag a generated-but-empty video sitemap. $video_url_count is already
-        # computed once near the top of this file for the status card, so reuse it
-        # rather than re-reading and re-scanning the XML on the same page load.
-        $video_empty_warning = !empty($video_settings['enabled'])
+        # Why videos were left out. Recorded by generate_video_sitemap() so the
+        # notices below can name the actual cause: a post with a video but no
+        # resolvable thumbnail is skipped (thumbnail_loc is required by Google),
+        # which is invisible without this.
+        $video_diagnostics = get_option('metasync_video_sitemap_diagnostics', []);
+        $video_skipped_no_thumb = isset($video_diagnostics['skipped_no_thumbnail'])
+            ? (int) $video_diagnostics['skipped_no_thumbnail']
+            : 0;
+        $video_skipped_ids = isset($video_diagnostics['skipped_no_thumbnail_ids'])
+            ? (array) $video_diagnostics['skipped_no_thumbnail_ids']
+            : [];
+        # Videos, not posts: a post that emits one working video and drops
+        # another is invisible to the per-post counter, and that partial case
+        # is the more common shape on a real catalog.
+        $video_skipped_videos = isset($video_diagnostics['skipped_no_thumbnail_videos'])
+            ? (int) $video_diagnostics['skipped_no_thumbnail_videos']
+            : $video_skipped_no_thumb;
+        $video_skipped_dupe = isset($video_diagnostics['skipped_duplicate_thumbnail'])
+            ? (int) $video_diagnostics['skipped_duplicate_thumbnail']
+            : 0;
+
+        # Common gate: the feature is on, nothing else owns the video sitemap,
+        # and something has actually been generated to report on.
+        $video_notices_active = !empty($video_settings['enabled'])
             && empty($video_conflicts)
-            && $video_has_content
-            && $video_url_count === 0;
+            && $video_has_content;
+
+        # Posts whose video was dropped for want of a thumbnail. Deliberately
+        # NOT gated on an empty sitemap: the common case is a mixed site where
+        # most videos resolve and a few do not, and gating on $video_url_count
+        # === 0 would keep exactly that case silent — the silence this notice
+        # exists to end.
+        $video_nothumb_notice = $video_notices_active && $video_skipped_videos > 0;
+
+        # A generated-but-empty sitemap with nothing skipped means detection
+        # found no videos at all, which is a different problem with a different
+        # fix (post types, or a theme-injected player). $video_url_count is
+        # already computed near the top of this file for the status card.
+        $video_no_videos_notice = $video_notices_active
+            && $video_url_count === 0
+            && $video_skipped_videos === 0;
+
+        # A post-level image (featured image, OG image, first content image)
+        # may only be the thumbnail for ONE video on that post: Google treats a
+        # reused thumbnail as a sign that two videos are the same. Extra videos
+        # on such a post are left out, which needs saying even when the sitemap
+        # is otherwise healthy.
+        $video_dupe_notice = $video_notices_active && $video_skipped_dupe > 0;
         ?>
 
         <?php if (!empty($video_conflict_name)): ?>
@@ -915,10 +956,89 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
             echo '<div class="notice ' . $notice_type . ' inline" style="margin-bottom: 12px; padding: 12px 16px; border-radius: 8px; background: rgba(255, 152, 0, 0.1); border-left: 4px solid var(--dashboard-warning, #f59e0b); color: var(--dashboard-text-primary, #fff);"><p style="margin: 0;">&#9888; ' . esc_html($notice) . '</p></div>';
         } ?>
 
-        <?php if ($video_empty_warning): ?>
+        <?php if ($video_nothumb_notice): ?>
         <div class="notice notice-warning inline" style="margin-bottom: 12px; padding: 12px 40px 12px 16px; border-radius: 8px; background: rgba(255, 152, 0, 0.1); border-left: 4px solid var(--dashboard-warning, #f59e0b); color: var(--dashboard-text-primary, #fff);">
             <p style="margin: 0;">
-                &#9888; <?php esc_html_e('The last generated video sitemap contains 0 URLs. A video sitemap only includes posts that contain an embedded video, so this can be normal. If you expected entries here, regenerate it above and review the Post Types and filters below.', 'metasync'); ?>
+                &#9888;
+                <?php
+                printf(
+                    esc_html(
+                        /* translators: %s: number of posts. */
+                        _n(
+                            '%s video was left out because no thumbnail could be resolved for it. Google requires a thumbnail on every video sitemap entry — set a featured image on the post, or fill Thumbnail URL in the Video Sitemap box.',
+                            '%s videos were left out because no thumbnail could be resolved for them. Google requires a thumbnail on every video sitemap entry — set a featured image on those posts, or fill Thumbnail URL in the Video Sitemap box.',
+                            $video_skipped_videos,
+                            'metasync'
+                        )
+                    ),
+                    esc_html(number_format_i18n($video_skipped_videos))
+                );
+                ?>
+            </p>
+            <?php if (!empty($video_skipped_ids)): ?>
+            <p style="margin: 8px 0 0;">
+                <?php esc_html_e('Affected posts:', 'metasync'); ?>
+                <?php
+                $video_skipped_links = [];
+                foreach (array_slice($video_skipped_ids, 0, 20) as $skipped_id) {
+                    $skipped_id = (int) $skipped_id;
+                    $skipped_title = get_the_title($skipped_id);
+                    if ($skipped_title === '') {
+                        /* translators: %d: post ID. */
+                        $skipped_title = sprintf(esc_html__('Post %d', 'metasync'), $skipped_id);
+                    }
+                    // Null for a post deleted since the last generation, an
+                    // unregistered post type, or a user without edit_post.
+                    // esc_url(null) both emits a PHP 8.1 deprecation and
+                    // renders an anchor pointing at the current page.
+                    $skipped_link = get_edit_post_link($skipped_id);
+                    if (empty($skipped_link)) {
+                        $video_skipped_links[] = esc_html($skipped_title);
+                        continue;
+                    }
+                    $video_skipped_links[] = '<a href="' . esc_url($skipped_link) . '" target="_blank" style="color: var(--dashboard-accent, #3b82f6);">' . esc_html($skipped_title) . '</a>';
+                }
+                echo wp_kses_post(implode(', ', $video_skipped_links));
+                if ($video_skipped_videos > count($video_skipped_links)) {
+                    echo ' ' . esc_html(
+                        sprintf(
+                            /* translators: %s: number of additional posts. */
+                            __('and %s more.', 'metasync'),
+                            number_format_i18n($video_skipped_videos - count($video_skipped_links))
+                        )
+                    );
+                }
+                ?>
+            </p>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($video_no_videos_notice): ?>
+        <div class="notice notice-warning inline" style="margin-bottom: 12px; padding: 12px 40px 12px 16px; border-radius: 8px; background: rgba(255, 152, 0, 0.1); border-left: 4px solid var(--dashboard-warning, #f59e0b); color: var(--dashboard-text-primary, #fff);">
+            <p style="margin: 0;">
+                &#9888; <?php esc_html_e('The last generated video sitemap contains 0 URLs, because no videos were found in the selected post types. Check that the right content types are ticked under Post Types below. Note that players injected by a theme or page builder are not visible in post content — if that is your setup, point the plugin at the custom field holding the video with the Video URL Meta Keys setting below.', 'metasync'); ?>
+            </p>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($video_dupe_notice): ?>
+        <div class="notice notice-info inline" style="margin-bottom: 12px; padding: 12px 40px 12px 16px; border-radius: 8px; background: rgba(59, 130, 246, 0.1); border-left: 4px solid var(--dashboard-accent, #3b82f6); color: var(--dashboard-text-primary, #fff);">
+            <p style="margin: 0;">
+                <?php
+                printf(
+                    esc_html(
+                        /* translators: %s: number of videos. */
+                        _n(
+                            '%s video was left out because the only thumbnail available was already used by another video on the same post. Google treats a reused thumbnail as a sign that two videos are the same, so every video needs its own image. The Thumbnail URL field and thumbnail custom fields apply to the whole post, so giving each video on one post a distinct thumbnail needs the metasync_video_sitemap_thumbnail filter — or split the videos across separate posts.',
+                            '%s videos were left out because the only thumbnail available was already used by another video on the same post. Google treats a reused thumbnail as a sign that two videos are the same, so every video needs its own image. The Thumbnail URL field and thumbnail custom fields apply to the whole post, so giving each video on one post a distinct thumbnail needs the metasync_video_sitemap_thumbnail filter — or split the videos across separate posts.',
+                            $video_skipped_dupe,
+                            'metasync'
+                        )
+                    ),
+                    esc_html(number_format_i18n($video_skipped_dupe))
+                );
+                ?>
             </p>
         </div>
         <?php endif; ?>
@@ -971,7 +1091,21 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
                                 <input type="checkbox" name="auto_detect" value="1" <?php checked(!empty($video_settings['auto_detect'])); ?> />
                                 <?php esc_html_e('Automatically detect embedded videos from post content', 'metasync'); ?>
                             </label>
-                            <p class="description"><?php esc_html_e('Detects YouTube, Vimeo, VideoPress, and self-hosted &lt;video&gt; tags.', 'metasync'); ?></p>
+                            <p class="description"><?php esc_html_e('Detects YouTube, Vimeo, Vimeo OTT (VHX), VideoPress, and self-hosted &lt;video&gt; tags in post content.', 'metasync'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e('Video URL Meta Keys', 'metasync'); ?><?php Metasync::render_tooltip_icon('video_sitemap_url_meta_keys', 'For sites whose theme or page builder stores the video in a custom field (ACF, for example) instead of the post content. Enter the custom-field name(s) holding the video URL, one per line. Leave empty if your videos are embedded directly in the content.'); ?></th>
+                        <td>
+                            <textarea name="video_url_meta_keys" rows="3" class="large-text code" placeholder="<?php esc_attr_e("my_video_url\nepisode_embed_url", 'metasync'); ?>"><?php echo esc_textarea($video_settings['video_url_meta_keys'] ?? ''); ?></textarea>
+                            <p class="description"><?php esc_html_e('One custom-field name per line. Use this when the video player is added by your theme or page builder, so the video URL never appears in the post content. Checked in the order listed; the first field with a valid URL wins.', 'metasync'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e('Thumbnail Meta Keys', 'metasync'); ?><?php Metasync::render_tooltip_icon('video_sitemap_thumbnail_meta_keys', 'Custom-field name(s) holding the video thumbnail image URL. Google requires a thumbnail for every video, and entries without one are left out. If empty, the plugin falls back to the post\'s Open Graph image, then its featured image, then the first image in the content.'); ?></th>
+                        <td>
+                            <textarea name="video_thumbnail_meta_keys" rows="3" class="large-text code" placeholder="<?php esc_attr_e("my_video_thumbnail\nepisode_poster", 'metasync'); ?>"><?php echo esc_textarea($video_settings['video_thumbnail_meta_keys'] ?? ''); ?></textarea>
+                            <p class="description"><?php esc_html_e('One custom-field name per line. Falls back to the post\'s Open Graph image, then the featured image, then the first image in the content. Each video needs its own thumbnail — Google treats a reused thumbnail as a sign that two videos are the same.', 'metasync'); ?></p>
                         </td>
                     </tr>
                     <?php

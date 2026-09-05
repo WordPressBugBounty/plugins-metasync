@@ -4,7 +4,7 @@ Tags: seo, ai seo, otto, otto seo, schema
 Requires at least: 6.3
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 2.6.24
+Stable tag: 2.6.25
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -96,6 +96,20 @@ Yes, along with a lot more - the plugin also includes media optimization, code s
 2.6.22 fixes OTTO breaking Divi-built pages and stops a partly finished update from taking your site's front end down. Update as soon as you can.
 
 == Changelog ==
+= 2.6.25 =
+* Fix: Breadcrumb structured data no longer includes an invalid or dangling item on archive pages
+* Fix: The six Post/Page Editor "Disable" switches now actually suppress the matching frontend output, instead of only hiding the editor meta box
+* Security: Settings sanitization no longer lets raw POST input override sanitized values, closing a way crafted input could bypass sanitizers
+* Fix: Corrupted Local Business logo values are automatically repaired instead of continuing to serve a broken URL
+* Fix: Video sitemaps now detect theme-injected video players, instead of silently omitting every video on themes that inject players at render time
+* Security: The OTTO Debug page and its AJAX handlers are now fully disabled, instead of being reachable by any site admin
+* Improvement: The WordPress admin footer space is now hidden on MetaSync admin pages
+* Fix: OTTO no longer strips page content on Yootheme sites, by restricting link and heading persistence to Gutenberg blocks
+* Security: Whitelabel password recovery now uses single-use, short-lived reset links instead of emailing the password directly
+* Fix: Imported SEO values now consistently lose to OTTO through a single precedence resolver, instead of being overridden inconsistently across different code paths
+* Fix: The Menu Icon settings field no longer fatals when its value contains a percent sign
+* Security: Debug Mode's wp-config.php backups are now written atomically and no longer leave guessable, credential-bearing backup files in the web root
+
 = 2.6.24 =
 * Improvement: OTTO crawl notifications are now held in a durable queue with bounded retries and backoff, so large webhook batches are no longer silently truncated and each URL's outcome is recorded
 * Improvement: The sitemap settings screen no longer offers page-builder and internal post types in its post-type pickers

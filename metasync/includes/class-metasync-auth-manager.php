@@ -164,17 +164,17 @@ class Metasync_Auth_Manager {
      *
      * @return bool True on success, false on failure
      */
-    public function grant_transient_access() {
+    public function grant_transient_access($epoch = null) {
         $user_id = $this->get_user_id();
         if (!$user_id) {
             return false;
         }
 
-        $transient_key = $this->get_transient_key();
+        $transient_key = $this->get_transient_key($epoch);
         $result = set_transient($transient_key, 'granted', $this->transient_timeout);
 
         // Set activity timestamp
-        $this->update_activity();
+        $this->update_activity($epoch);
 
         return $result;
     }
@@ -236,13 +236,13 @@ class Metasync_Auth_Manager {
      *
      * @return bool True on success, false on failure
      */
-    private function update_activity() {
+    private function update_activity($epoch = null) {
         $user_id = $this->get_user_id();
         if (!$user_id) {
             return false;
         }
 
-        $activity_key = $this->get_activity_transient_key();
+        $activity_key = $this->get_activity_transient_key($epoch);
         return set_transient($activity_key, time(), $this->transient_timeout);
     }
 
@@ -282,12 +282,13 @@ class Metasync_Auth_Manager {
      *
      * @return string|false Returns transient key or false if no user ID available
      */
-    private function get_transient_key() {
+    private function get_transient_key($epoch = null) {
         $user_id = $this->get_user_id();
         if (!$user_id) {
             return false;
         }
-        return 'metasync_auth_' . $this->context . '_' . $user_id;
+        $epoch = $epoch === null ? self::get_revocation_epoch($this->context) : (int) $epoch;
+        return 'metasync_auth_' . $this->context . '_' . $epoch . '_' . $user_id;
     }
 
     /**
@@ -295,12 +296,25 @@ class Metasync_Auth_Manager {
      *
      * @return string|false Returns transient key or false if no user ID available
      */
-    private function get_activity_transient_key() {
+    private function get_activity_transient_key($epoch = null) {
         $user_id = $this->get_user_id();
         if (!$user_id) {
             return false;
         }
-        return 'metasync_activity_' . $this->context . '_' . $user_id;
+        $epoch = $epoch === null ? self::get_revocation_epoch($this->context) : (int) $epoch;
+        return 'metasync_activity_' . $this->context . '_' . $epoch . '_' . $user_id;
+    }
+
+    private static function get_revocation_epoch($context) {
+        $epoch = (int) get_option('metasync_auth_revoke_epoch_' . sanitize_key($context), 1);
+        return $epoch > 0 ? $epoch : 1;
+    }
+
+    private function revoke_epoch_transient_access($epoch) {
+        $user_id = $this->get_user_id();
+        if (!$user_id) return;
+        delete_transient('metasync_auth_' . $this->context . '_' . $epoch . '_' . $user_id);
+        delete_transient('metasync_activity_' . $this->context . '_' . $epoch . '_' . $user_id);
     }
 
     /**
@@ -341,6 +355,10 @@ class Metasync_Auth_Manager {
      * @return bool True if password is valid and access granted, false otherwise
      */
     public function verify_and_grant($password, $valid_passwords, $persistent = false) {
+        if ($this->context === 'whitelabel' && $persistent) {
+            return false;
+        }
+        $epoch_before = $this->context === 'whitelabel' ? self::get_revocation_epoch($this->context) : 0;
         if (!is_array($valid_passwords)) {
             $valid_passwords = array($valid_passwords);
         }
@@ -356,11 +374,15 @@ class Metasync_Auth_Manager {
         $password_valid = in_array($password, $valid_passwords, true);
 
         if ($password_valid) {
-            if ($persistent) {
-                return $this->grant_persistent_access();
-            } else {
-                return $this->grant_transient_access();
+            if ($this->context === 'whitelabel' && $epoch_before !== self::get_revocation_epoch($this->context)) {
+                return false;
             }
+            $granted = $persistent ? $this->grant_persistent_access() : $this->grant_transient_access($this->context === 'whitelabel' ? $epoch_before : null);
+            if ($granted && $this->context === 'whitelabel' && $epoch_before !== self::get_revocation_epoch($this->context)) {
+                $this->revoke_epoch_transient_access($epoch_before);
+                return false;
+            }
+            return $granted;
         }
 
         return false;
@@ -388,6 +410,24 @@ class Metasync_Auth_Manager {
     public static function revoke_user_access($user_id, $context = 'default') {
         $user_meta_key = 'metasync_' . sanitize_key($context) . '_access';
         return delete_user_meta($user_id, $user_meta_key);
+    }
+
+    /** Revoke persistent and transient grants for every user on this site. */
+    public static function revoke_all_access($context = 'default') {
+        $context = sanitize_key($context);
+        $meta_key = 'metasync_' . $context . '_access';
+        $users = function_exists('get_users') ? get_users(array('fields' => 'ID', 'meta_key' => $meta_key)) : array();
+        $success = true;
+        foreach ($users as $user_id) {
+            if (!delete_user_meta($user_id, $meta_key)) {
+                $success = false;
+            }
+        }
+        // Bump the namespace so transient-only grants from every user are invalidated.
+        if (!update_option('metasync_auth_revoke_epoch_' . $context, self::get_revocation_epoch($context) + 1, false)) {
+            $success = false;
+        }
+        return $success;
     }
 
     /**

@@ -237,6 +237,16 @@ class Metasync_Redirection
 
     public function source_url_redirection(object $row, string $uri, string $incoming_query = '')
     {
+        // Redirection feature switched off: rows owned by the per-post Redirection
+        // meta box must not fire. Returning false rather than aborting means the
+        // caller carries on evaluating the remaining rules, so rules added by hand
+        // on the Redirections screen keep working exactly as before.
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::REDIRECTION)
+            && class_exists('Metasync_Post_Meta_Settings')
+            && Metasync_Post_Meta_Settings::owns_redirect_row($row)) {
+            return false;
+        }
+
         // Optimize: unserialize only once
         $sources_from = unserialize($row->sources_from, ['allowed_classes' => false]); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
         $source_urls = is_array($sources_from) ? $sources_from : [];

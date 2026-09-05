@@ -99,14 +99,24 @@ class Metasync_Debug_Manager
             update_option('wp_debug_display_enabled', $wp_debug_display);
             
             $data = new ConfigControllerMetaSync();
-            $data->store();
-            
-            add_settings_error(
-                'metasync_messages',
-                'metasync_message',
-                'WordPress debug settings updated successfully.',
-                'updated'
-            );
+            $saved = $data->store();
+
+            if ($saved) {
+                add_settings_error(
+                    'metasync_messages',
+                    'metasync_message',
+                    'WordPress debug settings updated successfully.',
+                    'updated'
+                );
+            } else {
+                add_settings_error(
+                    'metasync_messages',
+                    'metasync_message',
+                    'Debug settings were saved, but wp-config.php could not be updated: '
+                        . ($data->getConfigError() !== '' ? $data->getConfigError() : 'the file is not writable.'),
+                    'error'
+                );
+            }
         } elseif ($can_manage_debug_settings && isset($_POST['wp_debug_nonce']) && !wp_verify_nonce($_POST['wp_debug_nonce'], 'metasync_wp_debug_settings')) {
             add_settings_error(
                 'metasync_messages',

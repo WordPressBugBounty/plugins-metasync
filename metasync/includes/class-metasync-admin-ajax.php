@@ -19,6 +19,103 @@ class Metasync_Admin_Ajax
 
     private function __construct() {}
 
+    /**
+     * Discard request-local recovery state after acquiring the shared lock.
+     *
+     * A request can wait for another recovery/settings request while its
+     * WordPress option or transient cache still contains the pre-lock state.
+     * Refreshing here makes every decision under the lock use current storage.
+     */
+    public function refresh_recovery_state_cache($transient_key = '')
+    {
+        if (!function_exists('wp_cache_delete')) {
+            return;
+        }
+
+        wp_cache_delete('alloptions', 'options');
+        wp_cache_delete(Metasync::option_name, 'options');
+        wp_cache_delete('metasync_pw_reset_generation', 'options');
+
+        if ($transient_key !== '') {
+            wp_cache_delete($transient_key, 'transient');
+            wp_cache_delete('_transient_' . $transient_key, 'options');
+            wp_cache_delete('_transient_timeout_' . $transient_key, 'options');
+        }
+    }
+
+    public function acquire_recovery_lock(&$owner)
+    {
+        $owner = bin2hex(random_bytes(16));
+        $key = 'metasync_pw_recovery_rate_lock';
+        if (add_option($key, array('owner' => $owner, 'time' => time()), '', false)) return true;
+        $held = get_option($key, array());
+        $held_time = is_array($held) ? (int) ($held['time'] ?? 0) : (int) $held;
+        // Settings requests may run for up to five minutes. Keep the lease
+        // comfortably beyond that bound; shutdown cleanup releases it
+        // promptly during normal completion and handled failures.
+        if ($held_time > 0 && time() - $held_time > 900) {
+            $replacement = array('owner' => $owner, 'time' => time());
+            global $wpdb;
+            if (isset($wpdb) && is_object($wpdb) && method_exists($wpdb, 'query') && method_exists($wpdb, 'prepare')) {
+                $serialize = function ($value) { return function_exists('maybe_serialize') ? maybe_serialize($value) : serialize($value); };
+                $wpdb->query($wpdb->prepare(
+                    "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+                    $serialize($replacement), $key, $serialize($held)
+                ));
+                if (function_exists('wp_cache_delete')) wp_cache_delete($key, 'options');
+            } else {
+                update_option($key, $replacement, false);
+            }
+            $claimed = get_option($key, array());
+            return is_array($claimed) && isset($claimed['owner']) && hash_equals((string) $claimed['owner'], (string) $owner);
+        }
+        return false;
+    }
+
+    public function release_recovery_lock($owner)
+    {
+        $key = 'metasync_pw_recovery_rate_lock';
+        $held = get_option($key, array());
+        if (is_array($held) && isset($held['owner']) && hash_equals((string) $held['owner'], (string) $owner)) {
+            global $wpdb;
+            if (isset($wpdb) && is_object($wpdb) && method_exists($wpdb, 'query') && method_exists($wpdb, 'prepare')) {
+                $serialized = function_exists('maybe_serialize') ? maybe_serialize($held) : serialize($held);
+                $wpdb->query($wpdb->prepare(
+                    "DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
+                    $key,
+                    $serialized
+                ));
+                if (function_exists('wp_cache_delete')) wp_cache_delete($key, 'options');
+                return;
+            }
+
+            // Test/bootstrap fallback. Production uses the owner-checked SQL
+            // delete above so expired-owner cleanup cannot remove a new lock.
+            delete_option($key);
+        }
+    }
+
+    private function persist_recovery_password($encrypted)
+    {
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $options = Metasync::get_option();
+            if (!is_array($options)) $options = array();
+            if (!isset($options['whitelabel']) || !is_array($options['whitelabel'])) $options['whitelabel'] = array();
+            $options['whitelabel']['settings_password'] = $encrypted;
+            Metasync_Settings_Registration::authorize_recovery_password_write(true);
+            try {
+                $saved = Metasync::set_option($options);
+            } finally {
+                Metasync_Settings_Registration::authorize_recovery_password_write(false);
+            }
+            if ($saved) {
+                $stored = Metasync::get_option('whitelabel');
+                if (is_array($stored) && isset($stored['settings_password']) && hash_equals((string) $encrypted, (string) $stored['settings_password'])) return true;
+            }
+        }
+        return false;
+    }
+
     private function get_db_redirection()
     {
         if (null === $this->db_redirection) {
@@ -786,6 +883,7 @@ class Metasync_Admin_Ajax
 
     public function ajax_recover_password()
     {
+        $rate_owner = '';
         try {
             if (!isset($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'metasync_recover_password_nonce')) {
                 wp_send_json_error(array('message' => 'Security verification failed.'));
@@ -797,24 +895,80 @@ class Metasync_Admin_Ajax
                 return;
             }
 
+            if (!$this->acquire_recovery_lock($rate_owner)) {
+                wp_send_json_error(array('message' => 'Too many recovery requests. Please try again later.'), 429);
+                return;
+            }
+            register_shutdown_function(function () use (&$rate_owner) {
+                if ($rate_owner !== '') {
+                    Metasync_Admin_Ajax::instance()->release_recovery_lock($rate_owner);
+                }
+            });
+            $this->refresh_recovery_state_cache();
+
             $whitelabel_settings = Metasync::get_whitelabel_settings();
-            $password = Metasync::get_whitelabel_password();
             $recovery_email = $whitelabel_settings['recovery_email'] ?? '';
 
-            if (empty($password)) {
+            $stored_password = $whitelabel_settings['settings_password'] ?? '';
+            if (!is_string($stored_password) || $stored_password === '') {
+                $this->release_recovery_lock($rate_owner);
+                $rate_owner = '';
                 wp_send_json_error(array('message' => 'No password is configured for recovery.'));
                 return;
             }
 
             if (empty($recovery_email) || !is_email($recovery_email)) {
+                $this->release_recovery_lock($rate_owner);
+                $rate_owner = '';
                 wp_send_json_error(array('message' => 'No valid recovery email is configured. Please contact your administrator.'));
                 return;
             }
 
+            // Bound recovery requests per user and per site to limit abuse.
+            $user_id = get_current_user_id();
+            $user_rate_key = 'metasync_pw_recovery_user_' . $user_id;
+            $site_rate_key = 'metasync_pw_recovery_site';
+            $this->refresh_recovery_state_cache($user_rate_key);
+            $this->refresh_recovery_state_cache($site_rate_key);
+            $user_attempts = (int) get_transient($user_rate_key);
+            $site_attempts = (int) get_transient($site_rate_key);
+            if ($user_attempts >= 3 || $site_attempts >= 10) {
+                $this->release_recovery_lock($rate_owner);
+                wp_send_json_error(array('message' => 'Too many recovery requests. Please try again later.'), 429);
+                return;
+            }
+
+            if (!set_transient($user_rate_key, $user_attempts + 1, HOUR_IN_SECONDS) || !set_transient($site_rate_key, $site_attempts + 1, HOUR_IN_SECONDS)) {
+                if ($user_attempts > 0) set_transient($user_rate_key, $user_attempts, HOUR_IN_SECONDS);
+                else delete_transient($user_rate_key);
+                if ($site_attempts > 0) set_transient($site_rate_key, $site_attempts, HOUR_IN_SECONDS);
+                else delete_transient($site_rate_key);
+                $this->release_recovery_lock($rate_owner);
+                wp_send_json_error(array('message' => 'Unable to process recovery request. Please try again later.'));
+                return;
+            }
+
+            // Keep only a hash in the database; the raw token is sent once by email.
+            $token = bin2hex(random_bytes(32));
+            $token_hash = hash('sha256', $token);
+            $reset_key = 'metasync_pw_reset_' . $token_hash;
+            if (!set_transient($reset_key, array('created_by' => $user_id), 30 * MINUTE_IN_SECONDS)) {
+                if ($user_attempts > 0) set_transient($user_rate_key, $user_attempts, HOUR_IN_SECONDS);
+                else delete_transient($user_rate_key);
+                if ($site_attempts > 0) set_transient($site_rate_key, $site_attempts, HOUR_IN_SECONDS);
+                else delete_transient($site_rate_key);
+                $this->release_recovery_lock($rate_owner);
+                $rate_owner = '';
+                wp_send_json_error(array('message' => 'Unable to create a recovery request. Please try again later.'));
+                return;
+            }
+            $this->release_recovery_lock($rate_owner);
+            $rate_owner = '';
+
             $site_name = get_bloginfo('name');
             $site_url = home_url();
             $plugin_name = Metasync::get_effective_plugin_name('');
-            $settings_url = admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '&tab=whitelabel');
+            $settings_url = admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '&tab=whitelabel&metasync_password_reset=' . rawurlencode($token));
             $to = $recovery_email;
 
             $subject = sprintf('[%s] Settings Password Recovery', $site_name);
@@ -822,14 +976,12 @@ class Metasync_Admin_Ajax
             $message = sprintf(
                 "Hello,\n\n" .
                 "A password recovery request was made for the %s settings on %s.\n\n" .
-                "Your Settings Password is:\n%s\n\n" .
-                "You can use this password to access the protected settings at:\n%s\n\n" .
+                "Use this one-time link to choose a new Settings Password (valid for 30 minutes):\n%s\n\n" .
                 "If you did not request this password recovery, please secure your WordPress admin account immediately.\n\n" .
                 "---\n" .
                 "This is an automated message from %s\n%s",
                 $plugin_name,
                 $site_name,
-                $password,
                 $settings_url,
                 $site_name,
                 $site_url
@@ -844,11 +996,6 @@ class Metasync_Admin_Ajax
                 sprintf('From: %s <%s>', $from_name, get_option('admin_email'))
             );
 
-            $mail_error = '';
-            add_action('wp_mail_failed', function($error) use (&$mail_error) {
-                $mail_error = $error->get_error_message();
-            });
-
             $sent = wp_mail($to, $subject, $message, $headers);
 
             if ($sent) {
@@ -856,17 +1003,15 @@ class Metasync_Admin_Ajax
                     'message' => sprintf('Password recovery email sent to %s', esc_html($recovery_email))
                 ));
             } else {
-                $error_message = 'Failed to send recovery email. ';
-                if (!empty($mail_error)) {
-                    $error_message .= 'Error: ' . $mail_error;
-                } else {
-                    $error_message .= 'Your server may not be configured to send emails. Please check your email configuration or contact your administrator.';
-                }
-
-                wp_send_json_error(array('message' => $error_message));
+                wp_send_json_error(array('message' => 'Failed to send recovery email. Please check your email configuration or contact your administrator.'));
             }
 
         } catch (Exception $e) {
+            // Always release the bounded issuance lock if an unexpected
+            // exception occurs after it was acquired.
+            if ($rate_owner !== '') {
+                $this->release_recovery_lock($rate_owner);
+            }
             if (defined('WP_DEBUG') && WP_DEBUG) {
                 error_log(sprintf(
                     'MetaSync Password Recovery Error: %s in %s on line %d',
@@ -880,19 +1025,122 @@ class Metasync_Admin_Ajax
         }
     }
 
+    /** Render and process the administrator-only password reset screen. */
+    public function render_password_reset_page()
+    {
+        if (!current_user_can('manage_options')) {
+            wp_die('You do not have permission to reset this password.', '', array('response' => 403));
+        }
+
+        $token = isset($_REQUEST['metasync_password_reset']) ? (string) wp_unslash($_REQUEST['metasync_password_reset']) : '';
+        $token_hash = ($token !== '' && preg_match('/^[a-f0-9]{64}$/', $token)) ? hash('sha256', $token) : '';
+        $generation = (int) get_option('metasync_pw_reset_generation', 0);
+        $transient_key = $token_hash !== '' ? 'metasync_pw_reset_' . $token_hash : '';
+        $error = '';
+        $success = false;
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            if (!isset($_POST['metasync_reset_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['metasync_reset_nonce'])), 'metasync_reset_password')) {
+                $error = 'Security verification failed.';
+            } elseif ($token === '' || false === get_transient($transient_key)) {
+                $error = 'This recovery link is invalid or has expired.';
+            } else {
+                $password = isset($_POST['new_password']) ? (string) wp_unslash($_POST['new_password']) : '';
+                $confirm = isset($_POST['confirm_password']) ? (string) wp_unslash($_POST['confirm_password']) : '';
+                if (strlen($password) < 8) {
+                    $error = 'Password must be at least 8 characters long.';
+                } elseif (!hash_equals($password, $confirm)) {
+                    $error = 'Passwords do not match.';
+                } elseif (strpos($password, 'enc_v1:') === 0) {
+                    $error = 'Unable to save this password. Please choose a different password.';
+                } else {
+                    // add_option is an atomic insert in WordPress; it closes the
+                    // race where two requests attempt to redeem the same token.
+                    $lock_key = '';
+                    if (!$this->acquire_recovery_lock($lock_key)) {
+                        $error = 'Another recovery request is being processed. Please wait a moment and try again.';
+                    } else {
+                        register_shutdown_function(function () use (&$lock_key) {
+                            if ($lock_key !== '') {
+                                Metasync_Admin_Ajax::instance()->release_recovery_lock($lock_key);
+                            }
+                        });
+                        $this->refresh_recovery_state_cache($transient_key);
+                        // Refresh the settings version while holding the shared
+                        // lock. Token keys are independent so issuing or using
+                        // one link does not invalidate another unexpired link.
+                        $generation = (int) get_option('metasync_pw_reset_generation', 0);
+                        $transient_key = $token_hash !== '' ? 'metasync_pw_reset_' . $token_hash : '';
+                        // Re-check after claiming the lock. Consume only after
+                        // every required write succeeds, allowing a retry after
+                        // a temporary database or revocation failure.
+                        if (false === get_transient($transient_key)) {
+                            $error = 'This recovery link is invalid or has already been used.';
+                            $this->release_recovery_lock($lock_key);
+                            $lock_key = '';
+                            echo '<div class="wrap"><h1>Reset Settings Password</h1><div class="notice notice-error"><p>' . esc_html($error) . '</p></div></div>';
+                            return;
+                        }
+                        {
+                            $encrypted = Metasync::encrypt_secret($password);
+                            if (!Metasync::is_encrypted_secret($encrypted) || $encrypted === $password) {
+                                $error = 'Unable to securely save this password. Please try again later.';
+                            } elseif (!update_option('metasync_pw_reset_generation', $generation + 1, false)) {
+                                $error = 'Unable to prepare the password reset. Please try again later.';
+                            /** @phpstan-ignore-next-line booleanNot.alwaysFalse */
+                            } elseif (!Metasync_Auth_Manager::revoke_all_access('whitelabel')) {
+                                $error = 'Unable to revoke existing access. Please try again later.';
+                            } elseif (!$this->persist_recovery_password($encrypted)) {
+                                $error = 'Unable to save the new password. Please try again later.';
+                            /** @phpstan-ignore-next-line booleanNot.alwaysFalse */
+                            } elseif (!Metasync_Auth_Manager::revoke_all_access('whitelabel')) {
+                                $error = 'Unable to finalize access revocation. Please try again later.';
+                            } elseif (!delete_transient($transient_key)) {
+                                $error = 'Unable to consume this recovery link. Please try again later.';
+                            } else {
+                                $success = true;
+                            }
+                        }
+                        $this->release_recovery_lock($lock_key);
+                        $lock_key = '';
+                    }
+                }
+            }
+        }
+
+        echo '<div class="wrap"><h1>Reset Settings Password</h1>';
+        if ($success) {
+            echo '<div class="notice notice-success"><p>Password reset successfully. You can now return to the White Label settings.</p></div>';
+        } else {
+            if ($error !== '') {
+                echo '<div class="notice notice-error"><p>' . esc_html($error) . '</p></div>';
+            }
+            if ($token === '' || false === get_transient($transient_key)) {
+                if ($error === '') {
+                    echo '<div class="notice notice-error"><p>This recovery link is invalid or has expired.</p></div>';
+                }
+            } else {
+                echo '<form method="post" style="max-width:420px">';
+                wp_nonce_field('metasync_reset_password', 'metasync_reset_nonce');
+                echo '<p><label for="new_password">New password</label><br><input class="regular-text" type="password" id="new_password" name="new_password" minlength="8" required autocomplete="new-password"></p>';
+                echo '<p><label for="confirm_password">Confirm new password</label><br><input class="regular-text" type="password" id="confirm_password" name="confirm_password" minlength="8" required autocomplete="new-password"></p>';
+                echo '<p><button class="button button-primary" type="submit">Save new password</button></p></form>';
+            }
+        }
+        echo '</div>';
+    }
+
     public function ajax_save_theme()
     {
         try {
             # Verify nonce for security
             if (!isset($_POST['_ajax_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['_ajax_nonce'])), 'metasync_theme_nonce')) {
                 wp_send_json_error(array('message' => 'Security verification failed.'));
-                return;
             }
 
             # Check user capabilities
             if (!Metasync::current_user_has_plugin_access()) {
                 wp_send_json_error(array('message' => 'Insufficient permissions.'));
-                return;
             }
 
             # Get and validate theme value
@@ -901,7 +1149,6 @@ class Metasync_Admin_Ajax
             # Validate theme is either 'light' or 'dark'
             if (!in_array($theme, array('light', 'dark'), true)) {
                 wp_send_json_error(array('message' => 'Invalid theme value.'));
-                return;
             }
 
             # Save theme preference to WordPress options
@@ -929,7 +1176,6 @@ class Metasync_Admin_Ajax
         # Check user capabilities
         if (!Metasync::current_user_has_plugin_access()) {
             wp_send_json_error(['message' => 'Insufficient permissions']);
-            return;
         }
 
         # Get parameters

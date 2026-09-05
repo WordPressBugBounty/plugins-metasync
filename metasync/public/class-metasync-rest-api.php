@@ -4219,9 +4219,18 @@ class Metasync_Rest_Api
                     $options['general']['whitelabel_otto_name'] = $whitelabel_otto;
                 }
             } else {
-                // Clear whitelabel fields when not whitelabel
-                unset($options['general']['white_label_plugin_name']);
-                unset($options['general']['whitelabel_otto_name']);
+                // Clear whitelabel fields when not whitelabel.
+                //
+                // Blanked rather than unset. This array is saved through
+                // Metasync::set_option(), and the settings sanitizer merges it
+                // over the stored option, so a key the array simply omits keeps
+                // whatever was stored — an unset here left the previous
+                // agency's plugin name and OTTO name in place forever. An empty
+                // string is a value the merge carries, and both readers
+                // (get_effective_plugin_name(), get_whitelabel_otto_name())
+                // test with !empty(), so it reads exactly like an absent key.
+                $options['general']['white_label_plugin_name'] = '';
+                $options['general']['whitelabel_otto_name'] = '';
             }
             
             // Store whitelabel settings (hidden from UI but accessible to plugin logic)

@@ -853,165 +853,73 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
-        # PERSISTENCE: Process post_content modifications (headings and links) together
-        # to avoid race conditions where one overwrites the other
-        if (class_exists('Metasync_Otto_Persistence_Settings') && 
+        # PERSISTENCE: Process post_content link modifications
+        # ONLY allowed for posts using standard Gutenberg blocks (has_blocks) to prevent corrupting
+        # page builder structures, JSON layouts (e.g. YOOtheme), or unknown content formats.
+        if (class_exists('Metasync_Otto_Persistence_Settings') &&
             class_exists('Metasync_Otto_Persistence_Handler')) {
-            
-            $persist_headings = Metasync_Otto_Persistence_Settings::should_persist('heading_changes') && !empty($headings_data);
+
             $persist_links = Metasync_Otto_Persistence_Settings::should_persist('link_corrections') && !empty($seo_data['body_substitutions']['links']);
-            
-            # Only process if at least one is enabled
-            if ($persist_headings || $persist_links) {
+
+            # Only process if link persistence is enabled
+            if ($persist_links) {
                 $post = get_post($post_id);
                 if ($post) {
-                    # Check if post uses a page builder - skip content modification to avoid breaking them
-                    $uses_page_builder = false;
-                    $page_builder_name = '';
+                    # Fail-closed guard: Only modify post_content if post explicitly uses Gutenberg blocks
+                    $is_gutenberg_blocks = function_exists('has_blocks') && has_blocks($post_id);
 
-                    # Elementor detection (array key lookups instead of DB queries)
-                    if ((isset($all_meta['_elementor_edit_mode'][0]) && $all_meta['_elementor_edit_mode'][0] === 'builder') ||
-                        (isset($all_meta['_elementor_data'][0]) && !empty($all_meta['_elementor_data'][0]))) {
-                        $uses_page_builder = true;
-                        $page_builder_name = 'Elementor';
-                    }
-
-                    # Divi Builder detection
-                    if (!$uses_page_builder && (
-                        (isset($all_meta['_et_pb_use_builder'][0]) && $all_meta['_et_pb_use_builder'][0] === 'on') ||
-                        strpos($post->post_content, '[et_pb_') !== false)) {
-                        $uses_page_builder = true;
-                        $page_builder_name = 'Divi';
-                    }
-
-                    # WPBakery/Visual Composer detection
-                    if (!$uses_page_builder && (
-                        strpos($post->post_content, '[vc_') !== false ||
-                        strpos($post->post_content, '[/vc_') !== false)) {
-                        $uses_page_builder = true;
-                        $page_builder_name = 'WPBakery';
-                    }
-
-                    # Beaver Builder detection
-                    if (!$uses_page_builder &&
-                        (isset($all_meta['_fl_builder_enabled'][0]) && $all_meta['_fl_builder_enabled'][0] === '1')) {
-                        $uses_page_builder = true;
-                        $page_builder_name = 'Beaver Builder';
-                    }
-
-                    # Oxygen Builder detection
-                    if (!$uses_page_builder &&
-                        (isset($all_meta['ct_builder_shortcodes'][0]) && !empty($all_meta['ct_builder_shortcodes'][0]))) {
-                        $uses_page_builder = true;
-                        $page_builder_name = 'Oxygen';
-                    }
-
-                    # Brizy detection
-                    if (!$uses_page_builder &&
-                        (isset($all_meta['brizy_post_uid'][0]) && !empty($all_meta['brizy_post_uid'][0]))) {
-                        $uses_page_builder = true;
-                        $page_builder_name = 'Brizy';
-                    }
-                    
-                    # Skip content modification for page builder posts
-                    if ($uses_page_builder) {
-                        $fields_updated['content_persistence_skipped'] = sprintf(
-                            'Post uses %s page builder - content modifications skipped to prevent data corruption',
-                            $page_builder_name
-                        );
+                    if (!$is_gutenberg_blocks) {
+                        $fields_updated['content_persistence_skipped'] = 'Post does not use Gutenberg blocks - content modifications skipped to prevent data corruption';
                     } else {
-                        # Safe to modify post_content for standard Gutenberg/Classic editor posts
+                        # Safe to modify post_content for standard Gutenberg block posts
                         $content = $post->post_content;
                         $original_content = $content;
-                        
-                        # Apply heading changes first
-                        if ($persist_headings) {
-                            foreach ($headings_data as $heading) {
-                                if (empty($heading['type']) || empty($heading['current_value']) || empty($heading['recommended_value'])) {
-                                    continue;
-                                }
-                                if ($heading['current_value'] === $heading['recommended_value']) {
-                                    continue;
-                                }
-                                $tag = strtolower(sanitize_text_field($heading['type']));
-                                $pattern = '/(<' . preg_quote($tag, '/') . '[^>]*>)(.*?)(<\/' . preg_quote($tag, '/') . '>)/is';
-                                $normalized_current = trim(preg_replace('/\s+/', ' ', html_entity_decode($heading['current_value'], ENT_QUOTES, 'UTF-8')));
-                                $safe_recommended = sanitize_text_field($heading['recommended_value']);
-                                $count = 0;
-                                $new_content = preg_replace_callback(
-                                    $pattern,
-                                    function ($m) use ($normalized_current, $safe_recommended, &$count) {
-                                        $inner_text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($m[2]), ENT_QUOTES, 'UTF-8')));
-                                        if (strcasecmp($inner_text, $normalized_current) === 0) {
-                                            $count++;
-                                            return $m[1] . $safe_recommended . $m[3];
-                                        }
-                                        return $m[0];
-                                    },
-                                    $content
-                                );
-                                if ($count > 0 && $new_content !== null) {
-                                    $content = $new_content;
-                                    $fields_updated['heading_changes_persisted'] = ($fields_updated['heading_changes_persisted'] ?? 0) + $count;
-                                }
+
+                        # Apply link corrections
+                        foreach ($seo_data['body_substitutions']['links'] as $old_url => $new_url) {
+                            $old_url = esc_url_raw($old_url);
+                            $new_url = esc_url_raw($new_url);
+                            if (empty($old_url) || empty($new_url) || $old_url === $new_url) {
+                                continue;
+                            }
+                            $count_before = substr_count($content, $old_url);
+                            if ($count_before > 0) {
+                                $content = str_replace($old_url, $new_url, $content);
+                                $fields_updated['link_corrections_persisted'] = ($fields_updated['link_corrections_persisted'] ?? 0) + $count_before;
                             }
                         }
-                        
-                        # Apply link corrections second
-                        if ($persist_links) {
-                            foreach ($seo_data['body_substitutions']['links'] as $old_url => $new_url) {
-                                $old_url = esc_url_raw($old_url);
-                                $new_url = esc_url_raw($new_url);
-                                if (empty($old_url) || empty($new_url) || $old_url === $new_url) {
-                                    continue;
-                                }
-                                $count_before = substr_count($content, $old_url);
-                                if ($count_before > 0) {
-                                    $content = str_replace($old_url, $new_url, $content);
-                                    $fields_updated['link_corrections_persisted'] = ($fields_updated['link_corrections_persisted'] ?? 0) + $count_before;
-                                }
-                            }
-                        }
-                        
-                        # Save if content changed
+
+                        # Save if content changed (using wp_slash to protect escaped characters)
                         if ($content !== $original_content) {
                             wp_update_post([
                                 'ID' => $post_id,
-                                'post_content' => $content,
+                                'post_content' => wp_slash($content),
                             ]);
                             clean_post_cache($post_id);
                             $any_updated = true;
 
-                            # Log combined content persistence to sync history
+                            # Log link persistence to sync history
                             if (class_exists('Metasync_Sync_History_Database')) {
                                 try {
                                     $sync_history = new Metasync_Sync_History_Database();
-                                    $headings_count = isset($fields_updated['heading_changes_persisted']) ? $fields_updated['heading_changes_persisted'] : 0;
                                     $links_count = isset($fields_updated['link_corrections_persisted']) ? $fields_updated['link_corrections_persisted'] : 0;
 
-                                    $operations = [];
-                                    if ($headings_count > 0) {
-                                        $operations[] = sprintf('%d heading%s', $headings_count, $headings_count === 1 ? '' : 's');
-                                    }
                                     if ($links_count > 0) {
-                                        $operations[] = sprintf('%d link%s', $links_count, $links_count === 1 ? '' : 's');
+                                        $title = sprintf('Updated %d link%s in post content', $links_count, $links_count === 1 ? '' : 's');
+
+                                        $sync_history->add([
+                                            'title' => $title,
+                                            'source' => 'OTTO Persistence',
+                                            'status' => 'published',
+                                            'content_type' => 'link_corrections',
+                                            'url' => get_permalink($post_id),
+                                            'meta_data' => json_encode([
+                                                'post_id' => $post_id,
+                                                'links_updated' => $links_count,
+                                            ]),
+                                            'created_at' => current_time('mysql'),
+                                        ]);
                                     }
-
-                                    $title = 'Updated ' . implode(' and ', $operations) . ' in post content';
-
-                                    $sync_history->add([
-                                        'title' => $title,
-                                        'source' => 'OTTO Persistence',
-                                        'status' => 'published',
-                                        'content_type' => 'combined_content_update',
-                                        'url' => get_permalink($post_id),
-                                        'meta_data' => json_encode([
-                                            'post_id' => $post_id,
-                                            'headings_updated' => $headings_count,
-                                            'links_updated' => $links_count,
-                                        ]),
-                                        'created_at' => current_time('mysql'),
-                                    ]);
                                 } catch (Exception $e) {
                                     // Failed to log, continue
                                 }
@@ -2639,11 +2547,25 @@ function metasync_is_otto_disabled_for_current_post() {
 }
 
 # Yoast SEO filters
+#
+# The plain title/description filters belong to the SEO title/description
+# feature, which has its own setting. The og:* and schema filters answer to the
+# Social Media & Open Graph and Schema Markup switches: with either off MetaSync
+# emits nothing of that kind, so blanking Yoast's value would leave the page
+# with none. metasync_otto_social_output_enabled() lives in otto_pixel.php.
 add_filter('wpseo_title', 'metasync_suppress_yoast_title_for_loggedin', 99999);
-add_filter('wpseo_opengraph_title', 'metasync_suppress_yoast_title_for_loggedin', 99999);
 add_filter('wpseo_metadesc', 'metasync_suppress_yoast_desc_for_loggedin', 99999);
-add_filter('wpseo_opengraph_desc', 'metasync_suppress_yoast_desc_for_loggedin', 99999);
-add_filter('wpseo_schema_webpage', 'metasync_suppress_yoast_schema_for_loggedin', 99999);
+
+if (!function_exists('metasync_otto_social_output_enabled')
+    || metasync_otto_social_output_enabled()) {
+    add_filter('wpseo_opengraph_title', 'metasync_suppress_yoast_title_for_loggedin', 99999);
+    add_filter('wpseo_opengraph_desc', 'metasync_suppress_yoast_desc_for_loggedin', 99999);
+}
+
+if (!class_exists('Metasync_Feature_Flags')
+    || Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::SCHEMA)) {
+    add_filter('wpseo_schema_webpage', 'metasync_suppress_yoast_schema_for_loggedin', 99999);
+}
 
 # Rank Math filters
 add_filter('rank_math/frontend/title', 'metasync_suppress_yoast_title_for_loggedin', 99999);

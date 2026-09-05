@@ -938,6 +938,54 @@ class Metasync_Connect_Manager
     // ------------------------------------------------------------------
 
     /**
+     * Save the options blob so that removing a key actually removes it.
+     *
+     * Metasync::set_option() goes through update_option(), and WordPress pipes
+     * every update_option() call for a registered setting through
+     * sanitize_option() — which runs Metasync_Settings_Registration::sanitize(),
+     * the callback register_setting() attached. That sanitizer is built for a
+     * Settings-API form POST, where the submission carries only the fields of
+     * one tab: it takes the *stored* option as its base layer and merges the
+     * incoming array over it, deliberately so that keys a partial submission
+     * omits survive rather than being wiped.
+     *
+     * Correct for a form. Fatal here. Disconnecting works by unsetting keys and
+     * saving the result, and the sanitizer re-reads the pre-write option as its
+     * base, so every key this handler removed came straight back — the API key
+     * byte-identical to the one just cleared. The account looked connected again
+     * on the next page load.
+     *
+     * So this write detaches that callback for its own duration and restores it
+     * afterwards. Scoped to the disconnect handler rather than changed inside
+     * set_option(): the merge is right for the form path, and the sanitizer also
+     * carries the whitelabel password encryption and recovery-password guards
+     * that other programmatic writes still want.
+     *
+     * @param array $options The complete options array to store verbatim.
+     * @return bool Whether the write succeeded.
+     */
+    private function write_options_without_stored_merge($options)
+    {
+        $hook = 'sanitize_option_' . Metasync::option_name;
+
+        // register_setting() attaches it at the default priority against the
+        // registration singleton, so the same callable identity removes it.
+        $callback = class_exists('Metasync_Settings_Registration')
+            ? array(Metasync_Settings_Registration::instance(), 'sanitize')
+            : null;
+
+        $was_attached = ($callback !== null) && remove_filter($hook, $callback);
+
+        $save_result = Metasync::set_option($options);
+
+        if ($was_attached) {
+            add_filter($hook, $callback);
+        }
+
+        return $save_result;
+    }
+
+    /**
      * Reset Search Atlas Authentication
      * Clears all authentication data and tokens
      */
@@ -1010,7 +1058,7 @@ class Metasync_Connect_Manager
             delete_option(Metasync::heartbeat_throttle_option);
             $cleared_data['heartbeat_throttle'] = 'removed';
 
-            $save_result = Metasync::set_option($options);
+            $save_result = $this->write_options_without_stored_merge($options);
             Metasync::invalidate_api_key_cache();
 
             if (!$save_result) {
@@ -1030,7 +1078,7 @@ class Metasync_Connect_Manager
                 $cleared_data['whitelabel_settings'] = 'removed';
                 unset($options['whitelabel']);
 
-                Metasync::set_option($options);
+                $this->write_options_without_stored_merge($options);
             }
 
             $this->clear_jwt_token_cache();
@@ -1227,7 +1275,6 @@ class Metasync_Connect_Manager
     public function handle_whitelabel_session_logic()
     {
         $auth = new Metasync_Auth_Manager('whitelabel', 1800);
-        $valid_passwords = $this->get_whitelabel_valid_passwords();
 
         if (isset($_POST['whitelabel_logout'])) {
             if (wp_verify_nonce($_POST['whitelabel_logout_nonce'] ?? '', 'whitelabel_logout_nonce')) {
@@ -1242,9 +1289,28 @@ class Metasync_Connect_Manager
 
         if (isset($_POST['whitelabel_password_submit']) && isset($_POST['whitelabel_password'])) {
             if (wp_verify_nonce($_POST['whitelabel_nonce'], 'whitelabel_password_nonce')) {
-                $submitted_password = sanitize_text_field($_POST['whitelabel_password']);
+                $submitted_password = (string) wp_unslash($_POST['whitelabel_password']);
 
-                $auth->verify_and_grant($submitted_password, $valid_passwords, false);
+                $lock_owner = '';
+                if (!Metasync_Admin_Ajax::instance()->acquire_recovery_lock($lock_owner)) {
+                    return;
+                }
+                $shutdown_lock_owner = $lock_owner;
+                register_shutdown_function(function () use ($shutdown_lock_owner) {
+                    Metasync_Admin_Ajax::instance()->release_recovery_lock($shutdown_lock_owner);
+                });
+
+                try {
+                    // This request may have cached settings before a reset
+                    // completed. Refresh after taking the shared lock, then
+                    // verify and grant against one consistent password state.
+                    Metasync_Admin_Ajax::instance()->refresh_recovery_state_cache();
+                    if (function_exists('wp_cache_delete')) wp_cache_delete('metasync_auth_revoke_epoch_whitelabel', 'options');
+                    $auth->verify_and_grant($submitted_password, $this->get_whitelabel_valid_passwords(), false);
+                } finally {
+                    Metasync_Admin_Ajax::instance()->release_recovery_lock($lock_owner);
+                    $lock_owner = '';
+                }
             }
         }
     }
@@ -1268,18 +1334,32 @@ class Metasync_Connect_Manager
         if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['option_page']) && $_POST['option_page'] === Metasync_Admin::option_group) {
 
             if (isset($_POST[Metasync_Admin::option_key]['whitelabel']['settings_password'])) {
-                $submitted_password = sanitize_text_field(wp_unslash($_POST[Metasync_Admin::option_key]['whitelabel']['settings_password']));
-
-                $current_options = Metasync::get_option();
-
-                if (!isset($current_options['whitelabel'])) {
-                    $current_options['whitelabel'] = [];
+                $submitted_password = (string) wp_unslash($_POST[Metasync_Admin::option_key]['whitelabel']['settings_password']);
+                $lock_owner = '';
+                if (!Metasync_Admin_Ajax::instance()->acquire_recovery_lock($lock_owner)) {
+                    return;
                 }
+                $shutdown_lock_owner = $lock_owner;
+                register_shutdown_function(function () use ($shutdown_lock_owner) {
+                    Metasync_Admin_Ajax::instance()->release_recovery_lock($shutdown_lock_owner);
+                });
 
-                $current_options['whitelabel']['settings_password'] = Metasync::encrypt_secret($submitted_password);
-                $current_options['whitelabel']['updated_at'] = time();
+                try {
+                    Metasync_Admin_Ajax::instance()->refresh_recovery_state_cache();
+                    $current_options = Metasync::get_option();
 
-                update_option(Metasync_Admin::option_key, $current_options);
+                    if (!isset($current_options['whitelabel'])) {
+                        $current_options['whitelabel'] = [];
+                    }
+
+                    $current_options['whitelabel']['settings_password'] = Metasync::encrypt_secret($submitted_password);
+                    $current_options['whitelabel']['updated_at'] = time();
+
+                    update_option(Metasync_Admin::option_key, $current_options);
+                } finally {
+                    Metasync_Admin_Ajax::instance()->release_recovery_lock($lock_owner);
+                    $lock_owner = '';
+                }
             }
         }
     }

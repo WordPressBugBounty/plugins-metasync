@@ -165,6 +165,16 @@ class Metasync
 			error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php');
 		}
 
+		// The SEO precedence resolver is referenced statically from the render
+		// filters, the sync layer and four admin screens. Require it explicitly
+		// for the same reason as the admin navigation below: a partial update can
+		// leave newer PHP files beside an older committed autoload classmap, and
+		// a missing class on wp_head or the posts list is a fatal, not a
+		// degradation.
+		if (!class_exists('Metasync_Seo_Precedence')) {
+			require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-seo-precedence.php';
+		}
+
 		// Admin navigation is referenced statically from frontend-reachable
 		// includes (heartbeat/connect managers). Require it explicitly here so
 		// the static call never fatals when wp_head fires before autoload.
@@ -179,6 +189,8 @@ class Metasync
 		}
 
 		$this->loader = new Metasync_Loader();
+		// Install aggregate-option password protection in every runtime context.
+		Metasync_Settings_Registration::instance();
 		$this->db_heartbeat_errors = new Metasync_HeartBeat_Error_Monitor_Database();
 		$this->db_redirection = new Metasync_Redirection_Database();
 	}

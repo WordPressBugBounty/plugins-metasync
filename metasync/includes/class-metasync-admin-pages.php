@@ -218,6 +218,11 @@ class Metasync_Admin_Pages
 
     public function create_admin_settings_page()
     {
+        if (isset($_REQUEST['metasync_password_reset'])) {
+            Metasync_Admin_Ajax::instance()->render_password_reset_page();
+            return;
+        }
+
         $active_tab = isset($_GET['tab']) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'general';
 
         $whitelabel_settings = Metasync::get_whitelabel_settings();
@@ -345,61 +350,6 @@ class Metasync_Admin_Pages
 
                     </div>
                     
-                    <script>
-                    jQuery(document).ready(function($) {
-                        $('#whitelabel_password').focus();
-
-                        $('#whitelabel_password').on('keypress', function(e) {
-                            if (e.which === 13) {
-                                $(this).closest('form').submit();
-                            }
-                        });
-
-                        <?php if (current_user_can('manage_options')): ?>
-                        $('#metasync-forgot-password-link').on('click', function(e) {
-                            e.preventDefault();
-
-                            var $link = $(this);
-                            var $message = $('#metasync-recovery-message');
-
-                            $link.css('pointer-events', 'none').css('opacity', '0.6');
-                            $message.removeClass('success error').hide();
-                            $message.html('⏳ Sending recovery email...').css('background', '#f0f6fc').css('color', '#0c5ba5').css('border', '1px solid #cfe2f3').fadeIn(200);
-
-                            $.ajax({
-                                url: ajaxurl,
-                                type: 'POST',
-                                data: {
-                                    action: 'metasync_recover_password',
-                                    nonce: '<?php echo wp_create_nonce('metasync_recover_password_nonce'); ?>'
-                                },
-                                success: function(response) {
-                                    $link.css('pointer-events', 'auto').css('opacity', '1');
-
-                                    if (response.success) {
-                                        $message.addClass('success').html('✅ ' + response.data.message)
-                                            .css('background', '#d4edda')
-                                            .css('color', '#155724')
-                                            .css('border', '1px solid #c3e6cb');
-                                    } else {
-                                        $message.addClass('error').html('❌ ' + response.data.message)
-                                            .css('background', '#f8d7da')
-                                            .css('color', '#721c24')
-                                            .css('border', '1px solid #f5c6cb');
-                                    }
-                                },
-                                error: function() {
-                                    $link.css('pointer-events', 'auto').css('opacity', '1');
-                                    $message.addClass('error').html('❌ An error occurred. Please try again.')
-                                        .css('background', '#f8d7da')
-                                        .css('color', '#721c24')
-                                        .css('border', '1px solid #f5c6cb');
-                                }
-                            });
-                        });
-                        <?php endif; ?>
-                    });
-                    </script>
         <?php
                     return;
                 } elseif (!$password_protection_enabled) {
@@ -415,6 +365,7 @@ class Metasync_Admin_Pages
         ?>
 
             <form method="post" action="options.php?tab=<?php echo esc_attr( $active_tab ); ?>" id="metaSyncGeneralSetting">
+                <input type="hidden" name="metasync_pw_reset_generation" value="<?php echo esc_attr((string) (int) get_option('metasync_pw_reset_generation', 0)); ?>" />
                 <?php
                     settings_fields(Metasync_Admin::option_group);
 

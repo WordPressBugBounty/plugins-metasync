@@ -1312,7 +1312,10 @@ class Metasync_Otto_Render_Strategy {
      * check only (closing tags present); mid-body truncation is caught upstream by the
      * builder-specific checks in render_via_http().
      *
-     * @param mixed $html OTTO's final serialized output.
+     * @param mixed $html OTTO's final serialized output. Typed mixed, not string,
+     *                    because a failed render hands this a non-string (null on
+     *                    a dropped response) and rejecting that is the point of
+     *                    the guard below — not a caller error to be assumed away.
      * @return bool
      */
     public static function http_output_is_complete($html) {

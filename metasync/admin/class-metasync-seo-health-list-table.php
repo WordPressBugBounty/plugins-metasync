@@ -376,7 +376,7 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 		switch ($filter) {
 			case 'missing_title':
 				$exists_clauses = array();
-				foreach (array_keys(Metasync_SEO_Health::TITLE_META_KEYS) as $key) {
+				foreach (array_keys(Metasync_SEO_Health::title_meta_keys()) as $key) {
 					$exists_clauses[] = array(
 						'key'     => $key,
 						'value'   => '',
@@ -385,7 +385,7 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 				}
 				// NOT EXISTS for all title keys = truly missing
 				$not_exists = array('relation' => 'AND');
-				foreach (array_keys(Metasync_SEO_Health::TITLE_META_KEYS) as $key) {
+				foreach (array_keys(Metasync_SEO_Health::title_meta_keys()) as $key) {
 					$not_exists[] = array(
 						'key'     => $key,
 						'compare' => 'NOT EXISTS',
@@ -393,7 +393,7 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 				}
 				// Also match rows where key exists but value is empty
 				$empty_values = array('relation' => 'AND');
-				foreach (array_keys(Metasync_SEO_Health::TITLE_META_KEYS) as $key) {
+				foreach (array_keys(Metasync_SEO_Health::title_meta_keys()) as $key) {
 					$empty_values[] = array(
 						'relation' => 'OR',
 						array('key' => $key, 'compare' => 'NOT EXISTS'),
@@ -404,7 +404,7 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 
 			case 'missing_description':
 				$empty_values = array('relation' => 'AND');
-				foreach (array_keys(Metasync_SEO_Health::DESC_META_KEYS) as $key) {
+				foreach (array_keys(Metasync_SEO_Health::desc_meta_keys()) as $key) {
 					$empty_values[] = array(
 						'relation' => 'OR',
 						array('key' => $key, 'compare' => 'NOT EXISTS'),

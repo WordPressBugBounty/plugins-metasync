@@ -380,15 +380,28 @@ class Metasync_SEO_Columns
 	{
 		$is_title = ($field === 'title');
 
-		$chain = array($is_title ? '_metasync_seo_title' : '_metasync_seo_desc' => '');
-
+		// MetaSync's own tiers come from Metasync_Seo_Precedence, the one place
+		// the order is defined.
+		//
 		// OTTO stands down entirely for a post with the per-post disable flag set
 		// (otto/metasync-otto-seo-functions.php:2582 -> the title filter returns the
 		// incoming title untouched). Its persisted suggestion is then dead data, so
 		// reporting it would name a value the page does not use.
-		if (!$this->otto_disabled_for_post($post_id)) {
-			$chain[$is_title ? '_metasync_otto_title' : '_metasync_otto_description'] = 'OTTO';
-		}
+		//
+		// The persisted-OTTO tier is left out here, which is what this column has
+		// always done. SEO Health does include it, so the two surfaces can disagree
+		// about a post whose only value is `_metasync_metatitle`; carried forward
+		// unchanged rather than resolved as a side effect of consolidating.
+		$chain = Metasync_Seo_Precedence::chain(
+			$is_title
+				? Metasync_Seo_Precedence::FIELD_TITLE
+				: Metasync_Seo_Precedence::FIELD_DESCRIPTION,
+			Metasync_Seo_Precedence::TYPE_POST,
+			array(
+				'include_otto'           => !$this->otto_disabled_for_post($post_id),
+				'include_persisted_otto' => false,
+			)
+		);
 
 		$third_party = $this->get_active_plugin_meta_keys($is_title);
 

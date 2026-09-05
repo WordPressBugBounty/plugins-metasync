@@ -13,6 +13,16 @@ class MetaSync_DBMigration
 {
 
 	/**
+	 * Option flag marking the leftover wp-config.php copy cleanup as done.
+	 */
+	const WPCONFIG_BACKUP_CLEANUP_OPTION = 'metasync_wpconfig_backup_cleanup_done';
+
+	/**
+	 * Age in seconds before an orphaned .metasync-tmp-* file is safe to delete.
+	 */
+	const WPCONFIG_TMP_MAX_AGE = 300;
+
+	/**
 	 * activation of migration.
 	 */
 	public static function activation()
@@ -287,6 +297,11 @@ class MetaSync_DBMigration
 		// Migration for versions 2.5.9+ - OTTO Excluded URLs
 		if ($force_run || version_compare($to_version, '2.5.9', '>=')) {
 			self::migrate_otto_excluded_urls_v2_5_9();
+		}
+
+		// Migration for versions 2.5.20+ - Remove insecure wp-config.php backup copies from the web root
+		if ($force_run || version_compare($to_version, '2.5.20', '>=')) {
+			self::migrate_remove_wpconfig_backups_v2_5_20();
 		}
 
 		// Add more version-specific migrations here as needed
@@ -689,6 +704,198 @@ class MetaSync_DBMigration
 				}
 			}
 		}
+	}
+
+	/**
+	 * One-time repair of Local Business logo values corrupted to
+	 * "http://<attachment-id>" (and the https:// / trailing-slash variants).
+	 *
+	 * The legacy save path ran the logo through
+	 * sanitize_url() (= esc_url_raw()), which prepends a scheme to any value
+	 * that has none — so a stored attachment ID "45589" became "http://45589",
+	 * the admin preview rendered a broken image, and the front-end JSON-LD
+	 * published "logo": "http://45589" as structured data.
+	 *
+	 * The corrupted shape is unambiguous (a scheme followed by digits only — no
+	 * dot, no path, so it can never be a resolvable host) and encodes the
+	 * original ID exactly, so restoring the digits is lossless and needs no
+	 * rollback path. Idempotent by construction: repaired values no longer
+	 * match, so a second run writes nothing.
+	 *
+	 * Uses the same shared helper as the admin preview and the schema output
+	 * (metasync_repair_scheme_prefixed_media_id()), so the three can never
+	 * disagree about what "corrupted" means.
+	 *
+	 * @see metasync_repair_scheme_prefixed_media_id()
+	 */
+	public static function repair_corrupted_local_seo_logo()
+	{
+		$options = get_option('metasync_options');
+
+		if (!is_array($options) || !isset($options['localseo']['local_seo_logo'])) {
+			return;
+		}
+
+		$stored   = $options['localseo']['local_seo_logo'];
+		$repaired = metasync_repair_scheme_prefixed_media_id($stored);
+
+		if ($repaired === $stored) {
+			return; // already clean: URL, plain attachment ID, or empty
+		}
+
+		$options['localseo']['local_seo_logo'] = $repaired;
+		update_option('metasync_options', $options, true);
+	}
+
+
+	/**
+	 * Remove insecure wp-config.php backup copies left in the web root by prior versions.
+	 *
+	 * Older versions wrote a full copy of wp-config.php (containing DB credentials and
+	 * auth salts) to `wp-config.php.metasync-backup-<time()>` in the same directory as
+	 * wp-config.php before each debug-mode write. This cleanup deletes any such leftover
+	 * copies, plus any `.metasync-tmp-*` file orphaned by an interrupted atomic save.
+	 *
+	 * Claimed via an option so it runs once rather than on every later version bump, and
+	 * left unclaimed if anything could not be deleted so a later upgrade retries.
+	 *
+	 * @return void
+	 */
+	private static function migrate_remove_wpconfig_backups_v2_5_20()
+	{
+		if (get_option(self::WPCONFIG_BACKUP_CLEANUP_OPTION)) {
+			return;
+		}
+
+		// This runs from `init` at priority 1, so a wp_dlct_config_file_manager_path filter
+		// another plugin registers at the default priority is not added yet and the filtered
+		// value can still be the default. Sweep every candidate directory rather than
+		// trusting one resolution, and only claim the cleanup once wp-config.php was
+		// actually found in one of them - otherwise a later upgrade retries.
+		$candidates = [
+			ABSPATH . 'wp-config.php',
+			dirname(ABSPATH) . '/wp-config.php',
+			apply_filters('wp_dlct_config_file_manager_path', ABSPATH . 'wp-config.php'),
+		];
+
+		$sweptDirs = [];
+		$located = false;
+		$failed = 0;
+		$scan_failed = 0;
+
+		foreach ($candidates as $config_file) {
+			if (!is_string($config_file) || '' === $config_file) {
+				continue;
+			}
+
+			$config_dir = dirname($config_file);
+			if (isset($sweptDirs[$config_dir])) {
+				continue;
+			}
+			$sweptDirs[$config_dir] = true;
+
+			if (@file_exists($config_file)) {
+				$located = true;
+			}
+
+			$result = self::remove_wpconfig_backups($config_dir);
+			$failed += $result['failed'];
+			$scan_failed += $result['scan_failed'];
+		}
+
+		if ($scan_failed) {
+			error_log(sprintf(
+				'MetaSync: could not inspect %d wp-config.php backup directory scan(s); cleanup will be retried.',
+				$scan_failed
+			));
+			return;
+		}
+
+		if ($failed) {
+			// A copy left behind is exactly the exposure this cleanup exists to remove,
+			// so surface it rather than failing silently.
+			error_log(sprintf(
+				'MetaSync: could not delete %d leftover wp-config.php copy/copies in %s - remove them manually.',
+				$failed,
+				implode(', ', array_keys($sweptDirs))
+			));
+			return;
+		}
+
+		if (!$located) {
+			// wp-config.php was not in any directory we swept, so it is relocated somewhere
+			// we could not resolve. Leave the flag unset so a later upgrade tries again.
+			error_log('MetaSync: wp-config.php was not found while cleaning up legacy backup copies in '
+				. implode(', ', array_keys($sweptDirs)) . ' - cleanup will be retried.');
+			return;
+		}
+
+		update_option(self::WPCONFIG_BACKUP_CLEANUP_OPTION, 1, false);
+	}
+
+	/**
+	 * Delete leftover full copies of wp-config.php from a directory.
+	 *
+	 * Covers the legacy `wp-config.php.metasync-backup-*` copies and `.metasync-tmp-*`
+	 * files orphaned by an interrupted atomic save. Temp files are only removed once
+	 * they are older than WPCONFIG_TMP_MAX_AGE, so a save running concurrently in
+	 * another request never has its temp file pulled out from under it.
+	 *
+	 * @param string $config_dir Directory that may contain leftover copies.
+	 *
+	 * @return array{removed:int,failed:int,scan_failed:int} Cleanup and scan-failure counts.
+	 */
+	public static function remove_wpconfig_backups($config_dir)
+	{
+		$dir = rtrim($config_dir, '/');
+		$removed = 0;
+		$failed = 0;
+		$scan_failed = 0;
+
+		$backups = glob($dir . '/wp-config.php.metasync-backup-*');
+		if (false === $backups) {
+			$scan_failed++;
+			$backups = [];
+		}
+
+		foreach ($backups as $backup) {
+			if (!is_file($backup)) {
+				continue;
+			}
+
+			if (@unlink($backup)) {
+				$removed++;
+			} else {
+				$failed++;
+			}
+		}
+
+		$temps = glob($dir . '/.metasync-tmp-*');
+		if (false === $temps) {
+			$scan_failed++;
+			$temps = [];
+		}
+
+		foreach ($temps as $temp) {
+			if (!is_file($temp)) {
+				continue;
+			}
+
+			// abs() so a future mtime (clock skew, NFS) still ages out instead of being
+			// skipped forever.
+			$mtime = @filemtime($temp);
+			if (false === $mtime || abs(time() - $mtime) < self::WPCONFIG_TMP_MAX_AGE) {
+				continue;
+			}
+
+			if (@unlink($temp)) {
+				$removed++;
+			} else {
+				$failed++;
+			}
+		}
+
+		return ['removed' => $removed, 'failed' => $failed, 'scan_failed' => $scan_failed];
 	}
 
 

@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.6.24
+ * Version:           2.6.25
  * Requires PHP:      8.1
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
@@ -36,12 +36,18 @@ require_once __DIR__ . '/vendor/autoload.php';
 // so it is guaranteed loadable everywhere canonicals are read or written.
 require_once __DIR__ . '/includes/class-metasync-canonical-sanitizer.php';
 
+// Editor-settings feature flags — required explicitly for the same reason: they
+// gate output in the OTTO buffer and in third-party filter callbacks, both of
+// which can run before the classmap has resolved anything else.
+require_once __DIR__ . '/includes/class-metasync-feature-flags.php';
+Metasync_Feature_Flags::register_invalidation();
+
 /**
  * Currently plugin version.
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.6.24';
+$metasync_version = '2.6.25';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -449,6 +455,21 @@ function check_metasync_updates()
             && add_option('metasync_canonical_cleanup_done', 'running', '', false)) {
             MetaSync_DBMigration::cleanup_corrupted_canonicals();
             update_option('metasync_canonical_cleanup_done', 'done', false);
+        }
+
+        // One-time repair of Local Business logos corrupted to "http://<id>".
+        // The sanitizer fix stopped new corruption; this restores the
+        // attachment ID on sites that saved a logo before it. The corrupted
+        // value encodes the original ID exactly, so the rewrite is lossless.
+        // Claimed via add_option() — it fails when the row already exists, so
+        // concurrent requests can't run the repair twice, and the claim lands
+        // BEFORE the work: the repair itself is idempotent, and the read-side
+        // normalisation in the schema output and admin preview already
+        // protects output if a run is interrupted.
+        if (false === get_option('metasync_local_seo_logo_repair_done')
+            && add_option('metasync_local_seo_logo_repair_done', 'running', '', false)) {
+            MetaSync_DBMigration::repair_corrupted_local_seo_logo();
+            update_option('metasync_local_seo_logo_repair_done', 'done', false);
         }
 
         // Migrate physical sitemap files on version update.

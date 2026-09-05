@@ -363,6 +363,13 @@ class Metasync_OpenGraph {
      * @return bool
      */
     public function will_emit($default = false) {
+        # Feature switched off, so this emitter stays silent. The legacy emitter
+        # checks the same switch independently, so reporting false here cannot
+        # hand it the work.
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
+            return false;
+        }
+
         if (!is_singular($this->get_supported_post_types())) {
             return false;
         }
@@ -828,6 +835,11 @@ class Metasync_OpenGraph {
      * Output Open Graph and Twitter Card tags in wp_head
      */
     public function output_opengraph_tags() {
+        # Social Media & Open Graph switched off — emit nothing.
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
+            return;
+        }
+
         if (!is_singular($this->get_supported_post_types())) {
             return;
         }
@@ -861,16 +873,20 @@ class Metasync_OpenGraph {
             return;
         }
 
-        # Get Open Graph data — check persisted key first, fall back to OTTO staging key, then post default.
-        # get_social_meta() collapses a stored "Auto Draft" placeholder to '' so the chain
-        # falls through to the real title on rows polluted before this fix shipped.
-        $og_title = self::get_social_meta($post->ID, '_metasync_og_title')
-            ?: get_post_meta($post->ID, '_metasync_otto_og_title', true)
+        # Open Graph data. The tier order — what the customer set, then OTTO, then
+        # a value brought in from another SEO plugin — comes from
+        # Metasync_Seo_Precedence so this emitter and the conflict handler cannot
+        # disagree about which value the page should carry. The resolver collapses a
+        # stored "Auto Draft" placeholder to '' as it walks the chain, so a row
+        # polluted by the meta box pre-fill falls through to OTTO's tier rather than
+        # outranking it. The literal fallbacks below the chain (post title, excerpt,
+        # featured image) stay here: they are derived at render time, not stored.
+        $og_title = Metasync_Seo_Precedence::value($post->ID, Metasync_Seo_Precedence::FIELD_OG_TITLE)
             ?: self::social_post_title($post);
-        $og_description = self::get_social_meta($post->ID, '_metasync_og_description')
-            ?: get_post_meta($post->ID, '_metasync_otto_og_description', true)
+        $og_description = Metasync_Seo_Precedence::value($post->ID, Metasync_Seo_Precedence::FIELD_OG_DESCRIPTION)
             ?: $this->get_post_excerpt($post);
-        $og_image = get_post_meta($post->ID, '_metasync_og_image', true) ?: $this->get_featured_image_url($post->ID);
+        $og_image = Metasync_Seo_Precedence::value($post->ID, Metasync_Seo_Precedence::FIELD_OG_IMAGE)
+            ?: $this->get_featured_image_url($post->ID);
         $og_url = get_post_meta($post->ID, '_metasync_og_url', true) ?: $this->get_canonical_url($post);
         $og_type = get_post_meta($post->ID, '_metasync_og_type', true) ?: 'article';
 
@@ -886,13 +902,12 @@ class Metasync_OpenGraph {
             $twitter_site = '@' . $twitter_username;
         }
         $twitter_creator = !empty($twitter_username) ? '@' . $twitter_username : '';
-        $twitter_title = self::get_social_meta($post->ID, '_metasync_twitter_title')
-            ?: get_post_meta($post->ID, '_metasync_otto_twitter_title', true)
+        $twitter_title = Metasync_Seo_Precedence::value($post->ID, Metasync_Seo_Precedence::FIELD_TWITTER_TITLE)
             ?: $og_title;
-        $twitter_description = self::get_social_meta($post->ID, '_metasync_twitter_description')
-            ?: get_post_meta($post->ID, '_metasync_otto_twitter_description', true)
+        $twitter_description = Metasync_Seo_Precedence::value($post->ID, Metasync_Seo_Precedence::FIELD_TWITTER_DESCRIPTION)
             ?: $og_description;
-        $twitter_image = get_post_meta($post->ID, '_metasync_twitter_image', true) ?: $og_image;
+        $twitter_image = Metasync_Seo_Precedence::value($post->ID, Metasync_Seo_Precedence::FIELD_TWITTER_IMAGE)
+            ?: $og_image;
         $twitter_image_alt = get_post_meta($post->ID, '_metasync_twitter_image_alt', true);
 
         # Resolve OG image attachment ID once for reuse (twitter:image:alt fallback + og:image dimensions)
@@ -1093,6 +1108,12 @@ class Metasync_OpenGraph {
      * Cross-plugin dedup is handled via register_dedup_filters() instead.
      */
     public function output_article_tags() {
+        # article:* tags are part of the same Open Graph block, so they follow
+        # the same switch as output_opengraph_tags().
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
+            return;
+        }
+
         if (!is_singular()) {
             return;
         }
@@ -1209,10 +1230,17 @@ class Metasync_OpenGraph {
             || is_plugin_active('wordpress-seo-premium/wp-seo-premium.php');
         $rank_math_active = is_plugin_active('seo-by-rank-math/rank-math.php');
 
-        $article_timestamps_enabled = ($settings['article_timestamps'] ?? 'true') !== 'false';
-        $article_author_enabled     = ($settings['article_author']     ?? 'true') !== 'false';
-        $article_section_enabled    = ($settings['article_section']    ?? 'true') !== 'false';
-        $article_tags_enabled       = ($settings['article_tags']       ?? 'true') !== 'false';
+        # The article:* tags these filters suppress are emitted by
+        # output_article_tags(), which stands down when the Social Media & Open
+        # Graph feature is switched off. Treat every article feature as disabled
+        # in that case so the third party keeps rendering its own tags — pulling
+        # ours without releasing theirs would leave the page with none.
+        $social_enabled = Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::SOCIAL_OG);
+
+        $article_timestamps_enabled = $social_enabled && ($settings['article_timestamps'] ?? 'true') !== 'false';
+        $article_author_enabled     = $social_enabled && ($settings['article_author']     ?? 'true') !== 'false';
+        $article_section_enabled    = $social_enabled && ($settings['article_section']    ?? 'true') !== 'false';
+        $article_tags_enabled       = $social_enabled && ($settings['article_tags']       ?? 'true') !== 'false';
 
         # Yoast: remove individual presenters based on which MetaSync features are enabled
         if ($yoast_active && ($article_timestamps_enabled || $article_author_enabled)) {

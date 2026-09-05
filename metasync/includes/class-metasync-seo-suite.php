@@ -222,9 +222,23 @@ class Metasync_Seo_Suite
         // Current values.
         $seo_title  = self::v($id, '_metasync_seo_title');
         $seo_desc   = self::v($id, '_metasync_seo_desc');
-        $otto_title = self::v($id, '_metasync_otto_title');
-        $otto_desc  = self::v($id, '_metasync_otto_description');
         $otto_kw    = self::v($id, '_metasync_otto_keywords');
+
+        // The greyed-out value each field shows when left blank: OTTO's
+        // suggestion, or the imported value where OTTO is silent. Which tier
+        // that is — and whether OTTO counts at all, since the per-post "Disable
+        // OTTO" toggle makes its stored suggestion dead data — is
+        // Metasync_Seo_Precedence's call, not this screen's. Without a ghost the
+        // fields look completely empty after an import and the customer
+        // concludes it did nothing.
+        $title_fallback = Metasync_Seo_Precedence::fallback($id, Metasync_Seo_Precedence::FIELD_TITLE);
+        $desc_fallback  = Metasync_Seo_Precedence::fallback($id, Metasync_Seo_Precedence::FIELD_DESCRIPTION);
+
+        $ghost_title = $title_fallback['value'];
+        $ghost_desc  = $desc_fallback['value'];
+
+        $show_imported_note = $title_fallback['source'] === Metasync_Seo_Precedence::SOURCE_IMPORTED
+            || $desc_fallback['source'] === Metasync_Seo_Precedence::SOURCE_IMPORTED;
 
         // Robots: post meta first, falling back to the site-wide defaults exactly as
         // the standalone Common/Advance Robots boxes do (new option spelling first,
@@ -392,13 +406,16 @@ class Metasync_Seo_Suite
                 <div class="<?php echo $pcls(); ?>" data-p="seo">
                   <h2 class="p-title">&#128269; Search Appearance</h2>
                   <p class="p-sub">Set the SEO Title and Meta Description. Leave blank to use the OTTO suggestion.</p>
+                  <?php if ($show_imported_note): ?>
+                  <p class="p-sub">The greyed-out value below was imported from another SEO plugin. It is used only until OTTO has a suggestion for this page.</p>
+                  <?php endif; ?>
                   <div class="field">
                     <div class="lbl"><span>SEO Title</span><span class="cc"><span class="tC">0</span>/60</span></div>
-                    <input class="ctrl seoT" name="metasync_seo_title" value="<?php echo $a($seo_title); ?>" placeholder="<?php echo $a($otto_title); ?>" oninput="mssRc()">
+                    <input class="ctrl seoT" name="metasync_seo_title" value="<?php echo $a($seo_title); ?>" placeholder="<?php echo $a($ghost_title); ?>" oninput="mssRc()">
                   </div>
                   <div class="field">
                     <div class="lbl"><span>Meta Description</span><span class="cc"><span class="dC">0</span>/160</span></div>
-                    <textarea class="ctrl seoD" name="metasync_seo_desc" placeholder="<?php echo $a($otto_desc); ?>" oninput="mssRc()"><?php echo esc_textarea($seo_desc); ?></textarea>
+                    <textarea class="ctrl seoD" name="metasync_seo_desc" placeholder="<?php echo $a($ghost_desc); ?>" oninput="mssRc()"><?php echo esc_textarea($seo_desc); ?></textarea>
                   </div>
                   <?php if ($otto_kw !== ''): ?>
                   <div class="field">
@@ -410,8 +427,8 @@ class Metasync_Seo_Suite
                   <div class="sec">Preview</div>
                   <div class="gprev">
                     <div class="u"><?php echo esc_html($prev_url_disp); ?></div>
-                    <div class="ti gT"><?php echo esc_html($seo_title ?: ($otto_title ?: get_the_title($id))); ?></div>
-                    <div class="de gD"><?php echo esc_html($seo_desc ?: ($otto_desc ?: 'No description set.')); ?></div>
+                    <div class="ti gT"><?php echo esc_html($seo_title ?: ($ghost_title ?: get_the_title($id))); ?></div>
+                    <div class="de gD"><?php echo esc_html($seo_desc ?: ($ghost_desc ?: 'No description set.')); ?></div>
                   </div>
                 </div>
                 <?php endif; ?>

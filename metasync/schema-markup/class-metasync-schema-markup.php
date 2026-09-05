@@ -1717,6 +1717,13 @@ class Metasync_Schema_Markup
      */
     public function output_schema_markup()
     {
+        // Schema Markup switched off. This covers every JSON-LD source resolved
+        // below — global Organization/WebSite nodes, the per-post meta box types,
+        // live OTTO structured data and the DB-persisted OTTO payload.
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SCHEMA)) {
+            return;
+        }
+
         $all_json_ld = [];
 
         // Holds the DB-persisted OTTO JSON-LD string when OTTO is off (output as its

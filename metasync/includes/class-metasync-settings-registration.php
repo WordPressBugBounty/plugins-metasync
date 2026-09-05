@@ -15,6 +15,21 @@ if (!defined('ABSPATH')) {
  */
 class Metasync_Settings_Registration
 {
+    private static $options_generation_at_sanitize = null;
+    private static $allow_recovery_password_write = false;
+
+    public static function authorize_recovery_password_write($allow = true)
+    {
+        self::$allow_recovery_password_write = (bool) $allow;
+    }
+    private static $settings_recovery_lock_owner = '';
+    private static $abort_locked_settings_update = false;
+    private static $defer_settings_recovery_lock_release = false;
+
+    public static function capture_options_generation()
+    {
+        self::$options_generation_at_sanitize = (int) get_option('metasync_pw_reset_generation', 0);
+    }
     /** @var self|null */
     private static $instance = null;
 
@@ -31,7 +46,94 @@ class Metasync_Settings_Registration
         return self::$instance;
     }
 
-    private function __construct() {}
+    private function __construct() {
+        add_filter('pre_update_option_metasync_options', array($this, 'protect_recovery_password_update'), 10, 3);
+        add_action('updated_option_metasync_options', array($this, 'release_settings_recovery_lock'), PHP_INT_MAX, 0);
+    }
+
+    private function acquire_settings_recovery_lock()
+    {
+        if (self::$settings_recovery_lock_owner !== '') {
+            self::$abort_locked_settings_update = false;
+            Metasync_Admin_Ajax::instance()->refresh_recovery_state_cache();
+            return true;
+        }
+
+        $owner = '';
+        if (!Metasync_Admin_Ajax::instance()->acquire_recovery_lock($owner)) {
+            self::$abort_locked_settings_update = true;
+            return false;
+        }
+
+        self::$settings_recovery_lock_owner = $owner;
+        self::$abort_locked_settings_update = false;
+        register_shutdown_function(array($this, 'force_release_settings_recovery_lock'));
+        Metasync_Admin_Ajax::instance()->refresh_recovery_state_cache();
+        return true;
+    }
+
+    public function release_settings_recovery_lock()
+    {
+        if (self::$defer_settings_recovery_lock_release) {
+            return;
+        }
+        if (self::$settings_recovery_lock_owner === '') {
+            return;
+        }
+
+        Metasync_Admin_Ajax::instance()->release_recovery_lock(self::$settings_recovery_lock_owner);
+        self::$settings_recovery_lock_owner = '';
+        self::$options_generation_at_sanitize = null;
+        self::$allow_recovery_password_write = false;
+    }
+
+    public function force_release_settings_recovery_lock()
+    {
+        self::$defer_settings_recovery_lock_release = false;
+        $this->release_settings_recovery_lock();
+    }
+
+    public function protect_recovery_password_update($new_value, $old_value, $option)
+    {
+        if (self::$allow_recovery_password_write) {
+            return $new_value;
+        }
+        if (self::$options_generation_at_sanitize === null && is_array($new_value) && is_array($old_value)
+            && isset($new_value['whitelabel']) && is_array($new_value['whitelabel'])
+            && array_key_exists('settings_password', $new_value['whitelabel'])) {
+            if (!$this->acquire_settings_recovery_lock()) {
+                self::$abort_locked_settings_update = false;
+                return $old_value;
+            }
+            Metasync_Admin_Ajax::instance()->refresh_recovery_state_cache();
+            $fresh = Metasync::get_option('whitelabel');
+            if (is_array($fresh) && array_key_exists('settings_password', $fresh)) {
+                $proposed = (string) $new_value['whitelabel']['settings_password'];
+                $fresh_value = (string) $fresh['settings_password'];
+                if (Metasync::is_encrypted_secret($proposed) && !Metasync::is_encrypted_secret($fresh_value)
+                    && Metasync::decrypt_secret($proposed) === $fresh_value) {
+                    return $new_value;
+                }
+                $new_value['whitelabel']['settings_password'] = $fresh['settings_password'];
+            }
+        }
+        if (self::$abort_locked_settings_update) {
+            self::$abort_locked_settings_update = false;
+            return $old_value;
+        }
+        if (self::$options_generation_at_sanitize === null || !is_array($new_value) || !is_array($old_value)) return $new_value;
+        $current_generation = (int) get_option('metasync_pw_reset_generation', 0);
+        if ($current_generation !== (int) self::$options_generation_at_sanitize
+            && isset($new_value['whitelabel'])
+            && is_array($new_value['whitelabel'])
+            && array_key_exists('settings_password', $new_value['whitelabel'])) {
+            // Returning the same value update_option() already considers old
+            // prevents any database write, even if this request's option cache
+            // predates the completed recovery request.
+            return $old_value;
+        }
+        return $new_value;
+    }
 
     /**
      * Helper – replicate Metasync_Admin::get_effective_menu_title() without
@@ -85,6 +187,13 @@ class Metasync_Settings_Registration
                     exit;
                 }
 
+                self::$defer_settings_recovery_lock_release = true;
+                if (!$this->acquire_settings_recovery_lock()) {
+                    self::$defer_settings_recovery_lock_release = false;
+                    wp_die('Password recovery is being processed. Please try again later.');
+                }
+                self::$defer_settings_recovery_lock_release = false;
+
                 $metasync_options = Metasync::get_option();
                 if (!is_array($metasync_options)) {
                     $metasync_options = array();
@@ -118,7 +227,6 @@ class Metasync_Settings_Registration
     public function settings_page_init()
     {
         Metasync_Connect_Manager::instance()->handle_session_management_early();
-        Metasync_Connect_Manager::instance()->handle_whitelabel_password_early();
 
         Metasync_Debug_Manager::instance()->handle_debug_mode_operations();
         Metasync_Debug_Manager::instance()->handle_error_log_operations();
@@ -883,7 +991,7 @@ class Metasync_Settings_Registration
                     '<input type="checkbox" id="disable_common_robots_metabox" name="' . $option_key . '[general][disable_common_robots_metabox]" value="1" %s />',
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Common Robots Meta box on post/page edit screens</span>');
+                printf('<span class="description"> Hide the Common Robots meta box and stop %1$s emitting index/follow robots directives on the front end. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', Metasync::get_effective_plugin_name('MetaSync'));
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -898,7 +1006,7 @@ class Metasync_Settings_Registration
                     '<input type="checkbox" id="disable_advance_robots_metabox" name="' . $option_key . '[general][disable_advance_robots_metabox]" value="1" %s />',
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Advance Robots Meta box on post/page edit screens</span>');
+                printf('<span class="description"> Hide the Advance Robots meta box and stop %1$s emitting max-snippet, max-image-preview and max-video-preview directives. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', Metasync::get_effective_plugin_name('MetaSync'));
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -913,7 +1021,7 @@ class Metasync_Settings_Registration
                     '<input type="checkbox" id="disable_redirection_metabox" name="' . $option_key . '[general][disable_redirection_metabox]" value="1" %s />',
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Redirection meta box on post/page edit screens</span>');
+                printf('<span class="description"> Hide the Redirection meta box and stop redirects created by it from running. Rules added on the Redirections screen are unaffected. Saved redirects are kept.</span>');
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -928,7 +1036,7 @@ class Metasync_Settings_Registration
                     '<input type="checkbox" id="disable_canonical_metabox" name="' . $option_key . '[general][disable_canonical_metabox]" value="1" %s />',
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Canonical meta box on post/page edit screens</span>');
+                printf('<span class="description"> Hide the Canonical meta box and stop %1$s emitting or overriding the canonical URL. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', Metasync::get_effective_plugin_name('MetaSync'));
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -943,7 +1051,7 @@ class Metasync_Settings_Registration
                     '<input type="checkbox" id="disable_social_opengraph_metabox" name="' . $option_key . '[general][disable_social_opengraph_metabox]" value="1" %s />',
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Social Media & Open Graph meta box on post/page edit screens</span>');
+                printf('<span class="description"> Hide the Social Media &amp; Open Graph meta box and stop %1$s emitting Open Graph and Twitter tags. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', Metasync::get_effective_plugin_name('MetaSync'));
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -958,7 +1066,7 @@ class Metasync_Settings_Registration
                     '<input type="checkbox" id="disable_schema_markup_metabox" name="' . $option_key . '[general][disable_schema_markup_metabox]" value="1" %s />',
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Schema Markup meta box on post/page edit screens</span>');
+                printf('<span class="description"> Hide the Schema Markup meta box and stop %1$s emitting any JSON-LD, including site-wide Local SEO markup. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', Metasync::get_effective_plugin_name('MetaSync'));
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1372,7 +1480,7 @@ class Metasync_Settings_Registration
                 'Menu Icon',
                 function() use ($option_key) {
                     $value = Metasync::get_option('general')['white_label_plugin_menu_icon'] ?? '';   
-                    printf('<input type="text" name="' . $option_key . '[general][white_label_plugin_menu_icon]" value="' . esc_attr($value) . '" />');
+                    echo '<input type="text" name="' . $option_key . '[general][white_label_plugin_menu_icon]" value="' . esc_attr($value) . '" />';
                 },
                 $page_slug . '_branding',
                 $SECTION_METASYNC
@@ -1955,6 +2063,95 @@ class Metasync_Settings_Registration
     }
 
     /**
+     * Coerce a loosely-typed option value into an array.
+     *
+     * The value arrives untyped (a crafted or partial submission may send a
+     * scalar for an option stored as an array), so the check lives behind an
+     * untyped parameter instead of an inline is_array() guard on a value the
+     * docblock already narrows.
+     *
+     * @param mixed $value Raw option value.
+     * @return array The value as an array, or an empty array.
+     */
+    private static function coerce_to_array($value)
+    {
+        return is_array($value) ? $value : array();
+    }
+
+    /**
+     * Recursively merge sanitized settings over raw and stored layers.
+     *
+     * Later layers win per-key; associative arrays merge key-by-key so
+     * submitted values only replace their own field, while sequential
+     * lists (rows of opening hours, phone numbers) replace wholesale
+     * so deleted rows stay deleted.
+     *
+     * @param array $base Stored option layer (lowest precedence).
+     * @param array ...$layers Layers to fold in, lowest precedence first
+     *                         (raw input, then sanitized values).
+     * @return array The merged option array.
+     */
+    private static function merge_option_layers(array $base, array ...$layers)
+    {
+        foreach ($layers as $layer) {
+            foreach ($layer as $key => $value) {
+                if (is_array($value)
+                    && isset($base[$key])
+                    && is_array($base[$key])
+                    && !self::is_sequential_list($value)
+                    && !self::clears_a_stored_list($value, $base[$key])
+                ) {
+                    $base[$key] = self::merge_option_layers($base[$key], $value);
+                } else {
+                    $base[$key] = $value;
+                }
+            }
+        }
+        return $base;
+    }
+
+    /**
+     * Whether the array is a numerically-indexed list (keys 0..n-1).
+     *
+     * Answers false for the empty array — range(0, -1) counts downwards and
+     * yields [0, -1], not []. That is load-bearing rather than incidental: an
+     * empty array is ambiguous, and clears_a_stored_list() is where the
+     * ambiguity is resolved.
+     *
+     * @param array $value Array to inspect.
+     * @return bool True for lists, false for associative maps.
+     */
+    private static function is_sequential_list(array $value)
+    {
+        return array_keys($value) === range(0, count($value) - 1);
+    }
+
+    /**
+     * Whether an empty submitted value is a stored list being cleared.
+     *
+     * An empty array reaches the merge meaning one of two opposite things, and
+     * only the stored value tells them apart.
+     *
+     * When what is stored is a list — the roles of a multi-select, the rows of
+     * a repeater — an empty submission means the user removed every entry, and
+     * it has to replace the stored value or the clear is silently ignored.
+     *
+     * When what is stored is an associative map, an empty submission means the
+     * form carried nothing for that section: a tab whose every checkbox is
+     * unchecked posts no fields at all. Replacing there would wipe the section,
+     * API key included, which is the whole failure this merge exists to
+     * prevent. So that case still merges, leaving the stored keys standing.
+     *
+     * @param array $value  The submitted value.
+     * @param array $stored The value already in the option.
+     * @return bool True when the submission is clearing a list.
+     */
+    private static function clears_a_stored_list(array $value, array $stored)
+    {
+        return $value === array() && self::is_sequential_list($stored);
+    }
+
+    /**
      * Sanitize each setting field as needed.
      *
      * Formerly Metasync_Admin::sanitize().
@@ -1964,8 +2161,49 @@ class Metasync_Settings_Registration
      */
     public function sanitize($input)
     {
-        $new_input = Metasync::get_option();
+        $submitted_generation = isset($_POST['metasync_pw_reset_generation'])
+            ? absint($_POST['metasync_pw_reset_generation'])
+            : null;
+        // Legacy/stale forms that include a password but no reset generation
+        // must never be allowed to overwrite a newer recovery password.
+        if (!self::$allow_recovery_password_write
+            && $submitted_generation === null
+            && isset($input['whitelabel']['settings_password'])) {
+            unset($input['whitelabel']['settings_password']);
+            add_settings_error(
+                'metasync_messages',
+                'metasync_password_generation_missing',
+                __('This settings form is stale. Reload the page before changing the password.', 'metasync'),
+                'error'
+            );
+        }
+        // Every settings save rewrites the aggregate option, including its
+        // current password value. Serialize the full save with recovery even
+        // when the submitted tab does not expose the password field.
+        if (!$this->acquire_settings_recovery_lock()) {
+            add_settings_error(
+                'metasync_messages',
+                'metasync_password_update_busy',
+                __('Password recovery is being processed. No settings were saved; please try again.', 'metasync'),
+                'error'
+            );
+        } else {
+            self::$options_generation_at_sanitize = $submitted_generation !== null
+                ? $submitted_generation
+                : (int) get_option('metasync_pw_reset_generation', 0);
+        }
+        $input = self::coerce_to_array($input);
+
+        // The saved option is assembled from three layers (see the merge at
+        // the end of this method): the stored option, the raw submission,
+        // and the sanitized values collected in $new_input. Sanitization
+        // therefore wins over raw input, a submitted field without a
+        // sanitizer still beats its stored value, and stored keys the
+        // submission omits survive instead of being dropped.
+        $stored_option = self::coerce_to_array(Metasync::get_option());
+        $new_input = array();
         $whitelabel_validation_failed = false;
+        $whitelabel_reset = false;
 
         # Determine which tab is being submitted (same logic as AJAX handler)
         # Check POST first (from AJAX), then GET (from form action URL)
@@ -2008,12 +2246,11 @@ class Metasync_Settings_Registration
                 if (isset($input['general'][$field])) {
                     $new_input['general'][$field] = filter_var($input['general'][$field], FILTER_VALIDATE_BOOLEAN);
                 } else {
+                    // Unchecked HTML checkboxes are absent from the submission;
+                    // persist an explicit false so the stored value cannot leak
+                    // back through the layered merge.
                     $new_input['general'][$field] = false;
                 }
-                // The final array_merge($new_input, $input) is shallow, so
-                // $input['general'] replaces $new_input['general'] wholesale.
-                // Write the sanitized boolean back into $input so it survives.
-                $input['general'][$field] = $new_input['general'][$field];
             }
         }
 
@@ -2136,17 +2373,23 @@ class Metasync_Settings_Registration
             if (isset($input['breadcrumbs']['archive_label_format'])) {
                 $new_input['breadcrumbs']['archive_label_format'] = sanitize_text_field($input['breadcrumbs']['archive_label_format']);
             }
-            // Remove raw breadcrumbs so sanitized values (especially checkbox
-            // booleans) survive the shallow array_merge($new_input, $input).
+            // Drop the raw section: the sanitized copies above (including the
+            // explicit checkbox booleans) are authoritative for the merge.
             unset($input['breadcrumbs']);
         }
 
-        // Code Snippets Settings
+        // Code Snippets Settings. These fields intentionally hold raw markup
+        // (analytics scripts, verification tags, inline styles) that is echoed
+        // verbatim on the front end, so only the request slashes are stripped —
+        // tag-stripping sanitizers would destroy the snippet. The form is
+        // restricted to users with plugin settings access.
         if (isset($input['codesnippets']['header_snippet'])) {
-            $new_input['codesnippets']['header_snippet'] = sanitize_text_field($input['codesnippets']['header_snippet']);
+            $snippet = wp_unslash($input['codesnippets']['header_snippet']);
+            $new_input['codesnippets']['header_snippet'] = is_string($snippet) ? trim($snippet) : '';
         }
         if (isset($input['codesnippets']['footer_snippet'])) {
-            $new_input['codesnippets']['footer_snippet'] = sanitize_text_field($input['codesnippets']['footer_snippet']);
+            $snippet = wp_unslash($input['codesnippets']['footer_snippet']);
+            $new_input['codesnippets']['footer_snippet'] = is_string($snippet) ? trim($snippet) : '';
         }
 
         // Common Setting - Global Settings
@@ -2225,8 +2468,8 @@ class Metasync_Settings_Registration
             foreach ($og_toggle_fields as $field) {
                 $new_input['common_meta_settings'][$field] = (isset($input['common_meta_settings'][$field]) && $input['common_meta_settings'][$field] === 'true') ? 'true' : 'false';
             }
-            // Remove raw common_meta_settings so sanitized toggle values
-            // survive the shallow array_merge($new_input, $input).
+            // Drop the raw section so only the sanitized toggle values reach
+            // the stored option.
             unset($input['common_meta_settings']);
         }
 
@@ -2308,8 +2551,29 @@ class Metasync_Settings_Registration
             }
             
             if (isset($input['whitelabel']['settings_password'])) {
-                $password_value = trim($input['whitelabel']['settings_password']);
-                $new_input['whitelabel']['settings_password'] = Metasync::encrypt_secret(sanitize_text_field($password_value));
+                // WordPress unslashes registered settings before invoking the
+                // sanitize callback. Preserve the resulting password exactly.
+                $password_value = (string) $input['whitelabel']['settings_password'];
+                $encrypted_password = Metasync::encrypt_secret($password_value);
+                if ($password_value === '') {
+                    $new_input['whitelabel']['settings_password'] = '';
+                } elseif (Metasync::is_encrypted_secret($password_value)) {
+                    // update_option() may invoke this sanitizer after the
+                    // AJAX handler has already encrypted the value. Treat
+                    // valid ciphertext as an idempotent input, not a failed
+                    // encryption attempt.
+                    $new_input['whitelabel']['settings_password'] = $password_value;
+                } elseif (Metasync::is_encrypted_secret($encrypted_password) && $encrypted_password !== $password_value) {
+                    $new_input['whitelabel']['settings_password'] = $encrypted_password;
+                } else {
+                    $new_input['whitelabel']['settings_password'] = $existing_whitelabel['settings_password'] ?? '';
+                    add_settings_error(
+                        'metasync_messages',
+                        'metasync_password_encryption_failed',
+                        __('Unable to securely save the password. Please choose a different password.', 'metasync'),
+                        'error'
+                    );
+                }
             } else {
                 if (isset($existing_whitelabel['settings_password'])) {
                     $new_input['whitelabel']['settings_password'] = $existing_whitelabel['settings_password'];
@@ -2416,10 +2680,13 @@ class Metasync_Settings_Registration
             $has_existing_whitelabel = !empty($existing_whitelabel['domain']) || !empty($existing_whitelabel['logo']);
             
             if ($has_existing_whitelabel) {
+                // A reset replaces the whole section (password ciphertext,
+                // palette, quick links and all) rather than merging leaves.
+                $whitelabel_reset = true;
                 $new_input['whitelabel'] = [
                     'is_whitelabel' => false,
                     'domain' => '',
-                    'logo' => '', 
+                    'logo' => '',
                     'company_name' => '',
                     'updated_at' => time()
                 ];
@@ -2456,7 +2723,21 @@ class Metasync_Settings_Registration
             });
         }
 
-        $result = array_merge($new_input, $input);
+        // Keep the fully sanitized/encrypted white-label values. The layered
+        // merge below already lets them win; mirroring them into the raw
+        // layer also excludes stray raw whitelabel keys from the saved option.
+        if (isset($input['whitelabel'], $new_input['whitelabel'])) {
+            $input['whitelabel'] = $new_input['whitelabel'];
+        }
+
+        // Layered merge: stored option, then the raw submission, then the
+        // sanitized values. Replaces the former shallow array_merge(), which
+        // let the raw submission overwrite every sanitized section wholesale.
+        $result = self::merge_option_layers($stored_option, $input, $new_input);
+
+        if ($whitelabel_reset) {
+            $result['whitelabel'] = $new_input['whitelabel'];
+        }
 
         if ($whitelabel_validation_failed) {
             $result['whitelabel'] = Metasync::get_option()['whitelabel'] ?? [];
@@ -2482,6 +2763,29 @@ class Metasync_Settings_Registration
         if (!Metasync::current_user_has_plugin_access()) {
             wp_send_json_error(['message' => 'Insufficient permissions.'], 403);
             return;
+        }
+
+        self::$defer_settings_recovery_lock_release = true;
+        if (!$this->acquire_settings_recovery_lock()) {
+            self::$defer_settings_recovery_lock_release = false;
+            self::$abort_locked_settings_update = false;
+            return wp_send_json_error(array('message' => 'Password recovery is being processed. No settings were saved; please try again.'), 409);
+        }
+
+        $current_generation = (int) get_option('metasync_pw_reset_generation', 0);
+        $password_submitted = isset($_POST['metasync_options']['whitelabel']['settings_password']);
+        if ($password_submitted && !isset($_POST['metasync_pw_reset_generation'])) {
+            $this->force_release_settings_recovery_lock();
+            return wp_send_json_error(array('message' => 'A settings password update requires a current page generation. Reload the page and try again.'), 409);
+        }
+        if (isset($_POST['metasync_pw_reset_generation'])) {
+            self::$options_generation_at_sanitize = absint($_POST['metasync_pw_reset_generation']);
+            if ((int) self::$options_generation_at_sanitize !== $current_generation) {
+                $this->force_release_settings_recovery_lock();
+                return wp_send_json_error(array('message' => 'The settings password changed while this page was open. Reload the page and try again.'), 409);
+            }
+        } else {
+            self::$options_generation_at_sanitize = $current_generation;
         }
 
         $text_fields = [
@@ -2734,6 +3038,7 @@ class Metasync_Settings_Registration
         }
 
         if (!empty($validation_errors)) {
+            $this->force_release_settings_recovery_lock();
             wp_send_json_error([
                 'errors' => $validation_errors
             ]);
@@ -2923,7 +3228,7 @@ class Metasync_Settings_Registration
             }
 
             if (isset($whitelabel_data['settings_password'])) {
-                $password_value = trim($whitelabel_data['settings_password']);
+                $password_value = (string) wp_unslash($whitelabel_data['settings_password']);
 
                 $hide_settings_enabled = isset($whitelabel_data['hide_settings']) && $whitelabel_data['hide_settings'] == '1';
 
@@ -2931,8 +3236,16 @@ class Metasync_Settings_Registration
                     if (isset($existing_whitelabel['settings_password'])) {
                         $metasync_options['whitelabel']['settings_password'] = $existing_whitelabel['settings_password'];
                     }
+                } elseif ($password_value === '') {
+                    $metasync_options['whitelabel']['settings_password'] = '';
                 } else {
-                    $metasync_options['whitelabel']['settings_password'] = Metasync::encrypt_secret(sanitize_text_field($password_value));
+                    $encrypted_password = Metasync::encrypt_secret($password_value);
+                    if (Metasync::is_encrypted_secret($encrypted_password) && !hash_equals($password_value, $encrypted_password)) {
+                        $metasync_options['whitelabel']['settings_password'] = $encrypted_password;
+                    } else {
+                        $metasync_options['whitelabel']['settings_password'] = $existing_whitelabel['settings_password'] ?? '';
+                        $whitelabel_errors['settings_password'] = 'Unable to securely save the password. Please choose a different password.';
+                    }
                 }
             } else {
                 if (isset($existing_whitelabel['settings_password'])) {
@@ -3064,6 +3377,8 @@ class Metasync_Settings_Registration
         }
 
         delete_transient('metasync_otto_js_detected');
+
+        $this->force_release_settings_recovery_lock();
 
         wp_send_json_success( $response_payload );
     }

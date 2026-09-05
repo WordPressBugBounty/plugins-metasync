@@ -87,7 +87,16 @@ class Metasync_Breadcrumbs_Schema {
         $list_items = array();
         $position   = 1;
 
-        foreach ($trail as $item) {
+        $trail_total = count($trail);
+
+        foreach ($trail as $trail_index => $item) {
+            // Google allows only the FINAL ListItem to omit `item`. Drop any
+            // earlier crumb whose URL could not be resolved rather than emit
+            // structured data that fails validation.
+            if ($trail_index !== $trail_total - 1 && empty($item['url'])) {
+                continue;
+            }
+
             $list_item = array(
                 '@type'    => 'ListItem',
                 'position' => $position,
