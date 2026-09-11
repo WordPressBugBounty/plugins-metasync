@@ -15,6 +15,14 @@ if (!defined('ABSPATH')) {
  */
 class Metasync_Redirection_List_Table extends WP_List_Table
 {
+	/**
+	 * Name of the submit-button marker that identifies an Apply submit.
+	 *
+	 * Matches the name WordPress core itself gives the button from 7.1 on, so
+	 * the marker is core's own on new installs and ours on older ones.
+	 */
+	private const BULK_APPLY_MARKER = 'bulk_action';
+
 	private $records;
 	private $db_redirection;
 	private $_displayed = false;
@@ -663,12 +671,87 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 		return $actions;
 	}
 
+	/**
+	 * Guarantee the Apply button posts a marker identifying it as the submitter.
+	 *
+	 * The bulk dropdown, the row checkboxes and the bulk-items nonce all live
+	 * inside the same form as the Search field and the filter controls, so every
+	 * submit of that form carries a complete-looking bulk request. The only thing
+	 * that distinguishes a real Apply from Search, Enter-in-search or a filter
+	 * dropdown's auto-submit is which submit button (if any) was used, and a
+	 * button only reports itself when it has a name attribute.
+	 *
+	 * WordPress core names the Apply button `bulk_action` from 7.1 onwards; on
+	 * the older releases this plugin still supports get_submit_button() is called
+	 * with an empty name and omits the attribute entirely. Add it ourselves in
+	 * that case so process_bulk_action() can rely on the marker on every
+	 * supported version, with no JavaScript involved.
+	 *
+	 * @param string $which Which tablenav is being rendered ('top' or 'bottom').
+	 * @return void
+	 */
+	protected function bulk_actions($which = '')
+	{
+		ob_start();
+		parent::bulk_actions($which);
+		$markup = ob_get_clean();
+
+		// get_bulk_actions() returns an empty array on screens where this table
+		// must not emit bulk controls, and core then renders nothing at all.
+		if (!is_string($markup) || '' === $markup) {
+			return;
+		}
+
+		if (false === strpos($markup, 'name="' . self::BULK_APPLY_MARKER . '"')) {
+			$named = preg_replace(
+				'/<input\b(?=[^>]*\bid="doaction2?")/',
+				'<input name="' . self::BULK_APPLY_MARKER . '"',
+				$markup,
+				1
+			);
+
+			// Keep core's markup untouched if the shape ever changes and the
+			// pattern stops matching, rather than emitting nothing.
+			if (is_string($named)) {
+				$markup = $named;
+			}
+		}
+
+		echo $markup; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- core markup, already escaped by WP_List_Table.
+	}
+
+	/**
+	 * Whether the current request was submitted with the Apply button.
+	 *
+	 * Only Apply carries the marker added in bulk_actions(); Search and the
+	 * unnamed implicit-submission button send no submit-button value, and a
+	 * filter dropdown's programmatic form.submit() sends none either. Testing
+	 * for the marker's presence rather than for the absence of `filter_action`
+	 * keeps every current and future non-Apply submit path suppressed by
+	 * default.
+	 *
+	 * @param array $post_data Sanitised copy of $_POST.
+	 * @return bool
+	 */
+	private function is_bulk_apply_submit($post_data)
+	{
+		return !empty($post_data[self::BULK_APPLY_MARKER]);
+	}
+
 	protected function process_bulk_action()
 	{
 		$post_data = metasync_sanitize_input_array($_POST);
 		$items = isset($post_data['items']) && is_array($post_data['items']) ? array_map('sanitize_title', $post_data['items']) : [];
 
 		if (empty($post_data['items'])) return;
+
+		// Suppress every submit that did not come from Apply. Search, Enter in the
+		// search box and a filter dropdown's auto-submit all post the bulk
+		// dropdown, the ticked rows and a valid nonce, so without this the
+		// selected action ran on any of them - silently, with no confirmation.
+		if (!$this->is_bulk_apply_submit($post_data)) {
+			return;
+		}
 
 		if (!$this->current_action()) {
 			return;

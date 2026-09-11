@@ -41,6 +41,15 @@ class Metasync_OpenGraph {
     private static $instance;
 
     /**
+     * Per-request memo for get_default_og_values(), keyed on post ID. See that
+     * method for why the defaults are worth memoizing and where the memo is
+     * dropped.
+     *
+     * @var array<int, array{title:string,description:string,image:string}>
+     */
+    private static $default_og_values_memo = [];
+
+    /**
      * Meta box ID
      */
     const META_BOX_ID = 'metasync_opengraph_meta_box';
@@ -54,6 +63,33 @@ class Metasync_OpenGraph {
         '_metasync_og_title',
         '_metasync_og_description',
         '_metasync_twitter_title',
+        '_metasync_twitter_description',
+    ];
+
+    /**
+     * The social title keys whose meta box default is the post title itself.
+     * Unlike the description keys — whose pre-fill (the excerpt) is content the
+     * editor curates separately — these mirror the title verbatim, so a stored
+     * value equal to it carries no information of its own: it is the pre-fill
+     * snapshot, not a customization. Reads collapse such rows to '' so the live
+     * title (which a rename keeps fresh) applies instead.
+     */
+    const TITLE_DEFAULTED_KEYS = [
+        '_metasync_og_title',
+        '_metasync_twitter_title',
+    ];
+
+    /**
+     * The social description keys whose meta box default is the resolved
+     * description (the excerpt the emitter would derive). The pre-fill persisted
+     * that default verbatim on save, so rows exist where these keys hold a copy
+     * of the excerpt as it was on save day — stale the moment the excerpt or the
+     * content it is generated from changes. Reads collapse such rows to '' so
+     * the live default applies instead. A value that differs from the default is
+     * untouched: only text the editor genuinely typed survives.
+     */
+    const DESCRIPTION_DEFAULTED_KEYS = [
+        '_metasync_og_description',
         '_metasync_twitter_description',
     ];
 
@@ -74,6 +110,17 @@ class Metasync_OpenGraph {
      * go with different locales.
      */
     const AUTO_DRAFT_PLACEHOLDER_CAP = 20;
+
+    /**
+     * Upper bound on posts held in the get_default_og_values() memo. One
+     * front-end render touches one or two posts; a back-end loop (an importer,
+     * a bulk action, a resync walking every post) would otherwise grow the
+     * memo — and the excerpt-derivation results it caches — without end for
+     * the life of the request. When full the oldest entry is dropped first:
+     * insertion order is the only order the memo has, and a dropped post
+     * simply re-derives on its next read.
+     */
+    const DEFAULT_OG_VALUES_MEMO_CAP = 10;
 
     /**
      * Per-post flag marking "this post was saved while its title was still the
@@ -226,14 +273,198 @@ class Metasync_OpenGraph {
 
     /**
      * Read one of the AUTO_DRAFT_PRONE_KEYS for a post with the placeholder
-     * collapsed to ''.
+     * collapsed to '' — and, for the title keys, a stored snapshot of the
+     * title default the pre-fill showed (the post title, or the og title for
+     * the twitter twin), and for the description keys a stored snapshot of
+     * the resolved description, collapsed too.
      *
      * @param int    $post_id
      * @param string $key
      * @return string
      */
     public static function get_social_meta($post_id, $key) {
-        return self::strip_auto_draft_title(get_post_meta($post_id, $key, true));
+        return self::strip_description_snapshot(
+            $post_id,
+            $key,
+            self::strip_title_snapshot(
+                $post_id,
+                $key,
+                self::strip_auto_draft_title(get_post_meta($post_id, $key, true))
+            )
+        );
+    }
+
+    /**
+     * Collapse a stored social title that merely mirrors the post's own title.
+     *
+     * The meta box used to pre-fill Title from the post title as a real value
+     * and persist it on save, so rows exist where `_metasync_og_title` (and the
+     * twitter twin) hold a verbatim copy of the title as it was on save day.
+     * Renaming the post then left that snapshot stale with nothing to tell it
+     * apart from a typed title. Collapsing it here — at the read, the same
+     * place the "Auto Draft" placeholder collapses — makes such a row read as
+     * unset, and the render-time fallback to the *live* title keeps the social
+     * title in step with every rename. A value that differs from the title is
+     * untouched: only text the editor genuinely typed survives.
+     *
+     * The twitter twin compares against what the og title field showed when
+     * the pre-fill was rendered — a stored og title if one is set, otherwise
+     * the same live post title — since that is exactly what the pre-fill
+     * echoed into the twitter field. Without that chain, a twitter row echoed
+     * from a typed og title would read as a deliberate override and stop
+     * following the og title it always rendered.
+     *
+     * Compared after trim on both sides: stored values pass through
+     * sanitize_text_field, which trims, so only the post title side can carry
+     * surrounding whitespace.
+     *
+     * Public and static for the same reason strip_auto_draft_title() is: the
+     * consumers live in different classes (this emitter, the precedence
+     * resolver, the plugin sync mirror, the SEO suite).
+     *
+     * @param int    $post_id
+     * @param string $key     One of TITLE_DEFAULTED_KEYS; others pass through.
+     * @param mixed  $value   Stored meta value, already placeholder-collapsed.
+     * @return string
+     */
+    public static function strip_title_snapshot($post_id, $key, $value) {
+        $value = is_scalar($value) ? (string) $value : '';
+        if ($value === '' || !in_array($key, self::TITLE_DEFAULTED_KEYS, true)) {
+            return $value;
+        }
+
+        $default = self::default_social_title($post_id, $key);
+        if ($default === '') {
+            return $value;
+        }
+
+        return trim($value) === trim($default) ? '' : $value;
+    }
+
+    /**
+     * The default a title key renders when its own field is blank: the live
+     * post title for the og key, and for the twitter key whatever the og field
+     * would show (a stored og title if one is set, otherwise the same live
+     * title) — the exact chain the meta box fallback used to pre-fill as a
+     * value and still shows as the twitter field's placeholder.
+     *
+     * social_post_title() — not the raw post_title — is what the pre-fill ever
+     * stored, and it returns '' for a still-untitled post, where there is no
+     * meaningful default to compare against anyway (such rows are the
+     * placeholder case strip_auto_draft_title() already handles).
+     *
+     * @param int    $post_id
+     * @param string $key
+     * @return string
+     */
+    private static function default_social_title($post_id, $key) {
+        $title = self::social_post_title(get_post($post_id));
+        if ($key === '_metasync_og_title') {
+            return $title;
+        }
+
+        $og = self::get_social_meta($post_id, '_metasync_og_title');
+        return $og !== '' ? $og : $title;
+    }
+
+    /**
+     * Collapse a stored social description that merely mirrors the default the
+     * meta box pre-filled.
+     *
+     * The meta box pre-filled Description from the resolved description (the
+     * manual excerpt, or one generated from the content) as a real value and
+     * persisted it on save, so rows exist where `_metasync_og_description` (and
+     * the twitter twin) hold a copy of the excerpt as it was on save day.
+     * Changing the excerpt — or the content the excerpt is generated from — then
+     * left that snapshot stale with nothing to tell it apart from a typed
+     * description. Collapsing it here — at the read, the same place the "Auto
+     * Draft" placeholder and title snapshots collapse — makes such a row read as
+     * unset, and the render-time fallback to the *live* excerpt keeps the social
+     * description in step. A value that differs from the default is untouched:
+     * only text the editor genuinely typed survives.
+     *
+     * The twitter twin compares against what the og description field showed
+     * when the pre-fill was rendered — a stored og description if one is set,
+     * otherwise the same resolved default — since that is exactly what the
+     * pre-fill echoed into the twitter field.
+     *
+     * Compared after whitespace normalization on both sides: descriptions pass
+     * through sanitize_textarea_field, which preserves line breaks, and a manual
+     * excerpt can carry them while the generated default cannot, so a snapshot
+     * and its default must be compared with runs of whitespace treated as one
+     * space rather than byte-for-byte.
+     *
+     * Public and static for the same reason strip_title_snapshot() is: the
+     * consumers live in different classes (this emitter, the precedence
+     * resolver, the plugin sync mirror, the SEO suite).
+     *
+     * @param int    $post_id
+     * @param string $key     One of DESCRIPTION_DEFAULTED_KEYS; others pass through.
+     * @param mixed  $value   Stored meta value, already placeholder-collapsed.
+     * @return string
+     */
+    public static function strip_description_snapshot($post_id, $key, $value) {
+        $value = is_scalar($value) ? (string) $value : '';
+        if ($value === '' || !in_array($key, self::DESCRIPTION_DEFAULTED_KEYS, true)) {
+            return $value;
+        }
+
+        $default = self::default_social_description($post_id, $key);
+        if ($default === '') {
+            return $value;
+        }
+
+        return self::normalize_description_compare($value) === self::normalize_description_compare($default)
+            ? ''
+            : $value;
+    }
+
+    /**
+     * The default a description key renders when its own field is blank: the
+     * resolved description for the og key, and for the twitter key whatever the
+     * og field would show (a stored og description if one is set, otherwise the
+     * same resolved default — even when that default is empty) — the exact
+     * chain the meta box fallback used to pre-fill as a value.
+     *
+     * Resolved through the emitter's own instance so it matches what actually
+     * renders; when no instance is available the default cannot be proven, so ''
+     * is returned and the caller keeps the stored value rather than risk
+     * discarding text the editor typed.
+     *
+     * @param int    $post_id
+     * @param string $key
+     * @return string
+     */
+    private static function default_social_description($post_id, $key) {
+        $instance = self::get_instance();
+        if (!$instance) {
+            return '';
+        }
+
+        $default = (string) $instance->get_default_og_values($post_id)['description'];
+        if ($key === '_metasync_og_description') {
+            return $default;
+        }
+
+        # The og chain runs for the twitter twin even when the resolved default
+        # is empty: the pre-fill echoed the og description into the twitter
+        # field whenever the og field carried a value, so that — not the empty
+        # excerpt — is the default a stored twitter echo must match to collapse.
+        $og = self::get_social_meta($post_id, '_metasync_og_description');
+        return $og !== '' ? $og : $default;
+    }
+
+    /**
+     * Normalize a description for equality comparison: trimmed, with runs of
+     * whitespace collapsed to a single space. Falls back to a plain trim when
+     * the value is not valid UTF-8 and the /u pattern therefore fails.
+     *
+     * @param string $value
+     * @return string
+     */
+    private static function normalize_description_compare($value) {
+        $normalized = preg_replace('/\s+/u', ' ', trim((string) $value));
+        return is_string($normalized) ? $normalized : trim((string) $value);
     }
 
     /**
@@ -269,6 +500,23 @@ class Metasync_OpenGraph {
     }
 
     /**
+     * Whether MetaSync social output is disabled for a post.
+     *
+     * The site-wide switch and the per-post switch both disable only MetaSync's
+     * social output; callers must leave third-party SEO output untouched.
+     *
+     * @param int $post_id Post ID.
+     * @return bool
+     */
+    public static function is_social_output_disabled($post_id = 0) {
+        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
+            return true;
+        }
+
+        return $post_id > 0 && get_post_meta($post_id, '_metasync_og_enabled', true) === '0';
+    }
+
+    /**
      * The default OG values the meta box pre-fills for a post: post title,
      * generated excerpt, and featured image. Computed with the same helpers the
      * meta box/emitter use, so a caller can compare a stored _metasync_og_* value
@@ -281,19 +529,58 @@ class Metasync_OpenGraph {
      * comparing a stored value against this default don't read the placeholder as
      * a deliberate override.
      *
+     * Memoized per request: the values are pure functions of the post, and one
+     * front-end render resolves them several times (every collapsed description
+     * read asks for the default, and the OTTO precedence walk asks again) — on
+     * page-builder content the excerpt pass alone re-runs the whole
+     * shortcode-strip pipeline each time. The save handler drops the memo
+     * before its comparisons, since save_post fires after the post row write
+     * and the comparison must see the new title/excerpt. Capped at
+     * DEFAULT_OG_VALUES_MEMO_CAP posts for loops that walk many posts in one
+     * request.
+     *
      * @param int $post_id
      * @return array{title:string,description:string,image:string}
      */
     public function get_default_og_values($post_id) {
+        $post_id = (int) $post_id;
+        // No real post: get_post(0) answers with the global post, which would
+        // then be memoized under key 0 and served for every later bogus id.
+        if ($post_id <= 0) {
+            return ['title' => '', 'description' => '', 'image' => ''];
+        }
+        if (isset(self::$default_og_values_memo[$post_id])) {
+            return self::$default_og_values_memo[$post_id];
+        }
+
         $post = get_post($post_id);
         if (!$post instanceof WP_Post) {
             return ['title' => '', 'description' => '', 'image' => ''];
         }
-        return [
+
+        if (count(self::$default_og_values_memo) >= self::DEFAULT_OG_VALUES_MEMO_CAP) {
+            // unset() on the first key, NOT array_shift(): the memo is keyed by
+            // post id, and array_shift() reindexes integer keys from zero —
+            // after one eviction the survivors would live under 0..8 and any
+            // post with a low id would be served another post's defaults.
+            unset(self::$default_og_values_memo[array_key_first(self::$default_og_values_memo)]);
+        }
+        return self::$default_og_values_memo[$post_id] = [
             'title'       => self::social_post_title($post),
             'description' => (string) $this->get_post_excerpt($post),
             'image'       => (string) $this->get_featured_image_url($post->ID),
         ];
+    }
+
+    /**
+     * Drop the get_default_og_values() memo. Called on the save path, where the
+     * just-written post row must be re-read rather than served from a memo
+     * populated earlier in the request; also the seam long-lived processes
+     * (tests, CLI) use to simulate a fresh request. Mirrors
+     * Metasync_Otto_Config::clear_cache().
+     */
+    public static function clear_default_og_values_memo() {
+        self::$default_og_values_memo = [];
     }
 
     /**
@@ -473,8 +760,10 @@ class Metasync_OpenGraph {
         wp_nonce_field('metasync_opengraph_nonce', 'metasync_opengraph_nonce');
 
         # Get existing values. The four social title/description keys are read through
-        # get_social_meta() so a row polluted with "Auto Draft" before this fix shipped
-        # shows the real pre-fill in the editor — and re-saving the post clears it.
+        # get_social_meta(), which collapses the "Auto Draft" placeholder, a stored
+        # snapshot of the post title, and a stored snapshot of the resolved
+        # description to '' — so a polluted legacy row shows an empty field (the
+        # default lives in the placeholder) and re-saving clears it.
         $og_enabled = get_post_meta($post->ID, '_metasync_og_enabled', true);
         $og_title = self::get_social_meta($post->ID, '_metasync_og_title');
         $og_description = self::get_social_meta($post->ID, '_metasync_og_description');
@@ -510,14 +799,34 @@ class Metasync_OpenGraph {
             # For new posts, default to enabled
             $og_enabled = '1';
         }
-        if (empty($og_title)) {
-            # Never pre-fill WordPress's own "Auto Draft" placeholder: it would be
-            # submitted back as a real value and persist as the social title forever.
-            $og_title = self::social_post_title($post);
-        }
-        if (empty($og_description)) {
-            $og_description = $this->get_post_excerpt($post);
-        }
+        # The post title is the default social title, but it is shown as a
+        # placeholder, never as the field's value. Submitting a page carries
+        # every value attribute to the save handler, so pre-filling the title
+        # persisted a verbatim snapshot of it — one a later rename left stale
+        # (and indistinguishable from a typed title). An empty field plus a
+        # placeholder keeps the default visible while storing nothing, and the
+        # render-time fallback to the live title tracks renames on its own.
+        # social_post_title() suppresses WordPress's own "Auto Draft"
+        # placeholder, so a brand-new post shows no misleading hint either.
+        $title_placeholder = self::social_post_title($post);
+        # What twitter:title actually renders when its own field is blank: the
+        # OG title if one is set, otherwise the same live post title. Shown as
+        # the twitter field's placeholder for the same reason as above.
+        $twitter_title_placeholder = ($og_title !== '') ? $og_title : $title_placeholder;
+        # The resolved description (the manual excerpt, or one generated from
+        # the content) is the default social description, and like the title it
+        # is shown as a placeholder, never as the field's value. Pre-filling it
+        # persisted a snapshot of the excerpt as of save day — one a later
+        # excerpt or content edit left stale, and indistinguishable from a
+        # typed description. An empty field plus a placeholder keeps the
+        # default visible while storing nothing, and the render-time fallback
+        # to the live excerpt tracks edits on its own.
+        $description_placeholder = $this->get_post_excerpt($post);
+        # What twitter:description actually renders when its own field is
+        # blank: the OG description if one is set, otherwise the same resolved
+        # default. Shown as the twitter field's placeholder for the same
+        # reason as above.
+        $twitter_description_placeholder = ($og_description !== '') ? $og_description : $description_placeholder;
         if (empty($og_url)) {
             $og_url = $this->get_canonical_url($post);
         }
@@ -527,16 +836,10 @@ class Metasync_OpenGraph {
         if (empty($og_image)) {
             $og_image = $this->get_featured_image_url($post->ID);
         }
-        
+
         # Twitter defaults
         if (empty($twitter_card)) {
             $twitter_card = 'summary_large_image';
-        }
-        if (empty($twitter_title)) {
-            $twitter_title = $og_title;
-        }
-        if (empty($twitter_description)) {
-            $twitter_description = $og_description;
         }
         if (empty($twitter_image)) {
             $twitter_image = $og_image;
@@ -553,8 +856,18 @@ class Metasync_OpenGraph {
      * Save meta box data
      */
     public function save_meta_box_data($post_id) {
+        # Drop the defaults memo before anything below can bail. This handler is
+        # hooked to save_post, so it runs for EVERY save of the post — including
+        # ones initiated by another meta box, a bulk action, or a sync flow that
+        # carries no OG nonce and would have returned early above the old flush
+        # position. Without this clear, a memo seeded earlier in the same request
+        # (a metabox render, a sync read) survives the post-row write and serves
+        # the pre-save title/excerpt to the snapshot comparisons in later
+        # save_post subscribers — the Yoast re-sync on shutdown among them.
+        self::clear_default_og_values_memo();
+
         # Check if nonce is valid
-        if (!isset($_POST['metasync_opengraph_nonce']) || 
+        if (!isset($_POST['metasync_opengraph_nonce']) ||
             !wp_verify_nonce($_POST['metasync_opengraph_nonce'], 'metasync_opengraph_nonce')) {
             return;
         }
@@ -633,7 +946,43 @@ class Metasync_OpenGraph {
                     $value = '';
                 }
 
-                update_post_meta($post_id, $field, $value);
+                # A social title identical to the post's title is the default, not a
+                # customization — whether the editor left an older pre-filled form
+                # untouched or typed the title back verbatim. Store empty so the
+                # render-time fallback to the live title applies, which is what keeps
+                # a rename from leaving a stale snapshot behind. Text that differs
+                # from the title passes through untouched. save_post fires after the
+                # post row is written, so the comparison is against the *new* title.
+                if (in_array($field, self::TITLE_DEFAULTED_KEYS, true)) {
+                    $value = self::strip_title_snapshot($post_id, $field, $value);
+                }
+
+                # A social description identical to its rendered default — the
+                # resolved excerpt the older pre-filled form carried, or the
+                # same text typed back verbatim — is the default, not a
+                # customization. Store empty so the render-time fallback to the
+                # live excerpt applies, which is what keeps an excerpt or
+                # content edit from leaving a stale snapshot behind. Text that
+                # differs from the default passes through untouched. save_post
+                # fires after the post row is written, so the comparison is
+                # against the *new* excerpt and content.
+                if (in_array($field, self::DESCRIPTION_DEFAULTED_KEYS, true)) {
+                    $value = self::strip_description_snapshot($post_id, $field, $value);
+                }
+
+                # An empty value means "no value" for every field in this box,
+                # and must not be stored as one: update_post_meta(..., '') keeps
+                # a row with an empty meta_value in the table (visible only to
+                # metadata_exists, EXISTS queries and exports, which would then
+                # report a customization where the field is merely blank). The
+                # plain read answers '' for a missing row too, so deleting is
+                # behaviour-preserving for every reader. Same pattern the
+                # untitled-flag write below has always used.
+                if ($value === '') {
+                    delete_post_meta($post_id, $field);
+                } else {
+                    update_post_meta($post_id, $field, $value);
+                }
             }
         }
     }
@@ -855,8 +1204,7 @@ class Metasync_OpenGraph {
         # Only an explicit '0' opt-out suppresses output; unset/empty counts as enabled
         # so a MetaSync-only site gets one consolidated set whether or not the meta
         # box was ever saved. Must stay in sync with will_emit().
-        $og_enabled = get_post_meta($post->ID, '_metasync_og_enabled', true);
-        if ($og_enabled === '0') {
+        if (self::is_social_output_disabled($post->ID)) {
             return;
         }
 
@@ -877,10 +1225,12 @@ class Metasync_OpenGraph {
         # a value brought in from another SEO plugin — comes from
         # Metasync_Seo_Precedence so this emitter and the conflict handler cannot
         # disagree about which value the page should carry. The resolver collapses a
-        # stored "Auto Draft" placeholder to '' as it walks the chain, so a row
-        # polluted by the meta box pre-fill falls through to OTTO's tier rather than
-        # outranking it. The literal fallbacks below the chain (post title, excerpt,
-        # featured image) stay here: they are derived at render time, not stored.
+        # stored "Auto Draft" placeholder, a snapshot of the post title, and a
+        # snapshot of the resolved description to '' as it walks the chain, so a
+        # row polluted by the meta box pre-fill falls through to the live
+        # fallback (or OTTO's tier) rather than outranking it. The literal
+        # fallbacks below the chain (post title, excerpt, featured image) stay
+        # here: they are derived at render time, not stored.
         $og_title = Metasync_Seo_Precedence::value($post->ID, Metasync_Seo_Precedence::FIELD_OG_TITLE)
             ?: self::social_post_title($post);
         $og_description = Metasync_Seo_Precedence::value($post->ID, Metasync_Seo_Precedence::FIELD_OG_DESCRIPTION)
@@ -1123,6 +1473,10 @@ class Metasync_OpenGraph {
             return;
         }
 
+        if (self::is_social_output_disabled($post->ID)) {
+            return;
+        }
+
         $og_type = get_post_meta($post->ID, '_metasync_og_type', true) ?: 'article';
         if ($og_type !== 'article') {
             return;
@@ -1245,6 +1599,10 @@ class Metasync_OpenGraph {
         # Yoast: remove individual presenters based on which MetaSync features are enabled
         if ($yoast_active && ($article_timestamps_enabled || $article_author_enabled)) {
             add_filter('wpseo_frontend_presenters', function( $presenters ) use ( $article_timestamps_enabled, $article_author_enabled ) {
+                $post_id = function_exists('get_queried_object_id') ? (int) get_queried_object_id() : 0;
+                if (self::is_social_output_disabled($post_id)) {
+                    return $presenters;
+                }
                 foreach ( $presenters as $key => $presenter ) {
                     if ( $article_timestamps_enabled && (
                         $presenter instanceof \Yoast\WP\SEO\Presenters\Open_Graph\Article_Published_Time_Presenter ||
@@ -1266,18 +1624,22 @@ class Metasync_OpenGraph {
         # where {property} is the OG property with colons replaced by underscores.
         # Returning false causes tag() to skip output (empty($content) check).
         if ($rank_math_active) {
+            $keep_third_party = function ($value) {
+                $post_id = function_exists('get_queried_object_id') ? (int) get_queried_object_id() : 0;
+                return self::is_social_output_disabled($post_id) ? $value : false;
+            };
             if ($article_timestamps_enabled) {
-                add_filter('rank_math/opengraph/facebook/article_published_time', '__return_false', 999);
-                add_filter('rank_math/opengraph/facebook/article_modified_time', '__return_false', 999);
+                add_filter('rank_math/opengraph/facebook/article_published_time', $keep_third_party, 999);
+                add_filter('rank_math/opengraph/facebook/article_modified_time', $keep_third_party, 999);
             }
             if ($article_tags_enabled) {
-                add_filter('rank_math/opengraph/facebook/article_tag', '__return_false', 999);
+                add_filter('rank_math/opengraph/facebook/article_tag', $keep_third_party, 999);
             }
             if ($article_author_enabled) {
-                add_filter('rank_math/opengraph/facebook/article_author', '__return_false', 999);
+                add_filter('rank_math/opengraph/facebook/article_author', $keep_third_party, 999);
             }
             if ($article_section_enabled) {
-                add_filter('rank_math/opengraph/facebook/article_section', '__return_false', 999);
+                add_filter('rank_math/opengraph/facebook/article_section', $keep_third_party, 999);
             }
         }
     }

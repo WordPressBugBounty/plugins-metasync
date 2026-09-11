@@ -42,7 +42,6 @@ class Metasync_Admin
     const SECTION_SEO_CONTROLS_ADVANCED = "seo_controls_advanced";
     const SECTION_SEO_CONTROLS_INSTANT_INDEX = "seo_controls_instant_index";
     const SECTION_PLUGIN_VISIBILITY     = "plugin_visibility_settings";
-    const SECTION_BREADCRUMBS           = "breadcrumbs_settings";
     const SECTION_LLMS_TXT              = "llms_txt_settings";
 
     /**

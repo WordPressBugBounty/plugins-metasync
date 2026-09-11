@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.6.25
+ * Version:           2.6.26
  * Requires PHP:      8.1
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
@@ -47,7 +47,7 @@ Metasync_Feature_Flags::register_invalidation();
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.6.25';
+$metasync_version = '2.6.26';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -366,7 +366,13 @@ function metasync_migrate_physical_sitemaps()
         $content = @file_get_contents($file);
         if (false !== $content) {
             $tkey = 'metasync_vsm_' . md5($bn);
-            set_transient($tkey, $content, 30 * DAY_IN_SECONDS);
+            // The news sitemap's entries are only valid inside Google News'
+            // 48-hour window, so it must not be migrated in under a 30-day
+            // TTL — that would re-introduce the staleness the generator's
+            // own bounded TTL exists to prevent. Regenerate-on-miss rebuilds
+            // it with a fresh date_query when this expires.
+            $ttl = ('news-sitemap.xml' === $bn) ? (int) (DAY_IN_SECONDS / 4) : 30 * DAY_IN_SECONDS;
+            set_transient($tkey, $content, $ttl);
             if (false !== get_transient($tkey)) {
                 @unlink($file);
                 $virtual_index[$bn] = $tkey;
@@ -596,6 +602,11 @@ function metasync_check_whitelabel_on_admin()
     $checked = true;
 
     require_once plugin_dir_path(__FILE__) . 'includes/class-metasync-activator.php';
+
+    // Surface a persistently failing White Label import instead of
+    // retrying it silently on every admin request.
+    add_action('admin_notices', array('Metasync_Activator', 'render_whitelabel_import_failure_notice'));
+
     Metasync_Activator::check_whitelabel_settings_update();
 }
 

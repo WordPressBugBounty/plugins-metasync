@@ -744,27 +744,34 @@ class MCP_Tool_Get_News_Sitemap extends MCP_Tool_Base {
     }
 
     /**
-     * Read sitemap content from physical file, transient, or legacy option.
+     * Read sitemap content through the generator's shared accessor.
+     *
+     * Delegating keeps this tool reporting the same document the served route
+     * and the admin screen do. It used to prefer a physical file at ABSPATH
+     * over the transient — the opposite of the admin screen — so a site
+     * holding both handed each consumer different content.
      *
      * @param string $filename The sitemap filename.
      * @return string XML content or empty string.
      */
     private function get_sitemap_content($filename)
     {
-        // 1. Physical file
-        $physical_path = ABSPATH . $filename;
-        if (file_exists($physical_path) && is_readable($physical_path)) {
-            return file_get_contents($physical_path);
+        if (class_exists('Metasync_Sitemap_Generator')) {
+            $generator = new Metasync_Sitemap_Generator();
+            $content = $generator->get_sitemap_document($filename);
+            if (false !== $content) {
+                return $content;
+            }
+            return '';
         }
 
-        // 2. Transient-based virtual storage
-        $cache_key = 'metasync_vsm_' . md5($filename);
-        $content = get_transient($cache_key);
+        // Generator unavailable: fall back to reading virtual storage directly
+        // rather than reporting the sitemap missing.
+        $content = get_transient('metasync_vsm_' . md5($filename));
         if (false !== $content) {
             return $content;
         }
 
-        // 3. Legacy option storage
         $virtual_sitemaps = get_option('metasync_sitemap_virtual', []);
         if (isset($virtual_sitemaps[$filename])) {
             return $virtual_sitemaps[$filename];
@@ -812,27 +819,34 @@ class MCP_Tool_Get_Video_Sitemap extends MCP_Tool_Base {
     }
 
     /**
-     * Read sitemap content from physical file, transient, or legacy option.
+     * Read sitemap content through the generator's shared accessor.
+     *
+     * Delegating keeps this tool reporting the same document the served route
+     * and the admin screen do. It used to prefer a physical file at ABSPATH
+     * over the transient — the opposite of the admin screen — so a site
+     * holding both handed each consumer different content.
      *
      * @param string $filename The sitemap filename.
      * @return string XML content or empty string.
      */
     private function get_sitemap_content($filename)
     {
-        // 1. Physical file
-        $physical_path = ABSPATH . $filename;
-        if (file_exists($physical_path) && is_readable($physical_path)) {
-            return file_get_contents($physical_path);
+        if (class_exists('Metasync_Sitemap_Generator')) {
+            $generator = new Metasync_Sitemap_Generator();
+            $content = $generator->get_sitemap_document($filename);
+            if (false !== $content) {
+                return $content;
+            }
+            return '';
         }
 
-        // 2. Transient-based virtual storage
-        $cache_key = 'metasync_vsm_' . md5($filename);
-        $content = get_transient($cache_key);
+        // Generator unavailable: fall back to reading virtual storage directly
+        // rather than reporting the sitemap missing.
+        $content = get_transient('metasync_vsm_' . md5($filename));
         if (false !== $content) {
             return $content;
         }
 
-        // 3. Legacy option storage
         $virtual_sitemaps = get_option('metasync_sitemap_virtual', []);
         if (isset($virtual_sitemaps[$filename])) {
             return $virtual_sitemaps[$filename];

@@ -133,7 +133,14 @@ class Metasync_Breadcrumbs {
             $saved = array();
         }
 
-        return wp_parse_args($saved, $defaults);
+        $settings = wp_parse_args($saved, $defaults);
+
+        // Legacy accordion-era separators may be stored as HTML entities
+        // ('&raquo;'). CSS and attribute contexts never decode entities, so
+        // the trail would render the entity text literally — normalize here.
+        $settings['separator'] = html_entity_decode((string) $settings['separator'], ENT_QUOTES, 'UTF-8');
+
+        return $settings;
     }
 
     /**
@@ -618,9 +625,15 @@ class Metasync_Breadcrumbs {
             $prefix_html = '<span class="metasync-breadcrumb__prefix">' . esc_html($prefix_text) . '</span>';
         }
 
-        // Add dynamic separator CSS for the configured separator character
-        $separator_escaped = esc_attr($separator);
-        $separator_style = '<style>.metasync-breadcrumb__item[data-separator]::after { content: " ' . $separator_escaped . ' "; }</style>';
+        // Add dynamic separator CSS for the configured separator character.
+        // <style> is a raw-text element: HTML entities are not decoded there,
+        // so esc_attr() would print "&gt;" literally for the ">" preset.
+        // Escape for a CSS string (backslash + double quote) instead.
+        $separator_css = str_replace(array('\\', '"'), array('\\\\', '\\"'), $separator);
+        // A stored "</" sequence would close the raw-text <style> element
+        // early. Break the token with a CSS escape ("<\/" still renders "</").
+        $separator_css = preg_replace('#</#', '<\\/', $separator_css);
+        $separator_style = '<style>.metasync-breadcrumb__item[data-separator]::after { content: " ' . $separator_css . ' "; }</style>';
 
         $html = $separator_style
             . '<nav class="metasync-breadcrumb" aria-label="breadcrumb">'

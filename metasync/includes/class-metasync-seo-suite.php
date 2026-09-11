@@ -171,7 +171,30 @@ class Metasync_Seo_Suite
             && defined('Metasync_OpenGraph::AUTO_DRAFT_PRONE_KEYS')
             && in_array($key, Metasync_OpenGraph::AUTO_DRAFT_PRONE_KEYS, true)
         ) {
-            return Metasync_OpenGraph::strip_auto_draft_title($value);
+            $value = Metasync_OpenGraph::strip_auto_draft_title($value);
+        }
+        // A social title that merely mirrors the post title is the old pre-fill's
+        // snapshot — stale the moment the post is renamed — not a customization.
+        // Collapsed so the field renders empty (the default stays visible as the
+        // placeholder) and the shared save handler stores nothing for it.
+        // @phpstan-ignore-next-line function.alreadyNarrowedType
+        if (method_exists('Metasync_OpenGraph', 'strip_title_snapshot')
+            && defined('Metasync_OpenGraph::TITLE_DEFAULTED_KEYS')
+            && in_array($key, Metasync_OpenGraph::TITLE_DEFAULTED_KEYS, true)
+            && is_string($value)
+        ) {
+            $value = Metasync_OpenGraph::strip_title_snapshot($post_id, $key, $value);
+        }
+        // A social description that merely mirrors the resolved excerpt is the
+        // same kind of snapshot — stale the moment the excerpt or content
+        // changes — collapsed for the same reason as the title above.
+        // @phpstan-ignore-next-line function.alreadyNarrowedType
+        if (method_exists('Metasync_OpenGraph', 'strip_description_snapshot')
+            && defined('Metasync_OpenGraph::DESCRIPTION_DEFAULTED_KEYS')
+            && in_array($key, Metasync_OpenGraph::DESCRIPTION_DEFAULTED_KEYS, true)
+            && is_string($value)
+        ) {
+            $value = Metasync_OpenGraph::strip_description_snapshot($post_id, $key, $value);
         }
         return (string) $value;
     }
@@ -305,8 +328,13 @@ class Metasync_Seo_Suite
         if ($opengraph) {
             $og_defaults = $opengraph->get_default_og_values($id);
         }
-        $og_title = self::v($id, '_metasync_og_title') ?: $og_defaults['title'];
-        $og_desc  = self::v($id, '_metasync_og_description') ?: $og_defaults['description'];
+        // Social titles and descriptions render placeholder-only: the default
+        // (the post title, the resolved excerpt) stays visible in the
+        // placeholder but is never a form value, so submitting the page cannot
+        // persist a snapshot of it. Images keep their computed default as a
+        // real value, matching the standalone OG box.
+        $og_title = self::v($id, '_metasync_og_title');
+        $og_desc  = self::v($id, '_metasync_og_description');
         $og_image = self::v($id, '_metasync_og_image') ?: $og_defaults['image'];
         $og_type  = self::v($id, '_metasync_og_type') ?: 'article';
         $og_url   = self::v($id, '_metasync_og_url');
@@ -315,8 +343,15 @@ class Metasync_Seo_Suite
         }
         $tw_card  = self::v($id, '_metasync_twitter_card') ?: 'summary_large_image';
         $tw_site  = self::v($id, '_metasync_twitter_site');
-        $tw_title = self::v($id, '_metasync_twitter_title') ?: $og_title;
-        $tw_desc  = self::v($id, '_metasync_twitter_description') ?: $og_desc;
+        $tw_title = self::v($id, '_metasync_twitter_title');
+        // Placeholder-only like the standalone box: when no twitter title is
+        // stored the placeholder shows the og title if one is set, else the
+        // default (post) title — the exact chain the standalone OG box uses.
+        $tw_title_placeholder = ($og_title !== '') ? $og_title : $og_defaults['title'];
+        // Same chain for the twitter description's placeholder: the og
+        // description if one is set, else the resolved excerpt default.
+        $tw_desc_placeholder = ($og_desc !== '') ? $og_desc : $og_defaults['description'];
+        $tw_desc  = self::v($id, '_metasync_twitter_description');
         $tw_image = self::v($id, '_metasync_twitter_image') ?: $og_image;
         $tw_alt   = self::v($id, '_metasync_twitter_image_alt');
         $tw_app_iphone = self::v($id, '_metasync_twitter_app_id_iphone');
@@ -525,8 +560,8 @@ class Metasync_Seo_Suite
                   </div>
 
                   <div class="subhead"><span class="sq"></span> Open Graph</div>
-                  <div class="field"><div class="lbl"><span>Title (og:title)</span></div><input class="ctrl" name="_metasync_og_title" maxlength="60" value="<?php echo $a($og_title); ?>" placeholder="<?php echo $a(get_the_title($id)); ?>" oninput="mssSocial()"></div>
-                  <div class="field"><div class="lbl"><span>Description (og:description)</span></div><textarea class="ctrl" name="_metasync_og_description" maxlength="155" placeholder="Post excerpt&hellip;" oninput="mssSocial()"><?php echo esc_textarea($og_desc); ?></textarea></div>
+                  <div class="field"><div class="lbl"><span>Title (og:title)</span></div><input class="ctrl" name="_metasync_og_title" maxlength="60" value="<?php echo $a($og_title); ?>" placeholder="<?php echo $a($og_defaults['title']); ?>" oninput="mssSocial()"></div>
+                  <div class="field"><div class="lbl"><span>Description (og:description)</span></div><textarea class="ctrl" name="_metasync_og_description" maxlength="155" placeholder="<?php echo $a($og_defaults['description']); ?>" oninput="mssSocial()"><?php echo esc_textarea($og_desc); ?></textarea></div>
                   <div class="field"><div class="lbl"><span>Image (og:image)</span></div>
                     <div class="mss-imgrow"><input class="ctrl ogimg" type="url" name="_metasync_og_image" value="<?php echo $a($og_image); ?>" placeholder="https://example.com/image.jpg" oninput="mssSocial()"><button class="btn ghost sm mss-pick" data-target=".ogimg" type="button">Select</button></div>
                     <div class="hint">Recommended 1200&times;630px.</div></div>
@@ -550,9 +585,9 @@ class Metasync_Seo_Suite
                     </select></div>
                   <div class="row">
                     <div class="field"><div class="lbl"><span>Twitter Site</span></div><input class="ctrl" name="_metasync_twitter_site" value="<?php echo $a($tw_site); ?>" placeholder="@yoursite"></div>
-                    <div class="field"><div class="lbl"><span>Twitter Title</span></div><input class="ctrl" name="_metasync_twitter_title" maxlength="70" value="<?php echo $a($tw_title); ?>" placeholder="Falls back to OG title" oninput="mssSocial()"></div>
+                    <div class="field"><div class="lbl"><span>Twitter Title</span></div><input class="ctrl" name="_metasync_twitter_title" maxlength="70" value="<?php echo $a($tw_title); ?>" placeholder="<?php echo $a($tw_title_placeholder); ?>" oninput="mssSocial()"></div>
                   </div>
-                  <div class="field"><div class="lbl"><span>Twitter Description</span></div><textarea class="ctrl" name="_metasync_twitter_description" maxlength="200" placeholder="Falls back to OG description" oninput="mssSocial()"><?php echo esc_textarea($tw_desc); ?></textarea></div>
+                  <div class="field"><div class="lbl"><span>Twitter Description</span></div><textarea class="ctrl" name="_metasync_twitter_description" maxlength="200" placeholder="<?php echo $a($tw_desc_placeholder); ?>" oninput="mssSocial()"><?php echo esc_textarea($tw_desc); ?></textarea></div>
                   <div class="row">
                     <div class="field"><div class="lbl"><span>Twitter Image</span></div>
                       <div class="mss-imgrow"><input class="ctrl twimg" type="url" name="_metasync_twitter_image" value="<?php echo $a($tw_image); ?>" placeholder="Falls back to OG image" oninput="mssSocial()"><button class="btn ghost sm mss-pick" data-target=".twimg" type="button">Select</button></div></div>
@@ -725,7 +760,8 @@ class Metasync_Seo_Suite
             var seoT=root.querySelector('.seoT'), seoD=root.querySelector('.seoD');
             var ogTitleEl=byName('_metasync_og_title');
             var baseTitle=mssFld('_metasync_og_title') || (ogTitleEl&&ogTitleEl.getAttribute('placeholder')) || (seoT&&seoT.value.trim()) || 'Untitled';
-            var baseDesc =mssFld('_metasync_og_description') || (seoD&&seoD.value.trim()) || 'No description set.';
+            var ogDescEl=byName('_metasync_og_description');
+            var baseDesc =mssFld('_metasync_og_description') || (ogDescEl&&ogDescEl.getAttribute('placeholder')) || (seoD&&seoD.value.trim()) || 'No description set.';
             var baseImg  =mssFld('_metasync_og_image');
             var twTitle=mssFld('_metasync_twitter_title');
             var twDesc =mssFld('_metasync_twitter_description');

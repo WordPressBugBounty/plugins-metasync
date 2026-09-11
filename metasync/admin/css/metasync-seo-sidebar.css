@@ -103,48 +103,6 @@
     fill: currentColor;
 }
 
-/* URL Slug Field */
-.metasync-url-slug-field .components-text-control__input {
-    font-family: 'SF Mono', Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-    font-size: 13px;
-}
-
-/* Permalink Preview */
-.metasync-permalink-preview {
-    margin-top: 10px;
-    padding: 10px 12px;
-    background-color: #f6f7f7;
-    border: 1px solid #e0e0e0;
-    border-radius: 4px;
-    font-size: 12px;
-    line-height: 1.5;
-    word-break: break-all;
-}
-
-.metasync-permalink-label {
-    color: #757575;
-    font-weight: 500;
-}
-
-.metasync-permalink-link {
-    color: #007cba;
-    text-decoration: none;
-    display: inline;
-}
-
-.metasync-permalink-link:hover {
-    text-decoration: underline;
-}
-
-.metasync-permalink-base {
-    color: #757575;
-}
-
-.metasync-permalink-slug {
-    color: #1e1e1e;
-    font-weight: 600;
-}
-
 /* OTTO Prefilled Indicator */
 .metasync-prefilled-otto .components-text-control__input,
 .metasync-prefilled-otto .components-textarea-control__input {
@@ -340,11 +298,7 @@
     .metasync-char-counter-text {
         font-size: 11px;
     }
-    
-    .metasync-permalink-preview {
-        font-size: 11px;
-    }
-    
+
     .metasync-serp-header {
         flex-direction: column;
         align-items: flex-start;

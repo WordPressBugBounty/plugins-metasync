@@ -99,6 +99,23 @@ class Metasync_Sitemap_Generator
                 add_filter('sanitize_option_rewrite_rules', array($this, 'strip_dynamic_rewrite_rules'));
                 add_filter('redirect_canonical', array($this, 'disable_canonical_redirect_for_sitemaps'));
             }
+
+            // Reconcile stray physical sitemap files on any request that runs
+            // PHP, not just one that reaches our sitemap route.
+            //
+            // WordPress' own rewrite block ends with
+            // `RewriteCond %{REQUEST_FILENAME} !-f`, so on Apache a physical
+            // news-sitemap.xml at ABSPATH is served statically and index.php
+            // is never loaded — serve_virtual_sitemap() and the absorption in
+            // get_sitemap_document() are both unreachable for exactly the
+            // request that needs them. Sweeping from `init` closes that window:
+            // any page view on the site absorbs the file, so the next crawler
+            // fetch gets the live document.
+            static $absorb_hook_registered = false;
+            if (!$absorb_hook_registered) {
+                $absorb_hook_registered = true;
+                add_action('init', array($this, 'absorb_stray_physical_sitemaps'), 20);
+            }
         }
 
         $this->register_cache_bust_hooks();
@@ -1931,6 +1948,39 @@ class Metasync_Sitemap_Generator
     }
 
     /**
+     * How long a stored sitemap document stays valid.
+     *
+     * Most sitemaps describe content that only changes when the site changes,
+     * and bust_sitemap_cache() already clears them on any post or term edit,
+     * so a long TTL is right for them.
+     *
+     * The news sitemap is different: Google News only accepts entries from the
+     * last 48 hours, and the generator applies that window once, at build
+     * time, via a `date_query`. Nothing re-evaluates it as the clock advances.
+     * On a quiet site — a publisher pausing over a weekend, or any stretch
+     * with no content edits to trigger a bust — a 30-day cache kept
+     * advertising Friday's articles as news well past the window Google
+     * accepts. Expiring inside that window hands the next request to the
+     * existing regenerate-on-miss path, which rebuilds with a fresh
+     * `date_query`. No cron needed.
+     *
+     * @param string $filename The sitemap filename.
+     * @return int TTL in seconds.
+     */
+    private function get_sitemap_cache_ttl($filename)
+    {
+        if ('news-sitemap.xml' === $filename) {
+            // Comfortably inside the 48-hour window, so a served document is
+            // always rebuilt while its own entries are still eligible.
+            // Expressed in DAY_IN_SECONDS because that is the only time
+            // constant this class relies on being defined.
+            return (int) (DAY_IN_SECONDS / 4);
+        }
+
+        return 30 * DAY_IN_SECONDS;
+    }
+
+    /**
      * Store virtual sitemap file content using individual transients.
      *
      * The transient is the only durable copy of a virtual sitemap, so a failed
@@ -1944,7 +1994,7 @@ class Metasync_Sitemap_Generator
     public function store_virtual_sitemap_file($filename, $content)
     {
         $cache_key = 'metasync_vsm_' . md5($filename);
-        $stored = set_transient($cache_key, $content, 30 * DAY_IN_SECONDS);
+        $stored = set_transient($cache_key, $content, $this->get_sitemap_cache_ttl($filename));
 
         if (false === $stored) {
             // set_transient() also returns false when the stored value is
@@ -2000,6 +2050,177 @@ class Metasync_Sitemap_Generator
     }
 
     /**
+     * Single source of truth for a sitemap document's content.
+     *
+     * Every consumer — the served route, the admin status tiles, the MCP
+     * tools — must read through this accessor. They used to each implement
+     * their own precedence and disagreed: the served route preferred the
+     * physical file while the admin screen preferred the transient, so a site
+     * holding both counted one document in the dashboard and handed crawlers
+     * the other. No amount of regeneration reconciles that, because each side
+     * keeps reading its own preferred copy.
+     *
+     * Transients win. Virtual mode is the supported storage model — the
+     * generator has written nothing to disk since the physical writer was
+     * retired — so a file at ABSPATH is always a foreign artifact: a host
+     * backup/restore, a rollback to an older build, or a hand-placed copy.
+     * Rather than let it shadow live content, absorb it the way activation's
+     * migration would have: adopt it only when we have no transient, and
+     * remove it once its content is safely stored.
+     *
+     * @param string $filename The sitemap filename (e.g. 'news-sitemap.xml').
+     * @return string|false Content, or false when no source holds this file.
+     */
+    public function get_sitemap_document($filename)
+    {
+        $content = $this->get_virtual_sitemap_file($filename);
+        if (false !== $content) {
+            // A physical copy alongside live virtual content is exactly the
+            // divergence that made the dashboard and crawlers disagree. The
+            // transient is authoritative, so retire the file.
+            $this->absorb_physical_sitemap($filename, false);
+            return $content;
+        }
+
+        // No transient: a physical file is the only copy left, so adopt it
+        // instead of reporting the sitemap missing.
+        return $this->absorb_physical_sitemap($filename, true);
+    }
+
+    /**
+     * Reconcile a stray physical sitemap file with virtual storage.
+     *
+     * Activation runs metasync_migrate_physical_sitemaps() once, so any file
+     * appearing afterwards used to shadow the transient forever. Calling this
+     * from the read path closes that window: the file is either adopted (when
+     * it is the only copy) or removed (when a transient already holds the
+     * live document).
+     *
+     * @param string $filename The sitemap filename.
+     * @param bool   $adopt    Store the file's content before removing it.
+     * @return string|false Adopted content, or false when nothing was adopted.
+     */
+    private function absorb_physical_sitemap($filename, $adopt)
+    {
+        // Reject traversal before touching the filesystem: $filename reaches
+        // the served route from a query var.
+        $basename = basename($filename);
+        if ($basename !== $filename || '' === $basename) {
+            return false;
+        }
+
+        $physical_path = ABSPATH . $basename;
+        if (!file_exists($physical_path) || !is_readable($physical_path)) {
+            return false;
+        }
+
+        if (!$adopt) {
+            $this->safe_unlink($physical_path);
+            return false;
+        }
+
+        $content = file_get_contents($physical_path);
+        if (false === $content) {
+            return false;
+        }
+
+        // Only drop the file once its content is durably stored, so a failed
+        // write can never destroy the site's last copy of the sitemap.
+        if ($this->store_virtual_sitemap_file($basename, $content)) {
+            $this->safe_unlink($physical_path);
+        }
+
+        return $content;
+    }
+
+    /**
+     * Absorb stray physical sitemap files, from a hook that always runs PHP.
+     *
+     * get_sitemap_document() reconciles a stray file whenever something reads
+     * that document, but on Apache the one request that most needs it never
+     * arrives: WordPress' rewrite block ends with
+     * `RewriteCond %{REQUEST_FILENAME} !-f`, so a physical news-sitemap.xml at
+     * ABSPATH is served straight off disk and index.php is never loaded. The
+     * file would then shadow live content until an admin happened to open the
+     * XML Sitemap screen. Running from `init` means any page view on the site
+     * closes the window instead.
+     *
+     * Kept deliberately cheap, because this runs on ordinary requests:
+     *
+     *  - throttled to once per hour per site via a transient, so the common
+     *    case costs one cache read and nothing else;
+     *  - only ever looks at the handful of filenames MetaSync itself owns —
+     *    never a glob, and never a third-party provider's sitemap;
+     *  - stats the filesystem before reading any transient, so a site with no
+     *    stray files (the normal state) does a few file_exists() calls an hour
+     *    and no document reads at all;
+     *  - self-limiting, since absorbing a file removes it.
+     *
+     * @return void
+     */
+    public function absorb_stray_physical_sitemaps()
+    {
+        // Cheap cross-request throttle. A miss here is the only path that
+        // touches the filesystem. Expressed in DAY_IN_SECONDS because that is
+        // the only time constant this class relies on being defined.
+        $throttle_key = 'metasync_sitemap_absorb_sweep';
+        if (false !== get_transient($throttle_key)) {
+            return;
+        }
+        set_transient($throttle_key, 1, (int) (DAY_IN_SECONDS / 24));
+
+        foreach ($this->get_owned_sitemap_filenames() as $filename) {
+            // Stat first: the overwhelmingly common case is that no stray file
+            // exists, and that must not cost a transient read per filename.
+            if (!file_exists(ABSPATH . $filename)) {
+                continue;
+            }
+
+            // Reading through the accessor is what performs the reconciliation:
+            // it adopts the file when it is the only copy and removes it when a
+            // transient already holds the live document.
+            $this->get_sitemap_document($filename);
+        }
+    }
+
+    /**
+     * The sitemap filenames MetaSync itself serves.
+     *
+     * Used by the absorption sweep so it can never disturb a file belonging to
+     * another sitemap provider. News and video are fixed; the general sitemap's
+     * chunk names come from our own tracking option and the virtual index,
+     * which together describe every document this plugin has produced.
+     *
+     * @return string[] Unique basenames, no paths.
+     */
+    private function get_owned_sitemap_filenames()
+    {
+        $names = array('news-sitemap.xml', 'video-sitemap.xml', 'sitemap.xml', 'sitemap_index.xml');
+
+        $tracked = get_option('metasync_sitemap_files', array());
+        if (is_array($tracked)) {
+            foreach ($tracked as $file) {
+                if (is_array($file) && !empty($file['filename']) && is_string($file['filename'])) {
+                    $names[] = $file['filename'];
+                }
+            }
+        }
+
+        $virtual_index = get_option('metasync_sitemap_virtual_index', array());
+        if (is_array($virtual_index)) {
+            foreach (array_keys($virtual_index) as $filename) {
+                if (is_string($filename) && '' !== $filename) {
+                    $names[] = $filename;
+                }
+            }
+        }
+
+        // basename() guards against a tracking option that somehow carries a
+        // path; absorb_physical_sitemap() rejects those anyway.
+        return array_unique(array_map('basename', $names));
+    }
+
+    /**
      * Check if virtual mode is active
      *
      * @return bool True if virtual mode is active
@@ -2015,8 +2236,10 @@ class Metasync_Sitemap_Generator
      * Resolves the requested sitemap filename in two ways: first via the
      * `metasync_sitemap` query var populated by our rewrite rules (the primary
      * path), and second via REQUEST_URI parsing (kept as a fallback for sites
-     * with rewrites disabled). When a physical file exists it is streamed
-     * directly by PHP — letting the web server serve it is unsafe because some
+     * with rewrites disabled). Content is read through get_sitemap_document(),
+     * the shared accessor the admin screen and MCP tools also use, so every
+     * consumer reports the same document. It streams from PHP rather than
+     * leaving static files to the web server, which is unsafe because some
      * nginx configurations 403 static .xml files.
      */
     public function serve_virtual_sitemap()
@@ -2057,21 +2280,12 @@ class Metasync_Sitemap_Generator
             return;
         }
 
-        // If a physical file exists, stream it ourselves. We cannot rely on the
-        // web server to serve it: on some nginx configurations direct .xml
+        // Read through the shared accessor so the served document and the
+        // admin status tiles can never derive from different sources. It also
+        // absorbs a stray physical file at ABSPATH — we cannot rely on the web
+        // server to serve one anyway: on some nginx configurations direct .xml
         // requests are 403'd before PHP is involved.
-        $physical_path = ABSPATH . $filename;
-        if (file_exists($physical_path) && is_readable($physical_path)) {
-            metasync_discard_buffered_output();
-            header('Content-Type: application/xml; charset=utf-8');
-            header('X-Robots-Tag: noindex');
-            status_header(200);
-            readfile($physical_path);
-            exit;
-        }
-
-        // Check if we have virtual content
-        $virtual_content = $this->get_virtual_sitemap_file($filename);
+        $virtual_content = $this->get_sitemap_document($filename);
 
         // Regenerate-on-miss: if the transient expired, rebuild on the spot
         // instead of returning 404. Only regenerate for known sitemaps to

@@ -95,14 +95,6 @@ class Metasync_Settings_Fields {
                     'otto_bot_statistics_link'
                 )
             ),
-            'breadcrumbs' => array(
-                'title' => 'Breadcrumbs',
-                'description' => 'Configure breadcrumb navigation display',
-                'icon' => 'format-links',
-                'priority' => 35,
-                'default_open' => false,
-                'render_callback' => array($this, 'render_breadcrumbs_section')
-            ),
             'open_graph' => array(
                 'title' => 'Open Graph',
                 'description' => 'Control which Open Graph and article meta tags are output',
@@ -2355,13 +2347,19 @@ class Metasync_Settings_Fields {
 
     /**
      * Render breadcrumbs settings section
+     *
+     * Rendered by the dedicated Breadcrumbs admin page. The three checkbox
+     * fields each ship a hidden companion input so their keys are always
+     * present in the submitted payload, which lets the save handlers treat an
+     * absent key as "this form does not manage that field" instead of
+     * "unchecked".
      */
     public function render_breadcrumbs_section() {
         $options = Metasync::get_option('breadcrumbs', array());
 
         $defaults = array(
             'enabled' => true,
-            'separator' => '&raquo;',
+            'separator' => '»',
             'home_label' => 'Home',
             'home_url' => '',
             'show_current_page' => true,
@@ -2371,12 +2369,24 @@ class Metasync_Settings_Fields {
         );
 
         $options = wp_parse_args($options, $defaults);
+
+        # Older builds stored the separator as an HTML entity (e.g. "&raquo;").
+        # Decode before matching so the saved choice still lights up its radio.
+        $separator_presets = array('»', '/', '>', '·');
+        $separator_current = html_entity_decode((string) $options['separator'], ENT_QUOTES, 'UTF-8');
+        if ($separator_current === '') {
+            $separator_current = '»';
+        }
+        # A separator that predates the radio picker (or came from the old free
+        # text field) gets its own option so it stays selected and round-trips.
+        $separator_custom = in_array($separator_current, $separator_presets, true) ? '' : $separator_current;
         ?>
         <div style="background: var(--dashboard-card-bg); padding: 20px; border-radius: 8px;">
 
             <!-- Enable/Disable -->
             <div style="margin-bottom: 24px;">
                 <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                    <input type="hidden" name="metasync_options[breadcrumbs][enabled]" value="0">
                     <input type="checkbox"
                            name="metasync_options[breadcrumbs][enabled]"
                            value="1"
@@ -2393,6 +2403,7 @@ class Metasync_Settings_Fields {
             <!-- Disable Schema Markup -->
             <div style="margin-bottom: 24px;">
                 <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                    <input type="hidden" name="metasync_options[breadcrumbs][disable_schema]" value="0">
                     <input type="checkbox"
                            name="metasync_options[breadcrumbs][disable_schema]"
                            value="1"
@@ -2412,22 +2423,19 @@ class Metasync_Settings_Fields {
                     Separator Character
                 </label>
                 <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                    <?php foreach ($separator_presets as $separator_option) : ?>
                     <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input type="radio" name="metasync_options[breadcrumbs][separator]" value="»" <?php checked($options['separator'], '»'); ?>>
-                        <span style="color: var(--dashboard-text);">»</span>
+                        <input type="radio" name="metasync_options[breadcrumbs][separator]" value="<?php echo esc_attr($separator_option); ?>" <?php checked($separator_current, $separator_option); ?>>
+                        <span style="color: var(--dashboard-text);"><?php echo esc_html($separator_option); ?></span>
                     </label>
-                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input type="radio" name="metasync_options[breadcrumbs][separator]" value="/" <?php checked($options['separator'], '/'); ?>>
-                        <span style="color: var(--dashboard-text);">/</span>
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input type="radio" name="metasync_options[breadcrumbs][separator]" value=">" <?php checked($options['separator'], '>'); ?>>
-                        <span style="color: var(--dashboard-text);">></span>
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input type="radio" name="metasync_options[breadcrumbs][separator]" value="·" <?php checked($options['separator'], '·'); ?>>
-                        <span style="color: var(--dashboard-text);">·</span>
-                    </label>
+                    <?php endforeach; ?>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="radio" id="metasync-breadcrumb-separator-custom" name="metasync_options[breadcrumbs][separator]" value="<?php echo esc_attr($separator_custom); ?>" <?php checked($separator_custom !== ''); ?>>
+                            <span style="color: var(--dashboard-text);">Custom</span>
+                        </label>
+                        <input type="text" value="<?php echo esc_attr($separator_custom); ?>" placeholder="~" maxlength="16" aria-label="Custom separator character" oninput="var r=document.getElementById('metasync-breadcrumb-separator-custom');r.value=this.value;r.checked=true" style="width: 80px; padding: 8px 10px; background: var(--dashboard-input-bg); border: 1px solid var(--dashboard-border); border-radius: 6px; color: var(--dashboard-text); font-size: 14px;">
+                    </div>
                 </div>
                 <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
                     Choose how to separate breadcrumb items
@@ -2469,6 +2477,7 @@ class Metasync_Settings_Fields {
             <!-- Show Current Page -->
             <div style="margin-bottom: 24px;">
                 <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                    <input type="hidden" name="metasync_options[breadcrumbs][show_current_page]" value="0">
                     <input type="checkbox"
                            name="metasync_options[breadcrumbs][show_current_page]"
                            value="1"

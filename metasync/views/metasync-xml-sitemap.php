@@ -56,37 +56,25 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
             $sitemap_files = $sitemap_generator->get_sitemap_files();
             $sitemap_count = count($sitemap_files);
 
-            // Check news/video sitemap status
+            // Check news/video sitemap status.
+            //
+            // Read through get_sitemap_document() — the same accessor the
+            // served route uses — so these tiles always describe the document
+            // crawlers actually receive. Reading the transient and the
+            // physical file in a different order than the serving code is
+            // what made the dashboard report a URL count no crawler ever saw.
             $news_sm_enabled = !empty($news_settings['enabled']);
             $video_sm_enabled = !empty($video_settings['enabled']);
-            $news_sm_exists = false !== get_transient('metasync_vsm_' . md5('news-sitemap.xml'))
-                || file_exists(ABSPATH . 'news-sitemap.xml');
-            $video_sm_exists = false !== get_transient('metasync_vsm_' . md5('video-sitemap.xml'))
-                || file_exists(ABSPATH . 'video-sitemap.xml');
+            $news_xml = $sitemap_generator->get_sitemap_document('news-sitemap.xml');
+            $video_xml = $sitemap_generator->get_sitemap_document('video-sitemap.xml');
+            $news_sm_exists = false !== $news_xml;
+            $video_sm_exists = false !== $video_xml;
             $extra_sitemap_count = ($news_sm_exists ? 1 : 0) + ($video_sm_exists ? 1 : 0);
             $total_sitemap_count = $sitemap_count + $extra_sitemap_count;
 
             // Count URLs in news/video sitemaps for total
-            $news_url_count = 0;
-            $video_url_count = 0;
-            if ($news_sm_exists) {
-                $news_xml = get_transient('metasync_vsm_' . md5('news-sitemap.xml'));
-                if (!$news_xml && file_exists(ABSPATH . 'news-sitemap.xml')) {
-                    $news_xml = file_get_contents(ABSPATH . 'news-sitemap.xml');
-                }
-                if ($news_xml) {
-                    $news_url_count = substr_count($news_xml, '<url>');
-                }
-            }
-            if ($video_sm_exists) {
-                $video_xml = get_transient('metasync_vsm_' . md5('video-sitemap.xml'));
-                if (!$video_xml && file_exists(ABSPATH . 'video-sitemap.xml')) {
-                    $video_xml = file_get_contents(ABSPATH . 'video-sitemap.xml');
-                }
-                if ($video_xml) {
-                    $video_url_count = substr_count($video_xml, '<url>');
-                }
-            }
+            $news_url_count = $news_sm_exists ? substr_count($news_xml, '<url>') : 0;
+            $video_url_count = $video_sm_exists ? substr_count($video_xml, '<url>') : 0;
             $total_url_count = $url_count + $news_url_count + $video_url_count;
             $any_sitemap_exists = $sitemap_exists || $news_sm_exists || $video_sm_exists;
             ?>
@@ -581,8 +569,9 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
         require_once plugin_dir_path(dirname(__FILE__)) . 'sitemap/class-metasync-sitemap-news.php';
         $news_checker = new Metasync_Sitemap_News();
         $news_conflicts = $news_checker->get_conflict_notices();
-        $news_has_content = false !== get_transient('metasync_vsm_' . md5('news-sitemap.xml'))
-            || file_exists(ABSPATH . 'news-sitemap.xml');
+        // Reuse the accessor-derived value computed for the status tiles so
+        // this panel cannot disagree with them, or with the served document.
+        $news_has_content = $news_sm_exists;
         $news_conflict_name = $news_checker->get_conflict_plugin_name();
         $mss_brand = Metasync::get_effective_plugin_name();
 
@@ -840,8 +829,9 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
         require_once plugin_dir_path(dirname(__FILE__)) . 'sitemap/class-metasync-sitemap-video.php';
         $video_checker = new Metasync_Sitemap_Video();
         $video_conflicts = $video_checker->get_conflict_notices();
-        $video_has_content = false !== get_transient('metasync_vsm_' . md5('video-sitemap.xml'))
-            || file_exists(ABSPATH . 'video-sitemap.xml');
+        // Reuse the accessor-derived value computed for the status tiles so
+        // this panel cannot disagree with them, or with the served document.
+        $video_has_content = $video_sm_exists;
         $video_conflict_name = $video_checker->get_conflict_plugin_name();
         $mss_brand = Metasync::get_effective_plugin_name();
 

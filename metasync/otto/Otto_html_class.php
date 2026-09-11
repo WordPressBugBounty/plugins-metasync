@@ -2239,6 +2239,12 @@ Class Metasync_otto_html{
         return $post_id ? (int) $post_id : 0;
     }
 
+    private function social_output_disabled_for_buffer() {
+        $post_id = $this->get_buffer_post_id();
+        return $post_id > 0 && class_exists('Metasync_OpenGraph')
+            && Metasync_OpenGraph::is_social_output_disabled($post_id);
+    }
+
     /**
      * Whether a meta tag carries the marker that means "the customer typed this".
      *
@@ -2509,10 +2515,8 @@ Class Metasync_otto_html{
         # extract name value
         $name = $data['name'] ?? false;
 
-        # Social feature switched off — OTTO must not create or rewrite any
-        # og:*/twitter:* tag. Both attributes are checked because either can
-        # carry either prefix depending on how the suggestion was authored.
-        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
+        if ($this->social_output_disabled_for_buffer()
+            || Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
             foreach ([$property, $name] as $candidate) {
                 if (!is_string($candidate) || $candidate === '') {
                     continue;
@@ -2754,6 +2758,13 @@ Class Metasync_otto_html{
      * @return string HTML with at most one tag per OG/Twitter property.
      */
     private function deduplicate_og_twitter_tags($html) {
+        # A per-post opt-out means MetaSync must neither emit nor deduplicate
+        # social tags. In particular, leave third-party tags untouched.
+        $post_id = $this->get_buffer_post_id();
+        if ($post_id > 0 && get_post_meta($post_id, '_metasync_og_enabled', true) === '0') {
+            return $html;
+        }
+
         # Social feature switched off — MetaSync adds no OG/Twitter tags here, so
         # whatever the page or a third-party plugin emitted is left as it is.
         if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
@@ -2785,14 +2796,22 @@ Class Metasync_otto_html{
 
     /**
      * Read one of the meta box's social title/description keys with the "Auto Draft"
-     * placeholder collapsed to ''.
+     * placeholder and metabox-default snapshots collapsed to ''.
      *
-     * Delegates to Metasync_OpenGraph so the placeholder definition lives in one
-     * place. Falls back to a raw read when that class — or that method on it — is
-     * unavailable: this buffer filter runs on the front end, and a partially updated
-     * install can pair a newer otto/ file with an older includes/ one, where calling
-     * a method the loaded class doesn't define would fatal the page rather than
-     * degrade.
+     * Delegates to Metasync_OpenGraph so the collapse definitions live in one
+     * place. Degrades per capability when that class — or individual methods on
+     * it — is unavailable: this buffer filter runs on the front end, and a
+     * partially updated install can pair a newer otto/ file with an older
+     * includes/ one, where calling a method the loaded class doesn't define
+     * would fatal the page rather than degrade. The probes target the collapse
+     * methods rather than get_social_meta itself because the reader predates
+     * them — an older build defines it while collapsing only the "Auto Draft"
+     * placeholder, which here would read a pre-fill snapshot as a deliberate
+     * override. On the degraded path the Auto Draft placeholder collapse —
+     * which predates the snapshot strips — still runs when present, so a skew
+     * never resurrects an "Auto Draft" row either. For anything the available
+     * methods don't collapse, the default comparisons in
+     * apply_metabox_og_precedence() pick up the defence instead.
      *
      * @param  int    $post_id
      * @param  string $key
@@ -2803,10 +2822,20 @@ Class Metasync_otto_html{
         // sees the method as always present; the check is deliberate runtime
         // version-skew defence. Suppressed the same way otto_pixel.php does.
         // @phpstan-ignore-next-line function.alreadyNarrowedType
-        if (method_exists('Metasync_OpenGraph', 'get_social_meta')) {
+        if (method_exists('Metasync_OpenGraph', 'strip_title_snapshot') && method_exists('Metasync_OpenGraph', 'strip_description_snapshot')) {
             return Metasync_OpenGraph::get_social_meta($post_id, $key);
         }
-        return (string) get_post_meta($post_id, $key, true);
+        $value = get_post_meta($post_id, $key, true);
+        // A skew-era build can leave an array in a scalar slot (multiple rows
+        // under one key); a bare cast would emit "Array" into the tag.
+        if (!is_scalar($value)) {
+            $value = '';
+        }
+        // @phpstan-ignore-next-line function.alreadyNarrowedType
+        if (method_exists('Metasync_OpenGraph', 'strip_auto_draft_title')) {
+            $value = Metasync_OpenGraph::strip_auto_draft_title($value);
+        }
+        return (string) $value;
     }
 
     /**
@@ -2844,12 +2873,7 @@ Class Metasync_otto_html{
             return $html;
         }
         $post_id = get_queried_object_id();
-        if (!$post_id) {
-            return $html;
-        }
-
-        # Respect the meta box opt-out (only an explicit '0' disables it)
-        if (get_post_meta($post_id, '_metasync_og_enabled', true) === '0') {
+        if (!$post_id || get_post_meta($post_id, '_metasync_og_enabled', true) === '0') {
             return $html;
         }
 
@@ -2858,9 +2882,11 @@ Class Metasync_otto_html{
         #
         # The four social title/description keys are read through
         # Metasync_OpenGraph::get_social_meta(), which collapses the "Auto Draft"
-        # placeholder to ''. Without that, a row polluted by the meta box pre-fill on a
-        # brand-new post reads as a deliberate override here (it differs from the real
-        # title) and would beat OTTO's correct og:title.
+        # placeholder — and, on the title keys, a stored snapshot of the post
+        # title, and on the description keys a stored snapshot of the resolved
+        # description — to ''. Without that, a row polluted by the meta box
+        # pre-fill reads as a deliberate override here and would beat OTTO's
+        # correct og:title, or go stale after a rename or excerpt edit.
         $og_title_set     = $this->social_meta($post_id, '_metasync_og_title');
         $og_desc_set      = $this->social_meta($post_id, '_metasync_og_description');
         $og_image_set     = get_post_meta($post_id, '_metasync_og_image', true);
@@ -2872,12 +2898,18 @@ Class Metasync_otto_html{
         $tw_image_set     = get_post_meta($post_id, '_metasync_twitter_image', true);
         $tw_image_alt_set = get_post_meta($post_id, '_metasync_twitter_image_alt', true);
 
-        # Default OG values the meta box pre-fills (post title / generated excerpt /
-        # featured image). The meta box PERSISTS these defaults on save, so a non-empty
-        # _metasync_og_* value alone does not prove the user customized it — a field is a
-        # genuine override only when its stored value differs from this default. Reuse the
-        # emitter's own resolver so the defaults match exactly (falling back to empty
-        # defaults, i.e. treat nothing as customized, if the instance is unavailable).
+        # Default OG values the meta box pre-fills (generated excerpt / featured
+        # image). Every field stays a genuine override only when its stored value
+        # differs from the default — the image default is still PERSISTED by the
+        # meta box on save, and for title/description the comparison is redundant
+        # while the collapsed read above runs (a value that survives the collapse
+        # provably differs from its default), but it is what restores develop's
+        # defence on a partially updated install: there social_meta() falls back
+        # to the raw read, and without the comparison a pre-fill snapshot would
+        # read as a deliberate override and beat OTTO's correct tag. Reuse the
+        # emitter's own resolver so the defaults match exactly (falling back to
+        # empty defaults, i.e. treat nothing as customized, if the instance is
+        # unavailable).
         $defaults = ['title' => '', 'description' => '', 'image' => ''];
         if (class_exists('Metasync_OpenGraph') && Metasync_OpenGraph::get_instance()) {
             $defaults = Metasync_OpenGraph::get_instance()->get_default_og_values($post_id);
@@ -2896,8 +2928,9 @@ Class Metasync_otto_html{
 
         # Twitter inherits the OG value when its own field is blank; a user-customized
         # og:image therefore also overrides OTTO's twitter:image (the meta box treats them
-        # as one). A twitter field is custom if its own value differs from the default OR
-        # the OG field it inherits was customized.
+        # as one). A twitter field is custom if its own value was set (against the same
+        # default comparison — redundant under the collapsed read, develop's defence on
+        # the raw-read fallback) OR the OG field it inherits was customized.
         $tw_card  = $tw_card_set ?: 'summary_large_image';
         $tw_title = $tw_title_set !== '' ? $tw_title_set : $og_title;
         $tw_desc  = $tw_desc_set  !== '' ? $tw_desc_set  : $og_desc;
@@ -3208,6 +3241,9 @@ Class Metasync_otto_html{
             if (strncmp($attribute, 'og:', 3) === 0
                 || strncmp($attribute, 'twitter:', 8) === 0
                 || strncmp($attribute, 'article:', 8) === 0) {
+                if ($this->social_output_disabled_for_buffer()) {
+                    return true;
+                }
                 if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
                     return true;
                 }
@@ -3248,7 +3284,8 @@ Class Metasync_otto_html{
             $patterns[] = '/<link\b[^>]*\brel\s*=\s*(["\'])canonical\1[^>]*>\s*/i';
         }
 
-        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
+        if ($this->social_output_disabled_for_buffer()
+            || Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
             # og:*, twitter:* and article:* all belong to the social feature, and
             # either attribute can carry either prefix depending on the payload.
             $patterns[] = '/<meta\b[^>]*\b(?:property|name)\s*=\s*(["\'])(?:og|twitter|article):[^"\']*\1[^>]*>\s*/i';

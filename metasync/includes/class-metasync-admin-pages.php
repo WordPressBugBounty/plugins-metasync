@@ -395,6 +395,9 @@ class Metasync_Admin_Pages
                         <?php
                         $this->admin->render_accordion_sections(Metasync_Admin::$page_slug . '_general');
                         ?>
+                        <p style="margin: 20px 0 0 0; font-size: 13px; color: var(--dashboard-text-secondary);">
+                            Breadcrumb settings now live on their own page: <a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-breadcrumbs')); ?>">Breadcrumbs</a>.
+                        </p>
                     </div>
 
                     <div class="dashboard-card">
@@ -1567,9 +1570,11 @@ class Metasync_Admin_Pages
 
     public function create_admin_breadcrumbs_page()
     {
-        $page_slug = Metasync_Admin::$page_slug . '_breadcrumbs';
         ?>
         <?php $this->admin->render_layout_open('Breadcrumbs', 'breadcrumbs', 'Configure breadcrumb trail settings and placement.'); ?>
+
+            <?php /* options.php redirects back here with ?settings-updated=true; without this call the save confirmation never prints */ ?>
+            <?php settings_errors(); ?>
 
             <form method="post" action="options.php">
                 <div class="dashboard-card">
@@ -1577,7 +1582,7 @@ class Metasync_Admin_Pages
                     <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure how breadcrumb trails are displayed across your site.</p>
                     <?php
         settings_fields(Metasync_Admin::option_group);
-        do_settings_sections($page_slug);
+        Metasync_Settings_Fields::instance()->render_breadcrumbs_section();
         submit_button();
                     ?>
                 </div>

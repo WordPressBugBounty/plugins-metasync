@@ -13,25 +13,287 @@
 (function($) {
     'use strict';
 
-    console.log('MetaSync HTML Editor script loaded');
-    console.log('GrapesJS available:', typeof grapesjs !== 'undefined');
-    console.log('jQuery available:', typeof $ !== 'undefined');
-
     let editor;
     let hasUnsavedChanges = false;
 
     $(document).ready(function() {
-        console.log('Document ready, initializing editor...');
-        initializeEditor();
+        // Bind the header controls first so Back and Preview keep working even
+        // if the canvas never starts.
         initializeEventHandlers();
+
+        if (!startEditor()) {
+            return;
+        }
+
         preventAccidentalExit();
     });
+
+    /**
+     * Start the editor, reporting any dependency or start-up failure to the
+     * user instead of leaving an unexplained empty canvas behind.
+     *
+     * @return {boolean} True when the canvas initialized.
+     */
+    function startEditor() {
+        // Dependencies absent from disk (reported by PHP) plus any whose
+        // request failed in the browser (blocked by CSP, an extension, etc).
+        const missing = (metasyncEditor.missing || []).slice();
+        const failed = (window.metasyncEditorAssets && window.metasyncEditorAssets.failed) || [];
+
+        failed.forEach(function(name) {
+            if (missing.indexOf(name) === -1) {
+                missing.push(name);
+            }
+        });
+
+        // The editor script is ordered after GrapesJS but WordPress cannot
+        // guarantee the file actually arrived, so verify the global exists.
+        if (typeof grapesjs === 'undefined') {
+            if (missing.indexOf('grapesjs') === -1) {
+                missing.push('grapesjs');
+            }
+            showLoadFailure(
+                metasyncEditor.i18n.load_failed_core,
+                missing,
+                { fatal: true }
+            );
+            return false;
+        }
+
+        try {
+            initializeEditor();
+        } catch (err) {
+            console.error('MetaSync HTML Editor failed to initialize:', err);
+            showLoadFailure(
+                metasyncEditor.i18n.load_failed_init,
+                missing,
+                { fatal: true }
+            );
+            return false;
+        }
+
+        // The blocks library is optional: without it the canvas still loads and
+        // the page stays editable, only the extra block palette is missing.
+        if (!resolveBlocksPlugin()) {
+            if (missing.indexOf('grapesjs-blocks-basic') === -1) {
+                missing.push('grapesjs-blocks-basic');
+            }
+            showLoadFailure(
+                metasyncEditor.i18n.load_failed_blocks,
+                missing,
+                { fatal: false }
+            );
+        }
+
+        return true;
+    }
+
+    /**
+     * Resolve the grapesjs-blocks-basic plugin.
+     *
+     * Releases before 1.0.0 registered themselves under the name
+     * 'gjs-blocks-basic'; 1.0.x only exposes a UMD export, so the plugin is
+     * looked up by reference and the legacy registry name is only a fallback.
+     *
+     * @return {Function|undefined} The plugin function when available.
+     */
+    function resolveBlocksPlugin() {
+        const exported = window['gjs-blocks-basic'];
+        const plugin = exported && exported.default ? exported.default : exported;
+
+        if (typeof plugin === 'function') {
+            return plugin;
+        }
+
+        if (grapesjs.plugins && typeof grapesjs.plugins.get === 'function') {
+            return grapesjs.plugins.get('gjs-blocks-basic');
+        }
+
+        return undefined;
+    }
+
+    /**
+     * Report an asset-loading or start-up failure in the page.
+     *
+     * Only dependency names and the localized message are shown; no paths,
+     * versions or server detail are exposed.
+     *
+     * @param {string} message Localized explanation.
+     * @param {Array}  missing Names of the dependencies that did not load.
+     * @param {Object} options Set fatal to true when the canvas is unusable.
+     */
+    function showLoadFailure(message, missing, options) {
+        const settings = options || {};
+        const $panel = $('#metasync-editor-load-failure');
+
+        console.error('MetaSync HTML Editor: ' + message +
+            (missing.length ? ' (' + missing.join(', ') + ')' : ''));
+
+        if (!$panel.length) {
+            return;
+        }
+
+        $panel.find('.metasync-load-failure-title').text(metasyncEditor.i18n.load_failed_title);
+        $panel.find('.metasync-load-failure-message').text(message);
+
+        const $detail = $panel.find('.metasync-load-failure-detail');
+        if (missing.length) {
+            $detail.text(
+                (metasyncEditor.i18n.load_failed_detail || '%s').replace('%s', missing.join(', '))
+            ).show();
+        } else {
+            $detail.hide();
+        }
+
+        $panel.find('.metasync-load-failure-reload')
+            .text(metasyncEditor.i18n.reload)
+            .off('click')
+            .on('click', function(e) {
+                e.preventDefault();
+                window.location.reload();
+            });
+
+        $panel.toggleClass('metasync-load-failure-fatal', !!settings.fatal);
+        // Clear `hidden` rather than calling .show(), which would set an inline
+        // display and break the panel's flex centering.
+        $panel.removeAttr('hidden');
+
+        if (settings.fatal) {
+            $('.metasync-save-button')
+                .prop('disabled', true)
+                .attr('title', metasyncEditor.i18n.save_disabled);
+        } else {
+            // Non-fatal: let the notice be dismissed and keep editing.
+            $panel.find('.metasync-load-failure-dismiss')
+                .text(metasyncEditor.i18n.dismiss)
+                .off('click')
+                .on('click', function(e) {
+                    e.preventDefault();
+                    $panel.hide();
+                })
+                .show();
+        }
+
+        updateStatus('error');
+    }
+
+    /**
+     * Sidebar panels, in switcher order.
+     *
+     * Each entry maps a switcher button to the sidebar panel it reveals, the
+     * command that activates it, and the localized-label key for its title.
+     *
+     * @type {Array<Object>}
+     */
+    const SIDEBAR_PANELS = [
+        { id: 'styles', command: 'show-styles', icon: 'dashicons-art', labelKey: 'panel_styles', fallback: 'Styles' },
+        { id: 'traits', command: 'show-traits', icon: 'dashicons-admin-generic', labelKey: 'panel_settings', fallback: 'Settings' },
+        { id: 'layers', command: 'show-layers', icon: 'dashicons-menu', labelKey: 'panel_layers', fallback: 'Layers' },
+        { id: 'blocks', command: 'show-blocks', icon: 'dashicons-grid-view', labelKey: 'panel_blocks', fallback: 'Blocks' }
+    ];
+
+    /**
+     * Resolve a localized string with an English fallback.
+     *
+     * @param {string} key     Property under metasyncEditor.i18n.
+     * @param {string} fallback Used when the payload predates the key.
+     * @return {string}
+     */
+    function t(key, fallback) {
+        return (metasyncEditor.i18n && metasyncEditor.i18n[key]) || fallback;
+    }
+
+    /**
+     * Show a transient action notice in the page's live region.
+     *
+     * alert() blocks the UI thread, cannot be styled or dismissed by
+     * keyboard, and is unreachable to screen-reader users mid-flow; the
+     * notice element is announced automatically instead.
+     *
+     * @param {string} message Localized message to display.
+     */
+    let noticeTimer = null;
+    function showNotice(message) {
+        const $notice = $('#metasync-editor-notice');
+
+        if (!$notice.length) {
+            window.alert(message);
+            return;
+        }
+
+        $notice.text(message).removeAttr('hidden');
+
+        if (noticeTimer) {
+            clearTimeout(noticeTimer);
+        }
+        noticeTimer = setTimeout(function() {
+            $notice.attr('hidden', true);
+        }, 6000);
+    }
+
+    /**
+     * Render the sidebar's panel switcher buttons.
+     *
+     * The buttons are created in the sidebar itself rather than as GrapesJS
+     * panel buttons, so the editor re-rendering its panels cannot detach them.
+     */
+    function buildPanelSwitcher() {
+        const $switcher = $('#metasync-editor-panel-switcher');
+
+        if (!$switcher.length) {
+            return;
+        }
+
+        $switcher.empty();
+
+        SIDEBAR_PANELS.forEach(function(panel) {
+            const label = t(panel.labelKey, panel.fallback);
+            const $button = $('<button/>', {
+                type: 'button',
+                'class': 'metasync-panel-switch',
+                'data-metasync-panel-target': panel.id,
+                'aria-pressed': 'false',
+                title: label
+            });
+
+            $button.append($('<span/>', { 'class': 'dashicons ' + panel.icon, 'aria-hidden': 'true' }));
+            $button.append($('<span/>', { 'class': 'metasync-panel-switch-label', text: label }));
+            $button.on('click', function() {
+                editor.runCommand(panel.command);
+            });
+
+            $switcher.append($button);
+        });
+
+        showPanel('styles');
+    }
+
+    /**
+     * Reveal one sidebar panel and mark its switcher button active.
+     *
+     * @param {string} panelId Identifier from SIDEBAR_PANELS.
+     */
+    function showPanel(panelId) {
+        SIDEBAR_PANELS.forEach(function(panel) {
+            const isActive = panel.id === panelId;
+            const target = document.getElementById('metasync-panel-' + panel.id);
+
+            if (target) {
+                target.hidden = !isActive;
+            }
+
+            $('.metasync-panel-switch[data-metasync-panel-target="' + panel.id + '"]')
+                .toggleClass('is-active', isActive)
+                .attr('aria-pressed', isActive ? 'true' : 'false');
+        });
+    }
 
     /**
      * Initialize GrapesJS editor
      */
     function initializeEditor() {
         const htmlContent = $('#metasync-html-content').val();
+        const blocksPlugin = resolveBlocksPlugin();
 
         editor = grapesjs.init({
             container: '#metasync-gjs-editor',
@@ -40,11 +302,10 @@
             width: 'auto',
             storageManager: false, // Disable built-in storage
 
-            // Plugins
-            plugins: ['gjs-blocks-basic'],
-            pluginsOpts: {
-                'gjs-blocks-basic': {}
-            },
+            // Plugins. Passed by reference so the editor does not depend on the
+            // library registering itself under a legacy global name.
+            plugins: blocksPlugin ? [blocksPlugin] : [],
+            pluginsOpts: {},
 
             // Enable double-click to edit text
             allowScripts: 0,
@@ -56,6 +317,57 @@
                 actions: ['bold', 'italic', 'underline', 'strikethrough', 'link']
             },
 
+            // Upload images through the plugin's AJAX endpoint. Without this
+            // the asset manager has no upload URL and its upload button does
+            // nothing at all — no request, no asset, no error.
+            assetManager: {
+                upload: metasyncEditor.ajax_url,
+                uploadName: 'file',
+                // Values must stay flat strings: the uploader FormData-appends
+                // each param verbatim, so a nested object would serialize as
+                // the literal "[object Object]".
+                params: {
+                    action: 'metasync_upload_image',
+                    nonce: metasyncEditor.nonce,
+                    post_id: metasyncEditor.post_id
+                },
+                multiUpload: false,
+                // The endpoint can fail two ways: a WordPress envelope that
+                // reports the error with HTTP 200, and a non-200 response
+                // (expired nonce answers "-1" with 403, a fatal answers HTML
+                // with 500). Both must reject here, or the asset manager
+                // would add the error payload as a broken, imageless asset.
+                customFetch: function (url, options) {
+                    return fetch(url, options)
+                        .then(function (response) {
+                            if (!response.ok) {
+                                return response.text().then(function (text) {
+                                    var body = null;
+                                    try {
+                                        body = JSON.parse(text);
+                                    } catch (error) {
+                                        body = null;
+                                    }
+                                    return Promise.reject(body || { data: { message: 'HTTP ' + response.status } });
+                                });
+                            }
+                            return response.text();
+                        })
+                        .then(function (text) {
+                            var body;
+                            try {
+                                body = JSON.parse(text);
+                            } catch (error) {
+                                return text;
+                            }
+                            if (body && body.success === false) {
+                                return Promise.reject(body);
+                            }
+                            return text;
+                        });
+                }
+            },
+
             // Canvas settings
             canvas: {
                 styles: [],
@@ -64,6 +376,7 @@
 
             // Block Manager
             blockManager: {
+                appendTo: '#metasync-editor-blocks',
                 blocks: [
                     {
                         id: 'section',
@@ -102,6 +415,7 @@
 
             // Style Manager
             styleManager: {
+                appendTo: '#metasync-editor-styles',
                 sectors: [
                     {
                         name: 'Colors',
@@ -359,10 +673,14 @@
             },
 
             // Layer Manager
-            layerManager: {},
+            layerManager: {
+                appendTo: '#metasync-editor-layers'
+            },
 
             // Traits Manager - for editing element properties
-            traitManager: {},
+            traitManager: {
+                appendTo: '#metasync-editor-traits'
+            },
 
             // Panels
             panels: {
@@ -375,7 +693,7 @@
                                 id: 'visibility',
                                 active: true,
                                 className: 'btn-toggle-borders',
-                                label: '<i class="fa fa-clone"></i>',
+                                label: '<span class="dashicons dashicons-editor-table"></span>',
                                 command: 'sw-visibility'
                             }
                         ]
@@ -386,20 +704,20 @@
                         buttons: [
                             {
                                 id: 'device-desktop',
-                                label: '<i class="fa fa-television"></i>',
+                                label: '<span class="dashicons dashicons-desktop"></span>',
                                 command: 'set-device-desktop',
                                 active: true,
                                 togglable: false
                             },
                             {
                                 id: 'device-tablet',
-                                label: '<i class="fa fa-tablet"></i>',
+                                label: '<span class="dashicons dashicons-tablet"></span>',
                                 command: 'set-device-tablet',
                                 togglable: false
                             },
                             {
                                 id: 'device-mobile',
-                                label: '<i class="fa fa-mobile"></i>',
+                                label: '<span class="dashicons dashicons-smartphone"></span>',
                                 command: 'set-device-mobile',
                                 togglable: false
                             }
@@ -430,133 +748,14 @@
 
             // Selector Manager
             selectorManager: {
-                appendTo: ''
+                appendTo: '#metasync-editor-selectors'
             }
         });
 
-        // Create and show the right sidebar panel container
-        const editorEl = editor.getContainer();
-        let viewsContainer = editorEl.querySelector('.gjs-pn-views-container');
-
-        if (!viewsContainer) {
-            viewsContainer = document.createElement('div');
-            viewsContainer.className = 'gjs-pn-views-container';
-            editorEl.appendChild(viewsContainer);
-
-            const viewsInner = document.createElement('div');
-            viewsInner.className = 'gjs-pn-views';
-            viewsContainer.appendChild(viewsInner);
-        }
-
-        // Add sectors to Style Manager first
-        const sm = editor.StyleManager;
-        sm.addSector('colors', {
-            name: 'Colors',
-            open: true,
-            properties: [
-                {
-                    name: 'Text Color',
-                    property: 'color',
-                    type: 'color'
-                },
-                {
-                    name: 'Background Color',
-                    property: 'background-color',
-                    type: 'color'
-                },
-                {
-                    name: 'Border Color',
-                    property: 'border-color',
-                    type: 'color'
-                },
-                {
-                    name: 'Opacity',
-                    property: 'opacity',
-                    type: 'slider',
-                    defaults: 1,
-                    step: 0.01,
-                    max: 1,
-                    min: 0
-                }
-            ]
-        });
-
-        sm.addSector('typography', {
-            name: 'Typography',
-            open: false,
-            properties: [
-                'font-family',
-                'font-size',
-                'font-weight',
-                'letter-spacing',
-                'line-height',
-                'text-align'
-            ]
-        });
-
-        sm.addSector('decorations', {
-            name: 'Decorations',
-            open: false,
-            properties: [
-                'border-radius',
-                'border',
-                'box-shadow'
-            ]
-        });
-
-        sm.addSector('dimensions', {
-            name: 'Dimensions',
-            open: false,
-            properties: [
-                'width',
-                'height',
-                'max-width',
-                'min-width',
-                'padding',
-                'margin'
-            ]
-        });
-
-        console.log('Style Manager sectors added:', sm.getSectors().length);
-
-        // Render the Style Manager immediately after adding sectors
-        const smEl = sm.render().el;
-        console.log('Style Manager rendered, sectors in element:', $(smEl).find('.gjs-sm-sector').length);
-
-        // Append panels to the container
-        setTimeout(function() {
-            const $views = $('.gjs-pn-views');
-            if ($views.length) {
-                console.log('Views container found, appending panels...');
-
-                // Append already-rendered Style Manager
-                $(smEl).show().css({'display': 'block', 'visibility': 'visible'});
-                $views.append(smEl);
-                console.log('Style Manager appended to sidebar');
-
-                // Append Trait Manager (initially hidden)
-                const tmEl = editor.TraitManager.render().el;
-                $(tmEl).hide();
-                $views.append(tmEl);
-                console.log('Trait Manager appended');
-
-                // Append Layer Manager (initially hidden)
-                const lmEl = editor.LayerManager.render().el;
-                $(lmEl).hide();
-                $views.append(lmEl);
-                console.log('Layer Manager appended');
-
-                // Append Block Manager (initially hidden)
-                const bmEl = editor.BlockManager.render().el;
-                $(bmEl).hide();
-                $views.append(bmEl);
-                console.log('Block Manager appended');
-
-                console.log('All panels appended to sidebar');
-            } else {
-                console.error('Views container not found!');
-            }
-        }, 300);
+        // Each manager was handed its own `appendTo` target above, so GrapesJS
+        // renders the panels into the sidebar itself. Nothing is re-parented
+        // here, and no sector is registered a second time: the container is
+        // emptied on init, so anything appended to it by hand is discarded.
 
         // Load HTML content
         editor.setComponents(htmlContent);
@@ -570,48 +769,6 @@
             });
             editor.setStyle(allStyles);
         }
-
-        // Add panel switcher buttons after editor initializes
-        const panelManager = editor.Panels;
-        const viewsPanel = panelManager.addPanel({
-            id: 'panel-switcher'
-        });
-
-        viewsPanel.get('buttons').add([
-            {
-                id: 'show-style',
-                active: true,
-                label: '<i class="fa fa-paint-brush"></i><div class="gjs-pn-label">Styles</div>',
-                command: 'show-styles',
-                togglable: false
-            },
-            {
-                id: 'show-traits',
-                label: '<i class="fa fa-cog"></i><div class="gjs-pn-label">Settings</div>',
-                command: 'show-traits',
-                togglable: false
-            },
-            {
-                id: 'show-layers',
-                label: '<i class="fa fa-bars"></i><div class="gjs-pn-label">Layers</div>',
-                command: 'show-layers',
-                togglable: false
-            },
-            {
-                id: 'show-blocks',
-                label: '<i class="fa fa-th-large"></i><div class="gjs-pn-label">Blocks</div>',
-                command: 'show-blocks',
-                togglable: false
-            }
-        ]);
-
-        // Move panel to the right sidebar
-        setTimeout(function() {
-            const $viewsContainer = $('.gjs-pn-views');
-            if ($viewsContainer.length) {
-                $('#panel-switcher').prependTo($viewsContainer);
-            }
-        }, 100);
 
         // Enhance component types with better traits
         editor.DomComponents.addType('text', {
@@ -705,114 +862,54 @@
             }
         });
 
-        // Add custom commands for panel switching
-        editor.Commands.add('show-styles', {
-            run: function(editor) {
-                const pnl = editor.Panels.getPanel('panel-switcher');
-                if (pnl) {
-                    pnl.get('buttons').each(function(btn) {
-                        btn.set('active', btn.id === 'show-style');
-                    });
+        // Panel-switching commands.
+        //
+        // Each manager renders into its own sidebar mount point, so switching
+        // is purely a matter of revealing the right panel. These used to also
+        // call render() on the manager and toggle GrapesJS panel classes,
+        // which fought with the editor's own rendering.
+        SIDEBAR_PANELS.forEach(function(panel) {
+            editor.Commands.add(panel.command, {
+                run: function() {
+                    showPanel(panel.id);
                 }
-
-                const sm = editor.StyleManager;
-                const tm = editor.TraitManager;
-                const lm = editor.LayerManager;
-                const bm = editor.BlockManager;
-
-                sm.render();
-                $('.gjs-pn-views .gjs-sm-sectors').show();
-                $('.gjs-pn-views .gjs-trt-traits').hide();
-                $('.gjs-pn-views .gjs-layers').hide();
-                $('.gjs-pn-views .gjs-blocks-c').hide();
-            }
+            });
         });
 
-        editor.Commands.add('show-traits', {
-            run: function(editor) {
-                const pnl = editor.Panels.getPanel('panel-switcher');
-                if (pnl) {
-                    pnl.get('buttons').each(function(btn) {
-                        btn.set('active', btn.id === 'show-traits');
-                    });
-                }
-
-                const tm = editor.TraitManager;
-                tm.render();
-                $('.gjs-pn-views .gjs-sm-sectors').hide();
-                $('.gjs-pn-views .gjs-trt-traits').show();
-                $('.gjs-pn-views .gjs-layers').hide();
-                $('.gjs-pn-views .gjs-blocks-c').hide();
-            }
-        });
-
-        editor.Commands.add('show-layers', {
-            run: function(editor) {
-                const pnl = editor.Panels.getPanel('panel-switcher');
-                if (pnl) {
-                    pnl.get('buttons').each(function(btn) {
-                        btn.set('active', btn.id === 'show-layers');
-                    });
-                }
-
-                const lm = editor.LayerManager;
-                lm.render();
-                $('.gjs-pn-views .gjs-sm-sectors').hide();
-                $('.gjs-pn-views .gjs-trt-traits').hide();
-                $('.gjs-pn-views .gjs-layers').show();
-                $('.gjs-pn-views .gjs-blocks-c').hide();
-            }
-        });
-
-        editor.Commands.add('show-blocks', {
-            run: function(editor) {
-                const pnl = editor.Panels.getPanel('panel-switcher');
-                if (pnl) {
-                    pnl.get('buttons').each(function(btn) {
-                        btn.set('active', btn.id === 'show-blocks');
-                    });
-                }
-
-                const bm = editor.BlockManager;
-                bm.render();
-                $('.gjs-pn-views .gjs-sm-sectors').hide();
-                $('.gjs-pn-views .gjs-trt-traits').hide();
-                $('.gjs-pn-views .gjs-layers').hide();
-                $('.gjs-pn-views .gjs-blocks-c').show();
-            }
-        });
-
-        // Add selected element indicator
-        setTimeout(function() {
-            const $viewsContainer = $('.gjs-pn-views');
-            if ($viewsContainer.length) {
-                $viewsContainer.prepend('<div id="metasync-selected-element" style="display: none; padding: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; font-size: 13px; font-weight: 600; border-bottom: 1px solid #1a1e23;"><div style="font-size: 11px; opacity: 0.8; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Editing Element</div><div id="metasync-element-name"></div></div>');
-            }
-        }, 200);
+        // Build the sidebar's panel switcher, now that the commands its
+        // buttons run are registered.
+        //
+        // These were previously GrapesJS panel buttons that a timer tried to
+        // re-parent into the sidebar. The buttons are plain markup in the
+        // sidebar now, so they cannot be detached by the editor re-rendering
+        // its own panels.
+        buildPanelSwitcher();
 
         // When an element is selected, automatically show the Styles panel
         editor.on('component:selected', function(component) {
-            // Show selected element indicator
+            // Name the selected element in the sidebar. The indicator is part
+            // of the page template, so it does not need to be injected here.
             const elementType = component.get('type') || 'div';
             const elementName = component.getName() || elementType;
-            $('#metasync-selected-element').show();
+            const indicator = document.getElementById('metasync-selected-element');
+
+            if (indicator) {
+                indicator.hidden = false;
+            }
+
             $('#metasync-element-name').text(elementName.charAt(0).toUpperCase() + elementName.slice(1));
 
             // Automatically switch to Styles panel when selecting an element
             editor.runCommand('show-styles');
-
-            // Open the Colors section by default
-            setTimeout(function() {
-                const $colorsSector = $('.gjs-sm-sector').first();
-                if ($colorsSector.length && !$colorsSector.hasClass('gjs-sm-open')) {
-                    $colorsSector.find('.gjs-sm-sector-title').click();
-                }
-            }, 100);
         });
 
         // Hide indicator when no element is selected
         editor.on('component:deselected', function() {
-            $('#metasync-selected-element').hide();
+            const indicator = document.getElementById('metasync-selected-element');
+
+            if (indicator) {
+                indicator.hidden = true;
+            }
         });
 
         // Track changes
@@ -821,29 +918,12 @@
             updateStatus('unsaved');
         });
 
-        // Custom image upload
-        editor.on('asset:upload:start', handleImageUpload);
-
-        // Force render all managers to ensure panels appear
-        setTimeout(function() {
-            editor.StyleManager.render();
-            editor.TraitManager.render();
-            editor.LayerManager.render();
-            editor.BlockManager.render();
-
-            // Show the views container
-            $('.gjs-pn-views-container, .gjs-pn-views').show().css({
-                'display': 'block',
-                'visibility': 'visible'
-            });
-
-            // Initialize with styles panel
-            editor.runCommand('show-styles');
-
-            console.log('Panels rendered and displayed');
-        }, 500);
-
-        console.log('MetaSync HTML Editor initialized');
+        // Upload failures are rejected by the assetManager's customFetch and
+        // surface here. Tell the user instead of failing silently.
+        editor.on('asset:upload:error', function (error) {
+            var message = error && error.data && error.data.message;
+            showNotice(message || t('upload_failed', 'Image upload failed'));
+        });
     }
 
     /**
@@ -870,6 +950,12 @@
      * Save HTML via AJAX
      */
     function saveHTML() {
+        // The save button is disabled after a fatal load, but the Ctrl/Cmd+S
+        // binding still fires — there is no editor to read from then.
+        if (!editor) {
+            return;
+        }
+
         const $button = $('.metasync-save-button');
         const originalText = $button.text();
 
@@ -884,7 +970,7 @@
         }
 
         // Update button state
-        $button.prop('disabled', true).text(metasyncEditor.i18n.saving);
+        $button.prop('disabled', true).text(t('saving', 'Saving...'));
         updateStatus('saving');
 
         // Send AJAX request
@@ -901,19 +987,34 @@
                 if (response.success) {
                     hasUnsavedChanges = false;
                     updateStatus('saved');
-                    $button.text(metasyncEditor.i18n.saved);
+                    $button.text(t('saved', 'Saved!'));
 
                     setTimeout(function() {
                         $button.text(originalText);
                         updateStatus('ready');
                     }, 2000);
                 } else {
-                    alert(response.data.message || metasyncEditor.i18n.error);
+                    showNotice((response.data && response.data.message) || t('error', 'Error saving'));
                     updateStatus('error');
                 }
             },
-            error: function() {
-                alert(metasyncEditor.i18n.error);
+            error: function(xhr) {
+                // An expired nonce answers "-1" (or "0" logged-out) outside
+                // the JSON envelope; anything else is a real failure. The
+                // session-expired message warns that reloading will lose the
+                // canvas, which the generic error message does not.
+                var body = xhr && xhr.responseText;
+                if (body === '-1' || body === '0') {
+                    showNotice(t('session_expired', 'Your session has expired. Copy your work before reloading the page.'));
+                } else {
+                    var message = null;
+                    try {
+                        message = JSON.parse(body).data.message;
+                    } catch (parseError) {
+                        message = null;
+                    }
+                    showNotice(message || t('error', 'Error saving'));
+                }
                 updateStatus('error');
             },
             complete: function() {
@@ -927,39 +1028,11 @@
      */
     function openPreview() {
         if (hasUnsavedChanges) {
-            if (!confirm('You have unsaved changes. Preview will show the last saved version. Continue?')) {
+            if (!window.confirm(t('confirm_preview', 'You have unsaved changes. Preview will show the last saved version. Continue?'))) {
                 return;
             }
         }
         window.open(metasyncEditor.preview_url, '_blank');
-    }
-
-    /**
-     * Handle image upload
-     */
-    function handleImageUpload(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        const formData = new FormData();
-        formData.append('action', 'metasync_upload_image');
-        formData.append('nonce', metasyncEditor.nonce);
-        formData.append('file', file);
-
-        $.ajax({
-            url: metasyncEditor.ajax_url,
-            type: 'POST',
-            data: formData,
-            processData: false,
-            contentType: false,
-            success: function(response) {
-                if (response.success) {
-                    editor.AssetManager.add({ src: response.data.url });
-                } else {
-                    alert(response.data.message || 'Upload failed');
-                }
-            }
-        });
     }
 
     /**
@@ -973,14 +1046,14 @@
         $indicator.addClass(status);
 
         const statusText = {
-            ready: 'Ready',
-            unsaved: 'Unsaved changes',
-            saving: 'Saving...',
-            saved: 'Saved!',
-            error: 'Error'
+            ready: t('ready', 'Ready'),
+            unsaved: t('unsaved_changes', 'Unsaved changes'),
+            saving: t('saving', 'Saving...'),
+            saved: t('saved', 'Saved!'),
+            error: t('error', 'Error saving')
         };
 
-        $text.text(statusText[status] || 'Ready');
+        $text.text(statusText[status] || t('ready', 'Ready'));
     }
 
     /**

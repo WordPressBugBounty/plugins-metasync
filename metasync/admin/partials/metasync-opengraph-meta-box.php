@@ -54,13 +54,13 @@ if (!defined('ABSPATH')) {
             
             <div class="metasync-og-field-group">
                 <label for="metasync_og_title"><?php esc_html_e('Title (og:title)', 'metasync'); ?></label>
-                <input type="text" 
-                       id="metasync_og_title" 
-                       name="_metasync_og_title" 
-                       value="<?php echo esc_attr($og_title); ?>" 
+                <input type="text"
+                       id="metasync_og_title"
+                       name="_metasync_og_title"
+                       value="<?php echo esc_attr($og_title); ?>"
                        class="widefat metasync-og-input"
                        maxlength="60"
-                       placeholder="<?php echo esc_attr($post->post_title); ?>">
+                       placeholder="<?php echo esc_attr($title_placeholder); ?>">
                 <p class="description">
                     <?php esc_html_e('The title that will appear when shared on social media. Recommended: 60 characters or less.', 'metasync'); ?>
                     <span class="metasync-char-count" data-target="metasync_og_title">0/60</span>
@@ -74,7 +74,7 @@ if (!defined('ABSPATH')) {
                           class="widefat metasync-og-input"
                           rows="3"
                           maxlength="155"
-                          placeholder="<?php echo esc_attr($this->get_post_excerpt($post)); ?>"><?php echo esc_textarea($og_description); ?></textarea>
+                          placeholder="<?php echo esc_attr($description_placeholder); ?>"><?php echo esc_textarea($og_description); ?></textarea>
                 <p class="description">
                     <?php esc_html_e('The description that will appear when shared on social media. Recommended: 155 characters or less.', 'metasync'); ?>
                     <span class="metasync-char-count" data-target="metasync_og_description">0/155</span>
@@ -178,13 +178,13 @@ if (!defined('ABSPATH')) {
 
             <div class="metasync-og-field-group">
                 <label for="metasync_twitter_title"><?php esc_html_e('Twitter Title', 'metasync'); ?></label>
-                <input type="text" 
-                       id="metasync_twitter_title" 
-                       name="_metasync_twitter_title" 
-                       value="<?php echo esc_attr($twitter_title); ?>" 
+                <input type="text"
+                       id="metasync_twitter_title"
+                       name="_metasync_twitter_title"
+                       value="<?php echo esc_attr($twitter_title); ?>"
                        class="widefat metasync-og-input"
                        maxlength="70"
-                       placeholder="<?php echo esc_attr($og_title); ?>">
+                       placeholder="<?php echo esc_attr($twitter_title_placeholder); ?>">
                 <p class="description">
                     <?php esc_html_e('Twitter-specific title. Leave empty to use the Open Graph title. Max: 70 characters.', 'metasync'); ?>
                     <span class="metasync-char-count" data-target="metasync_twitter_title">0/70</span>
@@ -198,7 +198,7 @@ if (!defined('ABSPATH')) {
                           class="widefat metasync-og-input"
                           rows="2"
                           maxlength="200"
-                          placeholder="<?php echo esc_attr($og_description); ?>"><?php echo esc_textarea($twitter_description); ?></textarea>
+                          placeholder="<?php echo esc_attr($twitter_description_placeholder); ?>"><?php echo esc_textarea($twitter_description); ?></textarea>
                 <p class="description">
                     <?php esc_html_e('Twitter-specific description. Leave empty to use the Open Graph description. Max: 200 characters.', 'metasync'); ?>
                     <span class="metasync-char-count" data-target="metasync_twitter_description">0/200</span>
@@ -432,9 +432,12 @@ if (!defined('ABSPATH')) {
                 
                 <div class="metasync-preview-content-wrapper">
                     <?php
-                    // Show initial preview with current values
-                    $initial_title = !empty($og_title) ? $og_title : $post->post_title;
-                    $initial_description = !empty($og_description) ? $og_description : $this->get_post_excerpt($post);
+                    // Show initial preview with current values. The title and
+                    // description fall back to the same live defaults the
+                    // placeholders advertise, not the raw post title or a stored
+                    // snapshot, so the preview tracks edits on its own.
+                    $initial_title = !empty($og_title) ? $og_title : $title_placeholder;
+                    $initial_description = !empty($og_description) ? $og_description : $description_placeholder;
                     $initial_image = !empty($og_image) ? $og_image : $this->get_featured_image_url($post->ID);
                     $initial_url = !empty($og_url) ? $og_url : get_permalink($post->ID);
                     $initial_twitter_title = !empty($twitter_title) ? $twitter_title : '';

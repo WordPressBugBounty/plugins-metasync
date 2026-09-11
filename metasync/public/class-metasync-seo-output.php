@@ -480,21 +480,22 @@ class Metasync_Seo_Output
 			// Facebook, Open Graph and Twitter alike. Switched off, this legacy
 			// fallback must stay silent just like the canonical emitter does.
 			$social_enabled = Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::SOCIAL_OG);
+				$social_output_disabled = class_exists('Metasync_OpenGraph') && Metasync_OpenGraph::is_social_output_disabled($post->ID);
 
 			$common_meta_settings = Metasync::get_option('common_meta_settings') ?? [];
 
-			if ($social_enabled && !$otto_has_og && !$has_seo_plugin && isset($common_meta_settings['facebook_meta_tags'])) {
+			if ($social_enabled && !$social_output_disabled &&!$otto_has_og && !$has_seo_plugin && isset($common_meta_settings['facebook_meta_tags'])) {
 				foreach ($facebookMetaKeys as $metaKey => $metaValue) {
 					$this->print_metatag($metaKey, $metaValue, 'content', 'property');
 				}
 			}
 
-			if ($social_enabled && !$otto_has_og && !$og2_will_emit && !$has_seo_plugin && isset($common_meta_settings['open_graph_meta_tags'])) {
+			if ($social_enabled && !$social_output_disabled &&!$otto_has_og && !$og2_will_emit && !$has_seo_plugin && isset($common_meta_settings['open_graph_meta_tags'])) {
 				foreach ($ogMetaKeys as $metaKey => $metaValue) {
 					$this->print_metatag($metaKey, $metaValue, 'content', 'property');
 				}
 			}
-			if ($social_enabled && !$otto_has_twitter && !$og2_will_emit && !$has_seo_plugin && isset($common_meta_settings['twitter_meta_tags'])) {
+			if ($social_enabled && !$social_output_disabled &&!$otto_has_twitter && !$og2_will_emit && !$has_seo_plugin && isset($common_meta_settings['twitter_meta_tags'])) {
 				foreach ($twitterMetaKeys as $metaKey => $metaValue) {
 					$this->print_metatag($metaKey, $metaValue, 'content', 'name');
 				}

@@ -98,7 +98,7 @@ class Metasync_SEO_Sidebar {
         // Enqueue block editor assets
         add_action('enqueue_block_editor_assets', array($this, 'enqueue_block_editor_assets'));
 
-        // Track meta state before REST API save, then clean up after (all public post types)
+        // Clean up emptied SEO meta rows after REST saves (all public post types)
         add_action('rest_api_init', array($this, 'register_rest_save_hooks'));
 
         // Clean up primary category meta when category is unchecked (all post types)
@@ -119,13 +119,12 @@ class Metasync_SEO_Sidebar {
     }
 
     /**
-     * Register REST API save/cleanup hooks for all public post types
+     * Register REST API cleanup hooks for all public post types
      */
     public function register_rest_save_hooks() {
         $post_types = get_post_types(array('public' => true), 'names');
         unset($post_types['attachment']);
         foreach ($post_types as $post_type) {
-            add_filter("rest_pre_insert_{$post_type}", array($this, 'track_meta_before_save'), 10, 2);
             add_action("rest_after_insert_{$post_type}", array($this, 'cleanup_empty_seo_meta'), 10, 3);
         }
     }
@@ -142,64 +141,31 @@ class Metasync_SEO_Sidebar {
     }
 
     /**
-     * Track meta state before REST API save
-     * Stores which SEO meta keys existed before the save
-     * 
-     * @param stdClass $prepared_post Prepared post object
-     * @param WP_REST_Request $request Request object
-     * @return stdClass Unmodified prepared post object
-     */
-    public function track_meta_before_save($prepared_post, $request) {
-        $post_id = $request->get_param('id');
-        if (!$post_id) {
-            return $prepared_post;
-        }
-
-        // Track which meta keys existed before this save
-        $meta_existed = array(
-            self::META_SEO_TITLE => metadata_exists('post', $post_id, self::META_SEO_TITLE),
-            self::META_DESCRIPTION => metadata_exists('post', $post_id, self::META_DESCRIPTION),
-        );
-
-        // Store in transient for use in cleanup
-        set_transient('metasync_seo_meta_existed_' . $post_id, $meta_existed, 60);
-
-        return $prepared_post;
-    }
-
-    /**
-     * Clean up empty SEO meta values after REST API save
-     * This prevents blanking fields that are showing OTTO fallback values
-     * 
-     * Deletes meta keys that are empty AND didn't exist before the save
-     * (meaning they were showing OTTO fallback, not user-edited values)
-     * 
-     * @param WP_Post $post Inserted or updated post object
+     * Clean up empty SEO meta values after a REST save
+     *
+     * The REST API cannot delete a meta key — clearing a sidebar field
+     * persists an empty string, and that empty row would keep outranking
+     * OTTO/imported suggestions forever. Mirror the classic metabox save
+     * path instead: an empty value loses its row so the post falls back to
+     * the suggestion tiers again.
+     *
+     * @param WP_Post|int $post Inserted or updated post object (or its ID)
      * @param WP_REST_Request $_request Request object (unused)
      * @param bool $_creating True when creating a post, false when updating (unused)
      */
     public function cleanup_empty_seo_meta($post, $_request, $_creating) {
-        $post_id = $post->ID;
-
-        // Get the before-save state
-        $meta_existed = get_transient('metasync_seo_meta_existed_' . $post_id);
-        if ($meta_existed === false) {
-            // Transient expired or not set, can't make safe decision
+        $post_id = is_object($post) ? (int) $post->ID : (int) $post;
+        if (!$post_id) {
             return;
         }
 
-        // Delete transient
-        delete_transient('metasync_seo_meta_existed_' . $post_id);
-
-        // Check each of our SEO meta keys
-        foreach ($meta_existed as $meta_key => $existed_before) {
-            // Get the current value
+        foreach (array(self::META_SEO_TITLE, self::META_DESCRIPTION) as $meta_key) {
             $meta_value = get_post_meta($post_id, $meta_key, true);
 
-            // Only delete if:
-            // 1. Value is now empty
-            // 2. It didn't exist before the save (was showing OTTO fallback)
-            if (empty($meta_value) && !$existed_before) {
+            // Strict '' check: get_post_meta() returns '' for a missing row
+            // too, where delete_post_meta() is a harmless no-op. A real
+            // (non-empty) value the user typed is never dropped.
+            if ($meta_value === '') {
                 delete_post_meta($post_id, $meta_key);
             }
         }
@@ -322,8 +288,7 @@ class Metasync_SEO_Sidebar {
             // The plain <meta name="description"> above is deliberately NOT gated here:
             // it belongs to the SEO title/description feature, which has its own setting.
             if (!$defer_og_description
-                && Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::SOCIAL_OG)
-                && get_post_meta($post_id, '_metasync_og_enabled', true) !== '0') {
+                && !Metasync_OpenGraph::is_social_output_disabled($post_id)) {
                 // Open Graph description
                 echo '<meta property="og:description" content="' . $description_escaped . '"' . $marker . ' />' . "\n";
                 // Twitter description
@@ -824,16 +789,9 @@ class Metasync_SEO_Sidebar {
             $otto_name = Metasync::get_whitelabel_otto_name();
         }
 
-        // Get current post ID and check if meta keys exist in database
+        // Get current post ID (used for the LPS/custom-page check and WPML
+        // entries below)
         $post_id = isset($_GET['post']) ? intval($_GET['post']) : 0;
-        $has_seo_title = false;
-        $has_seo_description = false;
-
-        if ($post_id > 0) {
-            // Check if meta keys exist in database (even if value is empty)
-            $has_seo_title = metadata_exists('post', $post_id, self::META_SEO_TITLE);
-            $has_seo_description = metadata_exists('post', $post_id, self::META_DESCRIPTION);
-        }
 
         // LPS / custom-HTML pages bake their own SEO — suppress the editable sidebar
         // panels and surface a read-only notice instead.
@@ -929,11 +887,6 @@ class Metasync_SEO_Sidebar {
                 'aioseo'   => defined('AIOSEO_VERSION') || class_exists('AIOSEO\\Plugin\\AIOSEO'),
             ),
             'wpmlEntries' => $wpml_entries,
-            'hasMetaKeys' => array(
-                // Whether the manual meta keys exist in database (PHP check)
-                'seoTitle' => $has_seo_title,
-                'metaDescription' => $has_seo_description,
-            ),
             'otto' => array(
                 'globalEnabled' => self::is_otto_enabled_globally(),
                 'name' => $otto_name,
@@ -959,8 +912,6 @@ class Metasync_SEO_Sidebar {
                 'seoTitleHelp' => __('The title that appears in search engine results. Optimal length: 50-60 characters.', 'metasync'),
                 'metaDescriptionLabel' => __('Meta Description', 'metasync'),
                 'metaDescriptionHelp' => __('A brief description for search engine results. Optimal length: 120-160 characters.', 'metasync'),
-                'urlSlugLabel' => __('URL Slug', 'metasync'),
-                'urlSlugHelp' => __('The URL-friendly version of the post name. Use lowercase letters, numbers, and hyphens only.', 'metasync'),
                 'serpPreviewTitle' => __('SERP Preview', 'metasync'),
                 'serpPreviewHelp' => __('Preview how your page will appear in Google search results.', 'metasync'),
                 'serpDesktop' => __('Desktop', 'metasync'),
@@ -969,6 +920,11 @@ class Metasync_SEO_Sidebar {
                 'primaryCategoryNote' => __('Assign 2+ categories to enable this option.', 'metasync'),
                 'ottoPrefillHelp' => sprintf(
                     __('Pre-filled from %s. Edit to customize.', 'metasync'),
+                    $otto_name
+                ),
+                'importedPrefillHelp' => sprintf(
+                    /* translators: %s: OTTO name (whitelabel) */
+                    __('Suggestion imported from another SEO plugin. Used only until %s has its own suggestion for this page.', 'metasync'),
                     $otto_name
                 ),
                 // Focus Keyword: read-only field surfacing the OTTO keyword

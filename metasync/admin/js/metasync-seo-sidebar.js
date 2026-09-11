@@ -49,11 +49,6 @@
             // Language alternates (hreflang) — JSON-encoded array
             hreflang: '_metasync_hreflang',
         },
-        hasMetaKeys: {
-            // Whether the manual meta keys exist in database (from PHP check)
-            seoTitle: false,
-            metaDescription: false,
-        },
         wpmlEntries: [],
         otto: {
             globalEnabled: false,
@@ -69,8 +64,6 @@
             seoTitleHelp: 'The title that appears in search engine results. Optimal length: 50-60 characters.',
             metaDescriptionLabel: 'Meta Description',
             metaDescriptionHelp: 'A brief description for search engine results. Optimal length: 120-160 characters.',
-            urlSlugLabel: 'URL Slug',
-            urlSlugHelp: 'The URL-friendly version of the post name. Use lowercase letters, numbers, and hyphens only.',
             serpPreviewTitle: 'SERP Preview',
             serpPreviewHelp: 'Preview how your page will appear in Google search results.',
             serpDesktop: 'Desktop',
@@ -82,6 +75,7 @@
             breadcrumbTitleLabel: 'Breadcrumb Title Override',
             breadcrumbTitleHelp: 'Custom label for this page in breadcrumb trails. Leave empty to use the post title.',
             ottoPrefillHelp: 'Pre-filled from OTTO. Edit to customize.',
+            importedPrefillHelp: 'Suggestion imported from another SEO plugin. Used only until OTTO has its own suggestion for this page.',
             focusKeywordLabel: 'Focus Keyword',
             focusKeywordHelp: 'Managed by OTTO. Set in Search Atlas — read-only here.',
             ottoOverrideNotice: 'OTTO is enabled. Any SEO title and description changes from OTTO will be overwritten by your custom values entered here.',
@@ -194,65 +188,61 @@
 
     /**
      * SEO Title Input Component
-     * Falls back to OTTO title only if manual field has never been set
+     * The manual value is the input's value; the OTTO/imported suggestion
+     * renders as the placeholder (same contract as the classic metabox), so
+     * the suggestion can never be committed by a stray keystroke and the
+     * post stays in OTTO's care until the customer actually types a title.
      */
     const SeoTitleInput = () => {
         const metaKey = config.metaKeys.seoTitle;
         const ottoKey = config.metaKeys.ottoTitle;
         const importedKey = config.metaKeys.importedTitle;
+        const disabledKey = config.metaKeys.ottoDisabled;
         const limits = config.limits.seoTitle;
 
-        // Get manual, OTTO and imported values.
-        // Use PHP-provided hasMetaKeys to check if meta key exists in database
-        const { manualValue, ottoValue, importedValue } = useSelect((select) => {
+        // Manual value plus the read-only suggestion tiers. The per-post
+        // "Disable OTTO" flag hides OTTO's suggestion — the same precedence
+        // the front end and the classic metabox apply. Imported values are
+        // not OTTO's, so they stay eligible below it.
+        const { manualValue, ottoValue, importedValue, ottoDisabledValue } = useSelect((select) => {
             const meta = select('core/editor').getEditedPostAttribute('meta') || {};
             return {
                 manualValue: meta[metaKey] || '',
                 ottoValue: meta[ottoKey] || '',
                 importedValue: meta[importedKey] || '',
+                ottoDisabledValue: meta[disabledKey] || '',
             };
-        }, [metaKey, ottoKey, importedKey]);
+        }, [metaKey, ottoKey, importedKey, disabledKey]);
 
         const { editPost } = useDispatch('core/editor');
 
-        // Track if user has edited this field during this session
-        const [hasBeenEdited, setHasBeenEdited] = useState(false);
+        const isOttoDisabledForPost = ottoDisabledValue === '1' || ottoDisabledValue === 'true';
+        const ottoSuggestion = isOttoDisabledForPost ? '' : ottoValue;
+        const suggestion = ottoSuggestion || importedValue || '';
+        const suggestionSource = ottoSuggestion ? 'otto' : (importedValue ? 'imported' : '');
+        const isSuggestionShown = !manualValue && !!suggestion;
 
-        // Check if meta key exists in database (from PHP check)
-        const hasMetaKeyInDb = config.hasMetaKeys.seoTitle;
-
-        // Display value logic:
-        // - If user has edited during this session, show manual value (even if empty)
-        // - If manual value exists in database (even empty), show it
-        // - Otherwise show OTTO as prefill
-        // Imported values rank below OTTO, so only surface one when OTTO is silent.
-        const fallbackValue = ottoValue || importedValue;
-        const shouldShowOttoFallback = !hasBeenEdited && !hasMetaKeyInDb && fallbackValue;
-        const displayValue = shouldShowOttoFallback ? fallbackValue : (manualValue || '');
-
-        // Track if showing a prefilled (non-manual) value, for the visual indicator
-        const isOttoValue = shouldShowOttoFallback;
-
+        // Only what the user typed is ever written to the manual field — the
+        // suggestion lives in the placeholder, never in the value.
         const handleChange = (value) => {
-            // Mark as edited so we don't fallback to OTTO anymore
-            setHasBeenEdited(true);
-            // Always save to manual field
             editPost({ meta: { [metaKey]: value } });
         };
 
         return el('div', { className: 'metasync-seo-field' },
             el(TextControl, {
                 label: config.i18n.seoTitleLabel,
-                value: displayValue,
+                value: manualValue,
                 onChange: handleChange,
-                help: isOttoValue 
-                    ? config.i18n.ottoPrefillHelp
-                    : config.i18n.seoTitleHelp,
-                placeholder: __('Enter SEO title...', 'metasync'),
-                className: isOttoValue ? 'metasync-prefilled-otto' : '',
+                help: !isSuggestionShown
+                    ? config.i18n.seoTitleHelp
+                    : (suggestionSource === 'otto'
+                        ? config.i18n.ottoPrefillHelp
+                        : config.i18n.importedPrefillHelp),
+                placeholder: suggestion || __('Enter SEO title...', 'metasync'),
+                className: isSuggestionShown ? 'metasync-prefilled-otto' : '',
             }),
             el(CharacterCounter, {
-                count: displayValue.length,
+                count: manualValue.length,
                 min: limits.min,
                 max: limits.max,
                 absolute: limits.absolute,
@@ -262,64 +252,63 @@
 
     /**
      * Meta Description Input Component
-     * Falls back to OTTO description only if manual field has never been set
+     * The manual value is the textarea's value; the OTTO/imported suggestion
+     * renders as the placeholder (same contract as the classic metabox), so
+     * the suggestion can never be committed by a stray keystroke and the
+     * post stays in OTTO's care until the customer actually types a
+     * description.
      */
     const MetaDescriptionInput = () => {
         const metaKey = config.metaKeys.metaDescription;
         const ottoKey = config.metaKeys.ottoDescription;
         const importedKey = config.metaKeys.importedDescription;
+        const disabledKey = config.metaKeys.ottoDisabled;
         const limits = config.limits.metaDescription;
 
-        // Get manual, OTTO and imported values.
-        // Use PHP-provided hasMetaKeys to check if meta key exists in database
-        const { manualValue, ottoValue, importedValue } = useSelect((select) => {
+        // Manual value plus the read-only suggestion tiers. The per-post
+        // "Disable OTTO" flag hides OTTO's suggestion — the same precedence
+        // the front end and the classic metabox apply. Imported values are
+        // not OTTO's, so they stay eligible below it.
+        const { manualValue, ottoValue, importedValue, ottoDisabledValue } = useSelect((select) => {
             const meta = select('core/editor').getEditedPostAttribute('meta') || {};
             return {
                 manualValue: meta[metaKey] || '',
                 ottoValue: meta[ottoKey] || '',
                 importedValue: meta[importedKey] || '',
+                ottoDisabledValue: meta[disabledKey] || '',
             };
-        }, [metaKey, ottoKey, importedKey]);
+        }, [metaKey, ottoKey, importedKey, disabledKey]);
 
         const { editPost } = useDispatch('core/editor');
 
-        // Track if user has edited this field during this session
-        const [hasBeenEdited, setHasBeenEdited] = useState(false);
+        const isOttoDisabledForPost = ottoDisabledValue === '1' || ottoDisabledValue === 'true';
+        const ottoSuggestion = isOttoDisabledForPost ? '' : ottoValue;
+        const suggestion = ottoSuggestion || importedValue || '';
+        const suggestionSource = ottoSuggestion ? 'otto' : (importedValue ? 'imported' : '');
+        const isSuggestionShown = !manualValue && !!suggestion;
 
-        // Check if meta key exists in database (from PHP check)
-        const hasMetaKeyInDb = config.hasMetaKeys.metaDescription;
-
-        // Display value logic:
-        // - If user has edited during this session, show manual value (even if empty)
-        // - If manual value exists in database (even empty), show it
-        // - Otherwise show OTTO as prefill
-        const shouldShowOttoFallback = !hasBeenEdited && !hasMetaKeyInDb && ottoValue;
-        const displayValue = shouldShowOttoFallback ? ottoValue : (manualValue || '');
-        
-        // Track if showing OTTO value (for visual indicator)
-        const isOttoValue = shouldShowOttoFallback;
-
+        // Only what the user typed is ever written to the manual field — the
+        // suggestion lives in the placeholder, never in the value.
         const handleChange = (value) => {
-            // Mark as edited so we don't fallback to OTTO anymore
-            setHasBeenEdited(true);
-            // Always save to manual field
             editPost({ meta: { [metaKey]: value } });
         };
 
         return el('div', { className: 'metasync-seo-field' },
             el(TextareaControl, {
                 label: config.i18n.metaDescriptionLabel,
-                value: displayValue,
+                value: manualValue,
                 onChange: handleChange,
-                help: isOttoValue 
-                    ? config.i18n.ottoPrefillHelp
-                    : config.i18n.metaDescriptionHelp,
-                placeholder: __('Enter meta description...', 'metasync'),
+                help: !isSuggestionShown
+                    ? config.i18n.metaDescriptionHelp
+                    : (suggestionSource === 'otto'
+                        ? config.i18n.ottoPrefillHelp
+                        : config.i18n.importedPrefillHelp),
+                placeholder: suggestion || __('Enter meta description...', 'metasync'),
                 rows: 4,
-                className: isOttoValue ? 'metasync-prefilled-otto' : '',
+                className: isSuggestionShown ? 'metasync-prefilled-otto' : '',
             }),
             el(CharacterCounter, {
-                count: displayValue.length,
+                count: manualValue.length,
                 min: limits.min,
                 max: limits.max,
                 absolute: limits.absolute,
@@ -357,71 +346,6 @@
                 help: config.i18n.focusKeywordHelp || 'Managed by OTTO. Set in Search Atlas — read-only here.',
                 className: 'metasync-prefilled-otto metasync-readonly-field',
             })
-        );
-    };
-
-    /**
-     * URL Slug Input Component
-     * Syncs with WordPress native post slug (permalink)
-     */
-    const UrlSlugInput = () => {
-        // Get the current post slug and permalink
-        const { slug, link, postId } = useSelect((select) => {
-            const editor = select('core/editor');
-            return {
-                slug: editor.getEditedPostAttribute('slug') || '',
-                link: editor.getPermalink() || '',
-                postId: editor.getCurrentPostId(),
-            };
-        }, []);
-
-        const { editPost } = useDispatch('core/editor');
-
-        /**
-         * Sanitize slug to match WordPress permalink standards
-         * - Convert to lowercase
-         * - Replace spaces with hyphens
-         * - Remove special characters except hyphens
-         * - Remove multiple consecutive hyphens
-         */
-        const sanitizeSlug = (value) => {
-            return value
-                .toLowerCase()
-                .replace(/\s+/g, '-')           // Replace spaces with hyphens
-                .replace(/[^a-z0-9-]/g, '')     // Remove special characters
-                .replace(/-+/g, '-')            // Replace multiple hyphens with single
-                .replace(/^-|-$/g, '');         // Remove leading/trailing hyphens
-        };
-
-        const handleChange = (value) => {
-            const sanitized = sanitizeSlug(value);
-            editPost({ slug: sanitized });
-        };
-
-        // Extract base URL for preview (remove the slug part)
-        const baseUrl = link ? link.replace(/[^/]+\/?$/, '') : '';
-
-        return el('div', { className: 'metasync-seo-field metasync-url-slug-field' },
-            el(TextControl, {
-                label: config.i18n.urlSlugLabel,
-                value: slug,
-                onChange: handleChange,
-                help: config.i18n.urlSlugHelp,
-                placeholder: __('enter-url-slug', 'metasync'),
-            }),
-            // Show permalink preview
-            link && el('div', { className: 'metasync-permalink-preview' },
-                el('span', { className: 'metasync-permalink-label' }, __('Permalink:', 'metasync') + ' '),
-                el('a', { 
-                    href: link, 
-                    target: '_blank',
-                    rel: 'noopener noreferrer',
-                    className: 'metasync-permalink-link',
-                }, 
-                    el('span', { className: 'metasync-permalink-base' }, baseUrl),
-                    el('strong', { className: 'metasync-permalink-slug' }, slug || __('(auto-generated)', 'metasync'))
-                )
-            )
         );
     };
 
@@ -2004,7 +1928,6 @@
                     el(SeoTitleInput, null),
                     el(MetaDescriptionInput, null),
                     el(FocusKeywordInput, null),
-                    el(UrlSlugInput, null),
                     el(BreadcrumbTitleInput, null),
                     el(PrimaryCategoryInjectPanel, null)
                 ),

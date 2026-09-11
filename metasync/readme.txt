@@ -4,7 +4,7 @@ Tags: seo, ai seo, otto, otto seo, schema
 Requires at least: 6.3
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 2.6.25
+Stable tag: 2.6.26
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -96,6 +96,19 @@ Yes, along with a lot more - the plugin also includes media optimization, code s
 2.6.22 fixes OTTO breaking Divi-built pages and stops a partly finished update from taking your site's front end down. Update as soon as you can.
 
 == Changelog ==
+= 2.6.26 =
+* Fix: Yoast schema conflict handling no longer emits invalid JSON-LD on OTTO-covered pages
+* Fix: Third-party SEO sync now reports success only when SEO data was actually written, preventing stale titles from being treated as current
+* Fix: The Gutenberg SEO sidebar no longer uses OTTO suggestions as field values, so pages are not silently frozen out of OTTO
+* Improvement: Breadcrumb settings are now managed from one dedicated settings page instead of duplicate controls
+* Fix: News and video sitemaps now use consistent source ordering and regenerate news entries within the required freshness window
+* Improvement: The Visual HTML Editor now bundles its own runtime, so it loads correctly for raw-HTML pages without relying on a CDN
+* Fix: Redirection and 404 list filters no longer trigger a selected bulk action accidentally
+* Fix: Open Graph opt-out now suppresses all matching MetaSync social output paths
+* Fix: The Gutenberg SEO sidebar no longer shows a duplicate URL Slug field
+* Fix: Social titles and descriptions no longer persist pre-filled post defaults, so renamed posts and edited excerpts update their social metadata correctly
+* Security: White Label JSON imports no longer lock out the settings password recovery flow, so Forgot Password keeps working when a new whitelabel-settings.json is deployed
+
 = 2.6.25 =
 * Fix: Breadcrumb structured data no longer includes an invalid or dangling item on archive pages
 * Fix: The six Post/Page Editor "Disable" switches now actually suppress the matching frontend output, instead of only hiding the editor meta box

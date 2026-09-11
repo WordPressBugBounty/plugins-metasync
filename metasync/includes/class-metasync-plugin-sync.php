@@ -284,6 +284,14 @@ class Metasync_Plugin_Sync {
 				$sync_instance = $this;
 				$sync_post_id = (int) $post_id;
 				add_action('shutdown', function() use ($sync_instance, $sync_post_id) {
+					// By shutdown this request has typically seeded the OG defaults
+					// memo for the post (the sync above reads it); the row write
+					// has since landed, so drop the memo or the re-sync below
+					// compares against the pre-save title/excerpt.
+					// @phpstan-ignore-next-line function.alreadyNarrowedType
+					if (method_exists('Metasync_OpenGraph', 'clear_default_og_values_memo')) {
+						Metasync_OpenGraph::clear_default_og_values_memo();
+					}
 					$sync_instance->sync_post($sync_post_id);
 				}, 0);
 			}
@@ -383,7 +391,7 @@ class Metasync_Plugin_Sync {
 
 		$all_meta = get_post_custom($post_id);
 
-		$get = function ($key) use ($all_meta) {
+		$get = function ($key) use ($all_meta, $post_id) {
 			if (!isset($all_meta[$key])) {
 				return '';
 			}
@@ -404,7 +412,34 @@ class Metasync_Plugin_Sync {
 				&& defined('Metasync_OpenGraph::AUTO_DRAFT_PRONE_KEYS')
 				&& in_array($key, Metasync_OpenGraph::AUTO_DRAFT_PRONE_KEYS, true)
 			) {
-				return Metasync_OpenGraph::strip_auto_draft_title($value);
+				$value = Metasync_OpenGraph::strip_auto_draft_title($value);
+			}
+
+			// A social title that is a verbatim snapshot of the post title is the
+			// old pre-fill, not a customization — mirroring it would hand a
+			// third-party plugin a copy that a rename leaves stale (and that
+			// outranks OTTO's fresh value there). Collapsed for the same reason
+			// as the placeholder above; the chain in $first then falls through
+			// to OTTO's staging key.
+			// @phpstan-ignore-next-line function.alreadyNarrowedType
+			if (method_exists('Metasync_OpenGraph', 'strip_title_snapshot')
+				&& defined('Metasync_OpenGraph::TITLE_DEFAULTED_KEYS')
+				&& in_array($key, Metasync_OpenGraph::TITLE_DEFAULTED_KEYS, true)
+			) {
+				$value = Metasync_OpenGraph::strip_title_snapshot($post_id, $key, $value);
+			}
+
+			// A social description that is a verbatim snapshot of the resolved
+			// excerpt is the old pre-fill, not a customization — mirroring it
+			// would hand a third-party plugin a copy that a later excerpt or
+			// content edit leaves stale. Collapsed for the same reason as the
+			// title snapshot above.
+			// @phpstan-ignore-next-line function.alreadyNarrowedType
+			if (method_exists('Metasync_OpenGraph', 'strip_description_snapshot')
+				&& defined('Metasync_OpenGraph::DESCRIPTION_DEFAULTED_KEYS')
+				&& in_array($key, Metasync_OpenGraph::DESCRIPTION_DEFAULTED_KEYS, true)
+			) {
+				$value = Metasync_OpenGraph::strip_description_snapshot($post_id, $key, $value);
 			}
 
 			return $value;
@@ -665,18 +700,34 @@ class Metasync_Plugin_Sync {
 	 *
 	 * @param int   $post_id Post ID.
 	 * @param array $data    Canonical key/value pairs.
-	 * @return bool True once dispatch completes.
+	 * @return bool True when at least one value-bearing field was mirrored,
+	 *              false when the payload carried nothing to write. The caller
+	 *              stamps `_metasync_plugin_sync_ts` from this, so it must
+	 *              describe what was written and not merely that dispatch was
+	 *              reached.
+	 *
+	 *              Robots directives are excluded from that answer on purpose.
+	 *              collect_post_data() synthesises noindex/nofollow on every
+	 *              payload — absent any stored value they resolve to plain
+	 *              index/follow — so they are written on every sync and say
+	 *              nothing about whether a canonical value existed to mirror.
+	 *              Counting them would make the result unconditionally true,
+	 *              which is the bug this return contract exists to fix.
 	 */
 	private function sync_yoast($post_id, array $data) {
+		$wrote = false;
+
 		// title
 		if (!empty($data['title'])) {
 			update_post_meta($post_id, '_yoast_wpseo_title', (string) $data['title']);
+			$wrote = true;
 		}
 
 		// description -- strip newlines first
 		if (!empty($data['desc'])) {
 			$desc = str_replace(["\n", "\r", "\t"], ' ', $data['desc']);
 			update_post_meta($post_id, '_yoast_wpseo_metadesc', $desc);
+			$wrote = true;
 		}
 
 		// noindex: '0'=default, '1'=noindex, '2'=index
@@ -701,36 +752,47 @@ class Metasync_Plugin_Sync {
 		if (!empty($data['noimageindex'])) {
 			$adv[] = 'noimageindex';
 		}
+		// Written unconditionally so clearing the last directive clears the
+		// field. Like the other robots writes it carries no canonical value,
+		// so it does not make this a successful sync.
 		update_post_meta($post_id, '_yoast_wpseo_meta-robots-adv', implode(',', $adv));
 
 		// OG
 		if (!empty($data['og_title'])) {
 			update_post_meta($post_id, '_yoast_wpseo_opengraph-title', $data['og_title']);
+			$wrote = true;
 		}
 		if (!empty($data['og_desc'])) {
 			update_post_meta($post_id, '_yoast_wpseo_opengraph-description', $data['og_desc']);
+			$wrote = true;
 		}
 		if (!empty($data['og_image'])) {
 			update_post_meta($post_id, '_yoast_wpseo_opengraph-image', esc_url_raw($data['og_image']));
+			$wrote = true;
 		}
 
 		// Twitter
 		if (!empty($data['twitter_title'])) {
 			update_post_meta($post_id, '_yoast_wpseo_twitter-title', $data['twitter_title']);
+			$wrote = true;
 		}
 		if (!empty($data['twitter_desc'])) {
 			update_post_meta($post_id, '_yoast_wpseo_twitter-description', $data['twitter_desc']);
+			$wrote = true;
 		}
 
 		// Canonical, focus keyword, breadcrumb
 		if (!empty($data['canonical'])) {
 			update_post_meta($post_id, '_yoast_wpseo_canonical', esc_url_raw($data['canonical']));
+			$wrote = true;
 		}
 		if (!empty($data['focus_keyword'])) {
 			update_post_meta($post_id, '_yoast_wpseo_focuskw', $data['focus_keyword']);
+			$wrote = true;
 		}
 		if (!empty($data['breadcrumb_title'])) {
 			update_post_meta($post_id, '_yoast_wpseo_bctitle', $data['breadcrumb_title']);
+			$wrote = true;
 		}
 
 		// Update wp_yoast_indexable cache row for immediate effect
@@ -822,7 +884,7 @@ class Metasync_Plugin_Sync {
 			}
 		}
 
-		return true;
+		return $wrote;
 	}
 
 	/**
@@ -830,15 +892,21 @@ class Metasync_Plugin_Sync {
 	 *
 	 * @param int   $post_id Post ID.
 	 * @param array $data    Canonical key/value pairs.
-	 * @return bool True once dispatch completes.
+	 * @return bool True when at least one value-bearing field was mirrored,
+	 *              false when the payload carried nothing to write. Robots
+	 *              directives are excluded for the reason given on sync_yoast().
 	 */
 	private function sync_rankmath($post_id, array $data) {
+		$wrote = false;
+
 		// title, desc
 		if (!empty($data['title'])) {
 			update_post_meta($post_id, 'rank_math_title', $data['title']);
+			$wrote = true;
 		}
 		if (!empty($data['desc'])) {
 			update_post_meta($post_id, 'rank_math_description', $data['desc']);
+			$wrote = true;
 		}
 
 		// robots: PHP indexed array
@@ -905,9 +973,11 @@ class Metasync_Plugin_Sync {
 		// OG
 		if (!empty($data['og_title'])) {
 			update_post_meta($post_id, 'rank_math_facebook_title', $data['og_title']);
+			$wrote = true;
 		}
 		if (!empty($data['og_desc'])) {
 			update_post_meta($post_id, 'rank_math_facebook_description', $data['og_desc']);
+			$wrote = true;
 		}
 		if (!empty($data['og_image'])) {
 			update_post_meta($post_id, 'rank_math_facebook_image', esc_url_raw($data['og_image']));
@@ -915,34 +985,41 @@ class Metasync_Plugin_Sync {
 			if ($img_id) {
 				update_post_meta($post_id, 'rank_math_facebook_image_id', $img_id);
 			}
+			$wrote = true;
 		}
 
 		// Twitter
 		if (!empty($data['twitter_title'])) {
 			update_post_meta($post_id, 'rank_math_twitter_title', $data['twitter_title']);
+			$wrote = true;
 		}
 		if (!empty($data['twitter_desc'])) {
 			update_post_meta($post_id, 'rank_math_twitter_description', $data['twitter_desc']);
+			$wrote = true;
 		}
 		if (!empty($data['twitter_card'])) {
 			$valid_cards = ['summary', 'summary_large_image', 'app', 'player'];
 			if (in_array($data['twitter_card'], $valid_cards, true)) {
 				update_post_meta($post_id, 'rank_math_twitter_card_type', $data['twitter_card']);
+				$wrote = true;
 			}
 		}
 
 		// Canonical, focus keyword, breadcrumb
 		if (!empty($data['canonical'])) {
 			update_post_meta($post_id, 'rank_math_canonical_url', esc_url_raw($data['canonical']));
+			$wrote = true;
 		}
 		if (!empty($data['focus_keyword'])) {
 			update_post_meta($post_id, 'rank_math_focus_keyword', $data['focus_keyword']);
+			$wrote = true;
 		}
 		if (!empty($data['breadcrumb_title'])) {
 			update_post_meta($post_id, 'rank_math_breadcrumb_title', $data['breadcrumb_title']);
+			$wrote = true;
 		}
 
-		return true;
+		return $wrote;
 	}
 
 	/**
@@ -950,8 +1027,11 @@ class Metasync_Plugin_Sync {
 	 *
 	 * @param int   $post_id Post ID.
 	 * @param array $data    Canonical key/value pairs.
-	 * @return bool True when the row was written, false when the table is
-	 *              missing or the write failed.
+	 * @return bool True when at least one value-bearing field was written,
+	 *              false when the table is missing, the write failed, or the
+	 *              payload carried only robots directives. Robots are excluded
+	 *              for the reason given on sync_yoast(), so the receipt means
+	 *              the same thing for all three plugins.
 	 */
 	private function sync_aioseo($post_id, array $data) {
 		global $wpdb;
@@ -965,37 +1045,49 @@ class Metasync_Plugin_Sync {
 		}
 
 		$row = [];
+		// Robots fill $row too, so a separate flag is needed: the row is still
+		// written for a robots-only payload, it just is not a content sync.
+		$wrote = false;
 
 		if (!empty($data['title'])) {
 			$row['title'] = sanitize_text_field($data['title']);
+			$wrote = true;
 		}
 		if (!empty($data['desc'])) {
 			$row['description'] = sanitize_text_field($data['desc']);
+			$wrote = true;
 		}
 		if (!empty($data['og_title'])) {
 			$row['og_title'] = sanitize_text_field($data['og_title']);
+			$wrote = true;
 		}
 		if (!empty($data['og_desc'])) {
 			$row['og_description'] = sanitize_text_field($data['og_desc']);
+			$wrote = true;
 		}
 		if (!empty($data['og_image'])) {
 			$row['og_image_type'] = 'custom';
 			$row['og_image_custom_url'] = esc_url_raw($data['og_image']);
+			$wrote = true;
 		}
 		if (!empty($data['twitter_title'])) {
 			$row['twitter_title'] = sanitize_text_field($data['twitter_title']);
+			$wrote = true;
 		}
 		if (!empty($data['twitter_desc'])) {
 			$row['twitter_description'] = sanitize_text_field($data['twitter_desc']);
+			$wrote = true;
 		}
 		if (!empty($data['twitter_card'])) {
 			$valid_cards = ['default', 'summary', 'summary_large_image', 'player', 'app'];
 			if (in_array($data['twitter_card'], $valid_cards, true)) {
 				$row['twitter_card'] = $data['twitter_card'];
+				$wrote = true;
 			}
 		}
 		if (!empty($data['canonical'])) {
 			$row['canonical_url'] = esc_url_raw($data['canonical']);
+			$wrote = true;
 		}
 
 		// focus keyword as keyphrases JSON
@@ -1008,6 +1100,7 @@ class Metasync_Plugin_Sync {
 				],
 				'additional' => [],
 			]);
+			$wrote = true;
 		}
 
 		// Robots
@@ -1061,7 +1154,7 @@ class Metasync_Plugin_Sync {
 		));
 
 		if ($existing_id) {
-			return $wpdb->update($table, $row, ['post_id' => $post_id]) !== false;
+			return ($wpdb->update($table, $row, ['post_id' => $post_id]) !== false) && $wrote;
 		}
 
 		// New row -- must include all NOT NULL columns with no defaults
@@ -1079,7 +1172,7 @@ class Metasync_Plugin_Sync {
 		];
 		$row = array_merge($robot_defaults, $row);
 
-		return $wpdb->insert($table, $row) !== false;
+		return ($wpdb->insert($table, $row) !== false) && $wrote;
 	}
 
 	// ------------------------------------------------------------------

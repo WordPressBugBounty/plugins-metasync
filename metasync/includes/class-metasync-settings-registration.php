@@ -248,7 +248,6 @@ class Metasync_Settings_Registration
         $SECTION_SEO_CONTROLS_ADVANCED  = Metasync_Admin::SECTION_SEO_CONTROLS_ADVANCED;
         $SECTION_SEO_CONTROLS_INSTANT_INDEX = Metasync_Admin::SECTION_SEO_CONTROLS_INSTANT_INDEX;
         $SECTION_PLUGIN_VISIBILITY      = Metasync_Admin::SECTION_PLUGIN_VISIBILITY;
-        $SECTION_BREADCRUMBS            = Metasync_Admin::SECTION_BREADCRUMBS;
         $SECTION_LLMS_TXT               = Metasync_Admin::SECTION_LLMS_TXT;
 
         $option_key = Metasync_Admin::option_key;
@@ -1897,118 +1896,11 @@ class Metasync_Settings_Registration
         add_settings_field( 'local_seo_geo_coordinates',     'Geo Coordinates' . Metasync::get_tooltip_icon_html('local_seo_geo_coordinates_tooltip', 'The exact latitude and longitude of your business. This helps search engines and maps pin your location precisely, especially when your street address is ambiguous.'), array( $fields_instance, 'local_seo_geo_coordinates_callback' ),    $page_slug . '_local-seo', $SECTION_LOCALSEO );
 
         // ----------------------------------------------------------------
-        // Breadcrumbs page
+        // Breadcrumbs page — intentionally registers no Settings API fields.
+        // The dedicated Breadcrumbs admin page renders the richer controls
+        // directly via Metasync_Settings_Fields::render_breadcrumbs_section()
+        // and writes the same metasync_options[breadcrumbs] keys.
         // ----------------------------------------------------------------
-        add_settings_section(
-            $SECTION_BREADCRUMBS,
-            '',
-            function() {},
-            $page_slug . '_breadcrumbs'
-        );
-
-        add_settings_field(
-            'breadcrumbs_enabled',
-            'Enable Breadcrumbs',
-            function() use ($option_key) {
-                $value = Metasync::get_option('breadcrumbs')['enabled'] ?? true;
-                printf(
-                    '<input type="checkbox" id="breadcrumbs_enabled" name="' . $option_key . '[breadcrumbs][enabled]" value="1" %s />',
-                    checked(1, $value, false)
-                );
-                echo '<p class="description">Output breadcrumb trail HTML on your site.</p>';
-            },
-            $page_slug . '_breadcrumbs',
-            $SECTION_BREADCRUMBS
-        );
-
-        add_settings_field(
-            'breadcrumbs_separator',
-            'Separator',
-            function() use ($option_key) {
-                $value = Metasync::get_option('breadcrumbs')['separator'] ?? '&raquo;';
-                printf(
-                    '<input type="text" id="breadcrumbs_separator" name="' . $option_key . '[breadcrumbs][separator]" value="%s" size="10" />',
-                    esc_attr($value)
-                );
-                echo '<p class="description">Character or HTML entity shown between crumbs (e.g. &raquo; or /).</p>';
-            },
-            $page_slug . '_breadcrumbs',
-            $SECTION_BREADCRUMBS
-        );
-
-        add_settings_field(
-            'breadcrumbs_home_label',
-            'Home Label',
-            function() use ($option_key) {
-                $value = Metasync::get_option('breadcrumbs')['home_label'] ?? 'Home';
-                printf(
-                    '<input type="text" id="breadcrumbs_home_label" name="' . $option_key . '[breadcrumbs][home_label]" value="%s" size="30" />',
-                    esc_attr($value)
-                );
-            },
-            $page_slug . '_breadcrumbs',
-            $SECTION_BREADCRUMBS
-        );
-
-        add_settings_field(
-            'breadcrumbs_home_url',
-            'Home URL',
-            function() use ($option_key) {
-                $value = Metasync::get_option('breadcrumbs')['home_url'] ?? '';
-                printf(
-                    '<input type="url" id="breadcrumbs_home_url" name="' . $option_key . '[breadcrumbs][home_url]" value="%s" size="50" />',
-                    esc_attr($value)
-                );
-                echo '<p class="description">Leave blank to use the site home URL.</p>';
-            },
-            $page_slug . '_breadcrumbs',
-            $SECTION_BREADCRUMBS
-        );
-
-        add_settings_field(
-            'breadcrumbs_show_current_page',
-            'Show Current Page',
-            function() use ($option_key) {
-                $value = Metasync::get_option('breadcrumbs')['show_current_page'] ?? true;
-                printf(
-                    '<input type="checkbox" id="breadcrumbs_show_current_page" name="' . $option_key . '[breadcrumbs][show_current_page]" value="1" %s />',
-                    checked(1, $value, false)
-                );
-                echo '<p class="description">Include the current page as the last (non-linked) crumb.</p>';
-            },
-            $page_slug . '_breadcrumbs',
-            $SECTION_BREADCRUMBS
-        );
-
-        add_settings_field(
-            'breadcrumbs_prefix_text',
-            'Prefix Text',
-            function() use ($option_key) {
-                $value = Metasync::get_option('breadcrumbs')['prefix_text'] ?? '';
-                printf(
-                    '<input type="text" id="breadcrumbs_prefix_text" name="' . $option_key . '[breadcrumbs][prefix_text]" value="%s" size="30" />',
-                    esc_attr($value)
-                );
-                echo '<p class="description">Optional text before the breadcrumb trail (e.g. "You are here:").</p>';
-            },
-            $page_slug . '_breadcrumbs',
-            $SECTION_BREADCRUMBS
-        );
-
-        add_settings_field(
-            'breadcrumbs_archive_label_format',
-            'Archive Label Format',
-            function() use ($option_key) {
-                $value = Metasync::get_option('breadcrumbs')['archive_label_format'] ?? '{name}';
-                printf(
-                    '<input type="text" id="breadcrumbs_archive_label_format" name="' . $option_key . '[breadcrumbs][archive_label_format]" value="%s" size="30" />',
-                    esc_attr($value)
-                );
-                echo '<p class="description">Format for archive crumb labels. Use <code>{name}</code> as placeholder for the archive name.</p>';
-            },
-            $page_slug . '_breadcrumbs',
-            $SECTION_BREADCRUMBS
-        );
 
         # Open Graph / Article meta toggles — surface each new tag family as its
         # own opt-out checkbox on the main Settings page (Open Graph accordion).
@@ -2355,11 +2247,26 @@ class Metasync_Settings_Registration
 
         // Breadcrumbs Settings
         if (isset($input['breadcrumbs'])) {
-            $new_input['breadcrumbs']['enabled']              = !empty($input['breadcrumbs']['enabled']);
-            $new_input['breadcrumbs']['show_current_page']    = !empty($input['breadcrumbs']['show_current_page']);
-            $new_input['breadcrumbs']['disable_schema']       = !empty($input['breadcrumbs']['disable_schema']);
+            // Checkbox fields are only written when the submitting form
+            // actually rendered them. render_breadcrumbs_section() pairs every
+            // checkbox with a hidden companion input, so the key is always
+            // present there and unchecking works. A missing key means the form
+            // does not manage that field, so the stored value is preserved
+            // instead of being silently reset to false.
+            foreach (array('enabled', 'show_current_page', 'disable_schema') as $breadcrumb_flag) {
+                if (isset($input['breadcrumbs'][$breadcrumb_flag])) {
+                    $new_input['breadcrumbs'][$breadcrumb_flag] = !empty($input['breadcrumbs'][$breadcrumb_flag]);
+                }
+            }
+            // The Custom radio always renders and can submit an empty value
+            // when selected without typing. An empty separator would render
+            // a blank gap between breadcrumb links, so it is dropped and the
+            // stored value survives, exactly like an absent key.
             if (isset($input['breadcrumbs']['separator'])) {
-                $new_input['breadcrumbs']['separator'] = sanitize_text_field($input['breadcrumbs']['separator']);
+                $breadcrumb_separator = sanitize_text_field($input['breadcrumbs']['separator']);
+                if ('' !== $breadcrumb_separator) {
+                    $new_input['breadcrumbs']['separator'] = $breadcrumb_separator;
+                }
             }
             if (isset($input['breadcrumbs']['home_label'])) {
                 $new_input['breadcrumbs']['home_label'] = sanitize_text_field($input['breadcrumbs']['home_label']);
@@ -2958,23 +2865,45 @@ class Metasync_Settings_Registration
             }
         }
 
-        if ($general_tab_submitted) {
-            $breadcrumbs_input = isset($_POST['metasync_options']['breadcrumbs']) && is_array($_POST['metasync_options']['breadcrumbs'])
-                ? $_POST['metasync_options']['breadcrumbs']
-                : array();
+        // Breadcrumb settings live on their own admin page, which saves through
+        // options.php -> sanitize() rather than this AJAX handler. Only touch
+        // them here if the submitted form actually carried breadcrumb fields,
+        // otherwise a General-tab save would reset every breadcrumb option.
+        if ($general_tab_submitted
+            && isset($_POST['metasync_options']['breadcrumbs'])
+            && is_array($_POST['metasync_options']['breadcrumbs'])
+        ) {
+            $breadcrumbs_input = $_POST['metasync_options']['breadcrumbs'];
 
             if (!isset($metasync_options['breadcrumbs']) || !is_array($metasync_options['breadcrumbs'])) {
                 $metasync_options['breadcrumbs'] = array();
             }
 
-            $metasync_options['breadcrumbs']['enabled']             = !empty($breadcrumbs_input['enabled']);
-            $metasync_options['breadcrumbs']['disable_schema']      = !empty($breadcrumbs_input['disable_schema']);
-            $metasync_options['breadcrumbs']['show_current_page']   = !empty($breadcrumbs_input['show_current_page']);
-            $metasync_options['breadcrumbs']['separator']           = isset($breadcrumbs_input['separator']) ? sanitize_text_field($breadcrumbs_input['separator']) : '»';
-            $metasync_options['breadcrumbs']['home_label']          = isset($breadcrumbs_input['home_label']) ? sanitize_text_field($breadcrumbs_input['home_label']) : 'Home';
-            $metasync_options['breadcrumbs']['home_url']            = isset($breadcrumbs_input['home_url']) ? esc_url_raw($breadcrumbs_input['home_url']) : '';
-            $metasync_options['breadcrumbs']['prefix_text']         = isset($breadcrumbs_input['prefix_text']) ? sanitize_text_field($breadcrumbs_input['prefix_text']) : '';
-            $metasync_options['breadcrumbs']['archive_label_format'] = isset($breadcrumbs_input['archive_label_format']) ? sanitize_text_field($breadcrumbs_input['archive_label_format']) : '{name}';
+            foreach (array('enabled', 'disable_schema', 'show_current_page') as $breadcrumb_flag) {
+                if (isset($breadcrumbs_input[$breadcrumb_flag])) {
+                    $metasync_options['breadcrumbs'][$breadcrumb_flag] = !empty($breadcrumbs_input[$breadcrumb_flag]);
+                }
+            }
+            // An empty separator (Custom radio selected blank) keeps the
+            // stored value instead of rendering a blank gap between links.
+            if (isset($breadcrumbs_input['separator'])) {
+                $breadcrumb_separator = sanitize_text_field($breadcrumbs_input['separator']);
+                if ('' !== $breadcrumb_separator) {
+                    $metasync_options['breadcrumbs']['separator'] = $breadcrumb_separator;
+                }
+            }
+            if (isset($breadcrumbs_input['home_label'])) {
+                $metasync_options['breadcrumbs']['home_label'] = sanitize_text_field($breadcrumbs_input['home_label']);
+            }
+            if (isset($breadcrumbs_input['home_url'])) {
+                $metasync_options['breadcrumbs']['home_url'] = esc_url_raw($breadcrumbs_input['home_url']);
+            }
+            if (isset($breadcrumbs_input['prefix_text'])) {
+                $metasync_options['breadcrumbs']['prefix_text'] = sanitize_text_field($breadcrumbs_input['prefix_text']);
+            }
+            if (isset($breadcrumbs_input['archive_label_format'])) {
+                $metasync_options['breadcrumbs']['archive_label_format'] = sanitize_text_field($breadcrumbs_input['archive_label_format']);
+            }
         }
 
         // Open Graph / article toggle checkboxes live under common_meta_settings.

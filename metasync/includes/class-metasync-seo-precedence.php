@@ -400,18 +400,24 @@ final class Metasync_Seo_Precedence
             return '';
         }
 
-        return self::strip_placeholder($object_type, $key, $value);
+        return self::strip_placeholder($object_id, $object_type, $key, $value);
     }
 
     /**
-     * Collapse the "Auto Draft" placeholder on the social keys that can capture it.
+     * Collapse stored values that only echo what the meta box pre-filled.
      *
-     * The meta box pre-fills its social title/description fields from the post title
-     * and persists them on save, so a brand-new post can store WordPress's own
-     * placeholder there. A truthy placeholder would stop the walk at the tier that
-     * holds it, which puts a value the customer never chose above OTTO's — the
-     * inversion this class exists to prevent. Collapsing it to '' here, rather than
-     * at each consumer, keeps one chain that every call site sees the same way.
+     * Two shapes of that, both on the social keys the meta box owns:
+     *
+     *   - the "Auto Draft" placeholder WordPress gives a still-untitled post,
+     *     which the pre-fill persisted verbatim; and
+     *   - a social title that is a verbatim snapshot of the post title as it
+     *     was on save day — stale the moment the post is renamed, and
+     *     indistinguishable from a typed title by content alone.
+     *
+     * Either would stop the walk at the tier that holds it, putting a value
+     * the customer never chose above OTTO's — the inversion this class exists
+     * to prevent. Collapsing to '' here, rather than at each consumer, keeps
+     * one chain that every call site sees the same way.
      *
      * Posts only: the prone keys are meta box keys and terms carry none of them.
      *
@@ -420,25 +426,42 @@ final class Metasync_Seo_Precedence
      * class-metasync-opengraph.php, where calling a method the loaded class doesn't
      * define would fatal the page rather than degrade.
      *
+     * @param int    $object_id
      * @param string $object_type
      * @param string $key
      * @param string $value
      * @return string
      */
-    private static function strip_placeholder($object_type, $key, $value) {
+    private static function strip_placeholder($object_id, $object_type, $key, $value) {
         if ($object_type !== self::TYPE_POST) {
             return $value;
         }
 
         // @phpstan-ignore-next-line function.alreadyNarrowedType
-        if (!method_exists('Metasync_OpenGraph', 'strip_auto_draft_title')
-            || !defined('Metasync_OpenGraph::AUTO_DRAFT_PRONE_KEYS')
-            || !in_array($key, Metasync_OpenGraph::AUTO_DRAFT_PRONE_KEYS, true)
+        if (method_exists('Metasync_OpenGraph', 'strip_auto_draft_title')
+            && defined('Metasync_OpenGraph::AUTO_DRAFT_PRONE_KEYS')
+            && in_array($key, Metasync_OpenGraph::AUTO_DRAFT_PRONE_KEYS, true)
         ) {
-            return $value;
+            $value = Metasync_OpenGraph::strip_auto_draft_title($value);
         }
 
-        return Metasync_OpenGraph::strip_auto_draft_title($value);
+        // @phpstan-ignore-next-line function.alreadyNarrowedType
+        if (method_exists('Metasync_OpenGraph', 'strip_title_snapshot')
+            && defined('Metasync_OpenGraph::TITLE_DEFAULTED_KEYS')
+            && in_array($key, Metasync_OpenGraph::TITLE_DEFAULTED_KEYS, true)
+        ) {
+            $value = Metasync_OpenGraph::strip_title_snapshot($object_id, $key, $value);
+        }
+
+        // @phpstan-ignore-next-line function.alreadyNarrowedType
+        if (method_exists('Metasync_OpenGraph', 'strip_description_snapshot')
+            && defined('Metasync_OpenGraph::DESCRIPTION_DEFAULTED_KEYS')
+            && in_array($key, Metasync_OpenGraph::DESCRIPTION_DEFAULTED_KEYS, true)
+        ) {
+            $value = Metasync_OpenGraph::strip_description_snapshot($object_id, $key, $value);
+        }
+
+        return $value;
     }
 
     /**

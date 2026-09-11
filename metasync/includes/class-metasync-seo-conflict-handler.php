@@ -321,12 +321,14 @@ class Metasync_SEO_Conflict_Handler {
     /**
      * The per-post OG meta box title, but only when the user genuinely set it.
      *
-     * The meta box pre-fills its Title from the post title and PERSISTS that
-     * default on save, so a non-empty `_metasync_og_title` alone does not prove
-     * intent — treating it as one would let an auto-filled post title override a
-     * deliberately-set SEO title on every ordinary edit. A value counts as the
-     * user's only when it differs from that default, the same comparison
-     * Otto_html_class::apply_metabox_og_precedence() makes.
+     * The meta box used to pre-fill its Title from the post title as a real value
+     * and PERSIST that default on save, so a non-empty `_metasync_og_title` alone
+     * did not prove intent — treating it as one would let an auto-filled post
+     * title override a deliberately-set SEO title on every ordinary edit. The box
+     * no longer stores the default, and reads collapse rows that still hold it
+     * ("Auto Draft" and title snapshots alike), so a non-empty value IS the
+     * user's. The inline comparison survives only as the fallback for a partially
+     * updated install pairing this file with an older emitter.
      *
      * @param  int $post_id
      * @return string The customized OG title, or '' when unset or auto-filled.
@@ -338,6 +340,11 @@ class Metasync_SEO_Conflict_Handler {
         // page where the singular-only replacement emitter never runs.
         if (!is_singular()) {
             return '';
+        }
+
+        // @phpstan-ignore-next-line function.alreadyNarrowedType
+        if (method_exists('Metasync_OpenGraph', 'strip_title_snapshot')) {
+            return Metasync_OpenGraph::get_social_meta($post_id, '_metasync_og_title');
         }
 
         $og_title = (string) get_post_meta($post_id, '_metasync_og_title', true);
@@ -1175,6 +1182,10 @@ class Metasync_SEO_Conflict_Handler {
             return true;
         }
 
+        if (class_exists('Metasync_OpenGraph')) {
+            return Metasync_OpenGraph::is_social_output_disabled($post_id);
+        }
+
         return $post_id && get_post_meta($post_id, '_metasync_og_enabled', true) === '0';
     }
 
@@ -1572,12 +1583,20 @@ class Metasync_SEO_Conflict_Handler {
      * Also strip BreadcrumbList entries when MetaSync breadcrumbs are enabled,
      * so MetaSync's own BreadcrumbList is the only one on the page.
      *
-     * @param  array|false $data Yoast's JSON-LD data.
-     * @return array|false
+     * Yoast's wpseo_schema_graph filter contract expects an array of graph
+     * pieces. Yoast's Schema_Presenter::present() only validates the outer
+     * schema structure with is_array(), not the graph value itself, so a
+     * boolean false flows straight through wp_json_encode() and is printed as
+     * the invalid "@graph":false. Return an empty array here instead, which
+     * Yoast renders as a valid empty "@graph":[] — mirroring the AIOSEO and
+     * Rank Math filters in this same handler.
+     *
+     * @param  array $data Yoast's JSON-LD data.
+     * @return array
      */
     public function filter_yoast_schema($data) {
         if ($this->otto_has_schema_for_current_page()) {
-            return false;
+            return [];
         }
 
         if ($this->metasync_breadcrumb_enabled() && is_array($data)) {
@@ -2310,6 +2329,34 @@ class Metasync_SEO_Conflict_Handler {
             return $value;
         }
 
+        // A twitter field with no value of its own has always *rendered* its og
+        // twin — Metasync_OpenGraph's emitter cascades twitter:title from og:title
+        // and twitter:description from og:description — so the same cascade has to
+        // happen here before the generic page-title/description fallback. Without
+        // it a legacy twitter row that merely echoes the og value (collapsed by
+        // get_social_meta, so it reaches this point) would resolve to the page
+        // TITLE chain instead and the sidebar would emit a different twitter:title
+        // than the plugin's own tags — the exact class of divergence the
+        // comparison above exists to prevent.
+        //
+        // The cascade consults only the customer's own typed og value, never the
+        // og twin's full chain. OTTO's og row is a third-party tier, and by the
+        // matching-key rule it governs the og tag only — cascading it here would
+        // reach across and replace a third-party plugin's own twitter tag with a
+        // value OTTO never staged for that field. Typed og only, one direction;
+        // the og fields never consult the twitter ones.
+        if ($field === Metasync_Seo_Precedence::FIELD_TWITTER_TITLE
+            || $field === Metasync_Seo_Precedence::FIELD_TWITTER_DESCRIPTION
+        ) {
+            $og_field = ($field === Metasync_Seo_Precedence::FIELD_TWITTER_TITLE)
+                ? Metasync_Seo_Precedence::FIELD_OG_TITLE
+                : Metasync_Seo_Precedence::FIELD_OG_DESCRIPTION;
+            $og = $this->customized_metabox_value($post_id, $og_field);
+            if ($og !== '') {
+                return $og;
+            }
+        }
+
         // A social description with no OG-specific value of its own falls back to
         // the page description, which is what MetaSync's own emitter has always
         // done. Without this the plugin renders its own og:description while the
@@ -2334,14 +2381,21 @@ class Metasync_SEO_Conflict_Handler {
     /**
      * A social meta box value, but only when the customer genuinely set it.
      *
-     * The box pre-fills Title from the post title, Description from the excerpt
-     * and Image from the featured image, and persists whatever is in those fields
-     * on save. So "non-empty" is not intent — a field is the customer's only when
-     * it differs from the default it was pre-filled with.
+     * The box pre-fills Image from the featured image and persists whatever is
+     * in that field on save — so for it, "non-empty" is not intent: the image
+     * is the customer's only when it differs from the default it was
+     * pre-filled with. Title and Description no longer need the comparison:
+     * the box shows their defaults as placeholders only and stores nothing
+     * when the submitted text just echoes them, while rows polluted before
+     * that (the "Auto Draft" placeholder, a snapshot of the title that a
+     * rename left stale, a snapshot of the resolved description that an
+     * excerpt or content edit left stale) are collapsed on read.
      *
      * Compared per field rather than letting the Twitter fields inherit the OG
      * verdict, so a customized og:title cannot silently promote an auto-filled
-     * twitter:title.
+     * twitter:title. An EMPTY twitter field does inherit a typed og twin later
+     * in metasync_social_value()'s cascade — but only after its own row has
+     * collapsed to empty, which is the emitter's exact behaviour.
      *
      * @param  int    $post_id
      * @param  string $field   A Metasync_Seo_Precedence social field constant.
@@ -2382,14 +2436,37 @@ class Metasync_SEO_Conflict_Handler {
             return '';
         }
 
-        // The title default is the post title, which we can read without help. The
-        // description and image defaults come from the emitter's own resolver so
-        // they match it exactly.
+        // The title default is the post title, and the box no longer persists it.
+        // Rows that still hold such a snapshot (written by the old pre-fill) are
+        // collapsed here, so a title that survives is genuinely the customer's and
+        // needs no default comparison. Description is the same story with the
+        // resolved excerpt: the box now shows it as a placeholder only, and rows
+        // that still hold a snapshot of it are collapsed the same way — including
+        // the twitter twin, whose pre-fill echoed the og description when one was
+        // set. The image default still comes from the emitter's own resolver
+        // because the box still pre-fills and persists that field.
         if ($default_key === 'title') {
+            // @phpstan-ignore-next-line function.alreadyNarrowedType
+            if (method_exists('Metasync_OpenGraph', 'strip_title_snapshot')) {
+                return Metasync_OpenGraph::strip_title_snapshot($post_id, $meta_key, $stored);
+            }
+
             $post    = get_post($post_id);
             $default = ($post instanceof WP_Post) ? (string) $post->post_title : '';
 
             return $stored === $default ? '' : $stored;
+        }
+
+        if ($default_key === 'description') {
+            // @phpstan-ignore-next-line function.alreadyNarrowedType
+            if (method_exists('Metasync_OpenGraph', 'strip_description_snapshot')) {
+                return Metasync_OpenGraph::strip_description_snapshot($post_id, $meta_key, $stored);
+            }
+
+            // Fall through to the emitter-resolver comparison below, which the
+            // og key satisfies and which stays a safe under-approximation for
+            // the twitter key: a stale snapshot it fails to catch here is
+            // still collapsed everywhere the box's own reads go.
         }
 
         if (!class_exists('Metasync_OpenGraph') || !Metasync_OpenGraph::get_instance()) {

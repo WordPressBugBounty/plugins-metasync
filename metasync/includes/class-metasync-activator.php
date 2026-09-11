@@ -24,6 +24,30 @@ class Metasync_Activator
 {
 
 	/**
+	 * Option recording the last failed White Label JSON import.
+	 * Stores array{file_hash: string, failed_at: int, error: string}.
+	 *
+	 * @var string
+	 */
+	 const IMPORT_FAILURE_OPTION = 'metasync_whitelabel_import_failure';
+
+	/**
+	 * Retry cadence (seconds) for a failing White Label import so a
+	 * broken file cannot produce a silent retry storm on every admin request.
+	 *
+	 * @var int
+	 */
+	 const IMPORT_RETRY_BACKOFF_SECONDS = 3600;
+
+	/**
+	 * Machine-readable reason for the most recent import failure, consumed
+	 * by render_whitelabel_import_failure_notice().
+	 *
+	 * @var string
+	 */
+	 private static $last_import_error = '';
+
+	/**
 	 * Canonical list of MetaSync custom WP-Cron hooks.
 	 * Shared with Metasync_Deactivator so deactivation cleans up every scheduled hook.
 	 *
@@ -212,6 +236,16 @@ class Metasync_Activator
 	 */
 	public static function check_whitelabel_settings_update($trusted_update_context = false)
 	{
+// Never run the import from AJAX handlers. admin-ajax requests
+		// (notably the Forgot Password recovery call) run admin_init first, so an
+		// import attempted there already holds the shared recovery lock when the
+		// handler itself runs, and every recovery request returns HTTP 429.
+		// Trusted activation/upgrader contexts run once per update, not per
+		// request, and stay exempt.
+		if (!$trusted_update_context && wp_doing_ajax()) {
+			return false;
+		}
+
 		if (!$trusted_update_context && !current_user_can('manage_options')) {
 			return false;
 		}
@@ -235,10 +269,27 @@ class Metasync_Activator
 
 		// Check if file has changed (either modification time or content)
 		if ($file_mtime > $stored_mtime || $file_hash !== $stored_hash) {
-			// File has changed, import settings
-			if (!self::import_whitelabel_settings()) {
+			// A failing import must not retry on every admin request.
+			// Back off per failing file hash; a successful import or a changed
+			// file clears the state and retries immediately.
+			$failure = get_option(self::IMPORT_FAILURE_OPTION, array());
+			if (is_array($failure)
+				&& isset($failure['file_hash'], $failure['failed_at'])
+				&& (string) $failure['file_hash'] === $file_hash
+				&& (time() - (int) $failure['failed_at']) < self::IMPORT_RETRY_BACKOFF_SECONDS) {
 				return false;
 			}
+
+			// File has changed, import settings
+			if (!self::import_whitelabel_settings()) {
+				update_option(self::IMPORT_FAILURE_OPTION, array(
+					'file_hash' => $file_hash,
+					'failed_at' => time(),
+					'error' => self::$last_import_error,
+				));
+				return false;
+			}
+			delete_option(self::IMPORT_FAILURE_OPTION);
 
 			// Record the file only after the complete import succeeds.
 			update_option('metasync_whitelabel_file_mtime', $file_mtime);
@@ -246,6 +297,47 @@ class Metasync_Activator
 		}
 
 		return true;
+	}
+
+	/**
+	 * Machine-readable reason of the most recent failed White Label import.
+	 *
+	 * @return string
+	 */
+	public static function get_last_import_error()
+	{
+		return self::$last_import_error;
+	}
+
+	/**
+	 * Admin notice for a White Label JSON import that keeps failing.
+	 * Registered from metasync_check_whitelabel_on_admin(); the state is set
+	 * by check_whitelabel_settings_update() when an import fails.
+	 *
+	 * @return void
+	 */
+	public static function render_whitelabel_import_failure_notice()
+	{
+		if (!current_user_can('manage_options')) {
+			return;
+		}
+		$failure = get_option(self::IMPORT_FAILURE_OPTION, array());
+		if (!is_array($failure) || empty($failure['file_hash']) || empty($failure['failed_at'])) {
+			return;
+		}
+		$reasons = array(
+			'json_read_failed' => 'the file could not be read',
+			'json_invalid' => 'the file is not valid JSON',
+			'json_structure_invalid' => 'the file structure is invalid',
+			'plugin_file_unreadable' => 'metasync.php could not be read',
+			'plugin_header_write_failed' => 'the plugin file headers could not be updated (is metasync.php writable?)',
+			'recovery_lock_busy' => 'another password operation was in progress',
+			'options_write_failed' => 'the settings could not be saved',
+		);
+		$reason = isset($failure['error'], $reasons[$failure['error']]) ? $reasons[$failure['error']] : 'an unexpected error occurred';
+		echo '<div class="notice notice-error"><p><strong>White Label settings import failed.</strong> '
+			. 'MetaSync could not import <code>whitelabel-settings.json</code>: ' . esc_html($reason)
+			. '. The import will be retried automatically; fix the file and reload to retry immediately.</p></div>';
 	}
 
 	/**
@@ -263,26 +355,32 @@ class Metasync_Activator
 			return false;
 		}
 
+		self::$last_import_error = 'unknown';
+
 		// Read JSON file
 		$json_content = file_get_contents($json_file);
 		if ($json_content === false) {
+			self::$last_import_error = 'json_read_failed';
 			return false;
 		}
 
 		// Decode JSON
 		$import_data = json_decode($json_content, true);
 		if ($import_data === null || json_last_error() !== JSON_ERROR_NONE) {
+			self::$last_import_error = 'json_invalid';
 			return false;
 		}
 
 		// Validate import data structure
 		if (!isset($import_data['whitelabel_settings']) || !is_array($import_data['whitelabel_settings'])) {
+			self::$last_import_error = 'json_structure_invalid';
 			return false;
 		}
 
 		$plugin_file = plugin_dir_path(dirname(__FILE__)) . 'metasync.php';
 		$original_plugin_content = file_get_contents($plugin_file);
 		if ($original_plugin_content === false) {
+			self::$last_import_error = 'plugin_file_unreadable';
 			return false;
 		}
 
@@ -329,6 +427,7 @@ class Metasync_Activator
 			'general_settings' => $options['general'] ?? array(),
 		);
 		if (!self::update_plugin_file_headers($header_data, $plugin_file)) {
+			self::$last_import_error = 'plugin_header_write_failed';
 			return false;
 		}
 
@@ -359,12 +458,43 @@ class Metasync_Activator
 			}
 		}
 
-		// Save updated options
-		update_option('metasync_options', $options);
+		// Save updated options.
+// when the package carries a settings password this is a
+		// legitimate import write, but the recovery protection filter treats any
+		// unauthenticated password write as a conflict and swaps it back to the
+		// stored password — the verification below could then never pass once a
+		// password is stored, and the retry loop would hold the shared recovery
+		// lock on every admin request, blocking the Forgot Password flow.
+		// Mirror the recovery flow's own persist path: take the lock and
+		// authorize the write for the duration of the save.
+		$carries_password = !empty($options['whitelabel']['settings_password']);
+		$import_lock_owner = '';
+		if ($carries_password) {
+			require_once __DIR__ . '/class-metasync-admin-ajax.php';
+			require_once __DIR__ . '/class-metasync-settings-registration.php';
+			if (!Metasync_Admin_Ajax::instance()->acquire_recovery_lock($import_lock_owner)) {
+				// A recovery or settings save is mid-write; retry via the normal
+				// backoff instead of fighting for the lock.
+				self::$last_import_error = 'recovery_lock_busy';
+				return false;
+			}
+		}
+		try {
+			if ($carries_password) {
+				Metasync_Settings_Registration::authorize_recovery_password_write(true);
+			}
+			update_option('metasync_options', $options);
+		} finally {
+			if ($carries_password) {
+				Metasync_Settings_Registration::authorize_recovery_password_write(false);
+				Metasync_Admin_Ajax::instance()->release_recovery_lock($import_lock_owner);
+			}
+		}
 		if (get_option('metasync_options', null) !== $options) {
 			if (self::atomically_replace_plugin_file($plugin_file, $original_plugin_content)) {
 				wp_cache_delete('plugins', 'plugins');
 			}
+			self::$last_import_error = 'options_write_failed';
 			return false;
 		}
 
