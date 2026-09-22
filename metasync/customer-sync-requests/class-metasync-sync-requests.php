@@ -183,6 +183,10 @@ class Metasync_Sync_Requests
             'otto_pixel_uuid' => $general_options['otto_pixel_uuid'] ?? '',
         ];
 
+        if (Metasync_Headless_Config::is_active()) {
+            $payload['frontend_domain'] = Metasync_Headless_Config::get_frontend_domain();
+        }
+
         # append login auth token to payload
         if(!empty($token)){
             $payload['login_auth_token'] = $token;

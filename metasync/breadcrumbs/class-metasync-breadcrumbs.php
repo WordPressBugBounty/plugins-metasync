@@ -4,7 +4,6 @@
  *
  * @package    Metasync
  * @subpackage Metasync/breadcrumbs
- * @since      2.9.0
  */
 
 if (!defined('ABSPATH')) {
@@ -47,25 +46,12 @@ class Metasync_Breadcrumbs {
 
         add_action('init', array($this, 'register_meta_fields'));
         add_action('init', array($this, 'register_shortcode'));
-        add_action('wp_enqueue_scripts', array($this, 'enqueue_styles'));
         add_action('wp', array($this, 'maybe_override_woocommerce_breadcrumb'));
 
         // Cross-write the per-post breadcrumb label override to Yoast / Rank Math
         // so sites running those plugins stay in sync when editors use MetaSync.
         add_action('updated_post_meta', array($this, 'sync_breadcrumb_title_to_plugins'), 10, 4);
         add_action('added_post_meta', array($this, 'sync_breadcrumb_title_to_plugins'), 10, 4);
-    }
-
-    /**
-     * Enqueue breadcrumb styles on the front-end.
-     */
-    public function enqueue_styles() {
-        wp_enqueue_style(
-            'metasync-breadcrumbs',
-            plugin_dir_url(dirname(__FILE__)) . 'breadcrumbs/css/metasync-breadcrumbs.css',
-            array(),
-            $this->version
-        );
     }
 
     /**
@@ -171,14 +157,20 @@ class Metasync_Breadcrumbs {
 
         $is_cross_writing = true;
 
-        if (is_plugin_active('wordpress-seo/wp-seo.php') ||
-            is_plugin_active('wordpress-seo-premium/wp-seo-premium.php')) {
-            update_post_meta($post_id, '_yoast_wpseo_bctitle', $meta_value);
+        // Consent gate and write-once backup — a breadcrumb title copied into
+        // Yoast or Rank Math is a permanent write into another plugin's storage
+        // like any other, so it asks the same permission and preserves whatever
+        // the field held before.
+        $may_write = class_exists('Metasync_Seo_Backup');
+
+        if ($may_write && (is_plugin_active('wordpress-seo/wp-seo.php') ||
+            is_plugin_active('wordpress-seo-premium/wp-seo-premium.php'))) {
+            Metasync_Seo_Backup::write_post_meta($post_id, '_yoast_wpseo_bctitle', $meta_value);
         }
 
-        if (is_plugin_active('seo-by-rank-math/rank-math.php') ||
-            is_plugin_active('seo-by-rankmath/rank-math.php')) {
-            update_post_meta($post_id, 'rank_math_breadcrumb_title', $meta_value);
+        if ($may_write && (is_plugin_active('seo-by-rank-math/rank-math.php') ||
+            is_plugin_active('seo-by-rankmath/rank-math.php'))) {
+            Metasync_Seo_Backup::write_post_meta($post_id, 'rank_math_breadcrumb_title', $meta_value);
         }
 
         $is_cross_writing = false;
@@ -582,6 +574,23 @@ class Metasync_Breadcrumbs {
         if (empty($trail)) {
             return '';
         }
+
+        // Enqueue on render: the stylesheet only targets this markup, so it is
+        // loaded here — after the enabled check and a confirmed trail — rather
+        // than site-wide from wp_enqueue_scripts. Every render path (shortcode,
+        // template function, WooCommerce override) funnels through this method,
+        // and a late-enqueued style prints in the footer.
+        // The template function and the schema module both instantiate this class
+        // with the constructor's default-version instance ('1.0.0'), so whichever
+        // render path runs first would otherwise decide the cache-bust version.
+        // Prefer the plugin-wide constant so the version is consistent regardless
+        // of which instance renders.
+        wp_enqueue_style(
+            'metasync-breadcrumbs',
+            plugin_dir_url(dirname(__FILE__)) . 'breadcrumbs/css/metasync-breadcrumbs.css',
+            array(),
+            defined('METASYNC_VERSION') ? METASYNC_VERSION : $this->version
+        );
 
         $separator   = $this->settings['separator'];
         $prefix_text = $this->settings['prefix_text'];

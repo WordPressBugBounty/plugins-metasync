@@ -102,6 +102,16 @@ class Metasync_Otto_Clone_Meta_Cleaner {
         foreach (self::SOCIAL_META_KEYS as $key) {
             delete_post_meta($new_post_id, $key);
         }
+
+        # Saved originals of third-party SEO fields must not travel with a copy.
+        # They describe what the SOURCE post's Rank Math / Yoast / AIOSEO fields
+        # held before we overwrote them; inherited by a duplicate, a restore
+        # would write one page's pre-OTTO title onto a different page. The keys
+        # are per-field and therefore dynamic, so they are matched by prefix
+        # rather than listed as constants like the fixed keys above.
+        if (class_exists('Metasync_Seo_Backup')) {
+            Metasync_Seo_Backup::delete_all_for_post($new_post_id);
+        }
     }
 
     /**

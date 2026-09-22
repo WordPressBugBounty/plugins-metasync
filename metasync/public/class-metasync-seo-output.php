@@ -933,7 +933,7 @@ class Metasync_Seo_Output
 	 * @param  string[] $directives
 	 * @return string[]
 	 */
-	private function strip_serving_directives_if_noindex($directives) {
+	private static function strip_serving_directives_if_noindex($directives) {
 		$has_noindex = false;
 		foreach ($directives as $d) {
 			if (strcasecmp((string) $d, 'noindex') === 0) {
@@ -971,9 +971,34 @@ class Metasync_Seo_Output
 		}
 
 		return $this->filter_robots_by_enabled_features(
-			$this->resolve_robots_value_raw($all_meta),
+			self::resolve_robots_value_raw($all_meta),
 			$all_meta
 		);
+	}
+
+	/**
+	 * True when MetaSync's own robots resolution for a post includes noindex.
+	 *
+	 * Shared with the language-alternates emitter: Google discards a hreflang
+	 * cluster whose member page is noindex, so annotating such a page only
+	 * invites "alternate page with improper canonical/noindex" noise. Only
+	 * MetaSync's own directives count — when the robots features are switched
+	 * off, or the noindex comes from another plugin, the cluster is not
+	 * MetaSync's to withhold.
+	 *
+	 * @param  int $post_id Post ID.
+	 * @return bool
+	 */
+	public function is_noindex($post_id) {
+		$value = $this->resolve_robots_value(get_post_meta($post_id));
+
+		foreach (explode(',', (string) $value) as $directive) {
+			if (strcasecmp(trim($directive), 'noindex') === 0) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -1107,7 +1132,7 @@ class Metasync_Seo_Output
 	 * @param  array $all_meta Result of get_post_meta($id) (all meta as arrays).
 	 * @return string Robots directive string (e.g. "nofollow, noarchive, max-snippet:-1") or empty.
 	 */
-	private function resolve_robots_value_raw($all_meta) {
+	public static function resolve_robots_value_raw($all_meta) {
 		$directives = [];
 
 		// Merge noindex from _metasync_robots_index (separate key, not part of advanced JSON)
@@ -1150,7 +1175,7 @@ class Metasync_Seo_Output
 				if (isset($advanced['max_video_preview'])) {
 					$directives[] = 'max-video-preview:' . (int) $advanced['max_video_preview'];
 				}
-				$directives = $this->strip_serving_directives_if_noindex($directives);
+				$directives = self::strip_serving_directives_if_noindex($directives);
 				return !empty($directives) ? implode(', ', $directives) : '';
 			}
 		}
@@ -1205,7 +1230,7 @@ class Metasync_Seo_Output
 		}
 
 		if (!empty($directives)) {
-			$directives = $this->strip_serving_directives_if_noindex($directives);
+			$directives = self::strip_serving_directives_if_noindex($directives);
 			return implode(', ', array_unique($directives));
 		}
 
@@ -1262,10 +1287,18 @@ class Metasync_Seo_Output
 				$override = Metasync_Canonical_Sanitizer::sanitize(
 					get_post_meta($blog_page_id, '_metasync_canonical_url', true)
 				);
+				if ($override === '') {
+					$override = Metasync_Canonical_Sanitizer::sanitize(
+						get_post_meta($blog_page_id, 'meta_canonical', true)
+					);
+				}
 				if ($override !== '') {
 					return esc_url($override);
 				}
-				return get_permalink($blog_page_id);
+				return $this->maybe_build_headless_url(get_permalink($blog_page_id), 'page');
+			}
+			if (Metasync_Headless_Config::is_active()) {
+				return $this->get_headless_home_url();
 			}
 			return home_url('/');
 		}
@@ -1273,29 +1306,53 @@ class Metasync_Seo_Output
 		if (is_category() || is_tag() || is_tax()) {
 			$term = get_queried_object();
 			if ($term instanceof WP_Term) {
+				$override = Metasync_Canonical_Sanitizer::sanitize(
+					get_term_meta($term->term_id, '_metasync_canonical_url', true)
+				);
+				if ($override === '') {
+					$override = Metasync_Canonical_Sanitizer::sanitize(
+						get_term_meta($term->term_id, 'meta_canonical', true)
+					);
+				}
+				if ($override !== '') {
+					return esc_url($override);
+				}
+
 				$link = get_term_link($term);
-				return is_wp_error($link) ? '' : $link;
+				return is_wp_error($link) ? '' : $this->maybe_build_headless_url($link);
 			}
 			return '';
 		}
 
 		if (is_author()) {
-			return get_author_posts_url(get_queried_object_id());
+			return $this->maybe_build_headless_url(get_author_posts_url(get_queried_object_id()));
 		}
 
 		if (is_day()) {
-			return get_day_link(get_query_var('year'), get_query_var('monthnum'), get_query_var('day'));
+			return $this->maybe_build_headless_url(get_day_link(get_query_var('year'), get_query_var('monthnum'), get_query_var('day')));
 		}
 
 		if (is_month()) {
-			return get_month_link(get_query_var('year'), get_query_var('monthnum'));
+			return $this->maybe_build_headless_url(get_month_link(get_query_var('year'), get_query_var('monthnum')));
 		}
 
 		if (is_year()) {
-			return get_year_link(get_query_var('year'));
+			return $this->maybe_build_headless_url(get_year_link(get_query_var('year')));
 		}
 
 		return '';
+	}
+
+	/**
+	 * Build the public homepage URL for the active headless path.
+	 *
+	 * Kept as a small seam so the archive caller's fail-closed behaviour can be
+	 * verified independently of the builder's current homepage invariants.
+	 *
+	 * @return string Public homepage URL, or an empty string on builder failure.
+	 */
+	protected function get_headless_home_url() {
+		return Metasync_Headless_Url_Builder::home();
 	}
 
 	/**
@@ -1390,7 +1447,26 @@ class Metasync_Seo_Output
 			}
 		}
 
-		return $permalink;
+		return $this->maybe_build_headless_url($permalink, $post->post_type);
+	}
+
+	/**
+	 * Rehost a derived WordPress URL when headless mode is active.
+	 *
+	 * Explicit canonical overrides bypass this helper, so they remain authoritative.
+	 * While active, a builder failure returns an empty string so the WordPress URL
+	 * cannot leak into public metadata.
+	 *
+	 * @param mixed  $url       Derived URL from WordPress.
+	 * @param string $post_type Post type for an optional frontend path prefix.
+	 * @return mixed Original URL when inactive; public URL or empty string when active.
+	 */
+	private function maybe_build_headless_url($url, $post_type = '') {
+		if (!Metasync_Headless_Config::is_active()) {
+			return $url;
+		}
+
+		return Metasync_Headless_Url_Builder::from_wp_url($url, $post_type);
 	}
 
 	/**

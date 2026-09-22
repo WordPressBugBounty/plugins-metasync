@@ -15,6 +15,150 @@ if (!defined('ABSPATH')) {
 }
 
 /**
+ * Write one OTTO value into a third-party SEO plugin's post meta.
+ *
+ * Every direct write into Yoast / Rank Math / AIOSEO post storage in this file
+ * goes through here, for two reasons:
+ *
+ *  - the site owner's consent switch has to be honoured, and honoured in one
+ *    place rather than re-derived at thirty call sites;
+ *  - the value being overwritten has to be preserved first.
+ *
+ * The backup helper returns false when consent has not been given, so a single
+ * call both asks permission and takes the backup.
+ *
+ * @param int    $post_id Post ID.
+ * @param string $key     Third-party meta key.
+ * @param mixed  $value   Value to write.
+ * @return bool True when the write happened.
+ */
+function metasync_persist_post_field($post_id, $key, $value) {
+    return class_exists('Metasync_Seo_Backup')
+        && Metasync_Seo_Backup::write_post_meta($post_id, $key, $value);
+}
+
+/**
+ * Ask permission for, and back up, a write into an AIOSEO custom table.
+ *
+ * AIOSEO keeps SEO data in `aioseo_posts` / `aioseo_terms` rather than in meta,
+ * so there is no meta row to preserve and no field a restore could delete. The
+ * per-column originals and whether the row pre-existed are recorded as meta on
+ * the object itself, which lets a restore put the original columns back without
+ * disturbing the rest of the user's row, and delete outright a row that only
+ * exists because we created it.
+ *
+ * @param string     $object_type 'post' or 'term'.
+ * @param int        $object_id   Post or term ID.
+ * @param array      $columns     Column/value pairs about to be written.
+ * @param array|null $current     Existing row as an associative array, or null
+ *                                when AIOSEO has no row for this object yet.
+ * @param array      $created     Out-param, filled with the backup fields this
+ *                                call created, so a failed write can withdraw
+ *                                exactly its own rows and no one else's.
+ * @return bool True when the caller may proceed with the write.
+ */
+function metasync_persist_aioseo_columns($object_type, $object_id, array $columns, $current, array &$created) {
+    $created = [];
+
+    if (!class_exists('Metasync_Seo_Backup') || !Metasync_Seo_Backup::is_enabled()) {
+        return false;
+    }
+
+    // Whether the row pre-existed decides, at restore time, between putting the
+    // original columns back and deleting a row that only exists because we made
+    // it. Losing that distinction risks deleting a customer's row later, so a
+    // marker that will not record is as disqualifying as a column that will not.
+    if (!Metasync_Seo_Backup::record_marker(
+        $object_type,
+        $object_id,
+        'aioseo_row_existed',
+        $current !== null ? '1' : '0',
+        $marker_created
+    )) {
+        return false;
+    }
+
+    if ($marker_created) {
+        $created[] = 'aioseo_row_existed';
+    }
+
+    foreach ($columns as $column => $value) {
+        if (in_array($column, ['updated', 'created', 'post_id', 'term_id'], true)) {
+            continue;
+        }
+
+        // A missing row and a NULL column mean the same thing to a restore:
+        // there was no value here, so put nothing back.
+        $current_value = ($current !== null && isset($current[$column])) ? $current[$column] : null;
+
+        $field = 'aioseo_' . $column;
+
+        // One unsaved column is enough to refuse the whole write. Writing the rest
+        // would leave a row that is part original and part OTTO, which no restore
+        // can unpick. The refusal also means no row is written at all, so withdraw
+        // the marker and the columns recorded so far — the same rule as the
+        // failed-insert paths in the callers. Left behind, a row_existed='0'
+        // marker would let a restore delete a row the customer creates later,
+        // and a NULL column backup would blank a real value in it.
+        if (!Metasync_Seo_Backup::backup_before_overwrite(
+            $object_type,
+            $object_id,
+            $field,
+            $value,
+            $current_value,
+            $column_created
+        )) {
+            Metasync_Seo_Backup::discard_backups($object_type, $object_id, $created);
+            return false;
+        }
+
+        if ($column_created) {
+            $created[] = $field;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Write one OTTO value into a third-party SEO plugin's term meta.
+ *
+ * Term counterpart of metasync_persist_post_field(). Terms get the same
+ * consent gate and the same write-once backup as posts; the backup row lives in
+ * term meta, which is a separate table from post meta, so the key naming is
+ * shared with no risk of collision.
+ *
+ * @param int    $term_id Term ID.
+ * @param string $key     Third-party term meta key.
+ * @param mixed  $value   Value to write.
+ * @return bool True when the write happened.
+ */
+function metasync_persist_term_field($term_id, $key, $value) {
+    return class_exists('Metasync_Seo_Backup')
+        && Metasync_Seo_Backup::write_term_meta($term_id, $key, $value);
+}
+
+/**
+ * Whether a class actually declares a method in this process right now.
+ *
+ * Defined here rather than reusing the copy in otto/otto_pixel.php on
+ * purpose: a helper loaded from another file could itself be the stale one
+ * on a partially updated install.
+ *
+ * $class and $method are parameters rather than literals at the call site so
+ * the check survives static analysis, which would otherwise narrow a literal
+ * method_exists() on a known class to a constant true — the runtime skew
+ * this guards against cannot be seen statically.
+ *
+ * @param string $class  Class about to be called.
+ * @param string $method Method about to be called on it.
+ * @return bool
+ */
+function metasync_otto_seo_class_provides($class, $method) {
+    return class_exists($class) && method_exists($class, $method);
+}
+
+/**
  * Fetch SEO data from OTTO API
  *
  * @param string $route   The URL route
@@ -23,10 +167,15 @@ if (!defined('ABSPATH')) {
  *                        transport errors, timeouts, 408/429/5xx (retrying can
  *                        help); 'permanent' for other 4xx (auth/input errors —
  *                        the same request can never succeed). Null on success.
+ * @param int    $timeout Request timeout in seconds. Defaults to 5, matching the
+ *                        webhook job's original behaviour. Callers running from a
+ *                        tighter budget (e.g. the headless stale-while-revalidate
+ *                        refresh job, which must not let one slow URL stall a
+ *                        whole batch) can pass a shorter value.
  * @return array|false SEO data array (possibly empty — OTTO holding nothing
  *                     for this URL is a valid answer) or false on failure.
  */
-function metasync_fetch_otto_seo_data($route, $uuid, &$failure = null) {
+function metasync_fetch_otto_seo_data($route, $uuid, &$failure = null, $timeout = 5) {
     $failure = null;
     $route = esc_url_raw($route);
 
@@ -50,7 +199,7 @@ function metasync_fetch_otto_seo_data($route, $uuid, &$failure = null) {
     # by metasync_otto_crawl_notify(), and a slow upstream response should not stall the
     # job runner or pile up failures.
     $response = wp_remote_get($api_url, array(
-        'timeout' => 5,
+        'timeout' => max(1, (int) $timeout),
         'sslverify' => true,
         'headers' => array(
             'User-Agent' => 'MetaSync-WordPress-Plugin/1.0'
@@ -70,9 +219,18 @@ function metasync_fetch_otto_seo_data($route, $uuid, &$failure = null) {
         metasync_record_otto_rate_limit_hit();
     }
 
+    # A definitive "nothing here" answer, not a transport failure. OTTO returns 204
+    # in production and 404 ("No OTTO optimizations available for this URL.") on
+    # staging for a URL it has no suggestions for. Callers must be able to tell that
+    # apart from a real failure, so return an empty array rather than false — the
+    # transient cache path has always made the same distinction.
+    if ($response_code === 404 || $response_code === 204) {
+        return array();
+    }
+
     if ($response_code !== 200) {
         # 408 request timeout and all 5xx are transient server states; 429 is
-        # throttling. Everything else (400/401/403/404...) is a request the
+        # throttling. Everything else (400/401/403...) is a request the
         # server will reject again no matter how often it is retried.
         $failure = ($response_code === 408 || $response_code === 429 || $response_code >= 500)
             ? 'retryable'
@@ -156,14 +314,25 @@ function metasync_clean_seo_variables($text) {
     $text = strip_shortcodes($text);
     $text = preg_replace('/\[\/?[a-zA-Z][^\]]*\]/', '', $text);
 
-    # Remove multiple spaces created by removal
-    $text = preg_replace('/\s+/', ' ', $text);
+    # Remove multiple spaces created by removal.
+    # The /u modifier makes PCRE operate on UTF-8 code units instead of raw
+    # bytes, so it never splits a multi-byte sequence mid-character when
+    # collapsing whitespace.
+    $text = preg_replace('/\s+/u', ' ', $text);
 
-    # Remove leading/trailing separators and spaces
-    $text = trim($text, ' |-–—');
+    # Remove leading/trailing separators and spaces. PHP's trim() matches the
+    # mask byte-by-byte, which corrupts multi-byte separators (en/em dash) by
+    # stripping their trailing bytes individually. Use a /u-guarded regex
+    # instead so the whole code point is matched (precedent:
+    # includes/class-metasync-opengraph.php, line ~1705).
+    $text = preg_replace('/^[\s\-|–—]+|[\s\-|–—]+$/u', '', $text);
 
-    # Clean up any remaining double separators
-    $text = preg_replace('/\s*[-|–—]\s*[-|–—]\s*/', ' - ', $text);
+    # Clean up any remaining double separators. The /u modifier is required
+    # because the character class contains en-dash (–) and em-dash (—), both
+    # multi-byte in UTF-8; without it PCRE matches on raw bytes and can split a
+    # multi-byte sequence mid-character, producing invalid UTF-8 that MySQL
+    # then rejects (silently dropping the value).
+    $text = preg_replace('/\s*[-|–—]\s*[-|–—]\s*/u', ' - ', $text);
 
     return trim($text);
 }
@@ -495,8 +664,49 @@ function metasync_extract_headings($seo_data) {
 }
 
 /**
+ * Build the identity key a structured-data entity is deduplicated on.
+ *
+ * `@id` is the JSON-LD identity when the producer supplies one; otherwise the
+ * `@type` stands in, so two page-scoped nodes of the same type (the WebPage
+ * duplicate) collapse to one. Compound types are joined, sorted, so ordering
+ * differences between blocks do not defeat the match.
+ *
+ * @param array $entity A single JSON-LD entity.
+ * @return string The key, or '' when the entity carries nothing to key on.
+ */
+function metasync_otto_structured_entity_key($entity) {
+    if (!empty($entity['@id']) && is_string($entity['@id'])) {
+        return '@id:' . strtolower(trim($entity['@id']));
+    }
+
+    if (!isset($entity['@type'])) {
+        return '';
+    }
+
+    $types = [];
+    foreach ((is_array($entity['@type']) ? $entity['@type'] : [$entity['@type']]) as $type) {
+        if (is_array($type) || is_object($type) || is_bool($type) || $type === null) {
+            continue;
+        }
+        $type = strtolower(trim((string) $type));
+        if ($type !== '') {
+            $types[$type] = true;
+        }
+    }
+
+    if (empty($types)) {
+        return '';
+    }
+
+    $types = array_keys($types);
+    sort($types);
+
+    return '@type:' . implode(',', $types);
+}
+
+/**
  * Extract structured data from OTTO response data
- * 
+ *
  * @param array $seo_data The SEO data from OTTO API
  * @return string|null The structured data JSON or null if not found
  */
@@ -517,30 +727,52 @@ function metasync_extract_structured_data($seo_data) {
                 return reset($json_blocks);
             }
 
-            # Multiple blocks — merge into a single @graph structure
-            $all_entities = [];
+            # Multiple blocks — merge into a single @graph structure.
+            # Keyed by @id (or @type when there is no @id) so the same node arriving
+            # in two blocks is stored once instead of persisted twice — an unkeyed
+            # append is how a second WebPage node ends up in the saved copy.
+            $all_entities  = [];
+            $entity_index  = [];
+
             foreach ($json_blocks as $json_string) {
                 $decoded = json_decode($json_string, true);
                 if (!is_array($decoded)) {
                     continue;
                 }
+
                 # Unwrap existing @graph arrays
                 if (isset($decoded['@graph']) && is_array($decoded['@graph'])) {
-                    foreach ($decoded['@graph'] as $entity) {
-                        unset($entity['@context']);
-                        $all_entities[] = $entity;
-                    }
+                    $candidates = $decoded['@graph'];
                 } elseif (isset($decoded['@type'])) {
-                    unset($decoded['@context']);
-                    $all_entities[] = $decoded;
+                    $candidates = [$decoded];
                 } elseif (isset($decoded[0])) {
                     # Plain JSON array of entities (e.g., ImageObject array)
-                    foreach ($decoded as $entity) {
-                        if (is_array($entity)) {
-                            unset($entity['@context']);
-                            $all_entities[] = $entity;
-                        }
+                    $candidates = $decoded;
+                } else {
+                    continue;
+                }
+
+                foreach ($candidates as $entity) {
+                    if (!is_array($entity)) {
+                        continue;
                     }
+                    unset($entity['@context']);
+
+                    $key = metasync_otto_structured_entity_key($entity);
+
+                    # Nothing to key on — keep it, it cannot be matched as a duplicate
+                    if ($key === '') {
+                        $all_entities[] = $entity;
+                        continue;
+                    }
+
+                    # First occurrence wins; a later copy of the same node is dropped
+                    if (isset($entity_index[$key])) {
+                        continue;
+                    }
+
+                    $entity_index[$key] = true;
+                    $all_entities[]     = $entity;
                 }
             }
 
@@ -648,10 +880,10 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             update_post_meta($post_id, '_metasync_focus_keyword', sanitize_text_field($meta_keywords));
             $fields_updated['meta_keywords_persisted'] = true;
             if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
-                update_post_meta($post_id, 'rank_math_focus_keyword', sanitize_text_field($meta_keywords));
+                metasync_persist_post_field($post_id, 'rank_math_focus_keyword', sanitize_text_field($meta_keywords));
             }
             if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
-                update_post_meta($post_id, '_yoast_wpseo_focuskw', sanitize_text_field($meta_keywords));
+                metasync_persist_post_field($post_id, '_yoast_wpseo_focuskw', sanitize_text_field($meta_keywords));
             }
             if (metasync_is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') ||
                 metasync_is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
@@ -697,10 +929,10 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             $fields_updated['og_title_persisted'] = true;
             # Also write to SEO plugin OG fields so their output picks up OTTO data
             if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
-                update_post_meta($post_id, 'rank_math_facebook_title', sanitize_text_field($og_title));
+                metasync_persist_post_field($post_id, 'rank_math_facebook_title', sanitize_text_field($og_title));
             }
             if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
-                update_post_meta($post_id, '_yoast_wpseo_opengraph-title', sanitize_text_field($og_title));
+                metasync_persist_post_field($post_id, '_yoast_wpseo_opengraph-title', sanitize_text_field($og_title));
             }
             if (metasync_is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') ||
                 metasync_is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
@@ -734,10 +966,10 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             update_post_meta($post_id, '_metasync_og_description', sanitize_textarea_field($og_description));
             $fields_updated['og_description_persisted'] = true;
             if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
-                update_post_meta($post_id, 'rank_math_facebook_description', sanitize_textarea_field($og_description));
+                metasync_persist_post_field($post_id, 'rank_math_facebook_description', sanitize_textarea_field($og_description));
             }
             if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
-                update_post_meta($post_id, '_yoast_wpseo_opengraph-description', sanitize_textarea_field($og_description));
+                metasync_persist_post_field($post_id, '_yoast_wpseo_opengraph-description', sanitize_textarea_field($og_description));
             }
             if (metasync_is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') ||
                 metasync_is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
@@ -773,10 +1005,10 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             update_post_meta($post_id, '_metasync_twitter_title', sanitize_text_field($twitter_title));
             $fields_updated['twitter_title_persisted'] = true;
             if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
-                update_post_meta($post_id, 'rank_math_twitter_title', sanitize_text_field($twitter_title));
+                metasync_persist_post_field($post_id, 'rank_math_twitter_title', sanitize_text_field($twitter_title));
             }
             if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
-                update_post_meta($post_id, '_yoast_wpseo_twitter-title', sanitize_text_field($twitter_title));
+                metasync_persist_post_field($post_id, '_yoast_wpseo_twitter-title', sanitize_text_field($twitter_title));
             }
             if (metasync_is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') ||
                 metasync_is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
@@ -810,10 +1042,10 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             update_post_meta($post_id, '_metasync_twitter_description', sanitize_textarea_field($twitter_description));
             $fields_updated['twitter_description_persisted'] = true;
             if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
-                update_post_meta($post_id, 'rank_math_twitter_description', sanitize_textarea_field($twitter_description));
+                metasync_persist_post_field($post_id, 'rank_math_twitter_description', sanitize_textarea_field($twitter_description));
             }
             if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
-                update_post_meta($post_id, '_yoast_wpseo_twitter-description', sanitize_textarea_field($twitter_description));
+                metasync_persist_post_field($post_id, '_yoast_wpseo_twitter-description', sanitize_textarea_field($twitter_description));
             }
             if (metasync_is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') ||
                 metasync_is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
@@ -976,51 +1208,115 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
 
             # Cross-plugin schema persistence: sync structured_data to RankMath, Yoast, AIOSEO.
             # Copying OTTO's schema into another plugin's storage is a permanent write that
-            # outlives MetaSync, so it is allowed only while the structured_data Persistence
-            # setting is on. The class_exists() repeat keeps this check fail-closed on its own
-            # terms: a partial install with the settings class missing must not authorise a
-            # write into third-party storage. The otto_jsonld copy above is OUR key and stays
-            # ungated — OTTO's own rendering reads it on every sync.
+            # outlives MetaSync, so it needs both gates: the structured_data Persistence
+            # setting decides whether this field may cross over at all, and the consent
+            # toggle inside metasync_persist_post_field() decides whether this site permits
+            # third-party writes and records the original first. The otto_jsonld copy above
+            # is OUR key and stays ungated -- OTTO's own rendering reads it on every sync.
             #
-            # PHPStan resolves the class from the classmap and calls the left side
-            # always true. It is true in a complete install; the guard is there for
-            # the partial one, which static analysis cannot see.
+            # PHPStan resolves the class from the classmap and calls the left side always
+            # true. It is, in a complete install. The guard is there for the partial one,
+            # which static analysis cannot see.
             # @phpstan-ignore-next-line booleanAnd.leftAlwaysTrue
             if (class_exists('Metasync_Otto_Persistence_Settings') &&
                 Metasync_Otto_Persistence_Settings::should_persist('structured_data')) {
                 if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
                     $rankmath_schemas = metasync_convert_jsonld_to_rankmath($structured_data);
                     foreach ($rankmath_schemas as $schema_type => $schema_data) {
-                        update_post_meta($post_id, 'rank_math_schema_' . $schema_type, wp_slash($schema_data));
+                        metasync_persist_post_field($post_id, 'rank_math_schema_' . $schema_type, $schema_data);
                     }
                 }
                 if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
                     $yoast_types = metasync_extract_yoast_schema_types($structured_data);
                     if (!empty($yoast_types['article_type'])) {
-                        update_post_meta($post_id, '_yoast_wpseo_schema_article_type', $yoast_types['article_type']);
+                        metasync_persist_post_field($post_id, '_yoast_wpseo_schema_article_type', $yoast_types['article_type']);
                     }
                     if (!empty($yoast_types['page_type'])) {
-                        update_post_meta($post_id, '_yoast_wpseo_schema_page_type', $yoast_types['page_type']);
+                        metasync_persist_post_field($post_id, '_yoast_wpseo_schema_page_type', $yoast_types['page_type']);
                     }
-                    // Also update Yoast's indexable cache so the change renders immediately
-                    if (!empty($yoast_types['article_type']) || !empty($yoast_types['page_type'])) {
+                    // Also update Yoast's indexable cache so the change renders immediately.
+                    // Yoast serves schema type from the indexable rather than from post meta,
+                    // so this raw write reaches the frontend on its own and needs the same
+                    // consent as the meta writes above, which get it from the helper.
+                    if (class_exists('Metasync_Seo_Backup') && Metasync_Seo_Backup::is_enabled()
+                        && (!empty($yoast_types['article_type']) || !empty($yoast_types['page_type']))) {
                         global $wpdb;
                         $yoast_indexable_table = $wpdb->prefix . 'yoast_indexable';
+
+                        // The indexable columns -- not the post meta above -- are what
+                        // Yoast actually serves, so this is the value a customer loses
+                        // and the one a restore has to put back. The meta keys beside
+                        // it are usually absent on a modern Yoast, so backing those up
+                        // preserves nothing on its own.
+                        $indexable_read_sql = $wpdb->prepare(
+                            "SELECT schema_article_type, schema_page_type FROM {$yoast_indexable_table} WHERE object_id = %d AND object_type = 'post'",
+                            $post_id
+                        );
+                        $current_indexable = ($indexable_read_sql === null)
+                            ? null
+                            : $wpdb->get_row($indexable_read_sql, ARRAY_A);
+
+                        // A failed read returns the same null as "no such row",
+                        // and recording that as "the column was empty" tells a
+                        // restore to delete the customer's schema type instead
+                        // of putting it back. Record nothing at all in that
+                        // case — a backup taken now is write-once and wrong.
+                        //
+                        // A null row is refused too, for a different reason than
+                        // on the Metasync_Plugin_Sync sites: Yoast builds
+                        // indexables lazily, so a missing row here is ordinary
+                        // rather than a failure. But the only write it would
+                        // permit is an UPDATE matching no rows, and the price of
+                        // permitting it is a write-once backup saying "the column
+                        // was absent" that outlives the row Yoast creates later.
+                        //
+                        // db_read_succeeded() cannot carry this alone. wpdb::query()
+                        // returns early on `!$this->ready` and on a 'query'-filtered
+                        // empty string, both above the flush() that clears
+                        // last_error and above the line that records last_query. So
+                        // the error looks stale-clean AND last_result still holds a
+                        // previous query's rows, which get_row() would hand back as
+                        // this row. Requiring our own SQL to be the query wpdb last
+                        // ran is what rules that out.
+                        $indexable_backed_up = $indexable_read_sql !== null
+                            && $wpdb->last_query === $indexable_read_sql
+                            && $current_indexable !== null
+                            && Metasync_Seo_Backup::db_read_succeeded();
                         $update_cols = array();
                         $update_vals = array();
-                        if (!empty($yoast_types['article_type'])) {
+                        if ($indexable_backed_up && !empty($yoast_types['article_type'])) {
+                            if (!Metasync_Seo_Backup::backup_before_overwrite(
+                                'post',
+                                $post_id,
+                                'yoast_indexable_schema_article_type',
+                                $yoast_types['article_type'],
+                                $current_indexable['schema_article_type'] ?? null
+                            )) {
+                                $indexable_backed_up = false;
+                            }
                             $update_cols[] = 'schema_article_type = %s';
                             $update_vals[] = $yoast_types['article_type'];
                         }
-                        if (!empty($yoast_types['page_type'])) {
+                        if ($indexable_backed_up && !empty($yoast_types['page_type'])) {
+                            if (!Metasync_Seo_Backup::backup_before_overwrite(
+                                'post',
+                                $post_id,
+                                'yoast_indexable_schema_page_type',
+                                $yoast_types['page_type'],
+                                $current_indexable['schema_page_type'] ?? null
+                            )) {
+                                $indexable_backed_up = false;
+                            }
                             $update_cols[] = 'schema_page_type = %s';
                             $update_vals[] = $yoast_types['page_type'];
                         }
                         $update_vals[] = $post_id;
-                        $wpdb->query($wpdb->prepare(
-                            "UPDATE {$yoast_indexable_table} SET " . implode(', ', $update_cols) . " WHERE object_id = %d AND object_type = 'post'",
-                            $update_vals
-                        ));
+                        if ($indexable_backed_up && !empty($update_cols)) {
+                            $wpdb->query($wpdb->prepare(
+                                "UPDATE {$yoast_indexable_table} SET " . implode(', ', $update_cols) . " WHERE object_id = %d AND object_type = 'post'",
+                                $update_vals
+                            ));
+                        }
                     }
                 }
                 // AIOSEO schema persistence skipped — AIOSEO Free locks Article/custom schema behind Pro paywall.
@@ -1061,10 +1357,10 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
                 update_post_meta($post_id, '_metasync_canonical_url', $canonical);
                 $fields_updated['canonical_url_persisted'] = $canonical;
                 if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
-                    update_post_meta($post_id, 'rank_math_canonical_url', $canonical);
+                    metasync_persist_post_field($post_id, 'rank_math_canonical_url', $canonical);
                 }
                 if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
-                    update_post_meta($post_id, '_yoast_wpseo_canonical', $canonical);
+                    metasync_persist_post_field($post_id, '_yoast_wpseo_canonical', $canonical);
                 }
                 if (metasync_is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') ||
                     metasync_is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
@@ -1077,17 +1373,76 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
         if (!empty($aioseo_field_updates)) {
             global $wpdb;
             $aioseo_table = $wpdb->prefix . 'aioseo_posts';
-            $aioseo_field_updates['updated'] = current_time('mysql');
-            $row_exists = $wpdb->get_var($wpdb->prepare(
-                "SELECT id FROM {$aioseo_table} WHERE post_id = %d", $post_id
-            ));
 
-            if ($row_exists) {
+            # Same guard as the block above: AIOSEO active without its tables
+            # would let a write-once row_existed='0' marker be committed for a
+            # table that never existed, which a restore could later read as
+            # permission to delete a row the customer made themselves.
+            $aioseo_table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $aioseo_table));
+            if ($aioseo_table_exists !== $aioseo_table) {
+                $aioseo_field_updates = [];
+            }
+        }
+
+        if (!empty($aioseo_field_updates)) {
+            global $wpdb;
+            $aioseo_table = $wpdb->prefix . 'aioseo_posts';
+            $aioseo_field_updates['updated'] = current_time('mysql');
+
+            # Read the row we are about to change so the originals can be saved
+            # before it is overwritten, and so a restore can tell a row AIOSEO
+            # already had from one this sync created.
+            $aioseo_read_sql = $wpdb->prepare(
+                "SELECT * FROM {$aioseo_table} WHERE post_id = %d", $post_id
+            );
+            $existing_aioseo_row = ($aioseo_read_sql === null)
+                ? null
+                : $wpdb->get_row($aioseo_read_sql, ARRAY_A);
+
+            # A failed read looks exactly like "no row" here, and the difference
+            # is not cosmetic: the write-once row_existed marker would be
+            # committed as '0' for a row AIOSEO really has, which a later
+            # restore reads as licence to delete it. Leave the row untouched.
+            #
+            # A null row cannot be the failure signal the way it can where the
+            # row is already known to exist. Here it is a real answer that drives
+            # the INSERT below, and refusing it would leave every post AIOSEO has
+            # no row for permanently unsynced. What proves the read happened is
+            # wpdb having recorded it: query() assigns last_query only after the
+            # early returns that leave last_error stale and last_result unflushed,
+            # so a query of ours that never became the last query is a read that
+            # never ran -- and get_row() may have answered from stale rows.
+            if ($aioseo_read_sql === null
+                || $wpdb->last_query !== $aioseo_read_sql
+                || !Metasync_Seo_Backup::db_read_succeeded()) {
+                $aioseo_field_updates = [];
+            }
+
+            $row_exists = !empty($existing_aioseo_row);
+            $aioseo_backups_created = [];
+
+            if (!empty($aioseo_field_updates)
+                && !metasync_persist_aioseo_columns('post', $post_id, $aioseo_field_updates, $row_exists ? $existing_aioseo_row : null, $aioseo_backups_created)) {
+                $aioseo_field_updates = [];
+            }
+
+            if (empty($aioseo_field_updates)) {
+                # Consent withheld — leave AIOSEO's row exactly as it is.
+            } elseif ($row_exists) {
                 $wpdb->update($aioseo_table, $aioseo_field_updates, ['post_id' => $post_id]);
             } else {
                 $aioseo_field_updates['post_id'] = $post_id;
                 $aioseo_field_updates['created'] = current_time('mysql');
-                $wpdb->insert($aioseo_table, $aioseo_field_updates);
+
+                # The row_existed='0' marker was recorded before this insert, so
+                # a failed insert leaves a marker claiming a row that is not
+                # there — which a restore would read as licence to delete a row
+                # the customer creates afterwards. The per-column backups beside
+                # it go too, or a column captured as NULL for a row that never
+                # existed would blank a real value the customer later puts in one.
+                if ($wpdb->insert($aioseo_table, $aioseo_field_updates) === false) {
+                    Metasync_Seo_Backup::discard_backups('post', $post_id, $aioseo_backups_created);
+                }
             }
         }
 
@@ -1099,6 +1454,34 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
         # Store timestamp of last OTTO SEO update if any change
         if ($any_updated) {
             update_post_meta($post_id, '_metasync_otto_last_update', current_time('timestamp'));
+        }
+
+        # Keep the SEO Health summary cards in step with the table. The table
+        # resolves live post meta while the aggregates are cached in a transient
+        # whose save_post invalidation never fires for these direct meta writes
+        # (crawl-notify job, MCP tools). The class files are admin-side and may
+        # not be loaded on those paths, so pull them in on demand — they only
+        # define classes, no side effects. The resolver is required with the
+        # same guard the bootstrap uses, for the same partial-install reason.
+        if ($any_updated) {
+            if (!class_exists('Metasync_Seo_Precedence')) {
+                $resolver_file = dirname(__DIR__) . '/includes/class-metasync-seo-precedence.php';
+                if (file_exists($resolver_file)) {
+                    require_once $resolver_file;
+                }
+            }
+            if (!class_exists('Metasync_SEO_Health')) {
+                $seo_health_file = dirname(__DIR__) . '/admin/class-metasync-seo-health.php';
+                if (file_exists($seo_health_file)) {
+                    require_once $seo_health_file;
+                }
+            }
+            # The method check takes parameters on purpose: a partially
+            # updated install can pair this file with an older admin class
+            # that lacks the method, which static analysis cannot see.
+            if (metasync_otto_seo_class_provides('Metasync_SEO_Health', 'invalidate_stats')) {
+                Metasync_SEO_Health::invalidate_stats();
+            }
         }
 
         return array(
@@ -1403,24 +1786,20 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
 
             # Update RankMath SEO plugin meta fields
             if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
-                if ($should_persist_rm_title) {
-                    update_post_meta($post_id, 'rank_math_title', $effective_title);
+                if ($should_persist_rm_title && metasync_persist_post_field($post_id, 'rank_math_title', $effective_title)) {
                     $plugin_title_written = true;
                 }
-                if ($should_persist_rm_description) {
-                    update_post_meta($post_id, 'rank_math_description', $effective_description);
+                if ($should_persist_rm_description && metasync_persist_post_field($post_id, 'rank_math_description', $effective_description)) {
                     $plugin_description_written = true;
                 }
             }
 
             # Update Yoast SEO plugin meta fields
             if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
-                if ($should_persist_yoast_title) {
-                    update_post_meta($post_id, '_yoast_wpseo_title', $effective_title);
+                if ($should_persist_yoast_title && metasync_persist_post_field($post_id, '_yoast_wpseo_title', $effective_title)) {
                     $plugin_title_written = true;
                 }
-                if ($should_persist_yoast_description) {
-                    update_post_meta($post_id, '_yoast_wpseo_metadesc', $effective_description);
+                if ($should_persist_yoast_description && metasync_persist_post_field($post_id, '_yoast_wpseo_metadesc', $effective_description)) {
                     $plugin_description_written = true;
                 }
             }
@@ -1431,32 +1810,73 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
                 global $wpdb;
                 $aioseo_table = $wpdb->prefix . 'aioseo_posts';
 
-                # Read the plugin's own current values so the back-fill is gated on
-                # the aioseo_posts row, not on MetaSync's native field.
-                $current_aioseo = $wpdb->get_row($wpdb->prepare("SELECT title, description FROM {$aioseo_table} WHERE post_id = %d", $post_id));
+                # AIOSEO can be active before its tables exist (activation with a
+                # pending migration). Without this guard the SELECT below returns
+                # null, which reads as "no row", and the write-once row_existed
+                # marker is committed as '0' against a table that was never there.
+                # A later restore would then take that '0' as licence to delete a
+                # row the customer created by hand. Matches the guard in
+                # Metasync_Plugin_Sync::sync_aioseo().
+                $aioseo_table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $aioseo_table));
+                if ($aioseo_table_exists === $aioseo_table) {
+                    # Read the plugin's own current values so the back-fill is gated on
+                    # the aioseo_posts row, not on MetaSync's native field.
+                    $aioseo_read_sql = $wpdb->prepare("SELECT title, description FROM {$aioseo_table} WHERE post_id = %d", $post_id);
+                    $current_aioseo = ($aioseo_read_sql === null)
+                        ? null
+                        : $wpdb->get_row($aioseo_read_sql);
 
-                $should_persist_aioseo_title       = $persist_title && !$title_is_clear && ($meta_title !== ($current_aioseo->title ?? ''));
-                $should_persist_aioseo_description = $persist_description && !$description_is_clear && ($meta_description !== ($current_aioseo->description ?? ''));
+                    # A failed read is indistinguishable from "no row" in the
+                    # value returned, and treating one as the other commits a
+                    # row_existed='0' marker for a row AIOSEO really has — which
+                    # a restore later reads as permission to delete it.
+                    #
+                    # A null row is a legitimate answer that drives the INSERT
+                    # below, so it cannot double as the failure signal. Whether
+                    # wpdb recorded this query as the one it last ran can, for
+                    # the reason given on the sibling read above.
+                    $aioseo_read_ok = $aioseo_read_sql !== null
+                        && $wpdb->last_query === $aioseo_read_sql
+                        && Metasync_Seo_Backup::db_read_succeeded();
 
-                $aioseo_updates = [];
-                if ($should_persist_aioseo_title) {
-                    $aioseo_updates['title'] = $effective_title;
-                    $plugin_title_written = true;
-                }
-                if ($should_persist_aioseo_description) {
-                    $aioseo_updates['description'] = $effective_description;
-                    $plugin_description_written = true;
-                }
+                    $should_persist_aioseo_title       = $persist_title && !$title_is_clear && ($meta_title !== ($current_aioseo->title ?? ''));
+                    $should_persist_aioseo_description = $persist_description && !$description_is_clear && ($meta_description !== ($current_aioseo->description ?? ''));
 
-                if (!empty($aioseo_updates)) {
-                    $aioseo_updates['updated'] = current_time('mysql');
+                    $aioseo_updates = [];
+                    $aioseo_backups_created = [];
+                    if ($should_persist_aioseo_title) {
+                        $aioseo_updates['title'] = $effective_title;
+                    }
+                    if ($should_persist_aioseo_description) {
+                        $aioseo_updates['description'] = $effective_description;
+                    }
 
-                    if ($current_aioseo) {
-                        $wpdb->update($aioseo_table, $aioseo_updates, ['post_id' => $post_id]);
-                    } else {
-                        $aioseo_updates['post_id'] = $post_id;
-                        $aioseo_updates['created'] = current_time('mysql');
-                        $wpdb->insert($aioseo_table, $aioseo_updates);
+                    # Only claim the fields were written once consent has actually
+                    # allowed the row through — otherwise a blocked write would still
+                    # trigger the cache purge and downstream sync below.
+                    if ($aioseo_read_ok && !empty($aioseo_updates)
+                        && metasync_persist_aioseo_columns('post', $post_id, $aioseo_updates, $current_aioseo ? (array) $current_aioseo : null, $aioseo_backups_created)) {
+                        $plugin_title_written = $plugin_title_written || $should_persist_aioseo_title;
+                        $plugin_description_written = $plugin_description_written || $should_persist_aioseo_description;
+                        $aioseo_updates['updated'] = current_time('mysql');
+
+                        if ($current_aioseo) {
+                            $wpdb->update($aioseo_table, $aioseo_updates, ['post_id' => $post_id]);
+                        } else {
+                            $aioseo_updates['post_id'] = $post_id;
+                            $aioseo_updates['created'] = current_time('mysql');
+
+                            # A failed insert leaves the write-once
+                            # row_existed='0' marker claiming a row we never
+                            # created, which a restore would later delete. The
+                            # per-column backups beside it go too, or a column
+                            # captured as NULL for a row that never existed
+                            # would blank a real value the customer later puts
+                            # in one.
+                            if ($wpdb->insert($aioseo_table, $aioseo_updates) === false) {
+                                Metasync_Seo_Backup::discard_backups('post', $post_id, $aioseo_backups_created);
+                            }
+                        }
                     }
                 }
             }
@@ -1818,20 +2238,20 @@ function metasync_update_taxonomy_seo_meta_fields($term_id, $taxonomy, $meta_tit
             # RankMath
             if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
                 if ($should_update_title && $persist_title) {
-                    update_term_meta($term_id, 'rank_math_title', $meta_title);
+                    metasync_persist_term_field($term_id, 'rank_math_title', $meta_title);
                 }
                 if ($should_update_description && $persist_description) {
-                    update_term_meta($term_id, 'rank_math_description', $meta_description);
+                    metasync_persist_term_field($term_id, 'rank_math_description', $meta_description);
                 }
             }
 
             # Yoast
             if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
                 if ($should_update_title && $persist_title) {
-                    update_term_meta($term_id, '_yoast_wpseo_title', $meta_title);
+                    metasync_persist_term_field($term_id, '_yoast_wpseo_title', $meta_title);
                 }
                 if ($should_update_description && $persist_description) {
-                    update_term_meta($term_id, '_yoast_wpseo_metadesc', $meta_description);
+                    metasync_persist_term_field($term_id, '_yoast_wpseo_metadesc', $meta_description);
                 }
             }
 
@@ -1839,10 +2259,10 @@ function metasync_update_taxonomy_seo_meta_fields($term_id, $taxonomy, $meta_tit
             if (metasync_is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') ||
                 metasync_is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
                 if ($should_update_title && $persist_title) {
-                    update_term_meta($term_id, '_aioseo_title', $meta_title);
+                    metasync_persist_term_field($term_id, '_aioseo_title', $meta_title);
                 }
                 if ($should_update_description && $persist_description) {
-                    update_term_meta($term_id, '_aioseo_description', $meta_description);
+                    metasync_persist_term_field($term_id, '_aioseo_description', $meta_description);
                 }
             }
 
@@ -1914,20 +2334,20 @@ function metasync_update_category_seo_meta_fields($category_id, $meta_title, $me
             # RankMath
             if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
                 if ($should_update_title && $persist_title) {
-                    update_term_meta($category_id, 'rank_math_title', $meta_title);
+                    metasync_persist_term_field($category_id, 'rank_math_title', $meta_title);
                 }
                 if ($should_update_description && $persist_description) {
-                    update_term_meta($category_id, 'rank_math_description', $meta_description);
+                    metasync_persist_term_field($category_id, 'rank_math_description', $meta_description);
                 }
             }
 
             # Yoast
             if (metasync_is_plugin_active('wordpress-seo/wp-seo.php')) {
                 if ($should_update_title && $persist_title) {
-                    update_term_meta($category_id, '_yoast_wpseo_title', $meta_title);
+                    metasync_persist_term_field($category_id, '_yoast_wpseo_title', $meta_title);
                 }
                 if ($should_update_description && $persist_description) {
-                    update_term_meta($category_id, '_yoast_wpseo_metadesc', $meta_description);
+                    metasync_persist_term_field($category_id, '_yoast_wpseo_metadesc', $meta_description);
                 }
             }
 
@@ -1935,10 +2355,10 @@ function metasync_update_category_seo_meta_fields($category_id, $meta_title, $me
             if (metasync_is_plugin_active('all-in-one-seo-pack/all_in_one_seo_pack.php') ||
                 metasync_is_plugin_active('all-in-one-seo-pack-pro/all_in_one_seo_pack.php')) {
                 if ($should_update_title && $persist_title) {
-                    update_term_meta($category_id, '_aioseo_title', $meta_title);
+                    metasync_persist_term_field($category_id, '_aioseo_title', $meta_title);
                 }
                 if ($should_update_description && $persist_description) {
-                    update_term_meta($category_id, '_aioseo_description', $meta_description);
+                    metasync_persist_term_field($category_id, '_aioseo_description', $meta_description);
                 }
             }
 
@@ -2417,15 +2837,10 @@ function metasync_register_seo_meta_fields() {
         '_metasync_otto_og_description',
         '_metasync_otto_twitter_title',
         '_metasync_otto_twitter_description',
-        # RankMath fields
-        'rank_math_title',
-        'rank_math_description',
-        # Yoast SEO fields
-        '_yoast_wpseo_title',
-        '_yoast_wpseo_metadesc',
-        # AIOSEO fields
-        '_aioseo_title',
-        '_aioseo_description',
+        # Third-party SEO fields are intentionally not registered here. They
+        # are customer-owned data and exposing them through the generic REST
+        # meta endpoint lets low-privilege users overwrite them without going
+        # through the consent/backup gate. The SEO plugins own their APIs.
     );
 
     # Register each meta field for each post type
@@ -3066,17 +3481,41 @@ function metasync_output_otto_meta_description() {
         }
     }
 
-    // When the MetaSync SEO sidebar holds a custom description for this
-    // post, that custom value owns the tag — Metasync_SEO_Sidebar::output_seo_meta_description()
-    // emits it (data-metasync-seo="custom"). Skip OTTO's own description here so the
-    // two don't both render on delivery paths where the OTTO SSR buffer dedup never
-    // runs (cold/served-from-cache, rate-limited, or Cloudflare-pixel mode). Mirrors
-    // the sidebar's documented "custom always wins over OTTO" precedence, and matches
-    // deduplicate_description_tags()'s keeper order when SSR does run.
+    // Ownership rule, mirrored from
+    // Metasync_SEO_Sidebar::output_seo_meta_description(): this emitter prints
+    // the description only when OTTO's stored suggestion is the resolved
+    // winner; the sidebar prints every other tier. The previous rule — stay
+    // quiet whenever _metasync_seo_desc exists — matched the sidebar before
+    // it resolved through Metasync_Seo_Precedence. Under the global priority
+    // setting a stored custom value no longer means the sidebar will print
+    // it, so the old check could silence BOTH printers (custom and OTTO set,
+    // OTTO prioritised: no description tag at all) or, with the custom field
+    // empty, leave both printing and ship two identical tags on delivery
+    // paths the OTTO SSR buffer dedup never runs (cold/served-from-cache,
+    // rate-limited, or Cloudflare-pixel mode).
     if (is_singular()) {
         $post_id = get_the_ID();
-        if ($post_id && !empty(get_post_meta($post_id, '_metasync_seo_desc', true))) {
-            return;
+        if ($post_id) {
+            if (!class_exists('Metasync_Seo_Precedence')) {
+                $file = dirname(__DIR__) . '/includes/class-metasync-seo-precedence.php';
+                if (is_readable($file)) {
+                    require_once $file;
+                }
+            }
+            if (class_exists('Metasync_Seo_Precedence')) {
+                $resolved = Metasync_Seo_Precedence::resolve(
+                    $post_id,
+                    Metasync_Seo_Precedence::FIELD_DESCRIPTION
+                );
+                $otto_owns = $resolved['key'] === Metasync_Seo_Precedence::KEY_OTTO_DESC;
+            } else {
+                # Partial-update fail-safe: no resolver, keep the
+                # pre-resolver rule (quiet when the customer typed a value).
+                $otto_owns = empty(get_post_meta($post_id, '_metasync_seo_desc', true));
+            }
+            if (!$otto_owns) {
+                return;
+            }
         }
     }
 

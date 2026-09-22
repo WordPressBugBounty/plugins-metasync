@@ -79,6 +79,17 @@ final class Metasync_Seo_Precedence
     const KEY_PERSISTED_OTTO_DESC  = '_metasync_metadesc';
 
     /**
+     * The one tier whose printing is owned by another emitter:
+     * metasync_output_otto_meta_description() prints this key on the wp_head
+     * paths, while the sidebar emitter prints every other tier. Naming the
+     * key lets both emitters state that ownership rule against the class
+     * instead of restating the literal. See the guard comments in
+     * Metasync_SEO_Sidebar::output_seo_meta_description() and in
+     * metasync_output_otto_meta_description().
+     */
+    const KEY_OTTO_DESC = '_metasync_otto_description';
+
+    /**
      * The lowest tier: values brought in from another SEO plugin.
      *
      * Named so the importer writes "the last tier" rather than a literal it
@@ -87,6 +98,25 @@ final class Metasync_Seo_Precedence
      */
     const KEY_IMPORTED_TITLE = '_metasync_imported_seo_title';
     const KEY_IMPORTED_DESC  = '_metasync_imported_seo_desc';
+
+    /**
+     * The tier the customer typed into the sidebar or meta box.
+     *
+     * Named because the global priority setting moves exactly these two keys,
+     * and only these two. The other key labelled SOURCE_METASYNC on a post —
+     * the persisted _metasync_metatitle / _metasync_metadesc pair — holds
+     * OTTO's own value written by the sync, so demoting it under "prioritize
+     * OTTO" would push an OTTO value below OTTO. See demote_custom_tier().
+     */
+    const KEY_CUSTOM_TITLE = '_metasync_seo_title';
+    const KEY_CUSTOM_DESC  = '_metasync_seo_desc';
+
+    /**
+     * Option value that hands precedence to OTTO. Anything else, including an
+     * unset or malformed option, means custom-first — the behaviour every site
+     * had before the setting existed.
+     */
+    const PRIORITY_OTTO = 'otto';
 
     /**
      * Social values brought in from another SEO plugin.
@@ -268,7 +298,126 @@ final class Metasync_Seo_Precedence
             }
         }
 
-        return $chain;
+        return self::demote_custom_tier($chain, $field, $object_type, $options);
+    }
+
+    /**
+     * Move the customer's own value below OTTO's when the site asks for it.
+     *
+     * The global "SEO Title & Description Priority" setting exists because a
+     * page holding both a custom value and an approved OTTO suggestion renders
+     * the custom one, which reads as a failed OTTO deployment. Flipping the
+     * setting re-orders this chain; it never deletes anything. The custom key
+     * stays in the chain, one tier lower, so it still renders whenever OTTO has
+     * nothing for the object — which is the whole point of demoting rather than
+     * dropping it.
+     *
+     * Only the page title and meta description move. OG and social tags carry
+     * their own chains and are deliberately left alone for now.
+     *
+     * @param array<string,string> $chain       Ordered key => source, already filtered.
+     * @param string               $field
+     * @param string               $object_type
+     * @param array                $options     'seo_priority' overrides the stored option,
+     *                                          so callers and tests can ask for a specific
+     *                                          order without touching global state.
+     * @return array<string,string>
+     */
+    private static function demote_custom_tier(array $chain, $field, $object_type, array $options = []) {
+        if ($object_type !== self::TYPE_POST) {
+            return $chain;
+        }
+
+        if ($field !== self::FIELD_TITLE && $field !== self::FIELD_DESCRIPTION) {
+            return $chain;
+        }
+
+        $priority = array_key_exists('seo_priority', $options)
+            ? $options['seo_priority']
+            : self::stored_priority();
+
+        if ($priority !== self::PRIORITY_OTTO) {
+            return $chain;
+        }
+
+        $custom_key = $field === self::FIELD_TITLE ? self::KEY_CUSTOM_TITLE : self::KEY_CUSTOM_DESC;
+
+        // Nothing to move when the caller already dropped the custom tier, or
+        // when OTTO's tier is gone — with no OTTO key left there is nothing for
+        // the custom value to sit behind, and re-ordering would only churn.
+        if (!array_key_exists($custom_key, $chain)) {
+            return $chain;
+        }
+
+        $otto_key = $field === self::FIELD_TITLE ? '_metasync_otto_title' : '_metasync_otto_description';
+        if (!array_key_exists($otto_key, $chain)) {
+            return $chain;
+        }
+
+        // Rebuild rather than sort: the remaining tiers keep their documented
+        // order, and the custom key lands immediately after OTTO's — above the
+        // imported tier, which must stay last.
+        $custom_source = $chain[$custom_key];
+        $rebuilt       = [];
+
+        foreach ($chain as $key => $source) {
+            if ($key === $custom_key) {
+                continue;
+            }
+
+            $rebuilt[$key] = $source;
+
+            if ($key === $otto_key) {
+                $rebuilt[$custom_key] = $custom_source;
+            }
+        }
+
+        return $rebuilt;
+    }
+
+    /**
+     * The stored global priority, or '' when the plugin option is unreadable.
+     *
+     * Guarded more tightly than otto_is_disabled(): that helper only has to
+     * survive the main plugin class being absent, but this one also runs under
+     * unit tests and admin surfaces that declare a minimal Metasync stub with
+     * no get_option(). A bare class_exists() passes there and then fatals on
+     * the call, so the method itself is checked too.
+     *
+     * The check goes through callable_on() rather than a literal
+     * method_exists('Metasync', 'get_option'): PHPStan resolves the literal
+     * form against the real class, decides it is always true, and fails the
+     * build on function.alreadyNarrowedType — and this repo allows neither
+     * baseline entries nor inline ignores.
+     *
+     * @return string
+     */
+    private static function stored_priority() {
+        if (!self::callable_on('Metasync', 'get_option')) {
+            return '';
+        }
+
+        $general = Metasync::get_option('general');
+
+        if (!is_array($general) || !isset($general['seo_priority'])) {
+            return '';
+        }
+
+        return is_string($general['seo_priority']) ? $general['seo_priority'] : '';
+    }
+
+    /**
+     * Whether a static method is actually callable on a class right now.
+     *
+     * Takes the class and method as parameters so the check is opaque to
+     * static analysis — see stored_priority() for why that matters.
+     *
+     * @param string $class
+     * @param string $method
+     * @return bool
+     */
+    private static function callable_on($class, $method) {
+        return class_exists($class) && method_exists($class, $method);
     }
 
     /**
@@ -321,6 +470,54 @@ final class Metasync_Seo_Precedence
     }
 
     /**
+     * Whether a resolved result is OTTO's value, for provenance marking.
+     *
+     * The source label alone cannot answer this. The persisted tier
+     * (_metasync_metatitle / _metasync_metadesc) is labelled SOURCE_METASYNC
+     * because it is ALSO the legacy native field a customer could have typed
+     * into directly — SEO Health depends on that distinction and deliberately
+     * leaves such a value uncredited. What separates the two is OTTO's staging
+     * key: the sync writes its text to both, so a persisted value that matches
+     * the staging key came from OTTO, and one that does not was typed.
+     *
+     * Rendering needs the same answer, so the test lives here once rather than
+     * being restated by every emitter that stamps a data-metasync-* marker.
+     *
+     * @param int   $object_id
+     * @param string $field    FIELD_TITLE or FIELD_DESCRIPTION.
+     * @param array  $resolved A resolve() result.
+     * @return bool
+     */
+    public static function is_otto_value($object_id, $field, array $resolved) {
+        if (empty($resolved['key']) || !isset($resolved['source'])) {
+            return false;
+        }
+
+        // The volatile tier is unambiguous.
+        if ($resolved['source'] === self::SOURCE_OTTO) {
+            return true;
+        }
+
+        // Only the persisted tier is ambiguous, and only on a post: on a term
+        // the same key holds a deliberately-set value that is not OTTO's.
+        $persisted = $field === self::FIELD_TITLE
+            ? self::KEY_PERSISTED_OTTO_TITLE
+            : self::KEY_PERSISTED_OTTO_DESC;
+
+        if ($resolved['key'] !== $persisted) {
+            return false;
+        }
+
+        $staging = $field === self::FIELD_TITLE
+            ? '_metasync_otto_title'
+            : '_metasync_otto_description';
+
+        $staged = self::read((int) $object_id, self::TYPE_POST, $staging);
+
+        return $staged !== '' && $staged === $resolved['value'];
+    }
+
+    /**
      * The value that applies, or '' when MetaSync holds nothing.
      *
      * @param int    $object_id
@@ -358,8 +555,18 @@ final class Metasync_Seo_Precedence
 
         $chain = self::chain($field, $object_type);
 
-        // Drop the top tier — the one the customer owns — and resolve the rest.
-        array_shift($chain);
+        // Drop the tier the customer owns and resolve the rest. It is not
+        // always the first one: under "prioritize OTTO" the custom key is
+        // demoted below OTTO's, so shifting blindly would drop OTTO's value and
+        // offer the customer their own text back as the placeholder for what
+        // renders when they clear the field.
+        $custom_key = self::custom_key_for($field, $object_type);
+
+        if ($custom_key !== '' && array_key_exists($custom_key, $chain)) {
+            unset($chain[$custom_key]);
+        } else {
+            array_shift($chain);
+        }
 
         if (empty($chain)) {
             return $empty;
@@ -381,6 +588,33 @@ final class Metasync_Seo_Precedence
         }
 
         return $empty;
+    }
+
+    /**
+     * The key holding the customer's own value for a field, or '' when the
+     * field has no such tier.
+     *
+     * Only posts have one: a term's top tier is the deliberately-set
+     * _metasync_metatitle, which fallback() already treats as shiftable.
+     *
+     * @param string $field
+     * @param string $object_type
+     * @return string
+     */
+    private static function custom_key_for($field, $object_type) {
+        if ($object_type !== self::TYPE_POST) {
+            return '';
+        }
+
+        if ($field === self::FIELD_TITLE) {
+            return self::KEY_CUSTOM_TITLE;
+        }
+
+        if ($field === self::FIELD_DESCRIPTION) {
+            return self::KEY_CUSTOM_DESC;
+        }
+
+        return '';
     }
 
     /**

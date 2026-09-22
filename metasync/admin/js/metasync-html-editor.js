@@ -45,7 +45,6 @@
                 missing.push(name);
             }
         });
-
         // The editor script is ordered after GrapesJS but WordPress cannot
         // guarantee the file actually arrived, so verify the global exists.
         if (typeof grapesjs === 'undefined') {
@@ -85,7 +84,80 @@
             );
         }
 
+        // Pages the canvas cannot round-trip are announced after it starts, so
+        // the layout stays visible for reference, but saving is disabled before
+        // the user can edit: the document was already reduced when it was
+        // parsed into the canvas, and saving that reduction is the data loss.
+        showBlockedNotice();
+
         return true;
+    }
+
+    /**
+     * Disable saving for a page the canvas cannot represent faithfully.
+     *
+     * GrapesJS builds body fragments. A complete document, or a page carrying
+     * scripts, loses whatever the canvas cannot hold the moment it is parsed —
+     * so the warning belongs at load, not at save, and the only honest action
+     * is to send the user to the editor that can save the page intact.
+     */
+    function showBlockedNotice() {
+        const reason = metasyncEditor.blocked_reason;
+
+        if (!reason) {
+            return;
+        }
+
+        const $panel = $('#metasync-editor-load-failure');
+
+        const message = reason === 'lps'
+            ? t('blocked_lps', 'This page was imported from Website Studio, which owns its content.')
+            : t('blocked_full_document', 'This page is a complete HTML document, so saving here would discard its doctype, head and scripts.');
+
+        $('.metasync-save-button')
+            .prop('disabled', true)
+            .attr('title', t('blocked_save_disabled', 'Saving is disabled to protect this page from being rewritten'));
+
+        if (!$panel.length) {
+            return;
+        }
+
+        $panel.find('.metasync-load-failure-title')
+            .text(t('blocked_title', 'This page cannot be saved from the visual editor'));
+        $panel.find('.metasync-load-failure-message').text(message);
+        $panel.find('.metasync-load-failure-detail').hide();
+
+        // Non-fatal styling: the canvas stays visible and usable for reading,
+        // so the notice sits above it rather than covering it.
+        $panel.removeClass('metasync-load-failure-fatal');
+
+        // Reload cannot help here — the block is a property of the stored
+        // page — so that button becomes the route to the lossless editor.
+        const $primary = $panel.find('.metasync-load-failure-reload').off('click');
+
+        if (metasyncEditor.direct_edit_url) {
+            $primary
+                .text(t('open_direct_editor', 'Edit HTML Directly'))
+                .on('click', function(e) {
+                    e.preventDefault();
+                    window.location.href = metasyncEditor.direct_edit_url;
+                })
+                .show();
+        } else {
+            $primary.hide();
+        }
+
+        $panel.find('.metasync-load-failure-dismiss')
+            .text(t('dismiss', 'Dismiss'))
+            .off('click')
+            .on('click', function(e) {
+                e.preventDefault();
+                $panel.attr('hidden', 'hidden');
+            })
+            .show();
+
+        $panel.removeAttr('hidden');
+        updateStatus('error');
     }
 
     /**
@@ -956,6 +1028,14 @@
             return;
         }
 
+        // Same reasoning for a page the canvas cannot round-trip: the button is
+        // disabled, but the keyboard shortcut would otherwise still overwrite
+        // the stored document with the canvas's reduced copy of it.
+        if (metasyncEditor.blocked_reason) {
+            showBlockedNotice();
+            return;
+        }
+
         const $button = $('.metasync-save-button');
         const originalText = $button.text();
 
@@ -1061,7 +1141,10 @@
      */
     function preventAccidentalExit() {
         $(window).on('beforeunload', function(e) {
-            if (hasUnsavedChanges) {
+            // Nothing on a blocked page can be saved, so warning about unsaved
+            // changes would only trap the user on a page they were told to
+            // leave for the lossless editor.
+            if (hasUnsavedChanges && !metasyncEditor.blocked_reason) {
                 const message = metasyncEditor.i18n.confirm_exit;
                 e.returnValue = message;
                 return message;

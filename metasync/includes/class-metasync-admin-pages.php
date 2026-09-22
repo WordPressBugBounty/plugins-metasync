@@ -1118,20 +1118,20 @@ class Metasync_Admin_Pages
                         
                         html += '<div class="test-result-item ' + statusClass + '">';
                         html += '<div class="test-result-header">';
-                        html += '<h4>' + statusIcon + ' ' + result.method + ' Request - ' + blockedStatus + '</h4>';
+                        html += '<h4>' + statusIcon + ' ' + escapeHtml(result.method) + ' Request - ' + blockedStatus + '</h4>';
                         html += '<span class="test-status ' + blockedClass + '">' + blockedStatus + '</span>';
                         html += '</div>';
                         
                         html += '<div class="test-result-details">';
-                        html += '<p><strong>Response Time:</strong> ' + result.response_time + '</p>';
-                        html += '<p><strong>Status:</strong> ' + result.status + '</p>';
+                        html += '<p><strong>Response Time:</strong> ' + escapeHtml(result.response_time) + '</p>';
+                        html += '<p><strong>Status:</strong> ' + escapeHtml(result.status) + '</p>';
                         
                         if (result.status_code) {
-                            html += '<p><strong>HTTP Status Code:</strong> <span class="status-code">' + result.status_code + '</span></p>';
+                            html += '<p><strong>HTTP Status Code:</strong> <span class="status-code">' + escapeHtml(result.status_code) + '</span></p>';
                         }
                         
                         if (result.error) {
-                            html += '<p><strong>Error:</strong> <span class="error-message">' + result.error + '</span></p>';
+                            html += '<p><strong>Error:</strong> <span class="error-message">' + escapeHtml(result.error) + '</span></p>';
                         }
                         
                         if (result.body) {
@@ -1143,7 +1143,7 @@ class Metasync_Admin_Pages
                             html += '<p><strong>Response Headers:</strong></p>';
                             html += '<pre class="response-headers">';
                             Object.keys(result.headers).forEach(function(key) {
-                                html += key + ': ' + result.headers[key] + '\n';
+                                html += escapeHtml(key) + ': ' + escapeHtml(result.headers[key]) + '\n';
                             });
                             html += '</pre>';
                         }
@@ -1158,7 +1158,7 @@ class Metasync_Admin_Pages
                             html += '<pre class="parsed-response">' + escapeHtml(JSON.stringify(result.parsed_response, null, 2)) + '</pre>';
                         }
                         
-                        html += '<p><strong>Details:</strong> ' + result.details + '</p>';
+                        html += '<p><strong>Details:</strong> ' + escapeHtml(result.details) + '</p>';
                         html += '</div>';
                         html += '</div>';
                     });
@@ -1175,7 +1175,7 @@ class Metasync_Admin_Pages
                         '"': '&quot;',
                         '\'': '&#039;'
                     };
-                    return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+                    return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
                 }
             });
             </script>
@@ -1704,12 +1704,6 @@ echo $breadcrumbs-&gt;render_breadcrumb_html();</pre><span class="metasync-copy-
             </form>
         <?php $this->admin->render_layout_close(); ?>
         <?php
-    }
-
-    public function create_admin_google_instant_index_page()
-    {
-        // Delegates to the admin class which uses the shared credentials view
-        $this->admin->create_admin_google_instant_index_page();
     }
 
     public function create_admin_google_console_page()

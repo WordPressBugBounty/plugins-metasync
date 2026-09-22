@@ -969,6 +969,12 @@ class Metasync_Schema_Markup
      */
     public function save_schema_markup_data($post_id)
     {
+        // Do not process revisions or autosaves. Revision metadata is redirected
+        // to the parent post and can otherwise replace its schema with empty data.
+        if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id)) {
+            return;
+        }
+
         // Check if user has permission to edit the post
         if (!current_user_can('edit_post', $post_id)) {
             return;
@@ -988,11 +994,14 @@ class Metasync_Schema_Markup
         // Get existing schema data to preserve if needed
         $existing_schema_data = get_post_meta($post_id, 'metasync_schema_markup', true);
         
-        // Sanitize and save data
-        $schema_data = [];
+        // Start from the stored value because OTTO owns otto_jsonld while this
+        // form owns enabled/types. Updating one owner must not erase the other.
+        $schema_data = is_array($existing_schema_data) ? $existing_schema_data : [];
+        $schema_data['enabled'] = false;
+        $schema_data['types'] = [];
         
         if (isset($_POST['schema_markup'])) {
-            $post_data = $this->common->sanitize_array($_POST['schema_markup']);
+            $post_data = $this->common->sanitize_array(wp_unslash($_POST['schema_markup']));
             
             $schema_data['enabled'] = isset($post_data['enabled']) ? (bool)$post_data['enabled'] : false;
             $schema_data['types'] = [];
@@ -1056,8 +1065,9 @@ class Metasync_Schema_Markup
             }
         }
         
-        // Save the schema data
-        update_post_meta($post_id, 'metasync_schema_markup', $schema_data);
+        // WordPress unslashes metadata before serialization; slash the complete
+        // value so escaped JSON inside OTTO's persistent copy stays valid.
+        update_post_meta($post_id, 'metasync_schema_markup', wp_slash($schema_data));
 
         // Cross-plugin sync for each schema type
         if (!empty($schema_data['enabled']) && !empty($schema_data['types'])) {
@@ -1906,7 +1916,7 @@ class Metasync_Schema_Markup
         // is enabled, and emitting here cannot reliably know whether OTTO injected this request
         // without risking the duplicate. Tracked as a known limitation.
         if (!empty($otto_persisted_jsonld)) {
-            echo '<script type="application/ld+json" class="metasync-schema metasync-otto-schema">' . "\n";
+            echo '<script type="application/ld+json" class="metasync-schema metasync-otto-schema" data-otto="true">' . "\n";
             // Escape `</` -> `<\/` to prevent `</script>` breakout; valid JSON, content unchanged.
             echo metasync_escape_json_ld_for_script($otto_persisted_jsonld); // phpcs:ignore WordPress.Security.EscapeOutput -- persisted JSON-LD string, only `</` escaped for safe embedding
             echo "\n" . '</script>' . "\n";
@@ -4270,7 +4280,14 @@ class Metasync_Schema_Markup
             $yoast_schema[] = $schema_block;
         }
 
-        update_post_meta($post_id, '_yoast_wpseo_schema', wp_json_encode($yoast_schema));
+        $encoded = wp_json_encode($yoast_schema);
+
+        // Consent gate and write-once backup — Yoast's schema meta belongs to
+        // Yoast, so overwriting it asks the same permission every other
+        // third-party write does and preserves the block that was there before.
+        if (class_exists('Metasync_Seo_Backup')) {
+            Metasync_Seo_Backup::write_post_meta($post_id, '_yoast_wpseo_schema', $encoded);
+        }
     }
 
     /**
@@ -4288,7 +4305,11 @@ class Metasync_Schema_Markup
         }
 
         $meta_key = 'rank_math_schema_' . $rm_data['@type'];
-        update_post_meta($post_id, $meta_key, $rm_data);
+
+        // Consent gate and write-once backup, as for Yoast above.
+        if (class_exists('Metasync_Seo_Backup')) {
+            Metasync_Seo_Backup::write_post_meta($post_id, $meta_key, $rm_data);
+        }
     }
 
     /**

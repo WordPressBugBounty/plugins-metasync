@@ -295,6 +295,10 @@ class Metasync_Redirection_Database
 	public function clear_cache()
 	{
 		wp_cache_delete('metasync_active_redirections', 'metasync');
+		// Redirect sources must leave the sitemap promptly: the sitemap
+		// generator listens for this on every add/update/delete/status write
+		// and busts its (30-day) caches so the next crawl regenerates.
+		do_action('metasync_redirections_changed');
 	}
 
 	/**

@@ -472,6 +472,13 @@ class Metasync_Activator
 		if ($carries_password) {
 			require_once __DIR__ . '/class-metasync-admin-ajax.php';
 			require_once __DIR__ . '/class-metasync-settings-registration.php';
+			if (!self::class_supports_methods('Metasync_Admin_Ajax', array('acquire_recovery_lock', 'release_recovery_lock'))
+				|| !self::class_supports_methods('Metasync_Settings_Registration', array('authorize_recovery_password_write'))) {
+				// The updater can replace plugin files after the old classes were
+				// loaded in this request. Defer the import to the next request.
+				self::$last_import_error = 'recovery_api_unavailable';
+				return false;
+			}
 			if (!Metasync_Admin_Ajax::instance()->acquire_recovery_lock($import_lock_owner)) {
 				// A recovery or settings save is mid-write; retry via the normal
 				// backoff instead of fighting for the lock.
@@ -500,6 +507,24 @@ class Metasync_Activator
 
 		// Optionally delete the JSON file after successful import (uncomment if desired)
 		// unlink($json_file);
+
+		return true;
+	}
+
+	/**
+	 * Check runtime class compatibility without letting static analysis fold it.
+	 *
+	 * @param string   $class_name Class name loaded in the current request.
+	 * @param string[] $methods Required method names.
+	 * @return bool
+	 */
+	private static function class_supports_methods($class_name, $methods)
+	{
+		foreach ($methods as $method) {
+			if (!method_exists($class_name, $method)) {
+				return false;
+			}
+		}
 
 		return true;
 	}

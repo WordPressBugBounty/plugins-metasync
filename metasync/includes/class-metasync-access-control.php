@@ -228,10 +228,15 @@ class Metasync_Access_Control {
      * @return array Array of user objects
      */
     public static function get_users($args = array()) {
+        // Filter at the query level instead of slicing an arbitrary first
+        // 100 users: on sites with more users than that, administrators past
+        // the cap silently disappeared from the per-user access dropdown.
+        // The capability argument needs WP 5.9+; the user_can() loop below
+        // still covers older versions.
         $default_args = array(
             'orderby' => 'display_name',
             'order' => 'ASC',
-            'number' => 100 // Limit to prevent performance issues
+            'capability' => 'manage_options',
         );
 
         $args = wp_parse_args($args, $default_args);

@@ -88,9 +88,14 @@ class MCP_Tool_SEO_Health_Report extends MCP_Tool_Base {
 
         // Exclude custom/LPS pages — their SEO is self-managed, so agents must
         // not see them flagged as missing SEO.
-        $args['meta_query'] = [metasync_get_custom_page_exclusion_meta_query()];
+        $args['metasync_exclude_custom_pages'] = true;
+        add_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10, 2);
 
-        $query = new WP_Query($args);
+        try {
+            $query = new WP_Query($args);
+        } finally {
+            remove_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10);
+        }
         $posts = $query->posts;
 
         // Apply missing filter
@@ -138,38 +143,34 @@ class MCP_Tool_SEO_Health_Report extends MCP_Tool_Base {
         ]);
     }
 
+    /**
+     * Delegate to the admin SEO Health resolver so the MCP report, the table,
+     * the summary cards, the missing filters and the CSV export all settle a
+     * field through the same precedence chain instead of a private copy of it
+     * drifting behind. Metasync_SEO_Health is composer-classmapped, so the
+     * class_exists() check autoloads it here.
+     */
     private function get_seo_meta_with_fallback($post_id, $field) {
-        $meta_keys = [];
-
-        if ($field === 'title') {
-            $meta_keys = [
-                '_metasync_metatitle'      => '',
-                '_metasync_otto_title'     => 'OTTO',
-                '_yoast_wpseo_title'       => 'Yoast',
-                'rank_math_title'          => 'Rank Math',
-                '_aioseo_title'            => 'AIOSEO',
-                '_metasync_og_title'       => 'OG',
-            ];
-        } elseif ($field === 'description') {
-            $meta_keys = [
-                '_metasync_metadesc'           => '',
-                '_metasync_otto_description'   => 'OTTO',
-                '_yoast_wpseo_metadesc'        => 'Yoast',
-                'rank_math_description'        => 'Rank Math',
-                '_aioseo_description'          => 'AIOSEO',
-                'meta_description'             => '',
-                '_metasync_og_description'     => 'OG',
-            ];
-        }
-
-        foreach ($meta_keys as $meta_key => $source) {
-            $value = get_post_meta($post_id, $meta_key, true);
-            if (!empty($value)) {
-                return ['value' => $value, 'source' => $source];
-            }
+        if ($this->class_provides('Metasync_SEO_Health', 'get_seo_meta_with_fallback')) {
+            return Metasync_SEO_Health::get_seo_meta_with_fallback($post_id, $field);
         }
 
         return ['value' => '', 'source' => ''];
+    }
+
+    /**
+     * $class and $method arrive as parameters rather than literals so the
+     * availability check survives static analysis, which narrows a literal
+     * method_exists() on a known class to a constant true. The skew this
+     * guards against — a partially updated install pairing this file with an
+     * older admin class that lacks the method — only exists at runtime.
+     *
+     * @param string $class  Class about to be called.
+     * @param string $method Method about to be called on it.
+     * @return bool
+     */
+    private function class_provides($class, $method) {
+        return class_exists($class) && method_exists($class, $method);
     }
 
     private function calculate_alt_text_coverage($content) {

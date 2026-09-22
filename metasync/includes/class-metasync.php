@@ -382,12 +382,19 @@ class Metasync
 		$plugin_public = new Metasync_Public($this->get_plugin_name(), $this->get_version());
 		$rest_api = $plugin_public->get_rest_api();
 		$seo_output = $plugin_public->get_seo_output();
-		$get_plugin_basename = sprintf('%1$s/%1$s.php', $this->plugin_name);
+		// Derive the basename from the actual file location: the plugin
+		// folder is not guaranteed to be named after the plugin (renamed
+		// installs), and a hardcoded name makes the settings links vanish.
+		$get_plugin_basename = plugin_basename(dirname(__DIR__) . '/metasync.php');
 
 		// Asset enqueue hooks (Metasync_Public)
 		$this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_styles');
 		$this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_scripts');
 		$this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_page_custom_css', 999);
+
+		// Registered here rather than from inside enqueue_scripts(), which would
+		// re-register the same filter on every front-end request.
+		$this->loader->add_filter('script_loader_tag', $plugin_public, 'add_defer_attribute', 10, 2);
 
 		// Elementor editor CSS injection
 		if (class_exists('\Elementor\Plugin')) {
@@ -402,6 +409,19 @@ class Metasync
 		// Initialize centralized SEO conflict handler (singleton — suppresses
 		// third-party SEO plugin descriptions when MetaSync provides its own).
 		Metasync_SEO_Conflict_Handler::get_instance();
+
+		// Headless delivery: register the GraphQL SEO field. This only adds a
+		// callback on `graphql_register_types`, which never fires unless WPGraphQL
+		// is active, and the callback returns immediately unless Headless Mode is
+		// on — so with the mode off nothing about this request changes.
+		Metasync_Headless_Graphql::init();
+
+		// Headless stale-while-revalidate OTTO refresh: background safety net for
+		// missed/delayed OTTO deployment webhooks. Every branch is gated on
+		// Metasync_Headless_Config::is_active(), so with headless mode off this
+		// schedules no cron event and registers no route beyond an inert REST
+		// callback that itself checks the flag before doing anything.
+		Metasync_Headless_Refresh_Job::init();
 
 		// Term-level SEO plugin sync: propagate MetaSync term meta (category/tag
 		// archives) into Yoast/Rank Math/AIOSEO term storage on every write.
@@ -422,9 +442,14 @@ class Metasync
 		$this->loader->add_action('wp_head', $seo_output, 'output_local_business_schema', 2, 1);
 		$this->loader->add_action('template_redirect', $seo_output, 'inject_archive_seo_controls');
 
-		// Hreflang / language alternates output (wp_head @ priority 2).
-		$plugin_hreflang = new Metasync_Hreflang_Output();
+		// Hreflang / language alternates output (wp_head @ priority 2). The
+		// emitter shares the SEO output instance for the noindex check.
+		$plugin_hreflang = new Metasync_Hreflang_Output($seo_output);
 		$this->loader->add_action('wp_head', $plugin_hreflang, 'output_hreflang_tags', 2);
+		// WPML prints its own hreflang set at wp_head priority 1, ahead of
+		// MetaSync's output at priority 2 — the suppression filter has to be
+		// in place before wp_head starts, hence template_redirect.
+		$this->loader->add_action('template_redirect', $plugin_hreflang, 'register_wpml_suppression', 1);
 
 		// Edge Cache: detect Cloudways Varnish and persist for settings UI
 		$this->loader->add_action('init', 'Metasync_Edge_Cache_Purge', 'detect_cloudways');

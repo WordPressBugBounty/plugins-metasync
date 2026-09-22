@@ -82,24 +82,46 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
         // hreflang / language alternates: value must be a JSON array of
         // {lang, url} objects (with optional region). Parse from the raw
         // param to avoid textarea sanitization mangling the JSON, validate
-        // shape, and re-encode to canonical form before storing.
+        // shape AND values (ISO language codes, absolute http(s) URLs),
+        // normalise, and re-encode to canonical form before storing.
         if ($meta_key === '_metasync_hreflang') {
             $raw_value = isset($params['meta_value']) ? (string) $params['meta_value'] : '';
             $decoded = json_decode($raw_value, true);
             if (!is_array($decoded)) {
                 throw new Exception("_metasync_hreflang must be a JSON array");
             }
+            $clean = [];
             foreach ($decoded as $entry) {
                 if (!is_array($entry) || !isset($entry['lang']) || !isset($entry['url'])) {
                     throw new Exception("Each hreflang entry must have 'lang' and 'url' keys");
                 }
+                $normalized = Metasync_Hreflang_Output::normalize_entry($entry);
+                if (!$normalized['valid']) {
+                    throw new Exception(sprintf(
+                        "Invalid hreflang language code '%s' — use an ISO code like 'en', 'en-US' (hyphen, not underscore) or 'x-default'",
+                        is_scalar($entry['lang']) ? (string) $entry['lang'] : gettype($entry['lang'])
+                    ));
+                }
+                // Sanitize each URL to strip javascript: and other unsafe protocols.
+                $url = esc_url_raw(trim((string) $entry['url']));
+                if (!Metasync_Hreflang_Output::is_absolute_http_url($url)) {
+                    throw new Exception(sprintf(
+                        "hreflang URL '%s' must be an absolute http(s) URL (relative paths are not valid hreflang hrefs)",
+                        (string) $entry['url']
+                    ));
+                }
+                $clean[] = [
+                    'lang'   => $normalized['lang'],
+                    'region' => $normalized['region'],
+                    'url'    => $url,
+                ];
             }
-            // Sanitize each URL to strip javascript: and other unsafe protocols.
-            foreach ($decoded as &$entry) {
-                $entry['url'] = esc_url_raw($entry['url']);
-            }
-            unset($entry);
-            $meta_value = wp_json_encode($decoded);
+            // update_metadata() runs wp_unslash() on the value; combined with
+            // the default \uXXXX escaping this corrupted non-ASCII URLs
+            // (…/über-uns/ stored as …/u00fcber-uns/). Encoding without the
+            // escapes and passing slashed data — the same contract the REST
+            // path uses — keeps the stored JSON byte-faithful.
+            $meta_value = wp_slash(wp_json_encode($clean, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         }
 
         // Validate _metasync_robots_advanced JSON
@@ -168,7 +190,13 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
         if ($meta_key === '_metasync_primary_category') {
             $current_value = (int) $current_value;
         }
-        if ($current_value === $meta_value) {
+        // The hreflang payload is stored slashed (wp_slash) so it survives
+        // update_metadata()'s wp_unslash(); the stored value is therefore the
+        // UNSLASHED form. Compare against that, or an identical re-write would
+        // look like a change, run update_post_meta(), come back false ("value
+        // unchanged") and wrongly throw below.
+        $compare_value = $meta_key === '_metasync_hreflang' ? wp_unslash($meta_value) : $meta_value;
+        if ($current_value === $compare_value) {
             // Value already matches — return success without update
             return $this->success([
                 'post_id'    => $post_id,
@@ -402,8 +430,9 @@ class MCP_Tool_Get_SEO_Meta extends MCP_Tool_Base {
  * Get Hreflang Links Tool
  *
  * Returns all hreflang entries for a post (manual + WPML auto-detected),
- * validates that each referenced URL returns HTTP 200, and flags a missing
- * x-default entry.
+ * validates that each referenced URL returns HTTP 200 and links back to
+ * this post (hreflang reciprocity), and flags a missing x-default entry
+ * and a missing self-reference.
  */
 class MCP_Tool_Get_Hreflang_Links extends MCP_Tool_Base {
 
@@ -412,7 +441,7 @@ class MCP_Tool_Get_Hreflang_Links extends MCP_Tool_Base {
     }
 
     public function get_description() {
-        return 'Get all hreflang entries for a post (manual + WPML auto-detected), validate each URL returns HTTP 200, and flag a missing x-default entry';
+        return 'Get all hreflang entries for a post (manual + WPML auto-detected), validate each URL returns HTTP 200 and links back to this post (reciprocity), and flag missing x-default / self-reference entries';
     }
 
     public function get_input_schema() {
@@ -440,24 +469,42 @@ class MCP_Tool_Get_Hreflang_Links extends MCP_Tool_Base {
         $manual_entries = $this->get_manual_entries($post_id);
         $wpml_entries   = $this->get_wpml_entries($post_id, $post);
 
-        // Merge: auto-detected first, then manual entries override by
-        // lang+region collision key.
+        // Merge: auto-detected first, then manual entries override by the
+        // normalised language-code collision key. Rows with an invalid code
+        // (empty key) are kept verbatim instead of collapsing into one —
+        // the audit report is where they become visible.
         $by_key = [];
+        $invalid = [];
         foreach ($wpml_entries as $entry) {
-            $by_key[$this->collision_key($entry)] = $entry;
+            $key = Metasync_Hreflang_Output::lang_code($entry);
+            if ($key === '') {
+                $invalid[] = $entry;
+            } else {
+                $by_key[$key] = $entry;
+            }
         }
         foreach ($manual_entries as $entry) {
-            $by_key[$this->collision_key($entry)] = $entry;
+            $key = Metasync_Hreflang_Output::lang_code($entry);
+            if ($key === '') {
+                $invalid[] = $entry;
+            } else {
+                $by_key[$key] = $entry;
+            }
         }
-        $entries = array_values($by_key);
+        $entries = array_merge(array_values($by_key), $invalid);
 
-        // Validate each URL returns HTTP 200 (try HEAD first, fall back to
-        // GET on 405 Method Not Allowed).
+        $self_url = get_permalink($post_id);
+
+        // Validate each URL: HTTP 200 (HEAD first, GET on 405) and — when
+        // the target is an external alternate — a return link to this post
+        // (hreflang must be bidirectional; Google ignores one-way clusters).
         $has_x_default = false;
+        $has_self_reference = false;
         foreach ($entries as &$entry) {
             $url = isset($entry['url']) ? $entry['url'] : '';
             $status = null;
             $error = null;
+            $return_link = null;
 
             if (!empty($url)) {
                 $response = wp_remote_head($url, ['timeout' => 5, 'sslverify' => false]);
@@ -475,6 +522,16 @@ class MCP_Tool_Get_Hreflang_Links extends MCP_Tool_Base {
                         }
                     }
                 }
+
+                // Reciprocity: fetch the alternate page and check whether
+                // its hreflang set contains this post's URL.
+                if ($error === null && $status === 200 && !empty($self_url) && $url !== $self_url) {
+                    $response = wp_remote_get($url, ['timeout' => 5, 'sslverify' => false]);
+                    if (!is_wp_error($response)) {
+                        $body = (string) wp_remote_retrieve_body($response);
+                        $return_link = self::body_links_back($body, $self_url);
+                    }
+                }
             }
 
             $entry['http_status'] = $status;
@@ -482,32 +539,65 @@ class MCP_Tool_Get_Hreflang_Links extends MCP_Tool_Base {
             if ($error !== null) {
                 $entry['http_error'] = $error;
             }
+            if ($return_link !== null) {
+                $entry['return_link'] = $return_link;
+            }
 
-            if (isset($entry['lang']) && $entry['lang'] === 'x-default') {
+            if (Metasync_Hreflang_Output::lang_code($entry) === 'x-default') {
                 $has_x_default = true;
+            }
+            if (!empty($self_url) && $url === $self_url) {
+                $has_self_reference = true;
             }
         }
         unset($entry);
 
-        $missing_x_default = !$has_x_default;
-
         return $this->success([
-            'post_id'           => $post_id,
-            'post_title'        => $post->post_title,
-            'entries'           => $entries,
-            'missing_x_default' => $missing_x_default,
+            'post_id'               => $post_id,
+            'post_title'            => $post->post_title,
+            'self_url'              => $self_url,
+            'entries'               => $entries,
+            'missing_x_default'     => !$has_x_default,
+            'missing_self_reference' => !$has_self_reference,
         ]);
     }
 
     /**
+     * True when the page body contains a hreflang link pointing back at the
+     * given URL.
+     *
+     * @param string $body     HTML body of the alternate page.
+     * @param string $self_url This post's permalink.
+     * @return bool
+     */
+    private static function body_links_back($body, $self_url) {
+        if (!preg_match_all('/<link[^>]+hreflang\s*=\s*[\'"]([^\'"]*)[\'"][^>]*>/i', (string) $body, $links)) {
+            return false;
+        }
+        foreach ($links[0] as $tag) {
+            if (stripos($tag, 'rel="alternate"') === false && stripos($tag, "rel='alternate'") === false) {
+                continue;
+            }
+            if (strpos($tag, $self_url) !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Read manual hreflang entries from `_metasync_hreflang` post meta.
+     *
+     * Rows are normalised and carry their final lang_code plus a valid flag,
+     * so an invalid stored row is visible in the report (the emitter skips
+     * it silently — this is the tool that surfaces it).
      *
      * @param int $post_id Post ID.
      * @return array
      */
     private function get_manual_entries($post_id) {
         $raw = get_post_meta($post_id, '_metasync_hreflang', true);
-        if (empty($raw)) {
+        if (empty($raw) || !is_string($raw)) {
             return [];
         }
         $decoded = json_decode($raw, true);
@@ -519,19 +609,24 @@ class MCP_Tool_Get_Hreflang_Links extends MCP_Tool_Base {
             if (!is_array($entry)) {
                 continue;
             }
+            $normalized = Metasync_Hreflang_Output::normalize_entry($entry);
             $entries[] = [
-                'lang'   => isset($entry['lang']) ? (string) $entry['lang'] : '',
-                'region' => isset($entry['region']) ? (string) $entry['region'] : '',
-                'url'    => isset($entry['url']) ? (string) $entry['url'] : '',
-                'source' => 'manual',
+                'lang'      => $normalized['lang'],
+                'region'    => $normalized['region'],
+                'url'       => $normalized['url'],
+                'lang_code' => $normalized['lang_code'],
+                'valid'     => $normalized['valid'],
+                'source'    => 'manual',
             ];
         }
         return $entries;
     }
 
     /**
-     * Build WPML auto-detected entries by querying the icl_translations table.
-     * Mirrors the logic in Metasync_Hreflang_Output::get_wpml_entries.
+     * Build WPML auto-detected entries via the shared implementation in
+     * Metasync_Hreflang_Output::get_wpml_entries() (publish-only rows,
+     * x-default synthesis) so the audit reports exactly what the front end
+     * emits.
      *
      * @param int     $post_id Post ID.
      * @param WP_Post $post    Post object (already verified).
@@ -541,63 +636,15 @@ class MCP_Tool_Get_Hreflang_Links extends MCP_Tool_Base {
         if (!defined('ICL_SITEPRESS_VERSION')) {
             return [];
         }
-        global $wpdb;
-        $table = $wpdb->prefix . 'icl_translations';
-        $element_type = 'post_' . $post->post_type;
 
-        $trid = $wpdb->get_var($wpdb->prepare(
-            "SELECT trid FROM {$table} WHERE element_id = %d AND element_type = %s LIMIT 1",
-            $post_id,
-            $element_type
-        ));
-        if (empty($trid)) {
-            return [];
+        $entries = (new Metasync_Hreflang_Output())->get_wpml_entries($post_id);
+
+        $out = [];
+        foreach ($entries as $entry) {
+            $normalized = Metasync_Hreflang_Output::normalize_entry($entry);
+            $normalized['source'] = 'wpml';
+            $out[] = $normalized;
         }
-
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT language_code, element_id FROM {$table} WHERE trid = %d",
-            $trid
-        ));
-        if (empty($rows)) {
-            return [];
-        }
-
-        $default_lang = apply_filters('wpml_default_language', null);
-        if (empty($default_lang)) {
-            $default_lang = get_option('wpml_default_language');
-        }
-
-        $entries = [];
-        foreach ($rows as $row) {
-            $permalink = get_permalink((int) $row->element_id);
-            if (empty($permalink)) {
-                continue;
-            }
-            $entries[] = [
-                'lang'   => (string) $row->language_code,
-                'region' => '',
-                'url'    => $permalink,
-                'source' => 'wpml',
-            ];
-            if (!empty($default_lang) && $row->language_code === $default_lang) {
-                $entries[] = [
-                    'lang'   => 'x-default',
-                    'region' => '',
-                    'url'    => $permalink,
-                    'source' => 'wpml',
-                ];
-            }
-        }
-        return $entries;
-    }
-
-    /**
-     * Collision key in the form `lang-region` (or just `lang` when region
-     * is empty) for de-duplicating entries.
-     */
-    private function collision_key(array $entry) {
-        $lang = isset($entry['lang']) ? (string) $entry['lang'] : '';
-        $region = isset($entry['region']) ? (string) $entry['region'] : '';
-        return $region !== '' ? $lang . '-' . $region : $lang;
+        return $out;
     }
 }

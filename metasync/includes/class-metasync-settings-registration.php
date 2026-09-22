@@ -49,6 +49,7 @@ class Metasync_Settings_Registration
     private function __construct() {
         add_filter('pre_update_option_metasync_options', array($this, 'protect_recovery_password_update'), 10, 3);
         add_action('updated_option_metasync_options', array($this, 'release_settings_recovery_lock'), PHP_INT_MAX, 0);
+        add_action('wp_ajax_metasync_save_headless_settings', array($this, 'ajax_save_headless_settings'));
     }
 
     private function acquire_settings_recovery_lock()
@@ -603,7 +604,7 @@ class Metasync_Settings_Registration
                     isset($enable_googleinstantindex) && $enable_googleinstantindex == 'true' ? 'checked' : ''
                 );
                 Metasync::render_tooltip_icon('enable_googleinstantindex', 'Turns on direct URL submission to Google. It only works after you add a service-account key below and verify your site in Search Console — set those up first.');
-                printf('<span class="description" style="margin-left:8px;"><strong>Enable Instant Indexing:</strong> When checked, enables the Google Instant Indexing feature which allows you to submit URLs directly to Google for faster indexing. A new "Instant Indexing" menu item will appear in the navigation.</span>');
+                printf('<span class="description" style="margin-left:8px;"><strong>Enable Instant Indexing:</strong> When checked, enables the Google Instant Indexing feature which allows you to submit URLs directly to Google for faster indexing. Configure it in the Google Instant Indexing section below.</span>');
             },
             $page_slug . '_seo-controls',
             $SECTION_SEO_CONTROLS_INSTANT_INDEX
@@ -727,6 +728,41 @@ class Metasync_Settings_Registration
                     filter_var($otto_disable_toolbar, FILTER_VALIDATE_BOOLEAN) ? 'checked' : ''
                 );
                 printf('<span class="description"> Hide the entire frontend toolbar (status indicator, preview button, and debug button) on the frontend. %s functionality will still work, but the toolbar controls will be hidden.</span>', esc_html($whitelabel_otto_name));
+            },
+            $page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        # Global SEO title & description priority.
+        #
+        # Unchecked (the default) is the behaviour every site already runs: a
+        # value the customer typed in the sidebar outranks OTTO's suggestion.
+        # Checked hands precedence to OTTO, which is what makes a successful
+        # OTTO deployment visible on a page that also holds a custom value.
+        #
+        # This only re-orders what RENDERS. Nothing is written to or deleted
+        # from the stored post meta, so unchecking it restores the custom value
+        # untouched. Applies to the SEO title and meta description only.
+        add_settings_field(
+            'seo_priority',
+            'SEO Title &amp; Description Priority',
+            function() use ($whitelabel_otto_name, $option_key) {
+                $seo_priority = Metasync::get_option('general')['seo_priority'] ?? '';
+                $checked = $seo_priority === Metasync_Seo_Precedence::PRIORITY_OTTO ? 'checked' : '';
+                $name    = esc_attr($option_key) . '[general][seo_priority]';
+
+                echo '<div class="metasync-seo-priority-control">';
+                printf(
+                    '<label for="seo_priority"><input type="checkbox" id="seo_priority" name="%s" value="otto" %s /> <strong>Prioritize approved %s values</strong></label>',
+                    $name,
+                    $checked,
+                    esc_html($whitelabel_otto_name)
+                );
+                printf(
+                    '<p class="description" id="seo_priority_description"><strong>Off:</strong> Your custom title and description appear first; %1$s fills in only where you have no value.<br><strong>On:</strong> Approved %1$s values appear first; your custom values remain the fallback.<br><span class="metasync-seo-priority-note">Your saved values are never deleted or overwritten.</span></p>',
+                    esc_html($whitelabel_otto_name)
+                );
+                echo '</div>';
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1066,6 +1102,21 @@ class Metasync_Settings_Registration
                     $disabled ? 'checked' : ''
                 );
                 printf('<span class="description"> Hide the Schema Markup meta box and stop %1$s emitting any JSON-LD, including site-wide Local SEO markup. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', Metasync::get_effective_plugin_name('MetaSync'));
+            },
+            $page_slug . '_general',
+            $SECTION_METASYNC
+        );
+
+        add_settings_field(
+            'disable_language_alternates_metabox',
+            'Disable Language Alternates Meta Box',
+            function() use ($option_key) {
+                $disabled = Metasync::get_option('general')['disable_language_alternates_metabox'] ?? false;
+                printf(
+                    '<input type="checkbox" id="disable_language_alternates_metabox" name="' . $option_key . '[general][disable_language_alternates_metabox]" value="1" %s />',
+                    $disabled ? 'checked' : ''
+                );
+                printf('<span class="description"> Hide the Language Alternates (hreflang) panel in the block editor and stop %1$s emitting any %2$slink rel=&quot;alternate&quot; hreflang%3$s tags on the front end, including the auto-detected WPML entries. While disabled, %1$s does not manage or override this data — another SEO plugin, or WPML itself, is free to handle it. Saved values are kept and restored if you re-enable this.</span>', Metasync::get_effective_plugin_name('MetaSync'), '&lt;', '&gt;');
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -2130,8 +2181,13 @@ class Metasync_Settings_Registration
                 'disable_canonical_metabox',
                 'disable_social_opengraph_metabox',
                 'disable_schema_markup_metabox',
+                'disable_language_alternates_metabox',
                 'disable_seo_metabox',
-                'open_external_links'
+                'open_external_links',
+                // Consent switch for writing into other SEO plugins. Absent from
+                // the POST means unchecked, which must resolve to off — a
+                // permanent write into another plugin's data is never inferred.
+                Metasync_Seo_Backup::CONSENT_OPTION_KEY
             ];
 
             foreach ($checkbox_fields as $field) {
@@ -2144,6 +2200,19 @@ class Metasync_Settings_Registration
                     $new_input['general'][$field] = false;
                 }
             }
+
+            // SEO priority is a checkbox whose stored value is a string, so it
+            // cannot ride the boolean loop above. Only the exact opt-in value
+            // is accepted; unchecked (absent) or anything else resolves to
+            // custom-first. Writing an explicit value rather than leaving the
+            // key absent matters for the same reason the loop above writes
+            // false: the layered merge would otherwise let the stored 'otto'
+            // leak back and the box could never be unticked.
+            $new_input['general']['seo_priority'] =
+                (isset($input['general']['seo_priority'])
+                    && $input['general']['seo_priority'] === Metasync_Seo_Precedence::PRIORITY_OTTO)
+                    ? Metasync_Seo_Precedence::PRIORITY_OTTO
+                    : 'custom';
         }
 
         // Site Verification Settings
@@ -2630,6 +2699,24 @@ class Metasync_Settings_Registration
             });
         }
 
+        // Headless settings are never written through this form. They are owned by
+        // Metasync_Headless_Config and saved by their own handler, so anything
+        // arriving here under that key is a stale form or a hand-built request.
+        // The merge below would let it write over the stored block key by key —
+        // switching the mode off that way removes the GraphQL field and breaks
+        // every persisted query a headless frontend holds, so the key is dropped
+        // rather than merged.
+        //
+        // Except when the owner is the one writing. register_setting() makes this
+        // method a `sanitize_option_metasync_options` filter, and WordPress runs
+        // it on every update_option() call for the option, not only on Settings
+        // API form posts — so dropping the key unconditionally also dropped
+        // Metasync_Headless_Config's own writes, and the Headless Mode block
+        // could never save anything on a real request.
+        if (!Metasync_Headless_Config::is_writing()) {
+            unset($input[Metasync_Headless_Config::SETTINGS_KEY]);
+        }
+
         // Keep the fully sanitized/encrypted white-label values. The layered
         // merge below already lets them win; mirroring them into the raw
         // layer also excludes stray raw whitelabel keys from the saved option.
@@ -2711,7 +2798,7 @@ class Metasync_Settings_Registration
             'white_label_plugin_author_uri', 'white_label_plugin_uri'
         ];
 
-        $bool_fields = ['otto_disable_on_loggedin', 'otto_disable_preview_button', 'otto_disable_for_bots' , 'hide_dashboard_framework', 'show_admin_bar_status', 'enable_auto_updates', 'disable_common_robots_metabox', 'disable_advance_robots_metabox', 'disable_redirection_metabox', 'disable_canonical_metabox', 'disable_social_opengraph_metabox', 'disable_schema_markup_metabox', 'disable_seo_metabox', 'open_external_links'];
+        $bool_fields = ['otto_disable_on_loggedin', 'otto_disable_preview_button', 'otto_disable_for_bots' , 'hide_dashboard_framework', 'show_admin_bar_status', 'enable_auto_updates', 'disable_common_robots_metabox', 'disable_advance_robots_metabox', 'disable_redirection_metabox', 'disable_canonical_metabox', 'disable_social_opengraph_metabox', 'disable_schema_markup_metabox', 'disable_language_alternates_metabox', 'disable_seo_metabox', 'open_external_links', Metasync_Seo_Backup::CONSENT_OPTION_KEY];
 
         $url_fields = ['white_label_plugin_author_uri', 'white_label_plugin_uri'];
 
@@ -2816,6 +2903,16 @@ class Metasync_Settings_Registration
                     $metasync_options['general'][$field] = false;
                 }
             }
+
+            // SEO priority is a checkbox that stores a string rather than a
+            // bool, so it cannot ride the loop above. Only the exact opt-in
+            // value is stored; an unchecked box (or any tampered payload)
+            // falls back to custom-first, which is the pre-existing behaviour.
+            $metasync_options['general']['seo_priority'] =
+                (isset($_POST['metasync_options']['general']['seo_priority'])
+                    && $_POST['metasync_options']['general']['seo_priority'] === Metasync_Seo_Precedence::PRIORITY_OTTO)
+                    ? Metasync_Seo_Precedence::PRIORITY_OTTO
+                    : 'custom';
         }
 
         if ($general_tab_submitted || $whitelabel_tab_submitted) {
@@ -3412,6 +3509,546 @@ class Metasync_Settings_Registration
             ));
         } else {
             wp_send_json_error(array('message' => 'Failed to save settings. Please try again.'));
+        }
+    }
+
+    # ------------------------------------------------------------------
+    #  Headless Mode settings on the Advanced tab
+    # ------------------------------------------------------------------
+    #  Metasync_Headless_Config is the only sanitiser for these four values.
+    #  Nothing here validates a domain, a policy or a prefix — it collects
+    #  what was submitted, hands it to update_settings(), and then shows back
+    #  whatever that stored, so a value the sanitiser refused reads as refused
+    #  instead of being echoed back as though it saved.
+    # ------------------------------------------------------------------
+
+    /**
+     * Field prefix shared by every control in the Headless Mode block.
+     *
+     * The controls sit inside the Advanced tab's outer form, which posts to
+     * options.php. Naming them outside `metasync_options[...]` keeps them out
+     * of sanitize() entirely, so an unrelated save of that form can neither
+     * store them unsanitised nor clear them.
+     */
+    const HEADLESS_FIELD_PREFIX = 'metasync_headless_';
+
+    /**
+     * Nonce action and request field for the Headless Mode save.
+     */
+    const HEADLESS_NONCE_ACTION = 'metasync_headless_settings_nonce';
+    const HEADLESS_NONCE_FIELD  = 'headless_settings_nonce';
+
+    /**
+     * Render the Headless Mode section of the Advanced settings accordion.
+     *
+     * Values come from Metasync_Headless_Config::get_settings(), which is the
+     * sanitised stored state rather than anything the operator typed.
+     *
+     * @return void
+     */
+    public function render_headless_mode_section()
+    {
+        $settings = Metasync_Headless_Config::get_settings();
+        $enabled  = !empty($settings['enabled']);
+        $active   = Metasync_Headless_Config::is_active();
+        $prefix   = self::HEADLESS_FIELD_PREFIX;
+
+        $policy_labels = array(
+            Metasync_Headless_Config::SLASH_PRESERVE => 'Preserve — hand back whatever WordPress produced (default)',
+            Metasync_Headless_Config::SLASH_STRIP    => 'Strip — no trailing slash',
+            Metasync_Headless_Config::SLASH_ADD      => 'Add — always end with a trailing slash',
+        );
+        ?>
+        <div style="background: var(--dashboard-card-bg); padding: 20px; border-radius: 8px;">
+            <p style="color: var(--dashboard-text-secondary); margin: 0 0 20px 0;">
+                Headless Mode describes a separate frontend that serves the public site, so this plugin can build
+                URLs on that host instead of this one. With the mode off nothing here changes how the site behaves.
+            </p>
+
+            <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+                <p style="color: var(--dashboard-text-secondary); margin: 0;">
+                    Headless Mode is for sites where WordPress manages content and a separate frontend serves the public pages.
+                    Set the public frontend URL below, then choose how MetaSync should build those public URLs.
+                </p>
+            </div>
+
+            <div id="metasync-headless-settings-message" style="display: none; margin-bottom: 20px;"></div>
+
+            <form id="metasync-headless-settings-form" method="post" data-headless-active="<?php echo $active ? '1' : '0'; ?>">
+                <?php wp_nonce_field(self::HEADLESS_NONCE_ACTION, self::HEADLESS_NONCE_FIELD); ?>
+
+                <div style="background: var(--dashboard-card-bg-alt, rgba(255,255,255,0.05)); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                    <label for="<?php echo esc_attr($prefix . 'enabled'); ?>" style="display: flex; align-items: center; gap: 10px; color: var(--dashboard-text-primary); font-weight: 500; cursor: pointer;">
+                        <?php
+                        # Hidden field first, checkbox second, same name. An unchecked
+                        # checkbox posts nothing at all, and normalize() reads an absent
+                        # `enabled` key as false — so without this pair, a submission that
+                        # simply did not include the checkbox would switch the mode off as
+                        # a side effect. With it, "off" arrives as an explicit 0.
+                        ?>
+                        <input type="hidden" name="<?php echo esc_attr($prefix . 'enabled'); ?>" value="0" />
+                        <input type="checkbox"
+                               id="<?php echo esc_attr($prefix . 'enabled'); ?>"
+                               name="<?php echo esc_attr($prefix . 'enabled'); ?>"
+                               value="1"
+                               style="width: 18px; height: 18px; cursor: pointer;"
+                               <?php checked($enabled, true); ?> />
+                        <span>Enable Headless Mode</span>
+                    </label>
+
+                    <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 16px; margin: 16px 0 0 0;">
+                        <p style="color: var(--dashboard-text-secondary); margin: 0; font-size: 13px;">
+                            <strong style="color: var(--dashboard-warning, #f59e0b);">Changing this can affect your public frontend.</strong><br />
+                            When Headless Mode is active, the GraphQL SEO field and generated URLs follow the settings below.
+                            Coordinate with whoever maintains the frontend before disabling it or changing its public URL.
+                        </p>
+                    </div>
+
+                    <p style="color: var(--dashboard-text-secondary); font-size: 12px; margin: 12px 0 0 0;">
+                        Current state:
+                        <strong style="color: var(--dashboard-text-primary);"><?php echo $enabled ? 'enabled' : 'disabled'; ?></strong><?php
+                        if ($enabled && !$active) {
+                            ?> &mdash; but not yet in effect: a frontend domain is required before any headless URL can be built.<?php
+                        }
+                        ?>
+                    </p>
+                </div>
+
+                <div style="background: var(--dashboard-card-bg-alt, rgba(255,255,255,0.05)); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                    <div style="margin-bottom: 24px;">
+                        <label for="<?php echo esc_attr($prefix . 'frontend_domain'); ?>" style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px; font-weight: 500;">
+                            Public frontend URL:
+                        </label>
+                        <input type="url"
+                               id="<?php echo esc_attr($prefix . 'frontend_domain'); ?>"
+                               name="<?php echo esc_attr($prefix . 'frontend_domain'); ?>"
+                               value="<?php echo esc_attr($settings['frontend_domain']); ?>"
+                               placeholder="https://www.example.com"
+                               style="width: 100%; max-width: 420px; padding: 8px; border: 1px solid var(--dashboard-border); border-radius: 6px; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary);" />
+                        <p style="color: var(--dashboard-text-secondary); font-size: 12px; margin: 4px 0 0 0;">
+                            Scheme and host only &mdash; for example <code>https://www.example.com</code>. A path is
+                            refused: <code>https://example.com/blog</code> will not save, because only per-post-type
+                            prefixes exist and a shared path segment could never be put back on terms, archives or
+                            the homepage. Use a path prefix below instead. A bare host is treated as https.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom: 24px;">
+                        <label for="<?php echo esc_attr($prefix . 'slash_policy'); ?>" style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px; font-weight: 500;">
+                            Trailing Slash Policy:
+                        </label>
+                        <select id="<?php echo esc_attr($prefix . 'slash_policy'); ?>"
+                                name="<?php echo esc_attr($prefix . 'slash_policy'); ?>"
+                                style="max-width: 420px; padding: 8px; border: 1px solid var(--dashboard-border); border-radius: 6px; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary);">
+                            <?php foreach (Metasync_Headless_Config::slash_policies() as $policy) { ?>
+                                <option value="<?php echo esc_attr($policy); ?>" <?php selected($settings['slash_policy'], $policy); ?>>
+                                    <?php echo esc_html(isset($policy_labels[$policy]) ? $policy_labels[$policy] : $policy); ?>
+                                </option>
+                            <?php } ?>
+                        </select>
+                        <p style="color: var(--dashboard-text-secondary); font-size: 12px; margin: 4px 0 0 0;">
+                            Choose how generated public URLs end. For example, <code>/about</code> stays unchanged with Preserve,
+                            becomes <code>/about</code> with Strip, or <code>/about/</code> with Add. Match your frontend router.
+                        </p>
+                    </div>
+
+                    <div>
+                        <label for="<?php echo esc_attr($prefix . 'path_prefixes'); ?>" style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px; font-weight: 500;">
+                            Path Prefixes:
+                        </label>
+                        <textarea id="<?php echo esc_attr($prefix . 'path_prefixes'); ?>"
+                                  name="<?php echo esc_attr($prefix . 'path_prefixes'); ?>"
+                                  rows="4"
+                                  placeholder="post = blog"
+                                  style="width: 100%; max-width: 420px; padding: 8px; border: 1px solid var(--dashboard-border); border-radius: 6px; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary); font-family: monospace;"><?php echo esc_textarea(self::format_headless_path_prefixes($settings['path_prefixes'])); ?></textarea>
+                        <p style="color: var(--dashboard-text-secondary); font-size: 12px; margin: 4px 0 0 0;">
+                            Map WordPress content types to frontend URL folders:
+                        </p>
+                        <p style="color: var(--dashboard-text-secondary); font-size: 12px; margin: 8px 0 0 0;">
+                            One per line, for example <code>post = blog</code> produces <code>/blog/example-post</code>.
+                            Leave empty when your frontend uses the same paths as WordPress.
+                        </p>
+                    </div>
+
+                    <details style="margin-top: 24px;">
+                        <summary style="color: var(--dashboard-text-primary); font-weight: 500; cursor: pointer;">Advanced refresh settings</summary>
+                        <div style="padding-top: 16px;">
+                            <label for="<?php echo esc_attr($prefix . 'refresh_interval_minutes'); ?>" style="display: block; color: var(--dashboard-text-primary); margin-bottom: 8px;">
+                                Background refresh interval (minutes):
+                            </label>
+                        <input type="number"
+                               id="<?php echo esc_attr($prefix . 'refresh_interval_minutes'); ?>"
+                               name="<?php echo esc_attr($prefix . 'refresh_interval_minutes'); ?>"
+                               value="<?php echo esc_attr($settings['refresh_interval_minutes']); ?>"
+                               min="<?php echo esc_attr((string) Metasync_Headless_Config::REFRESH_INTERVAL_MIN_MINUTES); ?>"
+                               max="<?php echo esc_attr((string) Metasync_Headless_Config::REFRESH_INTERVAL_MAX_MINUTES); ?>"
+                               step="1"
+                               style="width: 100%; max-width: 200px; padding: 8px; border: 1px solid var(--dashboard-border); border-radius: 6px; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary);" />
+                        <p style="color: var(--dashboard-text-secondary); font-size: 12px; margin: 4px 0 0 0;">
+                            How often the background job re-checks a URL's stored OTTO data against OTTO directly, for
+                            any post or term OTTO's deployment webhook missed. Does not affect the webhook, which stays
+                            the primary, immediate update path. Between
+                            <?php echo esc_html((string) Metasync_Headless_Config::REFRESH_INTERVAL_MIN_MINUTES); ?> and
+                            <?php echo esc_html((string) Metasync_Headless_Config::REFRESH_INTERVAL_MAX_MINUTES); ?> minutes;
+                            defaults to <?php echo esc_html((string) Metasync_Headless_Config::REFRESH_INTERVAL_DEFAULT_MINUTES); ?>.
+                        </p>
+                        </div>
+                    </details>
+                </div>
+
+                <button type="button"
+                        id="metasync-headless-settings-save-btn"
+                        class="metasync-btn-primary"
+                        style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
+                    <span class="save-text">Save Headless Settings</span>
+                </button>
+            </form>
+        </div>
+        <script>
+        jQuery(document).ready(function ($) {
+            // Click, not submit: this form is nested inside #metaSyncGeneralSetting,
+            // so the browser drops the inner form tag and a submit handler would
+            // never fire on its own.
+            var $saveBtn = $('#metasync-headless-settings-save-btn');
+            var $message = $('#metasync-headless-settings-message');
+            var headlessModeWasActive = <?php echo $active ? 'true' : 'false'; ?>;
+            var headlessDisableWarning = 'Turning off Headless Mode removes the metasyncSeo field from the GraphQL schema. Any frontend querying it will error until it is redeployed. Continue?';
+            var headlessDomainWarning = 'The metasyncSeo field stays in the GraphQL schema, but every URL it returns will be empty until a frontend domain is set again. Continue?';
+            var headlessModeSavedSettings = <?php echo wp_json_encode(array(
+                'enabled'         => !empty($settings['enabled']),
+                'frontend_domain' => $settings['frontend_domain'],
+                'slash_policy'    => $settings['slash_policy'],
+                'path_prefixes'   => self::format_headless_path_prefixes($settings['path_prefixes']),
+                'refresh_interval_minutes' => $settings['refresh_interval_minutes'],
+            )); ?>;
+
+            // This mirrors normalize_domain()'s shape rules so a value the
+            // server will refuse cannot look active here. Keep this deliberately
+            // small: it is a confirmation decision, not a client-side validator,
+            // and the server remains authoritative. Mirrors can drift.
+            function isUsableFrontendDomain(value) {
+                // PHP's trim() strips only space, tab, newline, carriage return,
+                // NUL and vertical tab, while $.trim() and String.trim() strip the
+                // whole Unicode set. Trimming a non-breaking space or BOM that the
+                // server keeps would make a pasted domain look usable while
+                // normalize_domain() rejects it — the guard stays silent and the
+                // mode deactivates anyway. Match the server charlist exactly.
+                var candidate = (value || '').replace(/^[ \t\n\r\0\x0B]+|[ \t\n\r\0\x0B]+$/g, '');
+                var parsed;
+                var authority;
+                var host;
+                var path;
+
+                if (candidate === '') {
+                    return false;
+                }
+
+                if (candidate.indexOf('//') === -1) {
+                    candidate = 'https://' + candidate.replace(/^\/+/, '');
+                }
+
+                parsed = candidate.match(/^(?:([a-z][a-z0-9+.-]*):)?\/\/([^/?#]*)([^?#]*)/i);
+                if (!parsed || (parsed[1] && parsed[1].toLowerCase() !== 'http' && parsed[1].toLowerCase() !== 'https')) {
+                    return false;
+                }
+
+                path = parsed[3] || '';
+                if (path.replace(/^\/+|\/+$/g, '') !== '') {
+                    return false;
+                }
+
+                authority = parsed[2].replace(/^.*@/, '');
+                if (authority.charAt(0) === '[') {
+                    return /^\[[0-9a-f:.]+\](?::\d+)?$/i.test(authority);
+                }
+
+                host = authority.replace(/:\d+$/, '');
+                if (!/^[\p{L}\p{N}._-]+$/u.test(host) || host.indexOf('..') !== -1) {
+                    return false;
+                }
+
+                return !/^[.-]|[.-]$/.test(host) && /[\p{L}\p{N}]/u.test(host);
+            }
+
+            function showMessage(lines, type) {
+                var $list = $('<div/>');
+                $.each(lines, function (i, line) {
+                    $list.append($('<p/>').css('margin', i === 0 ? '0' : '8px 0 0 0').text(line));
+                });
+
+                $message
+                    .css({
+                        'background': type === 'success' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                        'border': '1px solid ' + (type === 'success' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'),
+                        'color': type === 'success' ? '#22c55e' : '#ef4444',
+                        'padding': '12px 16px',
+                        'border-radius': '6px',
+                        'font-size': '14px',
+                        'line-height': '1.5'
+                    })
+                    .empty()
+                    .append($list)
+                    .show();
+            }
+
+            // Repaint from what was actually stored, never from what was typed, so a
+            // refused value reads as refused rather than looking saved.
+            function applyStoredSettings(settings) {
+                if (!settings) {
+                    return;
+                }
+                headlessModeSavedSettings = $.extend({}, settings);
+                headlessModeWasActive = !!settings.enabled && isUsableFrontendDomain(settings.frontend_domain);
+                $('#<?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'enabled'); ?>').prop('checked', !!settings.enabled);
+                $('#<?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'frontend_domain'); ?>').val(settings.frontend_domain);
+                $('#<?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'slash_policy'); ?>').val(settings.slash_policy);
+                $('#<?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'path_prefixes'); ?>').val(settings.path_prefixes);
+                $('#<?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'refresh_interval_minutes'); ?>').val(settings.refresh_interval_minutes);
+            }
+
+            $saveBtn.on('click', function (e) {
+                e.preventDefault();
+
+                var data = {
+                    action: 'metasync_save_headless_settings',
+                    <?php echo esc_js(self::HEADLESS_NONCE_FIELD); ?>: $('#<?php echo esc_js(self::HEADLESS_NONCE_FIELD); ?>').val(),
+                    <?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'enabled'); ?>: $('#<?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'enabled'); ?>').is(':checked') ? '1' : '0',
+                    <?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'frontend_domain'); ?>: $('#<?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'frontend_domain'); ?>').val(),
+                    <?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'slash_policy'); ?>: $('#<?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'slash_policy'); ?>').val(),
+                    <?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'path_prefixes'); ?>: $('#<?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'path_prefixes'); ?>').val(),
+                    <?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'refresh_interval_minutes'); ?>: $('#<?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'refresh_interval_minutes'); ?>').val()
+                };
+
+                var submittedModeIsEnabled = data['<?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'enabled'); ?>'] === '1';
+                var submittedDomain = data['<?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'frontend_domain'); ?>'];
+                var submittedModeIsActive = submittedModeIsEnabled
+                    && isUsableFrontendDomain(submittedDomain);
+
+                if (submittedModeIsEnabled && !submittedModeIsActive) {
+                    showMessage(['Enter a valid public frontend URL before enabling Headless Mode. Use a scheme and host only, for example https://www.example.com.'], 'error');
+                    $('#<?php echo esc_js(self::HEADLESS_FIELD_PREFIX . 'frontend_domain'); ?>').trigger('focus');
+                    return;
+                }
+
+                var confirmationMessage = submittedModeIsEnabled ? headlessDomainWarning : headlessDisableWarning;
+
+                if (headlessModeWasActive && !submittedModeIsActive && !window.confirm(confirmationMessage)) {
+                    applyStoredSettings(headlessModeSavedSettings);
+                    return;
+                }
+
+                $saveBtn.prop('disabled', true);
+                $saveBtn.find('.save-text').text('Saving...');
+                $message.hide();
+
+                $.ajax({
+                    url: window.ajaxurl,
+                    type: 'POST',
+                    data: data,
+                    success: function (response) {
+                        if (response && response.success) {
+                            applyStoredSettings(response.data.settings);
+                            var lines = [response.data.message];
+                            if (response.data.notes && response.data.notes.length) {
+                                lines = lines.concat(response.data.notes);
+                            }
+                            showMessage(lines, response.data.notes && response.data.notes.length ? 'error' : 'success');
+                        } else {
+                            showMessage([(response && response.data && response.data.message) || 'Error saving Headless Mode settings.'], 'error');
+                        }
+                        $saveBtn.prop('disabled', false);
+                        $saveBtn.find('.save-text').text('Save Headless Settings');
+                    },
+                    error: function () {
+                        showMessage(['An error occurred while saving Headless Mode settings. Please try again.'], 'error');
+                        $saveBtn.prop('disabled', false);
+                        $saveBtn.find('.save-text').text('Save Headless Settings');
+                    }
+                });
+            });
+        });
+        </script>
+        <?php
+    }
+
+    /**
+     * Render the stored post-type => prefix map back into the textarea format.
+     *
+     * @param mixed $prefixes Stored prefix map.
+     * @return string One `post_type = prefix` entry per line.
+     */
+    public static function format_headless_path_prefixes($prefixes)
+    {
+        if (!is_array($prefixes)) {
+            return '';
+        }
+
+        $lines = array();
+
+        foreach ($prefixes as $post_type => $prefix) {
+            $lines[] = $post_type . ' = ' . $prefix;
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Read the textarea format back into a post-type => prefix map.
+     *
+     * One entry per line, `post_type = prefix`. A plain text format is enough
+     * for a demo and needs no repeater UI. A line with no `=` names no post
+     * type, so it is skipped rather than guessed at; everything that does
+     * survive is still handed to Metasync_Headless_Config::normalize(), which
+     * is what actually decides whether a post type and prefix are usable.
+     *
+     * @param mixed $text Raw textarea contents.
+     * @return array<string,string> Unsanitised map, keyed by post type.
+     */
+    public static function parse_headless_path_prefixes($text)
+    {
+        $map = array();
+
+        if (!is_string($text)) {
+            return $map;
+        }
+
+        foreach (preg_split('/\R/', $text) as $line) {
+            if (strpos($line, '=') === false) {
+                continue;
+            }
+
+            list($post_type, $prefix) = explode('=', $line, 2);
+
+            $post_type = trim($post_type);
+            if ($post_type === '') {
+                continue;
+            }
+
+            $map[$post_type] = trim($prefix);
+        }
+
+        return $map;
+    }
+
+    /**
+     * Merge a Headless Mode submission over the stored settings and persist it.
+     *
+     * Additive on purpose: a key the request did not carry keeps whatever is
+     * already stored. normalize() treats an absent `enabled` as false, so a
+     * submission that omitted the checkbox would otherwise switch the mode off
+     * as a side effect of saving something else. The hidden field in front of
+     * the checkbox is the other half of that guard — it makes "off" an explicit
+     * `0` rather than an absence, so unticking the box still works.
+     *
+     * Sanitising is left entirely to Metasync_Headless_Config.
+     *
+     * @param mixed $submitted Raw request data, normally $_POST.
+     * @return array The settings that were actually stored.
+     */
+    public function save_headless_settings($submitted)
+    {
+        if (!is_array($submitted)) {
+            $submitted = array();
+        }
+
+        $prefix = self::HEADLESS_FIELD_PREFIX;
+        $input  = Metasync_Headless_Config::get_settings();
+
+        if (isset($submitted[$prefix . 'enabled'])) {
+            $input['enabled'] = $submitted[$prefix . 'enabled'];
+        }
+
+        if (isset($submitted[$prefix . 'frontend_domain'])) {
+            $input['frontend_domain'] = wp_unslash($submitted[$prefix . 'frontend_domain']);
+        }
+
+        if (isset($submitted[$prefix . 'slash_policy'])) {
+            $input['slash_policy'] = $submitted[$prefix . 'slash_policy'];
+        }
+
+        if (isset($submitted[$prefix . 'path_prefixes'])) {
+            $input['path_prefixes'] = self::parse_headless_path_prefixes(
+                wp_unslash($submitted[$prefix . 'path_prefixes'])
+            );
+        }
+
+        if (isset($submitted[$prefix . 'refresh_interval_minutes'])) {
+            $input['refresh_interval_minutes'] = $submitted[$prefix . 'refresh_interval_minutes'];
+        }
+
+        return Metasync_Headless_Config::update_settings($input);
+    }
+
+    /**
+     * AJAX handler for the Headless Mode block on the Advanced tab.
+     *
+     * Same nonce-then-capability shape as the other Advanced tab handlers.
+     *
+     * @return void
+     */
+    /**
+     * Did the last write actually land?
+     *
+     * update_settings() hands back what it meant to store, not proof that it
+     * reached the database: a full disk, a failing object cache or a read-only
+     * replica all produce a silent no-op. Telling an operator their headless
+     * settings saved when they did not is worse than telling them nothing —
+     * they would go on to wonder why the frontend sees none of it.
+     *
+     * @param array $intended What the save call reported storing.
+     * @return bool
+     */
+    private function headless_settings_persisted(array $intended)
+    {
+        Metasync_Headless_Config::flush();
+
+        return Metasync_Headless_Config::get_settings() == $intended;
+    }
+
+    public function ajax_save_headless_settings()
+    {
+        $prefix = self::HEADLESS_FIELD_PREFIX;
+
+        if (!isset($_POST[self::HEADLESS_NONCE_FIELD]) || !wp_verify_nonce($_POST[self::HEADLESS_NONCE_FIELD], self::HEADLESS_NONCE_ACTION)) {
+            wp_send_json_error(array('message' => 'Invalid security token. Please refresh the page and try again.'));
+        } elseif (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(array('message' => 'Insufficient permissions to save settings.'));
+        } else {
+            $submitted_domain = isset($_POST[$prefix . 'frontend_domain'])
+                ? trim((string) wp_unslash($_POST[$prefix . 'frontend_domain']))
+                : '';
+
+            $stored = $this->save_headless_settings($_POST);
+
+            if (!$this->headless_settings_persisted($stored)) {
+                wp_send_json_error(array(
+                    'message' => 'Those settings could not be saved. Nothing has changed — please try again, and check the site error log if it keeps happening.',
+                ));
+            }
+
+            # Say so when the sanitiser refused something, rather than leaving the
+            # operator to spot that a field came back empty.
+            $notes = array();
+
+            if ($submitted_domain !== '' && $stored['frontend_domain'] === '') {
+                $notes[] = 'That frontend domain was not saved. Give a scheme and host only, with no path — for example https://www.example.com.';
+            }
+
+            if (!empty($stored['enabled']) && $stored['frontend_domain'] === '') {
+                $notes[] = 'Headless Mode is switched on but has no usable frontend domain, so nothing behaves as headless yet.';
+            }
+
+            wp_send_json_success(array(
+                'message'  => 'Headless Mode settings saved.',
+                'notes'    => $notes,
+                'settings' => array(
+                    'enabled'         => !empty($stored['enabled']),
+                    'frontend_domain' => $stored['frontend_domain'],
+                    'slash_policy'    => $stored['slash_policy'],
+                    'path_prefixes'   => self::format_headless_path_prefixes($stored['path_prefixes']),
+                    'refresh_interval_minutes' => $stored['refresh_interval_minutes'],
+                ),
+            ));
         }
     }
 

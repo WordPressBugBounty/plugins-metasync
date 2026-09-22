@@ -303,19 +303,20 @@ class Metasync_SEO_Conflict_Handler {
             return $og_title;
         }
 
-        // 2. SEO sidebar (user-edited)
-        $title = get_post_meta($post_id, '_metasync_seo_title', true);
-        if (!empty($title)) {
-            return $title;
-        }
-
-        // 3. OTTO title
-        $title = get_post_meta($post_id, '_metasync_otto_title', true);
-        if (!empty($title)) {
-            return $title;
-        }
-
-        return '';
+        // 2. The stored page title, in whatever order the site has asked for.
+        //
+        // This used to restate the order inline — sidebar key, then OTTO key —
+        // so the global "SEO Title & Description Priority" setting could not
+        // reach the og:title this method feeds, and a title held on the
+        // persisted or imported tier was missed entirely. The description side
+        // already resolves through metasync_description_value(); this is the
+        // matching path for titles.
+        //
+        // Only which title WINS moves. metasync_has_title() is deliberately
+        // left alone: it asks whether MetaSync holds a title at all, which is
+        // an OR across the tiers and so cannot change with their order. The
+        // suppression decision must stay identical in both modes.
+        return $this->metasync_title_value($post_id);
     }
 
     /**

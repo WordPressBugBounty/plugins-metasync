@@ -6,7 +6,6 @@
  *
  * @package    MetaSync
  * @subpackage MCP_Server/Tools
- * @since      2.9.0
  */
 
 if (!defined('ABSPATH')) {

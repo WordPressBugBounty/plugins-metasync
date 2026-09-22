@@ -50,6 +50,7 @@
             hreflang: '_metasync_hreflang',
         },
         wpmlEntries: [],
+        languageAlternatesEnabled: true,
         otto: {
             globalEnabled: false,
             name: 'OTTO',
@@ -1396,12 +1397,12 @@
     /**
      * Primary Category Selector Component
      *
-     * Rendered in two places:
-     * 1. Inside the MetaSync SEO sidebar panel
-     * 2. Injected below the WordPress Categories checklist (via editor.PostTaxonomyType filter)
+     * Rendered below the WordPress Categories checklist via the
+     * `editor.PostTaxonomyType` filter.
      *
-     * Hidden from the Categories panel when Yoast, Rank Math, or AIOSEO is active
-     * (those plugins provide their own selector), but always available in the SEO sidebar.
+     * The MetaSync sidebar does not render this component, so the field has a
+     * single MetaSync Gutenberg location and the existing
+     * `_metasync_primary_category` storage and consumers remain unchanged.
      */
     const PrimaryCategoryInjectPanel = () => {
         const metaKey = config.metaKeys.primaryCategory || '_metasync_primary_category';
@@ -1525,14 +1526,53 @@
 
         const startManualEdit = () => {
             // Seed manual rows from the WPML entries so the user can tweak
-            // rather than re-enter everything.
+            // rather than re-enter everything. Region (and the synthesised
+            // x-default row) travel along, so the seeded set reproduces what
+            // the front end actually emits.
             if (rows.length === 0 && wpmlEntries.length > 0) {
                 const seeded = wpmlEntries.map(function(e) {
-                    return { lang: e.lang || '', region: '', url: e.url || '' };
+                    return { lang: e.lang || '', region: e.region || '', url: e.url || '' };
                 });
                 saveRows(seeded);
             }
             setManualMode(true);
+        };
+
+        // Final hreflang code for a row, mirroring the server-side
+        // normalisation: lowercase lang + uppercase region, with x-default
+        // ignoring any region.
+        const rowLangCode = function(row) {
+            const lang = ((row && row.lang) || '').trim().toLowerCase();
+            const region = ((row && row.region) || '').trim().toUpperCase();
+            if (lang === 'x-default' || lang === 'x_default' || lang === 'xdefault') {
+                return 'x-default';
+            }
+            return region ? lang + '-' + region : lang;
+        };
+        const isValidLangCode = function(code) {
+            // Same shape as the server-side check in
+            // Metasync_Hreflang_Output::normalize_entry(): 2–3 letter
+            // language, optional 2-letter region / 4-letter script / 3-digit
+            // numeric region, with an uppercase region like "en-US".
+            return code === 'x-default' || /^[a-z]{2,3}(-([A-Z]{2}|[A-Z]{4}|[0-9]{3}))?$/.test(code);
+        };
+        const isAbsoluteUrl = function(url) {
+            try {
+                const parsed = new URL((url || '').trim());
+                return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+            } catch (e) {
+                return false;
+            }
+        };
+        // A row is worth warning about once it has any content — blank rows
+        // are simply dropped on save.
+        const rowIsIncomplete = function(row) {
+            const lang = ((row && row.lang) || '').trim();
+            const url = ((row && row.url) || '').trim();
+            if (lang === '' && url === '') {
+                return false;
+            }
+            return !isValidLangCode(rowLangCode(row)) || !isAbsoluteUrl(url);
         };
 
         // WPML auto-populated, read-only view
@@ -1551,7 +1591,7 @@
                     el('tbody', null,
                         wpmlEntries.map(function(entry, i) {
                             return el('tr', { key: 'wpml-' + i },
-                                el('td', null, entry.lang || ''),
+                                el('td', null, rowLangCode(entry)),
                                 el('td', null,
                                     el('a', {
                                         href: entry.url,
@@ -1579,6 +1619,9 @@
                 ? el('p', { className: 'metasync-language-alternates-help' },
                     __('No language alternates yet. Use "Add alternate" to create one.', 'metasync'))
                 : null,
+            el('p', { className: 'metasync-language-alternates-help' },
+                config.i18n.hreflangFormatHelp || 'Use ISO codes (e.g. en, en-US, x-default — hyphen, not underscore) and absolute URLs (https://…). A self-reference for this page is added automatically when missing.'
+            ),
             editableRows.map(function(row, index) {
                 return el('div', { className: 'metasync-language-alternate-row', key: 'row-' + index },
                     el(TextControl, {
@@ -1591,7 +1634,7 @@
                         label: config.i18n.regionLabel || 'Region',
                         value: (row && row.region) || '',
                         onChange: function(value) { updateRow(index, 'region', value); },
-                        placeholder: 'us',
+                        placeholder: 'US',
                     }),
                     el(TextControl, {
                         label: config.i18n.urlLabel || 'URL',
@@ -1599,6 +1642,10 @@
                         onChange: function(value) { updateRow(index, 'url', value); },
                         placeholder: 'https://example.com/page/',
                     }),
+                    rowIsIncomplete(row)
+                        ? el('p', { className: 'metasync-language-alternate-warning' },
+                            config.i18n.hreflangInvalidRow || 'This row will not be emitted: the language code must look like "en" or "en-US", and the URL must be absolute (https://…).')
+                        : null,
                     el(Button, {
                         isLink: true,
                         isDestructive: true,
@@ -1928,8 +1975,7 @@
                     el(SeoTitleInput, null),
                     el(MetaDescriptionInput, null),
                     el(FocusKeywordInput, null),
-                    el(BreadcrumbTitleInput, null),
-                    el(PrimaryCategoryInjectPanel, null)
+                    el(BreadcrumbTitleInput, null)
                 ),
                 el(PanelBody, {
                     title: config.i18n.serpPreviewTitle,
@@ -1943,12 +1989,21 @@
                 },
                     el(SchemaContentPanel, null)
                 ),
-                el(PanelBody, {
+                // Language Alternates (hreflang) panel — hidden when the
+                // feature is disabled via Post/Page Editor Settings.
+                // wp_localize_script() casts top-level scalars to strings, so
+                // the flag arrives as '1' (enabled) or '' (disabled), never a
+                // boolean. An absent key means PHP predates the switch — keep
+                // the panel rather than hiding data the feature still emits.
+                (config.languageAlternatesEnabled === undefined
+                    ? true
+                    : config.languageAlternatesEnabled === '1' || config.languageAlternatesEnabled === true
+                ) ? el(PanelBody, {
                     title: config.i18n.languageAlternatesTitle || 'Language Alternates',
                     initialOpen: false,
                 },
                     el(LanguageAlternatesPanel, null)
-                ),
+                ) : null,
                 el(PanelBody, {
                     title: (config.linkSuggestions && config.linkSuggestions.i18n && config.linkSuggestions.i18n.panelTitle) || 'Internal Link Suggestions',
                     initialOpen: false,

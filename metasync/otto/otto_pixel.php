@@ -813,6 +813,12 @@ function metasync_start_otto(){
         $bot_detector->push_crawl_log_to_sa( $detection, $current_url );
     }
 
+    # A headless frontend renders the public HTML, so stop after the cheap cache
+    # protections and crawl telemetry, before any OTTO rendering work begins.
+    if (Metasync_Headless_Config::is_active()) {
+        return;
+    }
+
     # Throttle OTTO rendering for bots that are not exempt: at most one render
     # per URL+bot every 5 minutes. Humans, search engines (Googlebot, Bingbot,
     # Yahoo's Slurp, Sogou, Exabot, Applebot, ...), host cache warmers and
@@ -1508,9 +1514,11 @@ function metasync_otto_block_seo_plugins($block_title = false, $block_descriptio
     if (is_plugin_active('seo-by-rank-math/rank-math.php') ||
         is_plugin_active('seo-by-rankmath/rank-math.php')) {
 
-        if ($block_title) {
-            add_filter('rank_math/frontend/title', '__return_empty_string', 999);
-        }
+        # TITLE: Never blank Rank Math's title output during SSR fetch.
+        # rank_math/frontend/title also gates Rank Math's og:title/twitter:title
+        # output, so forcing it empty blanks those social tags along with the
+        # document title. Let Rank Math render its own title/og/twitter tags;
+        # OTTO's replace_title() and the dedup/precedence pass clean up duplicates.
 
         if ($block_description) {
             add_filter('rank_math/frontend/description', '__return_false', 999);
@@ -1966,6 +1974,10 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                                     break;
                             }
 
+                            if (is_scalar($field_value) && trim((string) $field_value) === '') {
+                                $title = str_replace(' Update (...)', ' Cleanup (previous value removed)', $title);
+                            }
+
                             if (!empty($title)) {
                                 metasync_log_sync_history([
                                     'title' => $title,
@@ -2064,6 +2076,10 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                                 case 'structured_data':
                                     $title = 'Product Category Structured Data Update';
                                     break;
+                            }
+
+                            if (is_scalar($field_value) && trim((string) $field_value) === '') {
+                                $title = str_replace(' Update (...)', ' Cleanup (previous value removed)', $title);
                             }
 
                             if (!empty($title)) {
@@ -2180,6 +2196,10 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                                     break;
                             }
 
+                            if (is_scalar($field_value) && trim((string) $field_value) === '') {
+                                $title = str_replace(' Update (...)', ' Cleanup (previous value removed)', $title);
+                            }
+
                             if (!empty($title)) {
                                 metasync_log_sync_history([
                                     'title' => $title,
@@ -2280,6 +2300,10 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                                 case 'structured_data':
                                     $title = 'Blog Page Structured Data Update';
                                     break;
+                            }
+
+                            if (is_scalar($field_value) && trim((string) $field_value) === '') {
+                                $title = str_replace(' Update (...)', ' Cleanup (previous value removed)', $title);
                             }
 
                             if (!empty($title)) {
@@ -2395,6 +2419,10 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                     case 'structured_data':
                         $title = 'Structured Data Update';
                         break;
+                }
+
+                if (is_scalar($field_value) && trim((string) $field_value) === '') {
+                    $title = str_replace(' Update (...)', ' Cleanup (previous value removed)', $title);
                 }
 
                 if (!empty($title)) {

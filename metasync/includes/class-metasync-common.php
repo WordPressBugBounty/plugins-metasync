@@ -55,7 +55,8 @@ class Metasync_Common
 				$attachment_name
 			)
 		);
-		return get_post($post);
+		// get_post(null) returns the global post — never a "not found" signal.
+		return $post ? get_post($post) : null;
 	}
 
 	public function get_permalink_from_url($url)
@@ -75,11 +76,16 @@ class Metasync_Common
 			return pathinfo(str_replace("/", "_", parse_url($url, PHP_URL_PATH) ?? ''), PATHINFO_FILENAME);
 		} elseif (stripos($url, "https://drive.google.com/") !== false) {
 			$parse_url = wp_parse_url($url);
+			// Modern permalinks are /file/d/<ID>/view — the ID lives in the path,
+			// and there is no query component at all on those URLs.
+			if (!empty($parse_url['path']) && preg_match('~/file/d/([^/]+)~', $parse_url['path'], $drive_matches)) {
+				return $drive_matches[1];
+			}
 			$args = [];
-			wp_parse_str($parse_url['query'], $args);
-			return $args['id'];
+			wp_parse_str($parse_url['query'] ?? '', $args);
+			return $args['id'] ?? null;
 		} else {
-			return pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_FILENAME);
+			return pathinfo(parse_url($url, PHP_URL_PATH) ?? '', PATHINFO_FILENAME);
 		}
 	}
 
@@ -135,6 +141,11 @@ class Metasync_Common
 
 		$filename  = $this->get_file_name_by_url($url);
 		// $filename = pathinfo($url, PATHINFO_FILENAME);
+		// A null/empty name degenerates the post_name to "-<ext>", which collides
+		// across unrelated images — fall back to the URL basename instead.
+		if (null === $filename || '' === $filename) {
+			$filename = pathinfo(wp_parse_url($url, PHP_URL_PATH) ?? '', PATHINFO_FILENAME);
+		}
 		// eliminating query params from file name
 		$filename = explode("?", $filename)[0];
 		$extension = pathinfo($url, PATHINFO_EXTENSION);
@@ -185,6 +196,15 @@ class Metasync_Common
 		# remove if null logic check on 11 march 2025 for issue 264 and merge request 320
 		if (empty($get_attachment)) {
 			$attachment_id 	= media_handle_sideload($args, 0, $args['name']);
+			// The sideload can fail (invalid remote file, upload disallowed) — check
+			// before the result is used as a post ID anywhere below.
+			if (is_wp_error($attachment_id)) {
+				// Safely delete temporary file if it exists
+				if (file_exists($tmp)) {
+					unlink($tmp);
+				}
+				return false;
+			}
 			update_post_meta($attachment_id, '_wp_attachment_image_alt', $alt);
 			// check if the title is empty or not if it's has title update the title
 			if($title_text !== ''){
@@ -200,13 +220,12 @@ class Metasync_Common
 				wp_get_original_image_path($attachment_id)
 			);
 			wp_update_attachment_metadata($attachment_id, $attach_data);
-			
+
 			// Safely delete temporary file if it exists
 			if (file_exists($tmp)) {
 				unlink($tmp);
 			}
 
-			if (is_wp_error($attachment_id)) return false;
 			return $attachment_id;
 		} else {
 			// An attachment record can outlive its file (e.g. the file was

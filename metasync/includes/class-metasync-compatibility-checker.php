@@ -206,20 +206,20 @@ class Metasync_Compatibility_Checker
                                     
                                     html += '<div class="test-result-item ' + statusClass + '">';
                                     html += '<div class="test-result-header">';
-                                    html += '<h4>' + statusIcon + ' ' + result.method + ' Request - ' + blockedStatus + '</h4>';
+                                    html += '<h4>' + statusIcon + ' ' + escapeHtml(result.method) + ' Request - ' + blockedStatus + '</h4>';
                                     html += '<span class="test-status ' + blockedClass + '">' + blockedStatus + '</span>';
                                     html += '</div>';
                                     
                                     html += '<div class="test-result-details">';
-                                    html += '<p><strong>Response Time:</strong> ' + result.response_time + '</p>';
-                                    html += '<p><strong>Status:</strong> ' + result.status + '</p>';
+                                    html += '<p><strong>Response Time:</strong> ' + escapeHtml(result.response_time) + '</p>';
+                                    html += '<p><strong>Status:</strong> ' + escapeHtml(result.status) + '</p>';
                                     
                                     if (result.status_code) {
-                                        html += '<p><strong>HTTP Status Code:</strong> <span class="status-code">' + result.status_code + '</span></p>';
+                                        html += '<p><strong>HTTP Status Code:</strong> <span class="status-code">' + escapeHtml(result.status_code) + '</span></p>';
                                     }
                                     
                                     if (result.error) {
-                                        html += '<p><strong>Error:</strong> <span class="error-message">' + result.error + '</span></p>';
+                                        html += '<p><strong>Error:</strong> <span class="error-message">' + escapeHtml(result.error) + '</span></p>';
                                     }
                                     
                                     if (result.body) {
@@ -231,7 +231,7 @@ class Metasync_Compatibility_Checker
                                         html += '<p><strong>Response Headers:</strong></p>';
                                         html += '<pre class="response-headers">';
                                         Object.keys(result.headers).forEach(function(key) {
-                                            html += key + ': ' + result.headers[key] + '\n';
+                                            html += escapeHtml(key) + ': ' + escapeHtml(result.headers[key]) + '\n';
                                         });
                                         html += '</pre>';
                                     }
@@ -246,7 +246,7 @@ class Metasync_Compatibility_Checker
                                         html += '<pre class="parsed-response">' + escapeHtml(JSON.stringify(result.parsed_response, null, 2)) + '</pre>';
                                     }
                                     
-                                    html += '<p><strong>Details:</strong> ' + result.details + '</p>';
+                                    html += '<p><strong>Details:</strong> ' + escapeHtml(result.details) + '</p>';
                                     html += '</div>';
                                     html += '</div>';
                                 });
@@ -263,7 +263,7 @@ class Metasync_Compatibility_Checker
                                     '"': '&quot;',
                                     "'": '&#039;'
                                 };
-                                return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+                                return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
                             }
                             
                             setTimeout(function() {
@@ -1371,7 +1371,9 @@ class Metasync_Compatibility_Checker
                 'aioseo'  => 'https://ps.w.org/all-in-one-seo-pack/assets/icon-128x128.png',
             ],
             'cache' => [
-                'wp-rocket'               => 'https://ps.w.org/rocket-lazy-load/assets/icon-128x128.png',
+                // Not on wp.org — bundle a local icon instead of borrowing an
+                // unrelated wp.org plugin's logo.
+                'wp-rocket'               => plugins_url('assets/images/compat/wp-rocket.svg', dirname(__DIR__) . '/metasync.php'),
                 'litespeed-cache'         => 'https://ps.w.org/litespeed-cache/assets/icon-128x128.png',
                 'w3-total-cache'          => 'https://ps.w.org/w3-total-cache/assets/icon-128x128.png',
                 'sg-cachepress'           => 'https://ps.w.org/sg-cachepress/assets/icon-128x128.png',
@@ -1380,7 +1382,7 @@ class Metasync_Compatibility_Checker
             ],
             'cdn' => [
                 'cloudflare' => 'https://ps.w.org/cloudflare/assets/icon-128x128.png',
-                'fastly'     => 'https://ps.w.org/purgely/assets/icon-128x128.png',
+                'fastly'     => plugins_url('assets/images/compat/fastly.svg', dirname(__DIR__) . '/metasync.php'),
             ],
         ];
 

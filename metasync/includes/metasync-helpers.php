@@ -72,25 +72,127 @@ if (!function_exists('metasync_get_custom_page_exclusion_meta_query')) {
     /**
      * Build a WP_Query meta_query fragment that excludes custom/LPS pages.
      *
-     * When AND-combined with any query, this drops posts whose
-     * _metasync_is_custom_html_page marker is set to '1' while keeping all
-     * WordPress-managed posts (where the key is absent or set to anything else).
+     * Mirrors the sibling predicate metasync_is_custom_or_lps_page(): a post is
+     * excluded when ANY of the three markers is set — _metasync_is_custom_html_page
+     * = '1', or a non-empty _metasync_lps_import / _metasync_created_via_api.
+     * Checking only the first marker let LPS placeholder pages leak into SEO
+     * audits as real pages.
      *
      * @return array meta_query fragment.
      */
     function metasync_get_custom_page_exclusion_meta_query(){
         return array(
-            'relation' => 'OR',
+            'relation' => 'AND',
             array(
-                'key'     => '_metasync_is_custom_html_page',
-                'compare' => 'NOT EXISTS',
+                'relation' => 'OR',
+                array(
+                    'key'     => '_metasync_is_custom_html_page',
+                    'compare' => 'NOT EXISTS',
+                ),
+                array(
+                    'key'     => '_metasync_is_custom_html_page',
+                    'value'   => '1',
+                    'compare' => '!=',
+                ),
             ),
             array(
-                'key'     => '_metasync_is_custom_html_page',
-                'value'   => '1',
-                'compare' => '!=',
+                'relation' => 'OR',
+                array(
+                    'key'     => '_metasync_lps_import',
+                    'compare' => 'NOT EXISTS',
+                ),
+                // IN ('', '0') mirrors empty() semantics for stored strings.
+                array(
+                    'key'     => '_metasync_lps_import',
+                    'value'   => array('', '0'),
+                    'compare' => 'IN',
+                ),
+            ),
+            array(
+                'relation' => 'OR',
+                array(
+                    'key'     => '_metasync_created_via_api',
+                    'compare' => 'NOT EXISTS',
+                ),
+                array(
+                    'key'     => '_metasync_created_via_api',
+                    'value'   => array('', '0'),
+                    'compare' => 'IN',
+                ),
             ),
         );
+    }
+}
+
+if (!function_exists('metasync_get_custom_page_exclusion_where_sql')) {
+    /**
+     * Build a prepared SQL WHERE fragment that excludes custom/LPS pages.
+     *
+     * Produces three AND-ed NOT EXISTS correlated anti-joins against wp_postmeta.
+     * Unlike WP core's meta_query translation (which generates unanchored
+     * post_id-only LEFT JOINs multiplied across meta rows), this WHERE clause
+     * checks only the 3 specific marker keys and avoids joining postmeta.
+     *
+     * Semantics match metasync_is_custom_or_lps_page() and
+     * metasync_get_custom_page_exclusion_meta_query() exactly:
+     * - Excluded if _metasync_is_custom_html_page = '1'
+     * - Excluded if _metasync_lps_import NOT IN ('', '0')
+     * - Excluded if _metasync_created_via_api NOT IN ('', '0')
+     *
+     * @return string Prepared SQL fragment starting with ' AND ...'
+     */
+    function metasync_get_custom_page_exclusion_where_sql() {
+        global $wpdb;
+
+        if (!isset($wpdb) || !is_object($wpdb) || empty($wpdb->postmeta) || empty($wpdb->posts)) {
+            return '';
+        }
+
+        $sql = " AND NOT EXISTS (\n"
+            . "\tSELECT 1 FROM {$wpdb->postmeta} AS _ms_ex_html\n"
+            . "\tWHERE _ms_ex_html.post_id = {$wpdb->posts}.ID\n"
+            . "\t\tAND _ms_ex_html.meta_key = %s\n"
+            . "\t\tAND _ms_ex_html.meta_value = %s\n"
+            . ")\n"
+            . "AND NOT EXISTS (\n"
+            . "\tSELECT 1 FROM {$wpdb->postmeta} AS _ms_ex_lps\n"
+            . "\tWHERE _ms_ex_lps.post_id = {$wpdb->posts}.ID\n"
+            . "\t\tAND _ms_ex_lps.meta_key = %s\n"
+            . "\t\tAND _ms_ex_lps.meta_value NOT IN ('', '0')\n"
+            . ")\n"
+            . "AND NOT EXISTS (\n"
+            . "\tSELECT 1 FROM {$wpdb->postmeta} AS _ms_ex_api\n"
+            . "\tWHERE _ms_ex_api.post_id = {$wpdb->posts}.ID\n"
+            . "\t\tAND _ms_ex_api.meta_key = %s\n"
+            . "\t\tAND _ms_ex_api.meta_value NOT IN ('', '0')\n"
+            . ")";
+
+        return $wpdb->prepare(
+            $sql,
+            '_metasync_is_custom_html_page',
+            '1',
+            '_metasync_lps_import',
+            '_metasync_created_via_api'
+        );
+    }
+}
+
+if (!function_exists('metasync_filter_exclude_custom_pages_where')) {
+    /**
+     * WP_Query posts_where filter callback to exclude custom/LPS pages.
+     *
+     * Checks for the sentinel query variable 'metasync_exclude_custom_pages'.
+     *
+     * @param string   $where Existing WHERE clause.
+     * @param WP_Query $query Current query.
+     * @return string Modified WHERE clause.
+     */
+    function metasync_filter_exclude_custom_pages_where($where, $query) {
+        if (empty($query->get('metasync_exclude_custom_pages'))) {
+            return $where;
+        }
+
+        return $where . metasync_get_custom_page_exclusion_where_sql();
     }
 }
 

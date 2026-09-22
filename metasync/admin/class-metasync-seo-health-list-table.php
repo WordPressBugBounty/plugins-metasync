@@ -107,7 +107,13 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 	}
 
 	/**
-	 * Render an SEO meta column (title or description) with fallback, length indicator, and source badge.
+	 * Render an SEO meta column (title or description) with fallback and length indicator.
+	 *
+	 * The resolver still reports which tier supplied the value, but the column
+	 * deliberately ignores it: the table answers whether the field is set, not
+	 * which internal source filled it. Naming one source means naming them all
+	 * — OTTO, OG, Yoast, Rank Math, AIOSEO — and a row of competing labels
+	 * reads as noise to a customer who only owns one of them.
 	 */
 	private function render_seo_meta_column($post_id, $field, $min_optimal, $max_optimal)
 	{
@@ -119,20 +125,11 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 
 		$length = mb_strlen($result['value']);
 		$quality = ($length >= $min_optimal && $length <= $max_optimal) ? 'optimal' : 'suboptimal';
-		$badge = '';
-
-		if (!empty($result['source'])) {
-			$badge = sprintf(
-				' <span class="seo-source-badge">%s</span>',
-				esc_html($result['source'])
-			);
-		}
 
 		return sprintf(
-			'<span class="seo-status-set %s">&#10003; %d chars</span>%s',
+			'<span class="seo-status-set %s">&#10003; %d chars</span>',
 			$quality,
-			$length,
-			$badge
+			$length
 		);
 	}
 
@@ -326,35 +323,51 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 
 		// Always exclude custom/LPS pages — their SEO is self-managed inside their
 		// own HTML bundle, so they would otherwise show as false "not set".
-		$exclusion_mq = metasync_get_custom_page_exclusion_meta_query();
+		$args['metasync_exclude_custom_pages'] = true;
+		add_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10, 2);
 
-		// Build meta_query for missing filters that can be handled at DB level
-		$missing_meta_query = $this->build_missing_meta_query($missing_filter);
-		if ($missing_meta_query !== null) {
-			$args['meta_query'] = array('relation' => 'AND', $missing_meta_query, $exclusion_mq);
+		// Missing filters (title, description, schema, og_image) use correlated
+		// anti-existence conditions instead of per-key postmeta joins.
+		// This avoids multiplying rows on large stores, especially when found_posts is calculated.
+		$query = null;
+		if ($this->uses_optimized_missing_meta_filter($missing_filter)) {
 			$args['posts_per_page'] = $per_page;
 			$args['paged'] = $current_page;
+			$args['metasync_seo_health_missing_filter'] = $missing_filter;
 
-			$query = new WP_Query($args);
+			add_filter('posts_where', array($this, 'filter_missing_meta_where'), 10, 2);
+			try {
+				$query = new WP_Query($args);
+			} finally {
+				remove_filter('posts_where', array($this, 'filter_missing_meta_where'), 10);
+				remove_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10);
+			}
+
 			$this->items = $query->posts;
 			$total_items = $query->found_posts;
-		} elseif ($missing_filter === 'missing_alt_text') {
-			// Alt text requires post_content inspection — must filter post-query
-			$args['meta_query'] = array($exclusion_mq);
-			$args['posts_per_page'] = -1;
-			$query = new WP_Query($args);
-			$all_filtered = $this->filter_missing_alt_text($query->posts);
-			$total_items = count($all_filtered);
-			$this->items = array_slice($all_filtered, ($current_page - 1) * $per_page, $per_page);
-		} else {
-			// No missing filter — standard paginated query
-			$args['meta_query'] = array($exclusion_mq);
-			$args['posts_per_page'] = $per_page;
-			$args['paged'] = $current_page;
+		}
 
-			$query = new WP_Query($args);
-			$this->items = $query->posts;
-			$total_items = $query->found_posts;
+		if (!($query instanceof WP_Query)) {
+			try {
+				if ($missing_filter === 'missing_alt_text') {
+					// Alt text requires post_content inspection and post-query filtering.
+					$args['posts_per_page'] = -1;
+					$query = new WP_Query($args);
+					$all_filtered = $this->filter_missing_alt_text($query->posts);
+					$total_items = count($all_filtered);
+					$this->items = array_slice($all_filtered, ($current_page - 1) * $per_page, $per_page);
+				} else {
+					// No missing filter (or unrecognized filter) - standard paginated query.
+					$args['posts_per_page'] = $per_page;
+					$args['paged'] = $current_page;
+
+					$query = new WP_Query($args);
+					$this->items = $query->posts;
+					$total_items = $query->found_posts;
+				}
+			} finally {
+				remove_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10);
+			}
 		}
 
 		$this->set_pagination_args(array(
@@ -365,80 +378,111 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 	}
 
 	/**
-	 * Build a meta_query for missing filter types that can be expressed as DB queries.
-	 * Returns null for filters that require post-content inspection (alt text).
+	 * Whether a missing filter can use the single-query anti-existence path.
 	 *
 	 * @param string $filter The missing_filter value.
-	 * @return array|null meta_query array or null if not applicable.
+	 * @return bool
 	 */
-	private function build_missing_meta_query($filter)
+	private function uses_optimized_missing_meta_filter($filter)
 	{
-		switch ($filter) {
-			case 'missing_title':
-				$exists_clauses = array();
-				foreach (array_keys(Metasync_SEO_Health::title_meta_keys()) as $key) {
-					$exists_clauses[] = array(
-						'key'     => $key,
-						'value'   => '',
-						'compare' => '!=',
-					);
-				}
-				// NOT EXISTS for all title keys = truly missing
-				$not_exists = array('relation' => 'AND');
-				foreach (array_keys(Metasync_SEO_Health::title_meta_keys()) as $key) {
-					$not_exists[] = array(
-						'key'     => $key,
-						'compare' => 'NOT EXISTS',
-					);
-				}
-				// Also match rows where key exists but value is empty
-				$empty_values = array('relation' => 'AND');
-				foreach (array_keys(Metasync_SEO_Health::title_meta_keys()) as $key) {
-					$empty_values[] = array(
-						'relation' => 'OR',
-						array('key' => $key, 'compare' => 'NOT EXISTS'),
-						array('key' => $key, 'value' => '', 'compare' => '='),
-					);
-				}
-				return $empty_values;
+		return in_array($filter, array('missing_title', 'missing_description', 'missing_schema', 'missing_og_image'), true);
+	}
 
-			case 'missing_description':
-				$empty_values = array('relation' => 'AND');
-				foreach (array_keys(Metasync_SEO_Health::desc_meta_keys()) as $key) {
-					$empty_values[] = array(
-						'relation' => 'OR',
-						array('key' => $key, 'compare' => 'NOT EXISTS'),
-						array('key' => $key, 'value' => '', 'compare' => '='),
-					);
-				}
-				return $empty_values;
-
-			case 'missing_schema':
-				return array(
-					'relation' => 'OR',
-					array('key' => 'metasync_schema_markup', 'compare' => 'NOT EXISTS'),
-					array('key' => 'metasync_schema_markup', 'value' => '', 'compare' => '='),
-					array('key' => 'metasync_schema_markup', 'value' => '[]', 'compare' => '='),
-				);
-
-			case 'missing_og_image':
-				return array(
-					'relation' => 'AND',
-					array(
-						'relation' => 'OR',
-						array('key' => '_metasync_og_image', 'compare' => 'NOT EXISTS'),
-						array('key' => '_metasync_og_image', 'value' => '', 'compare' => '='),
-					),
-					array(
-						'relation' => 'OR',
-						array('key' => '_thumbnail_id', 'compare' => 'NOT EXISTS'),
-						array('key' => '_thumbnail_id', 'value' => '', 'compare' => '='),
-					),
-				);
-
-			default:
-				return null;
+	/**
+	 * Add the prepared anti-existence predicate for missing filters.
+	 *
+	 * The key maps come from the shared precedence resolver, so the
+	 * optimized query checks exactly the same active-plugin and fallback keys as
+	 * the row renderer. Empty values remain missing because the resolver treats
+	 * only a non-empty value as set.
+	 *
+	 * @param string   $where Existing WHERE clause.
+	 * @param WP_Query $query Current query.
+	 * @return string
+	 */
+	public function filter_missing_meta_where($where, $query)
+	{
+		$filter = $query->get('metasync_seo_health_missing_filter');
+		if (!$this->uses_optimized_missing_meta_filter($filter)) {
+			return $where;
 		}
+
+		return $where . self::build_missing_meta_filter_where($filter);
+	}
+
+	/**
+	 * Build correlated NOT EXISTS condition for a missing filter.
+	 *
+	 * @param string $filter The missing_filter value.
+	 * @return string Prepared SQL, or an empty string for unsupported filters.
+	 */
+	private static function build_missing_meta_filter_where($filter)
+	{
+		global $wpdb;
+
+		if ($filter === 'missing_schema') {
+			$sql = " AND NOT EXISTS (\n"
+				. "\tSELECT 1\n"
+				. "\tFROM {$wpdb->postmeta} AS metasync_seo_health_meta\n"
+				. "\tWHERE metasync_seo_health_meta.post_id = {$wpdb->posts}.ID\n"
+				. "\t\tAND metasync_seo_health_meta.meta_key = %s\n"
+				. "\t\tAND metasync_seo_health_meta.meta_value NOT IN ('', '[]')\n"
+				. ")";
+			return $wpdb->prepare($sql, 'metasync_schema_markup');
+		}
+
+		if ($filter === 'missing_og_image') {
+			$sql = " AND NOT EXISTS (\n"
+				. "\tSELECT 1\n"
+				. "\tFROM {$wpdb->postmeta} AS metasync_seo_health_og\n"
+				. "\tWHERE metasync_seo_health_og.post_id = {$wpdb->posts}.ID\n"
+				. "\t\tAND metasync_seo_health_og.meta_key = %s\n"
+				. "\t\tAND metasync_seo_health_og.meta_value <> ''\n"
+				. ")\n"
+				. "AND NOT EXISTS (\n"
+				. "\tSELECT 1\n"
+				. "\tFROM {$wpdb->postmeta} AS metasync_seo_health_thumb\n"
+				. "\tWHERE metasync_seo_health_thumb.post_id = {$wpdb->posts}.ID\n"
+				. "\t\tAND metasync_seo_health_thumb.meta_key = %s\n"
+				. "\t\tAND metasync_seo_health_thumb.meta_value <> ''\n"
+				. ")";
+			return $wpdb->prepare($sql, '_metasync_og_image', '_thumbnail_id');
+		}
+
+		$keys = self::get_missing_meta_keys($filter);
+		if (empty($keys)) {
+			return '';
+		}
+
+		$placeholders = implode(', ', array_fill(0, count($keys), '%s'));
+		$sql = " AND NOT EXISTS (\n"
+			. "\tSELECT 1\n"
+			. "\tFROM {$wpdb->postmeta} AS metasync_seo_health_meta\n"
+			. "\tWHERE metasync_seo_health_meta.post_id = {$wpdb->posts}.ID\n"
+			. "\t\tAND metasync_seo_health_meta.meta_key IN ({$placeholders})\n"
+			. "\t\tAND metasync_seo_health_meta.meta_value <> ''\n"
+			. ")";
+
+		return $wpdb->prepare($sql, $keys);
+	}
+
+	/**
+	 * Return the precedence keys used by a missing title/description filter.
+	 *
+	 * @param string $filter The missing_filter value.
+	 * @return string[]
+	 */
+	private static function get_missing_meta_keys($filter)
+	{
+		if ($filter === 'missing_title') {
+			return array_keys(Metasync_SEO_Health::title_meta_keys());
+		}
+
+		if ($filter === 'missing_description') {
+			return array_keys(Metasync_SEO_Health::desc_meta_keys());
+		}
+
+		return array();
 	}
 
 	/**

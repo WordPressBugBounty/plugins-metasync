@@ -47,7 +47,13 @@ class Metasync_Settings_Fields {
     // ────────────────────────────────────────────────────────────────
 
     public function get_accordion_sections_config() {
-        return array(
+        // Consent switch for writing into other SEO plugins. Loaded here rather
+        // than through the committed classmap so a stale autoload map can never
+        // make the switch — and with it the user's only way to stop those
+        // writes — silently disappear from the page.
+        require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-seo-sync-settings.php';
+
+        $sections = array(
             'connection' => array(
                 'title' => 'Connection & Authentication',
                 'description' => 'Manage your API connection and authentication settings',
@@ -69,6 +75,7 @@ class Metasync_Settings_Fields {
                     'otto_pixel_uuid',
                     'otto_disable_on_loggedin',
                     'otto_disable_preview_button',
+                    'seo_priority',
                     'otto_wp_rocket_compat',
                     'otto_sg_optimizer_compat',
                     'bookingpress_session_compat',
@@ -81,6 +88,14 @@ class Metasync_Settings_Fields {
                 'priority' => 22,
                 'default_open' => false,
                 'render_callback' => array('Metasync_Edge_Cache_Settings', 'render'),
+            ),
+            'seo_plugin_sync' => array(
+                'title' => 'Sync to Other SEO Plugins',
+                'description' => 'Control whether ' . Metasync::get_whitelabel_otto_name() . '\'s SEO values are written into Yoast, Rank Math or All in One SEO',
+                'icon' => 'update',
+                'priority' => 23,
+                'default_open' => false,
+                'render_callback' => array('Metasync_Seo_Sync_Settings', 'render'),
             ),
             'bot_detection' => array(
                 'title' => 'Bot Detection & Filtering',
@@ -123,6 +138,7 @@ class Metasync_Settings_Fields {
                     'disable_canonical_metabox',
                     'disable_social_opengraph_metabox',
                     'disable_schema_markup_metabox',
+                    'disable_language_alternates_metabox',
                     'disable_seo_metabox',
                     'open_external_links'
                 )
@@ -170,6 +186,16 @@ class Metasync_Settings_Fields {
                 )
             )
         );
+
+        // Hidden only when there is nothing to say: no SEO plugin installed, the
+        // switch off, and no saved originals. It is never hidden by the
+        // access-control or whitelabel flags that can conceal Advanced Settings
+        // — a switch that rewrites another plugin's data must stay reachable.
+        if (!Metasync_Seo_Sync_Settings::should_display()) {
+            unset($sections['seo_plugin_sync']);
+        }
+
+        return $sections;
     }
 
     public function get_advanced_accordion_config() {
@@ -194,6 +220,15 @@ class Metasync_Settings_Fields {
             'priority' => 8,
             'default_open' => false,
             'render_callback' => array($this->admin_instance, 'render_debug_mode_section')
+        );
+
+        $config['headless_mode'] = array(
+            'title' => 'Headless Mode',
+            'description' => 'Connect WordPress content to a separate public frontend',
+            'icon' => 'admin-site-alt3',
+            'priority' => 29,
+            'default_open' => false,
+            'render_callback' => array(Metasync_Settings_Registration::instance(), 'render_headless_mode_section')
         );
 
         $config['error_logs'] = array(
@@ -385,6 +420,10 @@ class Metasync_Settings_Fields {
         }
 
         $google_index = google_index_direct();
+        if (!$google_index) {
+            // Nothing to render against, and calling through would be fatal.
+            return;
+        }
         $service_info = $google_index->get_service_account_info();
         $is_configured = !isset($service_info['error']);
 
@@ -1093,6 +1132,7 @@ class Metasync_Settings_Fields {
             'otto_pixel_uuid' => sprintf('Your unique %s tracking pixel identifier. This UUID is used to track %s modifications and analytics on your website pages.', $otto_name, $otto_name),
             'otto_disable_on_loggedin' => sprintf('Disable %s modifications when you are logged in to WordPress. This allows you to see and edit the original content without %s\'s enhancements during editing sessions.', $otto_name, $otto_name),
             'otto_disable_preview_button' => sprintf('Hide the %s frontend toolbar that displays the status indicator, preview button, and debug button. Enable this for a cleaner frontend experience.', $otto_name),
+            'seo_priority' => sprintf('Choose which value appears first on a page when both your custom SEO value and an approved %s suggestion are available. This changes what visitors see; it does not delete or overwrite saved values.', $otto_name),
             'otto_wp_rocket_compat' => sprintf('WP Rocket Compatibility Mode: Controls how %s interacts with WP Rocket. "Auto" (recommended) allows both to work together by avoiding DONOTCACHEPAGE constant unless necessary for Brizy pages or SG Optimizer conflicts. This ensures WP Rocket\'s JavaScript delay and optimization features continue working.', $otto_name),
             'otto_sg_optimizer_compat' => sprintf('SiteGround Optimizer Compatibility Mode: Controls how %s renders on SiteGround hosting. "Auto" (recommended) uses the internal HTTP fetch, which protects themes that defer inline CSS to the footer (e.g. Divi). "Buffer Mode" renders in-process with no internal fetch — faster on sites whose pages can never be host-cached, for example when a plugin starts a PHP session on every request (BookingPress sessions are removed automatically, so this does not apply to them).', $otto_name),
             'bookingpress_session_compat' => 'BookingPress Session Compatibility: Controls whether MetaSync removes the PHP session BookingPress starts on every public page, so hosts such as SiteGround can page-cache the site again.',
@@ -1106,6 +1146,7 @@ class Metasync_Settings_Fields {
             'disable_canonical_metabox' => sprintf('Hide the Canonical meta box and stop %1$s emitting or overriding the canonical URL on every render path. WordPress core and third-party canonicals are left in place. Saved values are kept and restored if you re-enable this.', Metasync::get_effective_plugin_name('MetaSync')),
             'disable_social_opengraph_metabox' => sprintf('Hide the Social Media & Open Graph meta box and stop %1$s emitting any Open Graph, Twitter or article tags. Tags from another SEO plugin are left in place. Saved values are kept and restored if you re-enable this.', Metasync::get_effective_plugin_name('MetaSync')),
             'disable_schema_markup_metabox' => sprintf('Hide the Schema Markup meta box and stop %1$s emitting any JSON-LD, including the site-wide Local SEO markup and OTTO structured data. Breadcrumb markup has its own setting. Saved values are kept and restored if you re-enable this.', Metasync::get_effective_plugin_name('MetaSync')),
+            'disable_language_alternates_metabox' => sprintf('Hide the Language Alternates (hreflang) panel in the block editor and stop %1$s emitting any hreflang tags on the front end, including the auto-detected WPML entries. While disabled, %1$s does not manage or override this data — another SEO plugin, or WPML itself, is free to handle it. Saved values are kept and restored if you re-enable this.', Metasync::get_effective_plugin_name('MetaSync')),
             'disable_seo_metabox' => 'Hide the SEO Title & Meta Description meta box from post and page edit screens. This removes the Classic editor SEO fields (the Gutenberg sidebar is unaffected).',
             'open_external_links' => sprintf('Automatically add target="_blank" attribute to external links appearing in your posts, pages, and other post types when rendered by %s.', $otto_name),
             'content_genius_sync_roles' => 'Select which WordPress user roles should be synchronized with Content Genius. This determines which users will have their profiles and permissions synced for content collaboration.',

@@ -264,6 +264,7 @@ class Metasync_Admin
 
         add_action('admin_init', array($this, 'initialize_cookie'));
         add_action('admin_init', array($this, 'maybe_redirect_to_wizard'));
+        add_action('admin_init', array($this, 'redirect_legacy_instant_indexing_page'));
 
         // Add admin_post hooks for form submissions (WordPress standard way - no output buffering needed)
         add_action('admin_post_metasync_clear_all_cache_plugins', array($this, 'handle_clear_all_cache_plugins'));
@@ -282,6 +283,9 @@ class Metasync_Admin
 
         // Add AJAX for saving execution settings
         add_action( 'wp_ajax_metasync_save_execution_settings', array($this, 'ajax_save_execution_settings') );
+
+        // Add AJAX for saving the Headless Mode demo controls on the Advanced tab
+        add_action( 'wp_ajax_metasync_save_headless_settings', array(Metasync_Settings_Registration::instance(), 'ajax_save_headless_settings') );
 
         // Add AJAX for saving hosting cache settings
         add_action( 'wp_ajax_metasync_save_hosting_cache_settings', array($this, 'ajax_save_hosting_cache_settings') );
@@ -372,6 +376,13 @@ class Metasync_Admin
         add_action('wp_ajax_metasync_process_batch_tick', array($this, 'ajax_process_batch_tick'));
         add_action('wp_ajax_metasync_delete_orphaned_image', array($this, 'ajax_delete_orphaned_image'));
         add_action('metasync_media_batch_optimize_cron', array($this, 'handle_media_batch_cron'));
+
+        # SEO Restore (Rollback) AJAX & Cron handlers
+        add_action('wp_ajax_metasync_seo_restore_start', array($this, 'ajax_seo_restore_start'));
+        add_action('wp_ajax_metasync_seo_restore_cancel', array($this, 'ajax_seo_restore_cancel'));
+        add_action('wp_ajax_metasync_seo_restore_progress', array($this, 'ajax_seo_restore_progress'));
+        add_action('wp_ajax_metasync_seo_restore_process_tick', array($this, 'ajax_seo_restore_process_tick'));
+        add_action('metasync_seo_restore_cron', array($this, 'handle_seo_restore_cron'));
 
         # Add AJAX handlers for Google Instant Indexing
         add_action('wp_ajax_metasync_send_giapi', array($this, 'ajax_send_giapi'));
@@ -708,9 +719,54 @@ class Metasync_Admin
         }
     }
 
+    /**
+     * Redirect the removed standalone Instant Indexing page to Indexation Control.
+     *
+     * The menu entry is gone, but bookmarks and external links can still target
+     * the old URL. Resolve the current white-label slug rather than assuming
+     * "searchatlas".
+     */
+    public function redirect_legacy_instant_indexing_page() {
+        if (wp_doing_ajax() || wp_doing_cron() || !is_admin() || !isset($_GET['page'])) {
+            return;
+        }
+
+        $page = sanitize_key(wp_unslash($_GET['page']));
+        $legacy_page = self::$page_slug . '-instant-index';
+        if ($page !== $legacy_page || !Metasync::current_user_has_plugin_access()) {
+            return;
+        }
+
+        // Indexation Control is registered only when access control keeps it
+        // visible. Redirecting to it blindly would dead-end on an
+        // unregistered slug (wp_die "Invalid plugin page") for users whose
+        // white-label config hides that page — the exact configs where the
+        // removed standalone page was the feature's only UI. The bare plugin
+        // slug is the floor: its top-level callback resolves to the first
+        // reachable page, so it is always a safe target.
+        if (Metasync_Access_Control::user_can_access('hide_indexation_control')) {
+            $target = admin_url('admin.php?page=' . self::$page_slug . '-seo-controls');
+            $query = [];
+            foreach (['tab', 'subtab'] as $key) {
+                if (isset($_GET[$key])) {
+                    $query[$key] = sanitize_key(wp_unslash($_GET[$key]));
+                }
+            }
+            if (!empty($query)) {
+                $target = add_query_arg($query, $target);
+            }
+        } else {
+            $target = admin_url('admin.php?page=' . self::$page_slug);
+        }
+
+        wp_safe_redirect($target);
+        exit;
+    }
+
     public function metasync_display_error_log() {
         Metasync_Debug_Manager::instance()->metasync_display_error_log($this);
     }
+
     public function metasync_update_wp_config() {
         Metasync_Debug_Manager::instance()->metasync_update_wp_config();
     }
@@ -3195,6 +3251,84 @@ class Metasync_Admin
     }
 
     /**
+     * AJAX: Start SEO Restore batch.
+     */
+    public function ajax_seo_restore_start()
+    {
+        check_ajax_referer('metasync_seo_restore_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(__('Permission denied.', 'metasync'));
+        }
+
+        require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-seo-restore.php';
+
+        $progress = Metasync_Seo_Restore::start_batch();
+        wp_send_json_success($progress);
+    }
+
+    /**
+     * AJAX: Cancel SEO Restore batch.
+     */
+    public function ajax_seo_restore_cancel()
+    {
+        check_ajax_referer('metasync_seo_restore_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(__('Permission denied.', 'metasync'));
+        }
+
+        require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-seo-restore.php';
+
+        Metasync_Seo_Restore::cancel_batch();
+        wp_send_json_success();
+    }
+
+    /**
+     * AJAX: Get SEO Restore batch progress.
+     */
+    public function ajax_seo_restore_progress()
+    {
+        check_ajax_referer('metasync_seo_restore_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(__('Permission denied.', 'metasync'));
+        }
+
+        require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-seo-restore.php';
+
+        $progress = Metasync_Seo_Restore::get_progress();
+        wp_send_json_success($progress);
+    }
+
+    /**
+     * AJAX: Process one SEO Restore tick (browser-driven chaining).
+     */
+    public function ajax_seo_restore_process_tick()
+    {
+        check_ajax_referer('metasync_seo_restore_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(__('Permission denied.', 'metasync'));
+        }
+
+        require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-seo-restore.php';
+
+        $progress = Metasync_Seo_Restore::process_ajax_tick();
+        wp_send_json_success($progress);
+    }
+
+    /**
+     * Cron handler: Process SEO Restore batch tick.
+     */
+    public function handle_seo_restore_cron()
+    {
+        require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-seo-restore.php';
+
+        Metasync_Seo_Restore::process_batch_tick();
+    }
+
+    /**
      * Report Issue page callback
      */
     public function create_admin_report_issue_page()
@@ -3593,46 +3727,6 @@ class Metasync_Admin
     public function create_admin_breadcrumbs_page()
     {
         Metasync_Admin_Pages::get_instance($this)->create_admin_breadcrumbs_page();
-    }
-
-    /**
-     * Google Instant Index Setting page callback
-     */
-    public function create_admin_google_instant_index_page()
-    {
-        $this->render_layout_open('Instant Indexing', 'instant_index', 'Submit URLs to Google for instant indexing via the Indexing API.');
-
-        // Render shared Google Index credentials section
-        if (!function_exists('google_index_direct')) {
-            if (file_exists(plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php')) {
-                require_once plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php';
-            } else {
-                error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php');
-                return;
-            }
-        }
-        $google_index = google_index_direct();
-        $service_info = $google_index->get_service_account_info();
-        $is_configured = !isset($service_info['error']);
-
-        $saved_json_display = $is_configured ? $google_index->get_redacted_config_json() : '';
-
-        include plugin_dir_path(dirname(__FILE__)) . 'views/metasync-google-index-api-settings.php';
-
-        // Render post types selection with save form
-        $options = get_option('metasync_options_instant_indexing', ['post_types' => []]);
-        $post_types_settings = isset($options['post_types']) && is_array($options['post_types']) ? $options['post_types'] : [];
-        ?>
-        <form method="POST" action="">
-            <?php wp_nonce_field('metasync_instant_indexing_settings', 'metasync_instant_indexing_nonce'); ?>
-            <?php include plugin_dir_path(dirname(__FILE__)) . 'views/metasync-google-instant-post-types.php'; ?>
-            <div class="dashboard-card" style="padding: 20px;">
-                <?php submit_button('Save Post Types', 'primary', 'submit', false, array('class' => 'button button-primary')); ?>
-            </div>
-        </form>
-        <?php
-
-        $this->render_layout_close();
     }
 
     /**

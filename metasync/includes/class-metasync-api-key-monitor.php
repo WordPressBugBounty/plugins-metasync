@@ -153,10 +153,14 @@ class Metasync_API_Key_Monitor
 
         return array(
             'changes_detected' => $plugin_token_changed || $searchatlas_key_changed,
+            // Masked like the Search Atlas key below: the cleartext token is
+            // the credential for the plugin's REST/MCP API and must not reach
+            // log files or metasync_api_key_changed listeners. 'changed' and
+            // 'action' are derived from the plaintext above, before masking.
             'plugin_auth_token' => array(
                 'changed' => $plugin_token_changed,
-                'old' => $old_plugin_auth_token,
-                'new' => $new_plugin_auth_token,
+                'old' => $this->mask_api_key($old_plugin_auth_token),
+                'new' => $this->mask_api_key($new_plugin_auth_token),
                 'action' => $this->determine_change_action($old_plugin_auth_token, $new_plugin_auth_token)
             ),
             // Store only masked representations of the Search Atlas key so the
@@ -213,10 +217,11 @@ class Metasync_API_Key_Monitor
         
         if ($changes['plugin_auth_token']['changed']) {
             $token_change = $changes['plugin_auth_token'];
-            $log_messages[] = sprintf('Plugin Auth Token %s: %s → %s', 
+            // 'old'/'new' are already masked (last 4 chars only) by detect_api_key_changes.
+            $log_messages[] = sprintf('Plugin Auth Token %s: %s → %s',
                 $token_change['action'],
-                empty($token_change['old']) ? '(empty)' : substr($token_change['old'], 0, 8) . '...',
-                empty($token_change['new']) ? '(empty)' : substr($token_change['new'], 0, 8) . '...'
+                empty($token_change['old']) ? '(empty)' : $token_change['old'],
+                empty($token_change['new']) ? '(empty)' : $token_change['new']
             );
         }
         

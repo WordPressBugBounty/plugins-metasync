@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.6.26
+ * Version:           2.7.0
  * Requires PHP:      8.1
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
@@ -42,12 +42,23 @@ require_once __DIR__ . '/includes/class-metasync-canonical-sanitizer.php';
 require_once __DIR__ . '/includes/class-metasync-feature-flags.php';
 Metasync_Feature_Flags::register_invalidation();
 
+// Consent gate and write-once backup for third-party SEO storage — required
+// explicitly for the same reason: every writer into Yoast / Rank Math / AIOSEO
+// consults it, and a class that fails to load would read as "no consent" and
+// silently stop those writes.
+require_once __DIR__ . '/includes/class-metasync-seo-backup.php';
+
+// Loaded beside the backup class because it is the only reader of what that
+// class writes. Restore is inert until something calls it, so loading it early
+// costs nothing and keeps the pair together.
+require_once __DIR__ . '/includes/class-metasync-seo-restore.php';
+
 /**
  * Currently plugin version.
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.6.26';
+$metasync_version = '2.7.0';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -358,10 +369,73 @@ function metasync_migrate_physical_sitemaps()
         return;
     }
 
+    // Ownership gate: other plugins (Yoast and friends) write files with the
+    // exact same names (sitemap_index.xml, sitemap1.xml, ...), so a name match
+    // alone must never authorize deleting a physical file. A file is only
+    // migrated when this plugin left evidence it wrote it.
+    $tracked_names = [];
+    $tracked_files = get_option('metasync_sitemap_files', []);
+    if (is_array($tracked_files)) {
+        foreach ($tracked_files as $entry) {
+            $name = is_array($entry) && isset($entry['filename']) ? $entry['filename'] : $entry;
+            if (is_string($name) && '' !== $name) {
+                $tracked_names[] = $name;
+            }
+        }
+    }
     $virtual_index = get_option('metasync_sitemap_virtual_index', []);
+    if (!is_array($virtual_index)) {
+        $virtual_index = [];
+    }
+    $parked_names = array_keys($virtual_index);
+    $generator_ran = !empty($tracked_names) && false !== get_option('metasync_sitemap_last_generated');
+
+    $ours = [];
+    $metasync_files_found = false;
+    foreach ($candidates as $file) {
+        $bn = basename($file);
+
+        // A parked name proves MetaSync owned the file at an earlier point, but
+        // an expired transient no longer proves that a file currently on disk
+        // is ours. A different plugin may have recreated the same basename.
+        if (in_array($bn, $parked_names, true)) {
+            if (false !== get_transient('metasync_vsm_' . md5($bn))) {
+                continue;
+            }
+            continue;
+        }
+
+        // Chunk, index, news, and video files are migratable only when their
+        // exact basename is recorded by MetaSync's generator/configuration.
+        if (in_array($bn, $tracked_names, true) && $generator_ran) {
+            $ours[] = $file;
+            $metasync_files_found = true;
+            continue;
+        }
+
+        if ($bn === 'news-sitemap.xml' && null !== get_option('metasync_news_sitemap_settings', null)) {
+            $ours[] = $file;
+            $metasync_files_found = true;
+            continue;
+        }
+        if ($bn === 'video-sitemap.xml' && null !== get_option('metasync_video_sitemap_settings', null)) {
+            $ours[] = $file;
+            $metasync_files_found = true;
+        }
+    }
+
+    // Do not infer ownership of sitemap_index.xml from another sitemap: Yoast,
+    // Rank Math, and other SEO plugins commonly use the same root filename.
+    // It must be explicitly recorded in MetaSync's tracked file list.
+    $ours = array_values(array_unique($ours));
+
+    if (empty($ours)) {
+        return;
+    }
+
     $migrated_files = [];
 
-    foreach ($candidates as $file) {
+    foreach ($ours as $file) {
         $bn = basename($file);
         $content = @file_get_contents($file);
         if (false !== $content) {
@@ -374,6 +448,8 @@ function metasync_migrate_physical_sitemaps()
             $ttl = ('news-sitemap.xml' === $bn) ? (int) (DAY_IN_SECONDS / 4) : 30 * DAY_IN_SECONDS;
             set_transient($tkey, $content, $ttl);
             if (false !== get_transient($tkey)) {
+                // The parked transient doubles as a 30-day backup of the
+                // content before the file is removed from disk.
                 @unlink($file);
                 $virtual_index[$bn] = $tkey;
                 if ($bn !== 'sitemap_index.xml' && $bn !== 'news-sitemap.xml' && $bn !== 'video-sitemap.xml') {
@@ -407,8 +483,15 @@ function check_metasync_updates()
     $current_version = get_option('metasync_version', '0.0.0');
     $plugin_version = METASYNC_VERSION;
     
-    // If versions don't match, run migration
-    if (version_compare($current_version, $plugin_version, '<')) {
+    // If versions don't match, run migration. Dev builds store the 9.9.9
+    // placeholder version, which compares greater than every real release —
+    // once stored, a plain "<" comparison never fires again and migrations
+    // are silently skipped forever. Also enter when the stored version is the
+    // placeholder but the running version is a real release, so the migration
+    // runner's dev-build escape hatch becomes reachable and the stored version
+    // is corrected to the real release.
+    if (version_compare($current_version, $plugin_version, '<')
+        || ('9.9.9' === $current_version && '9.9.9' !== $plugin_version)) {
         // Import whitelabel settings only if the JSON file is new or changed
         // (prevents overwriting admin UI changes on every version check)
         Metasync_Activator::check_whitelabel_settings_update();

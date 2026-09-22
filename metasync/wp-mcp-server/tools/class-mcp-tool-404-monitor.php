@@ -309,6 +309,7 @@ class MCP_Tool_Create_Redirect_From_404 extends MCP_Tool_Base {
 
         require_once plugin_dir_path(dirname(dirname(__FILE__))) . '404-monitor/class-metasync-404-monitor-database.php';
         require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'redirections/class-metasync-redirection-database.php';
+        require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'redirections/class-metasync-redirection-validator.php';
 
         $error_db = new Metasync_Error_Monitor_Database();
         $redirect_db = new Metasync_Redirection_Database();
@@ -325,6 +326,35 @@ class MCP_Tool_Create_Redirect_From_404 extends MCP_Tool_Base {
 
         if (!$error) {
             throw new Exception(sprintf("404 error not found: %d", absint($error_id)));
+        }
+
+        // Destination guard — same checks as the wordpress_create_redirect tool.
+        // Backslashes and protocol-relative hosts bypass host validation in
+        // browsers while looking internal to wp_validate_redirect.
+        if (!empty($destination) && !Metasync_Redirection_Validator::is_safe_destination_syntax($destination)) {
+            return [
+                'error' => 'invalid_destination_syntax',
+                'message' => 'Destination URL contains invalid characters (backslashes or protocol-relative hosts are not accepted).',
+            ];
+        }
+        if (!get_option('metasync_allow_external_redirects', 0) && !empty($destination) && wp_validate_redirect($destination, '') !== $destination) {
+            return [
+                'error' => 'external_destination',
+                'message' => 'Destination URL must be on this site. Enable "Allow External Redirects" in plugin settings to permit off-site redirects.',
+            ];
+        }
+
+        // Loop guard — refuse to create a redirect whose chain resolves back
+        // to the source (the 404 URI). Mirrors the wordpress_create_redirect tool.
+        require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'redirections/class-metasync-redirection.php';
+        $db_ref = $redirect_db;
+        $redirection_helper = new Metasync_Redirection($db_ref);
+        $loop_chain = [];
+        if ($redirection_helper->would_create_loop($error->uri, $destination, $loop_chain)) {
+            return [
+                'error' => 'loop_detected',
+                'chain' => $loop_chain,
+            ];
         }
 
         // Create redirect

@@ -171,7 +171,29 @@ class MetaSync_DBMigration
 			dbDelta($table_sql);
 		}
 
-		// Create Sync History Table
+					// Create Headless Refresh History Table
+			require_once dirname(__FILE__, 2) . '/headless-refresh-history/class-metasync-headless-refresh-history-database.php';
+			$tableNameHeadlessRefreshHistory = esc_sql($wpdb->prefix . Metasync_Headless_Refresh_History::$table_name);
+			if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableNameHeadlessRefreshHistory)) != $tableNameHeadlessRefreshHistory) {
+				$table_sql = "CREATE TABLE {$tableNameHeadlessRefreshHistory} (
+					id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+					object_type VARCHAR(20) NOT NULL DEFAULT '',
+					object_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+					url_hash CHAR(64) NOT NULL DEFAULT '',
+					outcome VARCHAR(32) NOT NULL DEFAULT '',
+					reason VARCHAR(64) NOT NULL DEFAULT '',
+					duration_ms INT UNSIGNED NOT NULL DEFAULT 0,
+					object_count SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+					created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+					PRIMARY KEY (id),
+					KEY idx_created_at (created_at),
+					KEY idx_object (object_type, object_id, created_at),
+					KEY idx_outcome (outcome, created_at)
+				) $collate;";
+				dbDelta($table_sql);
+			}
+
+			// Create Sync History Table
 		require_once dirname(__FILE__, 2) . '/sync-history/class-metasync-sync-history-database.php';
 		$tableNameSyncHistory = esc_sql($wpdb->prefix . Metasync_Sync_History_Database::$table_name);
 
@@ -269,11 +291,14 @@ class MetaSync_DBMigration
 		// $sql = "DROP TABLE IF EXISTS `$tableNameRedirection` ";
 		// $wpdb->query($sql);
 
-		require_once dirname(__FILE__, 2) . '/heartbeat-error-monitor/class-metasync-heartbeat-error-monitor-database.php';
-		$tableNameHeartBeatErrorMonitor = esc_sql($wpdb->prefix . Metasync_HeartBeat_Error_Monitor_Database::$table_name);
-		/* drop wp_metasync_redirections table */
-		$sql = "DROP TABLE IF EXISTS `$tableNameHeartBeatErrorMonitor` ";
-		$wpdb->query($sql);
+		// Data tables are preserved on deactivation so a deactivate/reactivate cycle
+		// does not silently destroy logged data (e.g. heartbeat error history).
+		// Removal belongs to uninstall, not deactivation.
+		// require_once dirname(__FILE__, 2) . '/heartbeat-error-monitor/class-metasync-heartbeat-error-monitor-database.php';
+		// $tableNameHeartBeatErrorMonitor = esc_sql($wpdb->prefix . Metasync_HeartBeat_Error_Monitor_Database::$table_name);
+		/* drop wp_metasync_heartbeat_error_logs table */
+		// $sql = "DROP TABLE IF EXISTS `$tableNameHeartBeatErrorMonitor` ";
+		// $wpdb->query($sql);
 	}
 
 	/**

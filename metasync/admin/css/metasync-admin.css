@@ -1086,6 +1086,33 @@
 }
 
 /* Legacy styles maintained for backward compatibility */
+.metasync-seo-priority-control {
+    max-width: 760px;
+}
+
+.metasync-seo-priority-control > label {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    line-height: 1.4;
+    cursor: pointer;
+}
+
+.metasync-seo-priority-control > label strong {
+    font-weight: 600;
+}
+
+.metasync-seo-priority-control .description {
+    margin: 8px 0 0;
+    line-height: 1.65;
+}
+
+.metasync-seo-priority-control .metasync-seo-priority-note {
+    display: inline-block;
+    margin-top: 2px;
+    font-weight: 500;
+}
+
 .table {
     border: 0px;
     margin: 0px;

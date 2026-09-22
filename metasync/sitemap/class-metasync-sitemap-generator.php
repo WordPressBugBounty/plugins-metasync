@@ -336,6 +336,18 @@ class Metasync_Sitemap_Generator
         add_action('updated_post_meta', array($this, 'bust_sitemap_on_meta_update'), 10, 3);
         add_action('deleted_post_meta', array($this, 'bust_sitemap_on_meta_update'), 10, 3);
 
+        // Redirect stores: our own manager fires 'metasync_redirections_changed'
+        // on every write; Rank Math fires 'rank_math/redirection/deleted' on
+        // deletions (its free build exposes no save-side hook). As a coarse
+        // save proxy, 'rank_math/redirection/get_redirections_query' fires
+        // whenever Rank Math re-renders its redirect list — i.e. immediately
+        // after every add/update/toggle. Yoast's per-post redirect meta is
+        // covered by the meta listeners above via the '_yoast_wpseo_redirect'
+        // bust key.
+        add_action('metasync_redirections_changed',  array($this, 'bust_sitemap_cache'));
+        add_action('rank_math/redirection/deleted',  array($this, 'bust_sitemap_cache'));
+        add_action('rank_math/redirection/get_redirections_query', array($this, 'bust_sitemap_cache'));
+
         // Async warm-up listener.
         add_action('metasync_sitemap_async_warmup_event', array($this, 'async_warmup_handler'));
     }
@@ -388,7 +400,7 @@ class Metasync_Sitemap_Generator
      */
     public function bust_sitemap_on_meta_update($meta_id, $object_id, $meta_key)
     {
-        $bust_keys = array('_metasync_robots_index', '_metasync_canonical_url', 'metasync_common_robots');
+        $bust_keys = array('_metasync_robots_index', '_metasync_canonical_url', 'metasync_common_robots', '_yoast_wpseo_redirect');
         if (!in_array($meta_key, $bust_keys, true)) {
             return;
         }
@@ -586,6 +598,15 @@ class Metasync_Sitemap_Generator
         // Get indexation control settings
         $seo_controls = $this->get_seo_controls();
 
+        // URLs that are the source of an active redirect must not be
+        // advertised in the sitemap: a crawler following them never receives
+        // the page, only a bounce to the destination, wasting crawl budget
+        // and delaying indexing. Sources are collected from our own redirect
+        // manager and from active third-party SEO plugins (Rank Math,
+        // Yoast), so the sitemap matches what a crawler actually
+        // experiences. Redirect destinations themselves are never excluded.
+        $redirect_sources = $this->get_redirect_source_paths();
+
         // Add homepage first
         $home_url = home_url('/');
         $urls[] = [
@@ -690,6 +711,23 @@ class Metasync_Sitemap_Generator
             $noindex_ids = array_map('intval', $noindex_ids);
             $noindex_set = array_flip($noindex_ids);
 
+            // Yoast SEO Premium stores per-post redirects in post meta: a
+            // published post whose own URL redirects elsewhere is in the same
+            // position as a redirect-source URL and must not be listed either.
+            // Batch-resolved in one query, mirroring the noindex lookup above.
+            $yoast_redirect_set = [];
+            // Per-post redirects are a Yoast SEO Premium feature; the gate
+            // avoids a wasted meta query per chunk on free-Yoast sites.
+            if (apply_filters('metasync_sitemap_yoast_redirects_active', defined('WPSEO_VERSION') && defined('WPSEO_PREMIUM_VERSION'))) {
+                $yoast_ids = (array) $wpdb->get_col(
+                    $wpdb->prepare(
+                        "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_yoast_wpseo_redirect' AND meta_value <> '' AND post_id IN ({$id_placeholders})",
+                        $post_ids
+                    )
+                );
+                $yoast_redirect_set = array_flip(array_map('intval', $yoast_ids));
+            }
+
             // Anti-regression for %category% permalink sites: with the post-meta
             // cache prime disabled (update_post_meta_cache => false), the only
             // post-meta consumer in the sitemap path — primary-category
@@ -732,6 +770,11 @@ class Metasync_Sitemap_Generator
                     continue;
                 }
 
+                // Skip posts carrying a Yoast per-post redirect.
+                if (isset($yoast_redirect_set[(int) $post->ID])) {
+                    continue;
+                }
+
                 $priority = '0.8';
                 if ($post->post_type === 'page') {
                     $priority = '0.9';
@@ -753,6 +796,12 @@ class Metasync_Sitemap_Generator
                 // structure (?p=123) every legitimate URL contains '?', so applying this
                 // unconditionally would empty the sitemap down to the homepage.
                 if (get_option('permalink_structure') && strpos($permalink, '?') !== false) {
+                    continue;
+                }
+
+                // Skip URLs that are the source of a known redirect — the
+                // sitemap must advertise the destination, not the bounce.
+                if ($this->is_redirect_source($permalink, $redirect_sources)) {
                     continue;
                 }
 
@@ -792,7 +841,7 @@ class Metasync_Sitemap_Generator
                 clean_post_cache((int) $chunk_post_id);
             }
 
-            unset($query, $posts, $noindex_ids, $noindex_set, $post_ids, $id_placeholders, $noindex_args, $prefetch, $primary_rows, $primary_args, $primary_keys, $key_placeholders, $chunk_post_ids);
+            unset($query, $posts, $noindex_ids, $noindex_set, $post_ids, $id_placeholders, $noindex_args, $prefetch, $primary_rows, $primary_args, $primary_keys, $key_placeholders, $chunk_post_ids, $yoast_ids, $yoast_redirect_set);
             $paged++;
         }
 
@@ -870,6 +919,12 @@ class Metasync_Sitemap_Generator
 
                 $term_link = get_term_link($term);
                 if (is_wp_error($term_link)) {
+                    continue;
+                }
+
+                // Term archives obey the same rule as posts: a redirecting
+                // archive URL is not advertised, its destination is.
+                if ($this->is_redirect_source($term_link, $redirect_sources)) {
                     continue;
                 }
 
@@ -1088,6 +1143,219 @@ class Metasync_Sitemap_Generator
             }
         }
         return $latest ?: current_time('mysql', 1);
+    }
+
+    /**
+     * Collect normalized paths that are the source of an active redirect.
+     *
+     * The sitemap must not advertise a URL that immediately redirects: the
+     * crawler never receives the page, only a bounce. Sources are read from
+     * every redirect store that can influence this site's responses:
+     *
+     *  - our own redirect manager (metasync_redirections), honoring the
+     *    'exact' and 'start' pattern types;
+     *  - Rank Math's Redirections module (rank_math_redirections) when both
+     *    the plugin and its Redirections module are active, honoring its
+     *    'exact' and 'start' comparisons — a common pairing where redirects
+     *    are managed in Rank Math while we generate the sitemap;
+     *  - Yoast SEO Premium's per-post redirect, resolved per chunk in
+     *    collect_all_urls() via the '_yoast_wpseo_redirect' post meta.
+     *    (Yoast Premium's redirect-manager table — its UI-level redirects —
+     *    is a separate store and is deliberately out of scope here.)
+     *
+     * Only deterministic pattern types are honored (exact and prefix).
+     * 'contain', 'end', 'wildcard' and 'regex' patterns are deliberately
+     * skipped: projecting them onto generated URLs risks false exclusions,
+     * and their destinations are still listed.
+     *
+     * Return false from the 'metasync_sitemap_exclude_redirect_sources'
+     * filter to disable the behaviour entirely (e.g. a host that wants the
+     * raw publish-list back).
+     *
+     * @return array{exact: array<string, true>, prefix: array<string, string>} 'exact' maps
+     *              normalized path => true; 'prefix' maps normalized path => itself.
+     */
+    private function get_redirect_source_paths()
+    {
+        $sources = ['exact' => [], 'prefix' => []];
+
+        if (!apply_filters('metasync_sitemap_exclude_redirect_sources', true)) {
+            return $sources;
+        }
+
+        global $wpdb;
+
+        // Our own redirect manager.
+        $metasync_table = $wpdb->prefix . 'metasync_redirections';
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $metasync_table)) === $metasync_table) {
+            $rows = (array) $wpdb->get_results(
+                "SELECT sources_from, pattern_type FROM {$metasync_table} WHERE status = 'active'",
+                ARRAY_A
+            );
+            foreach ($rows as $row) {
+                $source_list = maybe_unserialize($row['sources_from']);
+                if (!is_array($source_list)) {
+                    continue;
+                }
+                $global_type = isset($row['pattern_type']) ? $row['pattern_type'] : null;
+                foreach ($source_list as $source_key => $source_value) {
+                    $source_key = (string) $source_key;
+                    // Legacy list-format rows store the URL as the value under
+                    // a numeric key ('0' => '/old'); remap for matching.
+                    if (ctype_digit($source_key) && is_string($source_value) && '' !== $source_value) {
+                        $source_key = $source_value;
+                    }
+                    $type = in_array($source_value, ['exact', 'contain', 'start', 'end', 'wildcard', 'regex'], true)
+                        ? $source_value
+                        : ($global_type ?: 'exact');
+                    $path = $this->normalize_redirect_path($source_key);
+                    if ('' === $path) {
+                        continue;
+                    }
+                    if ('exact' === $type) {
+                        // A bare-root exact source ('https://example.com' or '/')
+                        // would collide with every query-string permalink on
+                        // plain-permalink sites ('?p=N' normalizes to '/'),
+                        // collapsing the sitemap to the homepage — never
+                        // register it. A '*' in an 'exact' source is wildcard
+                        // input the redirect engine treats loosely; it is not
+                        // deterministic, so it is skipped like the other
+                        // non-deterministic pattern types.
+                        if ('/' !== $path && strpos($path, '*') === false) {
+                            $sources['exact'][$path] = true;
+                        }
+                    } elseif ('start' === $type) {
+                        $sources['prefix'][$path] = $path;
+                    }
+                }
+            }
+        }
+
+        // Rank Math's Redirections module (free tier), when both the plugin
+        // and its Redirections module are active. Rows can outlive the module
+        // being switched off in Rank Math's settings, and a disabled module
+        // serves no redirects — only honor the table while it is on.
+        $rank_math_active = class_exists('RankMath') || defined('RANK_MATH_VERSION');
+        if ($rank_math_active) {
+            // Mirror Rank Math's own is_module_active(): rows can outlive the
+            // module being switched off in its settings, and a disabled
+            // module serves no redirects.
+            $rank_math_modules = get_option('rank_math_modules', []);
+            $rank_math_active = is_array($rank_math_modules) && in_array('redirections', $rank_math_modules, true);
+        }
+        if (apply_filters('metasync_sitemap_rank_math_active', $rank_math_active)) {
+            $rank_math_table = $wpdb->prefix . 'rank_math_redirections';
+            if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $rank_math_table)) === $rank_math_table) {
+                $rows = (array) $wpdb->get_results(
+                    "SELECT sources FROM {$rank_math_table} WHERE status = 'active'",
+                    ARRAY_A
+                );
+                foreach ($rows as $row) {
+                    $source_list = isset($row['sources']) ? maybe_unserialize($row['sources']) : null;
+                    if (is_string($source_list)) {
+                        // Defensive: some Rank Math builds stored JSON here.
+                        $decoded = json_decode($source_list, true);
+                        $source_list = is_array($decoded) ? $decoded : null;
+                    }
+                    if (!is_array($source_list)) {
+                        continue;
+                    }
+                    foreach ($source_list as $entry) {
+                        if (!is_array($entry) || empty($entry['pattern'])) {
+                            continue;
+                        }
+                        $comparison = isset($entry['comparison']) ? $entry['comparison'] : 'exact';
+                        $path = $this->normalize_redirect_path($entry['pattern']);
+                        if ('' === $path) {
+                            continue;
+                        }
+                        if ('exact' === $comparison) {
+                            // Same bare-root guard as our own table (query-
+                            // string permalinks all normalize to '/').
+                            if ('/' !== $path) {
+                                $sources['exact'][$path] = true;
+                            }
+                        } elseif ('start' === $comparison || 'start with' === $comparison) {
+                            // Rank Math stores the comparison token 'start';
+                            // 'start with' is tolerated defensively for forks.
+                            // Prefix rules are live-matched against a slash-
+                            // trimmed URI with the pattern compared as stored
+                            // (Str::starts_with), so a leading slash in the
+                            // stored pattern permanently disables the rule at
+                            // runtime — mirror that and skip it here too, or
+                            // URLs that still serve 200 would be excluded.
+                            // A scheme-bearing pattern (a pasted full URL) is
+                            // dead for the same reason: the runtime URI never
+                            // contains the scheme or host.
+                            $raw_pattern = (string) $entry['pattern'];
+                            if (0 === strpos($raw_pattern, '/') || strpos($raw_pattern, '://') !== false) {
+                                continue;
+                            }
+                            $sources['prefix'][$path] = $path;
+                        }
+                    }
+                }
+            }
+        }
+
+        return $sources;
+    }
+
+    /**
+     * Normalize a URL or path for redirect-source comparison.
+     *
+     * Redirection stores hold paths with or without a leading slash, and
+     * sometimes full URLs; generated sitemap entries are always full
+     * permalinks. Reducing both sides to a bare path — leading slash, no
+     * trailing slash — makes the comparison host- and scheme-agnostic.
+     *
+     * @param mixed $url_or_path Absolute URL or path; serialized third-party redirect data is not guaranteed to be a string, so non-strings are cast.
+     * @return string Normalized path ('' when nothing usable remains, '/' for root).
+     */
+    private function normalize_redirect_path($url_or_path)
+    {
+        $path = $url_or_path;
+        if (is_string($url_or_path) && strpos($url_or_path, 'http') === 0) {
+            $parsed = parse_url($url_or_path);
+            // A bare domain ('https://example.com') is the site root.
+            $path = isset($parsed['path']) ? $parsed['path'] : '/';
+        }
+        $path = (string) $path;
+        if ('' === $path) {
+            return '';
+        }
+        $path = '/' . ltrim($path, '/');
+        $path = rtrim($path, '/');
+        return ('' === $path) ? '/' : $path;
+    }
+
+    /**
+     * Whether a URL is the source of a known redirect.
+     *
+     * @param string $url     URL as it would appear in the sitemap.
+     * @param array  $sources Redirect-source sets from get_redirect_source_paths().
+     * @return bool True when the URL redirects (exact match or known prefix).
+     */
+    private function is_redirect_source($url, $sources)
+    {
+        if (empty($sources['exact']) && empty($sources['prefix'])) {
+            return false;
+        }
+        $path = $this->normalize_redirect_path($url);
+        if ('' === $path) {
+            return false;
+        }
+        if (isset($sources['exact'][$path])) {
+            return true;
+        }
+        foreach ($sources['prefix'] as $prefix) {
+            // A root prefix would match every URL and empty the sitemap —
+            // treat it as unusable rather than honoring it literally.
+            if ('/' !== $prefix && 0 === strpos($path, $prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

@@ -165,6 +165,18 @@ class Metasync_Error_Monitor
         require_once dirname(__FILE__, 2) . '/redirections/class-metasync-redirection-database.php';
         $db_redirection = new Metasync_Redirection_Database();
 
+        // Destination guard — same checks as the admin form and MCP tools.
+        // Backslashes and protocol-relative hosts bypass host validation in
+        // browsers while looking internal to wp_validate_redirect. Return
+        // false on rejection, mirroring the loop guard below.
+        if (!class_exists('Metasync_Redirection_Validator')) {
+            require_once dirname(__FILE__, 2) . '/redirections/class-metasync-redirection-validator.php';
+        }
+        if (!Metasync_Redirection_Validator::is_safe_destination_syntax($redirect_to)
+            || (!get_option('metasync_allow_external_redirects', 0) && wp_validate_redirect($redirect_to, '') !== $redirect_to)) {
+            return false;
+        }
+
         // Loop guard: a 404 whose suggested target is itself redirected back
         // to the 404ing URI would ping-pong forever. Mirrors the admin form.
         if (!class_exists('Metasync_Redirection')) {

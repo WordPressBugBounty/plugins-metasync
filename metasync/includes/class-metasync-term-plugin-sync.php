@@ -191,6 +191,120 @@ class Metasync_Term_Plugin_Sync {
     // ------------------------------------------------------------------
 
     /**
+     * Whether third-party SEO storage may be written at all.
+     *
+     * The site owner's consent switch. Terms are covered by it on exactly the
+     * same terms as posts — a category's Rank Math title is another plugin's
+     * data just as much as a page's is.
+     *
+     * @return bool
+     */
+    private function third_party_writes_allowed() {
+        return class_exists('Metasync_Seo_Backup') && Metasync_Seo_Backup::is_enabled();
+    }
+
+    /**
+     * Write one third-party term-meta field, preserving what it held before.
+     *
+     * The backup row lives in term meta, under the same key naming posts use.
+     * Post meta and term meta are separate tables, so the two cannot collide
+     * and the helper stays object-type agnostic.
+     *
+     * @param int    $term_id Term ID.
+     * @param string $key     Third-party term meta key.
+     * @param mixed  $value   Value to write.
+     * @return bool True when the write happened.
+     */
+    private function write_term_field($term_id, $key, $value) {
+        return class_exists('Metasync_Seo_Backup')
+            && Metasync_Seo_Backup::write_term_meta($term_id, $key, $value);
+    }
+
+    /**
+     * Backup field name for one Yoast taxonomy-meta entry.
+     *
+     * Yoast's `wpseo_taxonomy_meta` option nests taxonomy → term ID → field, so
+     * the same term ID can hold a different original under each taxonomy it
+     * belongs to. The backup rows all live on the term, which has no such
+     * nesting, so the taxonomy has to be carried in the field name or the two
+     * originals collide and write-once keeps only the first.
+     *
+     * @param  string $taxonomy  Taxonomy slug.
+     * @param  string $yoast_key Yoast field name, e.g. 'wpseo_title'.
+     * @return string
+     */
+    private static function yoast_tax_backup_field($taxonomy, $yoast_key) {
+        return 'yoast_tax_' . $taxonomy . '_' . $yoast_key;
+    }
+
+    /**
+     * Carry a backup written under the old, taxonomy-less key onto the new one.
+     *
+     * Earlier builds stored these as `yoast_tax_{field}`, with no taxonomy in
+     * the key. Sites that ran one of those hold real customer originals there.
+     * Left alone, the next sync finds nothing at the new key and backs up
+     * whatever is in the option now — which is the value the previous sync
+     * wrote. The original would still exist, under a key nothing reads, while
+     * the backup that a restore trusts would hold this plugin's own output.
+     *
+     * Copying it across first makes the new key win on its own merits: the
+     * legacy value is the older, truer one, and backups are write-once, so a
+     * later call cannot displace it.
+     *
+     * @param int    $term_id  Term ID.
+     * @param string $taxonomy Taxonomy slug.
+     * @param string $yoast_key Yoast field name.
+     */
+    private static function adopt_legacy_yoast_tax_backup($term_id, $taxonomy, $yoast_key) {
+        $scoped = self::yoast_tax_backup_field($taxonomy, $yoast_key);
+        $legacy = 'yoast_tax_' . $yoast_key;
+
+        $existing_scoped = Metasync_Seo_Backup::read_backup('term', $term_id, $scoped);
+        if (!empty($existing_scoped['exists'])) {
+            return;
+        }
+
+        $legacy_backup = Metasync_Seo_Backup::read_backup('term', $term_id, $legacy);
+        if (empty($legacy_backup['exists'])) {
+            return;
+        }
+
+        Metasync_Seo_Backup::record_marker('term', $term_id, $scoped, $legacy_backup['value']);
+    }
+
+    /**
+     * The Yoast taxonomy-meta entry as it is actually stored, without defaults.
+     *
+     * `WPSEO_Taxonomy_Meta::get_term_meta()` returns
+     * `array_merge($defaults_per_term, $stored)`, so all twenty Yoast fields
+     * are always present and `array_key_exists()` can never tell a field the
+     * customer set from one they never touched. Yoast only ever stores the
+     * non-default values -- `validate_term_meta_data()` ends in
+     * `array_diff_assoc($clean, $defaults_per_term)` -- so the raw option is
+     * the only place that distinction survives, and it is exactly the
+     * distinction a restore needs to choose between deleting a key and
+     * blanking it.
+     *
+     * The merged view is still the right thing to build the write from, so
+     * this is used only to decide what to record as the original.
+     *
+     * @param int    $term_id  Term ID.
+     * @param string $taxonomy Taxonomy slug.
+     * @return array Stored entry, empty when the term has none.
+     */
+    private static function yoast_stored_tax_meta($term_id, $taxonomy) {
+        $option = get_option('wpseo_taxonomy_meta', []);
+
+        if (!is_array($option)
+            || !isset($option[$taxonomy][$term_id])
+            || !is_array($option[$taxonomy][$term_id])) {
+            return [];
+        }
+
+        return $option[$taxonomy][$term_id];
+    }
+
+    /**
      * Mirror canonical data into Yoast term storage.
      *
      * Yoast stores taxonomy term SEO data in the `wpseo_taxonomy_meta` option
@@ -200,9 +314,14 @@ class Metasync_Term_Plugin_Sync {
      * @param int    $term_id  Term ID.
      * @param string $taxonomy Taxonomy slug (required by Yoast API).
      * @param array  $data     Canonical key/value pairs.
-     * @return bool Always true once dispatch completes.
+     * @return bool True when the write happened; false when consent is withheld
+     *              or an original could not be preserved.
      */
     private function sync_yoast($term_id, $taxonomy, array $data) {
+        if (!$this->third_party_writes_allowed()) {
+            return false;
+        }
+
         if (!class_exists('WPSEO_Taxonomy_Meta')) {
             return false;
         }
@@ -239,6 +358,47 @@ class Metasync_Term_Plugin_Sync {
             if (is_array($existing)) {
                 $meta_values = array_merge($existing, $meta_values);
             }
+
+            // What Yoast really has on disk, for the backup only. The merged
+            // view above is the right basis for the write and the wrong one for
+            // deciding what was there before.
+            $stored = self::yoast_stored_tax_meta($term_id, $taxonomy);
+
+            // Yoast keeps term SEO in the `wpseo_taxonomy_meta` option, not in
+            // term meta, so there is no term-meta row to preserve. Save each
+            // entry we are about to change onto the term itself, keyed by the
+            // taxonomy and the Yoast field name, so a restore can put the
+            // option entry back.
+            //
+            // The taxonomy belongs in the key because the option is keyed by
+            // taxonomy first and term ID second: one term ID can hold a
+            // separate entry under each taxonomy it appears in. Leave it out
+            // and the first taxonomy synced claims the write-once row, and the
+            // second taxonomy's original is overwritten with nothing saved.
+            //
+            // set_values() rewrites the whole option entry at once, so a single
+            // unsaved field cannot be skipped in isolation -- if any original
+            // fails to record, the write is abandoned entirely rather than
+            // destroying a value with nothing to restore it from.
+            $originals_saved = class_exists('Metasync_Seo_Backup');
+            if ($originals_saved) {
+                foreach ($meta_values as $yoast_key => $yoast_value) {
+                    self::adopt_legacy_yoast_tax_backup($term_id, $taxonomy, $yoast_key);
+
+                    $originals_saved = Metasync_Seo_Backup::backup_before_overwrite(
+                        'term',
+                        $term_id,
+                        self::yoast_tax_backup_field($taxonomy, $yoast_key),
+                        $yoast_value,
+                        array_key_exists($yoast_key, $stored) ? $stored[$yoast_key] : null
+                    ) && $originals_saved;
+                }
+            }
+
+            if (!$originals_saved) {
+                return false;
+            }
+
             WPSEO_Taxonomy_Meta::set_values($term_id, $taxonomy, $meta_values);
 
             // Rebuild the Yoast indexable so the frontend and sitemaps render
@@ -260,26 +420,135 @@ class Metasync_Term_Plugin_Sync {
      * @return bool Always true once dispatch completes.
      */
     private function sync_rankmath($term_id, array $data) {
+        if (!$this->third_party_writes_allowed()) {
+            return false;
+        }
+
         if (array_key_exists('title', $data) && $data['title'] !== '') {
-            update_term_meta($term_id, 'rank_math_title', (string) $data['title']);
+            $this->write_term_field($term_id, 'rank_math_title', (string) $data['title']);
         }
         if (array_key_exists('desc', $data) && $data['desc'] !== '') {
-            update_term_meta($term_id, 'rank_math_description', (string) $data['desc']);
+            $this->write_term_field($term_id, 'rank_math_description', (string) $data['desc']);
         }
         if (array_key_exists('og_title', $data) && $data['og_title'] !== '') {
-            update_term_meta($term_id, 'rank_math_facebook_title', (string) $data['og_title']);
+            $this->write_term_field($term_id, 'rank_math_facebook_title', (string) $data['og_title']);
         }
         if (array_key_exists('og_desc', $data) && $data['og_desc'] !== '') {
-            update_term_meta($term_id, 'rank_math_facebook_description', (string) $data['og_desc']);
+            $this->write_term_field($term_id, 'rank_math_facebook_description', (string) $data['og_desc']);
         }
         if (array_key_exists('canonical', $data) && $data['canonical'] !== '') {
-            update_term_meta($term_id, 'rank_math_canonical_url', (string) $data['canonical']);
+            $this->write_term_field($term_id, 'rank_math_canonical_url', (string) $data['canonical']);
         }
         if (array_key_exists('noindex', $data)) {
             // Rank Math stores robots directives as a serialized PHP array (e.g. ['noindex']).
             $is_noindex = ($data['noindex'] === 'noindex' || $data['noindex'] === true || $data['noindex'] === 1 || $data['noindex'] === '1');
             $robots = $is_noindex ? ['noindex'] : [];
-            update_term_meta($term_id, 'rank_math_robots', $robots);
+            $this->write_term_field($term_id, 'rank_math_robots', $robots);
+        }
+
+        return true;
+    }
+
+    /**
+     * Preserve the AIOSEO term columns a sync is about to overwrite.
+     *
+     * AIOSEO keeps term SEO data in its own `aioseo_terms` table, so there is
+     * no term-meta row to save and no field a restore could delete. The
+     * per-column originals and whether the row pre-existed are recorded as term
+     * meta on the term itself, so a restore can put the original columns back
+     * without touching the rest of the user's row, and can delete outright a
+     * row that only exists because we created it.
+     *
+     * @param int    $term_id     Term ID.
+     * @param string $table       Fully prefixed AIOSEO term table name.
+     * @param array  $row         Columns and values about to be written.
+     * @param bool   $row_existed Whether AIOSEO already had a row for this term.
+     * @param array  $created     Out-param, filled with the backup fields this
+     *                           call created, so a failed write can withdraw
+     *                           exactly its own rows and no one else's.
+     * @return bool True when every original was preserved and the caller may write.
+     */
+    private function backup_aioseo_columns($term_id, $table, array $row, $row_existed, array &$created) {
+        $created = [];
+
+        if (!class_exists('Metasync_Seo_Backup')) {
+            return false;
+        }
+
+        global $wpdb;
+
+        // Whether the row pre-existed is what a restore uses to choose between
+        // putting the original columns back and deleting a row that only exists
+        // because we made it. A marker that will not record is as disqualifying
+        // as a column that will not.
+        if (!Metasync_Seo_Backup::record_marker(
+            'term',
+            $term_id,
+            'aioseo_row_existed',
+            $row_existed ? '1' : '0',
+            $marker_created
+        )) {
+            return false;
+        }
+
+        if ($marker_created) {
+            $created[] = 'aioseo_row_existed';
+        }
+
+        $columns = array_diff(array_keys($row), ['updated', 'created', 'term_id']);
+        if (empty($columns)) {
+            return true;
+        }
+
+        $current = null;
+        if ($row_existed) {
+            $select = '`' . implode('`, `', array_map('esc_sql', $columns)) . '`';
+            $current = $wpdb->get_row(
+                $wpdb->prepare("SELECT {$select} FROM {$table} WHERE term_id = %d", $term_id),
+                ARRAY_A
+            );
+
+            // The row was there a moment ago, so a null answer now is a failed
+            // read, not an empty row. Recording it as "every column was NULL"
+            // would tell a later restore to delete values it should put back,
+            // which is the exact loss this layer exists to prevent. No write is
+            // happening, so the marker recorded above has to go too — a marker
+            // left describing a write that never ran is a stale story.
+            if ($current === null || !Metasync_Seo_Backup::db_read_succeeded()) {
+                Metasync_Seo_Backup::discard_backups('term', $term_id, $created);
+                return false;
+            }
+        }
+
+        foreach ($columns as $column) {
+            // A missing row and a NULL column mean the same thing to a restore:
+            // there was no value here, so put nothing back.
+            $current_value = ($current !== null && isset($current[$column])) ? $current[$column] : null;
+
+            $field = 'aioseo_' . $column;
+
+            // One unsaved column is enough to refuse the whole write: a half-original,
+            // half-OTTO row is something no restore can unpick. The refusal also
+            // means the caller writes nothing, so withdraw the marker and the
+            // columns recorded so far — the same rule as the failed-insert path
+            // in the caller. Left behind, a row_existed='0' marker would let a
+            // restore delete a row the customer creates later, and a NULL
+            // column backup would blank a real value in it.
+            if (!Metasync_Seo_Backup::backup_before_overwrite(
+                'term',
+                $term_id,
+                $field,
+                $row[$column],
+                $current_value,
+                $column_created
+            )) {
+                Metasync_Seo_Backup::discard_backups('term', $term_id, $created);
+                return false;
+            }
+
+            if ($column_created) {
+                $created[] = $field;
+            }
         }
 
         return true;
@@ -295,6 +564,10 @@ class Metasync_Term_Plugin_Sync {
      */
     private function sync_aioseo($term_id, array $data) {
         global $wpdb;
+
+        if (!$this->third_party_writes_allowed()) {
+            return false;
+        }
 
         $table = $wpdb->prefix . 'aioseo_terms';
 
@@ -339,9 +612,30 @@ class Metasync_Term_Plugin_Sync {
             $term_id
         ));
 
+        // An unreadable probe cannot be treated as "no row". It would commit a
+        // write-once row_existed='0' for a row AIOSEO really has -- which a
+        // restore reads as licence to delete it -- and send an INSERT at a row
+        // that already exists. Leave AIOSEO's row alone and let the next sync
+        // record the truth.
+        if (!Metasync_Seo_Backup::db_read_succeeded()) {
+            return false;
+        }
+
+        // No original saved means no write. Overwriting anyway is the data loss
+        // this whole layer exists to prevent.
         if ($existing_id) {
+            $backups_created = [];
+            if (!$this->backup_aioseo_columns($term_id, $table, $row, true, $backups_created)) {
+                return false;
+            }
+
             $updated = $wpdb->update($table, $row, ['term_id' => $term_id]);
             return $updated !== false;
+        }
+
+        $backups_created = [];
+        if (!$this->backup_aioseo_columns($term_id, $table, $row, false, $backups_created)) {
+            return false;
         }
 
         // New row: include term_id, timestamps, and NOT NULL robot defaults.
@@ -365,6 +659,18 @@ class Metasync_Term_Plugin_Sync {
         $row = array_merge($robot_defaults, $row);
 
         $inserted = $wpdb->insert($table, $row);
-        return $inserted !== false;
+
+        // The row_existed='0' marker was recorded before the insert, because a
+        // marker that will not save has to be able to veto the write. A failed
+        // insert leaves no row of ours, and a marker still claiming one would
+        // let a restore delete a row the customer creates later. The per-column
+        // backups beside it go too, or a column captured as NULL for a row that
+        // never existed would blank a real value the customer later puts in one.
+        if ($inserted === false) {
+            Metasync_Seo_Backup::discard_backups('term', $term_id, $backups_created);
+            return false;
+        }
+
+        return true;
     }
 }

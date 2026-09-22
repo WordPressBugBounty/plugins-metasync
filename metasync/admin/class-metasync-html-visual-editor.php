@@ -40,6 +40,19 @@ class Metasync_HTML_Visual_Editor
     const GRAPESJS_BLOCKS_BASIC_VERSION = '1.0.2';
 
     /**
+     * Meta key marking a page as a Landing Page Studio (LPS) ZIP import.
+     *
+     * Mirrors Metasync_Custom_Pages::META_LPS_IMPORT. The literal is used here
+     * for the same reason includes/class-metasync-seo-suite.php does: this
+     * class is loaded by the admin bootstrap, which does not guarantee the
+     * Custom Pages class is present, and a guard that reads the marker must
+     * never be skipped just because a class failed to load.
+     *
+     * @var string
+     */
+    const META_LPS_IMPORT = '_metasync_lps_import';
+
+    /**
      * Plugin name
      *
      * @var string
@@ -119,6 +132,124 @@ class Metasync_HTML_Visual_Editor
     }
 
     /**
+     * Whether a page is a Landing Page Studio import.
+     *
+     * LPS pages are owned by the importer: a re-import replaces their stored
+     * HTML wholesale, and they are always complete documents. Visual editing
+     * them would both destroy the document and put the page out of sync with
+     * the project it was imported from, so they are excluded from this editor
+     * entirely rather than merely blocked at save.
+     *
+     * @param int $post_id Page being inspected.
+     * @return bool
+     */
+    public static function is_lps_page($post_id)
+    {
+        return get_post_meta($post_id, self::META_LPS_IMPORT, true) === '1';
+    }
+
+    /**
+     * Whether stored HTML carries content the visual canvas cannot round-trip.
+     *
+     * GrapesJS builds body fragments. Handing it anything document-level makes
+     * it parse what it can and discard the rest, and the editor then saves that
+     * reduced result over the original — so the loss happens when the page is
+     * parsed into the canvas, before the user edits anything.
+     *
+     * Two classes of content are unsafe:
+     *
+     * - Document structure (doctype, <html>, <head>): dropped outright,
+     *   because a fragment builder has nowhere to put it.
+     * - Scripts: dropped even inside an otherwise ordinary body fragment, so a
+     *   check limited to document structure would still let a scripted page
+     *   lose its behaviour silently.
+     *
+     * <body> is the exception that has to be judged on its attributes. The
+     * canvas emits a bare <body> wrapper around everything it serializes, so
+     * treating the element itself as unsafe would make every page this editor
+     * saves lock itself out of the editor on the next visit. What the canvas
+     * does destroy is the element's attributes — a class, inline style, a data
+     * attribute a script or stylesheet depends on — so an opening <body> tag
+     * is unsafe when it carries any.
+     *
+     * With one exception of its own: styling the body in the Styles panel
+     * makes GrapesJS mint an id for it (`<body id="ir4h">`) purely so its
+     * generated stylesheet has something to target. That id is the editor's
+     * own bookkeeping, not authored content, and refusing it would lock a page
+     * out of the editor the first time anyone edited a style — the very thing
+     * the bare-wrapper allowance exists to prevent.
+     *
+     * Detection is deliberately a scan for opening tags rather than a parse:
+     * the question is only whether unsupported constructs are present, and a
+     * malformed document must answer yes as readily as a well-formed one.
+     *
+     * @param mixed $html Stored page HTML. Typed loosely because post meta can
+     *                    come back as false when absent, or as an array from a
+     *                    corrupted row, and neither is an unsafe document.
+     * @return bool True when the document must not be edited visually.
+     */
+    public static function is_unsafe_for_visual_editor($html)
+    {
+        if (!is_string($html) || '' === trim($html)) {
+            return false;
+        }
+
+        // Opening tags only: a stray "</head>" without its opening tag is not
+        // evidence of a document, and matching bare words would misfire on
+        // ordinary prose ("the html spec").
+        $patterns = array(
+            '/<!doctype\b/i',
+            '/<html[\s>]/i',
+            '/<head[\s>]/i',
+            '/<script[\s>]/i',
+        );
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $html)) {
+                return true;
+            }
+        }
+
+        if (!preg_match('/<body(\s[^>]*)?>/i', $html, $match)) {
+            return false;
+        }
+
+        $attributes = isset($match[1]) ? trim($match[1]) : '';
+
+        // A bare <body> is the canvas's own wrapper and round-trips safely.
+        if ('' === $attributes) {
+            return false;
+        }
+
+        // So is one carrying nothing but the id GrapesJS generates for itself.
+        // Its ids are an "i" prefix followed by a short base-36 token — `ir4h`,
+        // `igcb`, `ip75` — a shape sampled from the bundled runtime rather
+        // than assumed, because a mismatch here silently locks pages out of
+        // the editor. The digits are incidental: better than a third of
+        // generated ids contain none, so only the prefix, charset and length
+        // are relied on. An author writing a hook worth preserving writes a
+        // word — `top`, `main-content` — which this does not match.
+        return !preg_match('/^id=(["\'])i[a-z0-9]{2,7}\1$/', $attributes);
+    }
+
+    /**
+     * Whether a page may be edited through the visual canvas.
+     *
+     * @param int $post_id Page being inspected.
+     * @return bool
+     */
+    public static function can_edit_visually($post_id)
+    {
+        if (self::is_lps_page($post_id)) {
+            return false;
+        }
+
+        $html = get_post_meta($post_id, '_metasync_raw_html_content', true);
+
+        return !self::is_unsafe_for_visual_editor($html);
+    }
+
+    /**
      * Add "Edit HTML" button to row actions
      *
      * @param array $actions Row actions
@@ -130,17 +261,28 @@ class Metasync_HTML_Visual_Editor
         // Check if this is a raw HTML page
         $has_raw_html = get_post_meta($post->ID, '_metasync_raw_html_enabled', true);
 
-        if ($has_raw_html) {
-            $edit_url = admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-html-editor&post_id=' . $post->ID);
-            $label = Metasync::get_whitelabel_company_name() ?: 'SearchAtlas';
-
-            $actions['edit_html'] = sprintf(
-                '<a href="%s" title="%s">%s</a>',
-                esc_url($edit_url),
-                esc_attr(sprintf(__('Edit with %s Visual Editor', 'metasync'), $label)),
-                __('Edit HTML', 'metasync')
-            );
+        if (!$has_raw_html) {
+            return $actions;
         }
+
+        // LPS pages are never editable here; the importer owns their content.
+        // Non-LPS pages keep the action even when their HTML is a complete
+        // document: the editor page explains why it cannot save and points at
+        // the lossless editor, which is more useful than a button that simply
+        // vanishes with no explanation.
+        if (self::is_lps_page($post->ID)) {
+            return $actions;
+        }
+
+        $edit_url = admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-html-editor&post_id=' . $post->ID);
+        $label = Metasync::get_whitelabel_company_name() ?: 'SearchAtlas';
+
+        $actions['edit_html'] = sprintf(
+            '<a href="%s" title="%s">%s</a>',
+            esc_url($edit_url),
+            esc_attr(sprintf(__('Edit with %s Visual Editor', 'metasync'), $label)),
+            __('Edit HTML', 'metasync')
+        );
 
         return $actions;
     }
@@ -198,11 +340,23 @@ class Metasync_HTML_Visual_Editor
             wp_die(__('This page is not a raw HTML page.', 'metasync'));
         }
 
+        // LPS pages are owned by the importer and are always complete
+        // documents, so the canvas is refused outright rather than opened in a
+        // state where nothing can be saved.
+        if (self::is_lps_page($post_id)) {
+            wp_die(
+                esc_html__('This page was imported from Website Studio and cannot be edited with the visual editor. Edit it from the page editor, or re-publish it from Website Studio.', 'metasync')
+            );
+        }
+
         // Get HTML content
         $html_content = get_post_meta($post_id, '_metasync_raw_html_content', true);
 
         if (empty($html_content)) {
-            $html_content = '<html><body><h1>Start editing...</h1></body></html>';
+            // A body fragment, not a document: the canvas builds fragments, so
+            // seeding a page with <html>/<body> would make a brand-new empty
+            // page register as unsafe and lock the editor against itself.
+            $html_content = '<h1>Start editing...</h1>';
         }
 
         // Get label for branding
@@ -306,16 +460,24 @@ class Metasync_HTML_Visual_Editor
             $this->version
         );
 
+        $post_id = isset($_GET['post_id']) ? intval($_GET['post_id']) : 0;
+
         // Localize script with data
         wp_localize_script('metasync-html-editor', 'metasyncEditor', array(
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('metasync_html_editor'),
-            'post_id' => isset($_GET['post_id']) ? intval($_GET['post_id']) : 0,
-            'preview_url' => get_permalink(isset($_GET['post_id']) ? intval($_GET['post_id']) : 0),
+            'post_id' => $post_id,
+            'preview_url' => get_permalink($post_id),
             // Names of bundled libraries that are absent from disk, so the
             // client can name the failing dependency without exposing paths
             // or other sensitive detail.
             'missing' => $missing,
+            // Non-empty when the page's stored HTML cannot survive the canvas,
+            // so the client can disable saving before the document is parsed
+            // into it rather than after the user has edited.
+            'blocked_reason' => $post_id ? $this->get_blocked_reason($post_id) : '',
+            // Where the user can edit this page without loss.
+            'direct_edit_url' => $post_id ? get_edit_post_link($post_id, 'raw') : '',
             'i18n' => array(
                 'saving' => __('Saving...', 'metasync'),
                 'saved' => __('Saved!', 'metasync'),
@@ -337,9 +499,41 @@ class Metasync_HTML_Visual_Editor
                 'reload' => __('Reload page', 'metasync'),
                 'dismiss' => __('Dismiss', 'metasync'),
                 'save_disabled' => __('Saving is disabled because the editor did not load', 'metasync'),
+                'blocked_title' => __('This page cannot be saved from the visual editor', 'metasync'),
+                'blocked_full_document' => __('This page is a complete HTML document. The visual editor rebuilds pages from their body content, so saving here would discard the doctype, head and scripts. Use Edit HTML Directly on the page editor to change it without losing anything.', 'metasync'),
+                'blocked_lps' => __('This page was imported from Website Studio, which owns its content. Re-publish it from Website Studio, or use Edit HTML Directly on the page editor.', 'metasync'),
+                'blocked_save_disabled' => __('Saving is disabled to protect this page from being rewritten', 'metasync'),
+                'open_direct_editor' => __('Edit HTML Directly', 'metasync'),
                 'upload_failed' => __('Image upload failed', 'metasync'),
             )
         ));
+    }
+
+    /**
+     * Why a page cannot be saved through the visual canvas, if it cannot.
+     *
+     * Returned to the client so the canvas can refuse before it parses the
+     * document, rather than letting the user edit a reduced copy and discover
+     * at save time that the original is unrecoverable.
+     *
+     * @param int $post_id Page being opened.
+     * @return string Machine-readable reason, or '' when the page is editable.
+     */
+    private function get_blocked_reason($post_id)
+    {
+        if (self::is_lps_page($post_id)) {
+            return 'lps';
+        }
+
+        $html = get_post_meta($post_id, '_metasync_raw_html_content', true);
+
+        // An empty page is seeded with a body fragment, so there is nothing
+        // to lose and the canvas may open normally.
+        if ('' === (string) $html) {
+            return '';
+        }
+
+        return self::is_unsafe_for_visual_editor($html) ? 'full_document' : '';
     }
 
     /**
@@ -352,6 +546,11 @@ class Metasync_HTML_Visual_Editor
      * elements raw HTML pages exist to carry (doctype, head assets, forms,
      * iframes, inline SVG), and re-filtering an already-filtered value is
      * what let entity-encoded markup re-materialize as live tags.
+     *
+     * Storing verbatim is also why the guards below refuse whole saves rather
+     * than trying to repair a payload: by the time it arrives, the canvas has
+     * already discarded whatever it could not represent, and nothing here can
+     * tell a deliberate deletion from a parser casualty.
      */
     public function ajax_save_html()
     {
@@ -372,6 +571,28 @@ class Metasync_HTML_Visual_Editor
 
         if (!current_user_can('edit_post', $post_id)) {
             wp_send_json_error(array('message' => __('Permission denied', 'metasync')), 403);
+        }
+
+        // The client disables saving for these pages before the canvas parses
+        // them, but the endpoint is reachable on its own, and the decision is
+        // about what the stored document can survive rather than about what
+        // the browser did. Both checks read the value already in the database,
+        // not the payload: what matters is whether the page being overwritten
+        // is one the canvas could have represented faithfully.
+        if (self::is_lps_page($post_id)) {
+            wp_send_json_error(
+                array('message' => __('This page was imported from Website Studio and cannot be saved from the visual editor.', 'metasync')),
+                409
+            );
+        }
+
+        $stored = get_post_meta($post_id, '_metasync_raw_html_content', true);
+
+        if (self::is_unsafe_for_visual_editor($stored)) {
+            wp_send_json_error(
+                array('message' => __('This page is a complete HTML document, so saving it from the visual editor would discard its doctype, head and scripts. Use Edit HTML Directly on the page editor instead.', 'metasync')),
+                409
+            );
         }
 
         $html_content = isset($_POST['html']) ? wp_unslash($_POST['html']) : '';

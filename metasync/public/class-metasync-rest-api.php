@@ -194,61 +194,6 @@ class Metasync_Rest_Api
 		wp_die(); // Always terminate after an AJAX call
 	}
 
-	public function otto_header_data() {
-		global $post;
-	
-		// Get the current post ID
-		$post_id = $post->ID;
-	
-		// Get the current time and the last update time from post meta
-		$current_time = current_time('timestamp');
-		$last_update_time = get_post_meta($post_id, '_otto_last_update_time', true);
-	
-		// Set the interval for 24 hours (in seconds)
-		$interval = 24 * 60 * 60;
-	
-		// Check if the last update time is set or if 24 hours have passed
-		if (!$last_update_time || ($current_time - $last_update_time) >= $interval) {
-			// Get the current URL
-			$current_url = get_permalink($post_id);
-
-			// Use endpoint manager to get the correct API URL
-			$api_endpoint = class_exists('Metasync_Endpoint_Manager')
-				? Metasync_Endpoint_Manager::get_endpoint('OTTO_URL_DETAILS')
-				: 'https://sa.searchatlas.com/api/v2/otto-url-details';
-
-			// Call the API
-			$response = wp_remote_get($api_endpoint . '/?url=' . urlencode($current_url));
-
-			// Check if the API call was successful
-			if (!is_wp_error($response)) {
-				$body = wp_remote_retrieve_body($response);
-				$data = json_decode($body, true);  // Decode JSON into an associative array
-	
-				// Update the post meta with the new data and timestamp
-				update_post_meta($post_id, '_otto_header_html', $data['header_html_insertion']);
-				update_post_meta($post_id, '_otto_last_update_time', $current_time);
-			}
-		}
-	
-	// Get the saved HTML from post meta
-	$header_html = get_post_meta($post_id, '_otto_header_html', true);
-
-	// Display the HTML with security measures
-	if ($header_html) {
-		echo "<!-- Otto Start -->";
-		// SECURITY FIX: Sanitize HTML to prevent XSS while allowing safe HTML
-		echo wp_kses($header_html, array(
-			'style' => array(),
-			'link' => array('rel' => array(), 'href' => array(), 'type' => array()),
-			'meta' => array('name' => array(), 'content' => array(), 'property' => array()),
-			'script' => array('type' => array(), 'src' => array()),
-			// Add other safe tags as needed
-		));
-		echo "<!-- Otto End -->";
-	}
-	}
-
 	public function rest_authorization_middleware($request = null)
 	{
 		$api_key = '';

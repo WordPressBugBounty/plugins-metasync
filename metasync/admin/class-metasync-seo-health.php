@@ -57,7 +57,7 @@ class Metasync_SEO_Health
 	public static function title_meta_keys()
 	{
 		return Metasync_Seo_Precedence::chain(Metasync_Seo_Precedence::FIELD_TITLE)
-			+ self::THIRD_PARTY_TITLE_KEYS;
+			+ self::third_party_title_keys();
 	}
 
 	/**
@@ -71,7 +71,101 @@ class Metasync_SEO_Health
 	public static function desc_meta_keys()
 	{
 		return Metasync_Seo_Precedence::chain(Metasync_Seo_Precedence::FIELD_DESCRIPTION)
-			+ self::THIRD_PARTY_DESC_KEYS;
+			+ self::third_party_desc_keys();
+	}
+
+	/**
+	 * Third-party title keys, limited to plugins that are actually active.
+	 *
+	 * A deactivated plugin leaves its meta behind; counting that as a set
+	 * title reports a value nothing can render anymore. The gate keeps the
+	 * table, the missing filters and the summary cards on the same key set —
+	 * they all read through these maps.
+	 *
+	 * @return array<string,string> Meta key => display source label.
+	 */
+	private static function third_party_title_keys()
+	{
+		return self::filter_keys_by_active_plugin(self::THIRD_PARTY_TITLE_KEYS);
+	}
+
+	/**
+	 * @see third_party_title_keys()
+	 *
+	 * @return array<string,string> Meta key => display source label.
+	 */
+	private static function third_party_desc_keys()
+	{
+		return self::filter_keys_by_active_plugin(self::THIRD_PARTY_DESC_KEYS);
+	}
+
+	/**
+	 * Drop cross-plugin keys whose owning plugin is not active.
+	 *
+	 * MetaSync's own keys (the OG pair, the legacy description key) carry no
+	 * plugin and always stay. is_plugin_active() lives in wp-admin even on
+	 * frontend and REST requests, so it is required on demand the same way the
+	 * conflict handler does it.
+	 *
+	 * @param array<string,string> $keys Meta key => plugin-derived source label.
+	 * @return array<string,string>
+	 */
+	private static function filter_keys_by_active_plugin(array $keys)
+	{
+		$active = array();
+
+		if (self::is_plugin_active_any(array(
+			'wordpress-seo/wp-seo.php',
+			'wordpress-seo-premium/wp-seo-premium.php',
+		))) {
+			$active['Yoast'] = true;
+		}
+		if (self::is_plugin_active_any(array(
+			'seo-by-rank-math/rank-math.php',
+			'seo-by-rankmath/rank-math.php',
+		))) {
+			$active['Rank Math'] = true;
+		}
+		if (self::is_plugin_active_any(array(
+			'all-in-one-seo-pack/all_in_one_seo_pack.php',
+			'all-in-one-seo-pack-pro/all_in_one_seo_pack.php',
+		))) {
+			$active['AIOSEO'] = true;
+		}
+
+		$plugin_labels = array('Yoast', 'Rank Math', 'AIOSEO');
+
+		return array_filter(
+			$keys,
+			static function ($source) use ($plugin_labels, $active) {
+				// Labels the plugin does not own are never gated.
+				if (!in_array($source, $plugin_labels, true)) {
+					return true;
+				}
+				return isset($active[$source]);
+			}
+		);
+	}
+
+	/**
+	 * Whether any of the given plugin basenames is active.
+	 *
+	 * @param string[] $plugins Plugin basename paths.
+	 * @return bool
+	 */
+	private static function is_plugin_active_any(array $plugins)
+	{
+		if (!function_exists('is_plugin_active')) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		foreach ($plugins as $plugin) {
+			if (is_plugin_active($plugin)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -184,7 +278,17 @@ class Metasync_SEO_Health
 	}
 
 	/**
-	 * Get the first non-empty SEO meta value across plugin fallbacks.
+	 * Get the SEO meta value that applies to a post, and where it came from.
+	 *
+	 * Read-only. MetaSync's own tiers (customer value, OTTO, imported) are
+	 * settled by Metasync_Seo_Precedence::resolve() — the one place the order
+	 * lives — which also drops the OTTO tiers when OTTO is switched off for
+	 * the post. This function never fetches OTTO data, compares freshness, or
+	 * writes anything: it reports what is stored, and only that.
+	 *
+	 * Below the MetaSync chain come the cross-plugin and legacy keys, gated to
+	 * plugins that are actually active — a deactivated plugin's leftover meta
+	 * cannot control output, so it does not count as set here.
 	 *
 	 * @param int    $post_id Post ID.
 	 * @param string $field   Either 'title' or 'description'.
@@ -192,20 +296,75 @@ class Metasync_SEO_Health
 	 */
 	public static function get_seo_meta_with_fallback($post_id, $field)
 	{
-		$meta_keys = ($field === 'title') ? self::title_meta_keys() : self::desc_meta_keys();
+		$field_const = ($field === 'title')
+			? Metasync_Seo_Precedence::FIELD_TITLE
+			: Metasync_Seo_Precedence::FIELD_DESCRIPTION;
+
+		$resolved = Metasync_Seo_Precedence::resolve($post_id, $field_const);
+
+		if ($resolved['value'] !== '') {
+			return array(
+				'value'  => $resolved['value'],
+				'source' => self::display_source($post_id, $field, $resolved),
+			);
+		}
+
+		// Cross-plugin, legacy and OG keys — already limited to active plugins.
+		$meta_keys = ($field === 'title') ? self::third_party_title_keys() : self::third_party_desc_keys();
 
 		foreach ($meta_keys as $meta_key => $source) {
 			$value = get_post_meta($post_id, $meta_key, true);
 			if (!empty($value)) {
-				// White-label the OTTO source label at render time (const values stay literal).
-				if ($source === 'OTTO') {
-					$source = Metasync::get_whitelabel_otto_name();
-				}
 				return array('value' => $value, 'source' => $source);
 			}
 		}
 
 		return array('value' => '', 'source' => '');
+	}
+
+	/**
+	 * The badge label for a resolver result, if any.
+	 *
+	 * The imported tier is an internal fallback only — it reports as set
+	 * without a label, the same as a value the customer owns. The persisted
+	 * OTTO keys are the one case that needs care: the sync writes OTTO's text
+	 * to both the native key and the OTTO staging key, and the native one sits
+	 * higher in the chain, so comparing the two is what proves the value is
+	 * OTTO's rather than something the customer typed into the old field. Only
+	 * the persisted keys get that comparison — a customer value that happens
+	 * to match OTTO's suggestion stays unbadged.
+	 *
+	 * @param int    $post_id  Post ID.
+	 * @param string $field    Either 'title' or 'description'.
+	 * @param array  $resolved Resolver result with 'key' and 'source'.
+	 * @return string '' when no badge applies.
+	 */
+	private static function display_source($post_id, $field, array $resolved)
+	{
+		$source = $resolved['source'];
+
+		if ($source === Metasync_Seo_Precedence::SOURCE_IMPORTED) {
+			return '';
+		}
+
+		if ($source === '') {
+			$persisted = ($field === 'title')
+				? Metasync_Seo_Precedence::KEY_PERSISTED_OTTO_TITLE
+				: Metasync_Seo_Precedence::KEY_PERSISTED_OTTO_DESC;
+			$otto_key = ($field === 'title') ? '_metasync_otto_title' : '_metasync_otto_description';
+
+			if ($resolved['key'] === $persisted
+				&& $resolved['value'] === get_post_meta($post_id, $otto_key, true)) {
+				$source = 'OTTO';
+			}
+		}
+
+		// White-label the OTTO source label at render time (const values stay literal).
+		if ($source === 'OTTO') {
+			$source = Metasync::get_whitelabel_otto_name();
+		}
+
+		return $source;
 	}
 
 	/**
@@ -358,22 +517,77 @@ class Metasync_SEO_Health
 		}
 
 		$post_types = self::get_supported_post_types();
+		$batch_size = 500;
+		$last_id = 0;
 
-		// Fetch all post IDs in one query. Exclude custom/LPS pages so the score
-		// percentages below reflect only WordPress-managed pages — they
-		// carry self-contained SEO in their HTML, not WP post meta, and would
-		// otherwise drag every percentage down as false "not set".
-		$query = new WP_Query(array(
-			'post_type'      => $post_types,
-			'post_status'    => array('publish', 'draft'),
-			'posts_per_page' => -1,
-			'fields'         => 'ids',
-			'no_found_rows'  => true,
-			'meta_query'     => array(metasync_get_custom_page_exclusion_meta_query()),
-		));
+		$total = 0;
+		$with_title = 0;
+		$with_desc = 0;
+		$with_schema = 0;
+		$with_og_image = 0;
 
-		$post_ids = $query->posts;
-		$total = count($post_ids);
+		add_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10, 2);
+		add_filter('posts_where', array('Metasync_SEO_Inventory_Builder', 'filter_where_id_gt'), 10, 2);
+
+		try {
+			while (true) {
+				$args = array(
+					'post_type'              => $post_types,
+					'post_status'            => array('publish', 'draft'),
+					'posts_per_page'         => $batch_size,
+					'orderby'                => 'ID',
+					'order'                  => 'ASC',
+					'fields'                 => 'ids',
+					'no_found_rows'          => true,
+					'update_post_meta_cache' => false,
+					'update_post_term_cache' => false,
+					'metasync_exclude_custom_pages' => true,
+				);
+
+				if ($last_id > 0) {
+					$args['where_id_gt'] = $last_id;
+				}
+
+				$query = new WP_Query($args);
+				$post_ids = $query->posts;
+
+				if (empty($post_ids)) {
+					break;
+				}
+
+				// Prime meta cache for this chunk of IDs
+				update_meta_cache('post', $post_ids);
+
+				foreach ($post_ids as $post_id) {
+					$total++;
+
+					if (!empty(self::get_seo_meta_with_fallback($post_id, 'title')['value'])) {
+						$with_title++;
+					}
+
+					if (!empty(self::get_seo_meta_with_fallback($post_id, 'description')['value'])) {
+						$with_desc++;
+					}
+
+					if (self::has_schema($post_id)) {
+						$with_schema++;
+					}
+
+					if (self::has_og_image($post_id)) {
+						$with_og_image++;
+					}
+
+					$last_id = (int) $post_id;
+				}
+
+				if (count($post_ids) < $batch_size) {
+					break;
+				}
+			}
+		} finally {
+			remove_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10);
+			remove_filter('posts_where', array('Metasync_SEO_Inventory_Builder', 'filter_where_id_gt'), 10);
+		}
 
 		if ($total === 0) {
 			$stats = array(
@@ -387,38 +601,12 @@ class Metasync_SEO_Health
 			return $stats;
 		}
 
-		// Prime meta cache in one DB call — all subsequent get_post_meta() are free
-		update_meta_cache('post', $post_ids);
-
-		$with_title = 0;
-		$with_desc = 0;
-		$with_schema = 0;
-		$with_og_image = 0;
-
-		foreach ($post_ids as $post_id) {
-			if (!empty(self::get_seo_meta_with_fallback($post_id, 'title')['value'])) {
-				$with_title++;
-			}
-
-			if (!empty(self::get_seo_meta_with_fallback($post_id, 'description')['value'])) {
-				$with_desc++;
-			}
-
-			if (self::has_schema($post_id)) {
-				$with_schema++;
-			}
-
-			if (self::has_og_image($post_id)) {
-				$with_og_image++;
-			}
-		}
-
 		$stats = array(
 			'total_posts'          => $total,
-			'pct_seo_title'        => round(($with_title / $total) * 100),
-			'pct_meta_description' => round(($with_desc / $total) * 100),
-			'pct_schema'           => round(($with_schema / $total) * 100),
-			'pct_og_image'         => round(($with_og_image / $total) * 100),
+			'pct_seo_title'        => (int) round(($with_title / $total) * 100),
+			'pct_meta_description' => (int) round(($with_desc / $total) * 100),
+			'pct_schema'           => (int) round(($with_schema / $total) * 100),
+			'pct_og_image'         => (int) round(($with_og_image / $total) * 100),
 		);
 
 		set_transient(self::get_stats_transient_key(), $stats, 3600);
@@ -431,11 +619,27 @@ class Metasync_SEO_Health
 	 */
 	public function invalidate_cache()
 	{
+		self::invalidate_stats();
+	}
+
+	/**
+	 * Delete the summary stats transient.
+	 *
+	 * Public and static so writers that update SEO meta outside of save_post
+	 * (OTTO crawl-notify job, MCP tools) can keep the dashboard aggregates in
+	 * step with the table, which reads live post meta.
+	 */
+	public static function invalidate_stats()
+	{
 		delete_transient(self::get_stats_transient_key());
 	}
 
 	/**
 	 * Export filtered results as CSV.
+	 *
+	 * The columns mirror the table: value and status, no source. The export is
+	 * the table's own download, so a Source column here would reintroduce on
+	 * paper exactly the provenance the table stopped showing.
 	 */
 	public function export_csv()
 	{
@@ -448,16 +652,22 @@ class Metasync_SEO_Health
 
 		fputcsv($output, array(
 			'Post ID', 'Title', 'Post Type', 'Status',
-			'SEO Title', 'SEO Title Source',
-			'Meta Description', 'Meta Description Source',
+			'SEO Title',
+			'Meta Description',
 			'Has Schema', 'Has OG Image',
 			'Alt Text Coverage %', 'Last Modified',
 		));
 
 		$args = array(
-			'post_type'      => self::get_supported_post_types(),
-			'post_status'    => array('publish', 'draft'),
-			'posts_per_page' => -1,
+			'post_type'              => self::get_supported_post_types(),
+			'post_status'            => array('publish', 'draft'),
+			'posts_per_page'         => 500,
+			'orderby'                => 'ID',
+			'order'                  => 'ASC',
+			'no_found_rows'          => true,
+			'update_post_meta_cache' => true,
+			'update_post_term_cache' => false,
+			'metasync_exclude_custom_pages' => true,
 		);
 
 		$post_type_filter = isset($_GET['post_type_filter']) ? sanitize_text_field($_GET['post_type_filter']) : '';
@@ -475,30 +685,53 @@ class Metasync_SEO_Health
 			$args['s'] = $search;
 		}
 
-		// Exclude custom/LPS pages so the export matches the on-screen table.
-		$args['meta_query'] = array(metasync_get_custom_page_exclusion_meta_query());
+		$batch_size = 500;
+		$last_id = 0;
 
-		$query = new WP_Query($args);
+		add_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10, 2);
+		add_filter('posts_where', array('Metasync_SEO_Inventory_Builder', 'filter_where_id_gt'), 10, 2);
 
-		foreach ($query->posts as $post) {
-			$title_result = self::get_seo_meta_with_fallback($post->ID, 'title');
-			$desc_result = self::get_seo_meta_with_fallback($post->ID, 'description');
-			$alt = self::calculate_alt_text_coverage($post->post_content);
+		try {
+			while (true) {
+				if ($last_id > 0) {
+					$args['where_id_gt'] = $last_id;
+				}
 
-			fputcsv($output, array(
-				$post->ID,
-				$post->post_title,
-				$post->post_type,
-				$post->post_status,
-				$title_result['value'],
-				$title_result['source'],
-				$desc_result['value'],
-				$desc_result['source'],
-				self::has_schema($post->ID) ? 'Yes' : 'No',
-				self::has_og_image($post->ID) ? 'Yes' : 'No',
-				$alt['percentage'] !== null ? $alt['percentage'] : 'N/A',
-				get_the_modified_date('Y-m-d', $post),
-			));
+				$query = new WP_Query($args);
+				$posts = $query->posts;
+
+				if (empty($posts)) {
+					break;
+				}
+
+				foreach ($posts as $post) {
+					$title_result = self::get_seo_meta_with_fallback($post->ID, 'title');
+					$desc_result = self::get_seo_meta_with_fallback($post->ID, 'description');
+					$alt = self::calculate_alt_text_coverage($post->post_content);
+
+					fputcsv($output, array(
+						$post->ID,
+						$post->post_title,
+						$post->post_type,
+						$post->post_status,
+						$title_result['value'],
+						$desc_result['value'],
+						self::has_schema($post->ID) ? 'Yes' : 'No',
+						self::has_og_image($post->ID) ? 'Yes' : 'No',
+						$alt['percentage'] !== null ? $alt['percentage'] : 'N/A',
+						get_the_modified_date('Y-m-d', $post),
+					));
+
+					$last_id = (int) $post->ID;
+				}
+
+				if (count($posts) < $batch_size) {
+					break;
+				}
+			}
+		} finally {
+			remove_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10);
+			remove_filter('posts_where', array('Metasync_SEO_Inventory_Builder', 'filter_where_id_gt'), 10);
 		}
 
 		fclose($output);

@@ -243,27 +243,46 @@ class Metasync_SEO_Sidebar {
             return;
         }
 
-        // Get the custom SEO description (takes priority)
-        $description = get_post_meta($post_id, self::META_DESCRIPTION, true);
+        // Which stored value wins is decided in one place, so the global
+        // "SEO Title & Description Priority" setting reaches this emitter
+        // without a second copy of the rule. Under the default this is still
+        // the customer's description; under OTTO priority the chain hands back
+        // OTTO's value and falls back to the custom one where OTTO has none.
+        $resolved    = Metasync_Seo_Precedence::resolve($post_id, Metasync_Seo_Precedence::FIELD_DESCRIPTION);
+        $description = $resolved['value'];
 
-        // Fall back to an imported description ONLY when the customer has not
-        // set one and OTTO has no suggestion for this post. Imported values are
-        // migration data, not a per-post customer decision, so they must never
-        // displace OTTO. Emitted without the data-metasync-seo="custom" marker
-        // so Otto_html_class::force_custom_meta() does not mistake it for an
-        // explicit override.
-        $is_imported_fallback = false;
-        if (empty($description)) {
-            $otto_description = $this->otto_disabled_for_post($post_id)
-                ? ''
-                : get_post_meta($post_id, '_metasync_otto_description', true);
-            if (empty($otto_description)) {
-                $imported = get_post_meta($post_id, self::META_IMPORTED_DESCRIPTION, true);
-                if (!empty($imported) && is_string($imported) && !$this->third_party_owns_output()) {
-                    $description          = $imported;
-                    $is_imported_fallback = true;
-                }
-            }
+        // The marker has to describe what actually won, not which code path
+        // emitted it: Otto_html_class treats data-metasync-seo="custom" as an
+        // explicit override that must survive the buffer pass, and a tag
+        // carrying OTTO's own value must not claim to be one. The resolver
+        // already names the tier it took the value from, so the marker follows
+        // that rather than being inferred a second time here.
+        $is_imported_fallback = $resolved['source'] === Metasync_Seo_Precedence::SOURCE_IMPORTED;
+        $is_otto_value        = Metasync_Seo_Precedence::is_otto_value(
+            $post_id,
+            Metasync_Seo_Precedence::FIELD_DESCRIPTION,
+            $resolved
+        );
+
+        // Exactly one printer owns each description value. When OTTO's stored
+        // suggestion is the resolved winner, this emitter stands down and
+        // metasync_output_otto_meta_description() (wp_head priority 1) prints
+        // it — that emitter already covers every delivery path this one runs
+        // on, and both firing ships two identical description tags on pages
+        // the OTTO SSR buffer dedup never reaches (cold/served-from-cache,
+        // rate-limited, or Cloudflare-pixel mode). Every other tier — the
+        // customer's value, the persisted pair, imported fallbacks — is still
+        // printed here, and the og:title replacement above is unaffected.
+        // Mirrors the ownership rule in that emitter's stand-down guard.
+        if ($resolved['key'] === Metasync_Seo_Precedence::KEY_OTTO_DESC) {
+            return;
+        }
+
+        // An imported value is migration data rather than a per-post customer
+        // decision, so it only renders where MetaSync owns the output.
+        if ($is_imported_fallback && $this->third_party_owns_output()) {
+            $description          = '';
+            $is_imported_fallback = false;
         }
 
         // Output meta description tags if custom value exists
@@ -271,7 +290,13 @@ class Metasync_SEO_Sidebar {
         // a high priority filter, it will override OTTO's meta description
         if (!empty($description)) {
             $description_escaped = esc_attr($description);
-            $marker = $is_imported_fallback ? ' data-metasync-seo="imported"' : ' data-metasync-seo="custom"';
+            if ($is_imported_fallback) {
+                $marker = ' data-metasync-seo="imported"';
+            } elseif ($is_otto_value) {
+                $marker = ' data-metasync-otto="true"';
+            } else {
+                $marker = ' data-metasync-seo="custom"';
+            }
             // Standard meta description
             if (!$defer_meta_description) {
                 echo '<meta name="description" content="' . $description_escaped . '"' . $marker . ' />' . "\n";
@@ -320,30 +345,18 @@ class Metasync_SEO_Sidebar {
             return $title;
         }
 
-        // Get the custom SEO title (takes priority)
-        $seo_title = get_post_meta($post_id, self::META_SEO_TITLE, true);
+        // Which stored value wins is decided in one place, so the global
+        // "SEO Title & Description Priority" setting reaches this filter
+        // without a second copy of the rule. Under the default the customer's
+        // title still wins; under OTTO priority the chain hands back OTTO's
+        // value and falls back to the custom one where OTTO has none.
+        //
+        // The resolver reads the whole chain, so it also answers for a post
+        // whose title lives on the persisted or imported tier — cases this
+        // filter used to miss entirely by reading only the sidebar key.
+        $seo_title = Metasync_Seo_Precedence::value($post_id, Metasync_Seo_Precedence::FIELD_TITLE);
 
-        // Return custom SEO title if set
         return !empty($seo_title) ? $seo_title : $title;
-    }
-
-    /**
-     * Whether the per-post "Disable OTTO" toggle is set for this post.
-     *
-     * OTTO stands down completely for such a post, so its persisted suggestion is
-     * dead data. Treating that dead value as "OTTO has something to say" would
-     * block the imported fallback and leave the page with no description at all —
-     * OTTO suppressed, imported suppressed, nothing emitted.
-     *
-     * @param int $post_id Post ID.
-     * @return bool True when OTTO is switched off for this post.
-     */
-    private function otto_disabled_for_post($post_id) {
-        if (!class_exists('Metasync_Otto_Frontend_Toolbar')) {
-            return false;
-        }
-
-        return (bool) Metasync_Otto_Frontend_Toolbar::is_otto_disabled($post_id);
     }
 
     /**
@@ -406,7 +419,10 @@ class Metasync_SEO_Sidebar {
 
     /**
      * Filter document title parts (for themes using wp_get_document_title)
-     * Custom values ALWAYS take priority over OTTO
+     *
+     * Which stored value wins is decided by Metasync_Seo_Precedence, so this
+     * filter follows the global "SEO Title & Description Priority" setting
+     * without restating the order.
      *
      * @param array $title_parts Title parts array
      * @return array Modified title parts
@@ -427,10 +443,9 @@ class Metasync_SEO_Sidebar {
             return $title_parts;
         }
 
-        // Get the custom SEO title (takes priority)
-        $seo_title = get_post_meta($post_id, self::META_SEO_TITLE, true);
+        $seo_title = Metasync_Seo_Precedence::value($post_id, Metasync_Seo_Precedence::FIELD_TITLE);
 
-        // Replace title part if custom SEO title is set
+        // Replace title part if MetaSync holds a title for this post
         if (!empty($seo_title)) {
             $title_parts['title'] = $seo_title;
             // Remove tagline and site for clean SEO title
@@ -596,26 +611,25 @@ class Metasync_SEO_Sidebar {
                 },
             ));
 
-            // Register hreflang / language alternates meta (JSON-encoded array)
-            register_post_meta($post_type, self::META_HREFLANG, array(
-                'show_in_rest' => true,
-                'single' => true,
-                'type' => 'string',
-                'sanitize_callback' => function($value) {
-                    $decoded = json_decode($value, true);
-                    if (!is_array($decoded)) {
-                        return '[]';
-                    }
-                    return wp_json_encode($decoded);
-                },
-                'auth_callback' => function($allowed, $meta_key, $object_id) use ($post_type) {
-                    if (empty($object_id)) {
-                        $pt_obj = get_post_type_object($post_type);
-                        return $pt_obj ? current_user_can($pt_obj->cap->edit_posts) : current_user_can('edit_posts');
-                    }
-                    return current_user_can('edit_post', $object_id);
-                },
-            ));
+            // Register hreflang / language alternates meta (JSON-encoded array).
+            // Gated on the Language Alternates feature flag: when the feature is
+            // disabled the meta is not registered for REST, so the Gutenberg panel
+            // has nothing to bind to. Saved values are kept regardless.
+            if (class_exists('Metasync_Feature_Flags') && Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::LANGUAGE_ALTERNATES)) {
+                register_post_meta($post_type, self::META_HREFLANG, array(
+                    'show_in_rest' => true,
+                    'single' => true,
+                    'type' => 'string',
+                    'sanitize_callback' => array(__CLASS__, 'sanitize_hreflang_meta'),
+                    'auth_callback' => function($allowed, $meta_key, $object_id) use ($post_type) {
+                        if (empty($object_id)) {
+                            $pt_obj = get_post_type_object($post_type);
+                            return $pt_obj ? current_user_can($pt_obj->cap->edit_posts) : current_user_can('edit_posts');
+                        }
+                        return current_user_can('edit_post', $object_id);
+                    },
+                ));
+            }
 
             // Register plugin sync timestamp meta
             register_post_meta($post_type, self::META_PLUGIN_SYNC_TS, array(
@@ -673,11 +687,65 @@ class Metasync_SEO_Sidebar {
     }
 
     /**
+     * Sanitize the `_metasync_hreflang` meta value (register_post_meta
+     * sanitize_callback; static so it is directly testable).
+     *
+     * The stored value is a JSON array of {lang, region, url} rows. Rows are
+     * normalised through Metasync_Hreflang_Output::normalize_entry() (so
+     * `en_US` becomes `en`+`US`, casing is folded, `x-default` drops its
+     * region), fully blank rows are dropped, and malformed input degrades to
+     * an empty array. Rows whose language code still fails validation after
+     * normalisation are KEPT — the emitter skips them, and the editor panel
+     * warns — so saving never silently erases what the user typed.
+     *
+     * @param  mixed $value Incoming JSON string.
+     * @return string JSON array string.
+     */
+    public static function sanitize_hreflang_meta($value) {
+        // A non-string (e.g. a future importer passing an array straight to
+        // update_post_meta) must degrade to "no alternates" rather than
+        // fatal inside sanitize_meta on PHP 8.
+        if (!is_string($value)) {
+            return '[]';
+        }
+
+        $decoded = json_decode($value, true);
+        if (!is_array($decoded)) {
+            return '[]';
+        }
+
+        $clean = array();
+        foreach ($decoded as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $normalized = Metasync_Hreflang_Output::normalize_entry($entry);
+            if ($normalized['lang'] === '' && $normalized['url'] === '') {
+                // A stray blank row ("Add alternate" clicked, never filled
+                // in) must not flip the post into MetaSync-emits mode on
+                // WPML sites.
+                continue;
+            }
+            $clean[] = array(
+                'lang'   => $normalized['lang'],
+                'region' => $normalized['region'],
+                'url'    => $normalized['url'],
+            );
+        }
+
+        // UNESCAPED_* keeps non-ASCII URLs readable in storage and free of
+        // \uXXXX escapes that could be corrupted by a later unslash.
+        return wp_json_encode($clean, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    /**
      * Build a read-only list of WPML translation entries for a post.
      *
-     * Returns an array of {lang, url} objects by querying the
-     * `icl_translations` table. Used to seed the "Language Alternates"
-     * Gutenberg panel with auto-populated values.
+     * Delegates to the shared implementation in
+     * Metasync_Hreflang_Output::get_wpml_entries() so the editor panel shows
+     * exactly what the front end emits — including the synthesised
+     * x-default row and the region part — instead of a divergent copy of
+     * the query.
      *
      * @param int $post_id Post ID.
      * @return array
@@ -687,44 +755,18 @@ class Metasync_SEO_Sidebar {
             return array();
         }
 
-        global $wpdb;
-        $post = get_post($post_id);
-        if (!$post) {
-            return array();
-        }
+        $hreflang = new Metasync_Hreflang_Output();
+        $entries  = $hreflang->get_wpml_entries($post_id);
 
-        $element_type = 'post_' . $post->post_type;
-        $table = $wpdb->prefix . 'icl_translations';
-
-        $trid = $wpdb->get_var($wpdb->prepare(
-            "SELECT trid FROM {$table} WHERE element_id = %d AND element_type = %s LIMIT 1",
-            $post_id,
-            $element_type
-        ));
-        if (empty($trid)) {
-            return array();
-        }
-
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT language_code, element_id FROM {$table} WHERE trid = %d",
-            $trid
-        ));
-        if (empty($rows)) {
-            return array();
-        }
-
-        $entries = array();
-        foreach ($rows as $row) {
-            $permalink = get_permalink((int) $row->element_id);
-            if (empty($permalink)) {
-                continue;
-            }
-            $entries[] = array(
-                'lang' => (string) $row->language_code,
-                'url'  => $permalink,
+        $out = array();
+        foreach ($entries as $entry) {
+            $out[] = array(
+                'lang'   => isset($entry['lang']) ? $entry['lang'] : '',
+                'region' => isset($entry['region']) ? $entry['region'] : '',
+                'url'    => isset($entry['url']) ? $entry['url'] : '',
             );
         }
-        return $entries;
+        return $out;
     }
 
     /**
@@ -800,7 +842,13 @@ class Metasync_SEO_Sidebar {
         $is_lps_page = function_exists('metasync_is_custom_or_lps_page') && $post_id > 0 && metasync_is_custom_or_lps_page($post_id);
 
         // Auto-detected WPML entries for the "Language Alternates" panel.
-        $wpml_entries = $this->get_wpml_entries_for_post($post_id);
+        // Gated on the feature flag: when disabled the panel is hidden, so the
+        // entries are zeroed to avoid seeding data the UI cannot bind to.
+        $language_alternates_enabled = class_exists('Metasync_Feature_Flags')
+            && Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::LANGUAGE_ALTERNATES);
+        $wpml_entries = $language_alternates_enabled
+            ? $this->get_wpml_entries_for_post($post_id)
+            : array();
 
         // Link Suggestions configuration
         $link_suggestions_config = array(
@@ -887,6 +935,11 @@ class Metasync_SEO_Sidebar {
                 'aioseo'   => defined('AIOSEO_VERSION') || class_exists('AIOSEO\\Plugin\\AIOSEO'),
             ),
             'wpmlEntries' => $wpml_entries,
+            // '1' when enabled, '' when disabled. wp_localize_script() casts
+            // top-level scalars with (string), so a raw boolean false would
+            // arrive as "" and could not be distinguished from a missing key
+            // by a strict JS check. Follows the isCustomOrLpsPage pattern.
+            'languageAlternatesEnabled' => $language_alternates_enabled ? '1' : '',
             'otto' => array(
                 'globalEnabled' => self::is_otto_enabled_globally(),
                 'name' => $otto_name,
@@ -953,6 +1006,8 @@ class Metasync_SEO_Sidebar {
                 'urlLabel' => __('URL', 'metasync'),
                 'editManually' => __('Edit Manually', 'metasync'),
                 'wpmlAutoPopulated' => __('Auto-populated from WPML. Click Edit Manually to override.', 'metasync'),
+                'hreflangFormatHelp' => __('Use ISO codes (e.g. en, en-US, x-default — hyphen, not underscore) and absolute URLs (https://…). A self-reference for this page is added automatically when missing.', 'metasync'),
+                'hreflangInvalidRow' => __('This row will not be emitted: the language code must look like "en" or "en-US", and the URL must be absolute (https://…).', 'metasync'),
                 // Advanced Robots Directives
                 'robotsAdvancedTitle' => __('Advanced Robots Directives', 'metasync'),
                 'nofollowLabel' => __('Nofollow', 'metasync'),

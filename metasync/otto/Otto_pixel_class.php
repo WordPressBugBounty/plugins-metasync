@@ -197,6 +197,12 @@ Class Metasync_otto_pixel{
     # render route html
     function render_route_html(){
 
+        # Headless frontends do not consume WordPress-rendered HTML, so avoid
+        # suggestion lookups, buffering and internal fetches altogether.
+        if (Metasync_Headless_Config::is_active()) {
+            return;
+        }
+
         # Clear per-request statics before any path runs. Harmless under PHP-FPM
         # (the process ends with the request) but required under persistent-worker
         # SAPIs, where a latched flag would silently disable cache capping and

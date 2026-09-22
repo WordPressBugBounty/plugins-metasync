@@ -40,6 +40,7 @@ class Metasync_Error_Logger {
     const CATEGORY_DATABASE_ERROR = 'DATABASE_ERROR';
     const CATEGORY_NETWORK_ERROR = 'NETWORK_ERROR';
     const CATEGORY_OTTO_RENDER = 'OTTO_RENDER';
+    const CATEGORY_HEADLESS_DELIVERY = 'HEADLESS_DELIVERY';
     
     /**
      * Error codes mapping
@@ -55,6 +56,7 @@ class Metasync_Error_Logger {
         self::CATEGORY_DATABASE_ERROR => 'MS-5001',
         self::CATEGORY_NETWORK_ERROR => 'MS-6001',
         self::CATEGORY_OTTO_RENDER => 'MS-7001',
+        self::CATEGORY_HEADLESS_DELIVERY => 'MS-8001',
     ];
     
     /**
@@ -106,6 +108,12 @@ class Metasync_Error_Logger {
     const LOG_FILE_NAME = 'metasync-errors.log';
     
     /**
+     * Maximum log file size before rotation (10MB), mirroring the debug-mode
+     * log policy: current file plus a single .old rotation.
+     */
+    const MAX_LOG_SIZE = 10485760; // 10MB in bytes
+
+    /**
      * Main logging function
      * 
      * Formats and writes structured error log with:
@@ -143,11 +151,14 @@ class Metasync_Error_Logger {
         
         // Prepare full context with error code
         $full_context = array_merge([
-            'error_code' => $error_code
+            'error_code' => $error_code,
+            'severity' => $severity
         ], $context);
         
-        // Format timestamp
-        $timestamp = date('Y-m-d H:i:s');
+        // Format timestamp — current_time() keeps the log line on the same
+        // WordPress-local clock as the error summary below, instead of the
+        // server/UTC clock date() uses.
+        $timestamp = current_time('Y-m-d H:i:s');
         
         // Format log line: [YYYY-MM-DD HH:MM:SS] [CATEGORY] [SEVERITY] Message {context_json}
         $log_line = sprintf(
@@ -211,9 +222,33 @@ class Metasync_Error_Logger {
         // Get log file path
         $log_file = wp_normalize_path($log_directory . '/' . self::LOG_FILE_NAME);
         
+        // Serialize rotation and append across requests. Locking only the log
+        // file is insufficient because rename() changes the inode being locked.
+        $rotation_lock = @fopen($log_file . '.lock', 'c');
+        if (false === $rotation_lock || !flock($rotation_lock, LOCK_EX)) {
+            if (false !== $rotation_lock) {
+                fclose($rotation_lock);
+            }
+            error_log('Metasync_Error_Logger: Failed to lock log file: ' . $log_file);
+            return false;
+        }
+
+        // Rotate while holding the stable sidecar lock so concurrent requests
+        // cannot both unlink/rename the same file or append to the old inode.
+        $log_size = file_exists($log_file) ? filesize($log_file) : false;
+        if (false !== $log_size && $log_size >= self::MAX_LOG_SIZE) {
+            $backup = $log_file . '.old';
+            if (file_exists($backup)) {
+                @unlink($backup);
+            }
+            @rename($log_file, $backup);
+        }
+
         // Append to log file with file locking
         $result = @file_put_contents($log_file, $log_line, FILE_APPEND | LOCK_EX);
-        
+        flock($rotation_lock, LOCK_UN);
+        fclose($rotation_lock);
+
         if ($result === false) {
             error_log('Metasync_Error_Logger: Failed to write to log file: ' . $log_file);
             return false;

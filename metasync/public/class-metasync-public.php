@@ -149,21 +149,24 @@ class Metasync_Public
 		 * class.
 		 */
 
-		 # Enqueue the JavaScript file 'otto-tracker.js' with defer for better performance
-		# Load in footer (true) and add defer attribute to prevent render blocking
-		wp_enqueue_script($this->plugin_name . '-tracker', plugin_dir_url(__FILE__) . 'js/otto-tracker.min.js', array('jquery'), $this->version, true);
-		wp_enqueue_script($this->plugin_name, plugin_dir_url(__FILE__) . 'js/metasync-public.js', array('jquery'), $this->version, true);
-
-
 		# Get the Otto Pixel UUID from plugin settings.
 		$otto_uuid = Metasync::get_option('general')['otto_pixel_uuid'] ?? '';
 
-		# Get the current full page URL safely.
-		$page_url = esc_url(home_url(add_query_arg([], $_SERVER['REQUEST_URI'])));
-
-		# Pass PHP data to the JavaScript file using wp_localize_script.
-		# OTTO SSR is always enabled by default when UUID is set
+		# The tracker self-exits when window.saOttoData is absent, and saOttoData is
+		# only localized when a UUID is configured — so without a UUID the request
+		# ships a script that can never do anything. Skip it entirely instead.
+		# OTTO SSR is always enabled by default when UUID is set.
 		if (!empty($otto_uuid)) {
+
+			# Enqueue the JavaScript file 'otto-tracker.js' with defer for better performance
+			# Load in footer (true) and add defer attribute to prevent render blocking
+			# No jQuery dependency: the tracker is plain ES5/ES6 and uses no $.
+			wp_enqueue_script($this->plugin_name . '-tracker', plugin_dir_url(__FILE__) . 'js/otto-tracker.min.js', array(), $this->version, true);
+
+			# Get the current full page URL safely.
+			$page_url = esc_url(home_url(add_query_arg([], $_SERVER['REQUEST_URI'])));
+
+			# Pass PHP data to the JavaScript file using wp_localize_script.
 			wp_localize_script($this->plugin_name . '-tracker', 'saOttoData', [
 				'otto_uuid' => $otto_uuid,
 				'page_url'  => $page_url,
@@ -172,8 +175,74 @@ class Metasync_Public
 			]);
 		}
 
-		# Add defer attribute to OTTO scripts for performance optimization
-		add_filter('script_loader_tag', array($this, 'add_defer_attribute'), 10, 2);
+		# metasync-public.js drives nothing but the [accordion_metasync] shortcode,
+		# so it only needs to load on a page that actually renders that shortcode.
+		if ($this->has_accordion_shortcode()) {
+			wp_enqueue_script($this->plugin_name, plugin_dir_url(__FILE__) . 'js/metasync-public.js', array(), $this->version, true);
+
+			# CSS and JS gate on the same predicate so a placement the scan misses degrades to visible-but-unstyled content, never hidden content.
+			wp_enqueue_style($this->plugin_name . '-accordion', plugin_dir_url(__FILE__) . 'css/metasync-accordion.css', array(), $this->version, 'all');
+		}
+	}
+
+	/**
+	 * Whether the current request is likely to render the [accordion_metasync] shortcode.
+	 *
+	 * The shortcode is registered globally, so it can render from more than the
+	 * singular post_content: the excerpt, Elementor's `_elementor_data` post meta
+	 * (JSON, but has_shortcode() still matches the shortcode text inside it), and
+	 * classic Text/Block widgets placed in a sidebar shown on any template.
+	 *
+	 * This is a static scan, not a guarantee — it can't see every builder/theme
+	 * storage format. The `metasync_load_accordion_assets` filter is the escape
+	 * hatch: `add_filter('metasync_load_accordion_assets', '__return_true')` to
+	 * force-load the accordion assets when a placement here is missed.
+	 *
+	 * @since    1.0.0
+	 * @return   bool
+	 */
+	private function has_accordion_shortcode()
+	{
+		$load = false;
+
+		if (is_singular()) {
+			$post = get_post();
+			if ($post) {
+				if (!empty($post->post_content) && has_shortcode($post->post_content, 'accordion_metasync')) {
+					$load = true;
+				} elseif (!empty($post->post_excerpt) && has_shortcode($post->post_excerpt, 'accordion_metasync')) {
+					$load = true;
+				} else {
+					$elementor_data = get_post_meta($post->ID, '_elementor_data', true);
+					if (is_string($elementor_data) && $elementor_data !== '' && has_shortcode($elementor_data, 'accordion_metasync')) {
+						$load = true;
+					}
+				}
+			}
+		}
+
+		if (!$load) {
+			foreach (array('widget_text', 'widget_block') as $widget_option) {
+				$instances = get_option($widget_option);
+				if (empty($instances) || !is_array($instances)) {
+					continue;
+				}
+
+				foreach ($instances as $instance) {
+					if (!is_array($instance)) {
+						continue;
+					}
+					foreach ($instance as $field_value) {
+						if (is_string($field_value) && has_shortcode($field_value, 'accordion_metasync')) {
+							$load = true;
+							break 3;
+						}
+					}
+				}
+			}
+		}
+
+		return apply_filters('metasync_load_accordion_assets', $load);
 	}
 
 	/**
@@ -186,10 +255,21 @@ class Metasync_Public
 	 * @return   string    Modified script tag with defer attribute
 	 */
 	public function add_defer_attribute($tag, $handle) {
+		# This filter is registered globally and also runs on admin screens, where
+		# the admin bundle handle ('metasync', js/metasync-admin.js) collides with
+		# our own plugin_name handle. Deferring the admin head script would run it
+		# after metasync-dashboard.js (its footer-loaded dependent), inverting the
+		# dependency order. Bail out on admin requests before the handle check.
+		if (is_admin()) {
+			return $tag;
+		}
+
 		# Only add defer to our OTTO scripts
 		if ($handle === $this->plugin_name . '-tracker' || $handle === $this->plugin_name) {
-			# Check if defer is not already present
-			if (strpos($tag, 'defer') === false) {
+			# Check if a defer attribute is not already present. A plain strpos()
+			# for 'defer' false-positives on any script URL that merely contains
+			# the substring (e.g. "...?deferred=1"), so match the attribute itself.
+			if (!preg_match('/\sdefer(\s|=|>)/i', $tag)) {
 				# Add defer attribute before the closing >
 				$tag = str_replace(' src', ' defer src', $tag);
 			}

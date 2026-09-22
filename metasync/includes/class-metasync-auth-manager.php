@@ -101,6 +101,10 @@ class Metasync_Auth_Manager {
 
         // Check temporary access (transient)
         if ($this->has_transient_access()) {
+            // Sliding window: renew the access window itself, not just the
+            // decorative activity timestamp, so an admin actively using the
+            // tab is not cut off exactly at grant-time + timeout.
+            set_transient($this->get_transient_key(), 'granted', $this->transient_timeout);
             // Refresh transient activity
             $this->update_activity();
             return true;
@@ -363,8 +367,12 @@ class Metasync_Auth_Manager {
             $valid_passwords = array($valid_passwords);
         }
 
-        // Remove empty passwords
-        $valid_passwords = array_filter($valid_passwords);
+        // Remove unset/empty passwords, but keep the string '0' — a
+        // truthiness filter would silently drop a configured password of
+        // "0" and make it impossible to authenticate with.
+        $valid_passwords = array_filter($valid_passwords, function ($p) {
+            return null !== $p && '' !== $p;
+        });
 
         if (empty($valid_passwords)) {
             return false;

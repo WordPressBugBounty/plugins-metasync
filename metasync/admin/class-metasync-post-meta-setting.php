@@ -463,6 +463,19 @@ class Metasync_Post_Meta_Settings
 		// already returned when a non-410/451 type had an empty destination,
 		// so $dest is known non-empty here.
 		if (!$is_gone) {
+			// Destination guard — same checks as the admin form and MCP tools.
+			// Backslashes and protocol-relative hosts bypass host validation in
+			// browsers while looking internal to wp_validate_redirect. On a
+			// bad destination we keep the previously stored rule and skip the
+			// write, same skip-write semantics as the loop guard below.
+			if (!class_exists('Metasync_Redirection_Validator')) {
+				require_once dirname(__FILE__, 2) . '/redirections/class-metasync-redirection-validator.php';
+			}
+			if (!Metasync_Redirection_Validator::is_safe_destination_syntax($dest)
+				|| (!get_option('metasync_allow_external_redirects', 0) && wp_validate_redirect($dest, '') !== $dest)) {
+				return;
+			}
+
 			if (!class_exists('Metasync_Redirection')) {
 				require_once dirname(__FILE__, 2) . '/redirections/class-metasync-redirection.php';
 			}

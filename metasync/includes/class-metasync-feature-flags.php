@@ -38,6 +38,7 @@ class Metasync_Feature_Flags
 	const CANONICAL      = 'canonical';
 	const SOCIAL_OG      = 'social_opengraph';
 	const SCHEMA         = 'schema_markup';
+	const LANGUAGE_ALTERNATES = 'language_alternates';
 
 	/**
 	 * Maps each feature to the key it is stored under in the `general` option
@@ -53,6 +54,7 @@ class Metasync_Feature_Flags
 		self::CANONICAL      => 'disable_canonical_metabox',
 		self::SOCIAL_OG      => 'disable_social_opengraph_metabox',
 		self::SCHEMA         => 'disable_schema_markup_metabox',
+		self::LANGUAGE_ALTERNATES => 'disable_language_alternates_metabox',
 	];
 
 	/**

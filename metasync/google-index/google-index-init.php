@@ -47,8 +47,12 @@ function google_index_direct_init()
 
 /**
  * Get Google Index Direct instance
- * 
- * @return Google_Index_Direct
+ *
+ * Returns null when the class could not be loaded — callers that reached this
+ * before google_index_direct_init() ran, or on an install where the class file
+ * is missing, get null rather than a fatal.
+ *
+ * @return Google_Index_Direct|null
  */
 function google_index_direct()
 {
@@ -96,9 +100,14 @@ function google_index_url($url, $action = 'update')
  * @param array $service_account_json Service account JSON configuration
  * @return bool True on success, false on failure
  */
-function google_index_save_service_account($service_account_json) 
+function google_index_save_service_account($service_account_json)
 {
-    return google_index_direct()->save_service_account_config($service_account_json);
+    $instance = google_index_direct();
+    if (!$instance) {
+        return false;
+    }
+
+    return $instance->save_service_account_config($service_account_json);
 }
 
 

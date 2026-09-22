@@ -91,12 +91,18 @@ class Metasync_SEO_Inventory_Builder {
 
         // Exclude custom/LPS pages — their SEO is self-managed, so the platform
         // must not treat them as "missing SEO".
-        $query_args['meta_query'] = [metasync_get_custom_page_exclusion_meta_query()];
+        $query_args['metasync_exclude_custom_pages'] = true;
+        add_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10, 2);
 
-        $query = new WP_Query($query_args);
-
-        // Remove the filter immediately so it doesn't affect other queries
-        remove_filter('posts_where', [__CLASS__, 'filter_where_id_gt'], 10);
+        try {
+            $query = new WP_Query($query_args);
+        } finally {
+            // Remove filters immediately so they don't affect other queries
+            if ($cursor > 0) {
+                remove_filter('posts_where', [__CLASS__, 'filter_where_id_gt'], 10);
+            }
+            remove_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10);
+        }
 
         $posts    = $query->posts;
         $has_more = count($posts) > $limit;
@@ -243,7 +249,7 @@ class Metasync_SEO_Inventory_Builder {
             // Exclude custom/LPS pages so the total matches the excluded item list
             // in build() — otherwise the platform sees a count larger than the
             // number of items it can page through.
-            'meta_query'     => [metasync_get_custom_page_exclusion_meta_query()],
+            'metasync_exclude_custom_pages' => true,
         ];
 
         if (!empty($modified_after)) {
@@ -256,7 +262,13 @@ class Metasync_SEO_Inventory_Builder {
             ];
         }
 
-        $query = new WP_Query($args);
+        add_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10, 2);
+        try {
+            $query = new WP_Query($args);
+        } finally {
+            remove_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10);
+        }
+
         return (int) $query->found_posts;
     }
 

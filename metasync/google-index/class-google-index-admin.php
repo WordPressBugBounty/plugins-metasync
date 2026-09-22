@@ -14,13 +14,26 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-class Google_Index_Admin 
+class Google_Index_Admin
 {
     /**
      * Section ID for Google Index settings
      */
     private const SECTION_GOOGLE_INDEX = 'google_index_direct_settings';
-    
+
+    /**
+     * Nonce action shared by the two dedicated (standalone-page) endpoints.
+     */
+    private const ACCOUNT_NONCE_ACTION = 'metasync_google_index_account';
+
+    /**
+     * Placeholder the redacted display JSON uses in place of the private key.
+     *
+     * Its presence means the textarea still holds what the server rendered, so
+     * the submission carries no new credential and must leave storage alone.
+     */
+    private const REDACTED_MARKER = '-----REDACTED-----';
+
     /**
      * Initialize admin functionality
      */
@@ -29,16 +42,21 @@ class Google_Index_Admin
         // Hook into MetaSync admin initialization
         add_action('admin_init', array($this, 'add_settings_to_metasync'), 20);
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
-        
+
         // Hook into MetaSync's AJAX settings processing
         add_action('wp_ajax_meta_sync_save_settings', array($this, 'process_google_index_settings'), 5);
         add_action('wp_ajax_meta_sync_save_seo_controls', array($this, 'process_google_index_settings'), 5);
-        
+
         // Display admin notices after redirect
         add_action('admin_notices', array($this, 'display_admin_notices'));
-        
+
         // AJAX handlers
         add_action('wp_ajax_metasync_google_index_direct_test', array($this, 'ajax_test_connection'));
+
+        // Dedicated save/clear for the standalone Instant Indexing page, which
+        // has no settings form to piggyback on.
+        add_action('wp_ajax_metasync_google_index_save_account', array($this, 'ajax_save_service_account'));
+        add_action('wp_ajax_metasync_google_index_clear_account', array($this, 'ajax_clear_service_account'));
     }
     
     
@@ -104,6 +122,10 @@ class Google_Index_Admin
         
         // Get current service account info (safe - doesn't expose private key)
         $google_index = google_index_direct();
+        if (!$google_index) {
+            // Nothing to render against, and calling through would be fatal.
+            return;
+        }
         $service_info = $google_index->get_service_account_info();
         $is_configured = !isset($service_info['error']);
 
@@ -120,8 +142,8 @@ class Google_Index_Admin
     public function process_google_index_settings()
     {
         // Only process if our fields are present in the request
-        if (!isset($_POST['google_index_service_account_json']) && 
-            !isset($_POST['google_index_clear_config']) && 
+        if (!isset($_POST['google_index_service_account_json']) &&
+            !isset($_POST['google_index_clear_config']) &&
             !isset($_FILES['google_index_service_account_file'])) {
             return; // No Google Index data to process
         }
@@ -132,104 +154,279 @@ class Google_Index_Admin
 
         // Clearing does not need to load or inspect credential contents.
         if (isset($_POST['google_index_clear_config'])) {
-            delete_option('google_index_service_account');
+            $this->clear_stored_service_account();
             $this->add_settings_notice('Service account configuration cleared successfully!', 'success');
             return;
         }
-        
+
+        $result = $this->persist_submitted_service_account();
+
+        if ($result['status'] === 'error') {
+            // The parent save is still mid-flight; aborting here with an error
+            // keeps a bad credential from being reported as a successful save.
+            wp_send_json_error([
+                'errors'  => ['Google Index: ' . $result['message']],
+                'message' => 'Google Index: ' . $result['message'],
+            ]);
+        }
+
+        if ($result['status'] === 'unavailable') {
+            // The sub-module is missing. Let the rest of the settings save
+            // finish and surface this as a notice instead of failing the page.
+            $this->add_settings_notice($result['message'], 'warning');
+            return;
+        }
+
+        if ($result['status'] === 'saved') {
+            $this->add_settings_notice('Google Index service account configured successfully!', 'success');
+        }
+    }
+
+    /**
+     * Read the submitted service account from $_POST/$_FILES, validate it, and
+     * persist it when it is a genuinely new credential.
+     *
+     * Shared by the form-embedded flow and the dedicated standalone endpoint so
+     * both accept and reject exactly the same payloads. Returns a status rather
+     * than emitting a response, because the two callers report differently: the
+     * embedded flow must abort the parent save, the dedicated endpoint owns the
+     * whole response.
+     *
+     * @return array{status:string, message:string} status is one of:
+     *         'saved'     - a new credential was written
+     *         'unchanged' - nothing to write (empty, or the redacted display text)
+     *         'error'     - validation or persistence failed; message explains why
+     */
+    private function persist_submitted_service_account()
+    {
         // Load Google Index functionality
-        if (!function_exists('google_index_save_service_account')) {
+        if (!$this->module_function_available('google_index_save_service_account')) {
             if (file_exists(plugin_dir_path(__FILE__) . 'google-index-init.php')) {
                 require_once plugin_dir_path(__FILE__) . 'google-index-init.php';
-            } else {
-                error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(__FILE__) . 'google-index-init.php');
-                return;
+            }
+
+            // A partial deploy can leave the file present but the function
+            // undefined, so re-check rather than assuming the require worked.
+            if (!$this->module_function_available('google_index_save_service_account')) {
+                error_log('MetaSync Google Index: google_index_save_service_account() unavailable; expected google-index-init.php at ' . plugin_dir_path(__FILE__) . 'google-index-init.php');
+
+                // Deliberately NOT 'error'. This optional sub-module failing to
+                // load must not abort the parent settings save — the embedded
+                // caller would turn that into a wp_send_json_error() and take
+                // the whole General Settings / Indexation Control page down.
+                return ['status' => 'unavailable', 'message' => 'The Google Index module could not be loaded, so the service account was not saved.'];
             }
         }
-        
+
         $service_account_json = '';
-        
+
         // Get JSON from textarea
         if (isset($_POST['google_index_service_account_json'])) {
             $service_account_json = sanitize_textarea_field(wp_unslash($_POST['google_index_service_account_json']));
         }
-        
+
         // Override with file upload if provided
-        if (isset($_FILES['google_index_service_account_file']) && 
-            !empty($_FILES['google_index_service_account_file']['tmp_name']) && 
+        if (isset($_FILES['google_index_service_account_file']) &&
+            !empty($_FILES['google_index_service_account_file']['tmp_name']) &&
             file_exists($_FILES['google_index_service_account_file']['tmp_name'])) {
-            
+
             $uploaded_json = file_get_contents($_FILES['google_index_service_account_file']['tmp_name']);
             if ($uploaded_json !== false) {
                 $service_account_json = $uploaded_json; // Removed unnecessary wp_unslash
             }
         }
-        
-        // Process service account JSON if provided
-        if (!empty($service_account_json) && trim($service_account_json) !== '') {
-            
-            // Skip if it contains redacted private key (user didn't paste new JSON)
-            if (strpos($service_account_json, '-----REDACTED-----') !== false) {
-                return; // Don't process redacted display text
+
+        if (empty($service_account_json) || trim($service_account_json) === '') {
+            return ['status' => 'unchanged', 'message' => ''];
+        }
+
+        // Skip if it contains redacted private key (user didn't paste new JSON)
+        if (strpos($service_account_json, self::REDACTED_MARKER) !== false) {
+            return ['status' => 'unchanged', 'message' => ''];
+        }
+
+        $validation = $this->validate_service_account_json($service_account_json);
+        if (!empty($validation['error'])) {
+            return ['status' => 'error', 'message' => $validation['error']];
+        }
+
+        if (!google_index_save_service_account($validation['data'])) {
+            return [
+                'status'  => 'error',
+                'message' => 'Failed to save service account configuration. Please try again or check your JSON format.',
+            ];
+        }
+
+        return ['status' => 'saved', 'message' => 'Google Index service account configured successfully!'];
+    }
+
+    /**
+     * Whether a function the optional Google Index sub-module provides exists.
+     *
+     * Taking the name as a parameter keeps the check opaque to static analysis,
+     * which otherwise treats the second call in a load-then-verify pair as dead
+     * because it cannot see that the intervening require_once may define it.
+     *
+     * Genuinely impure: the same argument yields a different answer once the
+     * sub-module has been required, which is precisely why it is called twice.
+     *
+     * @phpstan-impure
+     *
+     * @param string $name Function name to look for.
+     * @return bool
+     */
+    private function module_function_available($name)
+    {
+        return function_exists($name);
+    }
+
+    /**
+     * Decode and structurally validate a service account JSON string.
+     *
+     * @param string $json Raw JSON text.
+     * @return array{data:array|null, error:string} error is '' when valid.
+     */
+    private function validate_service_account_json($json)
+    {
+        $data = json_decode($json, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $message = 'Invalid JSON format';
+            switch (json_last_error()) {
+                case JSON_ERROR_SYNTAX:
+                    $message .= ' - Syntax error in JSON';
+                    break;
+                case JSON_ERROR_UTF8:
+                    $message .= ' - Invalid UTF-8 encoding';
+                    break;
+                default:
+                    $message .= ' - ' . json_last_error_msg();
+                    break;
             }
-            
-            // Decode and validate JSON
-            $service_account_data = json_decode($service_account_json, true);
-            
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                // JSON parsing error - send immediate error response
-                $json_error_message = 'Invalid JSON format';
-                switch (json_last_error()) {
-                    case JSON_ERROR_SYNTAX:
-                        $json_error_message .= ' - Syntax error in JSON';
-                        break;
-                    case JSON_ERROR_UTF8:
-                        $json_error_message .= ' - Invalid UTF-8 encoding';
-                        break;
-                    default:
-                        $json_error_message .= ' - ' . json_last_error_msg();
-                        break;
-                }
-                
-                wp_send_json_error([
-                    'errors' => ['Google Index: ' . $json_error_message . '. Please check your service account JSON.']
-                ]);
-            }
-            
-            if (!is_array($service_account_data)) {
-                wp_send_json_error([
-                    'errors' => ['Google Index: JSON must be an object/array. Please check your service account JSON format.']
-                ]);
-            }
-            
-            // Validate required fields
-            $required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 'client_email', 'client_id', 'auth_uri', 'token_uri'];
-            $missing_fields = [];
-            
-            foreach ($required_fields as $field) {
-                if (!isset($service_account_data[$field]) || empty($service_account_data[$field])) {
-                    $missing_fields[] = $field;
-                }
-            }
-            
-            if (!empty($missing_fields)) {
-                wp_send_json_error([
-                    'errors' => ['Google Index: Missing required fields - ' . implode(', ', $missing_fields) . '. Please ensure you have a complete service account JSON.']
-                ]);
-            }
-            
-            // Save using Google Index function
-            $result = google_index_save_service_account($service_account_data);
-            
-            if ($result) {
-                $this->add_settings_notice('Google Index service account configured successfully!', 'success');
-            } else {
-                // Send immediate error response using MetaSync's expected format
-                wp_send_json_error([
-                    'errors' => ['Google Index: Failed to save service account configuration. Please try again or check your JSON format.']
-                ]);
+
+            return ['data' => null, 'error' => $message . '. Please check your service account JSON.'];
+        }
+
+        if (!is_array($data)) {
+            return [
+                'data'  => null,
+                'error' => 'JSON must be an object/array. Please check your service account JSON format.',
+            ];
+        }
+
+        $required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 'client_email', 'client_id', 'auth_uri', 'token_uri'];
+        $missing_fields = [];
+
+        foreach ($required_fields as $field) {
+            if (!isset($data[$field]) || empty($data[$field])) {
+                $missing_fields[] = $field;
             }
         }
+
+        if (!empty($missing_fields)) {
+            return [
+                'data'  => null,
+                'error' => 'Missing required fields - ' . implode(', ', $missing_fields) . '. Please ensure you have a complete service account JSON.',
+            ];
+        }
+
+        return ['data' => $data, 'error' => ''];
+    }
+
+    /**
+     * AJAX: save the service account from the standalone Instant Indexing page.
+     *
+     * The page has no settings form, so this endpoint carries its own nonce and
+     * capability check rather than relying on a parent save's.
+     */
+    public function ajax_save_service_account()
+    {
+        $this->authorize_account_request();
+
+        $result = $this->persist_submitted_service_account();
+
+        if ($result['status'] === 'error' || $result['status'] === 'unavailable') {
+            // Here the credential save IS the whole request, so a missing
+            // sub-module is a genuine failure and must be reported as one.
+            wp_send_json_error([
+                'message' => $result['message'],
+                'errors'  => [$result['message']],
+            ]);
+        }
+
+        if ($result['status'] === 'unchanged') {
+            // Nothing was submitted, or the textarea still holds the redacted
+            // text the server rendered. Reporting this plainly is better than a
+            // success banner for a save that wrote nothing.
+            wp_send_json_success([
+                'message' => 'No new service account JSON was provided, so the saved configuration is unchanged.',
+                'saved'   => false,
+            ]);
+        }
+
+        // Survives the page reload the JS performs, which is what actually
+        // renders the confirmation banner and the configured-state UI.
+        $this->add_settings_notice('Google Index service account configured successfully!', 'success');
+
+        wp_send_json_success([
+            'message' => 'Service account saved successfully!',
+            'saved'   => true,
+        ]);
+    }
+
+    /**
+     * AJAX: clear the stored service account from the standalone page.
+     */
+    public function ajax_clear_service_account()
+    {
+        $this->authorize_account_request();
+
+        $this->clear_stored_service_account();
+
+        $this->add_settings_notice('Service account configuration cleared successfully!', 'success');
+
+        wp_send_json_success(['message' => 'Service account configuration cleared successfully!']);
+    }
+
+    /**
+     * Remove the stored service account and any token minted from it.
+     *
+     * Shared by both clear paths: a cached access token that outlives the
+     * credential it was issued for would keep working until it expired.
+     */
+    private function clear_stored_service_account()
+    {
+        delete_option('google_index_service_account');
+
+        if (function_exists('google_index_direct')) {
+            $instance = google_index_direct();
+            if ($instance) {
+                $instance->clear_token_cache();
+            }
+        }
+    }
+
+    /**
+     * Authorize a dedicated (standalone-page) service account request.
+     *
+     * Terminates the request with a 403 JSON response when the caller lacks the
+     * capability or a valid nonce.
+     */
+    private function authorize_account_request()
+    {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions.'), 403);
+        }
+
+        $nonce = isset($_POST['metasync_google_index_account_nonce'])
+            ? wp_unslash($_POST['metasync_google_index_account_nonce'])
+            : '';
+
+        if (!$nonce || !wp_verify_nonce($nonce, self::ACCOUNT_NONCE_ACTION)) {
+            wp_send_json_error(array('message' => 'Invalid nonce'), 403);
+        }
+
+        return true;
     }
     
     /**
@@ -362,13 +559,21 @@ class Google_Index_Admin
         if (strpos($hook, $page_slug) === false) {
             return;
         }
-        
-        // Only load on general tab (default tab when none specified)
-        $current_tab = isset($_GET['tab']) ? $_GET['tab'] : 'general';
-        if ($current_tab !== 'general') {
-            return;
+
+        // The credentials section renders in three places: the General Settings
+        // "general" tab, the Indexation Control page, and the standalone
+        // Instant Indexing page. Gating on the tab alone left the standalone
+        // page — the one the ticket is about — without any of this behaviour.
+        $current_page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
+        $is_standalone_page = (substr($current_page, -14) === '-instant-index');
+
+        if (!$is_standalone_page) {
+            $current_tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : 'general';
+            if ($current_tab !== 'general' && strpos($hook, 'seo-controls') === false) {
+                return;
+            }
         }
-        
+
         // Add inline JavaScript for functionality
         wp_add_inline_script('jquery', $this->get_admin_javascript());
     }
@@ -384,59 +589,201 @@ class Google_Index_Admin
         
         return "
         jQuery(document).ready(function($) {
+            // What the textarea held immediately before a file overwrote it.
+            // Seeded from the server-rendered value and re-snapshotted on each
+            // file pick, so 'Remove' undoes exactly the file selection — it
+            // does not also discard a credential the user typed by hand before
+            // mis-clicking Choose File.
+            var originalJsonValue = $('#google_index_service_account_json').val();
+
+            // FileReader is async and the dedicated Save posts the textarea,
+            // not the file input. Without this flag a quick Save click after
+            // choosing a file would send the pre-file contents — on an already
+            // configured site that is the redacted text, so the save would
+            // silently do nothing and report 'no new JSON provided'.
+            var fileReadPending = false;
+
+            // Test Connection builds its results list as an HTML string. The
+            // values come from the API/server rather than the page, so escape
+            // them before they reach that sink.
+            function escHtml(value) {
+                return $('<div>').text(value === undefined || value === null ? '' : value).html();
+            }
+
+            function showFileMessage(text, type) {
+                var box = $('#google-index-file-messages');
+                if (!box.length) { return; }
+                box.empty();
+                if (!text) { return; }
+                var notice = $('<div>').addClass('notice notice-' + type + ' inline');
+                notice.append($('<p>').text(text));
+                box.append(notice);
+            }
+
+            function showSaveMessage(text, type) {
+                var box = $('#google-index-save-messages');
+                if (!box.length) {
+                    // Embedded contexts have no dedicated box; fall back to the
+                    // file-message area so errors are never silent.
+                    showFileMessage(text, type);
+                    return;
+                }
+                box.empty();
+                if (!text) { return; }
+                var notice = $('<div>').addClass('notice notice-' + type + ' inline');
+                notice.append($('<p>').text(text));
+                box.append(notice);
+            }
+
+            function clearSelectedFile(restoreTextarea) {
+                fileReadPending = false;
+                var input = $('#google_index_service_account_file');
+                if (input.length) {
+                    input.val('');
+                }
+                $('#google-index-selected-file').hide();
+                $('#google-index-selected-file-name').text('');
+                showFileMessage('', 'info');
+
+                if (restoreTextarea) {
+                    var textarea = $('#google_index_service_account_json');
+                    textarea.val(originalJsonValue);
+                    textarea.trigger('input').trigger('change');
+                    $('#metaSyncGeneralSetting, #metaSyncSeoControlsForm').trigger('change');
+                }
+            }
+
             // Integration with MetaSync's unsaved changes detection
             function integrateWithUnsavedChangesDetection() {
                 // Monitor textarea for changes (avoid recursion)
                 $('#google_index_service_account_json').on('input change paste keyup', function(e) {
-                    console.log('Google Index: Textarea changed via', e.type);
                     // Trigger MetaSync's change detection (works on both Settings and Indexation Control pages)
                     $('#metaSyncGeneralSetting, #metaSyncSeoControlsForm').trigger('change');
                 });
-                
+
                 // Handle file upload with auto-populate and change detection
                 $('#google_index_service_account_file').on('change', function(e) {
                     var file = e.target.files[0];
                     var textarea = $('#google_index_service_account_json');
-                    
-                    if (file && file.name.toLowerCase().endsWith('.json')) {
-                        var reader = new FileReader();
-                        reader.onload = function(e) {
-                            try {
-                                var json = JSON.parse(e.target.result);
-                                // Update textarea value
-                                var jsonString = JSON.stringify(json, null, 2);
-                                textarea.val(jsonString);
-                                
-                                // Create and dispatch native events to ensure proper detection
-                                setTimeout(function() {
-                                    // Create native events
-                                    var inputEvent = new Event('input', { bubbles: true, cancelable: true });
-                                    var changeEvent = new Event('change', { bubbles: true, cancelable: true });
-                                    
-                                    // Dispatch events on the actual DOM element (not jQuery)
-                                    textarea[0].dispatchEvent(inputEvent);
-                                    textarea[0].dispatchEvent(changeEvent);
-                                    
-                                    // Also trigger jQuery events as backup
-                                    textarea.trigger('input').trigger('change');
-                                    
-                                    console.log('Google Index: File upload triggered change detection');
-                                }, 100);
-                            } catch (err) {
-                                alert('Invalid JSON file selected.');
-                            }
-                        };
-                        reader.readAsText(file);
-                    } else {
-                        // File upload indicates change even if not JSON (works on both Settings and Indexation Control pages)
-                        $('#metaSyncGeneralSetting, #metaSyncSeoControlsForm').trigger('change');
+
+                    if (!file) {
+                        clearSelectedFile(true);
+                        return;
                     }
+
+                    if (!file.name.toLowerCase().endsWith('.json')) {
+                        // Inline feedback instead of the old blocking alert().
+                        showFileMessage('\"' + file.name + '\" is not a .json file. Choose the service account key file you downloaded from Google Cloud.', 'error');
+                        $('#google-index-selected-file').hide();
+                        $('#google_index_service_account_file').val('');
+                        return;
+                    }
+
+                    // Snapshot only when no file is currently selected, i.e. at
+                    // the START of a pick sequence. Re-snapshotting on every
+                    // pick would make Remove restore file A's contents after
+                    // the user picked A then B then removed — leaving a
+                    // credential in the box while the UI says no file is
+                    // selected.
+                    if (!$('#google-index-selected-file').is(':visible')) {
+                        originalJsonValue = textarea.val();
+                    }
+
+                    var reader = new FileReader();
+                    fileReadPending = true;
+                    reader.onload = function(ev) {
+                        fileReadPending = false;
+                        try {
+                            var json = JSON.parse(ev.target.result);
+                            var jsonString = JSON.stringify(json, null, 2);
+                            textarea.val(jsonString);
+
+                            $('#google-index-selected-file-name').text(file.name);
+                            $('#google-index-selected-file').show();
+                            showFileMessage('\"' + file.name + '\" loaded. Click Save Configuration to store it.', 'info');
+
+                            // Create and dispatch native events to ensure proper detection
+                            setTimeout(function() {
+                                var inputEvent = new Event('input', { bubbles: true, cancelable: true });
+                                var changeEvent = new Event('change', { bubbles: true, cancelable: true });
+
+                                textarea[0].dispatchEvent(inputEvent);
+                                textarea[0].dispatchEvent(changeEvent);
+
+                                textarea.trigger('input').trigger('change');
+                            }, 100);
+                        } catch (err) {
+                            showFileMessage('\"' + file.name + '\" is not valid JSON. Re-download the key file from Google Cloud and try again.', 'error');
+                            $('#google-index-selected-file').hide();
+                            $('#google_index_service_account_file').val('');
+                        }
+                    };
+                    reader.onerror = function() {
+                        fileReadPending = false;
+                        showFileMessage('\"' + file.name + '\" could not be read. Try choosing it again.', 'error');
+                        $('#google-index-selected-file').hide();
+                        $('#google_index_service_account_file').val('');
+                    };
+                    reader.readAsText(file);
+                });
+
+                // Remove/reselect
+                $('#google-index-remove-file').on('click', function(e) {
+                    e.preventDefault();
+                    clearSelectedFile(true);
                 });
             }
-            
+
             // Initialize integration after a small delay to ensure MetaSync is ready
             setTimeout(integrateWithUnsavedChangesDetection, 100);
-            
+
+            // Dedicated save — standalone Instant Indexing page only.
+            $('#google-index-save-config').on('click', function(e) {
+                e.preventDefault();
+
+                if (fileReadPending) {
+                    showSaveMessage('Still reading the selected file. Try again in a moment.', 'warning');
+                    return;
+                }
+
+                var button = $(this);
+                var original = button.html();
+                button.prop('disabled', true).text('Saving...');
+                showSaveMessage('', 'info');
+
+                $.ajax({
+                    url: (typeof ajaxurl !== 'undefined') ? ajaxurl : metaSync.ajax_url,
+                    type: 'POST',
+                    data: {
+                        action: 'metasync_google_index_save_account',
+                        metasync_google_index_account_nonce: $('#metasync_google_index_account_nonce').val(),
+                        google_index_service_account_json: $('#google_index_service_account_json').val()
+                    },
+                    success: function(response) {
+                        if (response && response.success) {
+                            if (response.data && response.data.saved) {
+                                // Reload so the configured-state UI and the
+                                // transient success banner both render.
+                                window.location.reload();
+                                return;
+                            }
+                            showSaveMessage((response.data && response.data.message) || 'Nothing to save.', 'warning');
+                        } else {
+                            var msg = (response && response.data && response.data.message)
+                                ? response.data.message
+                                : 'Failed to save the service account.';
+                            showSaveMessage(msg, 'error');
+                        }
+                    },
+                    error: function() {
+                        showSaveMessage('Network error while saving. Please try again.', 'error');
+                    },
+                    complete: function() {
+                        button.prop('disabled', false).html(original);
+                    }
+                });
+            });
+
             // Handle test connection button
             $('#google-index-test-connection').on('click', function(e) {
                 e.preventDefault();
@@ -467,8 +814,8 @@ class Google_Index_Admin
                             }
                             
                             if (results.credentials_test) {
-                                html += '<li><strong>Service Account:</strong> ' + results.credentials_test.client_email + '</li>';
-                                html += '<li><strong>Project ID:</strong> ' + results.credentials_test.project_id + '</li>';
+                                html += '<li><strong>Service Account:</strong> ' + escHtml(results.credentials_test.client_email) + '</li>';
+                                html += '<li><strong>Project ID:</strong> ' + escHtml(results.credentials_test.project_id) + '</li>';
                                 html += '<li><strong>Private Key:</strong> ' + (results.credentials_test.has_private_key ? '✅ Present' : '❌ Missing') + '</li>';
                             }
                             
@@ -476,9 +823,9 @@ class Google_Index_Admin
                                 if (results.homepage_test.success) {
                                     html += '<li><strong>Homepage Status:</strong> ✅ Success</li>';
                                 } else {
-                                    html += '<li><strong>Homepage Status:</strong> ⚠️ ' + results.homepage_test.error.message + '</li>';
+                                    html += '<li><strong>Homepage Status:</strong> ⚠️ ' + escHtml(results.homepage_test.error.message) + '</li>';
                                     if (results.homepage_test.note) {
-                                        html += '<li><strong>Note:</strong> ' + results.homepage_test.note + '</li>';
+                                        html += '<li><strong>Note:</strong> ' + escHtml(results.homepage_test.note) + '</li>';
                                     }
                                 }
                             }
@@ -486,7 +833,7 @@ class Google_Index_Admin
                             html += '</ul></div>';
                             resultDiv.html(html);
                         } else {
-                            resultDiv.html('<div class=\"notice notice-error inline\"><p><strong>❌ Test Failed:</strong> ' + response.data.message + '</p></div>');
+                            resultDiv.html('<div class=\"notice notice-error inline\"><p><strong>❌ Test Failed:</strong> ' + escHtml(response.data.message) + '</p></div>');
                         }
                     },
                     error: function() {
@@ -501,17 +848,46 @@ class Google_Index_Admin
             // Handle clear configuration button
             $('#google-index-clear-config').on('click', function(e) {
                 e.preventDefault();
-                
+
                 if (!confirm('Are you sure you want to clear the service account configuration?')) {
                     return;
                 }
-                
-                // Create hidden input to indicate clear configuration request
+
+                var dedicatedNonce = $('#metasync_google_index_account_nonce').val();
+
+                if (dedicatedNonce) {
+                    // Standalone Instant Indexing page: there is no settings
+                    // form to serialize, so post to the dedicated endpoint.
+                    $.ajax({
+                        url: (typeof ajaxurl !== 'undefined') ? ajaxurl : metaSync.ajax_url,
+                        type: 'POST',
+                        data: {
+                            action: 'metasync_google_index_clear_account',
+                            metasync_google_index_account_nonce: dedicatedNonce
+                        },
+                        success: function(response) {
+                            if (response && response.success) {
+                                window.location.reload();
+                                return;
+                            }
+                            var msg = (response && response.data && response.data.message)
+                                ? response.data.message
+                                : 'Failed to clear the service account.';
+                            showSaveMessage(msg, 'error');
+                        },
+                        error: function() {
+                            showSaveMessage('Network error while clearing. Please try again.', 'error');
+                        }
+                    });
+                    return;
+                }
+
+                // Embedded contexts: piggyback on the page's settings form.
                 var input = $('<input>')
                     .attr('type', 'hidden')
                     .attr('name', 'google_index_clear_config')
                     .attr('value', '1');
-                
+
                 // Append to the correct form (Indexation Control vs General Settings) and submit via AJAX
                 var clrForm = $('#metaSyncSeoControlsForm').length ? $('#metaSyncSeoControlsForm') : $('#metaSyncGeneralSetting');
                 var clrAction = $('#metaSyncSeoControlsForm').length ? 'meta_sync_save_seo_controls' : 'meta_sync_save_settings';

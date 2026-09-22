@@ -287,10 +287,6 @@ class Metasync_Admin_Navigation
             $menu_items['seo_controls'] = ['title' => 'Indexation Control', 'slug_suffix' => '-seo-controls'];
         }
 
-        if ($general_options['enable_googleinstantindex'] ?? false) {
-            $menu_items['instant_index'] = ['title' => 'Instant Indexing', 'slug_suffix' => '-instant-index'];
-        }
-        
         if ($general_options['enable_google_console'] ?? false) {
             $menu_items['google_console'] = ['title' => 'Google Console', 'slug_suffix' => '-google-console'];
         }
@@ -503,18 +499,6 @@ class Metasync_Admin_Navigation
                 'slug_suffix' => '-seo-controls',
                 'callback' => 'create_admin_seo_controls_page',
                 'internal_nav' => 'Indexation Control',
-                'group' => 'seo'
-            ];
-        }
-        
-        // Instant Indexing - setting now stored in seo_controls (moved from Settings to Indexation Control)
-        $seo_controls = Metasync::get_option('seo_controls');
-        if ($seo_controls['enable_googleinstantindex'] ?? false) {
-            $menu_items['instant_index'] = [
-                'title' => 'Instant Indexing',
-                'slug_suffix' => '-instant-index',
-                'callback' => 'create_admin_google_instant_index_page',
-                'internal_nav' => 'Instant Indexing',
                 'group' => 'seo'
             ];
         }
@@ -833,11 +817,6 @@ class Metasync_Admin_Navigation
 
         // Site Verification (in-page sidebar only in short mode)
         $register_submenu('site_verification', 'Site Verification', 'Site Verification', $menu_capability, $menu_slug . '-search-engine-verify', array($admin, 'create_admin_search_engine_verification_page'));
-
-        // Instant Indexing (conditional)
-        if ($seo_controls['enable_googleinstantindex'] ?? false) {
-            $register_submenu('instant_index', 'Instant Indexing', 'Instant Indexing', $menu_capability, $menu_slug . '-instant-index', array($admin, 'create_admin_google_instant_index_page'));
-        }
 
         // Google Console (conditional)
         if ($general_options['enable_google_console'] ?? false) {

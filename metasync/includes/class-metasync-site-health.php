@@ -460,8 +460,12 @@ class Metasync_Site_Health
 			__('Pending jobs are one-time tasks awaiting execution. Recurring events are permanent schedules that run automatically.')
 		);
 		
-		// If status is not good, provide actionable recommendations
-		if ($status === 'recommended') {
+		// If status is not good, provide actionable recommendations. The
+		// status is only ever 'good' or 'critical' here, so the previous
+		// '=== recommended' comparison made this entire guidance block dead
+		// code — exactly when the queue went critical, operators got no
+		// diagnostics at all.
+		if ($status !== 'good') {
 			$description .= sprintf(
 				'<p><strong>%s</strong></p>' .
 				'<ul>' .

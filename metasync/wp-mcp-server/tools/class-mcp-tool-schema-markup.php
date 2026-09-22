@@ -139,11 +139,13 @@ class MCP_Tool_Update_Schema_Markup extends MCP_Tool_Base {
 
         $this->check_post_permission($post_id);
 
-        // Build schema data
-        $schema_data = [
-            'enabled' => (bool)$params['enabled'],
-            'types' => [],
-        ];
+        // Preserve OTTO-owned data while replacing the user-managed fields.
+        $schema_data = get_post_meta($post_id, 'metasync_schema_markup', true);
+        if (!is_array($schema_data)) {
+            $schema_data = [];
+        }
+        $schema_data['enabled'] = (bool)$params['enabled'];
+        $schema_data['types'] = [];
 
         // Process schema types
         if (isset($params['types']) && is_array($params['types'])) {
@@ -158,7 +160,7 @@ class MCP_Tool_Update_Schema_Markup extends MCP_Tool_Base {
         }
 
         // Save schema data
-        update_post_meta($post_id, 'metasync_schema_markup', $schema_data);
+        update_post_meta($post_id, 'metasync_schema_markup', wp_slash($schema_data));
 
         // Clear validation errors
         delete_post_meta($post_id, '_metasync_schema_validation_errors');
@@ -242,7 +244,7 @@ class MCP_Tool_Add_Schema_Type extends MCP_Tool_Base {
         ];
 
         // Save updated schema data
-        update_post_meta($post_id, 'metasync_schema_markup', $schema_data);
+        update_post_meta($post_id, 'metasync_schema_markup', wp_slash($schema_data));
 
         return $this->success([
             'post_id' => $post_id,
@@ -322,7 +324,7 @@ class MCP_Tool_Remove_Schema_Type extends MCP_Tool_Base {
         $schema_data['types'] = $new_types;
 
         // Save updated schema data
-        update_post_meta($post_id, 'metasync_schema_markup', $schema_data);
+        update_post_meta($post_id, 'metasync_schema_markup', wp_slash($schema_data));
 
         // Clear validation errors
         delete_post_meta($post_id, '_metasync_schema_validation_errors');
@@ -604,7 +606,7 @@ class MCP_Tool_Set_Schema_Content extends MCP_Tool_Base {
         }
 
         // Save updated schema data
-        update_post_meta($post_id, 'metasync_schema_markup', $schema_data);
+        update_post_meta($post_id, 'metasync_schema_markup', wp_slash($schema_data));
 
         // Validate
         $validation_warnings = $schema_markup->validate_schema_requirements($post_id, $schema_type, $content);

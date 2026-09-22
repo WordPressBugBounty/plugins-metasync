@@ -271,12 +271,18 @@ class Metasync_Connect_Manager
 
             $dashboard_domain = Metasync_Admin::get_effective_dashboard_domain();
 
-            $sa_connect_url = $dashboard_domain . '/sso/wordpress?' . http_build_query([
+            $connect_args = [
                 'nonce_token' => $sa_connect_token,
                 'domain' => $domain,
                 'callback_url' => get_rest_url(null, 'metasync/v1/searchatlas/connect/callback'),
                 'return_url' => admin_url('admin.php?page=' . Metasync_Admin::$page_slug)
-            ]);
+            ];
+
+            if (Metasync_Headless_Config::is_active()) {
+                $connect_args['frontend_domain'] = Metasync_Headless_Config::get_frontend_domain();
+            }
+
+            $sa_connect_url = $dashboard_domain . '/sso/wordpress?' . http_build_query($connect_args);
 
             wp_send_json_success(array(
                 'connect_url' => $sa_connect_url,

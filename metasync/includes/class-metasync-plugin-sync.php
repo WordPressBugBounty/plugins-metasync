@@ -696,6 +696,38 @@ class Metasync_Plugin_Sync {
 	// ------------------------------------------------------------------
 
 	/**
+	 * Whether third-party SEO storage may be written at all.
+	 *
+	 * The site owner's consent switch. Checked once per plugin dispatch rather
+	 * than per field so a sync that is not permitted does no work and, more
+	 * importantly, leaves no half-written row behind.
+	 *
+	 * @return bool
+	 */
+	private function third_party_writes_allowed() {
+		return class_exists('Metasync_Seo_Backup') && Metasync_Seo_Backup::is_enabled();
+	}
+
+	/**
+	 * Write one third-party post-meta field, preserving what it held before.
+	 *
+	 * This bridge runs on `updated_post_meta`, which means it fires from inside
+	 * an OTTO sync's `_metasync_otto_*` write — before the same sync reaches its
+	 * own direct Rank Math / Yoast writes further down. It is therefore usually
+	 * the first code to touch the customer's value, and the backup it takes here
+	 * is the one that holds the true original.
+	 *
+	 * @param int    $post_id Post ID.
+	 * @param string $key     Third-party meta key.
+	 * @param mixed  $value   Value to write.
+	 * @return bool True when the write happened.
+	 */
+	private function write_post_field($post_id, $key, $value) {
+		return class_exists('Metasync_Seo_Backup')
+			&& Metasync_Seo_Backup::write_post_meta($post_id, $key, $value);
+	}
+
+	/**
 	 * Mirror canonical data into Yoast post meta and indexable cache.
 	 *
 	 * @param int   $post_id Post ID.
@@ -715,30 +747,32 @@ class Metasync_Plugin_Sync {
 	 *              which is the bug this return contract exists to fix.
 	 */
 	private function sync_yoast($post_id, array $data) {
+		if (!$this->third_party_writes_allowed()) {
+			return false;
+		}
+
 		$wrote = false;
 
 		// title
 		if (!empty($data['title'])) {
-			update_post_meta($post_id, '_yoast_wpseo_title', (string) $data['title']);
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, '_yoast_wpseo_title', (string) $data['title']);
 		}
 
 		// description -- strip newlines first
 		if (!empty($data['desc'])) {
 			$desc = str_replace(["\n", "\r", "\t"], ' ', $data['desc']);
-			update_post_meta($post_id, '_yoast_wpseo_metadesc', $desc);
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, '_yoast_wpseo_metadesc', $desc) || $wrote;
 		}
 
 		// noindex: '0'=default, '1'=noindex, '2'=index
 		if (array_key_exists('noindex', $data)) {
 			$val = $data['noindex'] ? '1' : '2';
-			update_post_meta($post_id, '_yoast_wpseo_meta-robots-noindex', $val);
+			$this->write_post_field($post_id, '_yoast_wpseo_meta-robots-noindex', $val);
 		}
 
 		// nofollow: '0'=follow, '1'=nofollow
 		if (array_key_exists('nofollow', $data)) {
-			update_post_meta($post_id, '_yoast_wpseo_meta-robots-nofollow', $data['nofollow'] ? '1' : '0');
+			$this->write_post_field($post_id, '_yoast_wpseo_meta-robots-nofollow', $data['nofollow'] ? '1' : '0');
 		}
 
 		// advanced robots: comma-separated NO spaces
@@ -755,44 +789,36 @@ class Metasync_Plugin_Sync {
 		// Written unconditionally so clearing the last directive clears the
 		// field. Like the other robots writes it carries no canonical value,
 		// so it does not make this a successful sync.
-		update_post_meta($post_id, '_yoast_wpseo_meta-robots-adv', implode(',', $adv));
+		$this->write_post_field($post_id, '_yoast_wpseo_meta-robots-adv', implode(',', $adv));
 
 		// OG
 		if (!empty($data['og_title'])) {
-			update_post_meta($post_id, '_yoast_wpseo_opengraph-title', $data['og_title']);
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, '_yoast_wpseo_opengraph-title', $data['og_title']) || $wrote;
 		}
 		if (!empty($data['og_desc'])) {
-			update_post_meta($post_id, '_yoast_wpseo_opengraph-description', $data['og_desc']);
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, '_yoast_wpseo_opengraph-description', $data['og_desc']) || $wrote;
 		}
 		if (!empty($data['og_image'])) {
-			update_post_meta($post_id, '_yoast_wpseo_opengraph-image', esc_url_raw($data['og_image']));
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, '_yoast_wpseo_opengraph-image', esc_url_raw($data['og_image'])) || $wrote;
 		}
 
 		// Twitter
 		if (!empty($data['twitter_title'])) {
-			update_post_meta($post_id, '_yoast_wpseo_twitter-title', $data['twitter_title']);
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, '_yoast_wpseo_twitter-title', $data['twitter_title']) || $wrote;
 		}
 		if (!empty($data['twitter_desc'])) {
-			update_post_meta($post_id, '_yoast_wpseo_twitter-description', $data['twitter_desc']);
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, '_yoast_wpseo_twitter-description', $data['twitter_desc']) || $wrote;
 		}
 
 		// Canonical, focus keyword, breadcrumb
 		if (!empty($data['canonical'])) {
-			update_post_meta($post_id, '_yoast_wpseo_canonical', esc_url_raw($data['canonical']));
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, '_yoast_wpseo_canonical', esc_url_raw($data['canonical'])) || $wrote;
 		}
 		if (!empty($data['focus_keyword'])) {
-			update_post_meta($post_id, '_yoast_wpseo_focuskw', $data['focus_keyword']);
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, '_yoast_wpseo_focuskw', $data['focus_keyword']) || $wrote;
 		}
 		if (!empty($data['breadcrumb_title'])) {
-			update_post_meta($post_id, '_yoast_wpseo_bctitle', $data['breadcrumb_title']);
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, '_yoast_wpseo_bctitle', $data['breadcrumb_title']) || $wrote;
 		}
 
 		// Update wp_yoast_indexable cache row for immediate effect
@@ -857,6 +883,29 @@ class Metasync_Plugin_Sync {
 				$post_id
 			));
 
+			// This probe decides two things at once: the value of the write-once
+			// row_existed marker, and whether the write below is an UPDATE or an
+			// INSERT. A failed probe answers "no row" for a row that is really
+			// there, which commits a '0' marker telling a restore to delete the
+			// customer's row and fires an INSERT against a row that already
+			// exists. Neither is correctable afterwards, so an unreadable probe
+			// has to abandon the indexable write entirely.
+			//
+			// The post meta above has already landed, so the receipt still
+			// reports it. Only the indexable is skipped.
+			if (!Metasync_Seo_Backup::db_read_succeeded()) {
+				return $wrote;
+			}
+
+			// No original saved means no write, exactly as on the AIOSEO table.
+			// This row is what Yoast actually renders from, so a restore that
+			// cannot reach it puts the meta back and leaves the customer's live
+			// pages still showing OTTO's values.
+			$backups_created = [];
+			if (!$this->backup_yoast_indexable_columns($post_id, $indexable_table, $updates, (bool) $row_exists, $backups_created)) {
+				return $wrote;
+			}
+
 			if ($row_exists) {
 				$wpdb->update(
 					$indexable_table,
@@ -880,11 +929,136 @@ class Metasync_Plugin_Sync {
 					'created_at'       => current_time('mysql'),
 					'updated_at'       => current_time('mysql'),
 				], $updates);
-				$wpdb->insert($indexable_table, $insert);
+
+				// The row_existed='0' marker was recorded before this insert,
+				// because a marker that will not save has to be able to veto the
+				// write. A failed insert means no row of ours exists, and a
+				// marker left saying otherwise would let a restore delete a row
+				// Yoast or the customer creates afterwards. The per-column
+				// backups recorded beside it go too: they are write-once, so a
+				// column captured as NULL because there was no row would stay
+				// NULL for good and blank a real value the customer later puts
+				// in that row.
+				//
+				// The post meta above has already been written, so the return
+				// still reports what landed. Claiming nothing was written would
+				// tell the conflict handler this post is unsynced to Yoast while
+				// Yoast's own meta holds our values, and it would hand tag
+				// ownership to the wrong plugin.
+				if ($wpdb->insert($indexable_table, $insert) === false) {
+					Metasync_Seo_Backup::discard_backups('post', $post_id, $backups_created);
+					return $wrote;
+				}
 			}
 		}
 
 		return $wrote;
+	}
+
+	/**
+	 * Preserve the wp_yoast_indexable columns this sync is about to overwrite.
+	 *
+	 * Yoast serves the frontend from this table, not from post meta, so the
+	 * meta backups taken by write_post_field() do not by themselves make the
+	 * change reversible. Same shape as backup_aioseo_columns():
+	 *
+	 *  - one backup per column being written, so a restore can put the originals
+	 *    back and leave every other column of the user's row alone;
+	 *  - whether the row existed at all, so a restore can delete a row that only
+	 *    exists because we created it instead of leaving an empty shell behind.
+	 *
+	 * @param int    $post_id     Post ID.
+	 * @param string $table       Fully prefixed indexable table name.
+	 * @param array  $updates     Columns and values about to be written.
+	 * @param bool   $row_existed Whether Yoast already had a row for this post.
+	 * @param array  $created     Out-param, filled with the backup fields this
+	 *                            call created, so a failed write can withdraw
+	 *                            exactly its own rows and no one else's.
+	 * @return bool True when every original was preserved and the caller may write.
+	 */
+	private function backup_yoast_indexable_columns($post_id, $table, array $updates, $row_existed, array &$created) {
+		$created = [];
+
+		if (!class_exists('Metasync_Seo_Backup')) {
+			return false;
+		}
+
+		global $wpdb;
+
+		if (!Metasync_Seo_Backup::record_marker(
+			'post',
+			$post_id,
+			'yoast_indexable_row_existed',
+			$row_existed ? '1' : '0',
+			$marker_created
+		)) {
+			return false;
+		}
+
+		if ($marker_created) {
+			$created[] = 'yoast_indexable_row_existed';
+		}
+
+		$columns = array_keys($updates);
+		if (empty($columns)) {
+			return true;
+		}
+
+		$current = null;
+		if ($row_existed) {
+			$select = '`' . implode('`, `', array_map('esc_sql', $columns)) . '`';
+			$current = $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT {$select} FROM {$table} WHERE object_id = %d AND object_type = 'post'",
+					$post_id
+				),
+				ARRAY_A
+			);
+
+			// The row was there a moment ago, so a null answer now is a failed
+			// read, not an empty row. Recording it as "every column was NULL"
+			// would tell a later restore to delete values it should put back,
+			// which is the exact loss this layer exists to prevent. No write is
+			// happening, so the marker recorded above has to go too — a marker
+			// left describing a write that never ran is a stale story.
+			if ($current === null || !Metasync_Seo_Backup::db_read_succeeded()) {
+				Metasync_Seo_Backup::discard_backups('post', $post_id, $created);
+				return false;
+			}
+		}
+
+		foreach ($columns as $column) {
+			// A missing row and a NULL column are the same thing to a restore:
+			// there was no value here, so put nothing back.
+			$current_value = ($current !== null && isset($current[$column])) ? $current[$column] : null;
+
+			$field = 'yoast_indexable_' . $column;
+
+			// One unsaved column is enough to refuse the whole write: a
+			// half-original, half-OTTO row is something no restore can unpick.
+			// The refusal also means the caller writes nothing, so withdraw the
+			// marker and the columns recorded so far — the same rule as the
+			// failed-insert path in sync_yoast(). Left behind, a row_existed='0'
+			// marker would let a restore delete a row the customer creates
+			// later, and a NULL column backup would blank a real value in it.
+			if (!Metasync_Seo_Backup::backup_before_overwrite(
+				'post',
+				$post_id,
+				$field,
+				$updates[$column],
+				$current_value,
+				$column_created
+			)) {
+				Metasync_Seo_Backup::discard_backups('post', $post_id, $created);
+				return false;
+			}
+
+			if ($column_created) {
+				$created[] = $field;
+			}
+		}
+
+		return true;
 	}
 
 	/**
@@ -897,16 +1071,18 @@ class Metasync_Plugin_Sync {
 	 *              directives are excluded for the reason given on sync_yoast().
 	 */
 	private function sync_rankmath($post_id, array $data) {
+		if (!$this->third_party_writes_allowed()) {
+			return false;
+		}
+
 		$wrote = false;
 
 		// title, desc
 		if (!empty($data['title'])) {
-			update_post_meta($post_id, 'rank_math_title', $data['title']);
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, 'rank_math_title', $data['title']);
 		}
 		if (!empty($data['desc'])) {
-			update_post_meta($post_id, 'rank_math_description', $data['desc']);
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, 'rank_math_description', $data['desc']) || $wrote;
 		}
 
 		// robots: PHP indexed array
@@ -920,7 +1096,7 @@ class Metasync_Plugin_Sync {
 			if (array_key_exists('nofollow', $data)) {
 				$robots[] = $data['nofollow'] ? 'nofollow' : 'follow';
 			}
-			update_post_meta($post_id, 'rank_math_robots', array_values(array_unique($robots)));
+			$this->write_post_field($post_id, 'rank_math_robots', array_values(array_unique($robots)));
 		}
 
 		// Advanced robots: max-* go into rank_math_advanced_robots
@@ -950,7 +1126,7 @@ class Metasync_Plugin_Sync {
 				$adv['max-video-preview'] = (string) $val;
 			}
 			if (!empty($adv)) {
-				update_post_meta($post_id, 'rank_math_advanced_robots', $adv);
+				$this->write_post_field($post_id, 'rank_math_advanced_robots', $adv);
 			}
 		}
 
@@ -967,59 +1143,158 @@ class Metasync_Plugin_Sync {
 					$robots[] = $dir;
 				}
 			}
-			update_post_meta($post_id, 'rank_math_robots', array_values(array_unique($robots)));
+			$this->write_post_field($post_id, 'rank_math_robots', array_values(array_unique($robots)));
 		}
 
 		// OG
 		if (!empty($data['og_title'])) {
-			update_post_meta($post_id, 'rank_math_facebook_title', $data['og_title']);
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, 'rank_math_facebook_title', $data['og_title']) || $wrote;
 		}
 		if (!empty($data['og_desc'])) {
-			update_post_meta($post_id, 'rank_math_facebook_description', $data['og_desc']);
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, 'rank_math_facebook_description', $data['og_desc']) || $wrote;
 		}
 		if (!empty($data['og_image'])) {
-			update_post_meta($post_id, 'rank_math_facebook_image', esc_url_raw($data['og_image']));
+			$wrote = $this->write_post_field($post_id, 'rank_math_facebook_image', esc_url_raw($data['og_image'])) || $wrote;
 			$img_id = attachment_url_to_postid($data['og_image']);
 			if ($img_id) {
-				update_post_meta($post_id, 'rank_math_facebook_image_id', $img_id);
+				$wrote = $this->write_post_field($post_id, 'rank_math_facebook_image_id', $img_id) || $wrote;
 			}
-			$wrote = true;
 		}
 
 		// Twitter
 		if (!empty($data['twitter_title'])) {
-			update_post_meta($post_id, 'rank_math_twitter_title', $data['twitter_title']);
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, 'rank_math_twitter_title', $data['twitter_title']) || $wrote;
 		}
 		if (!empty($data['twitter_desc'])) {
-			update_post_meta($post_id, 'rank_math_twitter_description', $data['twitter_desc']);
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, 'rank_math_twitter_description', $data['twitter_desc']) || $wrote;
 		}
 		if (!empty($data['twitter_card'])) {
 			$valid_cards = ['summary', 'summary_large_image', 'app', 'player'];
 			if (in_array($data['twitter_card'], $valid_cards, true)) {
-				update_post_meta($post_id, 'rank_math_twitter_card_type', $data['twitter_card']);
-				$wrote = true;
+				$wrote = $this->write_post_field($post_id, 'rank_math_twitter_card_type', $data['twitter_card']) || $wrote;
 			}
 		}
 
 		// Canonical, focus keyword, breadcrumb
 		if (!empty($data['canonical'])) {
-			update_post_meta($post_id, 'rank_math_canonical_url', esc_url_raw($data['canonical']));
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, 'rank_math_canonical_url', esc_url_raw($data['canonical'])) || $wrote;
 		}
 		if (!empty($data['focus_keyword'])) {
-			update_post_meta($post_id, 'rank_math_focus_keyword', $data['focus_keyword']);
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, 'rank_math_focus_keyword', $data['focus_keyword']) || $wrote;
 		}
 		if (!empty($data['breadcrumb_title'])) {
-			update_post_meta($post_id, 'rank_math_breadcrumb_title', $data['breadcrumb_title']);
-			$wrote = true;
+			$wrote = $this->write_post_field($post_id, 'rank_math_breadcrumb_title', $data['breadcrumb_title']) || $wrote;
 		}
 
 		return $wrote;
+	}
+
+	/**
+	 * Preserve the AIOSEO columns a sync is about to overwrite.
+	 *
+	 * AIOSEO keeps post SEO data in its own `aioseo_posts` table rather than in
+	 * post meta, so there is no meta row to save and no field a restore could
+	 * delete. Two things are recorded instead, both as post meta on the post
+	 * itself:
+	 *
+	 *  - one backup per column being written, so a restore can put the original
+	 *    values back and leave every other column of the user's row alone;
+	 *  - whether the row existed at all, so a restore can delete a row that only
+	 *    exists because we created it instead of leaving an empty shell behind.
+	 *
+	 * @param int    $post_id     Post ID.
+	 * @param string $table       Fully prefixed AIOSEO table name.
+	 * @param array  $row         Columns and values about to be written.
+	 * @param bool   $row_existed Whether AIOSEO already had a row for this post.
+	 * @param array  $created     Out-param, filled with the backup fields this
+	 *                            call created, so a failed write can withdraw
+	 *                            exactly its own rows and no one else's.
+	 * @return bool True when every original was preserved and the caller may write.
+	 */
+	private function backup_aioseo_columns($post_id, $table, array $row, $row_existed, array &$created) {
+		$created = [];
+
+		if (!class_exists('Metasync_Seo_Backup')) {
+			return false;
+		}
+
+		global $wpdb;
+
+		// Whether the row pre-existed is what a restore uses to choose between
+		// putting the original columns back and deleting a row that only exists
+		// because we made it. A marker that will not record is as disqualifying
+		// as a column that will not.
+		if (!Metasync_Seo_Backup::record_marker(
+			'post',
+			$post_id,
+			'aioseo_row_existed',
+			$row_existed ? '1' : '0',
+			$marker_created
+		)) {
+			return false;
+		}
+
+		if ($marker_created) {
+			$created[] = 'aioseo_row_existed';
+		}
+
+		$columns = array_diff(array_keys($row), ['updated', 'created', 'post_id']);
+		if (empty($columns)) {
+			return true;
+		}
+
+		$current = null;
+		if ($row_existed) {
+			$select = '`' . implode('`, `', array_map('esc_sql', $columns)) . '`';
+			$current = $wpdb->get_row(
+				$wpdb->prepare("SELECT {$select} FROM {$table} WHERE post_id = %d", $post_id),
+				ARRAY_A
+			);
+
+			// The row was there a moment ago, so a null answer now is a failed
+			// read, not an empty row. Recording it as "every column was NULL"
+			// would tell a later restore to delete values it should put back,
+			// which is the exact loss this layer exists to prevent. No write is
+			// happening, so the marker recorded above has to go too — a marker
+			// left describing a write that never ran is a stale story.
+			if ($current === null || !Metasync_Seo_Backup::db_read_succeeded()) {
+				Metasync_Seo_Backup::discard_backups('post', $post_id, $created);
+				return false;
+			}
+		}
+
+		foreach ($columns as $column) {
+			// A missing row and a NULL column are the same thing to a restore:
+			// there was no value here, so put nothing back.
+			$current_value = ($current !== null && isset($current[$column])) ? $current[$column] : null;
+
+			$field = 'aioseo_' . $column;
+
+			// One unsaved column is enough to refuse the whole write: a half-original,
+			// half-OTTO row is something no restore can unpick. The refusal also
+			// means the caller writes nothing, so withdraw the marker and the
+			// columns recorded so far — the same rule as the failed-insert path
+			// in sync_aioseo(). Left behind, a row_existed='0' marker would let
+			// a restore delete a row the customer creates later, and a NULL
+			// column backup would blank a real value in it.
+			if (!Metasync_Seo_Backup::backup_before_overwrite(
+				'post',
+				$post_id,
+				$field,
+				$row[$column],
+				$current_value,
+				$column_created
+			)) {
+				Metasync_Seo_Backup::discard_backups('post', $post_id, $created);
+				return false;
+			}
+
+			if ($column_created) {
+				$created[] = $field;
+			}
+		}
+
+		return true;
 	}
 
 	/**
@@ -1035,6 +1310,10 @@ class Metasync_Plugin_Sync {
 	 */
 	private function sync_aioseo($post_id, array $data) {
 		global $wpdb;
+
+		if (!$this->third_party_writes_allowed()) {
+			return false;
+		}
 
 		$table = $wpdb->prefix . 'aioseo_posts';
 
@@ -1153,8 +1432,29 @@ class Metasync_Plugin_Sync {
 			$post_id
 		));
 
+		// An unreadable probe cannot be treated as "no row". It would commit a
+		// write-once row_existed='0' for a row AIOSEO really has -- which a
+		// restore reads as licence to delete it -- and send an INSERT at a row
+		// that already exists. Leave AIOSEO's row alone and let the next sync
+		// record the truth.
+		if (!Metasync_Seo_Backup::db_read_succeeded()) {
+			return false;
+		}
+
+		// No original saved means no write. Overwriting anyway is the data loss
+		// this whole layer exists to prevent.
 		if ($existing_id) {
+			$backups_created = [];
+			if (!$this->backup_aioseo_columns($post_id, $table, $row, true, $backups_created)) {
+				return false;
+			}
+
 			return ($wpdb->update($table, $row, ['post_id' => $post_id]) !== false) && $wrote;
+		}
+
+		$backups_created = [];
+		if (!$this->backup_aioseo_columns($post_id, $table, $row, false, $backups_created)) {
+			return false;
 		}
 
 		// New row -- must include all NOT NULL columns with no defaults
@@ -1172,7 +1472,21 @@ class Metasync_Plugin_Sync {
 		];
 		$row = array_merge($robot_defaults, $row);
 
-		return ($wpdb->insert($table, $row) !== false) && $wrote;
+		$inserted = $wpdb->insert($table, $row);
+
+		// The row_existed='0' marker was recorded before the insert, because a
+		// marker that will not save has to be able to veto the write. If the
+		// insert then failed there is no row of ours, and leaving the marker
+		// behind would let a restore delete a row the customer creates later.
+		// The per-column backups beside it go too, or a column captured as NULL
+		// for a row that never existed would blank a real value the customer
+		// later puts in one.
+		if ($inserted === false) {
+			Metasync_Seo_Backup::discard_backups('post', $post_id, $backups_created);
+			return false;
+		}
+
+		return $wrote;
 	}
 
 	// ------------------------------------------------------------------

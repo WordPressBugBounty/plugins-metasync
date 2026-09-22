@@ -639,12 +639,6 @@ Class Metasync_otto_html{
      * @return string
      */
     private function apply_canonical_via_string($html, $replacement_data) {
-        # Canonical feature switched off — do not apply OTTO's canonical, and do
-        # not strip the canonical the page already carries.
-        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::CANONICAL)) {
-            return $html;
-        }
-
         if (!is_string($html) || empty($replacement_data['header_replacements']) || !is_array($replacement_data['header_replacements'])) {
             return $html;
         }
@@ -1158,13 +1152,6 @@ Class Metasync_otto_html{
                 } elseif ($type === 'meta') {
                     $name = $item['name'] ?? '';
                     $property = $item['property'] ?? '';
-
-                    # Skip entries owned by a switched-off feature, so OTTO
-                    # neither writes its tag nor strips the page's own.
-                    if ($this->replacement_is_feature_disabled($name, $property)) {
-                        continue;
-                    }
-
                     $new_value = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 
                     if (!empty($name)) {
@@ -1247,18 +1234,14 @@ Class Metasync_otto_html{
 
         # Apply insertions — only if DOM insertion didn't already apply it
         if (!empty($replacement_data['header_html_insertion'])) {
-            # Escape JSON-LD payload closers first; the DOM path inserts the
-            # same escaped bytes, so the already-applied check must match them.
-            $escaped_header_insertion = $this->strip_disabled_features_from_insertion(
+            # Escape JSON-LD payload closers and stamp OTTO's blocks first; the DOM
+            # path inserts the same bytes, so the already-applied check must compare
+            # against the stamped form or it would insert a second copy.
+            $header_html_insertion = $this->stamp_otto_json_ld(
                 metasync_escape_json_ld_blocks_in_html($replacement_data['header_html_insertion'])
             );
-            $header_html_check = trim($escaped_header_insertion);
-            if ($header_html_check !== '' && strpos($result_html, $header_html_check) === false) {
-                $header_html_insertion = preg_replace(
-                    '/<script(\s[^>]*)type\s*=\s*(["\'])application\/ld\+json\2/i',
-                    '<script$1type=$2application/ld+json$2 data-otto="true"',
-                    $escaped_header_insertion
-                );
+            $header_html_check = trim($header_html_insertion);
+            if (strpos($result_html, $header_html_check) === false) {
                 $safe_header = str_replace(array('\\', '$'), array('\\\\', '\\$'), $header_html_insertion);
                 $result_html = preg_replace('/(<\/head>)/i', $safe_header . "\n" . '$1', $result_html, 1);
             }
@@ -2239,49 +2222,21 @@ Class Metasync_otto_html{
         return $post_id ? (int) $post_id : 0;
     }
 
-    private function social_output_disabled_for_buffer() {
-        $post_id = $this->get_buffer_post_id();
-        return $post_id > 0 && class_exists('Metasync_OpenGraph')
-            && Metasync_OpenGraph::is_social_output_disabled($post_id);
-    }
-
     /**
-     * Whether a meta tag carries the marker that means "the customer typed this".
-     *
-     * The sidebar stamps two different values on the same attribute: "custom" for
-     * a value the customer set, and "imported" for one migrated from another SEO
-     * plugin as a last-resort fallback. Only the first outranks OTTO — imported
-     * values are migration data, not a per-post decision, so OTTO must beat them.
-     *
-     * Matching the attribute NAME alone therefore promotes an imported tag to
-     * keeper and deletes OTTO's, which is the precedence inversion this check
-     * exists to prevent. Match the value exactly instead.
-     *
-     * Shared by both dedup passes rather than inlined twice: their keeper
-     * detection has already drifted apart once (see deduplicate_description_tags,
-     * which had to special-case the OTTO markers the generic pass misses), and a
-     * second copy of this rule would be free to drift the same way.
-     *
-     * @param  string $tag A single <meta ...> tag.
-     * @return bool
-     */
-    private static function tag_is_customer_authored($tag) {
-        return (bool) preg_match('/data-metasync-seo\s*=\s*["\']custom["\']/i', $tag);
-    }
-
-    /**
-     * Replace the first <meta $attr="$val"> content with $content_escaped (marked
-     * data-metasync-seo="custom"); insert one after <head> if none is present.
-     * Helper for apply_custom_seo_precedence().
+     * Replace the first <meta $attr="$val"> content with $content_escaped.
      *
      * @param string $html
      * @param string $attr          "name" or "property"
      * @param string $val           e.g. "description", "og:description"
      * @param string $content_escaped Already HTML-escaped content value
+     * @param string $marker        Provenance marker for the winning tier
      * @return string
      */
-    private function force_custom_meta($html, $attr, $val, $content_escaped) {
-        $tag = '<meta ' . $attr . '="' . $val . '" content="' . $content_escaped . '" data-metasync-seo="custom" />';
+    private function force_custom_meta($html, $attr, $val, $content_escaped, $marker = 'custom') {
+        $marker_attribute = $marker === 'otto'
+            ? ' data-metasync-otto="true"'
+            : ' data-metasync-seo="custom"';
+        $tag = '<meta ' . $attr . '="' . $val . '" content="' . $content_escaped . '"' . $marker_attribute . ' />';
         $pattern = '/<meta\s[^>]*' . preg_quote($attr, '/') . '\s*=\s*["\']' . preg_quote($val, '/') . '["\'][^>]*\/?>/i';
         $count = 0;
         $new = preg_replace_callback($pattern, function ($m) use ($tag) {
@@ -2297,20 +2252,33 @@ Class Metasync_otto_html{
     }
 
     /**
-     * Enforce the SEO-sidebar custom title/description as the FINAL word over OTTO.
+     * Make sure the precedence resolver is loaded before calling it.
      *
-     * The DOM-pass guards (do_header_replacements/handle_meta_element) already skip
-     * OTTO for these fields, but later steps re-introduce OTTO's value:
-     *   - the manual string-replacement title pass re-applies OTTO's title;
-     *   - OTTO's description arrives via header_html_insertion (data-otto) and the
-     *     dedup keeps it whenever no data-metasync-seo tag is present — which is
-     *     exactly the case when the post is synced to a third-party SEO plugin and
-     *     the sidebar deferred emitting its own tag (output_seo_meta_description()).
+     * @return bool
+     */
+    private static function precedence_available() {
+        if (class_exists('Metasync_Seo_Precedence')) {
+            return true;
+        }
+
+        $file = dirname(__DIR__) . '/includes/class-metasync-seo-precedence.php';
+        if (is_readable($file)) {
+            require_once $file;
+        }
+
+        return class_exists('Metasync_Seo_Precedence');
+    }
+
+    /**
+     * Enforce the resolved SEO title/description as the FINAL word over OTTO.
      *
-     * Running LAST — after all dedup/precedence steps — this makes the user's
-     * explicit sidebar value authoritative regardless of how the tag was produced,
-     * mirroring apply_metabox_og_precedence() for the OG meta box. Singular views
-     * only; a value must be non-empty (explicitly set) to take precedence.
+     * The resolver owns the global custom-versus-OTTO order. This final buffer
+     * pass must use it too: otherwise the setting works through the sidebar
+     * and third-party filters but OTTO's later string pass puts the custom
+     * value back on the page.
+     *
+     * OG and Twitter descriptions remain outside this method deliberately;
+     * social precedence is a separate follow-up scope.
      *
      * @param  string $html Full HTML document (post-dedup).
      * @return string
@@ -2324,10 +2292,24 @@ Class Metasync_otto_html{
             return $html;
         }
 
-        # Title — force the custom sidebar title into the (single, post-dedup) <title>.
-        $custom_title = get_post_meta($post_id, '_metasync_seo_title', true);
-        if (!empty($custom_title) && is_string($custom_title)) {
-            $title_tag = '<title>' . htmlspecialchars($custom_title, ENT_QUOTES, 'UTF-8') . '</title>';
+        # This runs inside the output buffer, where an unresolvable class is a
+        # fatal that takes the whole page down — otto_guard_html() only catches
+        # a NULL return, not a thrown Error. A partial update can leave newer
+        # PHP files beside an older committed autoload classmap, so resolve the
+        # file directly before trusting the class, and leave the document
+        # untouched if it is genuinely absent. Same reasoning as
+        # Metasync_SEO_Conflict_Handler::precedence_available().
+        if (!self::precedence_available()) {
+            return $html;
+        }
+
+        # Title — replace the resolved page title into the (single, post-dedup) <title>.
+        $resolved_title = Metasync_Seo_Precedence::resolve(
+            $post_id,
+            Metasync_Seo_Precedence::FIELD_TITLE
+        );
+        if (!empty($resolved_title['value'])) {
+            $title_tag = '<title>' . htmlspecialchars($resolved_title['value'], ENT_QUOTES, 'UTF-8') . '</title>';
             $count = 0;
             $replaced = preg_replace_callback('/<title[^>]*>.*?<\/title>/is', function ($m) use ($title_tag) {
                 return $title_tag;
@@ -2341,15 +2323,23 @@ Class Metasync_otto_html{
             }
         }
 
-        # Description — force the custom sidebar description into the SEO
-        # <meta name="description"> only. og:/twitter: description are social tags
-        # owned by the OG meta box and apply_metabox_og_precedence() (which runs
-        # earlier); this pass must NOT touch them, or it would override a
-        # separately user-set og:description with the plain SEO description.
-        $custom_desc = get_post_meta($post_id, '_metasync_seo_desc', true);
-        if (!empty($custom_desc) && is_string($custom_desc)) {
-            $esc = htmlspecialchars($custom_desc, ENT_QUOTES, 'UTF-8');
-            $html = $this->force_custom_meta($html, 'name', 'description', $esc);
+        # Description — replace the resolved page description into the SEO
+        # <meta name="description"> only. OG/Twitter description is social
+        # precedence and remains outside this setting's scope.
+        $resolved_description = Metasync_Seo_Precedence::resolve(
+            $post_id,
+            Metasync_Seo_Precedence::FIELD_DESCRIPTION
+        );
+        if (!empty($resolved_description['value'])) {
+            $esc = htmlspecialchars($resolved_description['value'], ENT_QUOTES, 'UTF-8');
+            $marker = Metasync_Seo_Precedence::is_otto_value(
+                $post_id,
+                Metasync_Seo_Precedence::FIELD_DESCRIPTION,
+                $resolved_description
+            )
+                ? 'otto'
+                : 'custom';
+            $html = $this->force_custom_meta($html, 'name', 'description', $esc, $marker);
         }
 
         return $html;
@@ -2405,11 +2395,6 @@ Class Metasync_otto_html{
 
             # handle canonical links
             if($data['type'] == 'link' && $data['rel'] === 'canonical'){
-
-                # Canonical feature switched off — leave the page's canonical be.
-                if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::CANONICAL)) {
-                    continue;
-                }
 
                 # Protect manually-set canonical from OTTO override.
                 # Validated: a legacy row corrupted to "Array" must not
@@ -2473,11 +2458,6 @@ Class Metasync_otto_html{
         # Protect manually-set robots meta from OTTO override
         # If the user set noindex via Common Robots Meta or meta_robots, honour it
         if (!empty($name) && $name === 'robots') {
-            # Both robots features switched off — OTTO must not write the tag,
-            # leaving whatever core or a third-party plugin produced in place.
-            if (Metasync_Feature_Flags::robots_fully_disabled()) {
-                return;
-            }
             if (function_exists('is_singular') && is_singular()) {
                 $post_id = get_the_ID();
                 if ($post_id) {
@@ -2514,21 +2494,6 @@ Class Metasync_otto_html{
 
         # extract name value
         $name = $data['name'] ?? false;
-
-        if ($this->social_output_disabled_for_buffer()
-            || Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
-            foreach ([$property, $name] as $candidate) {
-                if (!is_string($candidate) || $candidate === '') {
-                    continue;
-                }
-                $candidate = strtolower(trim($candidate));
-                if (strncmp($candidate, 'og:', 3) === 0
-                    || strncmp($candidate, 'twitter:', 8) === 0
-                    || strncmp($candidate, 'article:', 8) === 0) {
-                    return;
-                }
-            }
-        }
 
         # set the selector
         $meta_selector = '';
@@ -2758,19 +2723,6 @@ Class Metasync_otto_html{
      * @return string HTML with at most one tag per OG/Twitter property.
      */
     private function deduplicate_og_twitter_tags($html) {
-        # A per-post opt-out means MetaSync must neither emit nor deduplicate
-        # social tags. In particular, leave third-party tags untouched.
-        $post_id = $this->get_buffer_post_id();
-        if ($post_id > 0 && get_post_meta($post_id, '_metasync_og_enabled', true) === '0') {
-            return $html;
-        }
-
-        # Social feature switched off — MetaSync adds no OG/Twitter tags here, so
-        # whatever the page or a third-party plugin emitted is left as it is.
-        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
-            return $html;
-        }
-
         # OG properties to deduplicate
         $og_properties = [
             'og:title', 'og:description', 'og:url', 'og:type',
@@ -2796,22 +2748,14 @@ Class Metasync_otto_html{
 
     /**
      * Read one of the meta box's social title/description keys with the "Auto Draft"
-     * placeholder and metabox-default snapshots collapsed to ''.
+     * placeholder collapsed to ''.
      *
-     * Delegates to Metasync_OpenGraph so the collapse definitions live in one
-     * place. Degrades per capability when that class — or individual methods on
-     * it — is unavailable: this buffer filter runs on the front end, and a
-     * partially updated install can pair a newer otto/ file with an older
-     * includes/ one, where calling a method the loaded class doesn't define
-     * would fatal the page rather than degrade. The probes target the collapse
-     * methods rather than get_social_meta itself because the reader predates
-     * them — an older build defines it while collapsing only the "Auto Draft"
-     * placeholder, which here would read a pre-fill snapshot as a deliberate
-     * override. On the degraded path the Auto Draft placeholder collapse —
-     * which predates the snapshot strips — still runs when present, so a skew
-     * never resurrects an "Auto Draft" row either. For anything the available
-     * methods don't collapse, the default comparisons in
-     * apply_metabox_og_precedence() pick up the defence instead.
+     * Delegates to Metasync_OpenGraph so the placeholder definition lives in one
+     * place. Falls back to a raw read when that class — or that method on it — is
+     * unavailable: this buffer filter runs on the front end, and a partially updated
+     * install can pair a newer otto/ file with an older includes/ one, where calling
+     * a method the loaded class doesn't define would fatal the page rather than
+     * degrade.
      *
      * @param  int    $post_id
      * @param  string $key
@@ -2822,20 +2766,10 @@ Class Metasync_otto_html{
         // sees the method as always present; the check is deliberate runtime
         // version-skew defence. Suppressed the same way otto_pixel.php does.
         // @phpstan-ignore-next-line function.alreadyNarrowedType
-        if (method_exists('Metasync_OpenGraph', 'strip_title_snapshot') && method_exists('Metasync_OpenGraph', 'strip_description_snapshot')) {
+        if (method_exists('Metasync_OpenGraph', 'get_social_meta')) {
             return Metasync_OpenGraph::get_social_meta($post_id, $key);
         }
-        $value = get_post_meta($post_id, $key, true);
-        // A skew-era build can leave an array in a scalar slot (multiple rows
-        // under one key); a bare cast would emit "Array" into the tag.
-        if (!is_scalar($value)) {
-            $value = '';
-        }
-        // @phpstan-ignore-next-line function.alreadyNarrowedType
-        if (method_exists('Metasync_OpenGraph', 'strip_auto_draft_title')) {
-            $value = Metasync_OpenGraph::strip_auto_draft_title($value);
-        }
-        return (string) $value;
+        return (string) get_post_meta($post_id, $key, true);
     }
 
     /**
@@ -2859,11 +2793,6 @@ Class Metasync_otto_html{
      * @return string
      */
     private function apply_metabox_og_precedence($html) {
-        # Social feature switched off — the meta box values must not be injected.
-        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
-            return $html;
-        }
-
         if (!function_exists('get_queried_object_id') || !function_exists('is_singular')) {
             return $html;
         }
@@ -2873,7 +2802,12 @@ Class Metasync_otto_html{
             return $html;
         }
         $post_id = get_queried_object_id();
-        if (!$post_id || get_post_meta($post_id, '_metasync_og_enabled', true) === '0') {
+        if (!$post_id) {
+            return $html;
+        }
+
+        # Respect the meta box opt-out (only an explicit '0' disables it)
+        if (get_post_meta($post_id, '_metasync_og_enabled', true) === '0') {
             return $html;
         }
 
@@ -2882,11 +2816,9 @@ Class Metasync_otto_html{
         #
         # The four social title/description keys are read through
         # Metasync_OpenGraph::get_social_meta(), which collapses the "Auto Draft"
-        # placeholder — and, on the title keys, a stored snapshot of the post
-        # title, and on the description keys a stored snapshot of the resolved
-        # description — to ''. Without that, a row polluted by the meta box
-        # pre-fill reads as a deliberate override here and would beat OTTO's
-        # correct og:title, or go stale after a rename or excerpt edit.
+        # placeholder to ''. Without that, a row polluted by the meta box pre-fill on a
+        # brand-new post reads as a deliberate override here (it differs from the real
+        # title) and would beat OTTO's correct og:title.
         $og_title_set     = $this->social_meta($post_id, '_metasync_og_title');
         $og_desc_set      = $this->social_meta($post_id, '_metasync_og_description');
         $og_image_set     = get_post_meta($post_id, '_metasync_og_image', true);
@@ -2898,18 +2830,12 @@ Class Metasync_otto_html{
         $tw_image_set     = get_post_meta($post_id, '_metasync_twitter_image', true);
         $tw_image_alt_set = get_post_meta($post_id, '_metasync_twitter_image_alt', true);
 
-        # Default OG values the meta box pre-fills (generated excerpt / featured
-        # image). Every field stays a genuine override only when its stored value
-        # differs from the default — the image default is still PERSISTED by the
-        # meta box on save, and for title/description the comparison is redundant
-        # while the collapsed read above runs (a value that survives the collapse
-        # provably differs from its default), but it is what restores develop's
-        # defence on a partially updated install: there social_meta() falls back
-        # to the raw read, and without the comparison a pre-fill snapshot would
-        # read as a deliberate override and beat OTTO's correct tag. Reuse the
-        # emitter's own resolver so the defaults match exactly (falling back to
-        # empty defaults, i.e. treat nothing as customized, if the instance is
-        # unavailable).
+        # Default OG values the meta box pre-fills (post title / generated excerpt /
+        # featured image). The meta box PERSISTS these defaults on save, so a non-empty
+        # _metasync_og_* value alone does not prove the user customized it — a field is a
+        # genuine override only when its stored value differs from this default. Reuse the
+        # emitter's own resolver so the defaults match exactly (falling back to empty
+        # defaults, i.e. treat nothing as customized, if the instance is unavailable).
         $defaults = ['title' => '', 'description' => '', 'image' => ''];
         if (class_exists('Metasync_OpenGraph') && Metasync_OpenGraph::get_instance()) {
             $defaults = Metasync_OpenGraph::get_instance()->get_default_og_values($post_id);
@@ -2928,9 +2854,8 @@ Class Metasync_otto_html{
 
         # Twitter inherits the OG value when its own field is blank; a user-customized
         # og:image therefore also overrides OTTO's twitter:image (the meta box treats them
-        # as one). A twitter field is custom if its own value was set (against the same
-        # default comparison — redundant under the collapsed read, develop's defence on
-        # the raw-read fallback) OR the OG field it inherits was customized.
+        # as one). A twitter field is custom if its own value differs from the default OR
+        # the OG field it inherits was customized.
         $tw_card  = $tw_card_set ?: 'summary_large_image';
         $tw_title = $tw_title_set !== '' ? $tw_title_set : $og_title;
         $tw_desc  = $tw_desc_set  !== '' ? $tw_desc_set  : $og_desc;
@@ -3065,7 +2990,7 @@ Class Metasync_otto_html{
         $custom_tag = null;
         $otto_tag = null;
         foreach ($all_tags as $tag) {
-            if ($custom_tag === null && self::tag_is_customer_authored($tag)) {
+            if ($custom_tag === null && stripos($tag, 'data-metasync-seo') !== false) {
                 $custom_tag = $tag;
             }
             if ($otto_tag === null && stripos($tag, 'data-otto') !== false) {
@@ -3103,8 +3028,7 @@ Class Metasync_otto_html{
      * This runs at the buffer level — after every source has written its tag —
      * and keeps exactly ONE, by precedence (matching the SEO sidebar's documented
      * "custom always wins over OTTO" intent):
-     *   1. custom sidebar (data-metasync-seo="custom" exactly; an "imported"
-     *      value is migration data and must lose to OTTO)
+     *   1. custom sidebar (data-metasync-seo)
      *   2. OTTO (data-otto-pixel OR data-metasync-otto OR data-otto)
      *   3. first occurrence
      *
@@ -3135,7 +3059,7 @@ Class Metasync_otto_html{
         $custom_tag = null;
         $otto_tag   = null;
         foreach ($all_tags as $tag) {
-            if ($custom_tag === null && self::tag_is_customer_authored($tag)) {
+            if ($custom_tag === null && stripos($tag, 'data-metasync-seo') !== false) {
                 $custom_tag = $tag;
             }
             if ($otto_tag === null && (
@@ -3175,12 +3099,6 @@ Class Metasync_otto_html{
      * @return string HTML with at most one canonical tag.
      */
     private function deduplicate_canonical_tags($html) {
-        # Canonical feature switched off — leave every canonical on the page,
-        # including any a third-party SEO plugin owns.
-        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::CANONICAL)) {
-            return $html;
-        }
-
         $pattern = '/<link\s[^>]*rel=["\']canonical["\'][^>]*\/?>/i';
 
         if (preg_match_all($pattern, $html, $matches) <= 1) {
@@ -3212,201 +3130,299 @@ Class Metasync_otto_html{
     }
 
     /**
-     * Whether a switched-off feature owns this header_replacements entry.
+     * Normalize a JSON-LD `@type` into a list of lowercased type tokens.
      *
-     * The string fallbacks rewrite meta tags with a bare preg_replace, so they
-     * cannot lean on the DOM path's per-element guards. A disabled feature must
-     * not have OTTO write its tag, and — because these fallbacks delete every
-     * match before re-inserting — must not have the page's own tag removed
-     * either.
+     * JSON-LD allows `@type` to be a string OR an array of strings, and Rank Math
+     * routinely emits multi-typed nodes (e.g. ["WebPage", "CollectionPage"]).
+     * Collapsing such a node to its first token hides it from a plain-typed
+     * duplicate, so every token is returned and indexed separately.
      *
-     * @param  string $name     The entry's `name` attribute, if any.
-     * @param  string $property The entry's `property` attribute, if any.
-     * @return bool True when the entry must be skipped.
+     * @param  mixed $raw The raw `@type` value.
+     * @return string[]   Unique lowercased tokens, possibly empty.
      */
-    private function replacement_is_feature_disabled($name, $property) {
-        foreach ([$name, $property] as $attribute) {
-            if ($attribute === '') {
+    private function schema_type_tokens($raw) {
+        $tokens = [];
+
+        foreach ((is_array($raw) ? $raw : [$raw]) as $type) {
+            if (is_array($type) || is_object($type) || is_bool($type) || $type === null) {
                 continue;
             }
-            $attribute = strtolower(trim($attribute));
-
-            if ($attribute === 'robots') {
-                if (Metasync_Feature_Flags::robots_fully_disabled()) {
-                    return true;
-                }
+            $type = strtolower(trim((string) $type));
+            if ($type === '') {
                 continue;
             }
-
-            if (strncmp($attribute, 'og:', 3) === 0
-                || strncmp($attribute, 'twitter:', 8) === 0
-                || strncmp($attribute, 'article:', 8) === 0) {
-                if ($this->social_output_disabled_for_buffer()) {
-                    return true;
-                }
-                if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
-                    return true;
-                }
-            }
+            $tokens[$type] = true;
         }
 
-        return false;
-    }
-
-    /**
-     * Removes markup owned by a switched-off feature from an OTTO header
-     * insertion.
-     *
-     * header_html_insertion is a raw-HTML channel, not a JSON-LD one: the same
-     * payload can carry a canonical link and og/twitter meta tags as well as
-     * structured data. Each is therefore dropped against its own switch, so a
-     * disabled feature neither injects markup nor — because the matching dedup
-     * pass has stood down too — leaves a duplicate behind.
-     *
-     * Runs after metasync_escape_json_ld_blocks_in_html(), so a payload that
-     * itself contains a `</script>` sequence cannot cut a match short.
-     *
-     * @param  string $html Header insertion HTML, already block-escaped.
-     * @return string
-     */
-    private function strip_disabled_features_from_insertion($html) {
-        if ($html === '') {
-            return $html;
-        }
-
-        $patterns = [];
-
-        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SCHEMA)) {
-            $patterns[] = '/<script(?:\s[^>]*)?type\s*=\s*(["\'])application\/ld\+json\1[^>]*>[\s\S]*?<\/script>\s*/i';
-        }
-
-        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::CANONICAL)) {
-            $patterns[] = '/<link\b[^>]*\brel\s*=\s*(["\'])canonical\1[^>]*>\s*/i';
-        }
-
-        if ($this->social_output_disabled_for_buffer()
-            || Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
-            # og:*, twitter:* and article:* all belong to the social feature, and
-            # either attribute can carry either prefix depending on the payload.
-            $patterns[] = '/<meta\b[^>]*\b(?:property|name)\s*=\s*(["\'])(?:og|twitter|article):[^"\']*\1[^>]*>\s*/i';
-        }
-
-        if (Metasync_Feature_Flags::robots_fully_disabled()) {
-            $patterns[] = '/<meta\b[^>]*\bname\s*=\s*(["\'])robots\1[^>]*>\s*/i';
-        }
-
-        foreach ($patterns as $pattern) {
-            $stripped = preg_replace($pattern, '', $html);
-            # preg_replace returns null on failure; keeping the current string is
-            # safer than emitting nothing at all.
-            if ($stripped !== null) {
-                $html = $stripped;
-            }
-        }
-
-        return $html;
+        return array_keys($tokens);
     }
 
     /**
      * Deduplicate JSON-LD schema blocks.
      *
-     * When OTTO and a third-party SEO plugin both inject <script type="application/ld+json">
-     * blocks, keep OTTO's version for any @type that appears in both.
-     * Third-party blocks whose @type is not covered by OTTO are preserved.
+     * Two nodes collide when they share an `@id`, or when one claims an `@type`
+     * token the page already carries. Collisions resolve strictly in OTTO's
+     * favour:
+     *
+     *  - an OTTO node (marked `data-otto`) displaces every colliding
+     *    third-party node, whichever appeared first in the document;
+     *  - two OTTO nodes describing the same entity keep the first;
+     *  - two third-party nodes never evict each other, even when they share a
+     *    type: a Yoast graph legitimately carries two distinct ImageObjects,
+     *    and MetaSync's own breadcrumb / local-business blocks are third-party
+     *    output this pass has no mandate to fold.
+     *
+     * When OTTO contributed no node at all the document comes back untouched —
+     * a third-party-only page is not ours to rewrite. Edits are offset splices
+     * into the original document, so a block that loses nothing keeps its exact
+     * bytes (attributes, `class`, `@context`, position — head, body or footer)
+     * and nothing is ever relocated.
+     *
+     * Blocks are left exactly where they are when their JSON does not parse,
+     * when they carry neither `@type` nor `@graph`, or when they sit inside an
+     * HTML comment or <noscript> — a schema node the site disabled by wrapping
+     * it in a comment must stay disabled, not be re-published by this pass.
      *
      * @param  string $html Full HTML.
      * @return string
      */
     private function deduplicate_schema_tags($html) {
-        # Schema feature switched off — MetaSync injects no JSON-LD here, so the
-        # page's existing blocks (core, theme or another SEO plugin) are untouched.
-        if (Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SCHEMA)) {
+        // Find all JSON-LD script blocks. Group 1 is the FULL attribute string —
+        // capturing only the part before `type=` would hide a `data-otto` marker
+        // that sits after it, which is where every insertion path puts it. The
+        // type VALUE is prefix-matched so `application/ld+json; charset=UTF-8`
+        // is recognised too.
+        $pattern = '/<script(\s[^>]*type\s*=\s*(["\'])application\/ld\+json[^"\'>]*\2[^>]*)>\s*([\s\S]*?)<\/script>/i';
+        if (!preg_match_all($pattern, $html, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
             return $html;
         }
 
-        // Find all JSON-LD script blocks
-        $pattern = '/<script(\s[^>]*)type\s*=\s*(["\'])application\/ld\+json\2[^>]*>\s*([\s\S]*?)<\/script>/i';
-        if (preg_match_all($pattern, $html, $matches, PREG_SET_ORDER) <= 1) {
-            return $html;
+        // Byte ranges this pass must not reach into. A commented-out (or
+        // <noscript>-wrapped) schema block is deliberately disabled output.
+        $masked = [];
+        if (preg_match_all('/<!--[\s\S]*?-->|<noscript\b[^>]*>[\s\S]*?<\/noscript>/i', $html, $comments, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
+            foreach ($comments as $comment) {
+                $masked[] = [$comment[0][1], $comment[0][1] + strlen($comment[0][0])];
+            }
         }
 
-        $otto_by_type   = []; // @type => decoded JSON object
-        $third_by_type  = []; // @type => decoded JSON object
-        $otto_graph     = []; // entries from OTTO @graph blocks
-        $third_graph    = []; // entries from third-party @graph blocks
+        // `data-otto` must be a whole attribute: `data-otto="true"` or a bare
+        // `data-otto`. A substring test would also catch a hypothetical
+        // `data-otto-thing="x"` and misattribute that block to OTTO.
+        $is_otto_attr = '/(^|\s)data-otto(\s*=|\s|$)/i';
+
+        // Blocks able to take part, and their entities in document order. An
+        // entity is one addressable node: a flat block's document, one
+        // `@graph` entry, or one node of a top-level array.
+        $blocks   = [];
+        $entities = [];
 
         foreach ($matches as $m) {
-            $attrs    = $m[1];
-            $json_str = $m[3];
+            $start = $m[0][1];
+            foreach ($masked as $range) {
+                if ($start >= $range[0] && $start < $range[1]) {
+                    continue 2;
+                }
+            }
+
+            $attrs    = $m[1][0];
+            $json_str = $m[3][0];
             $decoded  = json_decode($json_str, true);
             if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
-                continue; // skip unparseable blocks — leave them in place
+                continue; // unparseable — leave the block in place
             }
-            $is_otto = stripos($attrs, 'data-otto') !== false;
+
+            $is_otto = preg_match($is_otto_attr, $attrs) === 1;
+            $end     = $start + strlen($m[0][0]);
+
+            // A trailing newline swallowed on full removal keeps the output tidy.
+            $end_ws = $end;
+            if (substr($html, $end, 2) === "\r\n") {
+                $end_ws = $end + 2;
+            } elseif (substr($html, $end, 1) === "\n") {
+                $end_ws = $end + 1;
+            }
+
+            $register = function (array $node) use (&$entities, $is_otto) {
+                // Keyed like metasync_otto_structured_entity_key(): @id first,
+                // @type tokens for the type fold. Entries with neither stay in
+                // their block but cannot collide, so they keep entity === null.
+                $types = isset($node['@type']) ? $this->schema_type_tokens($node['@type']) : [];
+                $id    = (!empty($node['@id']) && is_string($node['@id'])) ? '@id:' . strtolower(trim($node['@id'])) : '';
+                if ($types === [] && $id === '') {
+                    return null;
+                }
+                $entities[] = ['otto' => $is_otto, 'types' => $types, 'id' => $id, 'alive' => true];
+                return count($entities) - 1;
+            };
+
+            $block = ['start' => $start, 'end' => $end, 'end_ws' => $end_ws, 'attrs' => $attrs, 'decoded' => $decoded, 'items' => []];
 
             if (isset($decoded['@graph']) && is_array($decoded['@graph'])) {
-                foreach ($decoded['@graph'] as $entry) {
-                    if (!isset($entry['@type'])) continue;
-                    // JSON-LD allows @type to be a string OR an array of strings.
-                    // Rank Math routinely emits multi-typed entries (e.g. ["Person", "Organization"]).
-                    // Using an array as an offset throws a fatal on PHP 8+, so normalize to scalar.
-                    $type = is_array($entry['@type'])
-                        ? (string) reset($entry['@type'])
-                        : (string) $entry['@type'];
-                    if ($type === '') continue;
-                    if ($is_otto) {
-                        $otto_graph[$type] = $entry;
-                    } else {
-                        $third_graph[$type] = $entry;
-                    }
+                foreach ($decoded['@graph'] as $node) {
+                    $block['items'][] = ['node' => $node, 'e' => is_array($node) ? $register($node) : null];
                 }
+                $block['shape'] = 'graph';
             } elseif (isset($decoded['@type'])) {
-                $type = is_array($decoded['@type'])
-                    ? (string) reset($decoded['@type'])
-                    : (string) $decoded['@type'];
-                if ($type === '') continue;
-                if ($is_otto) {
-                    $otto_by_type[$type] = $decoded;
+                $block['shape'] = 'flat';
+                $block['items'][] = ['node' => $decoded, 'e' => $register($decoded)];
+            } elseif (isset($decoded[0])) {
+                // A bare top-level array: [{"@type":"WebPage",...}, ...]. The
+                // persistence path already folds this shape; the render path
+                // used to skip it entirely, leaving its duplicates standing.
+                $block['shape'] = 'list';
+                foreach ($decoded as $node) {
+                    $block['items'][] = ['node' => $node, 'e' => is_array($node) ? $register($node) : null];
+                }
+            } else {
+                continue; // neither @type nor @graph nor array — nothing to key on
+            }
+
+            $blocks[] = $block;
+        }
+
+        foreach ($entities as $entity) {
+            if ($entity['otto']) {
+                $otto_present = true;
+                break;
+            }
+        }
+        if (empty($otto_present)) {
+            return $html; // OTTO contributed no schema — a third-party page is not ours to rewrite
+        }
+
+        // Fold. Type claims map a token to EVERY alive holder, so a later OTTO
+        // node can displace a whole set of third-party duplicates at once.
+        /** @var array<string, int> $by_id */
+        $by_id   = []; // '@id:...' => entity index
+        /** @var array<string, int[]> $by_type */
+        $by_type = []; // type token => entity index[]
+
+        $release = function ($i) use (&$by_id, &$by_type, &$entities) {
+            foreach ($entities[$i]['types'] as $token) {
+                $holders = $by_type[$token] ?? [];
+                $holders = array_values(array_diff($holders, [$i]));
+                if ($holders === []) {
+                    unset($by_type[$token]);
                 } else {
-                    $third_by_type[$type] = $decoded;
+                    $by_type[$token] = $holders;
                 }
             }
+            $id = $entities[$i]['id'];
+            if ($id !== '' && ($by_id[$id] ?? -1) === $i) {
+                unset($by_id[$id]);
+            }
+        };
+
+        foreach ($entities as $i => $entity) {
+            $alive = true;
+
+            // The same real-world entity twice, whatever @type each copy carries.
+            if ($entity['id'] !== '' && isset($by_id[$entity['id']])) {
+                $occupant = $by_id[$entity['id']];
+                if ($entity['otto'] && !$entities[$occupant]['otto']) {
+                    $entities[$occupant]['alive'] = false;
+                    $release($occupant);
+                    unset($by_id[$entity['id']]); // re-claimed below if the entity survives
+                } else {
+                    $alive = false; // first copy stands (OTTO's, or the earlier OTTO's)
+                }
+            }
+
+            if ($alive) {
+                foreach ($entity['types'] as $token) {
+                    $holders = $by_type[$token] ?? [];
+                    if ($holders === []) {
+                        continue;
+                    }
+                    $otto_holder = false;
+                    foreach ($holders as $holder) {
+                        if ($entities[$holder]['otto']) {
+                            $otto_holder = true;
+                            break;
+                        }
+                    }
+                    if ($otto_holder) {
+                        $alive = false; // an OTTO node already holds this token
+                        break;
+                    }
+                    if ($entity['otto']) {
+                        // OTTO displaces every third-party holder of the token and
+                        // releases ALL their claims, not just this one — otherwise
+                        // tokens the evicted node held alone would stay blocked and
+                        // later, legitimate nodes of that type would lose.
+                        foreach ($holders as $holder) {
+                            $entities[$holder]['alive'] = false;
+                            $release($holder);
+                        }
+                    }
+                    // Third party meeting third-party holders: both stand.
+                }
+            }
+
+            if ($alive) {
+                foreach ($entity['types'] as $token) {
+                    $by_type[$token][] = $i;
+                }
+                if ($entity['id'] !== '') {
+                    $by_id[$entity['id']] = $i;
+                }
+            } else {
+                $entities[$i]['alive'] = false;
+            }
         }
 
-        // If OTTO provided no schema at all, nothing to deduplicate
-        if (empty($otto_by_type) && empty($otto_graph)) {
-            return $html;
+        $any_evicted = false;
+        foreach ($entities as $entity) {
+            if (!$entity['alive']) {
+                $any_evicted = true;
+                break;
+            }
+        }
+        if (!$any_evicted) {
+            return $html; // no collision — every original byte stays
         }
 
-        // Remove all JSON-LD blocks from HTML
-        $html = preg_replace($pattern, '', $html);
+        // Rebuild only the blocks that lost something, back-to-front so the
+        // recorded offsets of earlier blocks stay valid.
+        $edits = [];
+        foreach ($blocks as $block) {
+            $kept = [];
+            $lost = 0;
+            foreach ($block['items'] as $item) {
+                if ($item['e'] === null || $entities[$item['e']]['alive']) {
+                    $kept[] = $item['node'];
+                } else {
+                    $lost++;
+                }
+            }
+            if ($lost === 0) {
+                continue;
+            }
+            if ($kept === []) {
+                $edits[] = [$block['start'], $block['end_ws'], ''];
+                continue;
+            }
 
-        // Re-insert flat (non-@graph) blocks: OTTO wins for matching @type
-        $kept = array_merge($otto_by_type, array_diff_key($third_by_type, $otto_by_type));
-        $rebuilt = '';
-        foreach ($kept as $decoded) {
-            $json = metasync_safe_json_ld_encode($decoded, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if ($block['shape'] === 'list') {
+                $payload = $kept;
+            } else { // graph — a flat block that lost its only entity is removed above
+                $payload = $block['decoded'];
+                $payload['@graph'] = $kept;
+            }
+
+            $json = metasync_safe_json_ld_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             if (!is_string($json) || $json === '') {
-                continue; // never re-emit a block whose payload failed to encode
+                continue; // never drop a block whose payload failed to re-encode
             }
-            $rebuilt .= '<script type="application/ld+json" data-otto="true">' . $json . "</script>\n";
+
+            // The original attribute string is reused verbatim so class, id and
+            // the data-otto marker itself survive the rebuild.
+            $edits[] = [$block['start'], $block['end'], '<script' . $block['attrs'] . '>' . $json . '</script>'];
         }
 
-        // Re-insert merged @graph block (if any entries exist)
-        $merged_graph = array_merge($third_graph, $otto_graph); // OTTO wins on duplicate @type
-        if (!empty($merged_graph)) {
-            $graph_obj = ['@context' => 'https://schema.org', '@graph' => array_values($merged_graph)];
-            $graph_json = metasync_safe_json_ld_encode($graph_obj, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-            if (is_string($graph_json) && $graph_json !== '') {
-                $rebuilt .= '<script type="application/ld+json" data-otto="true">' . $graph_json . "</script>\n";
-            }
-        }
-
-        // Re-inject before </head>
-        if (!empty($rebuilt)) {
-            $html = preg_replace_callback('/(<\/head>)/i', function ($m) use ($rebuilt) {
-                return $rebuilt . $m[1];
-            }, $html, 1);
+        foreach (array_reverse($edits) as $edit) {
+            $html = substr($html, 0, $edit[0]) . $edit[2] . substr($html, $edit[1]);
         }
 
         return $html;
@@ -3439,6 +3455,30 @@ Class Metasync_otto_html{
         return false;
     }
 
+    # function to mark OTTO's own JSON-LD blocks so deduplicate_schema_tags() can
+    # tell them apart from a third-party SEO plugin's blocks. Every insertion path
+    # (DOM, string fallback, HTTP fallback) runs the fragment through this so the
+    # bytes they insert are identical and the "already applied" checks still match.
+    private function stamp_otto_json_ld($html){
+
+        $stamped = preg_replace_callback(
+            '/<script(\s[^>]*type\s*=\s*(["\'])application\/ld\+json[^"\'>]*\2[^>]*)>/i',
+            function ($m) {
+                # idempotent: a block already carrying a data-otto attribute —
+                # anywhere in the tag, not just before `type` — is left alone,
+                # never given a second one
+                if (preg_match('/(^|\s)data-otto(\s|=|$)/i', $m[1])) {
+                    return $m[0];
+                }
+                return '<script' . $m[1] . ' data-otto="true">';
+            },
+            $html
+        );
+
+        # preg_replace returns null on a PCRE failure — never hand back less than we got
+        return is_string($stamped) ? $stamped : $html;
+    }
+
     # this function insterts header html to the dom
     function insert_header_html($data){
 
@@ -3463,11 +3503,10 @@ Class Metasync_otto_html{
             $marker = $is_amp_page ? '' : self::HEAD_OPTIMIZED_MARKER;
 
             # Escape JSON-LD payload closers so a `</script>` inside a JSON
-            # string value cannot terminate the element early (XSS/page corruption),
-            # then drop whatever belongs to a switched-off feature. This is the DOM
-            # insertion path and it runs before the string fallbacks, so it needs the
-            # same filtering they apply.
-            $escaped_header_insertion = $this->strip_disabled_features_from_insertion(
+            # string value cannot terminate the element early (XSS/page corruption).
+            # Then stamp the blocks as OTTO's, exactly as the string and HTTP
+            # fallbacks do, so the deduper can attribute them.
+            $escaped_header_insertion = $this->stamp_otto_json_ld(
                 metasync_escape_json_ld_blocks_in_html($data['header_html_insertion'])
             );
 
@@ -3779,13 +3818,6 @@ Class Metasync_otto_html{
                     } elseif ($type === 'meta') {
                         $name = $item['name'] ?? '';
                         $property = $item['property'] ?? '';
-
-                        # Skip entries owned by a switched-off feature, so OTTO
-                        # neither writes its tag nor strips the page's own.
-                        if ($this->replacement_is_feature_disabled($name, $property)) {
-                            continue;
-                        }
-
                         $new_value = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 
                         if (!empty($name)) {
@@ -3862,18 +3894,14 @@ Class Metasync_otto_html{
 
             # Apply header HTML insertion (for schema, etc.) — only if DOM insertion didn't already apply it
             if (!empty($replacement_data['header_html_insertion'])) {
-                # Escape JSON-LD payload closers first; the DOM path inserts the
-                # same escaped bytes, so the already-applied check must match them.
-                $escaped_header_insertion = $this->strip_disabled_features_from_insertion(
+                # Escape JSON-LD payload closers and stamp OTTO's blocks first; the DOM
+                # path inserts the same bytes, so the already-applied check must compare
+                # against the stamped form or it would insert a second copy.
+                $header_html_insertion = $this->stamp_otto_json_ld(
                     metasync_escape_json_ld_blocks_in_html($replacement_data['header_html_insertion'])
                 );
-                $header_html_check = trim($escaped_header_insertion);
-                if ($header_html_check !== '' && strpos($result_html, $header_html_check) === false) {
-                    $header_html_insertion = preg_replace(
-                        '/<script(\s[^>]*)type\s*=\s*(["\'])application\/ld\+json\2/i',
-                        '<script$1type=$2application/ld+json$2 data-otto="true"',
-                        $escaped_header_insertion
-                    );
+                $header_html_check = trim($header_html_insertion);
+                if (strpos($result_html, $header_html_check) === false) {
                     $header_html = str_replace(array('\\', '$'), array('\\\\', '\\$'), $header_html_insertion);
                     # Insert before </head>
                     $result_html = preg_replace('/(<\/head>)/i', $header_html . "\n" . '$1', $result_html, 1);
@@ -4135,14 +4163,6 @@ Class Metasync_otto_html{
         if (!empty($remove_description_tags) && is_array($remove_description_tags) && !$has_custom_description) {
             # Remove only the specific description tags that Otto is providing
             foreach ($remove_description_tags as $selector) {
-                # With the social feature switched off MetaSync writes no
-                # og:/twitter: tag of its own, so deleting the page's would leave
-                # it with none. The plain description belongs to a different
-                # feature and is unaffected.
-                if ($this->selector_is_social($selector)
-                    && Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::SOCIAL_OG)) {
-                    continue;
-                }
                 $tags = $this->dom->find($selector);
                 foreach ($tags as $tag) {
                     # Remove the tag
@@ -4151,43 +4171,15 @@ Class Metasync_otto_html{
             }
         }
 
-        # og:title / twitter:title are social tags, so the social switch decides
-        # whether MetaSync may take the page's away (keep main <title>).
-        if ($remove_title && !$has_custom_title
-            && Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::SOCIAL_OG)) {
-            # Remove Open Graph and Twitter title tags (keep main <title>)
-            $title_selectors = [
-                'meta[property=og:title]',
-                'meta[name=twitter:title]',
-            ];
-
-            foreach ($title_selectors as $selector) {
-                $tags = $this->dom->find($selector);
-                foreach ($tags as $tag) {
-                    $tag->outertext = ''; # Remove the tag
-                }
-            }
-        }
+        # Preserve third-party og:title/twitter:title tags here. They used to be
+        # stripped whenever $remove_title was set, but that also removes them
+        # when no custom title exists to replace them, leaving pages with no
+        # og:title/twitter:title at all. OTTO's own title/OG dedup and
+        # precedence passes already reconcile duplicates, so this branch no
+        # longer needs to delete those tags.
 
         # Save changes
         $this->save_reload();
-    }
-
-    /**
-     * Whether a DOM selector targets an Open Graph / Twitter / article tag.
-     *
-     * The description selectors reach this class from the caller, so they have
-     * to be inspected rather than assumed.
-     *
-     * @param  string $selector SimpleHtmlDom selector.
-     * @return bool
-     */
-    private function selector_is_social($selector) {
-        $selector = strtolower($selector);
-
-        return strpos($selector, 'og:') !== false
-            || strpos($selector, 'twitter:') !== false
-            || strpos($selector, 'article:') !== false;
     }
 
     /**

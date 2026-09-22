@@ -964,13 +964,6 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 					esc_html($clean_source)
 				);
 			}
-			echo sprintf(
-				# '<span>%1$s</span>',
-				# ' [' . $source_type . ']'
-				# ' [' . esc_html($source_type) . ']' # Fixed: Added esc_html() to prevent XSS
-				'<span style="color: #666; font-size: 0.9em;">%1$s</span>',
-				' [' . esc_html($source_type) . ']'
-			);
 			echo "<br>";
 		}
 	}

@@ -1243,7 +1243,7 @@ class Metasync_External_Importer
             $metasync_schema = $this->convert_yoast_schema_to_metasync($yoast_schema, $post_id);
 
             if (!empty($metasync_schema['types'])) {
-                update_post_meta($post_id, 'metasync_schema_markup', $metasync_schema);
+                update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
                 $imported_count++;
             }
         }
@@ -1286,7 +1286,7 @@ class Metasync_External_Importer
                     ]
                 ];
 
-                update_post_meta($post_id, 'metasync_schema_markup', $metasync_schema);
+                update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
                 $imported_count++;
             }
         }
@@ -1342,7 +1342,7 @@ class Metasync_External_Importer
             $metasync_schema = $this->convert_rankmath_schema_to_metasync($rm_schema, $schema_type, $post_id);
 
             if (!empty($metasync_schema['types'])) {
-                update_post_meta($post_id, 'metasync_schema_markup', $metasync_schema);
+                update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
                 $imported_count++;
                 $processed_posts[] = $post_id; // Mark post as processed
             }
@@ -1396,7 +1396,7 @@ class Metasync_External_Importer
             );
 
             if (!empty($metasync_schema['types'])) {
-                update_post_meta($post_id, 'metasync_schema_markup', $metasync_schema);
+                update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
                 $imported_count++;
             }
         }

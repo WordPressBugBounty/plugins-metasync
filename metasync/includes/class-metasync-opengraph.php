@@ -1237,7 +1237,35 @@ class Metasync_OpenGraph {
             ?: $this->get_post_excerpt($post);
         $og_image = Metasync_Seo_Precedence::value($post->ID, Metasync_Seo_Precedence::FIELD_OG_IMAGE)
             ?: $this->get_featured_image_url($post->ID);
-        $og_url = get_post_meta($post->ID, '_metasync_og_url', true) ?: $this->get_canonical_url($post);
+        $canonical_override = '';
+        if (class_exists('Metasync_Headless_Config') && Metasync_Headless_Config::is_active()) {
+            # The same two-key chain the canonical tag itself resolves, so the
+            # two cannot disagree. meta_canonical is not a legacy alias: the
+            # REST sync and the classic-editor Canonical box both still write
+            # it, and the GraphQL surface reads both keys as well.
+            foreach (array('_metasync_canonical_url', 'meta_canonical') as $canonical_key) {
+                $canonical_override = Metasync_Canonical_Sanitizer::sanitize(
+                    get_post_meta($post->ID, $canonical_key, true)
+                );
+                if ($canonical_override !== '') {
+                    break;
+                }
+            }
+        }
+
+        # A validated canonical override is the author's final answer. It may
+        # deliberately name another host, so it bypasses headless rehosting.
+        if ($canonical_override !== '') {
+            $og_url = esc_url($canonical_override);
+        } else {
+            $og_url = get_post_meta($post->ID, '_metasync_og_url', true) ?: $this->get_canonical_url($post);
+
+            # On a headless site the rendered page is not the public page, so
+            # an own-host og:url must name the frontend. Applied at the single
+            # emission source so update_opengraph_url() continues to persist
+            # the WordPress URL used outside headless mode.
+            $og_url = $this->maybe_build_headless_url($og_url, $post->post_type);
+        }
         $og_type = get_post_meta($post->ID, '_metasync_og_type', true) ?: 'article';
 
         # Get Twitter Card data — check persisted key first, fall back to OTTO staging key
@@ -2146,6 +2174,60 @@ class Metasync_OpenGraph {
         }
 
         return $permalink;
+    }
+
+    /**
+     * Rehost a URL onto the public frontend when headless mode is active.
+     *
+     * Unlike the derived-URL callers elsewhere, the value handed here can be a
+     * stored one an editor typed, which may legitimately point at a third-party
+     * host. Only a URL on this site's own host is rewritten; anything else is
+     * returned untouched. A builder failure is returned as an empty string so
+     * the emitter cannot advertise the WordPress host on an active headless site.
+     *
+     * @param mixed  $url       URL to consider rehosting.
+     * @param string $post_type Post type, for the frontend path prefix.
+     * @return mixed Original URL when inactive or foreign; public URL or empty
+     *               string for an own-host URL while active.
+     */
+    private function maybe_build_headless_url($url, $post_type = '') {
+        if (!class_exists('Metasync_Headless_Config') || !Metasync_Headless_Config::is_active() || !$this->is_own_host_url($url)) {
+            return $url;
+        }
+
+        return Metasync_Headless_Url_Builder::from_wp_url($url, $post_type);
+    }
+
+    /**
+     * Whether a URL addresses this WordPress site rather than a foreign host.
+     *
+     * Accepts only HTTP(S) URLs on the exact site host, protocol-relative URLs
+     * on that host, and genuine site-relative paths beginning with one slash.
+     *
+     * @param mixed $url URL to test.
+     * @return bool
+     */
+    private function is_own_host_url($url) {
+        if (!is_string($url) || $url === '' || preg_match('/\s/', $url)) {
+            return false;
+        }
+
+        if ($url[0] === '/' && (!isset($url[1]) || $url[1] !== '/')) {
+            return true;
+        }
+
+        $is_protocol_relative = strpos($url, '//') === 0;
+        $scheme = strtolower((string) wp_parse_url($url, PHP_URL_SCHEME));
+        if (!$is_protocol_relative && !in_array($scheme, array('http', 'https'), true)) {
+            return false;
+        }
+
+        $url_host = wp_parse_url($url, PHP_URL_HOST);
+        $site_host = wp_parse_url(home_url('/'), PHP_URL_HOST);
+
+        return !empty($url_host)
+            && !empty($site_host)
+            && strcasecmp((string) $url_host, (string) $site_host) === 0;
     }
 
     /**

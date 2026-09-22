@@ -151,6 +151,11 @@ class Metasync_Otto_Render_Strategy {
      * @return string METHOD_BUFFER or METHOD_HTTP
      */
     public static function determine_method() {
+        # Headless sites have no public HTML response for OTTO to rewrite.
+        if (Metasync_Headless_Config::is_active()) {
+            return self::METHOD_NONE;
+        }
+
         # Skip buffer for internal fetch requests (avoid infinite loop)
         if (self::is_internal_fetch()) {
             return self::METHOD_NONE;

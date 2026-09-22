@@ -4,7 +4,7 @@ Tags: seo, ai seo, otto, otto seo, schema
 Requires at least: 6.3
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 2.6.26
+Stable tag: 2.7.0
 License: GPL-2.0+
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -96,6 +96,31 @@ Yes, along with a lot more - the plugin also includes media optimization, code s
 2.6.22 fixes OTTO breaking Divi-built pages and stops a partly finished update from taking your site's front end down. Update as soon as you can.
 
 == Changelog ==
+= 2.7.0 =
+* New Feature: Headless WordPress support — the WordPress backend and a decoupled public frontend now stay in sync through SSO and heartbeat, with SEO data exposed over WPGraphQL, frontend-aware canonical and og:url rehosting, taxonomy canonical overrides, bulk payload resolution, and a dedicated Headless Mode section in Advanced settings
+* New Feature: Safe OTTO Persistence restore — original Yoast, Rank Math and AIOSEO values are backed up before OTTO writes to them, nothing is written without explicit consent, and a restore action rolls every value back to its original state
+* New Feature: Language Alternates (hreflang) can now be switched on or off per post and page from the editor settings
+* New Feature: A global setting now controls whether OTTO or custom SEO values take priority across the site
+* Fix: Core infrastructure sweep — resolved deactivation data loss, wp-config fatals and media metadata corruption across the plugin
+* Fix: SEO Health now credits titles and descriptions that OTTO has already applied instead of reporting them as missing
+* Fix: Classic Editor post saves no longer discard persisted OTTO schema
+* Fix: OTTO titles and descriptions containing curly quotes or dashes now save correctly instead of failing silently
+* Fix: OTTO renders now keep third-party og:title and twitter:title instead of stripping them
+* Fix: Sitemaps no longer include URLs that redirect elsewhere, whether the redirect comes from MetaSync, Rank Math or Yoast
+* Fix: The Visual HTML Editor now refuses saves that cannot preserve the stored document, protecting landing pages and full-document templates
+* Fix: Redirect destination and loop guards now apply on every write path, closing the gaps that allowed self-referencing and looping redirects
+* Fix: Language Alternates no longer emit duplicate tags on WPML sites, always include a self-reference, and validate their entries
+* Fix: The Instant Indexing service account file can now be saved, with clear upload confirmation and the ability to remove or reselect it
+* Fix: Plugin updates no longer fatal on a stale admin class during a White Label import
+* Improvement: SEO Health missing title and description filters are now optimized for large catalogues
+* Improvement: SEO Health exclusion queries, counting and CSV export are optimized for sites with heavy post metadata
+* Improvement: Frontend assets are now loaded only where they are needed, and duplicate WebPage schema nodes are removed
+* Improvement: The third-party SEO plugin sync screen has been redesigned and now respects white-label branding
+* Improvement: The duplicate Instant Indexing admin page has been removed and its functionality consolidated into Indexation Control
+* Improvement: The duplicate Primary Category control has been removed from the MetaSync editor sidebar
+* Improvement: The redirection list no longer repeats the match type in the From column
+* Improvement: The Changes Log now distinguishes OTTO cleanup events from new SEO deployments, so log entries reflect what actually happened
+
 = 2.6.26 =
 * Fix: Yoast schema conflict handling no longer emits invalid JSON-LD on OTTO-covered pages
 * Fix: Third-party SEO sync now reports success only when SEO data was actually written, preventing stale titles from being treated as current
