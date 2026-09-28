@@ -100,7 +100,7 @@ class Metasync_HTML_To_Builder_Converter
 	 */
 	private function log_missing_dom($context)
 	{
-		error_log('[Metasync] PHP dom extension is not available; HTML-to-builder conversion skipped in ' . $context . '. Install/enable the php-dom extension to use this feature.');
+		error_log('[Metasync] PHP dom extension is not available; HTML-to-builder conversion skipped in ' . $context . '. Install/enable the php-dom extension to use this feature.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 	}
 
 	/**

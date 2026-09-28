@@ -459,7 +459,7 @@ class MCP_Tool_Get_Post_By_URL extends MCP_Tool_Base {
      */
     private function resolve_by_slug( $raw, $post_type ) {
         // Extract last path segment (handles /blog/my-post/ → my-post)
-        $path     = parse_url( $raw, PHP_URL_PATH );
+        $path     = wp_parse_url( $raw, PHP_URL_PATH );
         $segments = array_filter( explode( '/', $path ?? $raw ) );
         $slug     = sanitize_title( end( $segments ) );
 

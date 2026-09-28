@@ -130,7 +130,7 @@ class Metasync_Otto_Render_Strategy {
      * @return bool
      */
     public static function is_internal_fetch() {
-        if (!empty($_GET['is_otto_page_fetch'])) {
+        if (!empty($_GET['is_otto_page_fetch'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only front-end flag to skip buffering
             return true;
         }
 
@@ -152,7 +152,19 @@ class Metasync_Otto_Render_Strategy {
      */
     public static function determine_method() {
         # Headless sites have no public HTML response for OTTO to rewrite.
-        if (Metasync_Headless_Config::is_active()) {
+        #
+        # Prefer the shared helper, which treats a class the Composer classmap
+        # cannot resolve mid-upgrade as "not headless" rather than fataling.
+        # Fall back to a guarded direct read rather than skipping the check:
+        # this is a static output-buffer path that can run before
+        # includes/metasync-helpers.php has loaded, and silently skipping would
+        # make a headless site render OTTO markup it must never render.
+        # @phpstan-ignore-next-line function.alreadyNarrowedType
+        $headless = function_exists('metasync_headless_is_active')
+            ? metasync_headless_is_active()
+            : (class_exists('Metasync_Headless_Config') && Metasync_Headless_Config::is_active());
+
+        if ($headless) {
             return self::METHOD_NONE;
         }
 
@@ -441,16 +453,20 @@ class Metasync_Otto_Render_Strategy {
         # permanently, and it is the most expensive page on the site to render.
         self::$document_unprocessable = true;
 
-        $route = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : 'unknown';
-        error_log(sprintf(
-            '[MetaSync OTTO] Skipped DOM processing on %s (%s): document %s exceeds safe memory budget (limit %s, used %s, cap %s).',
-            $route,
-            $context,
-            size_format($html_length),
-            ini_get('memory_limit'),
-            size_format(memory_get_usage(true)),
-            size_format(self::get_max_document_bytes())
-        ));
+        if (function_exists('metasync_otto_report_render_failure')) {
+            metasync_otto_report_render_failure(
+                'DOCUMENT_OVERSIZED',
+                sprintf(
+                    'Skipped DOM processing (%s): document %s exceeds safe memory budget (limit %s, cap %s).',
+                    $context,
+                    size_format($html_length),
+                    ini_get('memory_limit'),
+                    size_format(self::get_max_document_bytes())
+                ),
+                ['used_memory' => size_format(memory_get_usage(true))],
+                'warning'
+            );
+        }
     }
 
     /**
@@ -929,7 +945,6 @@ class Metasync_Otto_Render_Strategy {
                 );
             }
         } catch (Exception $e) {
-            error_log('[MetaSync OTTO] Render exception on ' . ($_SERVER['REQUEST_URI'] ?? 'unknown') . ': ' . $e->getMessage());
             self::handle_render_failure(
                 'RENDER_EXCEPTION',
                 'OTTO rewrite threw: ' . $e->getMessage(),
@@ -937,7 +952,6 @@ class Metasync_Otto_Render_Strategy {
                 'error'
             );
         } catch (Error $e) {
-            error_log('[MetaSync OTTO] Render error on ' . ($_SERVER['REQUEST_URI'] ?? 'unknown') . ': ' . $e->getMessage());
             self::handle_render_failure(
                 'RENDER_EXCEPTION',
                 'OTTO rewrite errored: ' . $e->getMessage(),
@@ -1028,9 +1042,27 @@ class Metasync_Otto_Render_Strategy {
                 return $result_string;
             }
         } catch (Exception $e) {
-            error_log('[MetaSync OTTO] Modification exception on ' . ($_SERVER['REQUEST_URI'] ?? 'unknown') . ': ' . $e->getMessage());
+            # Returning false makes process_buffer() report RENDER_NO_OUTPUT, but that
+            # loses the exception detail — report it here too, sanitized and throttled
+            # (metasync_otto_report_render_failure strips the query string and limits
+            # repeats to one per reason+URL per 5 minutes).
+            if (function_exists('metasync_otto_report_render_failure')) {
+                metasync_otto_report_render_failure(
+                    'MODIFICATION_EXCEPTION',
+                    'OTTO modification threw: ' . $e->getMessage(),
+                    ['exception' => get_class($e)],
+                    'error'
+                );
+            }
         } catch (Error $e) {
-            error_log('[MetaSync OTTO] Modification error on ' . ($_SERVER['REQUEST_URI'] ?? 'unknown') . ': ' . $e->getMessage());
+            if (function_exists('metasync_otto_report_render_failure')) {
+                metasync_otto_report_render_failure(
+                    'MODIFICATION_ERROR',
+                    'OTTO modification errored: ' . $e->getMessage(),
+                    ['error' => get_class($e)],
+                    'error'
+                );
+            }
         }
 
         return false;

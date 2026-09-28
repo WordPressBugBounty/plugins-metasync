@@ -13,7 +13,8 @@
  *     explicit submission on that list's own request key, then the user's
  *     persisted preference (stored in user_meta), and finally the
  *     page-specific default. A submitted valid value is persisted back to
- *     user_meta so it survives across page loads and sessions.
+ *     user_meta so it survives across page loads and sessions — gated on a
+ *     per-page nonce so a crafted link cannot change the stored preference.
  *   - Render an inline `<select>` with the allowed options, wired to refresh
  *     the current page with the new page size.
  *
@@ -121,7 +122,7 @@ class Metasync_Per_Page_Helper
      */
     public static function request_state($page_key, $request = null)
     {
-        $request = is_array($request) ? $request : $_REQUEST;
+        $request = is_array($request) ? $request : $_REQUEST; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, allow-listed list state for links
         $keys    = array_merge(self::state_params($page_key), [self::request_key($page_key)]);
         $state   = [];
 
@@ -169,12 +170,55 @@ class Metasync_Per_Page_Helper
     }
 
     /**
+     * Nonce action protecting persistence of a page-size preference.
+     *
+     * The selector's navigation is a plain GET (no form submit), so the nonce
+     * travels as a `_wpnonce` query parameter added by metasync-per-page.js
+     * and is verified in resolve() before anything is written to user_meta.
+     *
+     * @param string $page_key Unique list identifier.
+     * @return string
+     */
+    public static function nonce_action($page_key)
+    {
+        return 'metasync_per_page_' . $page_key;
+    }
+
+    /**
+     * Page keys that have a results-per-page selector. Kept beside the
+     * resolution logic so the localized nonce map (page_nonces()) and the
+     * persistence gate in resolve() cannot drift apart.
+     *
+     * @return string[]
+     */
+    public static function page_keys()
+    {
+        return ['redirections', '404_monitor', 'media_library', 'sync_log'];
+    }
+
+    /**
+     * Nonce for each selector page key, for wp_localize_script().
+     *
+     * @return array<string,string>
+     */
+    public static function page_nonces()
+    {
+        $nonces = [];
+        foreach (self::page_keys() as $page_key) {
+            $nonces[$page_key] = wp_create_nonce(self::nonce_action($page_key));
+        }
+        return $nonces;
+    }
+
+    /**
      * Resolve the active per-page value for a given admin list.
      *
      * Resolution order:
      *   1. `$_REQUEST[$request_key]` when present AND a valid allow-list
-     *      integer — also persisted to user_meta so the choice survives
-     *      future sessions.
+     *      integer — applied to this request, and persisted to user_meta
+     *      when the request also carries a valid `metasync_per_page_<page_key>`
+     *      nonce (added by the selector's own navigation) so only the
+     *      selector itself can change the stored preference.
      *   2. The user's persisted preference (`metasync_per_page_<page_key>`),
      *      when it is a valid allow-list integer.
      *   3. The supplied `$default`.
@@ -195,11 +239,21 @@ class Metasync_Per_Page_Helper
         $user_id     = function_exists('get_current_user_id') ? get_current_user_id() : 0;
         $meta_key    = 'metasync_per_page_' . $page_key;
 
-        // 1) A freshly submitted value wins and is persisted.
+        // 1) A freshly submitted value wins and is persisted — but only when
+        // the request carries the per-page nonce. A nonce-less URL (shared,
+        // bookmarked, forged) still applies the value for this one request
+        // without writing the user's stored preference.
         if (isset($_REQUEST[$request_key])) {
             $submitted = (int) $_REQUEST[$request_key];
             if (in_array($submitted, self::ALLOWED_VALUES, true)) {
-                if ($user_id > 0 && function_exists('update_user_meta')) {
+                $nonce_ok = false;
+                if (isset($_REQUEST['_wpnonce']) && is_scalar($_REQUEST['_wpnonce'])) {
+                    $nonce = sanitize_key(wp_unslash($_REQUEST['_wpnonce']));
+                    if ($nonce !== '' && function_exists('wp_verify_nonce')) {
+                        $nonce_ok = (bool) wp_verify_nonce($nonce, self::nonce_action($page_key));
+                    }
+                }
+                if ($nonce_ok && $user_id > 0 && function_exists('update_user_meta')) {
                     update_user_meta($user_id, $meta_key, $submitted);
                 }
                 return $submitted;

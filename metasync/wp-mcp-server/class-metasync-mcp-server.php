@@ -948,7 +948,7 @@ class Metasync_MCP_Server {
 
         $candidate = wp_generate_password(64, true, true);
 
-        $wpdb->query(
+        $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- MCP session storage — direct option surgery is the session primitive
             $wpdb->prepare(
                 "INSERT INTO {$wpdb->options} (option_name, option_value, autoload)"
                 . " VALUES (%s, %s, %s)"
@@ -961,7 +961,7 @@ class Metasync_MCP_Server {
 
         // Read the row back rather than trusting the candidate: on a race the
         // winner's secret is the one that was persisted.
-        $stored = $wpdb->get_var(
+        $stored = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- MCP session storage — direct option surgery is the session primitive
             $wpdb->prepare(
                 "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
                 'metasync_jwt_secret'
@@ -1277,7 +1277,7 @@ class Metasync_MCP_Server {
 
         if (defined('WP_DEBUG') && WP_DEBUG) {
             // Log the bucket digest only — never the presented credential.
-            error_log(sprintf(
+            error_log(sprintf( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
                 'MetaSync MCP: failed authentication attempt (source=%s)',
                 substr(hash('sha256', $source), 0, 12)
             ));

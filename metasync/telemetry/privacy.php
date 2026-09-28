@@ -36,7 +36,7 @@ function metasync_telemetry_request_path($request_uri = null)
         return 'unknown';
     }
 
-    $path = parse_url($request_uri, PHP_URL_PATH);
+    $path = wp_parse_url($request_uri, PHP_URL_PATH);
 
     return is_string($path) && $path !== '' ? $path : '/';
 }

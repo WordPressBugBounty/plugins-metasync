@@ -160,7 +160,6 @@ class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
                 'permalink_structure',
                 'hide_dashboard_framework',
                 'show_admin_bar_status',
-                'enable_auto_updates',
                 'enable_schema_markup',
                 'default_schema_type'
             ],
@@ -488,10 +487,6 @@ class MCP_Tool_List_Plugin_Settings_Schema extends MCP_Tool_Base {
                     'show_admin_bar_status' => [
                         'type' => 'boolean',
                         'description' => 'Show plugin status in admin bar'
-                    ],
-                    'enable_auto_updates' => [
-                        'type' => 'boolean',
-                        'description' => 'Enable automatic plugin updates'
                     ],
                     'enable_schema_markup' => [
                         'type' => 'boolean',

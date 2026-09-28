@@ -5,6 +5,10 @@
  *
  * @package Bing Instant Indexing
  */
+
+if (!defined('ABSPATH')) {
+	exit;
+}
 ?>
 
 	<?php if (!$this->get_setting('api_key')) { ?>
@@ -26,8 +30,8 @@
 
 	<?php
 	$urls = home_url('/');
-	if (isset($_GET['posturl'])) {
-		$urls = esc_url_raw(wp_unslash($_GET['posturl']));
+	if (isset($_GET['posturl'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only form prefill, the submit verifies its own nonce
+		$urls = esc_url_raw(wp_unslash($_GET['posturl'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only form prefill, the submit verifies its own nonce
 	}
 
 	?>

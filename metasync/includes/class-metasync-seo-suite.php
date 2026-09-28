@@ -70,7 +70,7 @@ class Metasync_Seo_Suite
      */
     private function is_block_editor_request()
     {
-        if (!empty($_REQUEST['meta-box-loader'])) {
+        if (!empty($_REQUEST['meta-box-loader'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only request flag for meta box registration
             return true;
         }
         $screen = get_current_screen();
@@ -228,7 +228,6 @@ class Metasync_Seo_Suite
     {
         $P = $this->present;
         $id = $post->ID;
-        $a = 'esc_attr';
 
         $managed = $this->is_managed_page($id);
 
@@ -414,7 +413,7 @@ class Metasync_Seo_Suite
                 <?php
                 $first = true;
                 $tab = function ($key, $icon, $label) use (&$first) {
-                    echo '<div class="nav' . ($first ? ' active' : '') . '" role="button" tabindex="0" onclick="mssGo(this,\'' . esc_attr($key) . '\')" onkeydown="mssKey(event,this)"><span class="ic">' . $icon . '</span> ' . $label . '</div>';
+                    echo '<div class="nav' . ($first ? ' active' : '') . '" role="button" tabindex="0" onclick="mssGo(this,\'' . esc_attr($key) . '\')" onkeydown="mssKey(event,this)"><span class="ic">' . esc_html($icon) . '</span> ' . esc_html($label) . '</div>';
                     $first = false;
                 };
                 if ($has_seo)    { $tab('seo', '&#128269;', 'SEO'); }
@@ -438,7 +437,7 @@ class Metasync_Seo_Suite
                 ?>
 
                 <?php if ($has_seo): ?>
-                <div class="<?php echo $pcls(); ?>" data-p="seo">
+                <div class="<?php echo esc_attr($pcls()); ?>" data-p="seo">
                   <h2 class="p-title">&#128269; Search Appearance</h2>
                   <p class="p-sub">Set the SEO Title and Meta Description. Leave blank to use the OTTO suggestion.</p>
                   <?php if ($show_imported_note): ?>
@@ -446,11 +445,11 @@ class Metasync_Seo_Suite
                   <?php endif; ?>
                   <div class="field">
                     <div class="lbl"><span>SEO Title</span><span class="cc"><span class="tC">0</span>/60</span></div>
-                    <input class="ctrl seoT" name="metasync_seo_title" value="<?php echo $a($seo_title); ?>" placeholder="<?php echo $a($ghost_title); ?>" oninput="mssRc()">
+                    <input class="ctrl seoT" name="metasync_seo_title" value="<?php echo esc_attr($seo_title); ?>" placeholder="<?php echo esc_attr($ghost_title); ?>" oninput="mssRc()">
                   </div>
                   <div class="field">
                     <div class="lbl"><span>Meta Description</span><span class="cc"><span class="dC">0</span>/160</span></div>
-                    <textarea class="ctrl seoD" name="metasync_seo_desc" placeholder="<?php echo $a($ghost_desc); ?>" oninput="mssRc()"><?php echo esc_textarea($seo_desc); ?></textarea>
+                    <textarea class="ctrl seoD" name="metasync_seo_desc" placeholder="<?php echo esc_attr($ghost_desc); ?>" oninput="mssRc()"><?php echo esc_textarea($seo_desc); ?></textarea>
                   </div>
                   <?php if ($otto_kw !== ''): ?>
                   <div class="field">
@@ -469,7 +468,7 @@ class Metasync_Seo_Suite
                 <?php endif; ?>
 
                 <?php if ($has_robots): ?>
-                <div class="<?php echo $pcls(); ?>" data-p="robots">
+                <div class="<?php echo esc_attr($pcls()); ?>" data-p="robots">
                   <h2 class="p-title">&#129302; Robots Meta</h2>
                   <p class="p-sub">Crawler directives for this post. These are independent flags &mdash; combine as needed.</p>
                   <?php if ($has_crob): ?>
@@ -486,7 +485,8 @@ class Metasync_Seo_Suite
                     );
                     foreach ($common as $key => $c): ?>
                       <label class="chip">
-                        <input type="checkbox" name="common_robots_meta[<?php echo $a($key); ?>]" value="<?php echo $a($key); ?>"<?php echo isset($cr[$key]) ? self::checked_attr($cr[$key] === $key) : ''; ?>>
+                        <input type="checkbox" name="common_robots_meta[<?php echo esc_attr($key); ?>]" value="<?php echo esc_attr($key); ?>"<?php // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- checked_attr() returns the validated checked attribute.
+                        echo isset($cr[$key]) ? esc_attr(self::checked_attr($cr[$key] === $key)) : ''; ?>>
                         <span class="box">&#10003;</span><div><?php echo esc_html($c[0]); ?><small><?php echo esc_html($c[1]); ?></small></div>
                       </label>
                     <?php endforeach; ?>
@@ -497,11 +497,11 @@ class Metasync_Seo_Suite
                   <div class="row">
                     <div class="field">
                       <label class="chip mss-advchip"><input type="checkbox" name="advanced_robots_meta[max-snippet][enable]" value="1"<?php checked('1', $ar_snip_e); ?>><span class="box">&#10003;</span><div>Max Snippet</div></label>
-                      <input class="ctrl" type="number" name="advanced_robots_meta[max-snippet][length]" value="<?php echo $a($ar_snip_l); ?>" min="-1" placeholder="e.g. 160">
+                      <input class="ctrl" type="number" name="advanced_robots_meta[max-snippet][length]" value="<?php echo esc_attr($ar_snip_l); ?>" min="-1" placeholder="e.g. 160">
                       <div class="hint">Max snippet length in characters.</div></div>
                     <div class="field">
                       <label class="chip mss-advchip"><input type="checkbox" name="advanced_robots_meta[max-video-preview][enable]" value="1"<?php checked('1', $ar_vid_e); ?>><span class="box">&#10003;</span><div>Max Video Preview</div></label>
-                      <input class="ctrl" type="number" name="advanced_robots_meta[max-video-preview][length]" value="<?php echo $a($ar_vid_l); ?>" min="-1" placeholder="e.g. -1">
+                      <input class="ctrl" type="number" name="advanced_robots_meta[max-video-preview][length]" value="<?php echo esc_attr($ar_vid_l); ?>" min="-1" placeholder="e.g. -1">
                       <div class="hint">Max preview duration in seconds.</div></div>
                   </div>
                   <div class="field">
@@ -516,23 +516,24 @@ class Metasync_Seo_Suite
                 <?php endif; ?>
 
                 <?php if ($has_canon): ?>
-                <div class="<?php echo $pcls(); ?>" data-p="canonical">
+                <div class="<?php echo esc_attr($pcls()); ?>" data-p="canonical">
                   <h2 class="p-title">&#128279; Canonical URL</h2>
                   <p class="p-sub">Point search engines to the preferred version of this content.</p>
                   <div class="field">
                     <div class="lbl"><span>Canonical URL</span></div>
-                    <input class="ctrl" type="text" name="post_canonical_url_meta" value="<?php echo $a($canon); ?>" placeholder="<?php echo $a($pretty); ?>">
+                    <input class="ctrl" type="text" name="post_canonical_url_meta" value="<?php echo esc_attr($canon); ?>" placeholder="<?php echo esc_attr($pretty); ?>">
                     <div class="hint">Leave blank to use this post's own URL.</div>
                   </div>
                 </div>
                 <?php endif; ?>
 
                 <?php if ($has_redir): ?>
-                <div class="<?php echo $pcls(); ?>" data-p="redirect">
+                <div class="<?php echo esc_attr($pcls()); ?>" data-p="redirect">
                   <h2 class="p-title">&#8618;&#65039; Redirection</h2>
                   <p class="p-sub">Send visitors of this post somewhere else.</p>
                   <div class="switch-card">
-                    <label class="switch"><input type="checkbox" name="post_redirect_meta[enable]" value="true"<?php echo self::checked_attr($rd_en); ?>></label>
+                    <label class="switch"><input type="checkbox" name="post_redirect_meta[enable]" value="true"<?php // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- checked_attr() returns the validated checked attribute.
+                        echo esc_attr(self::checked_attr($rd_en)); ?>></label>
                     <div class="m"><b>Enable redirection</b><span>Send visitors of this post to another URL</span></div>
                   </div>
                   <div class="row">
@@ -545,34 +546,35 @@ class Metasync_Seo_Suite
                         <option value="451"<?php selected($rd_type, '451'); ?>>451 Content Unavailable</option>
                       </select></div>
                     <div class="field"><div class="lbl"><span>Destination URL</span></div>
-                      <input class="ctrl" type="text" name="post_redirect_meta[url]" value="<?php echo $a($rd_url); ?>" placeholder="https://example.com/new-url/"></div>
+                      <input class="ctrl" type="text" name="post_redirect_meta[url]" value="<?php echo esc_attr($rd_url); ?>" placeholder="https://example.com/new-url/"></div>
                   </div>
                 </div>
                 <?php endif; ?>
 
                 <?php if ($has_social): ?>
-                <div class="<?php echo $pcls(); ?>" data-p="social">
+                <div class="<?php echo esc_attr($pcls()); ?>" data-p="social">
                   <h2 class="p-title">&#128226; Social &amp; Open Graph</h2>
                   <p class="p-sub">How this post looks when shared on social platforms.</p>
                   <div class="switch-card">
-                    <label class="switch"><input type="checkbox" name="_metasync_og_enabled" value="1"<?php echo self::checked_attr($og_en); ?>></label>
+                    <label class="switch"><input type="checkbox" name="_metasync_og_enabled" value="1"<?php // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- checked_attr() returns the validated checked attribute.
+                        echo esc_attr(self::checked_attr($og_en)); ?>></label>
                     <div class="m"><b>Enable Open Graph &amp; Social Media Tags</b><span>Adds Open Graph + Twitter Card tags for better sharing</span></div>
                   </div>
 
                   <div class="subhead"><span class="sq"></span> Open Graph</div>
-                  <div class="field"><div class="lbl"><span>Title (og:title)</span></div><input class="ctrl" name="_metasync_og_title" maxlength="60" value="<?php echo $a($og_title); ?>" placeholder="<?php echo $a($og_defaults['title']); ?>" oninput="mssSocial()"></div>
-                  <div class="field"><div class="lbl"><span>Description (og:description)</span></div><textarea class="ctrl" name="_metasync_og_description" maxlength="155" placeholder="<?php echo $a($og_defaults['description']); ?>" oninput="mssSocial()"><?php echo esc_textarea($og_desc); ?></textarea></div>
+                  <div class="field"><div class="lbl"><span>Title (og:title)</span></div><input class="ctrl" name="_metasync_og_title" maxlength="60" value="<?php echo esc_attr($og_title); ?>" placeholder="<?php echo esc_attr($og_defaults['title']); ?>" oninput="mssSocial()"></div>
+                  <div class="field"><div class="lbl"><span>Description (og:description)</span></div><textarea class="ctrl" name="_metasync_og_description" maxlength="155" placeholder="<?php echo esc_attr($og_defaults['description']); ?>" oninput="mssSocial()"><?php echo esc_textarea($og_desc); ?></textarea></div>
                   <div class="field"><div class="lbl"><span>Image (og:image)</span></div>
-                    <div class="mss-imgrow"><input class="ctrl ogimg" type="url" name="_metasync_og_image" value="<?php echo $a($og_image); ?>" placeholder="https://example.com/image.jpg" oninput="mssSocial()"><button class="btn ghost sm mss-pick" data-target=".ogimg" type="button">Select</button></div>
+                    <div class="mss-imgrow"><input class="ctrl ogimg" type="url" name="_metasync_og_image" value="<?php echo esc_attr($og_image); ?>" placeholder="https://example.com/image.jpg" oninput="mssSocial()"><button class="btn ghost sm mss-pick" data-target=".ogimg" type="button">Select</button></div>
                     <div class="hint">Recommended 1200&times;630px.</div></div>
                   <div class="row">
                     <div class="field"><div class="lbl"><span>Type (og:type)</span></div>
                       <select class="ctrl" name="_metasync_og_type">
                         <?php foreach (array('article', 'website', 'blog', 'product', 'video', 'music') as $t): ?>
-                          <option value="<?php echo $a($t); ?>"<?php selected($og_type, $t); ?>><?php echo esc_html(ucfirst($t)); ?></option>
+                          <option value="<?php echo esc_attr($t); ?>"<?php selected($og_type, $t); ?>><?php echo esc_html(ucfirst($t)); ?></option>
                         <?php endforeach; ?>
                       </select></div>
-                    <div class="field"><div class="lbl"><span>URL (og:url)</span></div><input class="ctrl" type="url" name="_metasync_og_url" value="<?php echo $a($og_url); ?>" placeholder="<?php echo $a($pretty); ?>"<?php echo $post->post_status === 'auto-draft' ? ' disabled' : ''; ?>></div>
+                    <div class="field"><div class="lbl"><span>URL (og:url)</span></div><input class="ctrl" type="url" name="_metasync_og_url" value="<?php echo esc_attr($og_url); ?>" placeholder="<?php echo esc_attr($pretty); ?>"<?php echo $post->post_status === 'auto-draft' ? ' disabled' : ''; ?>></div>
                   </div>
 
                   <div class="subhead"><span class="sq"></span> Twitter Card</div>
@@ -584,34 +586,34 @@ class Metasync_Seo_Suite
                       <option value="player"<?php selected($tw_card, 'player'); ?>>Player</option>
                     </select></div>
                   <div class="row">
-                    <div class="field"><div class="lbl"><span>Twitter Site</span></div><input class="ctrl" name="_metasync_twitter_site" value="<?php echo $a($tw_site); ?>" placeholder="@yoursite"></div>
-                    <div class="field"><div class="lbl"><span>Twitter Title</span></div><input class="ctrl" name="_metasync_twitter_title" maxlength="70" value="<?php echo $a($tw_title); ?>" placeholder="<?php echo $a($tw_title_placeholder); ?>" oninput="mssSocial()"></div>
+                    <div class="field"><div class="lbl"><span>Twitter Site</span></div><input class="ctrl" name="_metasync_twitter_site" value="<?php echo esc_attr($tw_site); ?>" placeholder="@yoursite"></div>
+                    <div class="field"><div class="lbl"><span>Twitter Title</span></div><input class="ctrl" name="_metasync_twitter_title" maxlength="70" value="<?php echo esc_attr($tw_title); ?>" placeholder="<?php echo esc_attr($tw_title_placeholder); ?>" oninput="mssSocial()"></div>
                   </div>
-                  <div class="field"><div class="lbl"><span>Twitter Description</span></div><textarea class="ctrl" name="_metasync_twitter_description" maxlength="200" placeholder="<?php echo $a($tw_desc_placeholder); ?>" oninput="mssSocial()"><?php echo esc_textarea($tw_desc); ?></textarea></div>
+                  <div class="field"><div class="lbl"><span>Twitter Description</span></div><textarea class="ctrl" name="_metasync_twitter_description" maxlength="200" placeholder="<?php echo esc_attr($tw_desc_placeholder); ?>" oninput="mssSocial()"><?php echo esc_textarea($tw_desc); ?></textarea></div>
                   <div class="row">
                     <div class="field"><div class="lbl"><span>Twitter Image</span></div>
-                      <div class="mss-imgrow"><input class="ctrl twimg" type="url" name="_metasync_twitter_image" value="<?php echo $a($tw_image); ?>" placeholder="Falls back to OG image" oninput="mssSocial()"><button class="btn ghost sm mss-pick" data-target=".twimg" type="button">Select</button></div></div>
-                    <div class="field"><div class="lbl"><span>Image Alt</span></div><input class="ctrl" name="_metasync_twitter_image_alt" maxlength="420" value="<?php echo $a($tw_alt); ?>" placeholder="Accessibility description"></div>
+                      <div class="mss-imgrow"><input class="ctrl twimg" type="url" name="_metasync_twitter_image" value="<?php echo esc_attr($tw_image); ?>" placeholder="Falls back to OG image" oninput="mssSocial()"><button class="btn ghost sm mss-pick" data-target=".twimg" type="button">Select</button></div></div>
+                    <div class="field"><div class="lbl"><span>Image Alt</span></div><input class="ctrl" name="_metasync_twitter_image_alt" maxlength="420" value="<?php echo esc_attr($tw_alt); ?>" placeholder="Accessibility description"></div>
                   </div>
 
                   <div class="mssTwApp" style="display:<?php echo $tw_card === 'app' ? 'block' : 'none'; ?>">
                     <div class="subhead"><span class="sq"></span> App Card</div>
                     <div class="row">
-                      <div class="field"><div class="lbl"><span>iPhone App ID</span></div><input class="ctrl" name="_metasync_twitter_app_id_iphone" value="<?php echo $a($tw_app_iphone); ?>" placeholder="307234931"<?php echo $tw_app_disabled; ?>></div>
-                      <div class="field"><div class="lbl"><span>iPad App ID</span></div><input class="ctrl" name="_metasync_twitter_app_id_ipad" value="<?php echo $a($tw_app_ipad); ?>" placeholder="307234931"<?php echo $tw_app_disabled; ?>></div>
+                      <div class="field"><div class="lbl"><span>iPhone App ID</span></div><input class="ctrl" name="_metasync_twitter_app_id_iphone" value="<?php echo esc_attr($tw_app_iphone); ?>" placeholder="307234931"<?php echo esc_attr($tw_app_disabled); ?>></div>
+                      <div class="field"><div class="lbl"><span>iPad App ID</span></div><input class="ctrl" name="_metasync_twitter_app_id_ipad" value="<?php echo esc_attr($tw_app_ipad); ?>" placeholder="307234931"<?php echo esc_attr($tw_app_disabled); ?>></div>
                     </div>
-                    <div class="field"><div class="lbl"><span>Google Play App ID</span></div><input class="ctrl" name="_metasync_twitter_app_id_googleplay" value="<?php echo $a($tw_app_gp); ?>" placeholder="com.android.app"<?php echo $tw_app_disabled; ?>></div>
+                    <div class="field"><div class="lbl"><span>Google Play App ID</span></div><input class="ctrl" name="_metasync_twitter_app_id_googleplay" value="<?php echo esc_attr($tw_app_gp); ?>" placeholder="com.android.app"<?php echo esc_attr($tw_app_disabled); ?>></div>
                     <div class="row">
-                      <div class="field"><div class="lbl"><span>iPhone Custom URL</span></div><input class="ctrl" type="url" name="_metasync_twitter_app_url_iphone" value="<?php echo $a($tw_app_url_iphone); ?>" placeholder="myapp://"<?php echo $tw_app_disabled; ?>></div>
-                      <div class="field"><div class="lbl"><span>iPad Custom URL</span></div><input class="ctrl" type="url" name="_metasync_twitter_app_url_ipad" value="<?php echo $a($tw_app_url_ipad); ?>" placeholder="myapp://"<?php echo $tw_app_disabled; ?>></div>
+                      <div class="field"><div class="lbl"><span>iPhone Custom URL</span></div><input class="ctrl" type="url" name="_metasync_twitter_app_url_iphone" value="<?php echo esc_attr($tw_app_url_iphone); ?>" placeholder="myapp://"<?php echo esc_attr($tw_app_disabled); ?>></div>
+                      <div class="field"><div class="lbl"><span>iPad Custom URL</span></div><input class="ctrl" type="url" name="_metasync_twitter_app_url_ipad" value="<?php echo esc_attr($tw_app_url_ipad); ?>" placeholder="myapp://"<?php echo esc_attr($tw_app_disabled); ?>></div>
                     </div>
                     <div class="row">
-                      <div class="field"><div class="lbl"><span>Google Play Custom URL</span></div><input class="ctrl" type="url" name="_metasync_twitter_app_url_googleplay" value="<?php echo $a($tw_app_url_gp); ?>" placeholder="myapp://"<?php echo $tw_app_disabled; ?>></div>
+                      <div class="field"><div class="lbl"><span>Google Play Custom URL</span></div><input class="ctrl" type="url" name="_metasync_twitter_app_url_googleplay" value="<?php echo esc_attr($tw_app_url_gp); ?>" placeholder="myapp://"<?php echo esc_attr($tw_app_disabled); ?>></div>
                       <div class="field"><div class="lbl"><span>App Store Country</span></div>
-                        <select class="ctrl" name="_metasync_twitter_app_country"<?php echo $tw_app_disabled; ?>>
+                        <select class="ctrl" name="_metasync_twitter_app_country"<?php echo esc_attr($tw_app_disabled); ?>>
                           <option value=""<?php selected($tw_app_country, ''); ?>>US (Default)</option>
                           <?php foreach (array('GB' => 'United Kingdom', 'CA' => 'Canada', 'AU' => 'Australia', 'DE' => 'Germany', 'FR' => 'France', 'JP' => 'Japan', 'IN' => 'India', 'BR' => 'Brazil', 'MX' => 'Mexico') as $code => $country): ?>
-                            <option value="<?php echo $a($code); ?>"<?php selected($tw_app_country, $code); ?>><?php echo esc_html($country); ?></option>
+                            <option value="<?php echo esc_attr($code); ?>"<?php selected($tw_app_country, $code); ?>><?php echo esc_html($country); ?></option>
                           <?php endforeach; ?>
                         </select>
                         <div class="hint">Required if your app is not available in the US App Store.</div>
@@ -620,10 +622,10 @@ class Metasync_Seo_Suite
                   </div>
                   <div class="mssTwPlayer" style="display:<?php echo $tw_card === 'player' ? 'block' : 'none'; ?>">
                     <div class="subhead"><span class="sq"></span> Player Card</div>
-                    <div class="field"><div class="lbl"><span>Player URL</span></div><input class="ctrl" type="url" name="_metasync_twitter_player" value="<?php echo $a($tw_player); ?>" placeholder="https://example.com/player"<?php echo $tw_player_disabled; ?>></div>
+                    <div class="field"><div class="lbl"><span>Player URL</span></div><input class="ctrl" type="url" name="_metasync_twitter_player" value="<?php echo esc_attr($tw_player); ?>" placeholder="https://example.com/player"<?php echo esc_attr($tw_player_disabled); ?>></div>
                     <div class="row">
-                      <div class="field"><div class="lbl"><span>Width (px)</span></div><input class="ctrl short" type="number" name="_metasync_twitter_player_width" min="1" value="<?php echo $a($tw_player_w); ?>" placeholder="1280"<?php echo $tw_player_disabled; ?>></div>
-                      <div class="field"><div class="lbl"><span>Height (px)</span></div><input class="ctrl short" type="number" name="_metasync_twitter_player_height" min="1" value="<?php echo $a($tw_player_h); ?>" placeholder="720"<?php echo $tw_player_disabled; ?>></div>
+                      <div class="field"><div class="lbl"><span>Width (px)</span></div><input class="ctrl short" type="number" name="_metasync_twitter_player_width" min="1" value="<?php echo esc_attr($tw_player_w); ?>" placeholder="1280"<?php echo esc_attr($tw_player_disabled); ?>></div>
+                      <div class="field"><div class="lbl"><span>Height (px)</span></div><input class="ctrl short" type="number" name="_metasync_twitter_player_height" min="1" value="<?php echo esc_attr($tw_player_h); ?>" placeholder="720"<?php echo esc_attr($tw_player_disabled); ?>></div>
                     </div>
                   </div>
 
@@ -667,7 +669,7 @@ class Metasync_Seo_Suite
                 <?php endif; ?>
 
                 <?php if ($has_schema): ?>
-                <div class="<?php echo $pcls(); ?>" data-p="schema">
+                <div class="<?php echo esc_attr($pcls()); ?>" data-p="schema">
                   <h2 class="p-title">&#128208; Schema Markup</h2>
                   <div class="mss-native">
                     <?php
@@ -682,14 +684,14 @@ class Metasync_Seo_Suite
                 <?php endif; ?>
 
                 <?php if ($has_video): ?>
-                <div class="<?php echo $pcls(); ?>" data-p="video">
+                <div class="<?php echo esc_attr($pcls()); ?>" data-p="video">
                   <h2 class="p-title">&#127916; Video Sitemap</h2>
                   <p class="p-sub">Override auto-detected video data. Leave blank to use auto-detection.</p>
-                  <div class="field"><div class="lbl"><span>Video URL</span></div><input class="ctrl" type="url" name="metasync_video_url" value="<?php echo $a($v_url); ?>" placeholder="https://www.youtube.com/watch?v=..."></div>
-                  <div class="field"><div class="lbl"><span>Thumbnail URL</span></div><input class="ctrl" type="url" name="metasync_video_thumbnail" value="<?php echo $a($v_thumb); ?>" placeholder="https://img.youtube.com/vi/.../hqdefault.jpg"></div>
-                  <div class="field"><div class="lbl"><span>Video Title</span></div><input class="ctrl" name="metasync_video_title" value="<?php echo $a($v_title); ?>" placeholder="Defaults to post title"></div>
+                  <div class="field"><div class="lbl"><span>Video URL</span></div><input class="ctrl" type="url" name="metasync_video_url" value="<?php echo esc_attr($v_url); ?>" placeholder="https://www.youtube.com/watch?v=..."></div>
+                  <div class="field"><div class="lbl"><span>Thumbnail URL</span></div><input class="ctrl" type="url" name="metasync_video_thumbnail" value="<?php echo esc_attr($v_thumb); ?>" placeholder="https://img.youtube.com/vi/.../hqdefault.jpg"></div>
+                  <div class="field"><div class="lbl"><span>Video Title</span></div><input class="ctrl" name="metasync_video_title" value="<?php echo esc_attr($v_title); ?>" placeholder="Defaults to post title"></div>
                   <div class="field"><div class="lbl"><span>Video Description</span></div><textarea class="ctrl" name="metasync_video_description" placeholder="Defaults to post excerpt"><?php echo esc_textarea($v_desc); ?></textarea></div>
-                  <div class="field"><div class="lbl"><span>Duration (seconds)</span></div><input class="ctrl short" type="number" name="metasync_video_duration" min="0" step="1" value="<?php echo $a($v_dur); ?>" placeholder="300"></div>
+                  <div class="field"><div class="lbl"><span>Duration (seconds)</span></div><input class="ctrl short" type="number" name="metasync_video_duration" min="0" step="1" value="<?php echo esc_attr($v_dur); ?>" placeholder="300"></div>
                 </div>
                 <?php endif; ?>
 

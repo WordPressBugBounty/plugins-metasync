@@ -479,14 +479,14 @@ class Metasync_Seo_Restore {
 
 		$prefix_like = $wpdb->esc_like(Metasync_Seo_Backup::BACKUP_META_PREFIX) . '%';
 		if ($object_type === 'post') {
-			return $wpdb->get_col($wpdb->prepare(
+			return $wpdb->get_col($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- restore tool — exact-row bulk migration including third-party tables; no bulk WordPress API
 				"SELECT meta_key FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key LIKE %s",
 				$object_id,
 				$prefix_like
 			)) ?: [];
 		}
 
-		return $wpdb->get_col($wpdb->prepare(
+		return $wpdb->get_col($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- restore tool — exact-row bulk migration including third-party tables; no bulk WordPress API
 			"SELECT meta_key FROM {$wpdb->termmeta} WHERE term_id = %d AND meta_key LIKE %s",
 			$object_id,
 			$prefix_like
@@ -569,15 +569,13 @@ class Metasync_Seo_Restore {
 			return false;
 		}
 
-		$table = ($object_type === 'post')
-			? $wpdb->prefix . 'aioseo_posts'
-			: $wpdb->prefix . 'aioseo_terms';
-
-		$id_col = ($object_type === 'post') ? 'post_id' : 'term_id';
+		$is_post = ($object_type === 'post');
 
 		// If marker is '0', the row was created by MetaSync -> delete row.
 		if ($marker === '0') {
-			$deleted = $wpdb->delete($table, [$id_col => $object_id]);
+			$deleted = $is_post
+				? $wpdb->delete($wpdb->prefix . 'aioseo_posts', array('post_id' => $object_id)) // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- restore tool — exact-row bulk migration including third-party tables; no bulk WordPress API
+				: $wpdb->delete($wpdb->prefix . 'aioseo_terms', array('term_id' => $object_id));
 			return ($deleted !== false);
 		}
 
@@ -586,11 +584,9 @@ class Metasync_Seo_Restore {
 			return true;
 		}
 
-		$updated = $wpdb->update(
-			$table,
-			$columns,
-			[$id_col => $object_id]
-		);
+		$updated = $is_post
+			? $wpdb->update($wpdb->prefix . 'aioseo_posts', $columns, array('post_id' => $object_id)) // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- restore tool — exact-row bulk migration including third-party tables; no bulk WordPress API
+			: $wpdb->update($wpdb->prefix . 'aioseo_terms', $columns, array('term_id' => $object_id));
 
 		if ($updated === false) {
 			return false;
@@ -600,10 +596,9 @@ class Metasync_Seo_Restore {
 		// gone (the original values now have nowhere to live — fail so the
 		// backup keys survive). A row-existence probe settles it.
 		if ($updated === 0) {
-			$exists = $wpdb->get_var($wpdb->prepare(
-				"SELECT {$id_col} FROM {$table} WHERE {$id_col} = %d",
-				$object_id
-			));
+			$exists = $is_post
+				? $wpdb->get_var($wpdb->prepare("SELECT post_id FROM {$wpdb->prefix}aioseo_posts WHERE post_id = %d", $object_id)) // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- restore tool — exact-row bulk migration including third-party tables; no bulk WordPress API
+				: $wpdb->get_var($wpdb->prepare("SELECT term_id FROM {$wpdb->prefix}aioseo_terms WHERE term_id = %d", $object_id));
 			return ($exists !== null);
 		}
 
@@ -628,7 +623,7 @@ class Metasync_Seo_Restore {
 
 		// If marker is '0', the row was created by MetaSync -> delete row.
 		if ($marker === '0') {
-			$deleted = $wpdb->delete($table, [
+			$deleted = $wpdb->delete($table, [ // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- restore tool — exact-row bulk migration including third-party tables; no bulk WordPress API
 				'object_id'   => $post_id,
 				'object_type' => 'post',
 			]);
@@ -640,7 +635,7 @@ class Metasync_Seo_Restore {
 			return true;
 		}
 
-		$updated = $wpdb->update(
+		$updated = $wpdb->update( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- restore tool — exact-row bulk migration including third-party tables; no bulk WordPress API
 			$table,
 			$columns,
 			[
@@ -657,8 +652,8 @@ class Metasync_Seo_Restore {
 		// original values now have nowhere to live — fail so the backups
 		// survive). Probe for the row to tell the two apart.
 		if ($updated === 0) {
-			$exists = $wpdb->get_var($wpdb->prepare(
-				"SELECT object_id FROM {$table} WHERE object_id = %d AND object_type = 'post'",
+			$exists = $wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- restore tool — exact-row bulk migration including third-party tables; no bulk WordPress API
+				"SELECT object_id FROM {$wpdb->prefix}yoast_indexable WHERE object_id = %d AND object_type = 'post'",
 				$post_id
 			));
 			return ($exists !== null);
@@ -1169,7 +1164,7 @@ class Metasync_Seo_Restore {
 		// 1. Posts with backup meta (keyset paginated by post_id)
 		$last_id = 0;
 		do {
-			$posts = $wpdb->get_col($wpdb->prepare(
+			$posts = $wpdb->get_col($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- restore tool — exact-row bulk migration including third-party tables; no bulk WordPress API
 				"SELECT DISTINCT post_id
 				 FROM {$wpdb->postmeta}
 				 WHERE meta_key LIKE %s AND post_id > %d
@@ -1192,7 +1187,7 @@ class Metasync_Seo_Restore {
 		// 2. Terms with backup meta (keyset paginated by term_id)
 		$last_id = 0;
 		do {
-			$terms = $wpdb->get_col($wpdb->prepare(
+			$terms = $wpdb->get_col($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- restore tool — exact-row bulk migration including third-party tables; no bulk WordPress API
 				"SELECT DISTINCT term_id
 				 FROM {$wpdb->termmeta}
 				 WHERE meta_key LIKE %s AND term_id > %d

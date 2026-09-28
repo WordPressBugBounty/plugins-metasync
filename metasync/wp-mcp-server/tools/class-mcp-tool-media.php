@@ -234,7 +234,7 @@ class MCP_Tool_Upload_Featured_Image extends MCP_Tool_Base {
         $attachment_id = media_handle_sideload($file_array, $post_id);
 
         if (is_wp_error($attachment_id)) {
-            @unlink($tmp);
+            @wp_delete_file($tmp);
             throw new Exception('Failed to upload image: ' . $attachment_id->get_error_message());
         }
 

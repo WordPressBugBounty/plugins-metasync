@@ -371,7 +371,7 @@ class Metasync_Otto_Frontend_Toolbar {
 		}
 
 		// each emit it, appearing duplicated over the editing canvas.
-		if ( isset( $_GET['ct_builder'] ) || ( defined( 'SHOW_CT_BUILDER' ) && SHOW_CT_BUILDER ) ) {
+		if ( isset( $_GET['ct_builder'] ) || ( defined( 'SHOW_CT_BUILDER' ) && SHOW_CT_BUILDER ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only builder flag to skip toolbar output
 			return;
 		}
 
@@ -626,7 +626,7 @@ class Metasync_Otto_Frontend_Toolbar {
 	 * @return bool True when the flag should be honoured.
 	 */
 	private static function is_frontend_preview_request() {
-		if ( ! isset( $_GET['otto_preview'] ) || $_GET['otto_preview'] !== '1' ) {
+		if ( ! isset( $_GET['otto_preview'] ) || $_GET['otto_preview'] !== '1' ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only front-end preview flag, GET only, no write
 			return false;
 		}
 
@@ -727,7 +727,7 @@ class Metasync_Otto_Frontend_Toolbar {
 
 		// Get parameters
 		$post_id = isset( $_POST['post_id'] ) ? absint( $_POST['post_id'] ) : 0;
-		$otto_action = isset( $_POST['otto_action'] ) ? sanitize_text_field( $_POST['otto_action'] ) : '';
+		$otto_action = isset( $_POST['otto_action'] ) ? sanitize_text_field(wp_unslash($_POST['otto_action'])) : '';
 
 		// Validate post
 		if ( ! $post_id || ! get_post( $post_id ) ) {
@@ -796,7 +796,7 @@ class Metasync_Otto_Frontend_Toolbar {
 		}
 
 		// Get parameters
-		$action = sanitize_text_field( $_GET['metasync_otto_action'] );
+		$action = sanitize_text_field(wp_unslash($_GET['metasync_otto_action']));
 		$post_id = absint( $_GET['post_id'] );
 
 		// Verify nonce
@@ -830,7 +830,7 @@ class Metasync_Otto_Frontend_Toolbar {
 				if ( $files ) {
 					foreach ( $files as $file ) {
 						if ( is_file( $file ) ) {
-							@unlink( $file );
+							@wp_delete_file( $file );
 						}
 					}
 				}

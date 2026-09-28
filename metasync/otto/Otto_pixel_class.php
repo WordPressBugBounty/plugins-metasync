@@ -101,8 +101,8 @@ Class Metasync_otto_pixel{
         }
 
         # Parse saved domain + incoming URL
-        $saved_domain   = parse_url($saved['domain'], PHP_URL_HOST);
-        $incoming_domain = parse_url($url, PHP_URL_HOST);
+        $saved_domain   = wp_parse_url($saved['domain'], PHP_URL_HOST);
+        $incoming_domain = wp_parse_url($url, PHP_URL_HOST);
 
         # Domain mismatch - not crawled
         if (empty($saved_domain) || empty($incoming_domain) || strcasecmp($saved_domain, $incoming_domain) !== 0) {
@@ -110,7 +110,7 @@ Class Metasync_otto_pixel{
         }
 
         # Parse incoming path (ignore query string)
-        $parsed_url = parse_url($url);
+        $parsed_url = wp_parse_url($url);
         $url_path   = $parsed_url['path'] ?? '/';
 
         # Ensure path starts with / but don't modify trailing slashes
@@ -199,7 +199,14 @@ Class Metasync_otto_pixel{
 
         # Headless frontends do not consume WordPress-rendered HTML, so avoid
         # suggestion lookups, buffering and internal fetches altogether.
-        if (Metasync_Headless_Config::is_active()) {
+        # Falls back to a guarded direct read rather than skipping the check:
+        # silently skipping would render OTTO markup on a headless site.
+        # @phpstan-ignore-next-line function.alreadyNarrowedType
+        $headless = function_exists('metasync_headless_is_active')
+            ? metasync_headless_is_active()
+            : (class_exists('Metasync_Headless_Config') && Metasync_Headless_Config::is_active());
+
+        if ($headless) {
             return;
         }
 

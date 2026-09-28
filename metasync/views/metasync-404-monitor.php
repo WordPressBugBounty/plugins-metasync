@@ -845,17 +845,17 @@ if (!defined('ABSPATH')) {
 			<div class="alignleft actions">
 				<label for="date-from-filter" class="screen-reader-text">Filter by date from</label>
 				<input type="date" name="date_from" id="date-from-filter" 
-					   value="<?php echo esc_attr(isset($_REQUEST['date_from']) ? $_REQUEST['date_from'] : ''); ?>" 
+					   value="<?php echo esc_attr(isset($_REQUEST['date_from']) ? $_REQUEST['date_from'] : ''); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter value, escaped on output ?>" 
 					   placeholder="From Date">
 				
 				<label for="date-to-filter" class="screen-reader-text">Filter by date to</label>
 				<input type="date" name="date_to" id="date-to-filter" 
-					   value="<?php echo esc_attr(isset($_REQUEST['date_to']) ? $_REQUEST['date_to'] : ''); ?>" 
+					   value="<?php echo esc_attr(isset($_REQUEST['date_to']) ? $_REQUEST['date_to'] : ''); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter value, escaped on output ?>" 
 					   placeholder="To Date">
 				
 				<label for="min-hits-filter" class="screen-reader-text">Filter by minimum hits</label>
 				<input type="number" name="min_hits" id="min-hits-filter" 
-					   value="<?php echo esc_attr(isset($_REQUEST['min_hits']) ? $_REQUEST['min_hits'] : ''); ?>" 
+					   value="<?php echo esc_attr(isset($_REQUEST['min_hits']) ? $_REQUEST['min_hits'] : ''); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter value, escaped on output ?>" 
 					   placeholder="Min Hits" min="1">
 				
 				<input type="submit" name="filter_action" id="monitor-filter-submit" class="button" value="Filter">

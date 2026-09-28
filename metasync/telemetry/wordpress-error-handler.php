@@ -90,7 +90,7 @@ class MetaSync_WordPress_Error_Handler {
      */
     private function setup_error_handlers() {
         // Store previous handlers to chain them properly
-        $this->previous_error_handler = set_error_handler(array($this, 'capture_php_error'), E_ALL);
+        $this->previous_error_handler = set_error_handler(array($this, 'capture_php_error'), E_ALL); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler -- plugin logger sink / last-resort fallback
         $this->previous_exception_handler = set_exception_handler(array($this, 'capture_exception'));
         
         // Hook into WordPress fatal error handler (only for plugin errors)
@@ -124,6 +124,12 @@ class MetaSync_WordPress_Error_Handler {
             $handled = call_user_func($this->previous_error_handler, $severity, $message, $file, $line);
         }
 
+        // Respect error_reporting() and the @ suppression operator — never capture masked errors
+        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.prevent_path_disclosure_error_reporting, PluginCheck.CodeAnalysis.PHPErrorReporting.DirectErrorReportingCall -- reads the current mask, does not print paths; reading the mask is the only way a custom handler can respect the @ operator
+        if (!(error_reporting() & $severity)) {
+            return $handled;
+        }
+
         // Only capture fatal-level errors — skip warnings, notices, deprecated, strict
         $fatal_severities = [E_USER_ERROR, E_RECOVERABLE_ERROR];
         if (!in_array($severity, $fatal_severities, true)) {
@@ -138,7 +144,7 @@ class MetaSync_WordPress_Error_Handler {
                 'file' => $file,
                 'line' => $line,
                 'error_level' => $this->get_error_level($severity),
-                'backtrace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 10)
+                'backtrace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 10) // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_debug_backtrace -- genuine failure path, bounded, no secrets
             ));
         }
         
@@ -151,8 +157,10 @@ class MetaSync_WordPress_Error_Handler {
      */
     public function capture_exception($exception) {
         // First, call the previous exception handler if it exists
+        $chained = false;
         if ($this->previous_exception_handler && is_callable($this->previous_exception_handler)) {
             call_user_func($this->previous_exception_handler, $exception);
+            $chained = true;
         }
         
         // Only capture exceptions from our plugin or directly related to our plugin
@@ -165,6 +173,13 @@ class MetaSync_WordPress_Error_Handler {
                 'trace' => $exception->getTraceAsString(),
                 'exception_object' => $exception
             ));
+            return;
+        }
+
+        // Not our exception and nothing else handled it: restore PHP's default
+        // uncaught-exception handling instead of swallowing it silently.
+        if (!$chained) {
+            throw $exception;
         }
     }
     
@@ -270,7 +285,7 @@ class MetaSync_WordPress_Error_Handler {
      * Check if the current environment is localhost/development
      */
     private function is_localhost() {
-        $host = parse_url(home_url(), PHP_URL_HOST);
+        $host = wp_parse_url(home_url(), PHP_URL_HOST);
         
         // Check for common localhost patterns
         $localhost_patterns = [
@@ -285,7 +300,7 @@ class MetaSync_WordPress_Error_Handler {
         ];
         
         foreach ($localhost_patterns as $pattern) {
-            if (strpos($host, $pattern) !== false) {
+            if ($host !== false && $host !== null && strpos($host, $pattern) !== false) {
                 return true;
             }
         }
@@ -328,7 +343,7 @@ class MetaSync_WordPress_Error_Handler {
             'wp_url' => home_url(),
             'plugin_version' => defined('METASYNC_VERSION') ? METASYNC_VERSION : '1.0.0',
             'plugin_name' => 'Search Engine Labs SEO (MetaSync)',
-            'error_timestamp' => date('Y-m-d H:i:s'),
+            'error_timestamp' => gmdate('Y-m-d H:i:s'),
             'site_info' => array(
                 'site_title' => get_bloginfo('name'),
                 'wp_version' => get_bloginfo('version'),

@@ -283,7 +283,7 @@ class Metasync_Cache_Purge
                     $success = true;
                 }
             } catch (\Throwable $e) {
-                error_log('MetaSync: WP Rocket per-URL purge failed - ' . $e->getMessage());
+                error_log('MetaSync: WP Rocket per-URL purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
 
@@ -295,7 +295,7 @@ class Metasync_Cache_Purge
                     $success = true;
                 }
             } catch (\Throwable $e) {
-                error_log('MetaSync: LiteSpeed per-URL purge failed - ' . $e->getMessage());
+                error_log('MetaSync: LiteSpeed per-URL purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
 
@@ -307,7 +307,7 @@ class Metasync_Cache_Purge
                     $success = true;
                 }
             } catch (\Throwable $e) {
-                error_log('MetaSync: W3 Total Cache per-URL purge failed - ' . $e->getMessage());
+                error_log('MetaSync: W3 Total Cache per-URL purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
 
@@ -320,7 +320,7 @@ class Metasync_Cache_Purge
                     }
                 }
             } catch (\Throwable $e) {
-                error_log('MetaSync: NitroPack per-URL purge failed - ' . $e->getMessage());
+                error_log('MetaSync: NitroPack per-URL purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
 
@@ -340,7 +340,7 @@ class Metasync_Cache_Purge
                     }
                 }
             } catch (\Throwable $e) {
-                error_log('MetaSync: WP Super Cache per-URL purge failed - ' . $e->getMessage());
+                error_log('MetaSync: WP Super Cache per-URL purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
 
@@ -362,7 +362,7 @@ class Metasync_Cache_Purge
                     $success = true;
                 }
             } catch (\Throwable $e) {
-                error_log('MetaSync: WP Fastest Cache per-URL purge failed - ' . $e->getMessage());
+                error_log('MetaSync: WP Fastest Cache per-URL purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
 
@@ -374,7 +374,7 @@ class Metasync_Cache_Purge
                     $success = true;
                 }
             } catch (\Throwable $e) {
-                error_log('MetaSync: Cache Enabler per-URL purge failed - ' . $e->getMessage());
+                error_log('MetaSync: Cache Enabler per-URL purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
 
@@ -395,7 +395,7 @@ class Metasync_Cache_Purge
                     }
                 }
             } catch (\Throwable $e) {
-                error_log('MetaSync: Hummingbird per-URL purge failed - ' . $e->getMessage());
+                error_log('MetaSync: Hummingbird per-URL purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
 
@@ -410,7 +410,7 @@ class Metasync_Cache_Purge
                     $success = true;
                 }
             } catch (\Throwable $e) {
-                error_log('MetaSync: SG Optimizer per-URL purge failed - ' . $e->getMessage());
+                error_log('MetaSync: SG Optimizer per-URL purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
 
@@ -425,7 +425,7 @@ class Metasync_Cache_Purge
                     $success = true;
                 }
             } catch (\Throwable $e) {
-                error_log('MetaSync: Comet Cache per-URL purge failed - ' . $e->getMessage());
+                error_log('MetaSync: Comet Cache per-URL purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
 
@@ -438,7 +438,7 @@ class Metasync_Cache_Purge
                     $success = true;
                 }
             } catch (\Throwable $e) {
-                error_log('MetaSync: Swift Performance per-URL purge failed - ' . $e->getMessage());
+                error_log('MetaSync: Swift Performance per-URL purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
 
@@ -450,7 +450,7 @@ class Metasync_Cache_Purge
                 KinstaCache::get_instance()->kinsta_cache_purge_single_url($url);
                 $success = true;
             } catch (\Throwable $e) {
-                error_log('MetaSync: Kinsta per-URL purge failed - ' . $e->getMessage());
+                error_log('MetaSync: Kinsta per-URL purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
 
@@ -465,7 +465,7 @@ class Metasync_Cache_Purge
                     $success = true;
                 }
             } catch (\Throwable $e) {
-                error_log('MetaSync: WP Engine per-URL purge failed - ' . $e->getMessage());
+                error_log('MetaSync: WP Engine per-URL purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
 
@@ -859,7 +859,7 @@ class Metasync_Cache_Purge
         try {
             self::get_instance()->clear_all_caches($source);
         } catch (\Throwable $e) {
-            error_log('MetaSync: Cache purge failed (' . $source . ') - ' . $e->getMessage());
+            error_log('MetaSync: Cache purge failed (' . $source . ') - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         }
     }
 
@@ -873,7 +873,7 @@ class Metasync_Cache_Purge
         try {
             self::get_instance()->clear_url_cache($url);
         } catch (\Throwable $e) {
-            error_log('MetaSync: URL cache purge failed - ' . $e->getMessage());
+            error_log('MetaSync: URL cache purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         }
     }
 
@@ -991,7 +991,7 @@ class Metasync_Cache_Purge
      */
     private function log_cache_error($plugin_name, $e)
     {
-        error_log('MetaSync: Failed to clear ' . $plugin_name . ' cache - ' . $e->getMessage());
+        error_log('MetaSync: Failed to clear ' . $plugin_name . ' cache - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
     }
 
     /**

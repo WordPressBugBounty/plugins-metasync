@@ -143,7 +143,7 @@ class Metasync_Dev_Panel {
 		}
 
 		// Don't show on dev panel page itself
-		$current_page = isset( $_GET['page'] ) ? sanitize_text_field( $_GET['page'] ) : '';
+		$current_page = isset( $_GET['page'] ) ? sanitize_text_field(wp_unslash($_GET['page'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check
 		if ( $current_page === Metasync_Admin::$page_slug . '-dev-tools' ) {
 			return;
 		}
@@ -170,7 +170,7 @@ class Metasync_Dev_Panel {
 	 */
 	public function enqueue_scripts( $hook ) {
 		// Only load on dev panel page
-		if ( isset( $_GET['page'] ) && $_GET['page'] === Metasync_Admin::$page_slug . '-dev-tools' ) {
+		if ( isset( $_GET['page'] ) && $_GET['page'] === Metasync_Admin::$page_slug . '-dev-tools' ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check
 			wp_enqueue_style( 'metasync-admin' );
 		}
 	}
@@ -399,7 +399,7 @@ class Metasync_Dev_Panel {
 		// Handle mode switch
 		if ( isset( $_POST['switch_endpoints_submit'] ) ) {
 			if ( wp_verify_nonce( $_POST['switch_endpoints_nonce'], 'metasync_switch_endpoints' ) ) {
-				$new_mode = sanitize_text_field( $_POST['endpoint_mode'] );
+				$new_mode = sanitize_text_field(wp_unslash($_POST['endpoint_mode']));
 				$result = Metasync_Endpoint_Manager::set_mode( $new_mode );
 
 				if ( $result ) {
@@ -587,7 +587,7 @@ class Metasync_Dev_Panel {
 		}
 
 		// Get and validate mode
-		$mode = isset( $_POST['endpoint_mode'] ) ? sanitize_text_field( $_POST['endpoint_mode'] ) : '';
+		$mode = isset( $_POST['endpoint_mode'] ) ? sanitize_text_field(wp_unslash($_POST['endpoint_mode'])) : '';
 		if ( ! in_array( $mode, array( 'production', 'staging' ), true ) ) {
 			wp_send_json_error( array( 'message' => 'Invalid mode' ) );
 			return;

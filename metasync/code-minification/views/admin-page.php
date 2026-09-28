@@ -35,18 +35,21 @@ $conflicts = Metasync_Compatibility_Guard::get_active_conflicts();
                 <ul style="margin: 5px 0 0 20px;">
                     <?php if (isset($conflicts['css_minify'])): ?>
                         <li><?php printf(
+                            /* translators: %s: name of the conflicting plugin. */
                             esc_html__('CSS Minification is disabled because %s CSS minification is active.', 'metasync'),
                             '<strong>' . esc_html($conflicts['css_minify']) . '</strong>'
                         ); ?></li>
                     <?php endif; ?>
                     <?php if (isset($conflicts['js_minify'])): ?>
                         <li><?php printf(
+                            /* translators: %s: name of the conflicting plugin. */
                             esc_html__('JS Minification is disabled because %s JS minification is active.', 'metasync'),
                             '<strong>' . esc_html($conflicts['js_minify']) . '</strong>'
                         ); ?></li>
                     <?php endif; ?>
                     <?php if (isset($conflicts['js_defer'])): ?>
                         <li><?php printf(
+                            /* translators: %s: name of the conflicting plugin. */
                             esc_html__('JS Defer/Delay is disabled because %s JS defer is active.', 'metasync'),
                             '<strong>' . esc_html($conflicts['js_defer']) . '</strong>'
                         ); ?></li>

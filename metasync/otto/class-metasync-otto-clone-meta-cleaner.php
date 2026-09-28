@@ -164,8 +164,8 @@ class Metasync_Otto_Clone_Meta_Cleaner {
         # Duplicate Page (mndpsingh287) — detect via the admin URL action.
         # Defer cleanup to shutdown so the plugin's post-insert meta-copy
         # loop has completed by the time we delete.
-        $action = isset($_GET['action'])
-            ? sanitize_text_field(wp_unslash($_GET['action']))
+        $action = isset($_GET['action']) // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action check on a new post insert
+            ? sanitize_text_field(wp_unslash($_GET['action'])) // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action check on a new post insert
             : '';
         if ($action === 'dt_duplicate_post_as_draft') {
             $cleaner = $this;

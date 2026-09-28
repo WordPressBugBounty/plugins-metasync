@@ -439,7 +439,7 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
                         <td>
                             <?php
                             if ($last_generated) {
-                                echo esc_html(date('M j, Y g:i A', strtotime($last_generated)));
+                                echo esc_html(gmdate('M j, Y g:i A', strtotime($last_generated)));
                             } else {
                                 echo '—';
                             }
@@ -470,7 +470,7 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
                             <div class="sitemap-url-range"><?php esc_html_e('Google News Sitemap', 'metasync'); ?></div>
                         </td>
                         <td><?php echo $news_sm_exists ? $news_url_count : '<em style="color:var(--dashboard-text-secondary);">Not generated</em>'; ?></td>
-                        <td><?php echo ($news_sm_exists && $last_generated) ? esc_html(date('M j, Y g:i A', strtotime($last_generated))) : '—'; ?></td>
+                        <td><?php echo ($news_sm_exists && $last_generated) ? esc_html(gmdate('M j, Y g:i A', strtotime($last_generated))) : '—'; ?></td>
                         <td>
                             <?php if ($news_sm_exists): ?>
                             <a href="<?php echo esc_url(home_url('/news-sitemap.xml')); ?>" target="_blank" class="button-view">
@@ -498,7 +498,7 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
                             <div class="sitemap-url-range"><?php esc_html_e('Video Sitemap', 'metasync'); ?></div>
                         </td>
                         <td><?php echo $video_sm_exists ? $video_url_count : '<em style="color:var(--dashboard-text-secondary);">Not generated</em>'; ?></td>
-                        <td><?php echo ($video_sm_exists && $last_generated) ? esc_html(date('M j, Y g:i A', strtotime($last_generated))) : '—'; ?></td>
+                        <td><?php echo ($video_sm_exists && $last_generated) ? esc_html(gmdate('M j, Y g:i A', strtotime($last_generated))) : '—'; ?></td>
                         <td>
                             <?php if ($video_sm_exists): ?>
                             <a href="<?php echo esc_url(home_url('/video-sitemap.xml')); ?>" target="_blank" class="button-view">
@@ -587,6 +587,7 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
         <?php if (!empty($news_conflict_name)): ?>
         <div class="metasync-sitemap-conflict-note" style="display:flex; gap:7px; align-items:center; margin:0 0 16px; padding:8px 12px; border-radius:7px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.28); font-size:12px; line-height:1.5; color:var(--dashboard-text-secondary,#6b7280);">
             <span style="font-size:13px; line-height:1;">&#9888;&#65039;</span>
+            <?php /* translators: %s: plugin brand name. */ ?>
             <span><strong style="color:#8a5a00;"><?php echo esc_html($news_conflict_name); ?></strong> <?php printf(esc_html__('is also active — its news sitemap settings may conflict with %s\'s.', 'metasync'), esc_html($mss_brand)); ?></span>
         </div>
         <?php endif; ?>
@@ -769,6 +770,7 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
                             <?php
                             $tax_scrollable = count($tax_terms) > 10;
                             if ($tax_scrollable) : ?>
+                                <?php /* translators: %s: taxonomy name. */ ?>
                                 <input type="text" class="metasync-checkbox-search" placeholder="<?php echo esc_attr(sprintf(__('Filter %s...', 'metasync'), strtolower($tax->label))); ?>">
                             <?php endif; ?>
                             <div class="metasync-checkbox-list <?php echo $tax_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">
@@ -888,6 +890,7 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
         <?php if (!empty($video_conflict_name)): ?>
         <div class="metasync-sitemap-conflict-note" style="display:flex; gap:7px; align-items:center; margin:0 0 16px; padding:8px 12px; border-radius:7px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.28); font-size:12px; line-height:1.5; color:var(--dashboard-text-secondary,#6b7280);">
             <span style="font-size:13px; line-height:1;">&#9888;&#65039;</span>
+            <?php /* translators: %s: plugin brand name. */ ?>
             <span><strong style="color:#8a5a00;"><?php echo esc_html($video_conflict_name); ?></strong> <?php printf(esc_html__('is also active — its video sitemap settings may conflict with %s\'s.', 'metasync'), esc_html($mss_brand)); ?></span>
         </div>
         <?php endif; ?>
@@ -1117,6 +1120,7 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
                             <?php
                             $vtax_scrollable = count($tax_terms) > 10;
                             if ($vtax_scrollable) : ?>
+                                <?php /* translators: %s: taxonomy name. */ ?>
                                 <input type="text" class="metasync-checkbox-search" placeholder="<?php echo esc_attr(sprintf(__('Filter %s...', 'metasync'), strtolower($tax->label))); ?>">
                             <?php endif; ?>
                             <div class="metasync-checkbox-list <?php echo $vtax_scrollable ? 'metasync-checkbox-scroll' : ''; ?>">

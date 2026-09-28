@@ -63,27 +63,6 @@ class Metasync_Otto_Bot_Statistics_Database {
     const MAX_LOG_ENTRIES = 100;
 
     /**
-     * WordPress database object
-     *
-     * @var wpdb
-     */
-    private $wpdb;
-
-    /**
-     * Full table name with prefix
-     *
-     * @var string
-     */
-    private $table;
-
-    /**
-     * Full logs table name with prefix
-     *
-     * @var string
-     */
-    private $logs_table;
-
-    /**
      * Get singleton instance
      *
      * @return Metasync_Otto_Bot_Statistics_Database
@@ -99,11 +78,6 @@ class Metasync_Otto_Bot_Statistics_Database {
      * Private constructor
      */
     private function __construct() {
-        global $wpdb;
-        $this->wpdb = $wpdb;
-        $this->table = $wpdb->prefix . self::$table_name;
-        $this->logs_table = $wpdb->prefix . self::$logs_table_name;
-
         $this->maybe_create_tables();
     }
 
@@ -138,12 +112,14 @@ class Metasync_Otto_Bot_Statistics_Database {
      * @return void
      */
     public function create_tables($from_version = '0') {
+        global $wpdb;
+
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
 
-        $charset_collate = $this->wpdb->get_charset_collate();
+        $charset_collate = $wpdb->get_charset_collate();
 
         // Statistics summary table (unchanged)
-        $stats_sql = "CREATE TABLE {$this->table} (
+        $stats_sql = "CREATE TABLE {$wpdb->prefix}metasync_otto_bot_stats (
             id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
             stat_key varchar(100) NOT NULL,
             stat_value bigint(20) NOT NULL DEFAULT 0,
@@ -154,7 +130,7 @@ class Metasync_Otto_Bot_Statistics_Database {
         ) $charset_collate;";
 
         // Logs table v2: unique entries with hit_count
-        $logs_sql = "CREATE TABLE {$this->logs_table} (
+        $logs_sql = "CREATE TABLE {$wpdb->prefix}metasync_otto_bot_logs (
             id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
             bot_name varchar(255) NOT NULL,
             bot_type varchar(50) NOT NULL,
@@ -190,11 +166,13 @@ class Metasync_Otto_Bot_Statistics_Database {
      * @return void
      */
     private function migrate_v1_to_v2() {
+        global $wpdb;
+
         // Check if old schema (has created_at but not hit_count) needs migration
-        $has_hit_count = $this->wpdb->get_var(
+        $has_hit_count = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for OTTO bot analytics (admin/cron aggregation views)
             "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
              WHERE TABLE_SCHEMA = DATABASE()
-             AND TABLE_NAME = '{$this->logs_table}'
+             AND TABLE_NAME = '{$wpdb->prefix}metasync_otto_bot_logs'
              AND COLUMN_NAME = 'hit_count'"
         );
 
@@ -205,7 +183,7 @@ class Metasync_Otto_Bot_Statistics_Database {
 
         // Old rows still have created_at – aggregate them into a temp table, then swap.
         // This is best-effort; if it fails the new schema is empty but functional.
-        $this->wpdb->query("TRUNCATE TABLE {$this->logs_table}");
+        $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}metasync_otto_bot_logs");
     }
 
     /**
@@ -214,6 +192,8 @@ class Metasync_Otto_Bot_Statistics_Database {
      * @return void
      */
     private function initialize_default_stats() {
+        global $wpdb;
+
         $defaults = array(
             'total_detections',
             'api_calls_saved',
@@ -230,9 +210,9 @@ class Metasync_Otto_Bot_Statistics_Database {
 
         foreach ($defaults as $key) {
             // Only insert if it doesn't exist yet; never reset existing counters
-            $this->wpdb->query(
-                $this->wpdb->prepare(
-                    "INSERT IGNORE INTO {$this->table} (stat_key, stat_value) VALUES (%s, 0)",
+            $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for OTTO bot analytics (admin/cron aggregation views)
+                $wpdb->prepare(
+                    "INSERT IGNORE INTO {$wpdb->prefix}metasync_otto_bot_stats (stat_key, stat_value) VALUES (%s, 0)",
                     $key
                 )
             );
@@ -258,6 +238,8 @@ class Metasync_Otto_Bot_Statistics_Database {
      * @return bool True on success
      */
     public function add_detection($bot_name, $bot_type, $user_agent, $ip_address = null, $detection_method = null) {
+        global $wpdb;
+
         $url = isset($_SERVER['REQUEST_URI']) ? home_url($_SERVER['REQUEST_URI']) : '';
         $now = current_time('mysql');
 
@@ -269,9 +251,9 @@ class Metasync_Otto_Bot_Statistics_Database {
         $url_clean        = esc_url_raw($url);
 
         // Upsert: insert new or increment existing
-        $result = $this->wpdb->query(
-            $this->wpdb->prepare(
-                "INSERT INTO {$this->logs_table}
+        $result = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for OTTO bot analytics (admin/cron aggregation views)
+            $wpdb->prepare(
+                "INSERT INTO {$wpdb->prefix}metasync_otto_bot_logs
                     (bot_name, bot_type, user_agent, ip_address, detection_method, url, hit_count, first_seen_at, last_seen_at)
                  VALUES (%s, %s, %s, %s, %s, %s, 1, %s, %s)
                  ON DUPLICATE KEY UPDATE
@@ -326,8 +308,10 @@ class Metasync_Otto_Bot_Statistics_Database {
      * @return bool
      */
     public function reset_statistics() {
-        $a = $this->wpdb->query("TRUNCATE TABLE {$this->table}");
-        $b = $this->wpdb->query("TRUNCATE TABLE {$this->logs_table}");
+        global $wpdb;
+
+        $a = $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}metasync_otto_bot_stats");
+        $b = $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}metasync_otto_bot_logs");
 
         $this->initialize_default_stats();
 
@@ -344,8 +328,10 @@ class Metasync_Otto_Bot_Statistics_Database {
      * @return array
      */
     public function get_statistics() {
-        $rows = $this->wpdb->get_results(
-            "SELECT stat_key, stat_value FROM {$this->table}",
+        global $wpdb;
+
+        $rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for OTTO bot analytics (admin/cron aggregation views)
+            "SELECT stat_key, stat_value FROM {$wpdb->prefix}metasync_otto_bot_stats",
             OBJECT_K
         );
 
@@ -397,9 +383,11 @@ class Metasync_Otto_Bot_Statistics_Database {
      * @return array
      */
     public function get_recent_requests($limit = 100, $offset = 0) {
-        $results = $this->wpdb->get_results(
-            $this->wpdb->prepare(
-                "SELECT * FROM {$this->logs_table}
+        global $wpdb;
+
+        $results = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for OTTO bot analytics (admin/cron aggregation views)
+            $wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}metasync_otto_bot_logs
                  ORDER BY last_seen_at DESC, hit_count DESC
                  LIMIT %d OFFSET %d",
                 $limit,
@@ -417,7 +405,9 @@ class Metasync_Otto_Bot_Statistics_Database {
      * @return int
      */
     public function get_total_log_count() {
-        return (int)$this->wpdb->get_var("SELECT COUNT(*) FROM {$this->logs_table}");
+        global $wpdb;
+
+        return (int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}metasync_otto_bot_logs"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for OTTO bot analytics (admin/cron aggregation views)
     }
 
     /**
@@ -428,9 +418,11 @@ class Metasync_Otto_Bot_Statistics_Database {
      * @return array
      */
     public function get_logs_by_type($bot_type, $limit = 100) {
-        return $this->wpdb->get_results(
-            $this->wpdb->prepare(
-                "SELECT * FROM {$this->logs_table}
+        global $wpdb;
+
+        return $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for OTTO bot analytics (admin/cron aggregation views)
+            $wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}metasync_otto_bot_logs
                  WHERE bot_type = %s
                  ORDER BY last_seen_at DESC, hit_count DESC
                  LIMIT %d",
@@ -450,9 +442,11 @@ class Metasync_Otto_Bot_Statistics_Database {
      * @return array
      */
     public function get_logs_by_date_range($start_date, $end_date, $limit = 1000) {
-        return $this->wpdb->get_results(
-            $this->wpdb->prepare(
-                "SELECT * FROM {$this->logs_table}
+        global $wpdb;
+
+        return $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for OTTO bot analytics (admin/cron aggregation views)
+            $wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}metasync_otto_bot_logs
                  WHERE last_seen_at BETWEEN %s AND %s
                  ORDER BY last_seen_at DESC, hit_count DESC
                  LIMIT %d",
@@ -471,8 +465,10 @@ class Metasync_Otto_Bot_Statistics_Database {
      * @return bool
      */
     public function delete_log($log_id) {
-        return $this->wpdb->delete(
-            $this->logs_table,
+        global $wpdb;
+
+        return $wpdb->delete( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for OTTO bot analytics (admin/cron aggregation views)
+            $wpdb->prefix . self::$logs_table_name,
             array('id' => (int)$log_id),
             array('%d')
         ) !== false;
@@ -490,10 +486,12 @@ class Metasync_Otto_Bot_Statistics_Database {
      * @return bool
      */
     private function increment_stat($stat_key, $increment = 1) {
+        global $wpdb;
+
         // Use INSERT ... ON DUPLICATE KEY UPDATE for atomic upsert
-        return $this->wpdb->query(
-            $this->wpdb->prepare(
-                "INSERT INTO {$this->table} (stat_key, stat_value)
+        return $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for OTTO bot analytics (admin/cron aggregation views)
+            $wpdb->prepare(
+                "INSERT INTO {$wpdb->prefix}metasync_otto_bot_stats (stat_key, stat_value)
                  VALUES (%s, %d)
                  ON DUPLICATE KEY UPDATE stat_value = stat_value + %d",
                 $stat_key,
@@ -533,6 +531,8 @@ class Metasync_Otto_Bot_Statistics_Database {
      * @return void
      */
     private function enforce_log_cap() {
+        global $wpdb;
+
         $count = $this->get_total_log_count();
 
         if ($count <= self::MAX_LOG_ENTRIES) {
@@ -540,9 +540,9 @@ class Metasync_Otto_Bot_Statistics_Database {
         }
 
         // Find the ID threshold: keep the newest MAX_LOG_ENTRIES rows
-        $threshold_id = $this->wpdb->get_var(
-            $this->wpdb->prepare(
-                "SELECT id FROM {$this->logs_table}
+        $threshold_id = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for OTTO bot analytics (admin/cron aggregation views)
+            $wpdb->prepare(
+                "SELECT id FROM {$wpdb->prefix}metasync_otto_bot_logs
                  ORDER BY last_seen_at DESC, id DESC
                  LIMIT 1 OFFSET %d",
                 self::MAX_LOG_ENTRIES
@@ -550,13 +550,13 @@ class Metasync_Otto_Bot_Statistics_Database {
         );
 
         if ($threshold_id) {
-            $this->wpdb->query(
-                $this->wpdb->prepare(
-                    "DELETE FROM {$this->logs_table}
+            $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for OTTO bot analytics (admin/cron aggregation views)
+                $wpdb->prepare(
+                    "DELETE FROM {$wpdb->prefix}metasync_otto_bot_logs
                      WHERE id <= %d
                      AND id NOT IN (
                          SELECT id FROM (
-                             SELECT id FROM {$this->logs_table}
+                             SELECT id FROM {$wpdb->prefix}metasync_otto_bot_logs
                              ORDER BY last_seen_at DESC, id DESC
                              LIMIT %d
                          ) AS keep_rows
@@ -579,11 +579,8 @@ class Metasync_Otto_Bot_Statistics_Database {
      */
     public static function drop_tables() {
         global $wpdb;
-        $table      = $wpdb->prefix . self::$table_name;
-        $logs_table = $wpdb->prefix . self::$logs_table_name;
-
-        $wpdb->query("DROP TABLE IF EXISTS {$table}");
-        $wpdb->query("DROP TABLE IF EXISTS {$logs_table}");
+        $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}metasync_otto_bot_stats"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- uninstall cleanup — intentional table removal when the plugin is deleted
+        $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}metasync_otto_bot_logs"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- uninstall cleanup — intentional table removal when the plugin is deleted
 
         delete_option('metasync_otto_bot_stats_db_version');
     }

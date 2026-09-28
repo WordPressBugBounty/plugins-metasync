@@ -122,7 +122,7 @@ if (!class_exists('Metasync_Canonical_Sanitizer')) {
 			if (!filter_var($ascii, FILTER_VALIDATE_URL)) {
 				return false;
 			}
-			$scheme = strtolower((string) parse_url($ascii, PHP_URL_SCHEME));
+			$scheme = strtolower((string) wp_parse_url($ascii, PHP_URL_SCHEME));
 			return $scheme === 'http' || $scheme === 'https';
 		}
 

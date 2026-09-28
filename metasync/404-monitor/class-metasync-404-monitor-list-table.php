@@ -41,7 +41,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 	 */
 	public function get_pagenum()
 	{
-		$pagenum = isset($_REQUEST['paged_404']) ? absint($_REQUEST['paged_404']) : 0;
+		$pagenum = isset($_REQUEST['paged_404']) ? absint($_REQUEST['paged_404']) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page number for the list query
 
 		if (isset($this->_pagination_args['total_pages']) && $pagenum > $this->_pagination_args['total_pages']) {
 			$pagenum = $this->_pagination_args['total_pages'];
@@ -91,8 +91,8 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		add_filter('removable_query_args', array($this, 'preserve_tab_in_pagination'));
 		$removable_query_args = wp_removable_query_args();
 		$current_url = remove_query_arg($removable_query_args, $current_url);
-		if (isset($_GET['tab'])) {
-			$current_url = add_query_arg('tab', sanitize_text_field($_GET['tab']), $current_url);
+		if (isset($_GET['tab'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab value used in escaped pagination links
+			$current_url = add_query_arg('tab', sanitize_text_field(wp_unslash($_GET['tab'])), $current_url); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab value used in escaped pagination links
 		}
 		// Rebuild visible list state from the allow-listed request values so
 		// filters, search, sorting and page size survive every pagination link.
@@ -131,7 +131,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 			$page_links[] = sprintf(
 				"<a class='first-page button' href='%s'><span class='screen-reader-text'>%s</span><span aria-hidden='true'>%s</span></a>",
 				esc_url(remove_query_arg('paged_404', $current_url)),
-				esc_html__('First page'),
+				esc_html__('First page', 'metasync'),
 				'&laquo;'
 			);
 		}
@@ -142,7 +142,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 			$page_links[] = sprintf(
 				"<a class='prev-page button' href='%s'><span class='screen-reader-text'>%s</span><span aria-hidden='true'>%s</span></a>",
 				esc_url(add_query_arg('paged_404', max(1, $current - 1), $current_url)),
-				esc_html__('Previous page'),
+				esc_html__('Previous page', 'metasync'),
 				'&lsaquo;'
 			);
 		}
@@ -160,6 +160,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		}
 		$html_total_pages = sprintf("<span class='total-pages'>%s</span>", number_format_i18n($total_pages));
 		$page_links[]     = $total_pages_before . sprintf(
+			/* translators: 1: current page number, 2: total number of pages. */
 			_x('%1$s of %2$s', 'paging', 'metasync'),
 			$html_current_page,
 			$html_total_pages
@@ -171,7 +172,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 			$page_links[] = sprintf(
 				"<a class='next-page button' href='%s'><span class='screen-reader-text'>%s</span><span aria-hidden='true'>%s</span></a>",
 				esc_url(add_query_arg('paged_404', min($total_pages, $current + 1), $current_url)),
-				esc_html__('Next page'),
+				esc_html__('Next page', 'metasync'),
 				'&rsaquo;'
 			);
 		}
@@ -182,7 +183,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 			$page_links[] = sprintf(
 				"<a class='last-page button' href='%s'><span class='screen-reader-text'>%s</span><span aria-hidden='true'>%s</span></a>",
 				esc_url(add_query_arg('paged_404', $total_pages, $current_url)),
-				esc_html__('Last page'),
+				esc_html__('Last page', 'metasync'),
 				'&raquo;'
 			);
 		}
@@ -281,25 +282,25 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 			$filters['search'] = $request_state['s_404'];
 		}
 		
-		if (!empty($_REQUEST['date_from'])) {
-			$filters['date_from'] = sanitize_text_field($_REQUEST['date_from']);
+		if (!empty($_REQUEST['date_from'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
+			$filters['date_from'] = sanitize_text_field(wp_unslash($_REQUEST['date_from'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
 		}
 		
-		if (!empty($_REQUEST['date_to'])) {
-			$filters['date_to'] = sanitize_text_field($_REQUEST['date_to']);
+		if (!empty($_REQUEST['date_to'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
+			$filters['date_to'] = sanitize_text_field(wp_unslash($_REQUEST['date_to'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
 		}
 		
-		if (!empty($_REQUEST['min_hits'])) {
-			$filters['min_hits'] = intval($_REQUEST['min_hits']);
+		if (!empty($_REQUEST['min_hits'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
+			$filters['min_hits'] = intval($_REQUEST['min_hits']); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
 		}
 
 		// Use separate orderby/order parameters for 404 monitor
-		if (!empty($_REQUEST['orderby_404'])) {
-			$filters['order_by'] = sanitize_sql_orderby($_REQUEST['orderby_404']);
+		if (!empty($_REQUEST['orderby_404'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
+			$filters['order_by'] = sanitize_sql_orderby($_REQUEST['orderby_404']); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
 		}
 
-		if (!empty($_REQUEST['order_404'])) {
-			$filters['order'] = sanitize_text_field($_REQUEST['order_404']);
+		if (!empty($_REQUEST['order_404'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
+			$filters['order'] = sanitize_text_field(wp_unslash($_REQUEST['order_404'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
 		}
 		
 		return $filters;
@@ -335,7 +336,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 	 */
 	protected function get_orderby()
 	{
-		return isset($_REQUEST['orderby_404']) ? sanitize_key($_REQUEST['orderby_404']) : '';
+		return isset($_REQUEST['orderby_404']) ? sanitize_key(wp_unslash($_REQUEST['orderby_404'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only sort state for the column headers
 	}
 
 	/**
@@ -343,7 +344,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 	 */
 	protected function get_order()
 	{
-		$raw = isset($_REQUEST['order_404']) ? strtolower(sanitize_key($_REQUEST['order_404'])) : '';
+		$raw = isset($_REQUEST['order_404']) ? strtolower(sanitize_key(wp_unslash($_REQUEST['order_404']))) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only sort state for the column headers
 		if ($raw === 'desc') {
 			return 'desc';
 		}
@@ -357,7 +358,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 	{
 		list($columns, $hidden, $sortable, $primary) = $this->get_column_info();
 
-		$current_page = isset($_GET['page']) ? sanitize_text_field($_GET['page']) : Metasync_Admin::$page_slug;
+		$current_page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : Metasync_Admin::$page_slug; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page slug used in escaped sort links
 		$current_url = set_url_scheme('http://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']);
 		$current_url = remove_query_arg(['_wpnonce', '_wp_http_referer', 'action', 'action2', 'id'], $current_url);
 		$current_url = add_query_arg('page', $current_page, $current_url);
@@ -432,6 +433,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 				return esc_html($item[$column_name]); # Fixed: Added esc_html() to prevent XSS
 			default:
 			//	return print_r($item, true); // Show the whole array for troubleshooting purposes.
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_print_r -- unreachable in production
 			return esc_html(print_r($item, true)); # Fixed: Added esc_html() to prevent XSS in debug output
 		}
 	}
@@ -447,6 +449,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 
 	protected function column_uri($item)
 	{
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, row-action links carry their own nonce
 		$request_data = metasync_sanitize_input_array($_REQUEST); // WPCS: Input var ok.
 		if (!isset($request_data['page'])) return;
 
@@ -454,7 +457,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		$uri = $item['uri'];
 		if (strpos($uri, 'http') === 0) {
 			// If it's a full URL, extract just the path
-			$parsed_url = parse_url($uri);
+			$parsed_url = wp_parse_url($uri);
 			$uri = isset($parsed_url['path']) ? $parsed_url['path'] : $uri;
 		}
 		
@@ -537,7 +540,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		
 		return sprintf(
 			'%s<br><small>%s ago</small>',
-			esc_html(date('M j, Y g:i A', $date)),
+			esc_html(gmdate('M j, Y g:i A', $date)),
 			esc_html($time_diff)
 		);
 	}
@@ -575,15 +578,15 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		// action and then clicking Filter silently run the action. The Search
 		// submit posts no filter_action, so it needs its own named marker to
 		// stop the same silent delete when it shares a form with the dropdown.
-		if (!empty($_REQUEST['filter_action']) || !empty($_REQUEST['search_submit'])) {
+		if (!empty($_REQUEST['filter_action']) || !empty($_REQUEST['search_submit'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action name, callers verify a nonce before any write
 			return false;
 		}
 
-		if (isset($_REQUEST['action']) && '-1' !== $_REQUEST['action'] && '' !== $_REQUEST['action']) {
-			return sanitize_text_field(wp_unslash($_REQUEST['action']));
+		if (isset($_REQUEST['action']) && '-1' !== $_REQUEST['action'] && '' !== $_REQUEST['action']) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action name, callers verify a nonce before any write
+			return sanitize_text_field(wp_unslash($_REQUEST['action'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action name, callers verify a nonce before any write
 		}
-		if (isset($_REQUEST['action2']) && '-1' !== $_REQUEST['action2'] && '' !== $_REQUEST['action2']) {
-			return sanitize_text_field(wp_unslash($_REQUEST['action2']));
+		if (isset($_REQUEST['action2']) && '-1' !== $_REQUEST['action2'] && '' !== $_REQUEST['action2']) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action name, callers verify a nonce before any write
+			return sanitize_text_field(wp_unslash($_REQUEST['action2'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action name, callers verify a nonce before any write
 		}
 		return parent::current_action();
 	}
@@ -681,7 +684,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 
 	protected function process_bulk_action()
 	{
-		$post_data = metasync_sanitize_input_array($_POST);
+		$post_data = metasync_sanitize_input_array($_POST); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- check_admin_referer() runs before any write
 		$items = isset($post_data['item']) && is_array($post_data['item']) ? array_map('sanitize_title', $post_data['item']) : [];
 
 		if (empty($post_data['item'])) return;
@@ -728,7 +731,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 			return;
 		}
 
-		$get_data = metasync_sanitize_input_array($_GET);
+		$get_data = metasync_sanitize_input_array($_GET); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- check_admin_referer() runs before the delete
 		$item = isset($get_data['id']) ? sanitize_text_field($get_data['id']) : '';
 
 		// Verify the per-item nonce already attached to the Delete link in

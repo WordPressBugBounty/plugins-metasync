@@ -181,7 +181,6 @@ class Metasync_Settings_Fields {
                     'permalink_structure',
                     'hide_dashboard_framework',
                     'show_admin_bar_status',
-                    'enable_auto_updates',
                     'import_external_data'
                 )
             )
@@ -305,7 +304,7 @@ class Metasync_Settings_Fields {
 
             echo '<div class="metasync-accordion-section" data-section="' . esc_attr($section_key) . '">';
 
-            echo '<div class="metasync-accordion-header" role="button" tabindex="0" aria-expanded="' . $aria_expanded . '" aria-controls="' . $section_id . '">';
+            echo '<div class="metasync-accordion-header" role="button" tabindex="0" aria-expanded="' . esc_attr($aria_expanded) . '" aria-controls="' . esc_attr($section_id) . '">';
             echo '<div class="metasync-accordion-title">';
             echo '<span class="metasync-accordion-icon"><span class="dashicons dashicons-' . esc_attr($section_data['icon']) . '"></span></span>';
             echo '<div class="metasync-accordion-text">';
@@ -318,7 +317,7 @@ class Metasync_Settings_Fields {
             echo '</button>';
             echo '</div>';
 
-            echo '<div class="metasync-accordion-content" id="' . $section_id . '" data-state="' . $content_state . '">';
+            echo '<div class="metasync-accordion-content" id="' . esc_attr($section_id) . '" data-state="' . esc_attr($content_state) . '">';
 
             if (isset($section_data['render_callback']) && is_callable($section_data['render_callback'])) {
                 call_user_func($section_data['render_callback']);
@@ -414,7 +413,7 @@ class Metasync_Settings_Fields {
             if (file_exists(plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php')) {
                 require_once plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php';
             } else {
-                error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php');
+                error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 return;
             }
         }
@@ -704,7 +703,7 @@ class Metasync_Settings_Fields {
                 Select which user roles can see and access this plugin's menu, settings, and options in the WordPress admin area.
             </p>
             
-            <form method="post" action="<?php echo admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '&tab=advanced'); ?>" id="plugin-access-roles-form">
+            <form method="post" action="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '&tab=advanced')); ?>" id="plugin-access-roles-form">
                 <?php wp_nonce_field('metasync_plugin_access_roles_nonce', 'plugin_access_roles_nonce'); ?>
                 <input type="hidden" name="save_plugin_access_roles" value="yes" />
                 
@@ -824,7 +823,7 @@ class Metasync_Settings_Fields {
     public function can_change_memory_limit() {
         $current_limit = ini_get('memory_limit');
         
-        $test_result = @ini_set('memory_limit', $current_limit);
+        $test_result = @ini_set('memory_limit', $current_limit); // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- runtime PHP setting with no WordPress API
         
         return $test_result !== false;
     }
@@ -878,7 +877,7 @@ class Metasync_Settings_Fields {
         
         $memory_limit_mb = $this->get_execution_setting('max_memory_limit');
         
-        $result = @ini_set('memory_limit', $memory_limit_mb . 'M');
+        $result = @ini_set('memory_limit', $memory_limit_mb . 'M'); // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- runtime PHP setting with no WordPress API
         
         return $result !== false;
     }
@@ -1153,7 +1152,6 @@ class Metasync_Settings_Fields {
             'permalink_structure' => sprintf('Displays your current WordPress permalink structure. %s works best with pretty permalinks (not "Plain"). If you see a warning, visit Settings > Permalinks to change your structure.', $plugin_name),
             'hide_dashboard_framework' => sprintf('Hide the main %s dashboard from the WordPress admin menu. This is useful if you want to reduce menu clutter but still keep the plugin active.', $plugin_name),
             'show_admin_bar_status' => sprintf('Display the %s status indicator in the WordPress admin bar at the top of your screen. This provides quick visibility of plugin status and key metrics.', $plugin_name),
-            'enable_auto_updates' => sprintf('Allow WordPress to automatically update the %s plugin when new versions are released. Recommended for security patches, but you may prefer manual updates for major versions.', $plugin_name),
             'import_external_data' => sprintf('Import your existing SEO settings and metadata from other popular SEO plugins like Yoast, Rank Math, or All in One SEO. This makes migration to %s seamless without losing your SEO data.', $plugin_name),
             'import_seo_metadata' => sprintf('Migrate your existing SEO titles and meta descriptions from Yoast, Rank Math, or All in One SEO. This one-click import preserves your search rankings by copying your optimized meta data to %s, even if the source plugin is deactivated.', $plugin_name),
             'default_page_builder' => 'Choose how Content Genius stores synced articles. "Gutenberg" works with all themes and page builders. Selecting a specific builder converts content to that builder\'s widget format, which inherits the builder\'s global typography and layout styles.',
@@ -1201,7 +1199,7 @@ class Metasync_Settings_Fields {
 
             echo '<div class="metasync-accordion-section" data-section="' . esc_attr($section_key) . '">';
 
-            echo '<div class="metasync-accordion-header" role="button" tabindex="0" aria-expanded="' . $aria_expanded . '" aria-controls="' . $section_id . '">';
+            echo '<div class="metasync-accordion-header" role="button" tabindex="0" aria-expanded="' . esc_attr($aria_expanded) . '" aria-controls="' . esc_attr($section_id) . '">';
             echo '<div class="metasync-accordion-title">';
             echo '<span class="metasync-accordion-icon"><span class="dashicons dashicons-' . esc_attr($section_data['icon']) . '"></span></span>';
             echo '<div class="metasync-accordion-text">';
@@ -1214,7 +1212,7 @@ class Metasync_Settings_Fields {
             echo '</button>';
             echo '</div>';
 
-            echo '<div class="metasync-accordion-content" id="' . $section_id . '" data-state="' . $content_state . '">';
+            echo '<div class="metasync-accordion-content" id="' . esc_attr($section_id) . '" data-state="' . esc_attr($content_state) . '">';
 
             if (isset($section_data['render_callback']) && is_callable($section_data['render_callback'])) {
                 call_user_func($section_data['render_callback']);
@@ -1231,7 +1229,7 @@ class Metasync_Settings_Fields {
                         echo '<th scope="row">';
                         if (!empty($field['title'])) {
                             echo '<div class="metasync-field-label-wrapper">';
-                            echo '<label for="' . esc_attr($field['id']) . '">' . $field['title'] . '</label>';
+                            echo '<label for="' . esc_attr($field['id']) . '">' . esc_html($field['title']) . '</label>';
 
                             if (isset($tooltips[$field_id])) {
                                 echo '<button type="button" class="metasync-tooltip-trigger" data-tooltip-id="' . esc_attr($field_id) . '" aria-label="More information">';
@@ -1288,7 +1286,7 @@ class Metasync_Settings_Fields {
             echo '<th scope="row">';
             if (!empty($field['title'])) {
                 echo '<div class="metasync-field-label-wrapper">';
-                echo '<label for="' . esc_attr($field['id']) . '">' . $field['title'] . '</label>';
+                echo '<label for="' . esc_attr($field['id']) . '">' . esc_html($field['title']) . '</label>';
                 if (isset($llms_tooltips[$field['id']])) {
                     Metasync::render_tooltip_icon($field['id'], $llms_tooltips[$field['id']]);
                 }
@@ -1344,30 +1342,30 @@ class Metasync_Settings_Fields {
             $status_message = 'Plugin Auth Token is active and ready for authentication.';
             $refresh_help = 'Click refresh to generate a new token and update the heartbeat API.';
         } else {
-            $display_value = 'Auto-generated when connecting to ' . esc_html(Metasync::get_effective_plugin_name());
-            $status_message = 'Plugin Auth Token will be automatically generated when you click "Connect to ' . esc_html(Metasync::get_effective_plugin_name()) . '".';
+            $display_value = 'Auto-generated when connecting to ' . Metasync::get_effective_plugin_name();
+            $status_message = 'Plugin Auth Token will be automatically generated when you click "Connect to ' . Metasync::get_effective_plugin_name() . '".';
             $refresh_help = 'You can also manually generate a token by clicking refresh.';
         }
         
         printf('<div class="metasync-auth-token-row">');
         printf(
-            '<input type="text" id="apikey" name="' . Metasync_Admin::option_key . '[general][apikey]" value="%s" size="40" class="regular-text" readonly="readonly" />',
+            '<input type="text" id="apikey" name="' . esc_attr(Metasync_Admin::option_key) . '[general][apikey]" value="%s" size="40" class="regular-text" readonly="readonly" />',
             esc_attr($display_value)
         );
         printf('<button type="button" id="refresh-plugin-auth-token" class="button button-secondary metasync-refresh-token-btn"><span class="dashicons dashicons-controls-repeat"></span> Refresh Token</button>');
         printf('</div>');
-        printf('<p class="description">%s %s</p>', $status_message, $refresh_help);
+        printf('<p class="description">%s %s</p>', esc_html($status_message), esc_html($refresh_help));
     }
 
     public function linkgraph_token_callback()
     {
         printf(
-            '<input type="text" id="linkgraph_token" name="' . Metasync_Admin::option_key . '[general][linkgraph_token]" value="%s" size="25" readonly="readonly" />',
+            '<input type="text" id="linkgraph_token" name="' . esc_attr(Metasync_Admin::option_key) . '[general][linkgraph_token]" value="%s" size="25" readonly="readonly" />',
             isset(Metasync::get_option('general')['linkgraph_token']) ? esc_attr(Metasync::get_option('general')['linkgraph_token']) : ''
         );
 
         printf(
-            '<input type="text" id="linkgraph_customer_id" name="' . Metasync_Admin::option_key . '[general][linkgraph_customer_id]" value="%s" size="25" readonly="readonly" />',
+            '<input type="text" id="linkgraph_customer_id" name="' . esc_attr(Metasync_Admin::option_key) . '[general][linkgraph_customer_id]" value="%s" size="25" readonly="readonly" />',
             isset(Metasync::get_option('general')['linkgraph_customer_id']) ? esc_attr(Metasync::get_option('general')['linkgraph_customer_id']) : ''
         );
 
@@ -1494,7 +1492,7 @@ class Metasync_Settings_Fields {
         printf('• The process typically takes 15-30 seconds to complete<br/>');
         printf('• Your API key will be stored securely and shown masked below<br/>');
         printf('• If you encounter issues, try disabling ad blockers temporarily<br/>');
-        printf('• Contact <a href="mailto:%s">%s</a> if you need assistance', Metasync::SUPPORT_EMAIL, Metasync::SUPPORT_EMAIL);
+        printf('• Contact <a href="mailto:%s">%s</a> if you need assistance', esc_attr(Metasync::SUPPORT_EMAIL), esc_html(Metasync::SUPPORT_EMAIL));
         printf('</div>');
         printf('</details>');
         printf('</div>');
@@ -1548,7 +1546,7 @@ class Metasync_Settings_Fields {
             printf(
                 '<p id="sendAuthTokenTimestamp" class="descriptionValue">%s (%s)</p>',
                 esc_attr($timestamp),
-                $this->time_elapsed_string($timestamp)
+                esc_html($this->time_elapsed_string($timestamp))
             );
     
         
@@ -1558,7 +1556,7 @@ class Metasync_Settings_Fields {
     public function bing_site_verification_callback()
     {
         printf(
-            '<input type="text" id="bing_site_verification" name="' . Metasync_Admin::option_key . '[searchengines][bing_site_verification]" value="%s" size="50" />',
+            '<input type="text" id="bing_site_verification" name="' . esc_attr(Metasync_Admin::option_key) . '[searchengines][bing_site_verification]" value="%s" size="50" />',
             isset(Metasync::get_option('searchengines')['bing_site_verification']) ? esc_attr(Metasync::get_option('searchengines')['bing_site_verification']) : ''
         );
 
@@ -1569,7 +1567,7 @@ class Metasync_Settings_Fields {
     public function yandex_site_verification_callback()
     {
         printf(
-            '<input type="text" id="yandex_site_verification" name="' . Metasync_Admin::option_key . '[searchengines][yandex_site_verification]" value="%s" size="50" />',
+            '<input type="text" id="yandex_site_verification" name="' . esc_attr(Metasync_Admin::option_key) . '[searchengines][yandex_site_verification]" value="%s" size="50" />',
             isset(Metasync::get_option('searchengines')['yandex_site_verification']) ? esc_attr(Metasync::get_option('searchengines')['yandex_site_verification']) : ''
         );
 
@@ -1580,7 +1578,7 @@ class Metasync_Settings_Fields {
     public function google_site_verification_callback()
     {
         printf(
-            '<input type="text" id="google_site_verification" name="' . Metasync_Admin::option_key . '[searchengines][google_site_verification]" value="%s" size="50" />',
+            '<input type="text" id="google_site_verification" name="' . esc_attr(Metasync_Admin::option_key) . '[searchengines][google_site_verification]" value="%s" size="50" />',
             isset(Metasync::get_option('searchengines')['google_site_verification']) ? esc_attr(Metasync::get_option('searchengines')['google_site_verification']) : ''
         );
 
@@ -1591,7 +1589,7 @@ class Metasync_Settings_Fields {
     public function pinterest_site_verification_callback()
     {
         printf(
-            '<input type="text" id="pinterest_site_verification" name="' . Metasync_Admin::option_key . '[searchengines][pinterest_site_verification]" value="%s" size="50" />',
+            '<input type="text" id="pinterest_site_verification" name="' . esc_attr(Metasync_Admin::option_key) . '[searchengines][pinterest_site_verification]" value="%s" size="50" />',
             isset(Metasync::get_option('searchengines')['pinterest_site_verification']) ? esc_attr(Metasync::get_option('searchengines')['pinterest_site_verification']) : ''
         );
 
@@ -1622,8 +1620,8 @@ class Metasync_Settings_Fields {
     public function local_seo_name_callback()
     {
         printf(
-            '<input type="text" id="local_seo_name" name="' . Metasync_Admin::option_key . '[localseo][local_seo_name]" value="%s" size="50" />',
-            isset(Metasync::get_option('localseo')['local_seo_name']) ? esc_attr(Metasync::get_option('localseo')['local_seo_name']) : get_bloginfo()
+            '<input type="text" id="local_seo_name" name="' . esc_attr(Metasync_Admin::option_key) . '[localseo][local_seo_name]" value="%s" size="50" />',
+            isset(Metasync::get_option('localseo')['local_seo_name']) ? esc_attr(Metasync::get_option('localseo')['local_seo_name']) : esc_attr(get_bloginfo())
         );
 
         printf(' <br> <span class="description"> Your name or company name </span>');
@@ -1641,7 +1639,7 @@ class Metasync_Settings_Fields {
         $local_seo_logo = metasync_repair_scheme_prefixed_media_id($local_seo_logo);
 
         printf(
-            '<input type="hidden" id="local_seo_logo" name="' . Metasync_Admin::option_key . '[localseo][local_seo_logo]" value="%s" size="50" />',
+            '<input type="hidden" id="local_seo_logo" name="' . esc_attr(Metasync_Admin::option_key) . '[localseo][local_seo_logo]" value="%s" size="50" />',
             esc_attr((string) $local_seo_logo)
         );
 
@@ -1665,7 +1663,7 @@ class Metasync_Settings_Fields {
         );
 
         $button_type = $logo_url ? 'button' : 'hidden';
-        printf('<input type="%s" class="button-secondary no-loading metasync-logo-remove-btn" id="local_seo_logo_close_btn" value="X">', $button_type);
+        printf('<input type="%s" class="button-secondary no-loading metasync-logo-remove-btn" id="local_seo_logo_close_btn" value="X">', esc_attr($button_type));
         printf('</span>');
     }
 
@@ -1705,8 +1703,8 @@ class Metasync_Settings_Fields {
     public function local_seo_url_callback()
     {
         printf(
-            '<input type="text" id="local_seo_url" name="' . Metasync_Admin::option_key . '[localseo][local_seo_url]" value="%s" size="50" />',
-            isset(Metasync::get_option('localseo')['local_seo_url']) ? esc_attr(Metasync::get_option('localseo')['local_seo_url']) : home_url()
+            '<input type="text" id="local_seo_url" name="' . esc_attr(Metasync_Admin::option_key) . '[localseo][local_seo_url]" value="%s" size="50" />',
+            isset(Metasync::get_option('localseo')['local_seo_url']) ? esc_attr(Metasync::get_option('localseo')['local_seo_url']) : esc_attr(home_url())
         );
 
         printf(' <br> <span class="description"> URL of the item. </span>');
@@ -1715,7 +1713,7 @@ class Metasync_Settings_Fields {
     public function local_seo_email_callback()
     {
         printf(
-            '<input type="text" id="local_seo_email" name="' . Metasync_Admin::option_key . '[localseo][local_seo_email]" value="%s" size="50" />',
+            '<input type="text" id="local_seo_email" name="' . esc_attr(Metasync_Admin::option_key) . '[localseo][local_seo_email]" value="%s" size="50" />',
             isset(Metasync::get_option('localseo')['local_seo_email']) ? esc_attr(Metasync::get_option('localseo')['local_seo_email']) : ''
         );
 
@@ -1725,7 +1723,7 @@ class Metasync_Settings_Fields {
     public function local_seo_phone_callback()
     {
         printf(
-            '<input type="text" id="local_seo_phone" name="' . Metasync_Admin::option_key . '[localseo][local_seo_phone]" value="%s" size="50" />',
+            '<input type="text" id="local_seo_phone" name="' . esc_attr(Metasync_Admin::option_key) . '[localseo][local_seo_phone]" value="%s" size="50" />',
             isset(Metasync::get_option('localseo')['local_seo_phone']) ? esc_attr(Metasync::get_option('localseo')['local_seo_phone']) : ''
         );
 
@@ -1735,27 +1733,27 @@ class Metasync_Settings_Fields {
     public function local_seo_address_callback()
     {
         printf(
-            '<input type="text" id="local_seo_address_street" name="' . Metasync_Admin::option_key . '[localseo][address][street]" value="%s" size="50" placeholder="Street Address"/> <br>',
+            '<input type="text" id="local_seo_address_street" name="' . esc_attr(Metasync_Admin::option_key) . '[localseo][address][street]" value="%s" size="50" placeholder="Street Address"/> <br>',
             isset(Metasync::get_option('localseo')['address']['street']) ? esc_attr(Metasync::get_option('localseo')['address']['street']) : ''
         );
 
         printf(
-            '<input type="text" id="local_seo_address_locality" name="' . Metasync_Admin::option_key . '[localseo][address][locality]" value="%s" size="50" placeholder="Locality"/> <br>',
+            '<input type="text" id="local_seo_address_locality" name="' . esc_attr(Metasync_Admin::option_key) . '[localseo][address][locality]" value="%s" size="50" placeholder="Locality"/> <br>',
             isset(Metasync::get_option('localseo')['address']['locality']) ? esc_attr(Metasync::get_option('localseo')['address']['locality']) : ''
         );
 
         printf(
-            '<input type="text" id="local_seo_address_region" name="' . Metasync_Admin::option_key . '[localseo][address][region]" value="%s" size="50" placeholder="Region"/> <br>',
+            '<input type="text" id="local_seo_address_region" name="' . esc_attr(Metasync_Admin::option_key) . '[localseo][address][region]" value="%s" size="50" placeholder="Region"/> <br>',
             isset(Metasync::get_option('localseo')['address']['region']) ? esc_attr(Metasync::get_option('localseo')['address']['region']) : ''
         );
 
         printf(
-            '<input type="text" id="local_seo_address_postalcode" name="' . Metasync_Admin::option_key . '[localseo][address][postalcode]" value="%s" size="50" placeholder="Postal Code"/> <br>',
+            '<input type="text" id="local_seo_address_postalcode" name="' . esc_attr(Metasync_Admin::option_key) . '[localseo][address][postalcode]" value="%s" size="50" placeholder="Postal Code"/> <br>',
             isset(Metasync::get_option('localseo')['address']['postalcode']) ? esc_attr(Metasync::get_option('localseo')['address']['postalcode']) : ''
         );
 
         printf(
-            '<input type="text" id="local_seo_address_country" name="' . Metasync_Admin::option_key . '[localseo][address][country]" value="%s" size="50" placeholder="Country"/> <br>',
+            '<input type="text" id="local_seo_address_country" name="' . esc_attr(Metasync_Admin::option_key) . '[localseo][address][country]" value="%s" size="50" placeholder="Country"/> <br>',
             isset(Metasync::get_option('localseo')['address']['country']) ? esc_attr(Metasync::get_option('localseo')['address']['country']) : ''
         );
     }
@@ -1772,7 +1770,7 @@ class Metasync_Settings_Fields {
             <option value='0'>Select Business Type</option>
             <?php
             foreach ($types as $type) {
-                printf('<option value="%s" %s >%s</option>', $type, selected($type, esc_attr($business_type)), $type);
+                printf('<option value="%s" %s >%s</option>', esc_attr($type), selected($type, $business_type, false), esc_html($type));
             }
             ?>
         </select>
@@ -1798,7 +1796,7 @@ class Metasync_Settings_Fields {
                     <select name="<?php echo esc_attr(Metasync_Admin::option_key . '[localseo][days][]') ?>">
                         <?php
                         foreach ($days_name as $name) {
-                            printf('<option value="%s" %s >%s</option>', $name, selected(esc_attr($name), esc_attr($day_name)), esc_attr($name));
+                            printf('<option value="%s" %s >%s</option>', esc_attr($name), selected($name, $day_name, false), esc_html($name));
                         }
                         ?>
                     </select>
@@ -1879,7 +1877,7 @@ class Metasync_Settings_Fields {
     public function local_seo_price_range_callback()
     {
         printf(
-            '<input type="text" id="local_seo_price_range" name="' . Metasync_Admin::option_key . '[localseo][local_seo_price_range]" value="%s" size="50" />',
+            '<input type="text" id="local_seo_price_range" name="' . esc_attr(Metasync_Admin::option_key) . '[localseo][local_seo_price_range]" value="%s" size="50" />',
             isset(Metasync::get_option('localseo')['local_seo_price_range']) ? esc_attr(Metasync::get_option('localseo')['local_seo_price_range']) : ''
         );
         printf(' <br> <span class="description"> The price range of the business, for example $$$. </span>');
@@ -1894,7 +1892,7 @@ class Metasync_Settings_Fields {
             $about_page = Metasync::get_option('localseo')['local_seo_about_page'] ?? '';
             $pages = get_pages();
             foreach ($pages as $page) {
-                printf('<option value="%s" %s >%s</option>', $page->ID, selected($page->ID, esc_attr($about_page)), $page->post_title);
+                printf('<option value="%s" %s >%s</option>', absint($page->ID), selected($page->ID, $about_page, false), esc_html($page->post_title));
             }
             ?>
         </select>
@@ -1911,7 +1909,7 @@ class Metasync_Settings_Fields {
             $contact_page = Metasync::get_option('localseo')['local_seo_contact_page'] ?? '';
             $pages = get_pages();
             foreach ($pages as $page) {
-                printf('<option value="%s" %s >%s</option>', $page->ID, selected($page->ID, esc_attr($contact_page)), $page->post_title);
+                printf('<option value="%s" %s >%s</option>', absint($page->ID), selected($page->ID, $contact_page, false), esc_html($page->post_title));
             }
             ?>
         </select>
@@ -1922,7 +1920,7 @@ class Metasync_Settings_Fields {
     public function local_seo_map_key_callback()
     {
         printf(
-            '<input type="text" id="local_seo_map_key" name="' . Metasync_Admin::option_key . '[localseo][local_seo_map_key]" value="%s" size="50" />',
+            '<input type="text" id="local_seo_map_key" name="' . esc_attr(Metasync_Admin::option_key) . '[localseo][local_seo_map_key]" value="%s" size="50" />',
             isset(Metasync::get_option('localseo')['local_seo_map_key']) ? esc_attr(Metasync::get_option('localseo')['local_seo_map_key']) : ''
         );
 
@@ -1932,7 +1930,7 @@ class Metasync_Settings_Fields {
     public function local_seo_geo_coordinates_callback()
     {
         printf(
-            '<input type="text" id="local_seo_geo_coordinates" name="' . Metasync_Admin::option_key . '[localseo][local_seo_geo_coordinates]" value="%s" size="50" />',
+            '<input type="text" id="local_seo_geo_coordinates" name="' . esc_attr(Metasync_Admin::option_key) . '[localseo][local_seo_geo_coordinates]" value="%s" size="50" />',
             isset(Metasync::get_option('localseo')['local_seo_geo_coordinates']) ? esc_attr(Metasync::get_option('localseo')['local_seo_geo_coordinates']) : ''
         );
 
@@ -1942,7 +1940,7 @@ class Metasync_Settings_Fields {
     public function header_snippets_callback()
     {
         printf(
-            '<textarea class="wide-text" id="header_snippets" rows="8" name="' . Metasync_Admin::option_key . '[codesnippets][header_snippet]" >%s</textarea>',
+            '<textarea class="wide-text" id="header_snippets" rows="8" name="' . esc_attr(Metasync_Admin::option_key) . '[codesnippets][header_snippet]" >%s</textarea>',
             isset(Metasync::get_option('codesnippets')['header_snippet']) ? esc_attr(Metasync::get_option('codesnippets')['header_snippet']) : ''
         );
     }
@@ -1950,7 +1948,7 @@ class Metasync_Settings_Fields {
     public function footer_snippets_callback()
     {
         printf(
-            '<textarea class="wide-text" id="footer_snippets" rows="8" name="' . Metasync_Admin::option_key . '[codesnippets][footer_snippet]" >%s</textarea>',
+            '<textarea class="wide-text" id="footer_snippets" rows="8" name="' . esc_attr(Metasync_Admin::option_key) . '[codesnippets][footer_snippet]" >%s</textarea>',
             isset(Metasync::get_option('codesnippets')['footer_snippet']) ? esc_attr(Metasync::get_option('codesnippets')['footer_snippet']) : ''
         );
     }
@@ -2089,7 +2087,7 @@ class Metasync_Settings_Fields {
     public function global_open_graph_meta_callback()
     {
         printf(
-            '<input type="checkbox" name="' . Metasync_Admin::option_key . '[common_meta_settings][open_graph_meta_tags]" value="true" %s />',
+            '<input type="checkbox" name="' . esc_attr(Metasync_Admin::option_key) . '[common_meta_settings][open_graph_meta_tags]" value="true" %s />',
             isset(Metasync::get_option('common_meta_settings')['open_graph_meta_tags']) && Metasync::get_option('common_meta_settings')['open_graph_meta_tags'] == 'true' ? 'checked' : ''
         );
         printf(' <br> <span class="description"> Automatically add the Open Graph meta tags in a page or post.</span>');
@@ -2098,7 +2096,7 @@ class Metasync_Settings_Fields {
     public function global_facebook_meta_callback()
     {
         printf(
-            '<input type="checkbox" name="' . Metasync_Admin::option_key . '[common_meta_settings][facebook_meta_tags]" value="true" %s />',
+            '<input type="checkbox" name="' . esc_attr(Metasync_Admin::option_key) . '[common_meta_settings][facebook_meta_tags]" value="true" %s />',
             isset(Metasync::get_option('common_meta_settings')['facebook_meta_tags']) && Metasync::get_option('common_meta_settings')['facebook_meta_tags'] == 'true' ? 'checked' : ''
         );
         printf(' <br> <span class="description"> Automatically add the Facebook meta tags in a page or post.</span>');
@@ -2107,7 +2105,7 @@ class Metasync_Settings_Fields {
     public function global_twitter_meta_callback()
     {
         printf(
-            '<input type="checkbox" name="' . Metasync_Admin::option_key . '[common_meta_settings][twitter_meta_tags]" value="true" %s />',
+            '<input type="checkbox" name="' . esc_attr(Metasync_Admin::option_key) . '[common_meta_settings][twitter_meta_tags]" value="true" %s />',
             isset(Metasync::get_option('common_meta_settings')['twitter_meta_tags']) && Metasync::get_option('common_meta_settings')['twitter_meta_tags'] == 'true' ? 'checked' : ''
         );
         printf(' <br> <span class="description"> Automatically add the Twitter meta tags in a page or post.</span>');
@@ -2117,7 +2115,7 @@ class Metasync_Settings_Fields {
     {
         $val = Metasync::get_option('common_meta_settings')['og_image_dimensions'] ?? 'true';
         printf(
-            '<input type="checkbox" name="' . Metasync_Admin::option_key . '[common_meta_settings][og_image_dimensions]" value="true" %s />',
+            '<input type="checkbox" name="' . esc_attr(Metasync_Admin::option_key) . '[common_meta_settings][og_image_dimensions]" value="true" %s />',
             $val === 'true' ? 'checked' : ''
         );
         printf('<span class="description"> Output og:image:width, og:image:height, and og:image:type when OG image metadata is available.</span>');
@@ -2127,7 +2125,7 @@ class Metasync_Settings_Fields {
     {
         $val = Metasync::get_option('common_meta_settings')['article_timestamps'] ?? 'true';
         printf(
-            '<input type="checkbox" name="' . Metasync_Admin::option_key . '[common_meta_settings][article_timestamps]" value="true" %s />',
+            '<input type="checkbox" name="' . esc_attr(Metasync_Admin::option_key) . '[common_meta_settings][article_timestamps]" value="true" %s />',
             $val === 'true' ? 'checked' : ''
         );
         printf('<span class="description"> Output article:published_time and article:modified_time from the post publish and modified dates (ISO 8601).</span>');
@@ -2137,7 +2135,7 @@ class Metasync_Settings_Fields {
     {
         $val = Metasync::get_option('common_meta_settings')['article_author'] ?? 'true';
         printf(
-            '<input type="checkbox" name="' . Metasync_Admin::option_key . '[common_meta_settings][article_author]" value="true" %s />',
+            '<input type="checkbox" name="' . esc_attr(Metasync_Admin::option_key) . '[common_meta_settings][article_author]" value="true" %s />',
             $val === 'true' ? 'checked' : ''
         );
         printf('<span class="description"> Output article:author using the post author website URL or archive URL (overridable per-post via _metasync_og_article_author meta).</span>');
@@ -2147,7 +2145,7 @@ class Metasync_Settings_Fields {
     {
         $val = Metasync::get_option('common_meta_settings')['article_section'] ?? 'true';
         printf(
-            '<input type="checkbox" name="' . Metasync_Admin::option_key . '[common_meta_settings][article_section]" value="true" %s />',
+            '<input type="checkbox" name="' . esc_attr(Metasync_Admin::option_key) . '[common_meta_settings][article_section]" value="true" %s />',
             $val === 'true' ? 'checked' : ''
         );
         printf('<span class="description"> Output article:section from the primary category (falls back to first category).</span>');
@@ -2157,7 +2155,7 @@ class Metasync_Settings_Fields {
     {
         $val = Metasync::get_option('common_meta_settings')['article_tags'] ?? 'true';
         printf(
-            '<input type="checkbox" name="' . Metasync_Admin::option_key . '[common_meta_settings][article_tags]" value="true" %s />',
+            '<input type="checkbox" name="' . esc_attr(Metasync_Admin::option_key) . '[common_meta_settings][article_tags]" value="true" %s />',
             $val === 'true' ? 'checked' : ''
         );
         printf('<span class="description"> Output one article:tag meta tag per WordPress post tag.</span>');
@@ -2167,7 +2165,7 @@ class Metasync_Settings_Fields {
     {
         $val = Metasync::get_option('common_meta_settings')['twitter_image_alt'] ?? 'true';
         printf(
-            '<input type="checkbox" name="' . Metasync_Admin::option_key . '[common_meta_settings][twitter_image_alt]" value="true" %s />',
+            '<input type="checkbox" name="' . esc_attr(Metasync_Admin::option_key) . '[common_meta_settings][twitter_image_alt]" value="true" %s />',
             $val === 'true' ? 'checked' : ''
         );
         printf('<span class="description"> Output twitter:image:alt using the stored alt text or the OG image attachment alt attribute.</span>');
@@ -2176,42 +2174,42 @@ class Metasync_Settings_Fields {
     public function facebook_page_url_callback()
     {
         $facebook_page_url = Metasync::get_option('social_meta')['facebook_page_url'] ?? '';
-        printf('<input type="text" name="' . Metasync_Admin::option_key . '[social_meta][facebook_page_url]" value="%s" size="50" />', esc_attr($facebook_page_url));
+        printf('<input type="text" name="' . esc_attr(Metasync_Admin::option_key) . '[social_meta][facebook_page_url]" value="%s" size="50" />', esc_attr($facebook_page_url));
         printf('<br><span class="description"> Enter your Facebook page URL. eg: <code>https://www.facebook.com/MetaSync/</code> </span>');
     }
 
     public function facebook_authorship_callback()
     {
         $facebook_authorship = Metasync::get_option('social_meta')['facebook_authorship'] ?? '';
-        printf('<input type="text" name="' . Metasync_Admin::option_key . '[social_meta][facebook_authorship]" value="%s" size="50" />', esc_attr($facebook_authorship));
+        printf('<input type="text" name="' . esc_attr(Metasync_Admin::option_key) . '[social_meta][facebook_authorship]" value="%s" size="50" />', esc_attr($facebook_authorship));
         printf('<br><span class="description"> Enter Facebook profile URL to show Facebook Authorship when your articles are being shared on Facebook. eg: <code>https://www.facebook.com/shahrukh/</code> </span>');
     }
 
     public function facebook_admin_callback()
     {
         $facebook_admin = Metasync::get_option('social_meta')['facebook_admin'] ?? '';
-        printf('<input type="text" name="' . Metasync_Admin::option_key . '[social_meta][facebook_admin]" value="%s" size="50" />', esc_attr($facebook_admin));
+        printf('<input type="text" name="' . esc_attr(Metasync_Admin::option_key) . '[social_meta][facebook_admin]" value="%s" size="50" />', esc_attr($facebook_admin));
         printf(' <br> <span class="description"> Enter numeric user ID of Facebook. </span>');
     }
 
     public function facebook_app_callback()
     {
         $facebook_app = Metasync::get_option('social_meta')['facebook_app'] ?? '';
-        printf('<input type="text" name="' . Metasync_Admin::option_key . '[social_meta][facebook_app]" value="%s" size="50" />', esc_attr($facebook_app));
+        printf('<input type="text" name="' . esc_attr(Metasync_Admin::option_key) . '[social_meta][facebook_app]" value="%s" size="50" />', esc_attr($facebook_app));
         printf(' <br> <span class="description"> Enter numeric app ID of Facebook </span>');
     }
 
     public function facebook_secret_callback()
     {
         $facebook_secret = Metasync::get_option('social_meta')['facebook_secret'] ?? '';
-        printf('<input type="text" name="' . Metasync_Admin::option_key . '[social_meta][facebook_secret]" value="%s" size="50" />', esc_attr($facebook_secret));
+        printf('<input type="text" name="' . esc_attr(Metasync_Admin::option_key) . '[social_meta][facebook_secret]" value="%s" size="50" />', esc_attr($facebook_secret));
         printf(' <br> <span class="description"> Enter alphanumeric access token from Facebook. </span>');
     }
 
     public function twitter_username_callback()
     {
         $twitter_username = Metasync::get_option('social_meta')['twitter_username'] ?? '';
-        printf('<input type="text" name="' . Metasync_Admin::option_key . '[social_meta][twitter_username]" value="%s" size="50" />', esc_attr($twitter_username));
+        printf('<input type="text" name="' . esc_attr(Metasync_Admin::option_key) . '[social_meta][twitter_username]" value="%s" size="50" />', esc_attr($twitter_username));
         printf(' <br> <span class="description"> Twitter username of the author to add <code>twitter:creator</code> tag to post. eg: <code>MetaSync</code> </span>');
     }
 

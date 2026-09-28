@@ -485,7 +485,7 @@ class Metasync_SEO_Health
 		</div>
 
 		<form method="get">
-			<input type="hidden" name="page" value="<?php echo esc_attr($_GET['page'] ?? ''); ?>" />
+			<input type="hidden" name="page" value="<?php echo esc_attr($_GET['page'] ?? ''); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page slug, escaped into a form field ?>" />
 
 			<div class="metasync-health-toolbar">
 				<a href="<?php echo esc_url(wp_nonce_url(add_query_arg('export', 'csv'), 'metasync_seo_health_export')); ?>" class="button button-secondary">
@@ -670,17 +670,17 @@ class Metasync_SEO_Health
 			'metasync_exclude_custom_pages' => true,
 		);
 
-		$post_type_filter = isset($_GET['post_type_filter']) ? sanitize_text_field($_GET['post_type_filter']) : '';
+		$post_type_filter = isset($_GET['post_type_filter']) ? sanitize_text_field(wp_unslash($_GET['post_type_filter'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- caller verifies a nonce and capability before the export
 		if (!empty($post_type_filter) && in_array($post_type_filter, self::get_supported_post_types(), true)) {
 			$args['post_type'] = $post_type_filter;
 		}
 
-		$status_filter = isset($_GET['status_filter']) ? sanitize_text_field($_GET['status_filter']) : '';
+		$status_filter = isset($_GET['status_filter']) ? sanitize_text_field(wp_unslash($_GET['status_filter'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- caller verifies a nonce and capability before the export
 		if (!empty($status_filter) && in_array($status_filter, array('publish', 'draft'), true)) {
 			$args['post_status'] = $status_filter;
 		}
 
-		$search = isset($_GET['s']) ? sanitize_text_field($_GET['s']) : '';
+		$search = isset($_GET['s']) ? sanitize_text_field(wp_unslash($_GET['s'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- caller verifies a nonce and capability before the export
 		if (!empty($search)) {
 			$args['s'] = $search;
 		}
@@ -734,7 +734,7 @@ class Metasync_SEO_Health
 			remove_filter('posts_where', array('Metasync_SEO_Inventory_Builder', 'filter_where_id_gt'), 10);
 		}
 
-		fclose($output);
+		fclose($output); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- operates on a native stream handle
 		exit;
 	}
 }

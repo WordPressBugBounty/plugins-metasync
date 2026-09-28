@@ -5,6 +5,10 @@
  * @package Metasync
  */
 
+if (!defined('ABSPATH')) {
+    exit;
+}
+
 if (!function_exists('metasync_get_sitemap_taxonomy_picker_taxonomies')) {
     /**
      * Filter registered taxonomies to the ones suitable for the sitemap picker.

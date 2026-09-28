@@ -49,7 +49,7 @@ class Metasync_Common
 	public function get_attachment_by_name($attachment_name)
 	{
 		global $wpdb;
-		$post = $wpdb->get_row(
+		$post = $wpdb->get_row( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- attachment lookup by guid/post_name — guid search has no WordPress API
 			$wpdb->prepare(
 				"SELECT * FROM $wpdb->posts WHERE `post_name` = %s and `post_type` = 'attachment' LIMIT 1",
 				$attachment_name
@@ -73,7 +73,8 @@ class Metasync_Common
 	public function get_file_name_by_url($url)
 	{
 		if (stripos($url, "https://cdn.midjourney.com/") !== false) {
-			return pathinfo(str_replace("/", "_", parse_url($url, PHP_URL_PATH) ?? ''), PATHINFO_FILENAME);
+			$path = wp_parse_url($url, PHP_URL_PATH);
+			return pathinfo(false === $path ? '' : str_replace('/', '_', $path), PATHINFO_FILENAME);
 		} elseif (stripos($url, "https://drive.google.com/") !== false) {
 			$parse_url = wp_parse_url($url);
 			// Modern permalinks are /file/d/<ID>/view — the ID lives in the path,
@@ -85,7 +86,8 @@ class Metasync_Common
 			wp_parse_str($parse_url['query'] ?? '', $args);
 			return $args['id'] ?? null;
 		} else {
-			return pathinfo(parse_url($url, PHP_URL_PATH) ?? '', PATHINFO_FILENAME);
+			$path = wp_parse_url($url, PHP_URL_PATH);
+			return pathinfo(false === $path ? '' : $path, PATHINFO_FILENAME);
 		}
 	}
 
@@ -107,15 +109,14 @@ class Metasync_Common
 		global $wpdb;
 
 	   // Search for any attachment matching the URL
-	   $query = $wpdb->prepare("
+	   // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- attachment lookup by guid/post_name — guid search has no WordPress API
+	   $attachment_id = $wpdb->get_var($wpdb->prepare("
 		   SELECT ID 
-		   FROM $wpdb->posts 
+		   FROM {$wpdb->posts} 
 		   WHERE post_type = 'attachment' 
 		   AND guid = %s 
 		   LIMIT 1
-	   ", $url);
-   
-	   $attachment_id = $wpdb->get_var($query);
+	   ", $url));
    
 	   // Return the attachment ID if found, otherwise return false
 	   return $attachment_id ? intval($attachment_id) : false;
@@ -135,7 +136,6 @@ class Metasync_Common
 		$tmp = download_url($url);
 		if (is_wp_error($tmp)){
 			$attachment_id = $this->get_media_id_from_url($url);
-			error_log($attachment_id);
 			return $attachment_id;
 		}
 
@@ -175,7 +175,7 @@ class Metasync_Common
 			} else {
 				// Safely delete temporary file if it exists
 				if (file_exists($tmp)) {
-					unlink($tmp);
+					wp_delete_file($tmp);
 				}
 				return false;
 			}
@@ -201,7 +201,7 @@ class Metasync_Common
 			if (is_wp_error($attachment_id)) {
 				// Safely delete temporary file if it exists
 				if (file_exists($tmp)) {
-					unlink($tmp);
+					wp_delete_file($tmp);
 				}
 				return false;
 			}
@@ -223,7 +223,7 @@ class Metasync_Common
 
 			// Safely delete temporary file if it exists
 			if (file_exists($tmp)) {
-				unlink($tmp);
+				wp_delete_file($tmp);
 			}
 
 			return $attachment_id;
@@ -252,7 +252,7 @@ class Metasync_Common
 
 			// Delete the temporary file unless the sideload above moved it
 			if (file_exists($tmp)) {
-				unlink($tmp);
+				wp_delete_file($tmp);
 			}
 
 			// check if the title attribute is set on the image tag and then update the title

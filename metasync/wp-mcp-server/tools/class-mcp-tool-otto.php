@@ -336,7 +336,7 @@ class MCP_Tool_Get_Otto_Status extends MCP_Tool_Base {
                 $url_hash       = md5($normalized_url);
                 $transient_key  = 'otto_suggestions_' . $site_id . '_' . $url_hash;
                 $timeout_key    = '_transient_timeout_' . $transient_key;
-                $expiry_raw = $wpdb->get_var(
+                $expiry_raw = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- MCP tool surface — reads the paired transient timeout row directly; no API for TTL introspection
                     $wpdb->prepare(
                         "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
                         $timeout_key

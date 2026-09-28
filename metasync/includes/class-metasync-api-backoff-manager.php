@@ -366,7 +366,7 @@ class Metasync_API_Backoff_Manager {
         $backoffs = [];
 
         // Query all backoff transients
-        $transient_keys = $wpdb->get_col(
+        $transient_keys = $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- transient enumeration on the options table — no API to scan transient rows
             $wpdb->prepare(
                 "SELECT option_name FROM {$wpdb->options}
                  WHERE option_name LIKE %s",
@@ -423,7 +423,7 @@ class Metasync_API_Backoff_Manager {
         ];
 
         foreach ($prefixes as $prefix) {
-            $transient_keys = $wpdb->get_col(
+            $transient_keys = $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- transient enumeration on the options table — no API to scan transient rows
                 $wpdb->prepare(
                     "SELECT option_name FROM {$wpdb->options}
                      WHERE option_name LIKE %s

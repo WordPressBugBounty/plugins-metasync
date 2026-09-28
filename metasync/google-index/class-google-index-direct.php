@@ -58,7 +58,6 @@ class Google_Index_Direct
         }
 
         if (empty($config)) {
-            error_log('MetaSync Google Index: Service account configuration not found in options table. Option key: ' . self::SERVICE_ACCOUNT_OPTION_KEY);
             return false;
         }
         
@@ -74,7 +73,7 @@ class Google_Index_Direct
         $required_fields = ['client_email', 'private_key', 'project_id'];
         foreach ($required_fields as $field) {
             if (empty($config[$field])) {
-                error_log("MetaSync Google Index: Missing required field '{$field}' in service account configuration");
+                error_log("MetaSync Google Index: Missing required field '{$field}' in service account configuration"); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 return false;
             }
         }
@@ -118,7 +117,7 @@ class Google_Index_Direct
         $required_fields = ['client_email', 'private_key', 'project_id'];
         foreach ($required_fields as $field) {
             if (empty($config[$field])) {
-                error_log("MetaSync Google Index: Cannot save - missing required field '{$field}' in service account configuration");
+                error_log("MetaSync Google Index: Cannot save - missing required field '{$field}' in service account configuration"); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 return false;
             }
         }
@@ -159,7 +158,7 @@ class Google_Index_Direct
                     );
                 }
                 
-                error_log('MetaSync Google Index: Failed to save service account configuration - database error or data too large');
+                error_log('MetaSync Google Index: Failed to save service account configuration - database error or data too large'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 return false;
             }
         }
@@ -198,16 +197,6 @@ class Google_Index_Direct
         if ($action !== 'delete' && $post->post_status !== 'publish') {
             return $this->error_response('Only published posts can be indexed');
         }
-        
-        // Log the action
-        error_log(sprintf(
-            'Google Index Direct: %s action for %s (ID: %d, Type: %s, URL: %s)',
-            strtoupper($action),
-            $post->post_title,
-            $post_id,
-            $post_type,
-            $post_url
-        ));
         
         // Perform the API call
         return $this->call_indexing_api($post_url, $action);
@@ -382,13 +371,19 @@ class Google_Index_Direct
         $status_code = wp_remote_retrieve_response_code($response);
         $body = wp_remote_retrieve_body($response);
         
-        // Log the response for debugging
-        error_log(sprintf(
-            'Google Index API Response - Action: %s, Status: %d, Body: %s',
-            $action,
-            $status_code,
-            $body
-        ));
+        // Log failures only — never log the full API response body
+        if ($status_code < 200 || $status_code >= 300) {
+            $error_data = json_decode($body, true);
+            $error_message = is_array($error_data) && !empty($error_data['error']['message'])
+                ? $error_data['error']['message']
+                : 'Unknown Google API error';
+            error_log(sprintf( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
+                'Google Index API Error - Action: %s, Status: %d, Error: %s',
+                $action,
+                $status_code,
+                $error_message
+            ));
+        }
         
         // Parse response body
         $data = json_decode($body, true);
@@ -466,13 +461,13 @@ class Google_Index_Direct
                 );
             }
             
-            error_log('MetaSync Google Index: Failed to get access token - ' . $response->get_error_message());
+            error_log('MetaSync Google Index: Failed to get access token - ' . $response->get_error_message()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return false;
         }
 
         $body = json_decode(wp_remote_retrieve_body($response), true);
         if (!isset($body['access_token'])) {
-            error_log('MetaSync Google Index: No access token in response - ' . print_r($body, true));
+            error_log('MetaSync Google Index: No access token in response'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return false;
         }
         
@@ -527,7 +522,7 @@ class Google_Index_Direct
         );
         
         if (!$success) {
-            error_log('MetaSync Google Index: Failed to sign JWT token');
+            error_log('MetaSync Google Index: Failed to sign JWT token'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return false;
         }
         
@@ -574,7 +569,7 @@ class Google_Index_Direct
      */
     private function error_response($message, $code = 'UNKNOWN_ERROR', $details = [])
     {
-        error_log('MetaSync Google Index Error: ' . $message . ' (Code: ' . $code . ')');
+        error_log('MetaSync Google Index Error: ' . $message . ' (Code: ' . $code . ')'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 
         return [
             'success' => false,

@@ -249,10 +249,9 @@ class Metasync_Sitemap_News
             return [];
         }
 
-        $id_placeholders = implode(',', array_fill(0, count($post_ids), '%d'));
-        return array_map('intval', (array) $wpdb->get_col(
+        return array_map('intval', (array) $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- sitemap build read — output is transient-cached with lifecycle bust hooks
             $wpdb->prepare(
-                "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = 'metasync_common_robots' AND post_id IN ({$id_placeholders}) AND meta_value LIKE %s",
+                'SELECT post_id FROM ' . $wpdb->postmeta . " WHERE meta_key = 'metasync_common_robots' AND post_id IN (" . implode(',', array_fill(0, count($post_ids), '%d')) . ') AND meta_value LIKE %s',
                 array_merge($post_ids, ['%"noindex";s:7:"noindex"%'])
             )
         ));

@@ -1,0 +1,106 @@
+{
+    "name": "searchatlas/metasync",
+    "description": "Search Atlas SEO - Premier SEO Plugin for WordPress",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "authors": [
+        {
+            "name": "Search Atlas",
+            "email": "support@searchatlas.com"
+        }
+    ],
+    "minimum-stability": "stable",
+    "require": {
+        "php": ">=8.1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^12.0",
+        "yoast/phpunit-polyfills": "^4.0",
+        "squizlabs/php_codesniffer": "^3.13",
+        "wp-coding-standards/wpcs": "^3.0",
+        "phpcompatibility/phpcompatibility-wp": "^2.1",
+        "dealerdirect/phpcodesniffer-composer-installer": "^1.0",
+        "phpstan/extension-installer": "^1.4",
+        "phpstan/phpstan": "^2.0",
+        "szepeviktor/phpstan-wordpress": "^2.0"
+    },
+    "scripts": {
+        "test": [
+            "phpunit"
+        ],
+        "test:unit": [
+            "phpunit --testsuite 'Unit Tests'"
+        ],
+        "test:integration": [
+            "echo 'No integration tests yet (tests/integration was removed). Running unit tests instead.'",
+            "phpunit --testsuite 'Unit Tests'"
+        ],
+        "test:coverage": [
+            "phpunit --coverage-html coverage-html --coverage-text"
+        ],
+        "phpcs": [
+            "phpcs --standard=phpcs.xml.dist ."
+        ],
+        "phpcs:fix": [
+            "phpcbf --standard=phpcs.xml.dist ."
+        ],
+        "lint": [
+            "@phpcs"
+        ],
+        "lint:fix": [
+            "@phpcs:fix"
+        ],
+        "ci": [
+            "@lint",
+            "@test"
+        ]
+    },
+    "config": {
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true,
+            "phpstan/extension-installer": true
+        },
+        "optimize-autoloader": true,
+        "sort-packages": true,
+        "platform-check": false
+    },
+    "autoload": {
+        "classmap": [
+            "includes/",
+            "admin/",
+            "public/",
+            "wp-mcp-server/",
+            "otto/",
+            "404-monitor/",
+            "bing-index/",
+            "breadcrumbs/",
+            "code-minification/",
+            "code-snippets/",
+            "custom-pages/",
+            "customer-sync-requests/",
+            "database/",
+            "google-index/",
+            "heartbeat-error-monitor/",
+            "llms-txt/",
+            "media-optimization/",
+            "otto-frontend-toolbar/",
+            "redirections/",
+            "robots-txt/",
+            "schema-markup/",
+            "site-error-logs/",
+            "sitemap/",
+            "sync-history/",
+            "telemetry/",
+            "MetaSyncDebug.php"
+        ],
+        "exclude-from-classmap": [
+            "otto/vendor/"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "SearchAtlas\\Tests\\": "tests/"
+        }
+    }
+}
+

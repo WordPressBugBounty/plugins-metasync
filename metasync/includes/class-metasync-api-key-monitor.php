@@ -120,7 +120,7 @@ class Metasync_API_Key_Monitor
             }
             
         } catch (Exception $e) {
-            error_log('MetaSync API Key Monitor Error: ' . $e->getMessage());
+            error_log('MetaSync API Key Monitor Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         } finally {
             $this->monitoring_active = false;
         }
@@ -246,7 +246,7 @@ class Metasync_API_Key_Monitor
                 Metasync::log_api_key_event('API key change detected', 'multiple', $details, 'info');
             } else {
                 // Fallback to basic error_log if main class not available
-                error_log('MetaSync API Key Monitor [' . $context . ']: ' . implode(' | ', $log_messages));
+                error_log('MetaSync API Key Monitor [' . $context . ']: ' . implode(' | ', $log_messages)); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- unreachable in production
             }
         }
     }
@@ -267,8 +267,6 @@ class Metasync_API_Key_Monitor
         if ($this->should_trigger_heartbeat($changes)) {
             do_action('metasync_heartbeat_state_key_pending'); // PR3: burst mode
             do_action('metasync_trigger_immediate_heartbeat', $heartbeat_context);
-        } else {
-            $this->log_heartbeat_skip_reason($changes, $heartbeat_context);
         }
     }
     
@@ -309,25 +307,6 @@ class Metasync_API_Key_Monitor
         return false;
     }
     
-    /**
-     * Log why heartbeat trigger was skipped
-     */
-    private function log_heartbeat_skip_reason($changes, $context)
-    {
-        $skip_reasons = array();
-        
-        if ($changes['plugin_auth_token']['changed']) {
-            $skip_reasons[] = 'Plugin Auth Token changed but Search Atlas API key not configured';
-        }
-        
-        if ($changes['searchatlas_api_key']['changed'] && empty($changes['searchatlas_api_key']['new'])) {
-            $skip_reasons[] = 'Search Atlas API key was removed';
-        }
-        
-        if (!empty($skip_reasons)) {
-            error_log('MetaSync API Key Monitor: Skipping heartbeat trigger - ' . implode(' | ', $skip_reasons) . ' - Context: ' . $context);
-        }
-    }
 
     /**
      * Build descriptive context for heartbeat trigger

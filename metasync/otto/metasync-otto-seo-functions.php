@@ -1248,13 +1248,16 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
                         // and the one a restore has to put back. The meta keys beside
                         // it are usually absent on a modern Yoast, so backing those up
                         // preserves nothing on its own.
+                        // The prepared string is kept in a variable on purpose: the
+                        // read-success check below compares it against
+                        // $wpdb->last_query, so it must stay available.
                         $indexable_read_sql = $wpdb->prepare(
-                            "SELECT schema_article_type, schema_page_type FROM {$yoast_indexable_table} WHERE object_id = %d AND object_type = 'post'",
+                            "SELECT schema_article_type, schema_page_type FROM {$wpdb->prefix}yoast_indexable WHERE object_id = %d AND object_type = 'post'",
                             $post_id
                         );
                         $current_indexable = ($indexable_read_sql === null)
                             ? null
-                            : $wpdb->get_row($indexable_read_sql, ARRAY_A);
+                            : $wpdb->get_row($indexable_read_sql, ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery -- prepared directly above; the string is reused for the last_query check below
 
                         // A failed read returns the same null as "no such row",
                         // and recording that as "the column was empty" tells a
@@ -1312,10 +1315,30 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
                         }
                         $update_vals[] = $post_id;
                         if ($indexable_backed_up && !empty($update_cols)) {
-                            $wpdb->query($wpdb->prepare(
-                                "UPDATE {$yoast_indexable_table} SET " . implode(', ', $update_cols) . " WHERE object_id = %d AND object_type = 'post'",
-                                $update_vals
-                            ));
+                            // Both possible SET columns written out literally so the
+                            // statement carries no dynamic fragments; the values bind
+                            // via prepare() in the original append order.
+                            if (in_array('schema_article_type = %s', $update_cols, true)
+                                && in_array('schema_page_type = %s', $update_cols, true)) {
+                                $wpdb->query($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- writes SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
+                                    "UPDATE {$wpdb->prefix}yoast_indexable SET schema_article_type = %s, schema_page_type = %s WHERE object_id = %d AND object_type = 'post'",
+                                    $yoast_types['article_type'],
+                                    $yoast_types['page_type'],
+                                    $post_id
+                                ));
+                            } elseif (in_array('schema_article_type = %s', $update_cols, true)) {
+                                $wpdb->query($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- writes SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
+                                    "UPDATE {$wpdb->prefix}yoast_indexable SET schema_article_type = %s WHERE object_id = %d AND object_type = 'post'",
+                                    $yoast_types['article_type'],
+                                    $post_id
+                                ));
+                            } else {
+                                $wpdb->query($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- writes SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
+                                    "UPDATE {$wpdb->prefix}yoast_indexable SET schema_page_type = %s WHERE object_id = %d AND object_type = 'post'",
+                                    $yoast_types['page_type'],
+                                    $post_id
+                                ));
+                            }
                         }
                     }
                 }
@@ -1378,7 +1401,7 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             # would let a write-once row_existed='0' marker be committed for a
             # table that never existed, which a restore could later read as
             # permission to delete a row the customer made themselves.
-            $aioseo_table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $aioseo_table));
+            $aioseo_table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $aioseo_table)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- writes SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
             if ($aioseo_table_exists !== $aioseo_table) {
                 $aioseo_field_updates = [];
             }
@@ -1392,12 +1415,14 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             # Read the row we are about to change so the originals can be saved
             # before it is overwritten, and so a restore can tell a row AIOSEO
             # already had from one this sync created.
+            # The prepared string is kept in a variable on purpose: the
+            # read-success check below compares it against $wpdb->last_query.
             $aioseo_read_sql = $wpdb->prepare(
-                "SELECT * FROM {$aioseo_table} WHERE post_id = %d", $post_id
+                "SELECT * FROM {$wpdb->prefix}aioseo_posts WHERE post_id = %d", $post_id
             );
             $existing_aioseo_row = ($aioseo_read_sql === null)
                 ? null
-                : $wpdb->get_row($aioseo_read_sql, ARRAY_A);
+                : $wpdb->get_row($aioseo_read_sql, ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery -- prepared directly above; the string is reused for the last_query check below
 
             # A failed read looks exactly like "no row" here, and the difference
             # is not cosmetic: the write-once row_existed marker would be
@@ -1429,7 +1454,7 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             if (empty($aioseo_field_updates)) {
                 # Consent withheld — leave AIOSEO's row exactly as it is.
             } elseif ($row_exists) {
-                $wpdb->update($aioseo_table, $aioseo_field_updates, ['post_id' => $post_id]);
+                $wpdb->update($aioseo_table, $aioseo_field_updates, ['post_id' => $post_id]); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- writes SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
             } else {
                 $aioseo_field_updates['post_id'] = $post_id;
                 $aioseo_field_updates['created'] = current_time('mysql');
@@ -1440,7 +1465,7 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
                 # the customer creates afterwards. The per-column backups beside
                 # it go too, or a column captured as NULL for a row that never
                 # existed would blank a real value the customer later puts in one.
-                if ($wpdb->insert($aioseo_table, $aioseo_field_updates) === false) {
+                if ($wpdb->insert($aioseo_table, $aioseo_field_updates) === false) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- writes SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
                     Metasync_Seo_Backup::discard_backups('post', $post_id, $aioseo_backups_created);
                 }
             }
@@ -1817,14 +1842,16 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
                 # A later restore would then take that '0' as licence to delete a
                 # row the customer created by hand. Matches the guard in
                 # Metasync_Plugin_Sync::sync_aioseo().
-                $aioseo_table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $aioseo_table));
+                $aioseo_table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $aioseo_table)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- writes SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
                 if ($aioseo_table_exists === $aioseo_table) {
                     # Read the plugin's own current values so the back-fill is gated on
                     # the aioseo_posts row, not on MetaSync's native field.
-                    $aioseo_read_sql = $wpdb->prepare("SELECT title, description FROM {$aioseo_table} WHERE post_id = %d", $post_id);
+                    # The prepared string is kept in a variable on purpose: the
+                    # read-success check below compares it against $wpdb->last_query.
+                    $aioseo_read_sql = $wpdb->prepare("SELECT title, description FROM {$wpdb->prefix}aioseo_posts WHERE post_id = %d", $post_id);
                     $current_aioseo = ($aioseo_read_sql === null)
                         ? null
-                        : $wpdb->get_row($aioseo_read_sql);
+                        : $wpdb->get_row($aioseo_read_sql); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery -- prepared directly above; the string is reused for the last_query check below
 
                     # A failed read is indistinguishable from "no row" in the
                     # value returned, and treating one as the other commits a
@@ -1861,7 +1888,7 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
                         $aioseo_updates['updated'] = current_time('mysql');
 
                         if ($current_aioseo) {
-                            $wpdb->update($aioseo_table, $aioseo_updates, ['post_id' => $post_id]);
+                            $wpdb->update($aioseo_table, $aioseo_updates, ['post_id' => $post_id]); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- writes SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
                         } else {
                             $aioseo_updates['post_id'] = $post_id;
                             $aioseo_updates['created'] = current_time('mysql');
@@ -1873,7 +1900,7 @@ function metasync_update_seo_meta_fields($post_id, $meta_title, $meta_descriptio
                             # captured as NULL for a row that never existed
                             # would blank a real value the customer later puts
                             # in one.
-                            if ($wpdb->insert($aioseo_table, $aioseo_updates) === false) {
+                            if ($wpdb->insert($aioseo_table, $aioseo_updates) === false) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- writes SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
                                 Metasync_Seo_Backup::discard_backups('post', $post_id, $aioseo_backups_created);
                             }
                         }
@@ -2140,7 +2167,7 @@ function metasync_resolve_url_to_term($url) {
         }
     }
 
-    $path = parse_url($url, PHP_URL_PATH);
+    $path = wp_parse_url($url, PHP_URL_PATH);
     if (empty($path)) {
         return null;
     }

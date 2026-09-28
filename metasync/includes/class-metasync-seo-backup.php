@@ -300,12 +300,12 @@ class Metasync_Seo_Backup {
 
 		$like = $wpdb->esc_like(self::BACKUP_META_PREFIX) . '%';
 
-		$counts['posts'] = (int) $wpdb->get_var($wpdb->prepare(
+		$counts['posts'] = (int) $wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- backup inventory — exact-row bulk counts/keys over arbitrary meta; no bulk WordPress API
 			"SELECT COUNT(DISTINCT post_id) FROM {$wpdb->postmeta} WHERE meta_key LIKE %s",
 			$like
 		));
 
-		$counts['terms'] = (int) $wpdb->get_var($wpdb->prepare(
+		$counts['terms'] = (int) $wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- backup inventory — exact-row bulk counts/keys over arbitrary meta; no bulk WordPress API
 			"SELECT COUNT(DISTINCT term_id) FROM {$wpdb->termmeta} WHERE meta_key LIKE %s",
 			$like
 		));
@@ -334,7 +334,7 @@ class Metasync_Seo_Backup {
 			return 0;
 		}
 
-		$keys = $wpdb->get_col($wpdb->prepare(
+		$keys = $wpdb->get_col($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- backup inventory — exact-row bulk counts/keys over arbitrary meta; no bulk WordPress API
 			"SELECT meta_key FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key LIKE %s",
 			$post_id,
 			$wpdb->esc_like(self::BACKUP_META_PREFIX) . '%'

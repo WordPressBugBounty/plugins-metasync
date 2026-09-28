@@ -59,7 +59,7 @@ class Metasync_Sentry_Telemetry {
             return 'development';
         }
         
-        $host = parse_url(home_url(), PHP_URL_HOST);
+        $host = wp_parse_url(home_url(), PHP_URL_HOST);
         if ($host && (strpos($host, 'staging') !== false || strpos($host, 'dev') !== false)) {
             return 'staging';
         }
@@ -192,7 +192,7 @@ class Metasync_Sentry_Telemetry {
                 'name' => 'metasync-telemetry',
                 'version' => $this->plugin_version
             ),
-            'server_name' => parse_url(home_url(), PHP_URL_HOST),
+            'server_name' => wp_parse_url(home_url(), PHP_URL_HOST),
             'release' => $this->release,
             'environment' => $this->environment,
             'contexts' => array(
@@ -350,7 +350,7 @@ class Metasync_Sentry_Telemetry {
      */
     private function get_mysql_version() {
         global $wpdb;
-        return $wpdb->get_var('SELECT VERSION()');
+        return $wpdb->get_var('SELECT VERSION()'); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- diagnostic metadata — SELECT VERSION() has no cached WordPress API
     }
 
     /**

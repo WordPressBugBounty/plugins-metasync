@@ -31,7 +31,7 @@ function google_index_direct_init()
     if (file_exists(GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-direct.php')) {
         require_once GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-direct.php';
     } else {
-        error_log('MetaSync Google Index: class-google-index-direct.php not found at ' . GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-direct.php');
+        error_log('MetaSync Google Index: class-google-index-direct.php not found at ' . GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-direct.php'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         return;
     }
 
@@ -40,7 +40,7 @@ function google_index_direct_init()
         if (file_exists(GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-admin.php')) {
             require_once GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-admin.php';
         } else {
-            error_log('MetaSync Google Index: class-google-index-admin.php not found at ' . GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-admin.php');
+            error_log('MetaSync Google Index: class-google-index-admin.php not found at ' . GOOGLE_INDEX_DIRECT_PATH . '/class-google-index-admin.php'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         }
     }
 }
@@ -60,7 +60,7 @@ function google_index_direct()
 
     if ($instance === null) {
         if (!class_exists('Google_Index_Direct')) {
-            error_log('MetaSync Google Index: Google_Index_Direct class not available.');
+            error_log('MetaSync Google Index: Google_Index_Direct class not available.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return null;
         }
         $instance = new Google_Index_Direct();

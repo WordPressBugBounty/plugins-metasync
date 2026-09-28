@@ -47,7 +47,7 @@ function metasync_send_test_error($message = 'Test error from MetaSync Plugin') 
     
     try {
         // Create a test exception
-        throw new Exception($message . ' - Test Exception at ' . date('Y-m-d H:i:s'));
+        throw new Exception($message . ' - Test Exception at ' . gmdate('Y-m-d H:i:s'));
     } catch (Exception $e) {
         $telemetry->send_exception($e, array(
             'test' => true,
@@ -177,6 +177,6 @@ function metasync_show_sentry_instructions() {
 }
 
 // Auto-display instructions if called directly via admin
-if (isset($_GET['metasync_sentry_setup'])) {
+if (isset($_GET['metasync_sentry_setup'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only flag to show setup instructions
     add_action('admin_notices', 'metasync_show_sentry_instructions');
 }

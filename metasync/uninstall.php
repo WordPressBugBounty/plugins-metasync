@@ -80,7 +80,7 @@ function metasync_uninstall_cleanup() {
 		'metasync_otto_bot_logs',
 	);
 	foreach ( $tables as $table ) {
-		$wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}{$table}" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- static table names, no user input.
+		$wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}{$table}" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery -- static table names, no user input.
 	}
 
 	// Plugin options and transients (transients live in the options table
@@ -94,7 +94,7 @@ function metasync_uninstall_cleanup() {
 		'\_site\_transient\_timeout\_metasync\_%',
 	);
 	foreach ( $option_patterns as $option_pattern ) {
-		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $option_pattern ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name from core.
+		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $option_pattern ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery -- table name from core.
 	}
 
 	// Per-post SEO values saved by the plugin (custom titles, meta
@@ -103,7 +103,7 @@ function metasync_uninstall_cleanup() {
 	// (metasync_common_robots, metasync_schema_markup, metasync_advance_robots,
 	// metasync_post, metasync_post_redirection_meta), so both prefixes are
 	// swept.
-	$wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE meta_key LIKE '\_metasync\_%' OR meta_key LIKE 'metasync\_%'" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- literal patterns, no user input.
+	$wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE meta_key LIKE '\_metasync\_%' OR meta_key LIKE 'metasync\_%'" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery -- literal patterns, no user input.
 
 	// On-disk data directory (error logs, zipped logs, cache artifacts).
 	$metasync_data_dir = WP_CONTENT_DIR . '/metasync_data';
@@ -130,10 +130,10 @@ function metasync_uninstall_rrmdir( $dir ) {
 		if ( is_dir( $path ) ) {
 			metasync_uninstall_rrmdir( $path );
 		} else {
-			@unlink( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- best-effort cleanup on uninstall.
+			@wp_delete_file( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- best-effort cleanup on uninstall.
 		}
 	}
-	@rmdir( $dir ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- best-effort cleanup on uninstall.
+	@rmdir( $dir ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- best-effort cleanup on uninstall; WP_Filesystem would prompt for FTP credentials on non-direct hosts.
 }
 
 if ( is_multisite() ) {

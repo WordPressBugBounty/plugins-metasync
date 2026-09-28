@@ -225,7 +225,14 @@ class Metasync_Headless_Graphql
         # on a WPGraphQL schema build is an observable difference even when it
         # returns immediately. The option read this costs is memoised and the
         # plugin already reads that option several times per request.
-        if (!Metasync_Headless_Config::is_enabled()) {
+        #
+        # The class_exists leg is the update-window case: this file and the
+        # config class are separate files in the same auto-update, and WordPress
+        # copies them one at a time. A request landing between the two copies
+        # used to fatal here on every front-end load — the classmap cannot
+        # autoload a file that is not on disk yet. Degrade to the no-headless
+        # path instead; the site keeps serving until the update finishes.
+        if (!class_exists('Metasync_Headless_Config') || !Metasync_Headless_Config::is_enabled()) {
             return;
         }
 
@@ -295,13 +302,15 @@ class Metasync_Headless_Graphql
      * The headless check happens here rather than at hook time so switching the
      * mode takes effect on the next request instead of needing a reload. With
      * the mode off nothing is registered and the schema is byte-identical to a
-     * site without this plugin.
+     * site without this plugin. The class_exists leg mirrors init(): during an
+     * auto-update the file set on disk can be mixed, and a callback that only
+     * exists to be inert must survive landing in one.
      *
      * @return void
      */
     public static function register()
     {
-        if (!Metasync_Headless_Config::is_enabled()) {
+        if (!class_exists('Metasync_Headless_Config') || !Metasync_Headless_Config::is_enabled()) {
             return;
         }
 

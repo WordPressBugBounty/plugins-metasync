@@ -858,7 +858,7 @@ class Metasync_Plugin_Sync {
 		}
 		if (!empty($data['twitter_card'])) {
 			// twitter_card column only exists in newer Yoast versions; skip if absent
-			$col_check = $wpdb->get_var($wpdb->prepare(
+			$col_check = $wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- mirrors SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
 				"SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'twitter_card'",
 				DB_NAME,
 				$indexable_table
@@ -878,8 +878,8 @@ class Metasync_Plugin_Sync {
 		}
 
 		if (!empty($updates)) {
-			$row_exists = $wpdb->get_var($wpdb->prepare(
-				"SELECT id FROM {$indexable_table} WHERE object_id = %d AND object_type = 'post'",
+			$row_exists = $wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- mirrors SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
+				"SELECT id FROM {$wpdb->prefix}yoast_indexable WHERE object_id = %d AND object_type = 'post'",
 				$post_id
 			));
 
@@ -907,7 +907,7 @@ class Metasync_Plugin_Sync {
 			}
 
 			if ($row_exists) {
-				$wpdb->update(
+				$wpdb->update( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- mirrors SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
 					$indexable_table,
 					$updates,
 					['object_id' => $post_id, 'object_type' => 'post']
@@ -945,7 +945,7 @@ class Metasync_Plugin_Sync {
 				// tell the conflict handler this post is unsynced to Yoast while
 				// Yoast's own meta holds our values, and it would hand tag
 				// ownership to the wrong plugin.
-				if ($wpdb->insert($indexable_table, $insert) === false) {
+				if ($wpdb->insert($indexable_table, $insert) === false) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- mirrors SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
 					Metasync_Seo_Backup::discard_backups('post', $post_id, $backups_created);
 					return $wrote;
 				}
@@ -1007,9 +1007,11 @@ class Metasync_Plugin_Sync {
 		$current = null;
 		if ($row_existed) {
 			$select = '`' . implode('`, `', array_map('esc_sql', $columns)) . '`';
-			$current = $wpdb->get_row(
+			// Column list is esc_sql()'d above; the table is a fixed literal.
+			$current = $wpdb->get_row( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- mirrors SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
 				$wpdb->prepare(
-					"SELECT {$select} FROM {$table} WHERE object_id = %d AND object_type = 'post'",
+					// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- column list esc_sql()'d above, table is a fixed literal
+					"SELECT {$select} FROM {$wpdb->prefix}yoast_indexable WHERE object_id = %d AND object_type = 'post'",
 					$post_id
 				),
 				ARRAY_A
@@ -1246,8 +1248,13 @@ class Metasync_Plugin_Sync {
 		$current = null;
 		if ($row_existed) {
 			$select = '`' . implode('`, `', array_map('esc_sql', $columns)) . '`';
-			$current = $wpdb->get_row(
-				$wpdb->prepare("SELECT {$select} FROM {$table} WHERE post_id = %d", $post_id),
+			// Column list is esc_sql()'d above; the table is a fixed literal.
+			$current = $wpdb->get_row( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- mirrors SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
+				$wpdb->prepare(
+					// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- column list esc_sql()'d above, table is a fixed literal
+					"SELECT {$select} FROM {$wpdb->prefix}aioseo_posts WHERE post_id = %d",
+					$post_id
+				),
 				ARRAY_A
 			);
 
@@ -1318,7 +1325,7 @@ class Metasync_Plugin_Sync {
 		$table = $wpdb->prefix . 'aioseo_posts';
 
 		// Bail if the AIOSEO post table does not exist (plugin not initialised).
-		$table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+		$table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- mirrors SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
 		if ($table_exists !== $table) {
 			return false;
 		}
@@ -1427,8 +1434,8 @@ class Metasync_Plugin_Sync {
 
 		$row['updated'] = current_time('mysql');
 
-		$existing_id = $wpdb->get_var($wpdb->prepare(
-			"SELECT id FROM {$table} WHERE post_id = %d",
+		$existing_id = $wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- mirrors SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
+			"SELECT id FROM {$wpdb->prefix}aioseo_posts WHERE post_id = %d",
 			$post_id
 		));
 
@@ -1449,7 +1456,7 @@ class Metasync_Plugin_Sync {
 				return false;
 			}
 
-			return ($wpdb->update($table, $row, ['post_id' => $post_id]) !== false) && $wrote;
+			return ($wpdb->update($table, $row, ['post_id' => $post_id]) !== false) && $wrote; // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- mirrors SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
 		}
 
 		$backups_created = [];
@@ -1472,7 +1479,7 @@ class Metasync_Plugin_Sync {
 		];
 		$row = array_merge($robot_defaults, $row);
 
-		$inserted = $wpdb->insert($table, $row);
+		$inserted = $wpdb->insert($table, $row); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- mirrors SEO meta into third-party plugin storage (Yoast indexables/AIOSEO tables) — no WordPress API for their schemas
 
 		// The row_existed='0' marker was recorded before the insert, because a
 		// marker that will not save has to be able to veto the write. If the

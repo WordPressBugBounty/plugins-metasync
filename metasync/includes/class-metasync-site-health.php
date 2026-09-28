@@ -137,30 +137,30 @@ class Metasync_Site_Health
 		$last_backoff_time = ! empty( $rate_limit_log ) ? max( $rate_limit_log ) : null;
 		$last_backoff_value = $last_backoff_time
 			? wp_date( 'Y-m-d H:i:s', $last_backoff_time ) . ' (' . human_time_diff( $last_backoff_time ) . ' ago)'
-			: __( 'Never' );
+			: __( 'Never', 'metasync' );
 
 		$otto_job_counts = class_exists( 'Metasync_Otto_Job_Status' ) ? Metasync_Otto_Job_Status::counts() : [];
 		$otto_job_fields = [];
 		if ( ! empty( $otto_job_counts ) ) {
 			$otto_job_fields = [
 				'otto_jobs_accepted' => [
-					'label' => __( 'Crawl Jobs - Accepted' ),
+					'label' => __( 'Crawl Jobs - Accepted', 'metasync' ),
 					'value' => (int) $otto_job_counts['accepted'],
 				],
 				'otto_jobs_retrying' => [
-					'label' => __( 'Crawl Jobs - Retrying' ),
+					'label' => __( 'Crawl Jobs - Retrying', 'metasync' ),
 					'value' => (int) $otto_job_counts['retrying'],
 				],
 				'otto_jobs_completed' => [
-					'label' => __( 'Crawl Jobs - Completed' ),
+					'label' => __( 'Crawl Jobs - Completed', 'metasync' ),
 					'value' => (int) $otto_job_counts['completed'],
 				],
 				'otto_jobs_failed' => [
-					'label' => __( 'Crawl Jobs - Failed' ),
+					'label' => __( 'Crawl Jobs - Failed', 'metasync' ),
 					'value' => (int) $otto_job_counts['failed'],
 				],
 				'otto_jobs_pending' => [
-					'label' => __( 'Crawl Jobs - Queued Overflow' ),
+					'label' => __( 'Crawl Jobs - Queued Overflow', 'metasync' ),
 					'value' => (int) $otto_job_counts['pending'],
 				],
 			];
@@ -170,44 +170,44 @@ class Metasync_Site_Health
 			'label'  => $plugin_name,
 			'fields' => [
 				'version' => [
-					'label' => __( 'Plugin Version' ),
+					'label' => __( 'Plugin Version', 'metasync' ),
 					'value' => METASYNC_VERSION,
 				],
 				'queue_pending' => [
-					'label' => __( 'Queue - Pending Jobs' ),
+					'label' => __( 'Queue - Pending Jobs', 'metasync' ),
 					'value' => isset( $queue_stats['metasync_pending'] ) ? (int) $queue_stats['metasync_pending'] : 0,
 				],
 				'queue_completed' => [
-					'label' => __( 'Queue - Completed Jobs' ),
+					'label' => __( 'Queue - Completed Jobs', 'metasync' ),
 					'value' => $completed_count,
 				],
 				'queue_failed_24h' => [
-					'label' => __( 'Queue - Failed Jobs (last 24h)' ),
+					'label' => __( 'Queue - Failed Jobs (last 24h)', 'metasync' ),
 					'value' => isset( $failed_stats['count'] ) ? (int) $failed_stats['count'] : 0,
 				],
 			] + $performance_fields + $otto_job_fields + [
 				'last_api_backoff' => [
-					'label' => __( 'Last API Backoff Event' ),
+					'label' => __( 'Last API Backoff Event', 'metasync' ),
 					'value' => $last_backoff_value,
 				],
 				'memory_limit' => [
-					'label' => __( 'Memory - PHP Limit' ),
+					'label' => __( 'Memory - PHP Limit', 'metasync' ),
 					'value' => $memory_stats['limit_formatted'],
 				],
 				'memory_current' => [
-					'label' => __( 'Memory - Current Usage' ),
+					'label' => __( 'Memory - Current Usage', 'metasync' ),
 					'value' => $memory_stats['current_formatted'],
 				],
 				'memory_peak' => [
-					'label' => __( 'Memory - Peak Usage' ),
+					'label' => __( 'Memory - Peak Usage', 'metasync' ),
 					'value' => $memory_stats['peak_formatted'],
 				],
 				'memory_percentage' => [
-					'label' => __( 'Memory - Usage Percentage' ),
-					'value' => $unlimited ? __( 'N/A (unlimited)' ) : $memory_stats['percentage'] . '%',
+					'label' => __( 'Memory - Usage Percentage', 'metasync' ),
+					'value' => $unlimited ? __( 'N/A (unlimited)', 'metasync' ) : $memory_stats['percentage'] . '%',
 				],
 				'memory_available' => [
-					'label' => __( 'Memory - Available' ),
+					'label' => __( 'Memory - Available', 'metasync' ),
 					'value' => $memory_stats['available_formatted'],
 				],
 			],
@@ -229,37 +229,40 @@ class Metasync_Site_Health
 		add_filter('site_status_tests', function ($tests) {
 			// WordPress Cron Queue Health Check
 			$tests['direct']['metasync_queue_size'] = [
-				'label' => __('WordPress Cron Queue Health'),
+				'label' => __('WordPress Cron Queue Health', 'metasync'),
 				'test' => [$this, 'queue_size_check']
 			];
 			
 			// Memory Usage Health Check
 			$tests['direct']['metasync_memory_usage'] = [
-				'label' => __('PHP Memory Usage'),
+				'label' => __('PHP Memory Usage', 'metasync'),
 				'test' => [$this, 'memory_usage_check']
 			];
 
 			// OTTO API Rate Limit Health Check
 			$tests['direct']['metasync_otto_rate_limit'] = [
-				'label' => sprintf(__('%s OTTO API Rate Limit'), Metasync::get_effective_plugin_name()),
+				/* translators: %s: effective plugin name (whitelabel-aware). */
+				'label' => sprintf(__('%s OTTO API Rate Limit', 'metasync'), Metasync::get_effective_plugin_name()),
 				'test' => [$this, 'otto_rate_limit_check']
 			];
 
 			// Debug Mode Health Check
 			$tests['direct']['metasync_debug_mode'] = [
-				'label' => __('WordPress Debug Mode'),
+				'label' => __('WordPress Debug Mode', 'metasync'),
 				'test'  => [$this, 'debug_mode_check']
 			];
 
 			// Failed Actions Health Check
 			$tests['direct']['metasync_failed_actions'] = [
-				'label' => sprintf(__('%s Failed Actions'), Metasync::get_effective_plugin_name()),
+				/* translators: %s: effective plugin name (whitelabel-aware). */
+				'label' => sprintf(__('%s Failed Actions', 'metasync'), Metasync::get_effective_plugin_name()),
 				'test'  => [$this, 'failed_actions_check']
 			];
 
 			// OTTO Crawl Job Reliability Health Check
 			$tests['direct']['metasync_otto_job_reliability'] = [
-				'label' => sprintf(__('%s Crawl Job Reliability'), Metasync::get_whitelabel_otto_name()),
+				/* translators: %s: OTTO name (whitelabel). */
+				'label' => sprintf(__('%s Crawl Job Reliability', 'metasync'), Metasync::get_whitelabel_otto_name()),
 				'test'  => [$this, 'otto_job_reliability_check']
 			];
 
@@ -281,7 +284,7 @@ class Metasync_Site_Health
 	{
 		global $wpdb;
 		
-		$size = $wpdb->get_var(
+		$size = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Site Health diagnostic — live on-demand size probe in wp-admin; caching would serve stale sizes
 			$wpdb->prepare(
 				"SELECT LENGTH(option_value) FROM {$wpdb->options} WHERE option_name = %s",
 				'cron'
@@ -395,15 +398,16 @@ class Metasync_Site_Health
 		// Handle excessive size error
 		if (isset($stats['error']) && $stats['error'] === 'excessive_size') {
 			return [
-				'label' => __('WordPress cron queue is excessively large'),
+				'label' => __('WordPress cron queue is excessively large', 'metasync'),
 				'status' => 'critical',
 				'badge' => [
 					'label' => Metasync::get_effective_plugin_name(),
 					'color' => 'red'
 				],
 				'description' => sprintf(
-					'<p>' . __('The WordPress cron data is excessively large (%s). This can cause severe performance issues including slow page loads, high memory usage, and potential timeouts.') . '</p>' .
-					'<p>' . __('This typically occurs when cron jobs accumulate from deactivated plugins or failed operations.') . '</p>',
+					/* translators: %s: formatted size of the cron data. */
+					'<p>' . __('The WordPress cron data is excessively large (%s). This can cause severe performance issues including slow page loads, high memory usage, and potential timeouts.', 'metasync') . '</p>' .
+					'<p>' . __('This typically occurs when cron jobs accumulate from deactivated plugins or failed operations.', 'metasync') . '</p>',
 					size_format($stats['size'])
 				),
 				'actions' => sprintf(
@@ -413,10 +417,10 @@ class Metasync_Site_Health
 					'<li>%s</li>' .
 					'<li>%s</li>' .
 					'</ul>',
-					__('Recommended Actions:'),
-					__('Use WP-CLI to list and clean up old cron jobs: <code>wp cron event list</code>'),
-					__('Install a cron management plugin to identify and remove orphaned jobs'),
-					__('Consider clearing the cron option and letting WordPress rebuild it from active plugins')
+					__('Recommended Actions:', 'metasync'),
+					__('Use WP-CLI to list and clean up old cron jobs: <code>wp cron event list</code>', 'metasync'),
+					__('Install a cron management plugin to identify and remove orphaned jobs', 'metasync'),
+					__('Consider clearing the cron option and letting WordPress rebuild it from active plugins', 'metasync')
 				),
 				'test' => 'metasync_queue_size'
 			];
@@ -431,10 +435,10 @@ class Metasync_Site_Health
 		// This includes WordPress core, all plugins, themes, and custom code
 		if ($one_time_count <= self::PENDING_JOBS_THRESHOLD) {
 			$status = 'good';
-			$label = __('WordPress cron queue is healthy');
+			$label = __('WordPress cron queue is healthy', 'metasync');
 		} else {
 			$status = 'critical';
-			$label = __('WordPress cron queue has high pending job count');
+			$label = __('WordPress cron queue has high pending job count', 'metasync');
 		}
 		
 		// Build detailed description showing system-wide statistics
@@ -445,19 +449,21 @@ class Metasync_Site_Health
 			'<li>%s %d</li>' .
 			'<li>%s %d</li>' .
 			'</ul>',
-			__('WordPress Cron Queue Statistics (All Sources):'),
-			__('Total pending jobs (one-time events):'),
-			$truncated ? sprintf(__('%d+'), $one_time_count) : number_format($one_time_count),
-			__('Total scheduled events (recurring):'),
+			__('WordPress Cron Queue Statistics (All Sources):', 'metasync'),
+			__('Total pending jobs (one-time events):', 'metasync'),
+			/* translators: %d: number of pending one-time cron events. */
+			$truncated ? sprintf(__('%d+', 'metasync'), $one_time_count) : number_format($one_time_count),
+			__('Total scheduled events (recurring):', 'metasync'),
 			$recurring_count,
-			sprintf(__('%s pending jobs:'), Metasync::get_effective_plugin_name()),
+			/* translators: %s: effective plugin name (whitelabel-aware). */
+			sprintf(__('%s pending jobs:', 'metasync'), Metasync::get_effective_plugin_name()),
 			$metasync_count
 		);
 		
 		// Add context about what these numbers mean
 		$description .= sprintf(
 			'<p><em>%s</em></p>',
-			__('Pending jobs are one-time tasks awaiting execution. Recurring events are permanent schedules that run automatically.')
+			__('Pending jobs are one-time tasks awaiting execution. Recurring events are permanent schedules that run automatically.', 'metasync')
 		);
 		
 		// If status is not good, provide actionable recommendations. The
@@ -473,19 +479,21 @@ class Metasync_Site_Health
 				'<li>%s</li>' .
 				'<li>%s</li>' .
 				'</ul>',
-				__('A high number of pending jobs may indicate:'),
-				__('WordPress cron is not running properly (check if WP-Cron is disabled or blocked)'),
-				__('High volume of scheduled tasks from plugins creating jobs faster than they can be processed'),
-				__('Slow server performance or resource constraints preventing timely job execution')
+				__('A high number of pending jobs may indicate:', 'metasync'),
+				__('WordPress cron is not running properly (check if WP-Cron is disabled or blocked)', 'metasync'),
+				__('High volume of scheduled tasks from plugins creating jobs faster than they can be processed', 'metasync'),
+				__('Slow server performance or resource constraints preventing timely job execution', 'metasync')
 			);
 			
 			// If MetaSync is a significant contributor, add specific guidance
 			if ($metasync_count > 500) {
 				$description .= sprintf(
 					'<p><strong>%s</strong> %s</p>',
-					sprintf(__('%s Contribution:'), Metasync::get_effective_plugin_name()),
+					/* translators: %s: effective plugin name (whitelabel-aware). */
+					sprintf(__('%s Contribution:', 'metasync'), Metasync::get_effective_plugin_name()),
 					sprintf(
-						__('%1$s has %2$s pending %3$s SEO processing jobs. This may indicate high crawl volume from %3$s or slow processing. Consider reviewing %3$s crawl settings if this number continues to grow.'),
+						/* translators: 1: effective plugin name (whitelabel-aware), 2: formatted job count, 3: OTTO name (whitelabel). */
+						__('%1$s has %2$s pending %3$s SEO processing jobs. This may indicate high crawl volume from %3$s or slow processing. Consider reviewing %3$s crawl settings if this number continues to grow.', 'metasync'),
 						Metasync::get_effective_plugin_name(),
 						number_format($metasync_count),
 						Metasync::get_whitelabel_otto_name()
@@ -501,19 +509,19 @@ class Metasync_Site_Health
 				'<li>%s</li>' .
 				'<li>%s</li>' .
 				'</ul>',
-				__('Recommended Actions:'),
-				__('Verify WordPress cron is functioning: Tools → Site Health → Info → WordPress Constants → DISABLE_WP_CRON should be false'),
-				__('Check server logs for cron execution errors or timeouts'),
-				__('Consider using a real system cron instead of WP-Cron for better reliability')
+				__('Recommended Actions:', 'metasync'),
+				__('Verify WordPress cron is functioning: Tools → Site Health → Info → WordPress Constants → DISABLE_WP_CRON should be false', 'metasync'),
+				__('Check server logs for cron execution errors or timeouts', 'metasync'),
+				__('Consider using a real system cron instead of WP-Cron for better reliability', 'metasync')
 			);
 
 			$description .= sprintf(
 				'<p>%s %s</p>',
-				__( 'Quick link:' ),
+				__( 'Quick link:', 'metasync' ),
 				sprintf(
 					'<a href="%s">%s</a>',
 					esc_url( admin_url( 'site-health.php?tab=debug' ) ),
-					esc_html( __( 'Site Health Info (check DISABLE_WP_CRON)' ) )
+					esc_html( __( 'Site Health Info (check DISABLE_WP_CRON)', 'metasync' ) )
 				)
 			);
 		}
@@ -580,14 +588,14 @@ class Metasync_Site_Health
 			return [
 				'limit' => -1,
 				'limit_bytes' => -1,
-				'limit_formatted' => __('Unlimited'),
+				'limit_formatted' => __('Unlimited', 'metasync'),
 				'current' => memory_get_usage(true),
 				'current_formatted' => size_format(memory_get_usage(true)),
 				'peak' => memory_get_peak_usage(true),
 				'peak_formatted' => size_format(memory_get_peak_usage(true)),
 				'percentage' => 0,
 				'available' => -1,
-				'available_formatted' => __('Unlimited')
+				'available_formatted' => __('Unlimited', 'metasync')
 			];
 		}
 		
@@ -638,7 +646,7 @@ class Metasync_Site_Health
 		// Handle unlimited memory
 		if ($stats['limit_bytes'] === -1) {
 			return [
-				'label' => __('PHP memory limit is unlimited'),
+				'label' => __('PHP memory limit is unlimited', 'metasync'),
 				'status' => 'good',
 				'badge' => [
 					'label' => Metasync::get_effective_plugin_name(),
@@ -651,11 +659,11 @@ class Metasync_Site_Health
 					'<li>%s %s</li>' .
 					'<li>%s %s</li>' .
 					'</ul>',
-					__('PHP memory limit is set to unlimited. While this prevents memory errors, it may allow poorly optimized code to consume excessive server resources.'),
-					__('Current Memory Usage:'),
-					__('Current usage:'),
+					__('PHP memory limit is set to unlimited. While this prevents memory errors, it may allow poorly optimized code to consume excessive server resources.', 'metasync'),
+					__('Current Memory Usage:', 'metasync'),
+					__('Current usage:', 'metasync'),
 					$stats['current_formatted'],
-					__('Peak usage:'),
+					__('Peak usage:', 'metasync'),
 					$stats['peak_formatted']
 				),
 				'test' => 'metasync_memory_usage'
@@ -667,10 +675,10 @@ class Metasync_Site_Health
 		// Determine status based on memory usage percentage
 		if ($percentage > self::MEMORY_CRITICAL_THRESHOLD) {
 			$status = 'critical';
-			$label = __('PHP memory usage is critically high');
+			$label = __('PHP memory usage is critically high', 'metasync');
 		} else {
 			$status = 'good';
-			$label = __('PHP memory usage is healthy');
+			$label = __('PHP memory usage is healthy', 'metasync');
 		}
 		
 		// Build detailed description
@@ -683,17 +691,17 @@ class Metasync_Site_Health
 			'<li>%s <strong>%.2f%%</strong></li>' .
 			'<li>%s %s</li>' .
 			'</ul>',
-			__('PHP Memory Statistics:'),
-			__('Memory limit:'),
+			__('PHP Memory Statistics:', 'metasync'),
+			__('Memory limit:', 'metasync'),
 			$stats['limit_formatted'],
 			$stats['limit'],
-			__('Current usage:'),
+			__('Current usage:', 'metasync'),
 			$stats['current_formatted'],
-			__('Peak usage:'),
+			__('Peak usage:', 'metasync'),
 			$stats['peak_formatted'],
-			__('Usage percentage:'),
+			__('Usage percentage:', 'metasync'),
 			$percentage,
-			__('Available memory:'),
+			__('Available memory:', 'metasync'),
 			$stats['available_formatted']
 		);
 		
@@ -701,7 +709,7 @@ class Metasync_Site_Health
 		if ($status === 'good') {
 			$description .= sprintf(
 				'<p><em>%s</em></p>',
-				__('Memory usage is within acceptable limits. The site has sufficient memory available for normal operations.')
+				__('Memory usage is within acceptable limits. The site has sufficient memory available for normal operations.', 'metasync')
 			);
 		} else {
 			// Critical status - provide actionable recommendations
@@ -714,12 +722,12 @@ class Metasync_Site_Health
 				'<li>%s</li>' .
 				'<li>%s</li>' .
 				'</ul>',
-				__('Critical Memory Usage Detected:'),
-				__('PHP memory usage is critically high (>90%). This may cause:'),
-				__('Fatal errors: "Allowed memory size exhausted"'),
-				__('Failed page loads and white screens'),
-				__('Incomplete plugin/theme operations'),
-				__('Performance degradation and slow response times')
+				__('Critical Memory Usage Detected:', 'metasync'),
+				__('PHP memory usage is critically high (>90%). This may cause:', 'metasync'),
+				__('Fatal errors: "Allowed memory size exhausted"', 'metasync'),
+				__('Failed page loads and white screens', 'metasync'),
+				__('Incomplete plugin/theme operations', 'metasync'),
+				__('Performance degradation and slow response times', 'metasync')
 			);
 			
 			$description .= sprintf(
@@ -731,24 +739,26 @@ class Metasync_Site_Health
 				'<li>%s</li>' .
 				'<li>%s</li>' .
 				'</ul>',
-				__('Recommended Actions:'),
+				__('Recommended Actions:', 'metasync'),
 				sprintf(
-					__('Increase PHP memory limit in wp-config.php: <code>define(\'WP_MEMORY_LIMIT\', \'256M\');</code> (current: %s)'),
+					/* translators: %s: current PHP memory limit. */
+					__('Increase PHP memory limit in wp-config.php: <code>define(\'WP_MEMORY_LIMIT\', \'256M\');</code> (current: %s)', 'metasync'),
 					$stats['limit']
 				),
-				__('Contact your hosting provider to increase server memory limits'),
-				__('Deactivate unnecessary plugins that consume excessive memory'),
-				__('Optimize images and reduce media library size'),
-				__('Consider upgrading to a hosting plan with more resources')
+				__('Contact your hosting provider to increase server memory limits', 'metasync'),
+				__('Deactivate unnecessary plugins that consume excessive memory', 'metasync'),
+				__('Optimize images and reduce media library size', 'metasync'),
+				__('Consider upgrading to a hosting plan with more resources', 'metasync')
 			);
 			
 			// Add warning if peak usage is also high
 			if ($stats['peak'] > ($stats['limit_bytes'] * 0.95)) {
 				$description .= sprintf(
 					'<p><strong>%s</strong> %s</p>',
-					__('Warning:'),
+					__('Warning:', 'metasync'),
 					sprintf(
-						__('Peak memory usage (%s) is very close to the limit. Memory errors may occur during high-traffic periods or resource-intensive operations.'),
+						/* translators: %s: formatted peak memory usage. */
+						__('Peak memory usage (%s) is very close to the limit. Memory errors may occur during high-traffic periods or resource-intensive operations.', 'metasync'),
 						$stats['peak_formatted']
 					)
 				);
@@ -756,11 +766,11 @@ class Metasync_Site_Health
 
 			$description .= sprintf(
 				'<p>%s %s</p>',
-				__( 'Quick link:' ),
+				__( 'Quick link:', 'metasync' ),
 				sprintf(
 					'<a href="%s">%s</a>',
 					esc_url( admin_url( 'plugins.php' ) ),
-					esc_html( __( 'Manage Plugins (deactivate memory-heavy plugins)' ) )
+					esc_html( __( 'Manage Plugins (deactivate memory-heavy plugins)', 'metasync' ) )
 				)
 			);
 		}
@@ -823,28 +833,32 @@ class Metasync_Site_Health
 		// Format the last hit timestamp if available
 		$last_hit_text = $last_hit
 			? sprintf(
-				__('Last occurrence: %s'),
+				/* translators: %s: date and time of the last occurrence. */
+				__('Last occurrence: %s', 'metasync'),
 				date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $last_hit)
 			)
-			: __('No rate limit hits recorded.');
+			: __('No rate limit hits recorded.', 'metasync');
 
 		if ($hits >= self::RATE_LIMIT_CRITICAL_THRESHOLD) {
 			$status = 'critical';
 			$label  = sprintf(
-				__('%s OTTO API is being rate limited frequently (%d times in 24h)'),
+				/* translators: 1: effective plugin name (whitelabel-aware), 2: number of rate limit hits. */
+				__('%1$s OTTO API is being rate limited frequently (%2$d times in 24h)', 'metasync'),
 				Metasync::get_effective_plugin_name(),
 				$hits
 			);
 		} elseif ($hits >= self::RATE_LIMIT_WARNING_THRESHOLD) {
 			$status = 'recommended';
 			$label  = sprintf(
-				__('%s OTTO API rate limit hit %d times in the last 24 hours'),
+				/* translators: 1: effective plugin name (whitelabel-aware), 2: number of rate limit hits. */
+				__('%1$s OTTO API rate limit hit %2$d times in the last 24 hours', 'metasync'),
 				Metasync::get_effective_plugin_name(),
 				$hits
 			);
 		} else {
 			$status = 'good';
-			$label  = sprintf(__('%s OTTO API rate limits are within normal range'), Metasync::get_effective_plugin_name());
+			/* translators: %s: effective plugin name (whitelabel-aware). */
+			$label  = sprintf(__('%s OTTO API rate limits are within normal range', 'metasync'), Metasync::get_effective_plugin_name());
 		}
 
 		// Build description
@@ -854,8 +868,9 @@ class Metasync_Site_Health
 			'<li>%s <strong>%d</strong></li>' .
 			'<li>%s</li>' .
 			'</ul>',
-			sprintf(__('%s API Rate Limit Statistics (last 24 hours):'), Metasync::get_whitelabel_otto_name()),
-			__('HTTP 429 responses received:'),
+			/* translators: %s: OTTO name (whitelabel). */
+			sprintf(__('%s API Rate Limit Statistics (last 24 hours):', 'metasync'), Metasync::get_whitelabel_otto_name()),
+			__('HTTP 429 responses received:', 'metasync'),
 			$hits,
 			$last_hit_text
 		);
@@ -863,7 +878,8 @@ class Metasync_Site_Health
 		if ($status === 'good') {
 			$description .= sprintf(
 				'<p><em>%s</em></p>',
-				sprintf(__('The %s API is responding normally. No action required.'), Metasync::get_whitelabel_otto_name())
+				/* translators: %s: OTTO name (whitelabel). */
+				sprintf(__('The %s API is responding normally. No action required.', 'metasync'), Metasync::get_whitelabel_otto_name())
 			);
 		} else {
 			$description .= sprintf(
@@ -874,17 +890,21 @@ class Metasync_Site_Health
 				'<li>%s</li>' .
 				'<li>%s</li>' .
 				'</ul>',
-				sprintf(__('Frequent rate limiting can degrade %s SEO data delivery on your site.'), Metasync::get_whitelabel_otto_name()),
-				__('Recommended Actions:'),
-				sprintf(__('Review your %1$s crawl frequency settings in the %2$s dashboard to reduce request volume.'), Metasync::get_whitelabel_otto_name(), Metasync::get_effective_plugin_name()),
-				sprintf(__('Check if multiple server processes are triggering %s jobs simultaneously.'), Metasync::get_whitelabel_otto_name()),
-				sprintf(__('Contact %s support if rate limiting persists despite low crawl volume.'), Metasync::get_effective_plugin_name())
+				/* translators: %s: OTTO name (whitelabel). */
+				sprintf(__('Frequent rate limiting can degrade %s SEO data delivery on your site.', 'metasync'), Metasync::get_whitelabel_otto_name()),
+				__('Recommended Actions:', 'metasync'),
+				/* translators: 1: OTTO name (whitelabel), 2: effective plugin name (whitelabel-aware). */
+				sprintf(__('Review your %1$s crawl frequency settings in the %2$s dashboard to reduce request volume.', 'metasync'), Metasync::get_whitelabel_otto_name(), Metasync::get_effective_plugin_name()),
+				/* translators: %s: OTTO name (whitelabel). */
+				sprintf(__('Check if multiple server processes are triggering %s jobs simultaneously.', 'metasync'), Metasync::get_whitelabel_otto_name()),
+				/* translators: %s: effective plugin name (whitelabel-aware). */
+				sprintf(__('Contact %s support if rate limiting persists despite low crawl volume.', 'metasync'), Metasync::get_effective_plugin_name())
 			);
 
 			$description .= sprintf(
 				'<p>%s %s</p>',
-				__( 'Quick link:' ),
-				$this->get_admin_link( '&tab=general', __( 'Review API Settings' ) )
+				__( 'Quick link:', 'metasync' ),
+				$this->get_admin_link( '&tab=general', __( 'Review API Settings', 'metasync' ) )
 			);
 		}
 
@@ -951,7 +971,7 @@ class Metasync_Site_Health
 		// Good state: no debug constants active
 		if ( ! $any_debug_on ) {
 			return [
-				'label'       => __('Debug mode is disabled'),
+				'label'       => __('Debug mode is disabled', 'metasync'),
 				'status'      => 'good',
 				'badge'       => [
 					'label' => Metasync::get_effective_plugin_name(),
@@ -959,7 +979,7 @@ class Metasync_Site_Health
 				],
 				'description' => sprintf(
 					'<p>%s</p>',
-					__('WordPress debug mode is not active. This is the recommended configuration for production sites.')
+					__('WordPress debug mode is not active. This is the recommended configuration for production sites.', 'metasync')
 				),
 				'test'        => 'metasync_debug_mode',
 			];
@@ -967,9 +987,9 @@ class Metasync_Site_Health
 
 		// Recommended state: one or more debug constants are active
 		if ( $stats['wp_debug_display'] ) {
-			$label = __('Debug mode is enabled with error display active');
+			$label = __('Debug mode is enabled with error display active', 'metasync');
 		} else {
-			$label = __('Debug mode is enabled on this site');
+			$label = __('Debug mode is enabled on this site', 'metasync');
 		}
 
 		// Status table showing each flag's current state
@@ -980,20 +1000,20 @@ class Metasync_Site_Health
 			'<li>%s <strong>%s</strong></li>' .
 			'<li>%s <strong>%s</strong></li>' .
 			'</ul>',
-			__('Active Debug Configuration:'),
-			__('WP_DEBUG:'),
-			$stats['wp_debug'] ? __('Enabled') : __('Disabled'),
-			__('WP_DEBUG_LOG:'),
-			$stats['wp_debug_log'] ? __('Enabled') : __('Disabled'),
-			__('WP_DEBUG_DISPLAY:'),
-			$stats['wp_debug_display'] ? __('Enabled') : __('Disabled')
+			__('Active Debug Configuration:', 'metasync'),
+			__('WP_DEBUG:', 'metasync'),
+			$stats['wp_debug'] ? __('Enabled', 'metasync') : __('Disabled', 'metasync'),
+			__('WP_DEBUG_LOG:', 'metasync'),
+			$stats['wp_debug_log'] ? __('Enabled', 'metasync') : __('Disabled', 'metasync'),
+			__('WP_DEBUG_DISPLAY:', 'metasync'),
+			$stats['wp_debug_display'] ? __('Enabled', 'metasync') : __('Disabled', 'metasync')
 		);
 
 		// Call out METASYNC_DEBUG if it is separately active
 		if ( $stats['metasync_debug'] ) {
 			$description .= sprintf(
 				'<p>%s</p>',
-				__('The <code>METASYNC_DEBUG</code> constant is also active. This enables additional MetaSync diagnostic output.')
+				__('The <code>METASYNC_DEBUG</code> constant is also active. This enables additional MetaSync diagnostic output.', 'metasync')
 			);
 		}
 
@@ -1001,14 +1021,14 @@ class Metasync_Site_Health
 		if ( $stats['wp_debug_display'] ) {
 			$description .= sprintf(
 				'<p><strong>%s</strong> %s</p>',
-				__('Warning:'),
-				__('WP_DEBUG_DISPLAY is active. PHP errors and notices may be visible to your site visitors, potentially exposing file paths, database details, and plugin internals. This should be disabled on any publicly accessible site.')
+				__('Warning:', 'metasync'),
+				__('WP_DEBUG_DISPLAY is active. PHP errors and notices may be visible to your site visitors, potentially exposing file paths, database details, and plugin internals. This should be disabled on any publicly accessible site.', 'metasync')
 			);
 		}
 
 		$description .= sprintf(
 			'<p><em>%s</em></p>',
-			__('Debug mode is intended for development environments. On a production site, disabling it prevents information leakage and removes the performance overhead of error collection.')
+			__('Debug mode is intended for development environments. On a production site, disabling it prevents information leakage and removes the performance overhead of error collection.', 'metasync')
 		);
 
 		$description .= sprintf(
@@ -1017,15 +1037,15 @@ class Metasync_Site_Health
 			'<li>%s</li>' .
 			'<li>%s</li>' .
 			'</ul>',
-			__('Recommended Actions:'),
-			__('Set <code>define(\'WP_DEBUG\', false);</code> in your wp-config.php if this is a live production site.'),
-			__('If error logging is needed in production, avoid WP_DEBUG_LOG — it writes to <code>wp-content/debug.log</code> which is publicly accessible via browser and can expose file paths, database details, and API keys. Use a dedicated logging solution that writes outside the webroot instead.')
+			__('Recommended Actions:', 'metasync'),
+			__('Set <code>define(\'WP_DEBUG\', false);</code> in your wp-config.php if this is a live production site.', 'metasync'),
+			__('If error logging is needed in production, avoid WP_DEBUG_LOG — it writes to <code>wp-content/debug.log</code> which is publicly accessible via browser and can expose file paths, database details, and API keys. Use a dedicated logging solution that writes outside the webroot instead.', 'metasync')
 		);
 
 		$description .= sprintf(
 			'<p>%s %s</p>',
-			__( 'Quick link:' ),
-			$this->get_admin_link( '&tab=advanced', __( 'Advanced Settings' ) )
+			__( 'Quick link:', 'metasync' ),
+			$this->get_admin_link( '&tab=advanced', __( 'Advanced Settings', 'metasync' ) )
 		);
 
 		return [
@@ -1055,20 +1075,20 @@ class Metasync_Site_Health
 		// WP-Cron mode
 		$wp_cron_disabled = defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON;
 		$wp_cron_mode     = $wp_cron_disabled
-			? __( 'System Cron (DISABLE_WP_CRON = true)' )
-			: __( 'WP-Cron (default)' );
+			? __( 'System Cron (DISABLE_WP_CRON = true)', 'metasync' )
+			: __( 'WP-Cron (default)', 'metasync' );
 
 		// PHP max execution time
 		$max_exec_raw = ini_get( 'max_execution_time' );
 		$max_exec     = $max_exec_raw === '0' || $max_exec_raw === 0
-			? __( 'Unlimited (0)' )
+			? __( 'Unlimited (0)', 'metasync' )
 			: (int) $max_exec_raw . 's';
 
 		// Next scheduled transient cleanup
 		$next_cleanup_ts  = wp_next_scheduled( 'metasync_cleanup_transients' );
 		$next_cleanup_val = $next_cleanup_ts
 			? wp_date( 'Y-m-d H:i:s', $next_cleanup_ts ) . ' (in ' . human_time_diff( $next_cleanup_ts ) . ')'
-			: __( 'Not scheduled' );
+			: __( 'Not scheduled', 'metasync' );
 
 		// Telemetry flush interval label
 		$flush_interval       = Metasync_Telemetry_Config::QUEUE_FLUSH_INTERVAL;
@@ -1079,47 +1099,50 @@ class Metasync_Site_Health
 
 		// OTTO suggestions cache TTL (stored in seconds, display as minutes)
 		$otto_cache_ttl_sec = Metasync_Otto_Config::get_otto_cache_ttl_seconds();
-		$otto_cache_ttl_val = ( $otto_cache_ttl_sec / MINUTE_IN_SECONDS ) . ' ' . __( 'minutes' );
+		$otto_cache_ttl_val = ( $otto_cache_ttl_sec / MINUTE_IN_SECONDS ) . ' ' . __( 'minutes', 'metasync' );
 
 		return [
 			'perf_wp_cron' => [
-				'label' => __( 'Performance - WP-Cron Mode' ),
+				'label' => __( 'Performance - WP-Cron Mode', 'metasync' ),
 				'value' => $wp_cron_mode,
 			],
 			'perf_php_max_exec' => [
-				'label' => __( 'Performance - PHP Max Execution Time' ),
+				'label' => __( 'Performance - PHP Max Execution Time', 'metasync' ),
 				'value' => $max_exec,
 			],
 			'perf_otto_request_timeout' => [
-				'label' => sprintf(__('Performance - %s API Request Timeout'), Metasync::get_whitelabel_otto_name()),
+				/* translators: %s: OTTO name (whitelabel). */
+				'label' => sprintf(__('Performance - %s API Request Timeout', 'metasync'), Metasync::get_whitelabel_otto_name()),
 				'value' => '30s',
 			],
 			'perf_otto_cache_ttl' => [
-				'label' => sprintf(__('Performance - %s Suggestions Cache TTL'), Metasync::get_whitelabel_otto_name()),
+				/* translators: %s: OTTO name (whitelabel). */
+				'label' => sprintf(__('Performance - %s Suggestions Cache TTL', 'metasync'), Metasync::get_whitelabel_otto_name()),
 				'value' => $otto_cache_ttl_val,
 			],
 			'perf_otto_max_calls' => [
-				'label' => sprintf(__('Performance - %s Max API Calls/Min'), Metasync::get_whitelabel_otto_name()),
+				/* translators: %s: OTTO name (whitelabel). */
+				'label' => sprintf(__('Performance - %s Max API Calls/Min', 'metasync'), Metasync::get_whitelabel_otto_name()),
 				'value' => Metasync_Otto_Transient_Cache::MAX_API_CALLS_PER_MINUTE,
 			],
 			'perf_telemetry_queue_max' => [
-				'label' => __( 'Performance - Telemetry Max Queue Size' ),
+				'label' => __( 'Performance - Telemetry Max Queue Size', 'metasync' ),
 				'value' => Metasync_Telemetry_Config::MAX_QUEUE_SIZE,
 			],
 			'perf_telemetry_batch' => [
-				'label' => __( 'Performance - Telemetry Batch Size' ),
+				'label' => __( 'Performance - Telemetry Batch Size', 'metasync' ),
 				'value' => Metasync_Telemetry_Config::QUEUE_BATCH_SIZE,
 			],
 			'perf_telemetry_flush' => [
-				'label' => __( 'Performance - Telemetry Queue Flush Interval' ),
+				'label' => __( 'Performance - Telemetry Queue Flush Interval', 'metasync' ),
 				'value' => $flush_interval_label,
 			],
 			'perf_api_max_retries' => [
-				'label' => __( 'Performance - API Max Retry Attempts' ),
+				'label' => __( 'Performance - API Max Retry Attempts', 'metasync' ),
 				'value' => Metasync_Telemetry_Config::MAX_RETRY_ATTEMPTS,
 			],
 			'perf_next_cleanup' => [
-				'label' => __( 'Performance - Next Transient Cleanup' ),
+				'label' => __( 'Performance - Next Transient Cleanup', 'metasync' ),
 				'value' => $next_cleanup_val,
 			],
 		];
@@ -1170,21 +1193,24 @@ class Metasync_Site_Health
 
 		$last_hit_text = $last_hit
 			? sprintf(
-				__( 'Last failure: %s' ),
+				/* translators: %s: date and time of the last failure. */
+				__( 'Last failure: %s', 'metasync' ),
 				date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $last_hit )
 			  )
-			: __( 'No failed actions recorded in the last 24 hours.' );
+			: __( 'No failed actions recorded in the last 24 hours.', 'metasync' );
 
 		if ( $count > self::FAILED_ACTIONS_THRESHOLD ) {
 			$status = 'recommended';
 			$label  = sprintf(
-				__( '%s has %d failed SEO processing actions in the last 24 hours' ),
+				/* translators: 1: effective plugin name (whitelabel-aware), 2: number of failed actions. */
+				__( '%1$s has %2$d failed SEO processing actions in the last 24 hours', 'metasync' ),
 				Metasync::get_effective_plugin_name(),
 				$count
 			);
 		} else {
 			$status = 'good';
-			$label  = sprintf(__('%s SEO action queue is healthy'), Metasync::get_effective_plugin_name());
+			/* translators: %s: effective plugin name (whitelabel-aware). */
+			$label  = sprintf(__('%s SEO action queue is healthy', 'metasync'), Metasync::get_effective_plugin_name());
 		}
 
 		$description = sprintf(
@@ -1193,8 +1219,10 @@ class Metasync_Site_Health
 			'<li>%s <strong>%d</strong></li>' .
 			'<li>%s</li>' .
 			'</ul>',
-			sprintf(__('%s Failed Actions Statistics (last 24 hours):'), Metasync::get_effective_plugin_name()),
-			sprintf(__('Failed %s SEO processing jobs:'), Metasync::get_whitelabel_otto_name()),
+			/* translators: %s: effective plugin name (whitelabel-aware). */
+			sprintf(__('%s Failed Actions Statistics (last 24 hours):', 'metasync'), Metasync::get_effective_plugin_name()),
+			/* translators: %s: OTTO name (whitelabel). */
+			sprintf(__('Failed %s SEO processing jobs:', 'metasync'), Metasync::get_whitelabel_otto_name()),
 			$count,
 			$last_hit_text
 		);
@@ -1202,7 +1230,8 @@ class Metasync_Site_Health
 		if ( $status === 'good' ) {
 			$description .= sprintf(
 				'<p><em>%s</em></p>',
-				sprintf(__('%s SEO processing jobs are completing successfully. No action required.'), Metasync::get_whitelabel_otto_name())
+				/* translators: %s: OTTO name (whitelabel). */
+				sprintf(__('%s SEO processing jobs are completing successfully. No action required.', 'metasync'), Metasync::get_whitelabel_otto_name())
 			);
 		} else {
 			$description .= sprintf(
@@ -1212,17 +1241,20 @@ class Metasync_Site_Health
 				'<li>%s</li>' .
 				'<li>%s</li>' .
 				'</ul>',
-				__( 'Recommended Actions:' ),
-				sprintf(__('Check your %1$s API connection in %1$s → Settings.'), Metasync::get_effective_plugin_name()),
-				sprintf(__('Review your PHP error log for %s processing exceptions.'), Metasync::get_whitelabel_otto_name()),
-				sprintf(__('Verify your %1$s UUID is correctly configured and the %2$s API is reachable.'), Metasync::get_whitelabel_otto_name(), Metasync::get_effective_plugin_name())
+				__( 'Recommended Actions:', 'metasync' ),
+				/* translators: 1: effective plugin name (whitelabel-aware). */
+				sprintf(__('Check your %1$s API connection in %1$s → Settings.', 'metasync'), Metasync::get_effective_plugin_name()),
+				/* translators: %s: OTTO name (whitelabel). */
+				sprintf(__('Review your PHP error log for %s processing exceptions.', 'metasync'), Metasync::get_whitelabel_otto_name()),
+				/* translators: 1: OTTO name (whitelabel), 2: effective plugin name (whitelabel-aware). */
+				sprintf(__('Verify your %1$s UUID is correctly configured and the %2$s API is reachable.', 'metasync'), Metasync::get_whitelabel_otto_name(), Metasync::get_effective_plugin_name())
 			);
 
 			$description .= sprintf(
 				'<p>%s %s &middot; %s</p>',
-				__( 'Quick links:' ),
-				$this->get_admin_link( '&tab=general', __( 'Review API Settings' ) ),
-				$this->get_admin_link( '-sync-log', __( 'View Changes Log' ) )
+				__( 'Quick links:', 'metasync' ),
+				$this->get_admin_link( '&tab=general', __( 'Review API Settings', 'metasync' ) ),
+				$this->get_admin_link( '-sync-log', __( 'View Changes Log', 'metasync' ) )
 			);
 		}
 
@@ -1263,13 +1295,14 @@ class Metasync_Site_Health
 
 		if ( ! class_exists( 'Metasync_Otto_Job_Status' ) ) {
 			return [
-				'label'       => sprintf( __( '%s crawl job tracking is unavailable' ), $otto_name ),
+				/* translators: %s: OTTO name (whitelabel). */
+				'label'       => sprintf( __( '%s crawl job tracking is unavailable', 'metasync' ), $otto_name ),
 				'status'      => 'good',
 				'badge'       => [
 					'label' => Metasync::get_effective_plugin_name(),
 					'color' => 'green',
 				],
-				'description' => '<p>' . esc_html__( 'The status store class is not loaded; nothing to report.' ) . '</p>',
+				'description' => '<p>' . esc_html__( 'The status store class is not loaded; nothing to report.', 'metasync' ) . '</p>',
 				'test'        => 'metasync_otto_job_reliability',
 			];
 		}
@@ -1280,38 +1313,41 @@ class Metasync_Site_Health
 		if ( $counts['failed'] > 0 || $counts['retrying'] > $retrying_threshold ) {
 			$status = 'recommended';
 			$label  = sprintf(
-				__( '%s crawl jobs need attention (%d failed, %d retrying)' ),
+				/* translators: 1: OTTO name (whitelabel), 2: number of failed jobs, 3: number of retrying jobs. */
+				__( '%1$s crawl jobs need attention (%2$d failed, %3$d retrying)', 'metasync' ),
 				$otto_name,
 				$counts['failed'],
 				$counts['retrying']
 			);
 		} else {
 			$status = 'good';
-			$label  = sprintf( __( '%s crawl jobs are completing normally' ), $otto_name );
+			/* translators: %s: OTTO name (whitelabel). */
+			$label  = sprintf( __( '%s crawl jobs are completing normally', 'metasync' ), $otto_name );
 		}
 
 		$description = sprintf(
 			'<p><strong>%s</strong></p><ul><li>%s <strong>%d</strong></li><li>%s <strong>%d</strong></li><li>%s <strong>%d</strong></li><li>%s <strong>%d</strong></li><li>%s <strong>%d</strong></li></ul>',
-			sprintf( __( '%s crawl job status (last 48 hours):' ), $otto_name ),
-			__( 'Accepted, awaiting run:' ),
+			/* translators: %s: OTTO name (whitelabel). */
+			sprintf( __( '%s crawl job status (last 48 hours):', 'metasync' ), $otto_name ),
+			__( 'Accepted, awaiting run:', 'metasync' ),
 			$counts['accepted'],
-			__( 'Retrying after transient failures:' ),
+			__( 'Retrying after transient failures:', 'metasync' ),
 			$counts['retrying'],
-			__( 'Completed:' ),
+			__( 'Completed:', 'metasync' ),
 			$counts['completed'],
-			__( 'Failed (retries exhausted):' ),
+			__( 'Failed (retries exhausted):', 'metasync' ),
 			$counts['failed'],
-			__( 'Queued past the per-batch cap:' ),
+			__( 'Queued past the per-batch cap:', 'metasync' ),
 			$counts['pending']
 		);
 
 		if ( $this->constant_is_truthy( 'DISABLE_WP_CRON' ) ) {
 			$description .= sprintf(
 				'<p><strong>%s</strong> %s</p>',
-				__( 'WP-Cron is disabled on this site.' ),
+				__( 'WP-Cron is disabled on this site.', 'metasync' ),
 				sprintf(
 					/* translators: %s: OTTO product name */
-					__( 'Background jobs only run if a system crontab (or equivalent) calls wp-cron.php. Without it, %s crawl notifications are queued but never processed.' ),
+					__( 'Background jobs only run if a system crontab (or equivalent) calls wp-cron.php. Without it, %s crawl notifications are queued but never processed.', 'metasync' ),
 					$otto_name
 				)
 			);
@@ -1320,9 +1356,9 @@ class Metasync_Site_Health
 		if ( $status !== 'good' ) {
 			$description .= sprintf(
 				'<p>%s %s &middot; %s</p>',
-				__( 'Quick links:' ),
-				$this->get_admin_link( '&tab=general', __( 'Review API Settings' ) ),
-				$this->get_admin_link( '-sync-log', __( 'View Changes Log' ) )
+				__( 'Quick links:', 'metasync' ),
+				$this->get_admin_link( '&tab=general', __( 'Review API Settings', 'metasync' ) ),
+				$this->get_admin_link( '-sync-log', __( 'View Changes Log', 'metasync' ) )
 			);
 		}
 

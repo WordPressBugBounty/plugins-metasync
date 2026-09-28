@@ -852,8 +852,8 @@ class Metasync_Custom_Pages_API
 
 					$zip_path = $tmp_file;
 
-				} elseif (!empty($_FILES['zip_file']) && is_array($_FILES['zip_file'])) {
-					$file = $_FILES['zip_file'];
+				} elseif (!empty($_FILES['zip_file']) && is_array($_FILES['zip_file'])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- REST route authenticated by API key, not cookies
+					$file = $_FILES['zip_file']; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- REST route authenticated by API key, not cookies
 					$_lps_input['source_type'] = 'upload';
 
 					if (!isset($file['error']) || $file['error'] !== UPLOAD_ERR_OK) {
@@ -930,7 +930,7 @@ class Metasync_Custom_Pages_API
 
 			} finally {
 				if (!empty($tmp_file) && file_exists($tmp_file)) {
-					@unlink($tmp_file);
+					@wp_delete_file($tmp_file);
 				}
 			}
 		} finally {
@@ -1291,7 +1291,7 @@ class Metasync_Custom_Pages_API
 		} finally {
 			if (is_resource($lps_import_lock)) {
 				@flock($lps_import_lock, LOCK_UN);
-				@fclose($lps_import_lock);
+				@fclose($lps_import_lock); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- operates on a native stream handle
 			}
 		}
 	}
@@ -1317,12 +1317,12 @@ class Metasync_Custom_Pages_API
 		}
 		$lock_path = trailingslashit($lock_dir) . md5($assets_folder) . '.lock';
 
-		$handle = @fopen($lock_path, 'c');
+		$handle = @fopen($lock_path, 'c'); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- streaming file I/O; WP_Filesystem cannot return a raw stream handle
 		if ($handle === false) {
 			return new WP_Error('lock_unavailable', 'Could not open the import lock file.', array('status' => 500));
 		}
 		if (!flock($handle, LOCK_EX | LOCK_NB)) {
-			fclose($handle);
+			fclose($handle); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- operates on a native stream handle
 			return new WP_Error(
 				'import_in_progress',
 				'Another import for this assets_folder is already in progress. Retry shortly.',
@@ -1345,7 +1345,7 @@ class Metasync_Custom_Pages_API
 		if (file_exists($target_dir)) {
 			$this->recursive_rmdir($target_dir);
 		}
-		if (!@rename($staging_dir, $target_dir)) {
+		if (!@rename($staging_dir, $target_dir)) { // phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- atomic same-filesystem replace; WP_Filesystem::move() needs credential bootstrapping on non-direct hosts
 			$this->recursive_rmdir($staging_dir);
 			return new WP_Error(
 				'assets_swap_failed',
@@ -1426,7 +1426,7 @@ class Metasync_Custom_Pages_API
 				Metasync_Edge_Cache_Purge::purge($urls);
 			}
 		} catch (\Throwable $e) {
-			error_log('MetaSync: LPS import cache purge failed - ' . $e->getMessage());
+			error_log('MetaSync: LPS import cache purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 		}
 	}
 
@@ -1965,7 +1965,7 @@ class Metasync_Custom_Pages_API
 		}
 
 		if (!is_dir($dir)) {
-			return @unlink($dir);
+			return @unlink($dir); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- boolean return value is consumed
 		}
 
 		$iterator = new RecursiveIteratorIterator(
@@ -1975,13 +1975,13 @@ class Metasync_Custom_Pages_API
 
 		foreach ($iterator as $item) {
 			if ($item->isDir()) {
-				@rmdir($item->getPathname());
+				@rmdir($item->getPathname()); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- WP_Filesystem would prompt for FTP credentials on non-direct hosts
 			} else {
-				@unlink($item->getPathname());
+				@wp_delete_file($item->getPathname());
 			}
 		}
 
-		return @rmdir($dir);
+		return @rmdir($dir); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- WP_Filesystem would prompt for FTP credentials on non-direct hosts
 	}
 
 	/**
@@ -2101,7 +2101,7 @@ class Metasync_Custom_Pages_API
 			$site_url = function_exists('get_site_url') ? get_site_url() : '';
 
 			$meta_payload = array(
-				'timestamp'         => function_exists('current_time') ? current_time('mysql') : date('Y-m-d H:i:s'),
+				'timestamp'         => function_exists('current_time') ? current_time('mysql') : gmdate('Y-m-d H:i:s'),
 				'site_url'          => $site_url,
 				'api_key_prefix'    => $api_key_prefix,
 				'plugin_version'    => defined('METASYNC_VERSION') ? METASYNC_VERSION : '',
@@ -2143,7 +2143,7 @@ class Metasync_Custom_Pages_API
 			// Optional deep-debug breadcrumb — the DB write above always happens
 			// regardless of WP_DEBUG; this line is purely supplementary.
 			if (defined('WP_DEBUG') && WP_DEBUG) {
-				error_log(sprintf(
+				error_log(sprintf( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
 					'Metasync LPS import audit: status=%s http=%d created=%d updated=%d failed=%d',
 					$overall_status,
 					$http_status,
@@ -2154,7 +2154,7 @@ class Metasync_Custom_Pages_API
 			}
 		} catch (\Throwable $e) {
 			if (defined('WP_DEBUG') && WP_DEBUG) {
-				error_log('Metasync LPS audit log failed: ' . $e->getMessage());
+				error_log('Metasync LPS audit log failed: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
 			}
 		}
 	}

@@ -64,7 +64,7 @@ if (!function_exists('metasync_is_scrape_request')) {
      * @return bool True when the current request is a WP core scrape self-check.
      */
     function metasync_is_scrape_request(){
-        return isset($_GET['wp_scrape_key']) || isset($_GET['wp_scrape_nonce']);
+        return isset($_GET['wp_scrape_key']) || isset($_GET['wp_scrape_nonce']); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only front-end flag to skip buffering
     }
 }
 
@@ -148,7 +148,8 @@ if (!function_exists('metasync_get_custom_page_exclusion_where_sql')) {
             return '';
         }
 
-        $sql = " AND NOT EXISTS (\n"
+        return $wpdb->prepare(
+            " AND NOT EXISTS (\n"
             . "\tSELECT 1 FROM {$wpdb->postmeta} AS _ms_ex_html\n"
             . "\tWHERE _ms_ex_html.post_id = {$wpdb->posts}.ID\n"
             . "\t\tAND _ms_ex_html.meta_key = %s\n"
@@ -165,10 +166,7 @@ if (!function_exists('metasync_get_custom_page_exclusion_where_sql')) {
             . "\tWHERE _ms_ex_api.post_id = {$wpdb->posts}.ID\n"
             . "\t\tAND _ms_ex_api.meta_key = %s\n"
             . "\t\tAND _ms_ex_api.meta_value NOT IN ('', '0')\n"
-            . ")";
-
-        return $wpdb->prepare(
-            $sql,
+            . ")",
             '_metasync_is_custom_html_page',
             '1',
             '_metasync_lps_import',
@@ -491,4 +489,40 @@ if (!function_exists('metasync_escape_json_ld_blocks_in_html')) {
 
         return $result;
     }
+}
+
+/**
+ * Is headless mode active right now?
+ *
+ * Single skew-proof entry point for every caller that needs the headless flag.
+ *
+ * Metasync_Headless_Config is reached ONLY through the committed Composer
+ * classmap — nothing require_once's it, and vendor/composer/autoload_psr4.php
+ * is empty, so there is no fallback lookup path. A partially updated install
+ * (an interrupted upgrade, a half-finished file sync, or stale opcache bytecode
+ * for a single file) can therefore leave a newer caller beside a missing or
+ * older copy of the class, and an unguarded static call fatals. Several callers
+ * run on wp/wp_head, where that fatal is a white screen on every page view
+ * rather than a degraded feature.
+ *
+ * This file IS explicitly require_once'd by metasync.php, so it cannot itself
+ * be the unresolvable one — which is why the guard lives here rather than in a
+ * class that would have the same problem it is trying to solve.
+ *
+ * Treating an unresolvable class as "not headless" is the safe default: the
+ * site keeps rendering exactly as it did before headless mode existed.
+ *
+ * @return bool True only when the class resolves AND reports headless active.
+ */
+function metasync_headless_is_active()
+{
+    // class_exists() is redundant to static analysis — the class ships in this
+    // same plugin, so PHPStan proves the call always resolves. It is kept for
+    // the upgrade window described above, which exists only at runtime.
+    // @phpstan-ignore-next-line function.alreadyNarrowedType
+    if (!class_exists('Metasync_Headless_Config')) {
+        return false;
+    }
+
+    return (bool) Metasync_Headless_Config::is_active();
 }

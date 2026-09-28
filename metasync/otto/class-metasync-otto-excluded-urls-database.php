@@ -20,6 +20,20 @@ class Metasync_Otto_Excluded_URLs_Database
 	}
 
 	/**
+	 * Public schema-repair entry point for the background cron handler.
+	 *
+	 * ensure_table_structure() is instance-private and memoised per request;
+	 * the scheduled repair must always inspect fresh, so the gate is reset
+	 * before the check runs.
+	 */
+	public static function ensure_schema()
+	{
+		self::$structure_verified = false;
+		$instance = new self();
+		$instance->ensure_table_structure();
+	}
+
+	/**
 	 * Ensure table structure is up to date
 	 */
 	private function ensure_table_structure()
@@ -32,7 +46,7 @@ class Metasync_Otto_Excluded_URLs_Database
 		$table_name = $this->get_table_name();
 
 		// Check if table exists
-		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name)) != $table_name) {
+		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name)) != $table_name) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- self-healing schema backstop for installs that missed a migration; admin write paths only, once per request via the $structure_verified gate
 			// Table doesn't exist, run full migration
 			require_once dirname(__FILE__, 2) . '/database/class-db-migrations.php';
 			MetaSync_DBMigration::activation();
@@ -40,42 +54,32 @@ class Metasync_Otto_Excluded_URLs_Database
 		}
 
 		// Fetch all column names once to avoid multiple SHOW COLUMNS calls
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$existing_columns = $wpdb->get_col("SHOW COLUMNS FROM `{$table_name}`");
+		$existing_columns = $wpdb->get_col("SHOW COLUMNS FROM `{$wpdb->prefix}metasync_otto_excluded_urls`"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- self-healing schema backstop — column introspection, admin write paths only, once per request
 
 		// is_permanent — added in v2.7.x; missing on sites that skipped the version migration
 		if (!in_array('is_permanent', $existing_columns, true)) {
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$wpdb->query("ALTER TABLE `{$table_name}` ADD COLUMN `is_permanent` TINYINT(1) NOT NULL DEFAULT 0 AFTER `status`");
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$wpdb->query("ALTER TABLE `{$table_name}` ADD KEY `is_permanent` (`is_permanent`)");
+				$wpdb->query("ALTER TABLE `{$wpdb->prefix}metasync_otto_excluded_urls` ADD COLUMN `is_permanent` TINYINT(1) NOT NULL DEFAULT 0 AFTER `status`"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- self-healing schema backstop for installs that missed a migration; admin write paths only, once per request via the $structure_verified gate
+				$wpdb->query("ALTER TABLE `{$wpdb->prefix}metasync_otto_excluded_urls` ADD KEY `is_permanent` (`is_permanent`)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- self-healing schema backstop for installs that missed a migration; admin write paths only, once per request via the $structure_verified gate
 		}
 
 		// auto_excluded — added in v2.7.4; missing on older installs
 		if (!in_array('auto_excluded', $existing_columns, true)) {
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$wpdb->query("ALTER TABLE `{$table_name}` ADD COLUMN `auto_excluded` TINYINT(1) NOT NULL DEFAULT 0 AFTER `is_permanent`");
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$wpdb->query("ALTER TABLE `{$table_name}` ADD KEY `auto_excluded` (`auto_excluded`)");
+				$wpdb->query("ALTER TABLE `{$wpdb->prefix}metasync_otto_excluded_urls` ADD COLUMN `auto_excluded` TINYINT(1) NOT NULL DEFAULT 0 AFTER `is_permanent`"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- self-healing schema backstop for installs that missed a migration; admin write paths only, once per request via the $structure_verified gate
+				$wpdb->query("ALTER TABLE `{$wpdb->prefix}metasync_otto_excluded_urls` ADD KEY `auto_excluded` (`auto_excluded`)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- self-healing schema backstop for installs that missed a migration; admin write paths only, once per request via the $structure_verified gate
 		}
 
 		// recheck_after — added alongside auto_excluded; missing on the same older installs
 		if (!in_array('recheck_after', $existing_columns, true)) {
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$wpdb->query("ALTER TABLE `{$table_name}` ADD COLUMN `recheck_after` DATETIME NULL DEFAULT NULL AFTER `auto_excluded`");
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$wpdb->query("ALTER TABLE `{$table_name}` ADD KEY `recheck_after` (`recheck_after`)");
+				$wpdb->query("ALTER TABLE `{$wpdb->prefix}metasync_otto_excluded_urls` ADD COLUMN `recheck_after` DATETIME NULL DEFAULT NULL AFTER `auto_excluded`"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- self-healing schema backstop for installs that missed a migration; admin write paths only, once per request via the $structure_verified gate
+				$wpdb->query("ALTER TABLE `{$wpdb->prefix}metasync_otto_excluded_urls` ADD KEY `recheck_after` (`recheck_after`)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- self-healing schema backstop for installs that missed a migration; admin write paths only, once per request via the $structure_verified gate
 			// Backfill: set recheck_after = created_at + 7 days for auto-excluded URLs
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$wpdb->query("UPDATE `{$table_name}` SET recheck_after = DATE_ADD(created_at, INTERVAL 7 DAY) WHERE auto_excluded = 1 AND (recheck_after IS NULL OR recheck_after = '0000-00-00 00:00:00')");
+				$wpdb->query("UPDATE `{$wpdb->prefix}metasync_otto_excluded_urls` SET recheck_after = DATE_ADD(created_at, INTERVAL 7 DAY) WHERE auto_excluded = 1 AND (recheck_after IS NULL OR recheck_after = '0000-00-00 00:00:00')"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- self-healing schema backstop — one-time backfill bound to the column addition above
 		}
 
 		// status_auto_excluded composite index — speeds up the cache-miss query in metasync_is_otto_url_manually_excluded()
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$has_composite_index = $wpdb->get_var("SHOW INDEX FROM `{$table_name}` WHERE Key_name = 'status_auto_excluded'");
+		$has_composite_index = $wpdb->get_var("SHOW INDEX FROM `{$wpdb->prefix}metasync_otto_excluded_urls` WHERE Key_name = 'status_auto_excluded'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- self-healing schema backstop — index introspection, admin write paths only, once per request
 		if (empty($has_composite_index)) {
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$wpdb->query("ALTER TABLE `{$table_name}` ADD KEY `status_auto_excluded` (`status`, `auto_excluded`)");
+				$wpdb->query("ALTER TABLE `{$wpdb->prefix}metasync_otto_excluded_urls` ADD KEY `status_auto_excluded` (`status`, `auto_excluded`)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- self-healing schema backstop for installs that missed a migration; admin write paths only, once per request via the $structure_verified gate
 		}
 	}
 
@@ -97,9 +101,9 @@ class Metasync_Otto_Excluded_URLs_Database
 
 		$offset = ($page_number - 1) * $per_page;
 
-		$results = $wpdb->get_results(
+		$results = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; the render-path read is transient-cached with invalidation on every write
 			$wpdb->prepare(
-				"SELECT * FROM `$table_name` ORDER BY created_at DESC LIMIT %d OFFSET %d",
+				"SELECT * FROM `{$wpdb->prefix}metasync_otto_excluded_urls` ORDER BY created_at DESC LIMIT %d OFFSET %d",
 				$per_page,
 				$offset
 			)
@@ -122,8 +126,8 @@ class Metasync_Otto_Excluded_URLs_Database
 
 		$table_name = $this->get_table_name();
 
-		return $wpdb->get_row($wpdb->prepare(
-			"SELECT * FROM `$table_name` WHERE id = %d",
+		return $wpdb->get_row($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; the render-path read is transient-cached with invalidation on every write
+			"SELECT * FROM `{$wpdb->prefix}metasync_otto_excluded_urls` WHERE id = %d",
 			$id
 		));
 	}
@@ -142,7 +146,7 @@ class Metasync_Otto_Excluded_URLs_Database
 
 		$table_name = $this->get_table_name();
 
-		$count = $wpdb->get_var("SELECT COUNT(*) FROM `$table_name`");
+		$count = $wpdb->get_var("SELECT COUNT(*) FROM `{$wpdb->prefix}metasync_otto_excluded_urls`"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; the render-path read is transient-cached with invalidation on every write
 
 		return intval($count);
 	}
@@ -169,9 +173,9 @@ class Metasync_Otto_Excluded_URLs_Database
 		// Ensure table exists before querying
 		$this->ensure_table_structure();
 
-		$results = $wpdb->get_results(
+		$results = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; the render-path read is transient-cached with invalidation on every write
 			$wpdb->prepare(
-				"SELECT url_pattern, pattern_type FROM `$table_name` WHERE status = %s ORDER BY created_at DESC",
+				"SELECT url_pattern, pattern_type FROM `{$wpdb->prefix}metasync_otto_excluded_urls` WHERE status = %s ORDER BY created_at DESC",
 				'active'
 			)
 		);
@@ -283,12 +287,12 @@ class Metasync_Otto_Excluded_URLs_Database
 		// actually read and changed.
 		$prev_limit = function_exists('ini_get') ? ini_get('pcre.backtrack_limit') : false;
 		$capped     = ($prev_limit !== false && function_exists('ini_set')
-			&& ini_set('pcre.backtrack_limit', 10000) !== false);
+			&& ini_set('pcre.backtrack_limit', 10000) !== false); // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- runtime PHP setting with no WordPress API
 
 		$match = @preg_match($test_pattern, $url);
 
 		if ($capped) {
-			ini_set('pcre.backtrack_limit', $prev_limit);
+			ini_set('pcre.backtrack_limit', $prev_limit); // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- runtime PHP setting with no WordPress API
 		}
 
 		if ($match === false) {
@@ -349,7 +353,7 @@ class Metasync_Otto_Excluded_URLs_Database
 		}
 		$logged[$key] = true;
 
-		error_log(sprintf(
+		error_log(sprintf( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 			'MetaSync OTTO: skipped an exclusion rule whose regex could not be evaluated - stored "%s", compiled "%s" (%s)',
 			$pattern,
 			$test_pattern,
@@ -400,8 +404,8 @@ class Metasync_Otto_Excluded_URLs_Database
 
 		// Check for duplicate URL pattern with same type
 		$table_name = $this->get_table_name();
-		$existing = $wpdb->get_row($wpdb->prepare(
-			"SELECT id, status FROM `$table_name` WHERE TRIM(TRAILING '/' FROM url_pattern) = %s AND pattern_type = %s",
+		$existing = $wpdb->get_row($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; the render-path read is transient-cached with invalidation on every write
+			"SELECT id, status FROM `{$wpdb->prefix}metasync_otto_excluded_urls` WHERE TRIM(TRAILING '/' FROM url_pattern) = %s AND pattern_type = %s",
 			$normalized_pattern,
 			$args['pattern_type']
 		));
@@ -415,7 +419,7 @@ class Metasync_Otto_Excluded_URLs_Database
 					$update_data['auto_excluded'] = 1;
 					$update_data['recheck_after'] = gmdate('Y-m-d H:i:s', strtotime('+7 days'));
 				}
-				$wpdb->update($table_name, $update_data, ['id' => $existing->id]);
+				$wpdb->update($table_name, $update_data, ['id' => $existing->id]); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; the render-path read is transient-cached with invalidation on every write
 				$this->clear_cache();
 				return 'reactivated';
 			}
@@ -441,7 +445,7 @@ class Metasync_Otto_Excluded_URLs_Database
 			}
 		}
 
-		$result = $wpdb->insert($this->get_table_name(), $args);
+		$result = $wpdb->insert($this->get_table_name(), $args); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; the render-path read is transient-cached with invalidation on every write
 
 		// Clear cache after adding
 		$this->clear_cache();
@@ -464,7 +468,7 @@ class Metasync_Otto_Excluded_URLs_Database
 		$this->ensure_table_structure();
 
 		$table_name = $this->get_table_name();
-		$row = $wpdb->get_row($wpdb->prepare("SELECT * FROM `$table_name` WHERE `id` = %d", $id));
+		$row = $wpdb->get_row($wpdb->prepare("SELECT * FROM `{$wpdb->prefix}metasync_otto_excluded_urls` WHERE `id` = %d", $id)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; the render-path read is transient-cached with invalidation on every write
 
 		if (!$row) {
 			return false;
@@ -492,7 +496,7 @@ class Metasync_Otto_Excluded_URLs_Database
 			}
 		}
 
-		$result = $wpdb->update($table_name, $args, ['id' => $id]);
+		$result = $wpdb->update($table_name, $args, ['id' => $id]); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; the render-path read is transient-cached with invalidation on every write
 
 		// Clear cache after updating
 		$this->clear_cache();
@@ -521,10 +525,9 @@ class Metasync_Otto_Excluded_URLs_Database
 
 		// Sanitize IDs
 		$items = array_map('intval', $items);
-		$ids = implode(',', array_fill(0, count($items), '%d'));
 
-		$result = $wpdb->query($wpdb->prepare(
-			"DELETE FROM `$table_name` WHERE `id` IN ($ids)",
+		$result = $wpdb->query($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; the render-path read is transient-cached with invalidation on every write
+			'DELETE FROM `' . $wpdb->prefix . 'metasync_otto_excluded_urls` WHERE `id` IN (' . implode(',', array_fill(0, count($items), '%d')) . ')',
 			$items
 		));
 
@@ -561,19 +564,13 @@ class Metasync_Otto_Excluded_URLs_Database
 
 		// Sanitize IDs
 		$items = array_map('intval', $items);
-		$ids = implode(', ', array_fill(0, count($items), '%d'));
 
-		$set_status = $wpdb->prepare(
-			"UPDATE `$table_name` SET `status` = %s",
-			$status
+		$result = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; the render-path read is transient-cached with invalidation on every write
+			$wpdb->prepare(
+				'UPDATE `' . $wpdb->prefix . 'metasync_otto_excluded_urls` SET `status` = %s WHERE `id` IN (' . implode(', ', array_fill(0, count($items), '%d')) . ')',
+				array_merge(array($status), $items)
+			)
 		);
-		$where = $wpdb->prepare(
-			" WHERE `id` IN ( $ids )",
-			$items
-		);
-
-		$query = "{$set_status}{$where}";
-		$result = $wpdb->query($query);
 
 		// Clear cache after updating status
 		$this->clear_cache();
@@ -611,8 +608,8 @@ class Metasync_Otto_Excluded_URLs_Database
 		$now = current_time('mysql');
 		$limit = max(1, min(100, intval($limit)));
 
-		return $wpdb->get_results($wpdb->prepare(
-			"SELECT id, url_pattern, pattern_type, created_at, is_permanent, recheck_after FROM `$table_name`
+		return $wpdb->get_results($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; the render-path read is transient-cached with invalidation on every write
+			"SELECT id, url_pattern, pattern_type, created_at, is_permanent, recheck_after FROM `{$wpdb->prefix}metasync_otto_excluded_urls`
 			WHERE auto_excluded = 1 AND status = %s AND pattern_type = %s
 			AND (is_permanent = 0 OR is_permanent IS NULL)
 			AND recheck_after IS NOT NULL AND recheck_after <= %s
@@ -662,22 +659,30 @@ class Metasync_Otto_Excluded_URLs_Database
 
 		$where_clause = implode(' AND ', $where_conditions);
 		$order_by = !empty($filters['order_by']) ? sanitize_sql_orderby($filters['order_by']) : 'created_at';
-		$order = !empty($filters['order']) && strtoupper($filters['order']) === 'ASC' ? 'ASC' : 'DESC';
+		$order = (!empty($filters['order']) && strtoupper($filters['order']) === 'ASC') ? 'ASC' : 'DESC';
 
-		// Add pagination support
-		$limit_clause = '';
-		if (isset($filters['per_page']) && isset($filters['offset'])) {
-			$limit_clause = " LIMIT %d OFFSET %d";
+		// ORDER BY is allowlisted: only literal column fragments from the map
+		// below can reach the query; unknown input falls back to created_at.
+		$sortable = array('id', 'url_pattern', 'pattern_type', 'status', 'is_permanent', 'auto_excluded', 'created_at', 'recheck_after');
+		$order_by_column = (isset($filters['order_by']) && in_array($filters['order_by'], $sortable, true)) ? $filters['order_by'] : 'created_at';
+		$order_by_sql = sanitize_sql_orderby($order_by_column . ' ' . $order) ?: 'created_at DESC';
+
+		// The query is assembled from literal placeholder fragments only; all
+		// dynamic values bind via prepare() below.
+		$query = 'SELECT * FROM `' . $wpdb->prefix . 'metasync_otto_excluded_urls` WHERE ' . implode(' AND ', $where_conditions)
+			. ' ORDER BY ' . $order_by_sql
+			. (isset($filters['per_page'], $filters['offset']) ? ' LIMIT %d OFFSET %d' : '');
+		if (isset($filters['per_page'], $filters['offset'])) {
 			$where_values[] = intval($filters['per_page']);
 			$where_values[] = intval($filters['offset']);
 		}
 
-		$query = "SELECT * FROM `$table_name` WHERE $where_clause ORDER BY $order_by $order" . $limit_clause;
-
-		if (!empty($where_values)) {
-			return $wpdb->get_results($wpdb->prepare($query, $where_values));
-		} else {
-			return $wpdb->get_results($query);
+		// With no filters the assembled query is literal-only (no
+		// placeholders); prepare() rejects placeholder-less queries, so only
+		// route it through prepare() when there are values to bind.
+		if (empty($where_values)) {
+			return $wpdb->get_results($query); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery -- literal fragments only, nothing to bind
 		}
+		return $wpdb->get_results($wpdb->prepare($query, $where_values)); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery -- literal fragments + allowlisted ORDER BY, values bound via prepare()
 	}
 }

@@ -615,7 +615,14 @@ class Metasync_SEO_Sidebar {
             // Gated on the Language Alternates feature flag: when the feature is
             // disabled the meta is not registered for REST, so the Gutenberg panel
             // has nothing to bind to. Saved values are kept regardless.
-            if (class_exists('Metasync_Feature_Flags') && Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::LANGUAGE_ALTERNATES)) {
+            //
+            // defined() rather than class_exists(): during the upgrade window a
+            // stale opcache copy of Metasync_Feature_Flags satisfies
+            // class_exists() while lacking a newly added constant, and reading
+            // LANGUAGE_ALTERNATES off it is a fatal. defined() checks the
+            // constant itself, which is the thing this line actually needs.
+            // @phpstan-ignore-next-line function.alreadyNarrowedType
+            if (defined('Metasync_Feature_Flags::LANGUAGE_ALTERNATES') && Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::LANGUAGE_ALTERNATES)) {
                 register_post_meta($post_type, self::META_HREFLANG, array(
                     'show_in_rest' => true,
                     'single' => true,
@@ -833,7 +840,7 @@ class Metasync_SEO_Sidebar {
 
         // Get current post ID (used for the LPS/custom-page check and WPML
         // entries below)
-        $post_id = isset($_GET['post']) ? intval($_GET['post']) : 0;
+        $post_id = isset($_GET['post']) ? intval($_GET['post']) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only post ID for editor script data
 
         // LPS / custom-HTML pages bake their own SEO — suppress the editable sidebar
         // panels and surface a read-only notice instead.
@@ -844,7 +851,12 @@ class Metasync_SEO_Sidebar {
         // Auto-detected WPML entries for the "Language Alternates" panel.
         // Gated on the feature flag: when disabled the panel is hidden, so the
         // entries are zeroed to avoid seeding data the UI cannot bind to.
-        $language_alternates_enabled = class_exists('Metasync_Feature_Flags')
+        //
+        // defined() rather than class_exists(): see register_post_meta() above —
+        // a stale opcache copy of the class passes class_exists() but has no
+        // LANGUAGE_ALTERNATES constant, and reading it is a fatal.
+        // @phpstan-ignore-next-line function.alreadyNarrowedType
+        $language_alternates_enabled = defined('Metasync_Feature_Flags::LANGUAGE_ALTERNATES')
             && Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::LANGUAGE_ALTERNATES);
         $wpml_entries = $language_alternates_enabled
             ? $this->get_wpml_entries_for_post($post_id)
@@ -972,6 +984,7 @@ class Metasync_SEO_Sidebar {
                 'characters' => __('characters', 'metasync'),
                 'primaryCategoryNote' => __('Assign 2+ categories to enable this option.', 'metasync'),
                 'ottoPrefillHelp' => sprintf(
+                    /* translators: %s: OTTO name (whitelabel). */
                     __('Pre-filled from %s. Edit to customize.', 'metasync'),
                     $otto_name
                 ),
@@ -994,7 +1007,8 @@ class Metasync_SEO_Sidebar {
                 'primaryCategoryHelp' => __('Select which category appears in the breadcrumb path when this post belongs to multiple categories.', 'metasync'),
                 /* translators: %s: OTTO name (whitelabel) */
                 'ottoOverrideNotice' => sprintf(
-                    __('%s is enabled. Any SEO title and description changes from %s will be overwritten by your custom values entered here.', 'metasync'),
+                    /* translators: 1: OTTO name (whitelabel), 2: OTTO name (whitelabel). */
+                    __('%1$s is enabled. Any SEO title and description changes from %2$s will be overwritten by your custom values entered here.', 'metasync'),
                     $otto_name,
                     $otto_name
                 ),

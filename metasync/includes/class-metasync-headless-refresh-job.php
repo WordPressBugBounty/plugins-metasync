@@ -278,6 +278,22 @@ class Metasync_Headless_Refresh_Job
      */
     public static function get_interval_seconds()
     {
+        # Update-window guard: cron_schedules fires during init whenever
+        # anything calls wp_get_schedules(), so this method runs on every
+        # request even with headless off. During an auto-update WordPress
+        # copies the plugin's files one at a time, and a request that lands
+        # while the config class has not been copied yet fatals on the read
+        # below — the classmap cannot autoload a file that is not on disk.
+        # The recurrence this produces is only consulted when headless is
+        # enabled, and is_enabled() above already answered false for the same
+        # missing class, so the placeholder is never scheduled; it just has to
+        # be a sane interval to hand WP-Cron. The literal mirrors
+        # REFRESH_INTERVAL_DEFAULT_MINUTES — exactly the value that cannot be
+        # read here.
+        if (!class_exists('Metasync_Headless_Config')) {
+            return 30 * MINUTE_IN_SECONDS;
+        }
+
         $minutes = Metasync_Headless_Config::get_refresh_interval_minutes();
 
         $seconds = $minutes * MINUTE_IN_SECONDS;
@@ -1066,7 +1082,7 @@ class Metasync_Headless_Refresh_Job
             return true;
         }
 
-        $existing_expires = $wpdb->get_var(
+        $existing_expires = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- atomic compare-and-swap on option rows — the WHERE-guarded UPDATE is the claim primitive
             $wpdb->prepare(
                 "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s",
                 $timeout_option
@@ -1088,7 +1104,7 @@ class Metasync_Headless_Refresh_Job
             return false;
         }
 
-        $updated = $wpdb->query(
+        $updated = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- atomic compare-and-swap on option rows — the WHERE-guarded UPDATE is the claim primitive
             $wpdb->prepare(
                 "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND CAST(option_value AS UNSIGNED) = %d",
                 (string) $new_expires,
@@ -1098,7 +1114,7 @@ class Metasync_Headless_Refresh_Job
         );
 
         if ($updated === 1) {
-            $wpdb->query(
+            $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- atomic compare-and-swap on option rows — the WHERE-guarded UPDATE is the claim primitive
                 $wpdb->prepare(
                     "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
                     $value_option,
@@ -1127,7 +1143,7 @@ class Metasync_Headless_Refresh_Job
     {
         global $wpdb;
 
-        $inserted = $wpdb->query(
+        $inserted = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- atomic compare-and-swap on option rows — the WHERE-guarded UPDATE is the claim primitive
             $wpdb->prepare(
                 "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
                 $timeout_option,
@@ -1139,7 +1155,7 @@ class Metasync_Headless_Refresh_Job
             return false;
         }
 
-        $wpdb->query(
+        $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- atomic compare-and-swap on option rows — the WHERE-guarded UPDATE is the claim primitive
             $wpdb->prepare(
                 "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
                 $value_option,
@@ -1198,7 +1214,7 @@ class Metasync_Headless_Refresh_Job
             metasync_record_failed_action('metasync_headless_refresh:' . $context);
         }
 
-        error_log('MetaSync Headless Refresh: ' . $context . ' - ' . $message);
+        error_log('MetaSync Headless Refresh: ' . $context . ' - ' . $message); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
     }
 
     // ------------------------------------------------------------------

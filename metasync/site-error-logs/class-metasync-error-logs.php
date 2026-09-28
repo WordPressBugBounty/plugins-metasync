@@ -206,7 +206,7 @@ class Metasync_Error_Logs
 	/**
 	 * WordPress filesystem for use.
 	 *
-	 * @return object
+	 * @return object|null
 	 */
 	private function wp_filesystem()
 	{
@@ -218,6 +218,19 @@ class Metasync_Error_Logs
 		}
 
 		return $wp_filesystem;
+	}
+
+	/**
+	 * WordPress filesystem, only when it writes to local disk directly.
+	 * An FTP/SSH transport that could not connect fatals on first use.
+	 *
+	 * @return object|null
+	 */
+	private function direct_filesystem()
+	{
+		$fs = $this->wp_filesystem();
+
+		return ($fs && isset($fs->method) && 'direct' === $fs->method) ? $fs : null;
 	}
 
 	/**
@@ -255,17 +268,6 @@ class Metasync_Error_Logs
 	}
 
 	/**
-	 * Clear the log.
-	 * @return void
-	 */
-	public static function clear()
-	{
-		if (ini_get('error_log') === '') return;
-		$handle = fopen(ini_get('error_log'), 'w');
-		fclose($handle);
-	}
-
-	/**
 	 * Get human read number of units.
 	 *
 	 * @param int $bytes
@@ -298,36 +300,26 @@ class Metasync_Error_Logs
 	 */
 	public function createErrorLog()
 	{
-		// Use the same directory as Log_Manager for consistency
-		$log_directory = WP_CONTENT_DIR . '/metasync_data';
-
-		// Create directory if it doesn't exist
-		if (!is_dir($log_directory)) {
-			if (!@mkdir($log_directory, 0755, true)) {
-				error_log('Metasync_Error_Logs: Failed to create log directory: ' . $log_directory);
-				return false;
-			}
-		}
-
-		// Verify directory is writable
-		if (!is_writable($log_directory)) {
-			@chmod($log_directory, 0755);
-			if (!is_writable($log_directory)) {
-				error_log('Metasync_Error_Logs: Directory not writable: ' . $log_directory);
-				return false;
-			}
+		// Directory creation, web-server protection, and writability
+		// guarantees live in Metasync_Data_Store so every writer agrees on
+		// the location; a false return means "no writable data directory".
+		if (false === Metasync_Data_Store::base_dir()) {
+			return false;
 		}
 
 		// Point to the actual log file being written by Log_Manager
-		$log_file = wp_normalize_path($log_directory . '/plugin_errors.log');
+		$log_file = Metasync_Data_Store::file_path('plugin_errors.log');
+		if (false === $log_file) {
+			return false;
+		}
 
 		// Create file if it doesn't exist
 		if (!file_exists($log_file)) {
-			if (@file_put_contents($log_file, '') === false) {
-				error_log('Metasync_Error_Logs: Failed to create log file: ' . $log_file);
+			$fs = $this->direct_filesystem();
+			if (!$fs || !$fs->put_contents($log_file, '', defined('FS_CHMOD_FILE') ? FS_CHMOD_FILE : 0644)) {
+				error_log('Metasync_Error_Logs: Failed to create log file: ' . $log_file); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 				return false;
 			}
-			@chmod($log_file, 0644);
 		}
 
 		// Rotate log file if it's too large
@@ -357,10 +349,10 @@ class Metasync_Error_Logs
 		}
 
 		// Create backup of current log with timestamp
-		$backup_file = $log_file . '.old.' . date('Y-m-d-His');
+		$backup_file = $log_file . '.old.' . gmdate('Y-m-d-His');
 
 		// Read last 50% of the file to keep recent entries
-		$wp_filesystem = $this->wp_filesystem();
+		$wp_filesystem = $this->direct_filesystem();
 		if (!$wp_filesystem) {
 			return false;
 		}
@@ -379,8 +371,7 @@ class Metasync_Error_Logs
 		$recent_content = implode("\n", array_slice($lines, -$keep_lines));
 
 		// Archive old content
-		@file_put_contents($backup_file, $content);
-		@chmod($backup_file, 0644);
+		$wp_filesystem->put_contents($backup_file, $content, FS_CHMOD_FILE);
 
 		// Write recent content back to main log
 		$wp_filesystem->put_contents($log_file, $recent_content, FS_CHMOD_FILE);
@@ -413,7 +404,7 @@ class Metasync_Error_Logs
 		// Delete all but the 3 newest
 		$files_to_delete = array_slice($backup_files, 3);
 		foreach ($files_to_delete as $file) {
-			@unlink($file);
+			@wp_delete_file($file);
 		}
 	}
 }

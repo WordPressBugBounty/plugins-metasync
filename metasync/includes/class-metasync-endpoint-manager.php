@@ -81,15 +81,11 @@ class Metasync_Endpoint_Manager {
 	public static function set_mode( $mode ) {
 		// Validate mode
 		if ( ! in_array( $mode, array( self::MODE_PRODUCTION, self::MODE_STAGING ), true ) ) {
-			error_log( "MetaSync Endpoint Manager: Invalid mode '{$mode}' provided" );
+			error_log( "MetaSync Endpoint Manager: Invalid mode '{$mode}' provided" ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 			return false;
 		}
 
 		$result = update_option( self::MODE_OPTION, $mode );
-
-		if ( $result ) {
-			error_log( "MetaSync Endpoint Manager: Endpoints switched to {$mode} mode by user " . get_current_user_id() );
-		}
 
 		return $result;
 	}
@@ -104,7 +100,7 @@ class Metasync_Endpoint_Manager {
 		$mode = self::get_mode();
 
 		if ( ! isset( self::$endpoints[ $mode ][ $endpoint_key ] ) ) {
-			error_log( "MetaSync Endpoint Manager: Unknown endpoint key '{$endpoint_key}'" );
+			error_log( "MetaSync Endpoint Manager: Unknown endpoint key '{$endpoint_key}'" ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 
 			// Fallback to production if key exists there
 			if ( isset( self::$endpoints[ self::MODE_PRODUCTION ][ $endpoint_key ] ) ) {

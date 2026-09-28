@@ -29,11 +29,11 @@ class ErrorLog {
         $size = filesize($logFilePath);
         $content = false;
         if (false !== $size && $size > $tail_bytes) {
-            $handle = @fopen($logFilePath, 'rb');
+            $handle = @fopen($logFilePath, 'rb'); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- streaming file I/O; WP_Filesystem cannot return a raw stream handle
             if (false !== $handle) {
                 fseek($handle, $size - $tail_bytes);
                 $content = stream_get_contents($handle);
-                fclose($handle);
+                fclose($handle); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- operates on a native stream handle
                 // Drop the leading partial line the window cut into.
                 if (false !== $content && false !== strpos($content, "\n")) {
                     $content = substr($content, strpos($content, "\n") + 1);

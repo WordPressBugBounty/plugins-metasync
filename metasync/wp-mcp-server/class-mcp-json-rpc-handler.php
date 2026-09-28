@@ -112,7 +112,7 @@ class MCP_JSON_RPC_Handler {
             return $this->error_response($id, self::ERROR_INVALID_PARAMS, $e->getMessage());
         } catch (Exception $e) {
             // Log error
-            error_log('MCP JSON-RPC Error: ' . $e->getMessage());
+            error_log('MCP JSON-RPC Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             if (!array_key_exists('id', $request)) {
                 return null;
             }

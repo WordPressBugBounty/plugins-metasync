@@ -900,8 +900,8 @@ class Metasync_Admin_Navigation
         // parent, even though those pages remain reachable by URL. Restore the
         // standard admin title format for our registered pages only.
         add_filter('admin_title', function($admin_title, $title) use (&$admin_page_titles) {
-            $current_page = isset($_GET['page']) && is_string($_GET['page'])
-                ? sanitize_text_field(wp_unslash($_GET['page']))
+            $current_page = isset($_GET['page']) && is_string($_GET['page']) // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page slug for the admin title
+                ? sanitize_text_field(wp_unslash($_GET['page'])) // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page slug for the admin title
                 : '';
 
             if (empty($title) && isset($admin_page_titles[$current_page])) {
@@ -911,7 +911,7 @@ class Metasync_Admin_Navigation
 
                 $admin_title = sprintf(
                     /* translators: 1: Admin page title, 2: Site or network title. */
-                    __('%1$s &lsaquo; %2$s &#8212; WordPress'),
+                    __('%1$s &lsaquo; %2$s &#8212; WordPress', 'metasync'),
                     $admin_page_titles[$current_page],
                     $site_title
                 );
@@ -1458,8 +1458,8 @@ class Metasync_Admin_Navigation
         <?php 
         $page_slug = Metasync_Admin::$page_slug;
         $is_plugin_page = (
-            (isset($_GET['page']) && strpos($_GET['page'], $page_slug) !== false) ||
-            (isset($_GET['page']) && strpos($_GET['page'], 'searchatlas') !== false)
+            (isset($_GET['page']) && strpos($_GET['page'], $page_slug) !== false) || // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check for an inline config script
+            (isset($_GET['page']) && strpos($_GET['page'], 'searchatlas') !== false) // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check for an inline config script
         );
         if ($is_plugin_page): 
         ?>

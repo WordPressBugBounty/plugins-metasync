@@ -81,7 +81,7 @@ class Metasync_Otto_Cache_Manager
                         echo '<p style="color: var(--dashboard-text-secondary);">ℹ️ No cache plugins detected.</p>';
                     }
                 } catch (Exception $e) {
-                    error_log('MetaSync Cache Status Error: ' . $e->getMessage());
+                    error_log('MetaSync Cache Status Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- unreachable in production
                     echo '<p style="color: var(--dashboard-error);">⚠️ An error occurred while retrieving cache plugin status.</p>';
                 }
             } else {
@@ -99,10 +99,10 @@ class Metasync_Otto_Cache_Manager
             </form>
 
             <?php
-            if (isset($_GET['cache_cleared']) && $_GET['cache_cleared'] == '1') {
-                $cleared = isset($_GET['cleared']) ? intval($_GET['cleared']) : 0;
-                $failed = isset($_GET['failed']) ? intval($_GET['failed']) : 0;
-                $plugins = isset($_GET['plugins']) ? sanitize_text_field($_GET['plugins']) : '';
+            if (isset($_GET['cache_cleared']) && $_GET['cache_cleared'] == '1') { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for an escaped notice
+                $cleared = isset($_GET['cleared']) ? intval($_GET['cleared']) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for an escaped notice
+                $failed = isset($_GET['failed']) ? intval($_GET['failed']) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for an escaped notice
+                $plugins = isset($_GET['plugins']) ? sanitize_text_field(wp_unslash($_GET['plugins'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for an escaped notice
 
                 if ($cleared > 0) {
                     echo '<div class="notice notice-success inline" style="margin-top: 15px;"><p>';
@@ -124,8 +124,8 @@ class Metasync_Otto_Cache_Manager
                 }
             }
 
-            if (isset($_GET['cache_error']) && $_GET['cache_error'] == '1') {
-                $message = isset($_GET['message']) ? urldecode(sanitize_text_field($_GET['message'])) : '';
+            if (isset($_GET['cache_error']) && $_GET['cache_error'] == '1') { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for an escaped notice
+                $message = isset($_GET['message']) ? urldecode(sanitize_text_field(wp_unslash($_GET['message']))) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for an escaped notice
                 if (empty($message)) {
                     $message = 'An unknown error occurred while clearing cache. Please check error logs for details.';
                 }
@@ -223,10 +223,10 @@ class Metasync_Otto_Cache_Manager
 
             <?php
             // Hosting cache result messages
-            if (isset($_GET['hosting_cache_cleared']) && $_GET['hosting_cache_cleared'] == '1') {
-                $hc_cleared      = isset($_GET['hc_cleared'])      ? sanitize_text_field(urldecode($_GET['hc_cleared']))      : '';
-                $hc_failed       = isset($_GET['hc_failed'])       ? sanitize_text_field(urldecode($_GET['hc_failed']))       : '';
-                $hc_not_detected = isset($_GET['hc_not_detected']) ? sanitize_text_field(urldecode($_GET['hc_not_detected'])) : '';
+            if (isset($_GET['hosting_cache_cleared']) && $_GET['hosting_cache_cleared'] == '1') { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for an escaped notice
+                $hc_cleared      = isset($_GET['hc_cleared'])      ? sanitize_text_field(urldecode($_GET['hc_cleared']))      : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for an escaped notice
+                $hc_failed       = isset($_GET['hc_failed'])       ? sanitize_text_field(urldecode($_GET['hc_failed']))       : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for an escaped notice
+                $hc_not_detected = isset($_GET['hc_not_detected']) ? sanitize_text_field(urldecode($_GET['hc_not_detected'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for an escaped notice
 
                 if ($hc_cleared) {
                     echo '<div class="notice notice-success inline" style="margin-top: 15px;"><p>';
@@ -296,9 +296,9 @@ class Metasync_Otto_Cache_Manager
             </div>
             
             <?php
-            if (isset($_GET['otto_cache_cleared']) && $_GET['otto_cache_cleared'] == '1') {
-                $cleared_count = isset($_GET['count']) ? intval($_GET['count']) : 0;
-                $url = isset($_GET['url']) ? urldecode(sanitize_text_field($_GET['url'])) : '';
+            if (isset($_GET['otto_cache_cleared']) && $_GET['otto_cache_cleared'] == '1') { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for an escaped notice
+                $cleared_count = isset($_GET['count']) ? intval($_GET['count']) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for an escaped notice
+                $url = isset($_GET['url']) ? urldecode(sanitize_text_field(wp_unslash($_GET['url']))) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for an escaped notice
                 
                 echo '<div class="notice notice-success inline" style="margin-top: 15px;"><p>';
                 if (!empty($url)) {
@@ -309,8 +309,8 @@ class Metasync_Otto_Cache_Manager
                 echo '</p></div>';
             }
             
-            if (isset($_GET['otto_cache_error']) && $_GET['otto_cache_error'] == '1') {
-                $message = isset($_GET['message']) ? urldecode(sanitize_text_field($_GET['message'])) : 'An unknown error occurred.';
+            if (isset($_GET['otto_cache_error']) && $_GET['otto_cache_error'] == '1') { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for an escaped notice
+                $message = isset($_GET['message']) ? urldecode(sanitize_text_field(wp_unslash($_GET['message']))) : 'An unknown error occurred.'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for an escaped notice
                 echo '<div class="notice notice-error inline" style="margin-top: 15px;"><p>';
                 echo '❌ <strong>Error:</strong> ' . esc_html($message);
                 echo '</p></div>';
@@ -351,7 +351,7 @@ class Metasync_Otto_Cache_Manager
                                 <input type="url"
                                        id="otto_cache_url"
                                        name="otto_cache_url"
-                                       value="<?php echo isset($_GET['url']) ? esc_attr(urldecode(sanitize_text_field($_GET['url']))) : ''; ?>"
+                                       value="<?php echo isset($_GET['url']) ? esc_attr(urldecode(sanitize_text_field(wp_unslash($_GET['url'])))) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only URL prefill, the form submit carries a nonce ?>"
                                        class="regular-text"
                                        placeholder="https://example.com/page/"
                                        required />
@@ -399,7 +399,7 @@ class Metasync_Otto_Cache_Manager
                     $redirect_url .= '&plugins=' . urlencode(implode(',', $results['cleared']));
                 }
             } catch (Exception $e) {
-                error_log('MetaSync Cache Clear Error: ' . $e->getMessage());
+                error_log('MetaSync Cache Clear Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 $redirect_url .= '&cache_error=1&message=' . urlencode('An error occurred while clearing the cache. Please try again.');
             }
         } else {
@@ -438,7 +438,7 @@ class Metasync_Otto_Cache_Manager
                 # next request regenerates with the current (clean) OTTO state.
                 self::purge_page_caches_all();
             } catch (Exception $e) {
-                error_log('MetaSync OTTO Cache Clear Error: ' . $e->getMessage());
+                error_log('MetaSync OTTO Cache Clear Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 $redirect_url .= '&otto_cache_error=1&message=' . urlencode('An error occurred while clearing the OTTO cache. Please try again.');
             }
         } else {
@@ -493,7 +493,7 @@ class Metasync_Otto_Cache_Manager
                     $redirect_url .= '&otto_cache_error=1&message=' . urlencode($result['message']);
                 }
             } catch (Exception $e) {
-                error_log('MetaSync OTTO Cache Clear Error: ' . $e->getMessage());
+                error_log('MetaSync OTTO Cache Clear Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 $redirect_url .= '&otto_cache_error=1&message=' . urlencode('An error occurred while clearing the OTTO cache for this URL. Please try again.');
             }
         } else {
@@ -585,9 +585,9 @@ class Metasync_Otto_Cache_Manager
             return;
         }
 
-        $url_pattern = isset($_POST['url_pattern']) ? sanitize_text_field($_POST['url_pattern']) : '';
-        $pattern_type = isset($_POST['pattern_type']) ? sanitize_text_field($_POST['pattern_type']) : 'exact';
-        $description = isset($_POST['description']) ? sanitize_textarea_field($_POST['description']) : '';
+        $url_pattern = isset($_POST['url_pattern']) ? sanitize_text_field(wp_unslash($_POST['url_pattern'])) : '';
+        $pattern_type = isset($_POST['pattern_type']) ? sanitize_text_field(wp_unslash($_POST['pattern_type'])) : 'exact';
+        $description = isset($_POST['description']) ? sanitize_textarea_field(wp_unslash($_POST['description'])) : '';
 
         if (empty($url_pattern)) {
             wp_send_json_error(['message' => 'URL pattern is required']);
@@ -667,7 +667,7 @@ class Metasync_Otto_Cache_Manager
                     }
                     wp_cache_flush();
                 } catch (Exception $e) {
-                    error_log('MetaSync: Failed to clear cache for reactivated URL: ' . $e->getMessage());
+                    error_log('MetaSync: Failed to clear cache for reactivated URL: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 }
             }
 
@@ -689,7 +689,7 @@ class Metasync_Otto_Cache_Manager
 
                     wp_cache_flush();
                 } catch (Exception $e) {
-                    error_log('MetaSync: Failed to clear cache for excluded URL: ' . $e->getMessage());
+                    error_log('MetaSync: Failed to clear cache for excluded URL: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 }
             }
 

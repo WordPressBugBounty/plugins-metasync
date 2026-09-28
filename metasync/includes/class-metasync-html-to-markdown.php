@@ -126,7 +126,7 @@ class Metasync_Html_To_Markdown
         $html = preg_replace_callback(
             '#<pre\b[^>]*>(.*?)</pre>#is',
             function ($m) {
-                $code = html_entity_decode(strip_tags($m[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $code = html_entity_decode(wp_strip_all_tags($m[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
                 return "\n\n```\n" . trim($code) . "\n```\n\n";
             },
             $html
@@ -136,7 +136,7 @@ class Metasync_Html_To_Markdown
         $html = preg_replace_callback(
             '#<code\b[^>]*>(.*?)</code>#is',
             function ($m) {
-                $code = html_entity_decode(strip_tags($m[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $code = html_entity_decode(wp_strip_all_tags($m[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
                 return '`' . $code . '`';
             },
             $html
@@ -291,7 +291,7 @@ class Metasync_Html_To_Markdown
         $html = preg_replace('#</(?:div|section|article|aside|header|footer|main|nav|figure|figcaption)>#i', "\n", $html);
         $html = preg_replace('#<(?:div|section|article|aside|header|footer|main|nav|figure|figcaption)\b[^>]*>#i', '', $html);
         // Strip remaining tags.
-        return strip_tags($html);
+        return strip_tags($html); // phpcs:ignore WordPress.WP.AlternativeFunctions.strip_tags_strip_tags -- wp_strip_all_tags() also strips script/style contents and trims; plain strip_tags() is required
     }
 
     /**

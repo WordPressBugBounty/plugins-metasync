@@ -126,11 +126,14 @@ class Metasync_Redirection_Importer
                 }
             }
 
-            # Check if data exists
-            if (isset($plugin['table'])) {
+            # Check if data exists. Table names come only from the fixed
+            # SUPPORTED_PLUGINS allowlist above ('redirection_items',
+            # 'rank_math_redirections', 'aioseo_redirects').
+            if (isset($plugin['table']) && in_array($plugin['table'], ['redirection_items', 'rank_math_redirections', 'aioseo_redirects'], true)) {
                 $table_name = $wpdb->prefix . $plugin['table'];
-                if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") === $table_name) {
-                    $count = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
+                if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table_name))) === $table_name) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party redirect exports; no bulk WordPress API exists
+                    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- table name verified against the literal allowlist above
+                    $count = $wpdb->get_var('SELECT COUNT(*) FROM ' . $wpdb->prefix . $plugin['table']);
                     if ($count > 0) {
                         $status['has_data'] = true;
                         $status['count'] = (int)$count;
@@ -212,7 +215,7 @@ class Metasync_Redirection_Importer
         global $wpdb;
         $table_name = $wpdb->prefix . 'redirection_items';
 
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table_name))) !== $table_name) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party redirect exports; no bulk WordPress API exists
             return [
                 'success' => false,
                 'message' => 'Redirection plugin table not found.',
@@ -222,8 +225,9 @@ class Metasync_Redirection_Importer
             ];
         }
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party redirect exports; no bulk WordPress API exists
         $redirects = $wpdb->get_results("
-            SELECT * FROM $table_name
+            SELECT * FROM {$wpdb->prefix}redirection_items
             WHERE status = 'enabled'
         ");
 
@@ -657,7 +661,7 @@ class Metasync_Redirection_Importer
         global $wpdb;
         $table_name = $wpdb->prefix . 'rank_math_redirections';
 
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table_name))) !== $table_name) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party redirect exports; no bulk WordPress API exists
             return [
                 'success' => false,
                 'message' => 'Rank Math redirections table not found.',
@@ -669,7 +673,7 @@ class Metasync_Redirection_Importer
         }
 
         # Get all redirections (not just active ones, Rank Math uses different status field)
-        $redirects = $wpdb->get_results("SELECT * FROM $table_name");
+        $redirects = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}rank_math_redirections"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party redirect exports; no bulk WordPress API exists
 
         if (empty($redirects)) {
             return [
@@ -894,7 +898,7 @@ class Metasync_Redirection_Importer
         global $wpdb;
         $table_name = $wpdb->prefix . 'aioseo_redirects';
 
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table_name))) !== $table_name) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party redirect exports; no bulk WordPress API exists
             return [
                 'success' => false,
                 'message' => 'All in One SEO redirects table not found.',
@@ -904,8 +908,9 @@ class Metasync_Redirection_Importer
             ];
         }
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party redirect exports; no bulk WordPress API exists
         $redirects = $wpdb->get_results("
-            SELECT * FROM $table_name
+            SELECT * FROM {$wpdb->prefix}aioseo_redirects
             WHERE enabled = 1
         ");
 
@@ -1244,7 +1249,7 @@ class Metasync_Redirection_Importer
      */
     public function import_csv_file($file_path)
     {
-        $handle = @fopen($file_path, 'r');
+        $handle = @fopen($file_path, 'r'); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- streaming file I/O; WP_Filesystem cannot return a raw stream handle
 
         if (!$handle) {
             return [
@@ -1343,7 +1348,7 @@ class Metasync_Redirection_Importer
                 $this->remember_imported_source($source);
             }
         }
-        fclose($handle);
+        fclose($handle); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- operates on a native stream handle
 
         if ($imported === 0 && $skipped === 0 && $parse_skipped === 0 && $unsafe_skipped === 0 && $loop_skipped === 0) {
             return [
@@ -1414,10 +1419,10 @@ class Metasync_Redirection_Importer
             'imported_redirections' => 0
         ];
 
-        $stats['total_redirections'] = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
+        $stats['total_redirections'] = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}aioseo_redirects"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party redirect exports; no bulk WordPress API exists
 
-        $stats['imported_redirections'] = $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM $table_name WHERE description LIKE %s",
+        $stats['imported_redirections'] = $wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party redirect exports; no bulk WordPress API exists
+            "SELECT COUNT(*) FROM {$wpdb->prefix}aioseo_redirects WHERE description LIKE %s",
             'Imported from%'
         ));
 

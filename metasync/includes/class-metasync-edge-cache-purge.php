@@ -625,7 +625,7 @@ class Metasync_Edge_Cache_Purge {
      */
     private static function log_error($context, $message) {
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log(sprintf('[MetaSync Edge Cache] %s failed: %s', $context, $message));
+            error_log(sprintf('[MetaSync Edge Cache] %s failed: %s', $context, $message)); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
         }
     }
 }

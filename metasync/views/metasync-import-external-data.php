@@ -46,7 +46,7 @@ $sections = [
 ];
 
 // Get active tab
-$active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'seo_metadata';
+$active_tab = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : 'seo_metadata'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, allow-listed tab selection
 if (!array_key_exists($active_tab, $sections)) {
     $active_tab = 'seo_metadata';
 }

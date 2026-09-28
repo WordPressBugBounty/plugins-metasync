@@ -184,7 +184,7 @@ class Metasync_Otto_Persistence_Settings {
         }
 
         if (empty($api_key)) {
-            $get_data = array_map('sanitize_text_field', $_GET);
+            $get_data = array_map('sanitize_text_field', $_GET); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- API key credential in a REST permission check, not cookie auth
             if (!empty($get_data['apikey'])) {
                 $api_key = $get_data['apikey'];
                 // Deprecated: ?apikey= query-param auth — switch callers to Authorization: Bearer

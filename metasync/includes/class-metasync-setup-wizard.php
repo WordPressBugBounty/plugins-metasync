@@ -92,7 +92,7 @@ class Metasync_Setup_Wizard
 	{
 		// Check user has access
 		if (!Metasync::current_user_has_plugin_access()) {
-			wp_die(__('You do not have sufficient permissions to access this page.'));
+			wp_die(__('You do not have sufficient permissions to access this page.', 'metasync'));
 		}
 
 		// Get current wizard state

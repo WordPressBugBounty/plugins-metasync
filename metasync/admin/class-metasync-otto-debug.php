@@ -658,7 +658,7 @@ class Metasync_Otto_Debug {
     private function get_option_last_updated($option_name) {
         global $wpdb;
         
-        $result = $wpdb->get_var($wpdb->prepare(
+        $result = $wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- admin debug tool — scratch diagnostics storage outside any WordPress API
             "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s",
             $option_name
         ));
@@ -666,7 +666,7 @@ class Metasync_Otto_Debug {
         if ($result) {
             $data = maybe_unserialize($result);
             if (isset($data['last_updated'])) {
-                return date('Y-m-d H:i:s', $data['last_updated']);
+                return gmdate('Y-m-d H:i:s', $data['last_updated']);
             }
         }
         
@@ -979,7 +979,7 @@ class Metasync_Otto_Debug {
             wp_send_json_success($results);
 
         } catch (Exception $e) {
-            error_log('MetaSync OTTO Debug: Exception in ajax_test_specific_url: ' . $e->getMessage());
+            error_log('MetaSync OTTO Debug: Exception in ajax_test_specific_url: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- unreachable in production
             wp_send_json_error('Exception: ' . $e->getMessage());
         }
     }
@@ -1112,7 +1112,7 @@ class Metasync_Otto_Debug {
      * Test page type detection
      */
     private function test_page_type_detection($url) {
-        $parsed_url = parse_url($url);
+        $parsed_url = wp_parse_url($url);
         $path = $parsed_url['path'] ?? '/';
         
         $detection = array(
@@ -1225,7 +1225,7 @@ class Metasync_Otto_Debug {
             ));
 
         } catch (Exception $e) {
-            error_log('MetaSync OTTO Debug: Exception in ajax_simple_test: ' . $e->getMessage());
+            error_log('MetaSync OTTO Debug: Exception in ajax_simple_test: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- unreachable in production
             wp_send_json_error('Exception: ' . $e->getMessage());
         }
     }
@@ -1259,7 +1259,7 @@ class Metasync_Otto_Debug {
             // Test 2: Check if we can access Action Scheduler tables
             global $wpdb;
             $table_name = $wpdb->prefix . 'actionscheduler_actions';
-            $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name;
+            $table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table_name))) == $table_name; // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- admin debug tool — scratch diagnostics storage outside any WordPress API
             
             $results['tests']['table_access'] = array(
                 'table_exists' => $table_exists,
@@ -1269,7 +1269,7 @@ class Metasync_Otto_Debug {
             
             // Test 3: Try to insert a test record
             if ($table_exists) {
-                $insert_result = $wpdb->insert(
+                $insert_result = $wpdb->insert( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- admin debug tool — scratch diagnostics storage outside any WordPress API
                     $table_name,
                     array(
                         'hook' => 'metasync_debug_test',
@@ -1290,7 +1290,7 @@ class Metasync_Otto_Debug {
                 
                 // Clean up test record
                 if ($insert_result !== false && $wpdb->insert_id) {
-                    $wpdb->delete($table_name, array('ID' => $wpdb->insert_id));
+                    $wpdb->delete($table_name, array('ID' => $wpdb->insert_id)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- admin debug tool — scratch diagnostics storage outside any WordPress API
                 }
             }
             
@@ -1304,7 +1304,7 @@ class Metasync_Otto_Debug {
             wp_send_json_success($results);
 
         } catch (Exception $e) {
-            error_log('MetaSync OTTO Debug: Exception in ajax_test_db_permissions: ' . $e->getMessage());
+            error_log('MetaSync OTTO Debug: Exception in ajax_test_db_permissions: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- unreachable in production
             wp_send_json_error('Exception: ' . $e->getMessage());
         }
     }

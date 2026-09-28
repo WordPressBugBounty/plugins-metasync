@@ -83,7 +83,7 @@ class MCP_Tool_Create_Redirect extends MCP_Tool_Base {
         }
 
         // Parse source to get path
-        $source_path = parse_url($source, PHP_URL_PATH) ?: $source;
+        $source_path = wp_parse_url($source, PHP_URL_PATH) ?: $source;
 
         // Loop detection — refuse to create a redirect whose chain resolves back to the source
         require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'redirections/class-metasync-redirection.php';

@@ -54,6 +54,7 @@ $range_end   = min($backup_page * $backup_per_page, $backup_total);
                         <strong><?php echo esc_html(get_date_from_gmt($backup['created_at'], get_option('date_format') . ' ' . get_option('time_format'))); ?></strong>
                         <?php if (!empty($backup['created_by_name'])): ?>
                             <span class="metasync-backup-author">
+                                <?php /* translators: %s: name of the user who created the backup. */ ?>
                                 <?php printf(esc_html__('by %s', 'metasync'), esc_html($backup['created_by_name'])); ?>
                             </span>
                         <?php endif; ?>

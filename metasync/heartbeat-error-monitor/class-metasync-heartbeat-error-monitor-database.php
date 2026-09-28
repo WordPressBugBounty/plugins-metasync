@@ -21,8 +21,7 @@ class Metasync_HeartBeat_Error_Monitor_Database
 	public function getAllRecords()
 	{
 		global $wpdb;
-		$tableName = $this->get_table_name();
-		return $wpdb->get_results(" SELECT * FROM `$tableName` ");
+		return $wpdb->get_results("SELECT * FROM `{$wpdb->prefix}metasync_heartbeat_error_logs`"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for heartbeat error logs (admin views)
 	}
 
 	/**
@@ -48,7 +47,7 @@ class Metasync_HeartBeat_Error_Monitor_Database
 			$this->clear_logs();
 		}
 
-		return $wpdb->insert($this->get_table_name(), $args);
+		return $wpdb->insert($this->get_table_name(), $args); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for heartbeat error logs (admin views)
 	}
 
 
@@ -59,8 +58,7 @@ class Metasync_HeartBeat_Error_Monitor_Database
 	public function get_count()
 	{
 		global $wpdb;
-		$tableName = $this->get_table_name();
-		return (int) $wpdb->get_var("SELECT COUNT(*) FROM `$tableName`");
+		return (int) $wpdb->get_var("SELECT COUNT(*) FROM `{$wpdb->prefix}metasync_heartbeat_error_logs`"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for heartbeat error logs (admin views)
 	}
 
 	/**
@@ -71,13 +69,9 @@ class Metasync_HeartBeat_Error_Monitor_Database
 	public function delete($items)
 	{
 		global $wpdb;
-		$tableName = $this->get_table_name();
 		if (!is_array($items) || empty($items)) return;
-		$ids = implode(',', array_fill(0, count($items), '%d'));
-		$wpdb->query($wpdb->prepare(
-			" 
-			DELETE FROM `$tableName`
-			WHERE `id` IN ($ids) ",
+		$wpdb->query($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for heartbeat error logs (admin views)
+			'DELETE FROM `' . $wpdb->prefix . 'metasync_heartbeat_error_logs` WHERE `id` IN (' . implode(',', array_fill(0, count($items), '%d')) . ')',
 			$items
 		));
 	}
@@ -88,7 +82,6 @@ class Metasync_HeartBeat_Error_Monitor_Database
 	public function clear_logs()
 	{
 		global $wpdb;
-		$tableName = $this->get_table_name();
-		$wpdb->query("TRUNCATE TABLE {$tableName}");
+		$wpdb->query("TRUNCATE TABLE {$wpdb->prefix}metasync_heartbeat_error_logs");
 	}
 }

@@ -22,7 +22,7 @@ $term_sync_file = plugin_dir_path(dirname(dirname(__FILE__))) . 'includes/class-
 if (file_exists($term_sync_file)) {
     require_once $term_sync_file;
 } else {
-    error_log('[MetaSync] Term plugin sync class missing: ' . $term_sync_file);
+    error_log('[MetaSync] Term plugin sync class missing: ' . $term_sync_file); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 }
 
 /**

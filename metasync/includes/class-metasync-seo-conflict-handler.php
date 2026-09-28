@@ -196,7 +196,7 @@ class Metasync_SEO_Conflict_Handler {
             // assume — a method call on a null/!object $wpdb would be fatal.
             if (isset($wpdb) && is_object($wpdb)) {
                 $table = $wpdb->prefix . 'aioseo_posts';
-                $desc = $wpdb->get_var($wpdb->prepare("SELECT description FROM {$table} WHERE post_id = %d", $post_id));
+                $desc = $wpdb->get_var($wpdb->prepare("SELECT description FROM {$wpdb->prefix}aioseo_posts WHERE post_id = %d", $post_id)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- reads third-party plugin storage — AIOSEO keeps descriptions in its own table, no WordPress API
                 if (!empty($desc)) {
                     return true;
                 }
@@ -1782,7 +1782,7 @@ class Metasync_SEO_Conflict_Handler {
      * @return bool
      */
     private function site_forces_noindex() {
-        if (0 === absint(get_option('blog_public')) || isset($_GET['replytocom'])) {
+        if (0 === absint(get_option('blog_public')) || isset($_GET['replytocom'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only front-end flag, only forces noindex
             return true;
         }
 

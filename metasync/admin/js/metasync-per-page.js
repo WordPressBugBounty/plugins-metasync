@@ -69,6 +69,13 @@
         }
 
         params.set(perPageKey, selector.value);
+        // The page size applies for this request, but only a request signed
+        // with the per-page nonce may persist it (see
+        // Metasync_Per_Page_Helper::resolve()).
+        if (window.metasyncPerPage && window.metasyncPerPage.nonces
+            && window.metasyncPerPage.nonces[pageKey]) {
+            params.set('_wpnonce', window.metasyncPerPage.nonces[pageKey]);
+        }
         params.delete(pagedParam);
 
         if (params.get('page') === 'searchatlas-redirections') {

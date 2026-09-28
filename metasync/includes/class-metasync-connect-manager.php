@@ -89,7 +89,7 @@ class Metasync_Connect_Manager
         $plugin_auth_token = $general_options['apikey'] ?? '';
 
         if (empty($plugin_auth_token)) {
-            error_log('MetaSync ERROR: Plugin Auth Token missing from options - should have been generated during activation');
+            error_log('MetaSync ERROR: Plugin Auth Token missing from options - should have been generated during activation'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- unreachable in production
             return false;
         }
 
@@ -189,7 +189,7 @@ class Metasync_Connect_Manager
             }
 
         } catch (Exception $e) {
-            error_log('Plugin Auth Token Refresh Error: ' . $e->getMessage());
+            error_log('Plugin Auth Token Refresh Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             wp_send_json_error(array('message' => 'Error generating new token'));
         }
     }
@@ -223,7 +223,7 @@ class Metasync_Connect_Manager
             }
 
         } catch (Exception $e) {
-            error_log('Get Plugin Auth Token Error: ' . $e->getMessage());
+            error_log('Get Plugin Auth Token Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             wp_send_json_error(array('message' => 'Error retrieving Plugin Auth Token'));
         }
     }
@@ -330,7 +330,7 @@ class Metasync_Connect_Manager
             global $wpdb;
 
             // Check expiry first
-            $timeout = $wpdb->get_var(
+            $timeout = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- manual transient rows on the options table (autoload=no) — mirrors core transient storage; TTL reads need the paired timeout row
                 $wpdb->prepare(
                     "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
                     '_transient_timeout_' . $success_key
@@ -339,10 +339,10 @@ class Metasync_Connect_Manager
 
             if ($timeout && (int) $timeout < time()) {
                 // Expired — clean up
-                $wpdb->delete($wpdb->options, array('option_name' => '_transient_' . $success_key));
-                $wpdb->delete($wpdb->options, array('option_name' => '_transient_timeout_' . $success_key));
+                $wpdb->delete($wpdb->options, array('option_name' => '_transient_' . $success_key)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- manual transient rows on the options table (autoload=no) — mirrors core transient storage; TTL reads need the paired timeout row
+                $wpdb->delete($wpdb->options, array('option_name' => '_transient_timeout_' . $success_key)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- manual transient rows on the options table (autoload=no) — mirrors core transient storage; TTL reads need the paired timeout row
             } else {
-                $db_value = $wpdb->get_var(
+                $db_value = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- manual transient rows on the options table (autoload=no) — mirrors core transient storage; TTL reads need the paired timeout row
                     $wpdb->prepare(
                         "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
                         '_transient_' . $success_key
@@ -360,8 +360,8 @@ class Metasync_Connect_Manager
             // Also clean up DB fallback rows
             if (wp_using_ext_object_cache()) {
                 global $wpdb;
-                $wpdb->delete($wpdb->options, array('option_name' => '_transient_' . $success_key));
-                $wpdb->delete($wpdb->options, array('option_name' => '_transient_timeout_' . $success_key));
+                $wpdb->delete($wpdb->options, array('option_name' => '_transient_' . $success_key)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- manual transient rows on the options table (autoload=no) — mirrors core transient storage; TTL reads need the paired timeout row
+                $wpdb->delete($wpdb->options, array('option_name' => '_transient_timeout_' . $success_key)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- manual transient rows on the options table (autoload=no) — mirrors core transient storage; TTL reads need the paired timeout row
             }
 
             // Get current settings to return connection status
@@ -564,7 +564,7 @@ class Metasync_Connect_Manager
         $plugin_auth_token = $general_options['apikey'] ?? '';
 
         if (empty($plugin_auth_token)) {
-            error_log('MetaSync ERROR: Plugin Auth Token missing from options');
+            error_log('MetaSync ERROR: Plugin Auth Token missing from options'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return false;
         }
 
@@ -604,10 +604,10 @@ class Metasync_Connect_Manager
             $timeout_metadata = '_transient_timeout_' . $transient_key;
             $expires = time() + 900;
 
-            $wpdb->replace($wpdb->options, array('option_name' => $active_option, 'option_value' => $transient_key, 'autoload' => 'no'));
-            $wpdb->replace($wpdb->options, array('option_name' => $timeout_active, 'option_value' => $expires, 'autoload' => 'no'));
-            $wpdb->replace($wpdb->options, array('option_name' => $metadata_option, 'option_value' => maybe_serialize($token_metadata), 'autoload' => 'no'));
-            $wpdb->replace($wpdb->options, array('option_name' => $timeout_metadata, 'option_value' => $expires, 'autoload' => 'no'));
+            $wpdb->replace($wpdb->options, array('option_name' => $active_option, 'option_value' => $transient_key, 'autoload' => 'no')); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- manual transient rows on the options table (autoload=no) — mirrors core transient storage; TTL reads need the paired timeout row
+            $wpdb->replace($wpdb->options, array('option_name' => $timeout_active, 'option_value' => $expires, 'autoload' => 'no')); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- manual transient rows on the options table (autoload=no) — mirrors core transient storage; TTL reads need the paired timeout row
+            $wpdb->replace($wpdb->options, array('option_name' => $metadata_option, 'option_value' => maybe_serialize($token_metadata), 'autoload' => 'no')); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- manual transient rows on the options table (autoload=no) — mirrors core transient storage; TTL reads need the paired timeout row
+            $wpdb->replace($wpdb->options, array('option_name' => $timeout_metadata, 'option_value' => $expires, 'autoload' => 'no')); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- manual transient rows on the options table (autoload=no) — mirrors core transient storage; TTL reads need the paired timeout row
         }
 
         return $sa_connect_token;
@@ -743,7 +743,7 @@ class Metasync_Connect_Manager
         global $wpdb;
 
         try {
-            $rate_limit_transients = $wpdb->get_results(
+            $rate_limit_transients = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- transient enumeration/cleanup on the options table — no API to scan or bulk-delete transient rows
                 "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE '_transient_sa_connect_rate_limit_%'",
                 ARRAY_A
             );
@@ -770,14 +770,14 @@ class Metasync_Connect_Manager
     {
         global $wpdb;
 
-        $deleted = $wpdb->query(
+        $deleted = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- manual transient rows on the options table (autoload=no) — mirrors core transient storage; TTL reads need the paired timeout row
             $wpdb->prepare(
                 "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
                 '_transient_metasync_jwt_token_%'
             )
         );
 
-        $wpdb->query(
+        $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- manual transient rows on the options table (autoload=no) — mirrors core transient storage; TTL reads need the paired timeout row
             $wpdb->prepare(
                 "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
                 '_transient_timeout_metasync_jwt_token_%'
@@ -903,7 +903,7 @@ class Metasync_Connect_Manager
             $response = wp_remote_post($url, $args);
 
             if (is_wp_error($response)) {
-                error_log('MetaSync: JWT token API request failed - ' . $response->get_error_message());
+                error_log('MetaSync: JWT token API request failed - ' . $response->get_error_message()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 return false;
             }
 
@@ -911,14 +911,14 @@ class Metasync_Connect_Manager
             $response_body = wp_remote_retrieve_body($response);
 
             if ($response_code !== 200) {
-                error_log('MetaSync: JWT token API returned error code ' . $response_code);
+                error_log('MetaSync: JWT token API returned error code ' . $response_code); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 return false;
             }
 
             $data = json_decode($response_body, true);
 
             if (!$data || !isset($data['token'], $data['expires'])) {
-                error_log('MetaSync: Invalid JWT token API response format');
+                error_log('MetaSync: Invalid JWT token API response format'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 return false;
             }
 
@@ -934,7 +934,7 @@ class Metasync_Connect_Manager
             return $data['token'];
 
         } catch (Exception $e) {
-            error_log('MetaSync: Exception during JWT generation - ' . $e->getMessage());
+            error_log('MetaSync: Exception during JWT generation - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return false;
         }
     }
@@ -1119,7 +1119,7 @@ class Metasync_Connect_Manager
             ));
 
         } catch (Exception $e) {
-            error_log('Authentication Reset Error: ' . $e->getMessage());
+            error_log('Authentication Reset Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             wp_send_json_error(array(
                 'message' => 'An error occurred while resetting authentication. Please try again or contact support.',
                 'code' => 'reset_failed',
@@ -1187,18 +1187,6 @@ class Metasync_Connect_Manager
     }
 
     /**
-     * Simple AJAX test without nonce (for debugging connectivity)
-     */
-    public function simple_ajax_test()
-    {
-        wp_send_json_success(array(
-            'message' => 'Basic AJAX connectivity works',
-            'timestamp' => time(),
-            'no_nonce_required' => true
-        ));
-    }
-
-    /**
      * Test whitelabel domain configuration (development/debugging)
      */
     public function test_whitelabel_domain()
@@ -1248,8 +1236,8 @@ class Metasync_Connect_Manager
             return;
         }
 
-        $active_tab = isset($_GET['tab']) ? $_GET['tab'] : 'general';
-        $current_page = isset($_GET['page']) ? $_GET['page'] : '';
+        $active_tab = isset($_GET['tab']) ? $_GET['tab'] : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only routing, each action verifies its own nonce
+        $current_page = isset($_GET['page']) ? $_GET['page'] : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only routing, each action verifies its own nonce
 
         $whitelabel_settings = Metasync::get_whitelabel_settings();
         $user_password = $whitelabel_settings['settings_password'] ?? '';
@@ -1286,9 +1274,9 @@ class Metasync_Connect_Manager
             if (wp_verify_nonce($_POST['whitelabel_logout_nonce'] ?? '', 'whitelabel_logout_nonce')) {
                 $auth->revoke_access();
 
-                $redirect_tab = $_GET['tab'] ?? 'whitelabel';
+                $redirect_tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : 'whitelabel';
                 $redirect_url = admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '&tab=' . $redirect_tab);
-                wp_redirect($redirect_url);
+                wp_safe_redirect($redirect_url);
                 exit;
             }
         }

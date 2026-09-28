@@ -270,7 +270,7 @@ class Metasync_Auto_Redirect
         $redirection_helper = new Metasync_Redirection($db_ref);
         $loop_chain = array();
         if ($redirection_helper->would_create_loop($old_url, $new_url, $loop_chain)) {
-            error_log('[MetaSync] Auto-redirect skipped: loop detected — ' . implode(' → ', $loop_chain));
+            error_log('[MetaSync] Auto-redirect skipped: loop detected — ' . implode(' → ', $loop_chain)); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return false;
         }
 
@@ -361,7 +361,7 @@ class Metasync_Auto_Redirect
                 $redirection_helper = new Metasync_Redirection($db_ref);
                 $loop_chain = array();
                 if ($redirection_helper->would_create_loop($source_url, $new_destination, $loop_chain)) {
-                    error_log('[MetaSync] Auto-redirect update skipped: loop detected — ' . implode(' → ', $loop_chain));
+                    error_log('[MetaSync] Auto-redirect update skipped: loop detected — ' . implode(' → ', $loop_chain)); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                     return false;
                 }
             }

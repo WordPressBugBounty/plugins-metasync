@@ -181,10 +181,11 @@ class Metasync_Settings_Registration
     private function handle_plugin_access_roles_save()
     {
         if (isset($_POST['save_plugin_access_roles']) && $_POST['save_plugin_access_roles'] === 'yes') {
-            if (isset($_POST['plugin_access_roles_nonce']) && wp_verify_nonce($_POST['plugin_access_roles_nonce'], 'metasync_plugin_access_roles_nonce')) {
+            $access_roles_nonce = isset($_POST['plugin_access_roles_nonce']) ? sanitize_text_field(wp_unslash($_POST['plugin_access_roles_nonce'])) : '';
+            if (wp_verify_nonce($access_roles_nonce, 'metasync_plugin_access_roles_nonce')) {
 
                 if (!Metasync::current_user_has_plugin_access()) {
-                    wp_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '&tab=advanced&access_roles_error=1&message=' . urlencode('Insufficient permissions')));
+                    wp_safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '&tab=advanced&access_roles_error=1&message=' . urlencode('Insufficient permissions')));
                     exit;
                 }
 
@@ -204,7 +205,7 @@ class Metasync_Settings_Registration
                 }
 
                 if (isset($_POST['plugin_access_roles']) && is_array($_POST['plugin_access_roles'])) {
-                    $metasync_options['general']['plugin_access_roles'] = array_map('sanitize_text_field', $_POST['plugin_access_roles']);
+                    $metasync_options['general']['plugin_access_roles'] = array_map('sanitize_text_field', wp_unslash($_POST['plugin_access_roles']));
                 } else {
                     $metasync_options['general']['plugin_access_roles'] = array();
                 }
@@ -212,11 +213,11 @@ class Metasync_Settings_Registration
                 Metasync::set_option($metasync_options);
 
                 $redirect_url = admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '&tab=advanced&access_roles_saved=1');
-                wp_redirect($redirect_url);
+                wp_safe_redirect($redirect_url);
                 exit;
             } else {
                 $redirect_url = admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '&tab=advanced&access_roles_error=1&message=' . urlencode('Invalid security token'));
-                wp_redirect($redirect_url);
+                wp_safe_redirect($redirect_url);
                 exit;
             }
         }
@@ -343,7 +344,7 @@ class Metasync_Settings_Registration
                 echo '<div class="llms-txt-dependent">';
                 printf(
                     '<input type="number" id="llms_txt_max_posts" name="metasync_llms_txt_settings[max_posts]" min="1" max="500" value="%d" />',
-                    $value
+                    absint($value)
                 );
                 echo '</div>';
             },
@@ -416,7 +417,7 @@ class Metasync_Settings_Registration
                 echo '<div class="llms-full-dependent">';
                 printf(
                     '<input type="number" id="llms_txt_max_posts_full" name="metasync_llms_txt_settings[max_posts_full]" min="1" max="500" value="%d" />',
-                    $value
+                    absint($value)
                 );
                 echo '<p class="description">' . esc_html__('Maximum posts for /llms-full.txt (lower than summary to protect server performance).', 'metasync') . '</p>';
                 echo '</div>';
@@ -454,10 +455,10 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $noindex_empty_archives = Metasync::get_option('seo_controls')['noindex_empty_archives'] ?? 'false';
                 printf(
-                    '<input type="checkbox" id="noindex_empty_archives" name="' . $option_key . '[seo_controls][noindex_empty_archives]" value="true" %s />',
+                    '<input type="checkbox" id="noindex_empty_archives" name="' . esc_attr($option_key) . '[seo_controls][noindex_empty_archives]" value="true" %s />',
                     isset($noindex_empty_archives) && $noindex_empty_archives == 'true' ? 'checked' : ''
                 );
-                printf('<span class="description"><strong>Empty Archives:</strong> When checked, automatically adds noindex to category, tag, author, and format archive pages that have no posts. Once posts are added to these archives, they will automatically be allowed for indexing. This prevents thin content pages from being indexed.</span>');
+                echo '<span class="description"><strong>Empty Archives:</strong> When checked, automatically adds noindex to category, tag, author, and format archive pages that have no posts. Once posts are added to these archives, they will automatically be allowed for indexing. This prevents thin content pages from being indexed.</span>';
             },
             $page_slug . '_seo-controls',
             $SECTION_SEO_CONTROLS
@@ -469,10 +470,10 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $index_date_archives = Metasync::get_option('seo_controls')['index_date_archives'] ?? 'false';
                 printf(
-                    '<input type="checkbox" id="index_date_archives" name="' . $option_key . '[seo_controls][index_date_archives]" value="true" %s />',
+                    '<input type="checkbox" id="index_date_archives" name="' . esc_attr($option_key) . '[seo_controls][index_date_archives]" value="true" %s />',
                     isset($index_date_archives) && $index_date_archives == 'true' ? 'checked' : ''
                 );
-                printf('<span class="description"><strong>Date Archives:</strong> When checked, prevents search engines from indexing date-based archive pages (e.g., /2024/01/, /2024/01/15/). These pages often have thin content and can dilute your site\'s SEO value. Recommended for most sites.</span>');
+                echo '<span class="description"><strong>Date Archives:</strong> When checked, prevents search engines from indexing date-based archive pages (e.g., /2024/01/, /2024/01/15/). These pages often have thin content and can dilute your site\'s SEO value. Recommended for most sites.</span>';
             },
             $page_slug . '_seo-controls',
             $SECTION_SEO_CONTROLS
@@ -484,10 +485,10 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $index_tag_archives = Metasync::get_option('seo_controls')['index_tag_archives'] ?? 'false';
                 printf(
-                    '<input type="checkbox" id="index_tag_archives" name="' . $option_key . '[seo_controls][index_tag_archives]" value="true" %s />',
+                    '<input type="checkbox" id="index_tag_archives" name="' . esc_attr($option_key) . '[seo_controls][index_tag_archives]" value="true" %s />',
                     isset($index_tag_archives) && $index_tag_archives == 'true' ? 'checked' : ''
                 );
-                printf('<span class="description"><strong>Tag Archives:</strong> When checked, prevents search engines from indexing tag archive pages (e.g., /tag/technology/). Useful if you have many low-quality tag pages or want to focus on category-based organization instead.</span>');
+                echo '<span class="description"><strong>Tag Archives:</strong> When checked, prevents search engines from indexing tag archive pages (e.g., /tag/technology/). Useful if you have many low-quality tag pages or want to focus on category-based organization instead.</span>';
             },
             $page_slug . '_seo-controls',
             $SECTION_SEO_CONTROLS
@@ -499,10 +500,10 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $index_author_archives = Metasync::get_option('seo_controls')['index_author_archives'] ?? 'false';
                 printf(
-                    '<input type="checkbox" id="index_author_archives" name="' . $option_key . '[seo_controls][index_author_archives]" value="true" %s />',
+                    '<input type="checkbox" id="index_author_archives" name="' . esc_attr($option_key) . '[seo_controls][index_author_archives]" value="true" %s />',
                     isset($index_author_archives) && $index_author_archives == 'true' ? 'checked' : ''
                 );
-                printf('<span class="description"><strong>Author Archives:</strong> When checked, prevents search engines from indexing author archive pages (e.g., /author/john-doe/). Recommended for single-author sites or when author pages don\'t provide unique value. Multi-author sites may want to keep this unchecked.</span>');
+                echo '<span class="description"><strong>Author Archives:</strong> When checked, prevents search engines from indexing author archive pages (e.g., /author/john-doe/). Recommended for single-author sites or when author pages don\'t provide unique value. Multi-author sites may want to keep this unchecked.</span>';
             },
             $page_slug . '_seo-controls',
             $SECTION_SEO_CONTROLS
@@ -514,10 +515,10 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $index_format_archives = Metasync::get_option('seo_controls')['index_format_archives'] ?? 'false';
                 printf(
-                    '<input type="checkbox" id="index_format_archives" name="' . $option_key . '[seo_controls][index_format_archives]" value="true" %s />',
+                    '<input type="checkbox" id="index_format_archives" name="' . esc_attr($option_key) . '[seo_controls][index_format_archives]" value="true" %s />',
                     isset($index_format_archives) && $index_format_archives == 'true' ? 'checked' : ''
                 );
-                printf('<span class="description"><strong>Format Archives:</strong> When checked, prevents search engines from indexing post format archive pages (e.g., /type/aside/, /type/gallery/). These are rarely useful for SEO and can create duplicate content issues. Recommended for most sites.</span>');
+                echo '<span class="description"><strong>Format Archives:</strong> When checked, prevents search engines from indexing post format archive pages (e.g., /type/aside/, /type/gallery/). These are rarely useful for SEO and can create duplicate content issues. Recommended for most sites.</span>';
             },
             $page_slug . '_seo-controls',
             $SECTION_SEO_CONTROLS
@@ -529,10 +530,10 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $index_category_archives = Metasync::get_option('seo_controls')['index_category_archives'] ?? 'false';
                 printf(
-                    '<input type="checkbox" id="index_category_archives" name="' . $option_key . '[seo_controls][index_category_archives]" value="true" %s />',
+                    '<input type="checkbox" id="index_category_archives" name="' . esc_attr($option_key) . '[seo_controls][index_category_archives]" value="true" %s />',
                     isset($index_category_archives) && $index_category_archives == 'true' ? 'checked' : ''
                 );
-                printf('<span class="description"><strong>Category Archives:</strong> When checked, prevents search engines from indexing category archive pages (e.g., /category/news/). This may be useful if your category pages have thin content or if you want to consolidate SEO value on main pages instead. Use with caution as category pages can be valuable for site organization.</span>');
+                echo '<span class="description"><strong>Category Archives:</strong> When checked, prevents search engines from indexing category archive pages (e.g., /category/news/). This may be useful if your category pages have thin content or if you want to consolidate SEO value on main pages instead. Use with caution as category pages can be valuable for site organization.</span>';
             },
             $page_slug . '_seo-controls',
             $SECTION_SEO_CONTROLS
@@ -544,7 +545,7 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $add_nofollow_to_external_links = Metasync::get_option('seo_controls')['add_nofollow_to_external_links'] ?? 'false';
                 printf(
-                    '<input type="checkbox" id="add_nofollow_to_external_links" name="' . $option_key . '[seo_controls][add_nofollow_to_external_links]" value="true" %s />',
+                    '<input type="checkbox" id="add_nofollow_to_external_links" name="' . esc_attr($option_key) . '[seo_controls][add_nofollow_to_external_links]" value="true" %s />',
                     isset($add_nofollow_to_external_links) && $add_nofollow_to_external_links == 'true' ? 'checked' : ''
                 );
                 printf('<span class="description"><strong>No-follow External Links:</strong> When checked, automatically adds <code>rel="nofollow"</code> attribute to all external links appearing in posts, pages, and other post types when rendered by %s. This tells search engines not to follow these links, which can help preserve your site\'s SEO value and prevent passing link juice to external sites.</span>', esc_html(Metasync::get_whitelabel_otto_name()));
@@ -572,10 +573,10 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $override_robots_tags = Metasync::get_option('seo_controls')['override_robots_tags'] ?? 'false';
                 printf(
-                    '<input type="checkbox" id="override_robots_tags" name="' . $option_key . '[seo_controls][override_robots_tags]" value="true" %s />',
+                    '<input type="checkbox" id="override_robots_tags" name="' . esc_attr($option_key) . '[seo_controls][override_robots_tags]" value="true" %s />',
                     isset($override_robots_tags) && $override_robots_tags == 'true' ? 'checked' : ''
                 );
-                printf('<span class="description"><strong>Override Robots Tags:</strong> When checked, ' . Metasync_Settings_Registration::instance()->get_effective_menu_title() . ' will take precedence over robots meta tags from other SEO plugins (Yoast, Rank Math, All in One SEO, etc.). This removes their noindex tags when you want to allow indexing on archive pages. Only enable this if other plugins are conflicting with your indexation settings.</span>');
+                echo '<span class="description"><strong>Override Robots Tags:</strong> When checked, ' . esc_html(Metasync_Settings_Registration::instance()->get_effective_menu_title()) . ' will take precedence over robots meta tags from other SEO plugins (Yoast, Rank Math, All in One SEO, etc.). This removes their noindex tags when you want to allow indexing on archive pages. Only enable this if other plugins are conflicting with your indexation settings.</span>';
             },
             $page_slug . '_seo-controls',
             $SECTION_SEO_CONTROLS_ADVANCED
@@ -600,11 +601,11 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $enable_googleinstantindex = Metasync::get_option('seo_controls')['enable_googleinstantindex'] ?? 'false';
                 printf(
-                    '<input type="checkbox" id="enable_googleinstantindex" name="' . $option_key . '[seo_controls][enable_googleinstantindex]" value="true" %s />',
+                    '<input type="checkbox" id="enable_googleinstantindex" name="' . esc_attr($option_key) . '[seo_controls][enable_googleinstantindex]" value="true" %s />',
                     isset($enable_googleinstantindex) && $enable_googleinstantindex == 'true' ? 'checked' : ''
                 );
                 Metasync::render_tooltip_icon('enable_googleinstantindex', 'Turns on direct URL submission to Google. It only works after you add a service-account key below and verify your site in Search Console — set those up first.');
-                printf('<span class="description" style="margin-left:8px;"><strong>Enable Instant Indexing:</strong> When checked, enables the Google Instant Indexing feature which allows you to submit URLs directly to Google for faster indexing. Configure it in the Google Instant Indexing section below.</span>');
+                echo '<span class="description" style="margin-left:8px;"><strong>Enable Instant Indexing:</strong> When checked, enables the Google Instant Indexing feature which allows you to submit URLs directly to Google for faster indexing. Configure it in the Google Instant Indexing section below.</span>';
             },
             $page_slug . '_seo-controls',
             $SECTION_SEO_CONTROLS_INSTANT_INDEX
@@ -647,11 +648,11 @@ class Metasync_Settings_Registration
                 }
 
                 printf(
-                    '<input type="checkbox" id="enable_binginstantindex" name="' . $option_key . '[seo_controls][enable_binginstantindex]" value="true" %s %s />',
+                    '<input type="checkbox" id="enable_binginstantindex" name="' . esc_attr($option_key) . '[seo_controls][enable_binginstantindex]" value="true" %s %s />',
                     isset($enable_binginstantindex) && $enable_binginstantindex == 'true' ? 'checked' : '',
                     $has_api_key ? 'data-auto-enabled="true"' : ''
                 );
-                printf('<span class="description"><strong>Enable Bing Instant Indexing:</strong> Automatically enabled when you configure an API key below. When enabled, this activates the IndexNow protocol to instantly notify Bing, Yandex, and other search engines about URL changes.</span>');
+                echo '<span class="description"><strong>Enable Bing Instant Indexing:</strong> Automatically enabled when you configure an API key below. When enabled, this activates the IndexNow protocol to instantly notify Bing, Yandex, and other search engines about URL changes.</span>';
             },
             $page_slug . '_seo-controls',
             'seo_controls_bing_instant_index'
@@ -694,7 +695,7 @@ class Metasync_Settings_Registration
             $whitelabel_otto_name . ' Pixel UUID',
             function() use ($option_key) {
                 $value = Metasync::get_option('general')['otto_pixel_uuid'] ?? '';   
-                printf('<input type="text" size="40" value = "'.esc_attr($value).'" name="' . $option_key . '[general][otto_pixel_uuid]"/>');
+                echo '<input type="text" size="40" value = "'.esc_attr($value).'" name="' . esc_attr($option_key) . '[general][otto_pixel_uuid]"/>';
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -708,10 +709,10 @@ class Metasync_Settings_Registration
             function() use ($whitelabel_otto_name, $option_key) {
                 $otto_disable_on_loggedin = Metasync::get_option('general')['otto_disable_on_loggedin'] ?? '';
                 printf(
-                    '<input type="checkbox" id="otto_disable_on_loggedin" name="' . $option_key . '[general][otto_disable_on_loggedin]" value="true" %s />',
+                    '<input type="checkbox" id="otto_disable_on_loggedin" name="' . esc_attr($option_key) . '[general][otto_disable_on_loggedin]" value="true" %s />',
                     isset($otto_disable_on_loggedin) && $otto_disable_on_loggedin == 'true' ? 'checked' : ''
                 );
-                printf('<span class="description"> This disables '.$whitelabel_otto_name.' when logged in to allow editing original page contents</span>');
+                echo '<span class="description"> This disables '.esc_html($whitelabel_otto_name).' when logged in to allow editing original page contents</span>';
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -724,7 +725,7 @@ class Metasync_Settings_Registration
             function() use ($whitelabel_otto_name, $option_key) {
                 $otto_disable_toolbar = Metasync::get_option('general')['otto_disable_preview_button'] ?? false;
                 printf(
-                    '<input type="checkbox" id="otto_disable_preview_button" name="' . $option_key . '[general][otto_disable_preview_button]" value="true" %s />',
+                    '<input type="checkbox" id="otto_disable_preview_button" name="' . esc_attr($option_key) . '[general][otto_disable_preview_button]" value="true" %s />',
                     filter_var($otto_disable_toolbar, FILTER_VALIDATE_BOOLEAN) ? 'checked' : ''
                 );
                 printf('<span class="description"> Hide the entire frontend toolbar (status indicator, preview button, and debug button) on the frontend. %s functionality will still work, but the toolbar controls will be hidden.</span>', esc_html($whitelabel_otto_name));
@@ -745,17 +746,17 @@ class Metasync_Settings_Registration
         # untouched. Applies to the SEO title and meta description only.
         add_settings_field(
             'seo_priority',
-            'SEO Title &amp; Description Priority',
+            'SEO Title & Description Priority',
             function() use ($whitelabel_otto_name, $option_key) {
                 $seo_priority = Metasync::get_option('general')['seo_priority'] ?? '';
                 $checked = $seo_priority === Metasync_Seo_Precedence::PRIORITY_OTTO ? 'checked' : '';
-                $name    = esc_attr($option_key) . '[general][seo_priority]';
+                $name    = $option_key . '[general][seo_priority]';
 
                 echo '<div class="metasync-seo-priority-control">';
                 printf(
                     '<label for="seo_priority"><input type="checkbox" id="seo_priority" name="%s" value="otto" %s /> <strong>Prioritize approved %s values</strong></label>',
-                    $name,
-                    $checked,
+                    esc_attr($name),
+                    esc_attr($checked),
                     esc_html($whitelabel_otto_name)
                 );
                 printf(
@@ -776,7 +777,7 @@ class Metasync_Settings_Registration
                 $value = Metasync::get_option('general')['otto_wp_rocket_compat'] ?? 'auto';
                 $wp_rocket_active = class_exists('WP_Rocket');
 
-                echo '<select id="otto_wp_rocket_compat" name="' . $option_key . '[general][otto_wp_rocket_compat]">';
+                echo '<select id="otto_wp_rocket_compat" name="' . esc_attr($option_key) . '[general][otto_wp_rocket_compat]">';
                 echo '<option value="auto"' . selected($value, 'auto', false) . '>Auto (Recommended)</option>';
                 echo '<option value="buffer"' . selected($value, 'buffer', false) . '>Buffer Mode (Faster)</option>';
                 echo '<option value="http"' . selected($value, 'http', false) . '>HTTP Mode (Safer)</option>';
@@ -806,7 +807,7 @@ class Metasync_Settings_Registration
                 $value = Metasync::get_option('general')['otto_sg_optimizer_compat'] ?? 'auto';
                 $sg_optimizer_active = defined('SiteGround_Optimizer\VERSION') || class_exists('SiteGround_Optimizer\Parser\Parser');
 
-                echo '<select id="otto_sg_optimizer_compat" name="' . $option_key . '[general][otto_sg_optimizer_compat]">';
+                echo '<select id="otto_sg_optimizer_compat" name="' . esc_attr($option_key) . '[general][otto_sg_optimizer_compat]">';
                 echo '<option value="auto"' . selected($value, 'auto', false) . '>Auto (Recommended)</option>';
                 echo '<option value="buffer"' . selected($value, 'buffer', false) . '>Buffer Mode (Faster)</option>';
                 echo '<option value="http"' . selected($value, 'http', false) . '>HTTP Mode (Safer)</option>';
@@ -838,7 +839,7 @@ class Metasync_Settings_Registration
                 function() use ($option_key) {
                     $value = Metasync::get_option('general')['bookingpress_session_compat'] ?? 'auto';
 
-                    echo '<select id="bookingpress_session_compat" name="' . $option_key . '[general][bookingpress_session_compat]">';
+                    echo '<select id="bookingpress_session_compat" name="' . esc_attr($option_key) . '[general][bookingpress_session_compat]">';
                     echo '<option value="auto"' . selected($value, 'auto', false) . '>Auto (Recommended)</option>';
                     echo '<option value="off"' . selected($value, 'off', false) . '>Disabled</option>';
                     echo '</select>';
@@ -868,7 +869,7 @@ class Metasync_Settings_Registration
             function() use ($whitelabel_otto_name, $option_key) {
                 $otto_disable_for_bots = Metasync::get_option('general')['otto_disable_for_bots'] ?? false;
                 printf(
-                    '<input type="checkbox" id="otto_disable_for_bots" name="' . $option_key . '[general][otto_disable_for_bots]" value="true" %s />',
+                    '<input type="checkbox" id="otto_disable_for_bots" name="' . esc_attr($option_key) . '[general][otto_disable_for_bots]" value="true" %s />',
                     filter_var($otto_disable_for_bots, FILTER_VALIDATE_BOOLEAN) ? 'checked' : ''
                 );
                 printf('<span class="description"> Skip %s processing for detected bots (search engines, crawlers, SEO tools) to reduce unnecessary API calls. View bot statistics in the Bot Statistics page under the SEO dropdown.</span>', esc_html($whitelabel_otto_name));
@@ -884,7 +885,7 @@ class Metasync_Settings_Registration
             function() use ($whitelabel_otto_name, $option_key) {
                 $otto_bot_whitelist = Metasync::get_option('general')['otto_bot_whitelist'] ?? '';
                 printf(
-                    '<textarea id="otto_bot_whitelist" name="' . $option_key . '[general][otto_bot_whitelist]" rows="5" cols="50" style="width: 100%%; max-width: 500px; font-family: monospace;">%s</textarea>',
+                    '<textarea id="otto_bot_whitelist" name="' . esc_attr($option_key) . '[general][otto_bot_whitelist]" rows="5" cols="50" style="width: 100%%; max-width: 500px; font-family: monospace;">%s</textarea>',
                     esc_textarea($otto_bot_whitelist)
                 );
                 echo '<p class="description">';
@@ -905,7 +906,7 @@ class Metasync_Settings_Registration
             function() use ($whitelabel_otto_name, $option_key) {
                 $otto_bot_blacklist = Metasync::get_option('general')['otto_bot_blacklist'] ?? '';
                 printf(
-                    '<textarea id="otto_bot_blacklist" name="' . $option_key . '[general][otto_bot_blacklist]" rows="5" cols="50" style="width: 100%%; max-width: 500px; font-family: monospace;">%s</textarea>',
+                    '<textarea id="otto_bot_blacklist" name="' . esc_attr($option_key) . '[general][otto_bot_blacklist]" rows="5" cols="50" style="width: 100%%; max-width: 500px; font-family: monospace;">%s</textarea>',
                     esc_textarea($otto_bot_blacklist)
                 );
                 echo '<p class="description">';
@@ -929,7 +930,7 @@ class Metasync_Settings_Registration
                     '<a href="%s" class="button button-secondary"><span class="dashicons dashicons-chart-bar" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> View Bot Statistics</a>',
                     esc_url(admin_url('admin.php?page=' . $page_slug . '-bot-statistics'))
                 );
-                printf('<p class="description">View detailed bot detection statistics, breakdown by bot type, and unique bot entries with hit counts.</p>');
+                echo '<p class="description">View detailed bot detection statistics, breakdown by bot type, and unique bot entries with hit counts.</p>';
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -942,20 +943,18 @@ class Metasync_Settings_Registration
             'Clear Page Cache',
             function() use ($option_key) {
                 $periodic_clear_ottopage_cache = Metasync::get_option('general')['periodic_clear_ottopage_cache'] ?? 'default';
-                printf('<select style = "width : 250px" name="' . $option_key . '[general][periodic_clear_ottopage_cache]" id="heading_style">');
-                printf('<option value="24" '. selected($periodic_clear_ottopage_cache, '24', false) . '>Clear Daily</option>');
-                printf('<option value="36" '. selected($periodic_clear_ottopage_cache, '36', false) . '>Clear Every 2 days</option>');
-                printf('<option value="40" '. selected($periodic_clear_ottopage_cache, '40', false) . '>Clear Weekly</option>');
-                printf('<option value="0"'.selected($periodic_clear_ottopage_cache, '0', false).'>Clear Monthly (Default)</option>');
-                printf('</select>'); 
+                echo '<select style = "width : 250px" name="' . esc_attr($option_key) . '[general][periodic_clear_ottopage_cache]" id="heading_style">';
+                echo '<option value="24" '. selected($periodic_clear_ottopage_cache, '24', false) . '>Clear Daily</option>';
+                echo '<option value="36" '. selected($periodic_clear_ottopage_cache, '36', false) . '>Clear Every 2 days</option>';
+                echo '<option value="40" '. selected($periodic_clear_ottopage_cache, '40', false) . '>Clear Weekly</option>';
+                echo '<option value="0"'.selected($periodic_clear_ottopage_cache, '0', false).'>Clear Monthly (Default)</option>';
+                echo '</select>';
 
                 # get last cleared timestamp
                 $timestamp = get_option('metasync_refresh_all_caches')['pages'] ?? false;
                 
                 if($timestamp > 0){
-                    printf(
-                        '<p class="descriptionValue">last Cleared : '.date('y-m-d H:i:s', $timestamp).'</p>'
-                    );
+                    echo '<p class="descriptionValue">last Cleared : '.esc_html(gmdate('y-m-d H:i:s', $timestamp)).'</p>';
                 }
 
             },
@@ -968,20 +967,18 @@ class Metasync_Settings_Registration
             'Clear Post Cache',
             function() use ($option_key) {
                 $periodic_clear_ottopost_cache = Metasync::get_option('general')['periodic_clear_ottopost_cache'] ?? 'default';
-                printf('<select style = "width : 250px" name="' . $option_key . '[general][periodic_clear_ottopost_cache]" id="heading_style">');
-                printf('<option value="24" '. selected($periodic_clear_ottopost_cache, '24', false) . '>Clear Daily</option>');
-                printf('<option value="36" '. selected($periodic_clear_ottopost_cache, '36', false) . '>Clear Every 2 days</option>');
-                printf('<option value="40" '. selected($periodic_clear_ottopost_cache, '40', false) . '>Clear Weekly</option>');
-                printf('<option value="0"'.selected($periodic_clear_ottopost_cache, '0', false).'>Clear Monthly (Default)</option>');
-                printf('</select>'); 
+                echo '<select style = "width : 250px" name="' . esc_attr($option_key) . '[general][periodic_clear_ottopost_cache]" id="heading_style">';
+                echo '<option value="24" '. selected($periodic_clear_ottopost_cache, '24', false) . '>Clear Daily</option>';
+                echo '<option value="36" '. selected($periodic_clear_ottopost_cache, '36', false) . '>Clear Every 2 days</option>';
+                echo '<option value="40" '. selected($periodic_clear_ottopost_cache, '40', false) . '>Clear Weekly</option>';
+                echo '<option value="0"'.selected($periodic_clear_ottopost_cache, '0', false).'>Clear Monthly (Default)</option>';
+                echo '</select>';
 
                 # get last cleared timestamp
                 $timestamp = get_option('metasync_refresh_all_caches')['posts'] ?? false;
                 
                 if($timestamp > 0){
-                    printf(
-                        '<p class="descriptionValue">last Cleared : '.date('y-m-d H:i:s', $timestamp).'</p>'
-                    );
+                    echo '<p class="descriptionValue">last Cleared : '.esc_html(gmdate('y-m-d H:i:s', $timestamp)).'</p>';
                 }
             },
             $page_slug . '_otto_cache',
@@ -993,20 +990,18 @@ class Metasync_Settings_Registration
             'Clear all cache',
             function() use ($option_key) {
                 $periodic_clear_otto_cache = Metasync::get_option('general')['periodic_clear_otto_cache'] ?? 'default';
-                printf('<select style = "width : 250px" name="' . $option_key . '[general][periodic_clear_otto_cache]" id="heading_style">');
-                printf('<option value="24" '. selected($periodic_clear_otto_cache, '24', false) . '>Clear Daily</option>');
-                printf('<option value="36" '. selected($periodic_clear_otto_cache, '36', false) . '>Clear Every 2 days</option>');
-                printf('<option value="40" '. selected($periodic_clear_otto_cache, '40', false) . '>Clear Weekly</option>');
-                printf('<option value="0"'.selected($periodic_clear_otto_cache, '0', false).'>Clear Monthly (Default)</option>');
-                printf('</select>'); 
+                echo '<select style = "width : 250px" name="' . esc_attr($option_key) . '[general][periodic_clear_otto_cache]" id="heading_style">';
+                echo '<option value="24" '. selected($periodic_clear_otto_cache, '24', false) . '>Clear Daily</option>';
+                echo '<option value="36" '. selected($periodic_clear_otto_cache, '36', false) . '>Clear Every 2 days</option>';
+                echo '<option value="40" '. selected($periodic_clear_otto_cache, '40', false) . '>Clear Weekly</option>';
+                echo '<option value="0"'.selected($periodic_clear_otto_cache, '0', false).'>Clear Monthly (Default)</option>';
+                echo '</select>';
 
                 # get last cleared timestamp
                 $timestamp = get_option('metasync_refresh_all_caches')['general'] ?? false;
                 
                 if($timestamp > 0){
-                    printf(
-                        '<p class="descriptionValue">last Cleared : '.date('y-m-d H:i:s', $timestamp).'</p>'
-                    );
+                    echo '<p class="descriptionValue">last Cleared : '.esc_html(gmdate('y-m-d H:i:s', $timestamp)).'</p>';
                 }
 
             },
@@ -1023,10 +1018,10 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $disabled = Metasync::get_option('general')['disable_common_robots_metabox'] ?? false;
                 printf(
-                    '<input type="checkbox" id="disable_common_robots_metabox" name="' . $option_key . '[general][disable_common_robots_metabox]" value="1" %s />',
+                    '<input type="checkbox" id="disable_common_robots_metabox" name="' . esc_attr($option_key) . '[general][disable_common_robots_metabox]" value="1" %s />',
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Common Robots meta box and stop %1$s emitting index/follow robots directives on the front end. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', Metasync::get_effective_plugin_name('MetaSync'));
+                printf('<span class="description"> Hide the Common Robots meta box and stop %1$s emitting index/follow robots directives on the front end. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', esc_html(Metasync::get_effective_plugin_name('MetaSync')));
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1038,10 +1033,10 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $disabled = Metasync::get_option('general')['disable_advance_robots_metabox'] ?? false;
                 printf(
-                    '<input type="checkbox" id="disable_advance_robots_metabox" name="' . $option_key . '[general][disable_advance_robots_metabox]" value="1" %s />',
+                    '<input type="checkbox" id="disable_advance_robots_metabox" name="' . esc_attr($option_key) . '[general][disable_advance_robots_metabox]" value="1" %s />',
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Advance Robots meta box and stop %1$s emitting max-snippet, max-image-preview and max-video-preview directives. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', Metasync::get_effective_plugin_name('MetaSync'));
+                printf('<span class="description"> Hide the Advance Robots meta box and stop %1$s emitting max-snippet, max-image-preview and max-video-preview directives. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', esc_html(Metasync::get_effective_plugin_name('MetaSync')));
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1053,10 +1048,10 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $disabled = Metasync::get_option('general')['disable_redirection_metabox'] ?? false;
                 printf(
-                    '<input type="checkbox" id="disable_redirection_metabox" name="' . $option_key . '[general][disable_redirection_metabox]" value="1" %s />',
+                    '<input type="checkbox" id="disable_redirection_metabox" name="' . esc_attr($option_key) . '[general][disable_redirection_metabox]" value="1" %s />',
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Redirection meta box and stop redirects created by it from running. Rules added on the Redirections screen are unaffected. Saved redirects are kept.</span>');
+                echo '<span class="description"> Hide the Redirection meta box and stop redirects created by it from running. Rules added on the Redirections screen are unaffected. Saved redirects are kept.</span>';
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1068,10 +1063,10 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $disabled = Metasync::get_option('general')['disable_canonical_metabox'] ?? false;
                 printf(
-                    '<input type="checkbox" id="disable_canonical_metabox" name="' . $option_key . '[general][disable_canonical_metabox]" value="1" %s />',
+                    '<input type="checkbox" id="disable_canonical_metabox" name="' . esc_attr($option_key) . '[general][disable_canonical_metabox]" value="1" %s />',
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Canonical meta box and stop %1$s emitting or overriding the canonical URL. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', Metasync::get_effective_plugin_name('MetaSync'));
+                printf('<span class="description"> Hide the Canonical meta box and stop %1$s emitting or overriding the canonical URL. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', esc_html(Metasync::get_effective_plugin_name('MetaSync')));
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1083,10 +1078,10 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $disabled = Metasync::get_option('general')['disable_social_opengraph_metabox'] ?? false;
                 printf(
-                    '<input type="checkbox" id="disable_social_opengraph_metabox" name="' . $option_key . '[general][disable_social_opengraph_metabox]" value="1" %s />',
+                    '<input type="checkbox" id="disable_social_opengraph_metabox" name="' . esc_attr($option_key) . '[general][disable_social_opengraph_metabox]" value="1" %s />',
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Social Media &amp; Open Graph meta box and stop %1$s emitting Open Graph and Twitter tags. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', Metasync::get_effective_plugin_name('MetaSync'));
+                printf('<span class="description"> Hide the Social Media &amp; Open Graph meta box and stop %1$s emitting Open Graph and Twitter tags. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', esc_html(Metasync::get_effective_plugin_name('MetaSync')));
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1098,10 +1093,10 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $disabled = Metasync::get_option('general')['disable_schema_markup_metabox'] ?? false;
                 printf(
-                    '<input type="checkbox" id="disable_schema_markup_metabox" name="' . $option_key . '[general][disable_schema_markup_metabox]" value="1" %s />',
+                    '<input type="checkbox" id="disable_schema_markup_metabox" name="' . esc_attr($option_key) . '[general][disable_schema_markup_metabox]" value="1" %s />',
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Schema Markup meta box and stop %1$s emitting any JSON-LD, including site-wide Local SEO markup. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', Metasync::get_effective_plugin_name('MetaSync'));
+                printf('<span class="description"> Hide the Schema Markup meta box and stop %1$s emitting any JSON-LD, including site-wide Local SEO markup. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', esc_html(Metasync::get_effective_plugin_name('MetaSync')));
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1113,10 +1108,10 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $disabled = Metasync::get_option('general')['disable_language_alternates_metabox'] ?? false;
                 printf(
-                    '<input type="checkbox" id="disable_language_alternates_metabox" name="' . $option_key . '[general][disable_language_alternates_metabox]" value="1" %s />',
+                    '<input type="checkbox" id="disable_language_alternates_metabox" name="' . esc_attr($option_key) . '[general][disable_language_alternates_metabox]" value="1" %s />',
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Language Alternates (hreflang) panel in the block editor and stop %1$s emitting any %2$slink rel=&quot;alternate&quot; hreflang%3$s tags on the front end, including the auto-detected WPML entries. While disabled, %1$s does not manage or override this data — another SEO plugin, or WPML itself, is free to handle it. Saved values are kept and restored if you re-enable this.</span>', Metasync::get_effective_plugin_name('MetaSync'), '&lt;', '&gt;');
+                printf('<span class="description"> Hide the Language Alternates (hreflang) panel in the block editor and stop %1$s emitting any %2$slink rel=&quot;alternate&quot; hreflang%3$s tags on the front end, including the auto-detected WPML entries. While disabled, %1$s does not manage or override this data — another SEO plugin, or WPML itself, is free to handle it. Saved values are kept and restored if you re-enable this.</span>', esc_html(Metasync::get_effective_plugin_name('MetaSync')), '&lt;', '&gt;');
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1128,10 +1123,10 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $disabled = Metasync::get_option('general')['disable_seo_metabox'] ?? false;
                 printf(
-                    '<input type="checkbox" id="disable_seo_metabox" name="' . $option_key . '[general][disable_seo_metabox]" value="1" %s />',
+                    '<input type="checkbox" id="disable_seo_metabox" name="' . esc_attr($option_key) . '[general][disable_seo_metabox]" value="1" %s />',
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the SEO Title & Meta Description meta box on post/page edit screens</span>');
+                echo '<span class="description"> Hide the SEO Title & Meta Description meta box on post/page edit screens</span>';
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1143,7 +1138,7 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $enabled = Metasync::get_option('general')['open_external_links'] ?? false;
                 printf(
-                    '<input type="checkbox" id="open_external_links" name="' . $option_key . '[general][open_external_links]" value="1" %s />',
+                    '<input type="checkbox" id="open_external_links" name="' . esc_attr($option_key) . '[general][open_external_links]" value="1" %s />',
                     $enabled ? 'checked' : ''
                 );
                 printf('<span class="description"> Automatically add <code>target="_blank"</code> attribute to external links appearing in your posts, pages, and other post types when rendered by %s. The attribute is applied when the url is displayed.</span>', esc_html(Metasync::get_whitelabel_otto_name()));
@@ -1161,9 +1156,9 @@ class Metasync_Settings_Registration
                 $current_rewrite_rules = get_option('rewrite_rules');
                 // Check if the current permalink structure is set to "Plain"
                 if (($current_permalink_structure == '/%post_id%/' || $current_permalink_structure == '') && $current_rewrite_rules == '') {
-                    printf('<span class="description" style="color:#ff0000;opacity:1;">To ensure compatibility, Please Update your Permalink structure to any option other than "plain. For any Inquiries contact support <a href="' . get_admin_url() . 'options-permalink.php">Check Setting</a> </span>');
+                    echo '<span class="description" style="color:#ff0000;opacity:1;">To ensure compatibility, Please Update your Permalink structure to any option other than "plain. For any Inquiries contact support <a href="' . esc_url(get_admin_url() . 'options-permalink.php') . '">Check Setting</a> </span>';
                 } else {
-                    printf('<span class="description" style="color:#008000;opacity:1;">Permalink is Okay </span>');
+                    echo '<span class="description" style="color:#008000;opacity:1;">Permalink is Okay </span>';
                 }
             },
             $page_slug . '_general',
@@ -1177,7 +1172,7 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $hide_dashboard = Metasync::get_option('general')['hide_dashboard_framework'] ?? '';
                 printf(
-                    '<input type="checkbox" id="hide_dashboard_framework" name="' . $option_key . '[general][hide_dashboard_framework]" value="true" %s />',
+                    '<input type="checkbox" id="hide_dashboard_framework" name="' . esc_attr($option_key) . '[general][hide_dashboard_framework]" value="true" %s />',
                     isset($hide_dashboard) && $hide_dashboard == 'true' ? 'checked' : ''
                 );
                 printf('<span class="description"> Hide the %s dashboard</span>', esc_html(Metasync_Settings_Registration::instance()->get_effective_menu_title()));
@@ -1195,26 +1190,10 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $show_admin_bar = Metasync::get_option('general')['show_admin_bar_status'] ?? true;
                 printf(
-                    '<input type="checkbox" id="show_admin_bar_status" name="' . $option_key . '[general][show_admin_bar_status]" value="true" %s />',
+                    '<input type="checkbox" id="show_admin_bar_status" name="' . esc_attr($option_key) . '[general][show_admin_bar_status]" value="true" %s />',
                     $show_admin_bar ? 'checked' : ''
                 );
                 printf('<span class="description">Show the %s status indicator in the WordPress admin bar.</span>', esc_html(Metasync::get_effective_plugin_name()));
-            },
-            $page_slug . '_general',
-            $SECTION_METASYNC
-        );
-
-        # Adding the "Enable Auto-updates" setting
-        add_settings_field(
-            'enable_auto_updates',
-            'Enable Automatic Updates',
-            function() use ($option_key) {
-                $enable_auto_updates = Metasync::get_option('general')['enable_auto_updates'] ?? false;
-                printf(
-                    '<input type="checkbox" id="enable_auto_updates" name="' . $option_key . '[general][enable_auto_updates]" value="true" %s />',
-                    $enable_auto_updates ? 'checked' : ''
-                );
-                printf('<span class="description">Allow WordPress to automatically update this plugin when new versions are available.</span>');
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1323,7 +1302,7 @@ class Metasync_Settings_Registration
 
                 foreach ($builders as $key => $builder) {
                     $is_detected = $builder['detected'];
-                    $label = esc_html($builder['label']);
+                    $label = $builder['label'];
                     if ($is_detected && $key !== 'gutenberg') {
                         $label .= ' — Detected';
                     } elseif (!$is_detected) {
@@ -1337,7 +1316,7 @@ class Metasync_Settings_Registration
                         esc_attr($key),
                         selected(empty($current) ? 'gutenberg' : $current, $key, false),
                         $is_detected ? '' : ' disabled',
-                        $label
+                        esc_html($label)
                     );
                 }
 
@@ -1388,7 +1367,7 @@ class Metasync_Settings_Registration
                     '<a href="%s" class="button button-secondary"><span class="dashicons dashicons-download" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Import from SEO Plugins</a>',
                     esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-import-external'))
                 );
-                printf('<p class="description">Import settings and data from other SEO plugins (Yoast, Rank Math, AIOSEO, etc).</p>');
+                echo '<p class="description">Import settings and data from other SEO plugins (Yoast, Rank Math, AIOSEO, etc).</p>';
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1405,8 +1384,8 @@ class Metasync_Settings_Registration
             'Plugin Name' . Metasync::get_tooltip_icon_html('wl_plugin_name_tooltip', 'The name shown for this plugin throughout the WordPress admin — menus, page titles, and system messages. Replace it with your own brand name (max 18 characters).'),
            function() use ($option_key) {
             $value = Metasync::get_option('general')['white_label_plugin_name'] ?? '';
-            printf('<input type="text" name="' . $option_key . '[general][white_label_plugin_name]" value="' . esc_attr($value) . '" maxlength="18" />');
-            printf('<p class="description">This name will be used for general plugin branding (WordPress menus, page titles, and system messages). Maximum 18 characters.</p>');
+            echo '<input type="text" name="' . esc_attr($option_key) . '[general][white_label_plugin_name]" value="' . esc_attr($value) . '" maxlength="18" />';
+            echo '<p class="description">This name will be used for general plugin branding (WordPress menus, page titles, and system messages). Maximum 18 characters.</p>';
            },
            $page_slug . '_branding',
                 $SECTION_METASYNC
@@ -1417,7 +1396,7 @@ class Metasync_Settings_Registration
                 'OTTO Name' . Metasync::get_tooltip_icon_html('wl_otto_name_tooltip', 'The name used wherever OTTO is mentioned in the plugin (e.g. "Enable [Name] Server Side Rendering"). Rename it to match your own product branding.'),
             function() use ($option_key) {
                 $value = Metasync::get_option('general')['whitelabel_otto_name'] ?? '';
-                printf('<input type="text" name="' . $option_key . '[general][whitelabel_otto_name]" value="' . esc_attr($value) . '" />');
+                echo '<input type="text" name="' . esc_attr($option_key) . '[general][whitelabel_otto_name]" value="' . esc_attr($value) . '" />';
                 $example_name = !empty($value) ? $value : 'OTTO';
                 printf('<p class="description">This name will be used for OTTO feature references (e.g., "Enable %s Server Side Rendering").</p>', esc_html($example_name));
             },
@@ -1431,7 +1410,7 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $whitelabel_settings = Metasync::get_whitelabel_settings();
                 $value = $whitelabel_settings['logo_light'] ?? '';
-                printf('<input type="url" name="' . $option_key . '[whitelabel][logo_light]" value="' . esc_attr($value) . '" size="60" />');
+                echo '<input type="url" name="' . esc_attr($option_key) . '[whitelabel][logo_light]" value="' . esc_attr($value) . '" size="60" />';
                 printf('<p class="description">Displayed when the admin UI is in light mode. Leave blank to use the default %s logo.</p>', esc_html(Metasync::get_effective_plugin_name()));
             },
             $page_slug . '_branding',
@@ -1444,7 +1423,7 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $whitelabel_settings = Metasync::get_whitelabel_settings();
                 $value = $whitelabel_settings['logo_dark'] ?? '';
-                printf('<input type="url" name="' . $option_key . '[whitelabel][logo_dark]" value="' . esc_attr($value) . '" size="60" />');
+                echo '<input type="url" name="' . esc_attr($option_key) . '[whitelabel][logo_dark]" value="' . esc_attr($value) . '" size="60" />';
                 printf('<p class="description">Displayed when the admin UI is in dark mode. Leave blank to use the default %s logo.</p>', esc_html(Metasync::get_effective_plugin_name()));
             },
             $page_slug . '_branding',
@@ -1457,8 +1436,8 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $whitelabel_settings = Metasync::get_whitelabel_settings();
                 $value = $whitelabel_settings['domain'] ?? '';
-                printf('<input type="url" name="' . $option_key . '[whitelabel][domain]" value="' . esc_attr($value) . '" size="60" />');
-                printf('<p class="description">Enter your whitelabel dashboard URL (e.g., https://yourdashboard.com). Used for branding purposes.</p>');
+                echo '<input type="url" name="' . esc_attr($option_key) . '[whitelabel][domain]" value="' . esc_attr($value) . '" size="60" />';
+                echo '<p class="description">Enter your whitelabel dashboard URL (e.g., https://yourdashboard.com). Used for branding purposes.</p>';
            },
            $page_slug . '_branding',
                 $SECTION_METASYNC
@@ -1468,7 +1447,7 @@ class Metasync_Settings_Registration
             'Plugin Description',
             function() use ($option_key) {
                 $value = Metasync::get_option('general')['white_label_plugin_description'] ?? '';   
-                printf('<input type="text" name="' . $option_key . '[general][white_label_plugin_description]" value="' . esc_attr($value) . '" />');      
+                echo '<input type="text" name="' . esc_attr($option_key) . '[general][white_label_plugin_description]" value="' . esc_attr($value) . '" />';
                },
             $page_slug . '_branding',
             $SECTION_METASYNC
@@ -1479,7 +1458,7 @@ class Metasync_Settings_Registration
             'Author',
            function() use ($option_key) {
             $value = Metasync::get_option('general')['white_label_plugin_author'] ?? '';   
-            printf('<input type="text" name="' . $option_key . '[general][white_label_plugin_author]" value="' . esc_attr($value) . '" />');  
+            echo '<input type="text" name="' . esc_attr($option_key) . '[general][white_label_plugin_author]" value="' . esc_attr($value) . '" />';
            },
             $page_slug . '_branding',
             $SECTION_METASYNC
@@ -1490,7 +1469,7 @@ class Metasync_Settings_Registration
             'Author URI',
             function() use ($option_key) {
                 $value = Metasync::get_option('general')['white_label_plugin_author_uri'] ?? '';   
-               # printf('<input type="text" name="' . $option_key . '[general][white_label_plugin_author_uri]" value="' . esc_attr($value) . '" />');
+               # printf('<input type="text" name="' . esc_attr($option_key) . '[general][white_label_plugin_author_uri]" value="' . esc_attr($value) . '" />');
                # Fixed printf usage
                 printf('<input type="text" name="%s" value="%s" />',  esc_attr($option_key . '[general][white_label_plugin_author_uri]'),  esc_attr($value) );
               
@@ -1503,7 +1482,7 @@ class Metasync_Settings_Registration
             'Plugin URI',
             function() use ($option_key) {
                 $value = Metasync::get_option('general')['white_label_plugin_uri'] ?? ''; // New option for Plugin URI
-                printf('<input type="text" name="' . $option_key . '[general][white_label_plugin_uri]" value="' . esc_attr($value) . '" />');
+                echo '<input type="text" name="' . esc_attr($option_key) . '[general][white_label_plugin_uri]" value="' . esc_attr($value) . '" />';
             },
             $page_slug . '_branding',
             $SECTION_METASYNC
@@ -1519,8 +1498,8 @@ class Metasync_Settings_Registration
                 'Menu Slug',
                 function() use ($option_key) {
                     $value = Metasync::get_option('general')['white_label_plugin_menu_slug'] ?? '';
-                    printf('<input type="text" name="' . $option_key . '[general][white_label_plugin_menu_slug]" value="' . esc_attr($value) . '" placeholder="hip-advanced-seo" />');
-                    printf('<p class="description">Short identifier for the plugin\'s admin URL &mdash; lowercase letters, numbers, and dashes only (e.g. <code>hip-advanced-seo</code>). Don\'t paste a full web address.</p>');
+                    echo '<input type="text" name="' . esc_attr($option_key) . '[general][white_label_plugin_menu_slug]" value="' . esc_attr($value) . '" placeholder="hip-advanced-seo" />';
+                    echo '<p class="description">Short identifier for the plugin\'s admin URL &mdash; lowercase letters, numbers, and dashes only (e.g. <code>hip-advanced-seo</code>). Don\'t paste a full web address.</p>';
                 },
                 $page_slug . '_branding',
                 $SECTION_METASYNC
@@ -1530,7 +1509,7 @@ class Metasync_Settings_Registration
                 'Menu Icon',
                 function() use ($option_key) {
                     $value = Metasync::get_option('general')['white_label_plugin_menu_icon'] ?? '';   
-                    echo '<input type="text" name="' . $option_key . '[general][white_label_plugin_menu_icon]" value="' . esc_attr($value) . '" />';
+                    echo '<input type="text" name="' . esc_attr($option_key) . '[general][white_label_plugin_menu_icon]" value="' . esc_attr($value) . '" />';
                 },
                 $page_slug . '_branding',
                 $SECTION_METASYNC
@@ -1547,20 +1526,20 @@ class Metasync_Settings_Registration
                 // Output radio button for Default Style.css active
               
                     printf(
-                        '<input type="radio" id="enable_default" name="' . $option_key . '[general][enabled_plugin_css]" value="default" %s />',
+                        '<input type="radio" id="enable_default" name="' . esc_attr($option_key) . '[general][enabled_plugin_css]" value="default" %s />',
                         ($enabled_plugin_css == 'default'||$enabled_plugin_css =='') ? 'checked' : ''
                     );
-                    printf('<label for="enable_default">Default</label><br>');
+                    echo '<label for="enable_default">Default</label><br>';
                 
         
                 // Output radio button for Metasync Style
                 printf(
-                    '<input type="radio" id="enable_metasync" name="' . $option_key . '[general][enabled_plugin_css]" value="metasync" %s  />',
+                    '<input type="radio" id="enable_metasync" name="' . esc_attr($option_key) . '[general][enabled_plugin_css]" value="metasync" %s  />',
                     ($enabled_plugin_css == 'metasync') ? 'checked' : ''
                 );
-                printf('<label for="enable_metasync">Metasync Style</label>');
+                echo '<label for="enable_metasync">Metasync Style</label>';
         
-                printf('<p class="description"> Choose the default page Style Sheet: Default or MetaSync.</p>');
+                echo '<p class="description"> Choose the default page Style Sheet: Default or MetaSync.</p>';
             },
             $page_slug . '_branding',
             $SECTION_METASYNC
@@ -1572,10 +1551,10 @@ class Metasync_Settings_Registration
             'Choose Elementor Font Style',
             function() use ($option_key) {
                 $enabled_elementor_plugin_css = Metasync::get_option('general')['enabled_elementor_plugin_css'] ?? 'default';
-                printf('<select name="' . $option_key . '[general][enabled_elementor_plugin_css]" id="heading_style">');
-                printf('<option value="default"'.selected($enabled_elementor_plugin_css, 'default', false).'>Default</option>');
-                printf('<option value="custom" '. selected($enabled_elementor_plugin_css, 'custom', false) . '>Custom</option>');
-                printf('</select>'); 
+                echo '<select name="' . esc_attr($option_key) . '[general][enabled_elementor_plugin_css]" id="heading_style">';
+                echo '<option value="default"'.selected($enabled_elementor_plugin_css, 'default', false).'>Default</option>';
+                echo '<option value="custom" '. selected($enabled_elementor_plugin_css, 'custom', false) . '>Custom</option>';
+                echo '</select>';
             },
             $page_slug . '_branding',
             $SECTION_METASYNC
@@ -1585,7 +1564,7 @@ class Metasync_Settings_Registration
             'Choose Elementor Font Color',
             function() use ($option_key) {
                 $enabled_elementor_plugin_css_color = Metasync::get_option('general')['enabled_elementor_plugin_css_color'] ?? '#000000';                          
-                printf('<input type="color" id="elementor_default_color_metasync" name="' . $option_key . '[general][enabled_elementor_plugin_css_color]" value="'.$enabled_elementor_plugin_css_color.'">');       
+                echo '<input type="color" id="elementor_default_color_metasync" name="' . esc_attr($option_key) . '[general][enabled_elementor_plugin_css_color]" value="'.esc_attr($enabled_elementor_plugin_css_color).'">';
             },
             $page_slug . '_branding',
             $SECTION_METASYNC
@@ -1598,8 +1577,8 @@ class Metasync_Settings_Registration
                 // Decrypted for display — this field only renders after the
                 // whitelabel password gate has been passed.
                 $value = Metasync::get_whitelabel_password();
-                printf('<input type="password" name="' . $option_key . '[whitelabel][settings_password]" value="' . esc_attr($value) . '" size="30" autocomplete="new-password" />');
-                printf('<p class="description">Set a custom password to protect the branding settings section.</p>');
+                echo '<input type="password" name="' . esc_attr($option_key) . '[whitelabel][settings_password]" value="' . esc_attr($value) . '" size="30" autocomplete="new-password" />';
+                echo '<p class="description">Set a custom password to protect the branding settings section.</p>';
             },
             $page_slug . '_branding',
             $SECTION_METASYNC
@@ -1612,8 +1591,8 @@ class Metasync_Settings_Registration
                 $whitelabel_settings = Metasync::get_whitelabel_settings();
                 $value = $whitelabel_settings['recovery_email'] ?? '';
                 $has_password = !empty($whitelabel_settings['settings_password']);
-                printf('<input type="email" name="' . $option_key . '[whitelabel][recovery_email]" value="' . esc_attr($value) . '" size="30" autocomplete="email" %s />', $has_password ? 'required' : '');
-                printf('<p class="description">Email address to receive password recovery. <strong>Required when password is set.</strong></p>');
+                printf('<input type="email" name="' . esc_attr($option_key) . '[whitelabel][recovery_email]" value="' . esc_attr($value) . '" size="30" autocomplete="email" %s />', $has_password ? 'required' : '');
+                echo '<p class="description">Email address to receive password recovery. <strong>Required when password is set.</strong></p>';
             },
             $page_slug . '_branding',
             $SECTION_METASYNC
@@ -1645,9 +1624,9 @@ class Metasync_Settings_Registration
                             <td><input type="url"  name="%s[whitelabel][quick_links][%d][url]"   value="%s" placeholder="https://…"  style="width:100%%" /></td>
                             <td style="text-align:center"><input type="checkbox" name="%s[whitelabel][quick_links][%d][external]" value="1" %s /></td>
                         </tr>',
-                        esc_attr($option_key), $i, $label,
-                        esc_attr($option_key), $i, $url,
-                        esc_attr($option_key), $i, checked($external, true, false)
+                        esc_attr($option_key), esc_attr($i), esc_attr($label),
+                        esc_attr($option_key), esc_attr($i), esc_attr($url),
+                        esc_attr($option_key), esc_attr($i), checked($external, true, false)
                     );
                 }
                 echo '</tbody></table>';
@@ -1676,7 +1655,7 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $schema = Metasync::get_option('schema') ?? [];
                 $value = $schema['org_name'] ?? '';
-                printf('<input type="text" name="' . $option_key . '[schema][org_name]" value="%s" size="40" placeholder="Your organization name" />', esc_attr($value));
+                printf('<input type="text" name="' . esc_attr($option_key) . '[schema][org_name]" value="%s" size="40" placeholder="Your organization name" />', esc_attr($value));
             },
             $schema_page,
             'metasync_schema_org'
@@ -1688,7 +1667,7 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $schema = Metasync::get_option('schema') ?? [];
                 $value = $schema['org_url'] ?? '';
-                printf('<input type="url" name="' . $option_key . '[schema][org_url]" value="%s" size="40" placeholder="https://example.com" />', esc_attr($value));
+                printf('<input type="url" name="' . esc_attr($option_key) . '[schema][org_url]" value="%s" size="40" placeholder="https://example.com" />', esc_attr($value));
             },
             $schema_page,
             'metasync_schema_org'
@@ -1700,7 +1679,7 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $schema = Metasync::get_option('schema') ?? [];
                 $value = $schema['org_logo'] ?? '';
-                printf('<input type="url" name="' . $option_key . '[schema][org_logo]" value="%s" size="40" placeholder="https://example.com/logo.png" />', esc_attr($value));
+                printf('<input type="url" name="' . esc_attr($option_key) . '[schema][org_logo]" value="%s" size="40" placeholder="https://example.com/logo.png" />', esc_attr($value));
             },
             $schema_page,
             'metasync_schema_org'
@@ -1712,7 +1691,7 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $schema = Metasync::get_option('schema') ?? [];
                 $value = $schema['org_contact_telephone'] ?? '';
-                printf('<input type="text" name="' . $option_key . '[schema][org_contact_telephone]" value="%s" size="30" placeholder="+1-555-1234" />', esc_attr($value));
+                printf('<input type="text" name="' . esc_attr($option_key) . '[schema][org_contact_telephone]" value="%s" size="30" placeholder="+1-555-1234" />', esc_attr($value));
             },
             $schema_page,
             'metasync_schema_org'
@@ -1724,7 +1703,7 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $schema = Metasync::get_option('schema') ?? [];
                 $value = $schema['org_contact_type'] ?? '';
-                printf('<input type="text" name="' . $option_key . '[schema][org_contact_type]" value="%s" size="30" placeholder="customer support" />', esc_attr($value));
+                printf('<input type="text" name="' . esc_attr($option_key) . '[schema][org_contact_type]" value="%s" size="30" placeholder="customer support" />', esc_attr($value));
             },
             $schema_page,
             'metasync_schema_org'
@@ -1736,7 +1715,7 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $schema = Metasync::get_option('schema') ?? [];
                 $value = $schema['org_same_as'] ?? '';
-                printf('<textarea name="' . $option_key . '[schema][org_same_as]" rows="4" cols="50" placeholder="One URL per line&#10;https://facebook.com/...&#10;https://twitter.com/...">%s</textarea>', esc_textarea($value));
+                printf('<textarea name="' . esc_attr($option_key) . '[schema][org_same_as]" rows="4" cols="50" placeholder="One URL per line&#10;https://facebook.com/...&#10;https://twitter.com/...">%s</textarea>', esc_textarea($value));
                 echo '<p class="description">Enter one social profile URL per line.</p>';
             },
             $schema_page,
@@ -1758,7 +1737,7 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $schema = Metasync::get_option('schema') ?? [];
                 $value = $schema['website_name'] ?? '';
-                printf('<input type="text" name="' . $option_key . '[schema][website_name]" value="%s" size="40" placeholder="Your website name" />', esc_attr($value));
+                printf('<input type="text" name="' . esc_attr($option_key) . '[schema][website_name]" value="%s" size="40" placeholder="Your website name" />', esc_attr($value));
             },
             $schema_page,
             'metasync_schema_website'
@@ -1770,7 +1749,7 @@ class Metasync_Settings_Registration
             function() use ($option_key) {
                 $schema = Metasync::get_option('schema') ?? [];
                 $value = $schema['website_url'] ?? '';
-                printf('<input type="url" name="' . $option_key . '[schema][website_url]" value="%s" size="40" placeholder="https://example.com" />', esc_attr($value));
+                printf('<input type="url" name="' . esc_attr($option_key) . '[schema][website_url]" value="%s" size="40" placeholder="https://example.com" />', esc_attr($value));
             },
             $schema_page,
             'metasync_schema_website'
@@ -1783,7 +1762,7 @@ class Metasync_Settings_Registration
                 $schema = Metasync::get_option('schema') ?? [];
                 $value = $schema['website_searchbox'] ?? false;
                 printf(
-                    '<input type="checkbox" name="' . $option_key . '[schema][website_searchbox]" value="1" %s />',
+                    '<input type="checkbox" name="' . esc_attr($option_key) . '[schema][website_searchbox]" value="1" %s />',
                     checked($value, true, false)
                 );
                 echo '<span class="description">Adds SearchAction to WebSite schema for Google Sitelinks Searchbox.</span>';
@@ -1808,7 +1787,7 @@ class Metasync_Settings_Registration
                 $schema = Metasync::get_option('schema') ?? [];
                 $value = $schema['override_woocommerce_schema'] ?? false;
                 printf(
-                    '<input type="checkbox" name="' . $option_key . '[schema][override_woocommerce_schema]" value="1" %s />',
+                    '<input type="checkbox" name="' . esc_attr($option_key) . '[schema][override_woocommerce_schema]" value="1" %s />',
                     checked($value, true, false)
                 );
                 echo '<span class="description">When unchecked (default), MetaSync suppresses its Product schema when WooCommerce is active to avoid duplication. Check to override WooCommerce\'s native Product schema.</span>';
@@ -1864,7 +1843,7 @@ class Metasync_Settings_Registration
             'Baidu' . Metasync::get_tooltip_icon_html('baidu_site_verification_tooltip', 'Paste the verification code Baidu Webmaster gave you. This lets Baidu confirm you own this site — it does not change anything visitors see.'),
             function() use ($option_key) {
                 $value = Metasync::get_option('searchengines')['baidu_site_verification'] ?? '';
-                printf( '<input type="text" id="baidu_site_verification" name="' . $option_key . '[searchengines][baidu_site_verification]" value="%s" size="50" />', esc_attr( $value ) );
+                printf( '<input type="text" id="baidu_site_verification" name="' . esc_attr($option_key) . '[searchengines][baidu_site_verification]" value="%s" size="50" />', esc_attr( $value ) );
             },
             $page_slug . '_searchengines-verification',
             $SECTION_SEARCHENGINE
@@ -1875,7 +1854,7 @@ class Metasync_Settings_Registration
             'Alexa' . Metasync::get_tooltip_icon_html('alexa_site_verification_tooltip', 'Paste the verification code your Alexa/site directory gave you. This confirms you own this site — it does not change anything visitors see.'),
             function() use ($option_key) {
                 $value = Metasync::get_option('searchengines')['alexa_site_verification'] ?? '';
-                printf( '<input type="text" id="alexa_site_verification" name="' . $option_key . '[searchengines][alexa_site_verification]" value="%s" size="50" />', esc_attr( $value ) );
+                printf( '<input type="text" id="alexa_site_verification" name="' . esc_attr($option_key) . '[searchengines][alexa_site_verification]" value="%s" size="50" />', esc_attr( $value ) );
             },
             $page_slug . '_searchengines-verification',
             $SECTION_SEARCHENGINE
@@ -1886,7 +1865,7 @@ class Metasync_Settings_Registration
             'Norton Safe Web' . Metasync::get_tooltip_icon_html('norton_site_verification_tooltip', 'Paste the verification code Norton Safe Web gave you. This confirms you own this site — it does not change anything visitors see.'),
             function() use ($option_key) {
                 $value = Metasync::get_option('searchengines')['norton_save_site_verification'] ?? '';
-                printf( '<input type="text" id="norton_save_site_verification" name="' . $option_key . '[searchengines][norton_save_site_verification]" value="%s" size="50" />', esc_attr( $value ) );
+                printf( '<input type="text" id="norton_save_site_verification" name="' . esc_attr($option_key) . '[searchengines][norton_save_site_verification]" value="%s" size="50" />', esc_attr( $value ) );
             },
             $page_slug . '_searchengines-verification',
             $SECTION_SEARCHENGINE
@@ -2104,8 +2083,8 @@ class Metasync_Settings_Registration
      */
     public function sanitize($input)
     {
-        $submitted_generation = isset($_POST['metasync_pw_reset_generation'])
-            ? absint($_POST['metasync_pw_reset_generation'])
+        $submitted_generation = isset($_POST['metasync_pw_reset_generation']) // phpcs:ignore WordPress.Security.NonceVerification.Missing -- sanitize callback, the caller already verified the nonce
+            ? absint($_POST['metasync_pw_reset_generation']) // phpcs:ignore WordPress.Security.NonceVerification.Missing -- sanitize callback, the caller already verified the nonce
             : null;
         // Legacy/stale forms that include a password but no reset generation
         // must never be allowed to overwrite a newer recovery password.
@@ -2151,13 +2130,13 @@ class Metasync_Settings_Registration
         # Determine which tab is being submitted (same logic as AJAX handler)
         # Check POST first (from AJAX), then GET (from form action URL)
         $active_tab = 'general';
-        if (isset($_POST['active_tab'])) {
-            $active_tab = sanitize_text_field($_POST['active_tab']);
-        } elseif (isset($_GET['tab'])) {
-            $active_tab = sanitize_text_field($_GET['tab']);
-        } elseif (isset($_POST['_wp_http_referer'])) {
+        if (isset($_POST['active_tab'])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- sanitize callback, the caller already verified the nonce
+            $active_tab = sanitize_text_field(wp_unslash($_POST['active_tab'])); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- sanitize callback, the caller already verified the nonce
+        } elseif (isset($_GET['tab'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- sanitize callback, the caller already verified the nonce
+            $active_tab = sanitize_text_field(wp_unslash($_GET['tab'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- sanitize callback, the caller already verified the nonce
+        } elseif (isset($_POST['_wp_http_referer'])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- sanitize callback, the caller already verified the nonce
             # Parse referer URL to get tab parameter
-            $referer = wp_parse_url($_POST['_wp_http_referer']);
+            $referer = wp_parse_url(esc_url_raw(wp_unslash($_POST['_wp_http_referer']))); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- sanitize callback, the caller already verified the nonce
             if (isset($referer['query'])) {
                 parse_str($referer['query'], $referer_params);
                 if (isset($referer_params['tab'])) {
@@ -2749,7 +2728,8 @@ class Metasync_Settings_Registration
      */
     public function meta_sync_save_settings()
     {
-        if (!isset($_POST['meta_sync_nonce']) || !wp_verify_nonce($_POST['meta_sync_nonce'], 'meta_sync_general_setting_nonce')) {
+        $meta_sync_nonce = isset($_POST['meta_sync_nonce']) ? sanitize_text_field(wp_unslash($_POST['meta_sync_nonce'])) : '';
+        if (!wp_verify_nonce($meta_sync_nonce, 'meta_sync_general_setting_nonce')) {
             wp_send_json_error(array('message' => 'Invalid nonce'));
             return;
         }
@@ -2798,7 +2778,7 @@ class Metasync_Settings_Registration
             'white_label_plugin_author_uri', 'white_label_plugin_uri'
         ];
 
-        $bool_fields = ['otto_disable_on_loggedin', 'otto_disable_preview_button', 'otto_disable_for_bots' , 'hide_dashboard_framework', 'show_admin_bar_status', 'enable_auto_updates', 'disable_common_robots_metabox', 'disable_advance_robots_metabox', 'disable_redirection_metabox', 'disable_canonical_metabox', 'disable_social_opengraph_metabox', 'disable_schema_markup_metabox', 'disable_language_alternates_metabox', 'disable_seo_metabox', 'open_external_links', Metasync_Seo_Backup::CONSENT_OPTION_KEY];
+        $bool_fields = ['otto_disable_on_loggedin', 'otto_disable_preview_button', 'otto_disable_for_bots' , 'hide_dashboard_framework', 'show_admin_bar_status','disable_common_robots_metabox', 'disable_advance_robots_metabox', 'disable_redirection_metabox', 'disable_canonical_metabox', 'disable_social_opengraph_metabox', 'disable_schema_markup_metabox', 'disable_language_alternates_metabox', 'disable_seo_metabox', 'open_external_links', Metasync_Seo_Backup::CONSENT_OPTION_KEY];
 
         $url_fields = ['white_label_plugin_author_uri', 'white_label_plugin_uri'];
 
@@ -2812,7 +2792,7 @@ class Metasync_Settings_Registration
 
         $validation_errors = [];
 
-        $active_tab = isset($_POST['active_tab']) ? sanitize_text_field($_POST['active_tab']) : 'general';
+        $active_tab = isset($_POST['active_tab']) ? sanitize_text_field(wp_unslash($_POST['active_tab'])) : 'general';
         $general_tab_submitted = ($active_tab === 'general');
         $whitelabel_tab_submitted = ($active_tab === 'whitelabel');
 
@@ -2824,7 +2804,8 @@ class Metasync_Settings_Registration
 
             if (isset($_POST['metasync_options']['general'][$field])) {
 
-                $value = trim($_POST['metasync_options']['general'][$field]);
+                // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- every storing branch below sanitises via sanitize_text_field/sanitize_title/esc_url_raw before the value reaches the option.
+                $value = trim(wp_unslash($_POST['metasync_options']['general'][$field]));
 
                 // searchatlas_api_key must be clearable to support key removal
                 $clearable_fields = [
@@ -2863,7 +2844,7 @@ class Metasync_Settings_Registration
 
                         $image_extensions = ['png', 'svg'];
 
-                        $path = parse_url($value, PHP_URL_PATH);
+                        $path = wp_parse_url($value, PHP_URL_PATH);
                         $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
 
                         if (in_array($extension, $image_extensions, true)) {
@@ -2879,7 +2860,7 @@ class Metasync_Settings_Registration
                     // menu slug so it can never break sidebar link generation.
                     $metasync_options['general'][$field] = sanitize_title($value);
                 } else {
-                    $metasync_options['general'][$field] = sanitize_text_field($_POST['metasync_options']['general'][$field]);
+                    $metasync_options['general'][$field] = sanitize_text_field(wp_unslash($_POST['metasync_options']['general'][$field]));
                 }
             }
         }
@@ -2888,7 +2869,7 @@ class Metasync_Settings_Registration
         if ($general_tab_submitted) {
             foreach ($textarea_fields as $field) {
                 if (isset($_POST['metasync_options']['general'][$field])) {
-                    $metasync_options['general'][$field] = sanitize_textarea_field($_POST['metasync_options']['general'][$field]);
+                    $metasync_options['general'][$field] = sanitize_textarea_field(wp_unslash($_POST['metasync_options']['general'][$field]));
                 } else {
                     $metasync_options['general'][$field] = '';
                 }
@@ -2898,7 +2879,7 @@ class Metasync_Settings_Registration
         if ($general_tab_submitted) {
             foreach ($bool_fields as $field) {
                 if (isset($_POST['metasync_options']['general'][$field])) {
-                    $metasync_options['general'][$field] = filter_var($_POST['metasync_options']['general'][$field], FILTER_VALIDATE_BOOLEAN);
+                    $metasync_options['general'][$field] = filter_var(wp_unslash($_POST['metasync_options']['general'][$field]), FILTER_VALIDATE_BOOLEAN);
                 }else {
                     $metasync_options['general'][$field] = false;
                 }
@@ -2919,7 +2900,8 @@ class Metasync_Settings_Registration
             foreach ($url_fields as $field) {
             if (isset($_POST['metasync_options']['general'][$field])) {
 
-                $value = trim($_POST['metasync_options']['general'][$field]);
+                // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- every storing branch below sanitises via sanitize_text_field/sanitize_title/esc_url_raw before the value reaches the option.
+                $value = trim(wp_unslash($_POST['metasync_options']['general'][$field]));
 
                 $whitelabel_clearable_url_fields = [
                     'white_label_plugin_author_uri',
@@ -2937,7 +2919,7 @@ class Metasync_Settings_Registration
 
                 if (filter_var($value, FILTER_VALIDATE_URL)) {
 
-                    $parsed_url = parse_url($value);
+                    $parsed_url = wp_parse_url($value);
                     $host = isset($parsed_url['host']) ? $parsed_url['host'] : '';
 
                     if (strpos($host, '.') !== false || filter_var($host, FILTER_VALIDATE_IP)) {
@@ -2956,7 +2938,7 @@ class Metasync_Settings_Registration
 
         if ($general_tab_submitted) {
             if (isset($_POST['metasync_options']['general']['content_genius_sync_roles']) && is_array($_POST['metasync_options']['general']['content_genius_sync_roles'])) {
-                $metasync_options['general']['content_genius_sync_roles'] = array_map('sanitize_text_field', $_POST['metasync_options']['general']['content_genius_sync_roles']);
+                $metasync_options['general']['content_genius_sync_roles'] = array_map('sanitize_text_field', wp_unslash($_POST['metasync_options']['general']['content_genius_sync_roles']));
             } else {
                 $metasync_options['general']['content_genius_sync_roles'] = array();
             }
@@ -2970,7 +2952,8 @@ class Metasync_Settings_Registration
             && isset($_POST['metasync_options']['breadcrumbs'])
             && is_array($_POST['metasync_options']['breadcrumbs'])
         ) {
-            $breadcrumbs_input = $_POST['metasync_options']['breadcrumbs'];
+            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- each key is sanitised below (bool cast for flags, sanitize_text_field for the separator).
+            $breadcrumbs_input = wp_unslash($_POST['metasync_options']['breadcrumbs']);
 
             if (!isset($metasync_options['breadcrumbs']) || !is_array($metasync_options['breadcrumbs'])) {
                 $metasync_options['breadcrumbs'] = array();
@@ -3023,7 +3006,7 @@ class Metasync_Settings_Registration
             }
             foreach ($og_toggle_fields as $field) {
                 $posted = isset($_POST['metasync_options']['common_meta_settings'][$field])
-                    ? sanitize_text_field($_POST['metasync_options']['common_meta_settings'][$field])
+                    ? sanitize_text_field(wp_unslash($_POST['metasync_options']['common_meta_settings'][$field]))
                     : '';
                 $metasync_options['common_meta_settings'][$field] = ($posted === 'true') ? 'true' : 'false';
             }
@@ -3032,20 +3015,24 @@ class Metasync_Settings_Registration
         if ($general_tab_submitted && isset($_POST['metasync_options']['general']['default_page_builder'])) {
             require_once plugin_dir_path(dirname(__FILE__)) . 'custom-pages/class-metasync-html-to-builder-converter.php';
             $available_builders = Metasync_HTML_To_Builder_Converter::get_available_builders();
-            $builder_value = sanitize_text_field($_POST['metasync_options']['general']['default_page_builder']);
+            $builder_value = sanitize_text_field(wp_unslash($_POST['metasync_options']['general']['default_page_builder']));
             if (isset($available_builders[$builder_value]) && $available_builders[$builder_value]['detected']) {
                 $metasync_options['general']['default_page_builder'] = $builder_value;
             } else {
                 $metasync_options['general']['default_page_builder'] = 'gutenberg';
                 if (isset($available_builders[$builder_value]) && !$available_builders[$builder_value]['detected']) {
+                    /* translators: %s: page builder name. */
                     $validation_errors[] = sprintf(__('Builder "%s" is not detected on this site. Reverted to Gutenberg.', 'metasync'), $available_builders[$builder_value]['label']);
                 }
             }
         }
 
         if ($whitelabel_tab_submitted && isset($_POST['metasync_options']['whitelabel'])) {
-            $gp = isset($_POST['metasync_options']['general']) && is_array($_POST['metasync_options']['general']) ? $_POST['metasync_options']['general'] : [];
-            $wp = isset($_POST['metasync_options']['whitelabel']) && is_array($_POST['metasync_options']['whitelabel']) ? $_POST['metasync_options']['whitelabel'] : [];
+            // Values are only previewed from the just-sanitised $metasync_options below; nothing here is stored.
+            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- preview-only read
+            $gp = isset($_POST['metasync_options']['general']) && is_array($_POST['metasync_options']['general']) ? wp_unslash($_POST['metasync_options']['general']) : [];
+            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- preview-only read
+            $wp = isset($_POST['metasync_options']['whitelabel']) && is_array($_POST['metasync_options']['whitelabel']) ? wp_unslash($_POST['metasync_options']['whitelabel']) : [];
             $plugin_name = isset($gp['white_label_plugin_name']) ? trim((string) $gp['white_label_plugin_name']) : '';
             $logo_light = isset($wp['logo_light']) ? trim((string) $wp['logo_light']) : '';
             $logo_dark = isset($wp['logo_dark']) ? trim((string) $wp['logo_dark']) : '';
@@ -3211,7 +3198,8 @@ class Metasync_Settings_Registration
 
         if (isset($_POST['metasync_options']['whitelabel'])) {
 
-            $whitelabel_data = $_POST['metasync_options']['whitelabel'];
+            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- every stored key below is validated/sanitised (FILTER_VALIDATE_URL + esc_url_raw for logos, sanitize_* for text).
+            $whitelabel_data = wp_unslash($_POST['metasync_options']['whitelabel']);
             $existing_whitelabel = $metasync_options['whitelabel'] ?? [];
 
             if (isset($whitelabel_data['logo'])) {
@@ -3254,7 +3242,7 @@ class Metasync_Settings_Registration
             }
 
             if (isset($whitelabel_data['settings_password'])) {
-                $password_value = (string) wp_unslash($whitelabel_data['settings_password']);
+                $password_value = (string) $whitelabel_data['settings_password'];
 
                 $hide_settings_enabled = isset($whitelabel_data['hide_settings']) && $whitelabel_data['hide_settings'] == '1';
 
@@ -3354,7 +3342,7 @@ class Metasync_Settings_Registration
         }
 
         $redirect_url = isset($_GET['tab']) ?
-                        admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-settings&tab='.$_GET['tab']) :
+                        admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-settings&tab=' . sanitize_text_field(wp_unslash($_GET['tab']))) :
                         admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-settings');
 
         // Also save edge cache settings if present in the payload (section renders inside this form)
@@ -3363,6 +3351,7 @@ class Metasync_Settings_Registration
         }
 
         if ($general_tab_submitted && isset($_POST['metasync_llms_txt_settings'])) {
+            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitised by sanitize_llms_txt_settings() before storage.
             $llms_input = wp_unslash($_POST['metasync_llms_txt_settings']);
             if (is_array($llms_input)) {
                 update_option('metasync_llms_txt_settings', $this->sanitize_llms_txt_settings($llms_input));
@@ -3416,7 +3405,8 @@ class Metasync_Settings_Registration
      */
     public function ajax_save_execution_settings()
     {
-        if (!isset($_POST['execution_settings_nonce']) || !wp_verify_nonce($_POST['execution_settings_nonce'], 'metasync_execution_settings_nonce')) {
+        $execution_nonce = isset($_POST['execution_settings_nonce']) ? sanitize_text_field(wp_unslash($_POST['execution_settings_nonce'])) : '';
+        if (!wp_verify_nonce($execution_nonce, 'metasync_execution_settings_nonce')) {
             wp_send_json_error(array('message' => 'Invalid security token. Please refresh the page and try again.'));
             return;
         }
@@ -4009,14 +3999,17 @@ class Metasync_Settings_Registration
     {
         $prefix = self::HEADLESS_FIELD_PREFIX;
 
-        if (!isset($_POST[self::HEADLESS_NONCE_FIELD]) || !wp_verify_nonce($_POST[self::HEADLESS_NONCE_FIELD], self::HEADLESS_NONCE_ACTION)) {
+        $headless_nonce = isset($_POST[self::HEADLESS_NONCE_FIELD]) ? sanitize_text_field(wp_unslash($_POST[self::HEADLESS_NONCE_FIELD])) : '';
+        if (!wp_verify_nonce($headless_nonce, self::HEADLESS_NONCE_ACTION)) {
             wp_send_json_error(array('message' => 'Invalid security token. Please refresh the page and try again.'));
         } elseif (!Metasync::current_user_has_plugin_access()) {
             wp_send_json_error(array('message' => 'Insufficient permissions to save settings.'));
         } else {
+            // phpcs:disable WordPress.Security.ValidatedSanitizedInput -- sanitised via Metasync_Headless_Config::normalize_domain() inside save_headless_settings().
             $submitted_domain = isset($_POST[$prefix . 'frontend_domain'])
                 ? trim((string) wp_unslash($_POST[$prefix . 'frontend_domain']))
                 : '';
+            // phpcs:enable WordPress.Security.ValidatedSanitizedInput
 
             $stored = $this->save_headless_settings($_POST);
 
@@ -4060,8 +4053,21 @@ class Metasync_Settings_Registration
     public function meta_sync_save_seo_controls()
     {
         try {
-            if (!isset($_POST['meta_sync_seo_controls_nonce']) || !wp_verify_nonce($_POST['meta_sync_seo_controls_nonce'], 'meta_sync_seo_controls_nonce')) {
+            $seo_controls_nonce = isset($_POST['meta_sync_seo_controls_nonce']) ? sanitize_text_field(wp_unslash($_POST['meta_sync_seo_controls_nonce'])) : '';
+            if (!wp_verify_nonce($seo_controls_nonce, 'meta_sync_seo_controls_nonce')) {
                 wp_send_json_error(array('message' => 'Invalid nonce'));
+                return;
+            }
+
+            // Same nonce-then-capability shape as the other settings save
+            // handlers: the nonce is not authorization, so a logged-in user
+            // without plugin access must still be refused here.
+            if (!Metasync::current_user_has_plugin_access()) {
+                wp_send_json_error(array('message' => 'Insufficient permissions.'), 403);
+                // The return is unreachable in WordPress (wp_send_json_error
+                // terminates the request) but keeps the handler safe under the
+                // non-terminating stubs the unit tests run with.
+                // @phpstan-ignore-next-line deadCode.unreachable
                 return;
             }
 
@@ -4132,8 +4138,7 @@ class Metasync_Settings_Registration
                 wp_send_json_error(array('message' => $error_message));
             }
         } catch (Exception $e) {
-            error_log('Indexation Control AJAX Exception: ' . $e->getMessage());
-            error_log('Indexation Control AJAX Stack trace: ' . $e->getTraceAsString());
+            error_log('Indexation Control AJAX Exception: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             wp_send_json_error(array('message' => 'Error saving settings: ' . $e->getMessage()));
         }
     }
@@ -4147,10 +4152,10 @@ class Metasync_Settings_Registration
      */
     public function save_bing_inline_settings_ajax()
     {
-        $api_key = isset($_POST['metasync_bing_api_key_inline']) ? sanitize_text_field(wp_unslash($_POST['metasync_bing_api_key_inline'])) : '';
-        $endpoint = isset($_POST['metasync_bing_endpoint_inline']) ? sanitize_text_field(wp_unslash($_POST['metasync_bing_endpoint_inline'])) : 'indexnow';
-        $post_types = isset($_POST['metasync_bing_post_types_inline']) && is_array($_POST['metasync_bing_post_types_inline']) ? array_map('sanitize_title', wp_unslash($_POST['metasync_bing_post_types_inline'])) : [];
-        $disable_other_plugins = isset($_POST['metasync_bing_disable_other_plugins_inline']) ? true : false;
+        $api_key = isset($_POST['metasync_bing_api_key_inline']) ? sanitize_text_field(wp_unslash($_POST['metasync_bing_api_key_inline'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- caller verifies the SEO controls nonce first
+        $endpoint = isset($_POST['metasync_bing_endpoint_inline']) ? sanitize_text_field(wp_unslash($_POST['metasync_bing_endpoint_inline'])) : 'indexnow'; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- caller verifies the SEO controls nonce first
+        $post_types = isset($_POST['metasync_bing_post_types_inline']) && is_array($_POST['metasync_bing_post_types_inline']) ? array_map('sanitize_title', wp_unslash($_POST['metasync_bing_post_types_inline'])) : []; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- caller verifies the SEO controls nonce first
+        $disable_other_plugins = isset($_POST['metasync_bing_disable_other_plugins_inline']) ? true : false; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- caller verifies the SEO controls nonce first
 
         $existing_settings = get_option('metasync_options_bing_instant_indexing', []);
 
@@ -4176,7 +4181,7 @@ class Metasync_Settings_Registration
             $file_path = ABSPATH . $safe_key . '.txt';
             $real_path = realpath( ABSPATH );
             if ( false === $real_path || 0 !== strpos( realpath( dirname( $file_path ) ), $real_path ) ) {
-                error_log( 'Bing IndexNow: Refusing to write outside ABSPATH' );
+                error_log( 'Bing IndexNow: Refusing to write outside ABSPATH' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 return false;
             }
             // serve the key virtually via template_redirect instead of
@@ -4191,7 +4196,7 @@ class Metasync_Settings_Registration
             Metasync_Bing_Instant_Index::register_virtual_key($safe_key);
 
             if (file_exists($file_path)) {
-                @unlink($file_path);
+                @wp_delete_file($file_path);
             }
 
             $current_options = Metasync::get_option();

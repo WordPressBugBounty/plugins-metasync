@@ -786,7 +786,7 @@ Class Metasync_otto_html{
 
         # Check for errors
         if (is_wp_error($response)) {
-            error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ': API call failed - ' . $response->get_error_message());
+            error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ': API call failed - ' . $response->get_error_message()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- unreachable in production
             return false;
         }
 
@@ -798,7 +798,7 @@ Class Metasync_otto_html{
 
         # if no change data skip
         if (empty($body) || $response_code !== 200){
-            error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ': API returned empty or non-200. Code: ' . $response_code);
+            error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ': API returned empty or non-200. Code: ' . $response_code); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- unreachable in production
             return false;
         }
 
@@ -993,7 +993,9 @@ Class Metasync_otto_html{
 		# Check for timeout or connection errors
 		if (is_wp_error($route_html)) {
 			$error_msg = $route_html->get_error_message();
-			error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ' DEBUG: FAILED - wp_remote_get error: ' . $error_msg . ' for route: ' . $route);
+			if (function_exists('metasync_otto_report_render_failure')) {
+			    metasync_otto_report_render_failure('HTTP_FETCH_FAILED', 'Internal fetch failed: ' . $error_msg, [], 'warning');
+			}
 			return false;
 		}
 
@@ -1010,7 +1012,6 @@ Class Metasync_otto_html{
         // the redirect, and OTTO will process the destination on its own URL.
         $effective_url = $this->get_effective_fetch_url($route_html);
         if ($effective_url !== '' && !$this->fetch_url_matches_route($effective_url, $route, $request_body)) {
-            error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ' DEBUG: SKIPPED - internal fetch followed redirect from ' . $route . ' to ' . $effective_url);
             return false;
         }
 
@@ -1044,7 +1045,9 @@ Class Metasync_otto_html{
 
         # check not empty
         if(empty($html_body) || $response_code !== 200){
-			error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ' DEBUG: FAILED - Empty body or non-200 status for route: ' . $route);
+			if (function_exists('metasync_otto_report_render_failure')) {
+			    metasync_otto_report_render_failure('HTTP_FETCH_EMPTY', 'Internal fetch returned empty body or non-200 status (HTTP ' . intval($response_code) . ')', [], 'warning');
+			}
             return false;
         }
 
@@ -1210,7 +1213,7 @@ Class Metasync_otto_html{
                 $result_html = preg_replace_callback(
                     '/(<' . $heading_type . '(?:\s[^>]*)?>)(.*?)(<\/' . $heading_type . '>)/is',
                     function ($m) use ($current_value, $recommended_value) {
-                        $inner_text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($m[2]), ENT_QUOTES, 'UTF-8')));
+                        $inner_text = trim(preg_replace('/\s+/', ' ', html_entity_decode(wp_strip_all_tags($m[2]), ENT_QUOTES, 'UTF-8')));
                         if ($inner_text !== $current_value) {
                             return $m[0];
                         }
@@ -1372,9 +1375,9 @@ Class Metasync_otto_html{
      */
     private function fetch_url_matches_route($effective_url, $route, $fetch_url)
     {
-        $effective = parse_url($effective_url);
-        $requested = parse_url($route);
-        $transport = parse_url($fetch_url);
+        $effective = wp_parse_url($effective_url);
+        $requested = wp_parse_url($route);
+        $transport = wp_parse_url($fetch_url);
         if (!is_array($effective) || !is_array($requested)) {
             return true;
         }
@@ -2098,8 +2101,8 @@ Class Metasync_otto_html{
 
         # If it's a protocol-relative URL (//example.com), check if it matches our domain
         if (strpos($url, '//') === 0) {
-            $parsed_home = parse_url($home_url);
-            $parsed_link = parse_url($url);
+            $parsed_home = wp_parse_url($home_url);
+            $parsed_link = wp_parse_url($url);
             
             if (isset($parsed_home['host']) && isset($parsed_link['host'])) {
                 if (strtolower($parsed_home['host']) === strtolower($parsed_link['host'])) {
@@ -3443,12 +3446,12 @@ Class Metasync_otto_html{
         }
         
         # Check if amp=1 query parameter is present
-        if (isset($_GET['amp']) && $_GET['amp'] == '1') {
+        if (isset($_GET['amp']) && $_GET['amp'] == '1') { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only AMP detection
             return true;
         }
         
         # Check for other common AMP query parameters
-        if (isset($_GET['amp']) && !empty($_GET['amp'])) {
+        if (isset($_GET['amp']) && !empty($_GET['amp'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only AMP detection
             return true;
         }
         
@@ -3975,7 +3978,7 @@ Class Metasync_otto_html{
                     $result_html = preg_replace_callback(
                         '/(<' . $heading_type . '(?:\s[^>]*)?>)(.*?)(<\/' . $heading_type . '>)/is',
                         function ($m) use ($current_value, $recommended_value) {
-                            $inner_text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($m[2]), ENT_QUOTES, 'UTF-8')));
+                            $inner_text = trim(preg_replace('/\s+/', ' ', html_entity_decode(wp_strip_all_tags($m[2]), ENT_QUOTES, 'UTF-8')));
                             if ($inner_text !== $current_value) {
                                 return $m[0];
                             }
@@ -4117,10 +4120,24 @@ Class Metasync_otto_html{
             return $result_html;
 
         } catch (Exception $e) {
-            error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ': Exception in process_html_directly - ' . $e->getMessage());
+            if (function_exists('metasync_otto_report_render_failure')) {
+                metasync_otto_report_render_failure(
+                    'MODIFICATION_EXCEPTION',
+                    'OTTO rewrite threw: ' . $e->getMessage(),
+                    ['exception' => get_class($e)],
+                    'error'
+                );
+            }
             return false;
         } catch (Error $e) {
-            error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ': Error in process_html_directly - ' . $e->getMessage());
+            if (function_exists('metasync_otto_report_render_failure')) {
+                metasync_otto_report_render_failure(
+                    'MODIFICATION_ERROR',
+                    'OTTO rewrite errored: ' . $e->getMessage(),
+                    ['error' => get_class($e)],
+                    'error'
+                );
+            }
             return false;
         }
     }

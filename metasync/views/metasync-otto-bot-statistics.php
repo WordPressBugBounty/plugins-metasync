@@ -202,10 +202,10 @@ $breakdown_labels = array(
                                     <?php echo esc_html($request['ip_address'] ?: 'N/A'); ?>
                                 </td>
                                 <td style="padding: 12px; color: var(--dashboard-text-secondary); font-size: 12px;">
-                                    <?php echo esc_html($request['first_seen_at'] ? date('Y-m-d H:i', strtotime($request['first_seen_at'])) : 'N/A'); ?>
+                                    <?php echo esc_html($request['first_seen_at'] ? gmdate('Y-m-d H:i', strtotime($request['first_seen_at'])) : 'N/A'); ?>
                                 </td>
                                 <td style="padding: 12px; color: var(--dashboard-text-primary); font-size: 12px; font-weight: 500;">
-                                    <?php echo esc_html($request['last_seen_at'] ? date('Y-m-d H:i', strtotime($request['last_seen_at'])) : 'N/A'); ?>
+                                    <?php echo esc_html($request['last_seen_at'] ? gmdate('Y-m-d H:i', strtotime($request['last_seen_at'])) : 'N/A'); ?>
                                 </td>
                                 <td style="padding: 12px; color: var(--dashboard-text-secondary); font-size: 11px; max-width: 180px;">
                                     <div style="display: flex; align-items: center; gap: 8px;">

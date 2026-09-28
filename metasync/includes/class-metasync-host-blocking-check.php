@@ -313,7 +313,7 @@ class Metasync_Host_Blocking_Check
      */
     protected function log($message)
     {
-        error_log('[MetaSync HOST_BLOCKING] ' . $message);
+        error_log('[MetaSync HOST_BLOCKING] ' . $message); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
     }
 
     /**
@@ -634,11 +634,11 @@ class Metasync_Host_Blocking_Check
      */
     public function is_plugin_admin_page()
     {
-        if (empty($_GET['page'])) {
+        if (empty($_GET['page'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check for notice placement
             return false;
         }
 
-        $page = sanitize_text_field(wp_unslash($_GET['page']));
+        $page = sanitize_text_field(wp_unslash($_GET['page'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check for notice placement
         $slug = class_exists('Metasync_Admin') && !empty(Metasync_Admin::$page_slug)
             ? Metasync_Admin::$page_slug
             : 'searchatlas';
@@ -710,6 +710,7 @@ class Metasync_Host_Blocking_Check
                             <a href="<?php echo esc_url($compatibility_url); ?>"><?php esc_html_e('View details and re-run the connectivity test', 'metasync'); ?></a>
                             &nbsp;·&nbsp;
                         <?php endif; ?>
+                        <?php /* translators: %s: date and time of the last check. */ ?>
                         <?php echo esc_html(sprintf(__('Last checked: %s', 'metasync'), $result['checked_at'])); ?>
                     </p>
                 </div>

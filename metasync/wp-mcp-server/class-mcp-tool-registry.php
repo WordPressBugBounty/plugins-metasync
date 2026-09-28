@@ -231,8 +231,8 @@ class MCP_Tool_Registry {
      * @param float  $execution_time Execution time in seconds
      */
     private function log_execution($name, $params, $result, $execution_time) {
-        // Only log in debug mode or if execution took > 1 second
-        if (!WP_DEBUG && $execution_time < 1.0) {
+        // Only log when WordPress debug mode is enabled
+        if (!WP_DEBUG) {
             return;
         }
 
@@ -242,6 +242,6 @@ class MCP_Tool_Registry {
             $execution_time
         );
 
-        error_log($log_message);
+        error_log($log_message); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
     }
 }

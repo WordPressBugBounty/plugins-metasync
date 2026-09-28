@@ -685,7 +685,7 @@ class MCP_Tool_Import_LPS_Page extends MCP_Tool_Base {
             throw $e;
         } finally {
             if (!empty($tmp_file) && file_exists($tmp_file)) {
-                @unlink($tmp_file);
+                @wp_delete_file($tmp_file);
             }
 
             // Write exactly one persistent audit record (success or failure),

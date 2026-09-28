@@ -17,7 +17,29 @@ if (!defined('METASYNC_OTTO_EXCLUDED_TRANSIENT_TTL')) {
 use simplehtmldom\HtmlDocument;
 
 # include the otto class file
-require_once plugin_dir_path( __FILE__ ) . '/vendor/autoload.php';
+#
+# The vendor tree is generated content, unlike the plugin files beside it: an
+# update that copies the plugin directory piece by piece can briefly leave this
+# file beside an otto/vendor that is missing, half-written or holding a stale
+# classmap. A bare require on a missing autoloader is a fatal during plugin
+# bootstrap — the whole site, not just OTTO. Load it only when it is actually
+# readable, and catch Throwable while doing so: the autoloader is a trampoline
+# of bare requires into otto/vendor/composer/, so a tree that is present but
+# still mid-copy (or a truncated autoload.php, which parses only to a
+# ParseError) would otherwise fatal here too. Either way the parser class
+# stays unloaded, and the DOM-parser guard in metasync_start_otto() degrades
+# the request to OTTO-less rendering instead of fataling.
+$metasync_otto_vendor_autoload = plugin_dir_path( __FILE__ ) . '/vendor/autoload.php';
+if ( is_readable( $metasync_otto_vendor_autoload ) ) {
+	try {
+		require_once $metasync_otto_vendor_autoload;
+	} catch ( \Throwable $e ) {
+		# Deliberately swallowed: any exception raised while loading generated
+		# autoloader code means this request runs without the DOM parser. The
+		# guard below turns that into one OTTO-less request rather than a
+		# bootstrap fatal on the whole site.
+	}
+}
 require_once plugin_dir_path( __FILE__ ) . '/Otto_html_class.php';
 require_once plugin_dir_path( __FILE__ ) . '/Otto_pixel_class.php';
 require_once plugin_dir_path( __FILE__ ) . '/metasync-otto-seo-functions.php';
@@ -78,7 +100,7 @@ add_action('wp_head', function(){
     $otto_domain = 'sa.searchatlas.com'; # default
     if (class_exists('Metasync_Endpoint_Manager')) {
         $otto_api_domain = Metasync_Endpoint_Manager::get_endpoint('OTTO_API_DOMAIN');
-        $parsed = parse_url($otto_api_domain);
+        $parsed = wp_parse_url($otto_api_domain);
         if (!empty($parsed['host'])) {
             $otto_domain = $parsed['host'];
         }
@@ -302,7 +324,7 @@ function metasync_handle_otto_crawl_url_job($route = '', $retry_count = 0) {
     // Docblock type isn't enforced at runtime; a stale cron record can pass a non-string.
     // @phpstan-ignore-next-line function.alreadyNarrowedType
     if (!is_string($route) || $route === '') {
-        error_log('MetaSync OTTO: skipping crawl-url job without a valid route.');
+        error_log('MetaSync OTTO: skipping crawl-url job without a valid route.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         return;
     }
 
@@ -320,11 +342,11 @@ function metasync_handle_otto_crawl_url_job($route = '', $retry_count = 0) {
             } else {
                 Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_RETRYING, 'job', $retry_count + 1, $reason);
             }
-            error_log('MetaSync OTTO: retrying crawl-url job for ' . $route . ' (attempt ' . ($retry_count + 1) . '/' . $max_retries . ') reason=' . $reason . ' in ' . $delay . 's');
+            error_log('MetaSync OTTO: retrying crawl-url job for ' . $route . ' (attempt ' . ($retry_count + 1) . '/' . $max_retries . ') reason=' . $reason . ' in ' . $delay . 's'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         } else {
             metasync_record_failed_action('metasync_process_otto_crawl_url_job');
             Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_FAILED, 'job', $retry_count, 'exhausted:' . $reason);
-            error_log('MetaSync OTTO: background crawl-url job permanently failed for ' . $route . ' after ' . $max_retries . ' retries, last reason=' . $reason);
+            error_log('MetaSync OTTO: background crawl-url job permanently failed for ' . $route . ' after ' . $max_retries . ' retries, last reason=' . $reason); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         }
     };
 
@@ -351,7 +373,7 @@ function metasync_handle_otto_crawl_url_job($route = '', $retry_count = 0) {
             if ($transient_cache->last_failure_is_permanent()) {
                 metasync_record_failed_action('metasync_process_otto_crawl_url_job');
                 Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_FAILED, 'job', $retry_count, 'permanent:warm_rejected');
-                error_log('MetaSync OTTO: crawl-url job failed permanently for ' . $route . ' (warm request rejected by the API)');
+                error_log('MetaSync OTTO: crawl-url job failed permanently for ' . $route . ' (warm request rejected by the API)'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 return;
             }
             # Transient API failure (timeout / 5xx / breaker open). No meta
@@ -430,7 +452,7 @@ function metasync_handle_otto_batch_cache_job($routes = array(), $wait_count = 0
     // Docblock type isn't enforced at runtime; a stale cron record can pass a non-array.
     // @phpstan-ignore-next-line function.alreadyNarrowedType
     if (!is_array($routes) || empty($routes)) {
-        error_log('MetaSync OTTO: skipping batch cache job without valid routes.');
+        error_log('MetaSync OTTO: skipping batch cache job without valid routes.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         return;
     }
 
@@ -474,7 +496,7 @@ function metasync_handle_otto_batch_cache_job($routes = array(), $wait_count = 0
         Metasync_Edge_Cache_Purge::purge($ready);
     } catch (Exception $e) {
         metasync_record_failed_action('metasync_process_otto_batch_cache_job');
-        error_log('MetaSync OTTO: batch cache job failed for ' . count($ready) . ' URLs: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        error_log('MetaSync OTTO: batch cache job failed for ' . count($ready) . ' URLs: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
     }
 }
 
@@ -523,40 +545,6 @@ function metasync_handle_otto_pending_drainer() {
     }
 }
 
-# NOTE: Cache system removed - these functions are no longer needed
-# Kept for backward compatibility in case old cache directories need cleanup
-function metasync_deleteDir($dir) {
-    if (!is_dir($dir)) {
-        return false;
-    }
-    $files = array_diff(scandir($dir), array('.', '..'));
-    foreach ($files as $file) {
-        $filePath = $dir . DIRECTORY_SEPARATOR . $file;
-        if (is_dir($filePath)) {
-            metasync_deleteDir($filePath);
-        } else {
-            unlink($filePath);
-        }
-    }
-    return rmdir($dir);
-}
-
-# Cleanup function for removing old cache directories (if they exist)
-function metasync_invalidate_all_caches($folder = ''){
-    # Cache system removed - this function only exists to clean up old cache directories
-    if(!defined('WP_CONTENT_DIR')){
-        return false;
-    }
-    $wp_content_dir = WP_CONTENT_DIR;
-    $cache_dir = $wp_content_dir . '/metasync_caches';
-    if(in_array($folder, ['posts', 'pages'])){
-        $cache_dir = $cache_dir . '/' . $folder;
-    }
-    if(is_dir($cache_dir)){
-        metasync_deleteDir($cache_dir);
-    }
-}
-
 // metasync_is_custom_or_lps_page() now lives in includes/metasync-helpers.php
 // (loaded unconditionally before this file) so all SEO surfaces share one rule.
 
@@ -581,13 +569,13 @@ function metasync_invalidate_all_caches($folder = ''){
 function metasync_is_elementor_editor_request() {
     # The preview iframe loads the front end with ?elementor-preview=POST_ID.
     # This is the request OTTO would otherwise buffer and corrupt.
-    if (isset($_GET['elementor-preview'])) {
+    if (isset($_GET['elementor-preview'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only editor request detection
         return true;
     }
 
     # Elementor editor / app entry points carried as an action on the front end.
-    if (isset($_REQUEST['action'])
-        && in_array($_REQUEST['action'], array('elementor', 'elementor_ajax'), true)
+    if (isset($_REQUEST['action']) // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only editor request detection
+        && in_array($_REQUEST['action'], array('elementor', 'elementor_ajax'), true) // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only editor request detection
     ) {
         return true;
     }
@@ -640,8 +628,8 @@ function metasync_start_otto(){
     # is answered with the route's public page (the homepage for /?p=…) instead
     # of the draft the editor asked for. Skip early and let WP render it.
     if (
-        (isset($_GET['preview']) && $_GET['preview'] === 'true') ||
-        !empty($_GET['preview_id'])
+        (isset($_GET['preview']) && $_GET['preview'] === 'true') || // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only front-end check that skips OTTO
+        !empty($_GET['preview_id']) // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only front-end check that skips OTTO
     ) {
         if (!defined('DONOTCACHEPAGE')) {
             define('DONOTCACHEPAGE', true);
@@ -683,7 +671,7 @@ function metasync_start_otto(){
     $otto_req_path = explode('?', (string) wp_unslash($_SERVER['REQUEST_URI'] ?? ''), 2)[0];
     $otto_req_path = strtolower(trim($otto_req_path, '/'));
     # Strip the site's base path so first-segment matching works on subdir installs.
-    $otto_home_path = trim((string) parse_url(home_url(), PHP_URL_PATH), '/');
+    $otto_home_path = trim((string) wp_parse_url(home_url(), PHP_URL_PATH), '/');
     if ($otto_home_path !== '' && strpos($otto_req_path, $otto_home_path . '/') === 0) {
         $otto_req_path = substr($otto_req_path, strlen($otto_home_path) + 1);
     }
@@ -703,9 +691,9 @@ function metasync_start_otto(){
 
     if (
         # disable ajax calls
-        isset($_GET['ucfrontajaxaction']) ||
+        isset($_GET['ucfrontajaxaction']) || // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only front-end check that skips OTTO
         # OTTO Preview mode - skip OTTO when previewing original content
-        (isset($_GET['otto_preview']) && $_GET['otto_preview'] === '1') ||
+        (isset($_GET['otto_preview']) && $_GET['otto_preview'] === '1') || // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only front-end check that skips OTTO
         # WooCommerce shop archive page only (products and categories now use SSR)
         //(function_exists('is_shop') && is_shop()) ||
         # Cart page
@@ -719,30 +707,30 @@ function metasync_start_otto(){
         # check by constant
         (defined('DOING_AJAX') && DOING_AJAX) ||
         # WooCommerce AJAX endpoint (e.g., ?wc-ajax=update_cart)
-        (isset($_REQUEST['wc-ajax']) && !empty($_REQUEST['wc-ajax'])) ||
+        (isset($_REQUEST['wc-ajax']) && !empty($_REQUEST['wc-ajax'])) || // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only front-end check that skips OTTO
         # AJAX requests via X-Requested-With header
         (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') ||
         # Gravity Forms submission detection - skip OTTO to allow form processing
-        (isset($_POST['gform_submit']) && (
-            is_array($_POST['gform_submit']) ||
-            (is_string($_POST['gform_submit']) && isset($_POST['is_submit_' . $_POST['gform_submit']]) && !empty($_POST['gform_submit']))
+        (isset($_POST['gform_submit']) && ( // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only front-end check that skips OTTO
+            is_array($_POST['gform_submit']) || // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only front-end check that skips OTTO
+            (is_string($_POST['gform_submit']) && isset($_POST['is_submit_' . $_POST['gform_submit']]) && !empty($_POST['gform_submit'])) // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only front-end check that skips OTTO
         )) ||
         # Gravity Forms AJAX submission
-        (isset($_POST['gform_ajax']) && isset($_POST['gform_submit']) && (
-            is_array($_POST['gform_submit']) || !empty($_POST['gform_submit'])
+        (isset($_POST['gform_ajax']) && isset($_POST['gform_submit']) && ( // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only front-end check that skips OTTO
+            is_array($_POST['gform_submit']) || !empty($_POST['gform_submit']) // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only front-end check that skips OTTO
         )) ||
         # Gravity Forms file upload
-        (isset($_POST['gform_uploaded_files'])) ||
+        (isset($_POST['gform_uploaded_files'])) || // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only front-end check that skips OTTO
         # Any Gravity Forms POST parameter
-        (isset($_POST['gform_submit']) || isset($_POST['gform_unique_id']) || isset($_POST['gform_field_values'])) ||
+        (isset($_POST['gform_submit']) || isset($_POST['gform_unique_id']) || isset($_POST['gform_field_values'])) || // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only front-end check that skips OTTO
         # Formidable Forms AJAX submission detection - skip OTTO to allow form processing
-        (isset($_POST['action']) && $_POST['action'] === 'frm_entries_create') ||
+        (isset($_POST['action']) && $_POST['action'] === 'frm_entries_create') || // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only front-end check that skips OTTO
         # Formidable Forms POST parameters
-        (isset($_POST['form_id']) && !empty($_POST['form_id'])) ||
+        (isset($_POST['form_id']) && !empty($_POST['form_id'])) || // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only front-end check that skips OTTO
         # Formidable Forms action parameter
-        (isset($_POST['frm_action']) && !empty($_POST['frm_action'])) ||
+        (isset($_POST['frm_action']) && !empty($_POST['frm_action'])) || // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only front-end check that skips OTTO
         # Formidable Forms item_key (used in form submissions)
-        (isset($_POST['item_key']) && !empty($_POST['item_key']))
+        (isset($_POST['item_key']) && !empty($_POST['item_key'])) // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only front-end check that skips OTTO
     ) {
         return;
     }
@@ -815,7 +803,20 @@ function metasync_start_otto(){
 
     # A headless frontend renders the public HTML, so stop after the cheap cache
     # protections and crawl telemetry, before any OTTO rendering work begins.
-    if (Metasync_Headless_Config::is_active()) {
+    #
+    # Routed through metasync_headless_is_active() rather than calling the class
+    # directly: Metasync_Headless_Config resolves only through the committed
+    # Composer classmap, so a partially updated install can leave this newer
+    # caller beside a missing or older copy with no fallback lookup path. This
+    # function is hooked to `wp`, so an unguarded static call is a white screen
+    # on every front-end page view. The helper treats an unresolvable class as
+    # "not headless", which keeps OTTO behaving as it did before headless mode.
+    # @phpstan-ignore-next-line function.alreadyNarrowedType
+    $metasync_is_headless = function_exists('metasync_headless_is_active')
+        ? metasync_headless_is_active()
+        : (class_exists('Metasync_Headless_Config') && Metasync_Headless_Config::is_active());
+
+    if ($metasync_is_headless) {
         return;
     }
 
@@ -902,7 +903,7 @@ function metasync_start_otto(){
     # /page/N/ = paginated blog/archive pages — OTTO's buffer/HTTP render causes
     # module numbering mismatch between page 1 (with TB template) and page N
     # (without TB template), breaking Divi's JS pagination selector matching.
-    if (isset($_GET['et_blog']) || (is_paged() && !is_singular())) {
+    if (isset($_GET['et_blog']) || (is_paged() && !is_singular())) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only front-end check that skips OTTO
         return;
     }
 
@@ -919,7 +920,7 @@ function metasync_start_otto(){
     # have no per-canonical-URL OTTO suggestions of their own, so OTTO must never
     # run here. The raw $_GET['s'] check is a defensive fallback for setups where
     # the main query is altered before this point.
-    if (is_search() || !empty($_GET['s'])) {
+    if (is_search() || !empty($_GET['s'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only front-end check that skips OTTO
         return;
     }
 
@@ -973,15 +974,15 @@ function metasync_start_otto(){
 
     $otto_is_internal_fetch = $otto_has_fetch_detector
         ? Metasync_Otto_Render_Strategy::is_internal_fetch()
-        : !empty($_GET['is_otto_page_fetch']);
+        : !empty($_GET['is_otto_page_fetch']); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only loopback marker, request-scoped filters only
 
     if($otto_is_internal_fetch){
 
         # Block SEO plugins NOW for this internal fetch request
        # metasync_otto_block_seo_plugins();
        # $_SERVER['REQUEST_URI'] = remove_query_arg('is_otto_page_fetch', $_SERVER['REQUEST_URI']);
-       $block_title = !empty($_GET['otto_block_title']) && $_GET['otto_block_title'] === '1';
-        $block_description = !empty($_GET['otto_block_desc']) && $_GET['otto_block_desc'] === '1';
+       $block_title = !empty($_GET['otto_block_title']) && $_GET['otto_block_title'] === '1'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only loopback marker, request-scoped filters only
+        $block_description = !empty($_GET['otto_block_desc']) && $_GET['otto_block_desc'] === '1'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only loopback marker, request-scoped filters only
         
         # Block SEO plugins conditionally based on what Otto has
         if ($block_title || $block_description) {
@@ -1019,6 +1020,17 @@ function metasync_start_otto(){
     # get the otto uuid
     $otto_uuid = Metasync_Otto_Config::get_otto_uuid();
 
+    # Upgrade-window guard: the bundled DOM parser resolves only through the
+    # otto/vendor autoloader required at the top of this file. While an update
+    # is mid-copy (or a stale opcache classmap is still resident), that
+    # dependency can briefly be undefined here, and constructing the render
+    # stack below would throw a class-not-found Error and take the whole page
+    # down with it. Degrade to an OTTO-less page for this request instead —
+    # the next request, on the settled tree, renders normally.
+    if ( ! class_exists( 'simplehtmldom\HtmlDocument' ) ) {
+        return;
+    }
+
     # start the class
     $otto = new Metasync_otto_pixel($otto_uuid);
 
@@ -1052,7 +1064,7 @@ function metasync_otto_handle_cache_compatibility() {
             $has_brizy_posts = ($cached === 'yes');
         } else {
             # Query database only if cache missed
-            $has_brizy_posts = $wpdb->get_var(
+            $has_brizy_posts = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- feature-detection probe for Brizy posts — postmeta flag scan has no WordPress API
                 "SELECT COUNT(*) FROM {$wpdb->postmeta}
                  WHERE meta_key = 'brizy_post_uid'
                  AND meta_value != ''
@@ -1654,6 +1666,15 @@ add_action('metasync_otto_js_check_event', 'metasync_run_otto_js_check');
 # Handle AJAX Clear Cache request
 # NOTE: Cache system removed - this is now a no-op
 function metasync_clear_otto_cache_handler() {
+    # State-changing admin action: verify the nonce sent by admin/js
+    # (clear_otto_caches) and confirm plugin access before clearing the
+    # detection transient or queueing the loopback re-check.
+    check_ajax_referer('metasync_clear_otto_cache', 'nonce');
+
+    if (!Metasync::current_user_has_plugin_access()) {
+        wp_send_json_error(['message' => 'Not authorized']);
+    }
+
     if (!empty($_GET['clear_otto_cache'])) {
         delete_transient('metasync_otto_js_detected');
         # Re-run the JS detection in the background so the notice refreshes.
@@ -1792,7 +1813,6 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
 
         # Pre-flight 404 check: exclude URLs that would return 404 before making API call
         if (!metasync_otto_is_url_available($route)) {
-            error_log("MetaSync OTTO: Skipping SEO processing for URL that would return 404: {$route}");
             metasync_otto_auto_exclude_404_url($route);
             return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
         }
@@ -1833,7 +1853,7 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
 
         # Mark this URL as crawled by OTTO for SSR
         # Extract domain and path from route
-        $parsed_url = parse_url($route);
+        $parsed_url = wp_parse_url($route);
         $domain_with_scheme = ($parsed_url['scheme'] ?? 'https') . '://' . ($parsed_url['host'] ?? '');
         $url_path = ($parsed_url['path'] ?? '/');
 
@@ -1868,7 +1888,7 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
         # Try to find WooCommerce product by URL if url_to_postid failed
         if ((!$post_id || $post_id <= 0) && strpos($route, '/product/') !== false && function_exists('wc_get_products')) {
             # Extract product slug from URL
-            $product_slug = basename(parse_url($route, PHP_URL_PATH));
+            $product_slug = basename(wp_parse_url($route, PHP_URL_PATH));
 
             # Try to get product by slug
             $products = wc_get_products(array(
@@ -1901,13 +1921,12 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
             # Check if this is a category page
             if (strpos($route, '/category/') !== false) {
                 # Extract category slug from URL
-                $category_slug = basename(parse_url($route, PHP_URL_PATH));
+                $category_slug = basename(wp_parse_url($route, PHP_URL_PATH));
                 $category = get_category_by_slug($category_slug);
 
                 if ($category) {
                     # Check if category would return 404 before applying OTTO changes
                     if (metasync_would_term_return_404($category->term_id, 'category', $route)) {
-                        error_log("MetaSync OTTO: Skipping SEO processing for category that would return 404: {$route} (Category ID: {$category->term_id})");
                         metasync_otto_auto_exclude_404_url($route);
                         return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
                     }
@@ -2005,13 +2024,12 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
             # Check if this is a WooCommerce product category
             if (strpos($route, '/product-category/') !== false) {
                 # Extract product category slug from URL
-                $category_slug = basename(parse_url($route, PHP_URL_PATH));
+                $category_slug = basename(wp_parse_url($route, PHP_URL_PATH));
                 $term = get_term_by('slug', $category_slug, 'product_cat');
 
                 if ($term && !is_wp_error($term)) {
                     # Check if product category would return 404 before applying OTTO changes
                     if (metasync_would_term_return_404($term->term_id, 'product_cat', $route)) {
-                        error_log("MetaSync OTTO: Skipping SEO processing for product category that would return 404: {$route} (Term ID: {$term->term_id})");
                         metasync_otto_auto_exclude_404_url($route);
                         return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
                     }
@@ -2126,7 +2144,6 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                 if ($home_page) {
                     # Check if home page would return 404 before applying OTTO changes
                     if (metasync_would_page_return_404($home_page->ID, $route)) {
-                        error_log("MetaSync OTTO: Skipping SEO processing for home page that would return 404: {$route} (Post ID: {$home_page->ID}, Status: {$home_page->post_status})");
                         metasync_otto_auto_exclude_404_url($route);
                         return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
                     }
@@ -2232,7 +2249,6 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                 if ($posts_page && $route_clean === $posts_page_url) {
                     # Check if blog page would return 404
                     if (metasync_would_page_return_404($posts_page->ID, $route)) {
-                        error_log("MetaSync OTTO: Skipping SEO processing for blog page that would return 404: {$route} (Post ID: {$posts_page->ID}, Status: {$posts_page->post_status})");
                         metasync_otto_auto_exclude_404_url($route);
                         return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
                     }
@@ -2332,7 +2348,6 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
             # URL didn't resolve to any supported entity (post, category, home page, blog page)
             # Treat as 404 and auto-exclude (e.g. deleted post, non-existent page)
             if (!metasync_otto_is_url_available($route)) {
-                error_log("MetaSync OTTO: Skipping SEO processing for URL that would return 404 (no matching entity): {$route}");
                 metasync_otto_auto_exclude_404_url($route);
             }
             return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
@@ -2351,7 +2366,6 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
 
         # Check if page would return 404 before applying OTTO changes
         if (metasync_would_page_return_404($post_id, $route)) {
-            error_log("MetaSync OTTO: Skipping SEO processing for URL that would return 404: {$route} (Post ID: {$post_id}, Status: {$post->post_status})");
             metasync_otto_auto_exclude_404_url($route);
             return Metasync_Otto_Job_Status::OUTCOME_PERMANENT;
         }
@@ -2471,9 +2485,8 @@ function metasync_log_sync_history($data) {
         // Minimal duplicate prevention within short time window
         if (!empty($data['title']) && !empty($data['source'])) {
             global $wpdb;
-            $table = $wpdb->prefix . Metasync_Sync_History_Database::$table_name;
-            $recent = $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM `$table` WHERE title = %s AND source = %s AND created_at >= %s",
+            $recent = $wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- sync-history duplicate guard over the plugin custom table — write-path freshness required
+                "SELECT COUNT(*) FROM `{$wpdb->prefix}metasync_sync_history` WHERE title = %s AND source = %s AND created_at >= %s",
                 $data['title'],
                 $data['source'],
                 gmdate('Y-m-d H:i:s', time() - 60)
@@ -2486,7 +2499,7 @@ function metasync_log_sync_history($data) {
         $sync_db->add($data);
 
     } catch (Exception $e) {
-        error_log("MetaSync: Failed to log sync history: " . $e->getMessage());
+        error_log("MetaSync: Failed to log sync history: " . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
     }
 }
 
@@ -2564,7 +2577,7 @@ function metasync_otto_resolve_redirect_to_final_url($url)
         $redirect = new Metasync_Redirection($db);
         return $redirect->resolve_url_to_final_destination($url, 10);
     } catch (Exception $e) {
-        error_log('MetaSync OTTO: Redirect resolution failed for ' . $url . ' - ' . $e->getMessage());
+        error_log('MetaSync OTTO: Redirect resolution failed for ' . $url . ' - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         return $url;
     }
 }
@@ -2597,7 +2610,7 @@ function metasync_otto_auto_exclude_404_url($url)
             'auto_excluded' => 1,
         ]);
     } catch (Exception $e) {
-        error_log('MetaSync OTTO: Failed to auto-exclude 404 URL: ' . $url . ' - ' . $e->getMessage());
+        error_log('MetaSync OTTO: Failed to auto-exclude 404 URL: ' . $url . ' - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         return false;
     }
 }
@@ -2619,12 +2632,11 @@ function metasync_otto_remove_auto_exclusion($url)
         require_once plugin_dir_path(__FILE__) . 'class-metasync-otto-excluded-urls-database.php';
         $db  = new Metasync_Otto_Excluded_URLs_Database();
         global $wpdb;
-        $table = $wpdb->prefix . Metasync_Otto_Excluded_URLs_Database::$table_name;
         # Normalize the same way is_url_excluded() does
         $url_normalized = rtrim(trim($url), '/');
-        $records = $wpdb->get_results(
+        $records = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- webhook-path cleanup of auto-exclusions over the plugin custom table
             $wpdb->prepare(
-                "SELECT id FROM `{$table}` WHERE url_pattern = %s AND auto_excluded = 1 AND status = 'active'",
+                "SELECT id FROM `{$wpdb->prefix}metasync_otto_excluded_urls` WHERE url_pattern = %s AND auto_excluded = 1 AND status = 'active'",
                 $url_normalized
             )
         );
@@ -2656,22 +2668,24 @@ function metasync_is_otto_url_manually_excluded($url)
     try {
         require_once plugin_dir_path(__FILE__) . 'class-metasync-otto-excluded-urls-database.php';
         global $wpdb;
-        $table = $wpdb->prefix . Metasync_Otto_Excluded_URLs_Database::$table_name;
         $url_normalized = rtrim(trim($url), '/');
 
         $records = get_transient(METASYNC_OTTO_EXCLUDED_TRANSIENT_KEY);
 
         if ($records === false) {
-            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- no user input, table name from $wpdb->prefix
-            $records = $wpdb->get_results(
-                "SELECT url_pattern, pattern_type FROM `{$table}` WHERE status = 'active' AND (auto_excluded = 0 OR auto_excluded IS NULL) ORDER BY created_at DESC"
+            $records = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- render-path read IS cached via get/set_transient with invalidation on every write — wp_cache_* is not used because the payload must survive object-cache-only setups
+                "SELECT url_pattern, pattern_type FROM `{$wpdb->prefix}metasync_otto_excluded_urls` WHERE status = 'active' AND (auto_excluded = 0 OR auto_excluded IS NULL) ORDER BY created_at DESC"
             );
 
             // Graceful recovery: auto_excluded column missing on pre-v2.7.4 installs.
-            // Run ALTER TABLE to add it and treat URL as not excluded so OTTO continues rendering.
+            // Schema changes belong to the upgrade routines, never the render path:
+            // degrade to "not excluded" so OTTO keeps rendering, and schedule a
+            // one-shot background repair that runs the same column migration off
+            // the visitor request (handled by metasync_repair_otto_excluded_schema).
             if ($wpdb->last_error && strpos($wpdb->last_error, 'auto_excluded') !== false) {
-                // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-                $wpdb->query("ALTER TABLE `{$table}` ADD COLUMN `auto_excluded` TINYINT(1) NOT NULL DEFAULT 0");
+                if (false === wp_next_scheduled('metasync_repair_otto_excluded_schema')) {
+                    wp_schedule_single_event(time() + MINUTE_IN_SECONDS, 'metasync_repair_otto_excluded_schema');
+                }
                 return false;
             }
 
@@ -2749,7 +2763,7 @@ function metasync_otto_is_url_available($url)
 
     # WooCommerce product by slug
     if ((!$post_id || $post_id <= 0) && strpos($route, '/product/') !== false && function_exists('wc_get_products')) {
-        $product_slug = basename(parse_url($route, PHP_URL_PATH));
+        $product_slug = basename(wp_parse_url($route, PHP_URL_PATH));
         $products = wc_get_products(array('name' => $product_slug, 'limit' => 1, 'status' => 'publish'));
         if (!empty($products)) {
             $post_id = $products[0]->get_id();
@@ -2778,7 +2792,7 @@ function metasync_otto_is_url_available($url)
 
     # Category
     if (strpos($route, '/category/') !== false) {
-        $category_slug = basename(parse_url($route, PHP_URL_PATH));
+        $category_slug = basename(wp_parse_url($route, PHP_URL_PATH));
         $category = get_category_by_slug($category_slug);
         if ($category) {
             return !metasync_would_term_return_404($category->term_id, 'category', $route);
@@ -2787,7 +2801,7 @@ function metasync_otto_is_url_available($url)
 
     # WooCommerce product category
     if (strpos($route, '/product-category/') !== false) {
-        $category_slug = basename(parse_url($route, PHP_URL_PATH));
+        $category_slug = basename(wp_parse_url($route, PHP_URL_PATH));
         $term = get_term_by('slug', $category_slug, 'product_cat');
         if ($term && !is_wp_error($term)) {
             return !metasync_would_term_return_404($term->term_id, 'product_cat', $route);
@@ -2831,7 +2845,7 @@ function metasync_otto_recheck_404_exclusions()
         $removed = 0;
         $marked_permanent = 0;
         $thirty_days_ago = strtotime('-30 days');
-        $next_recheck = date('Y-m-d H:i:s', current_time('timestamp') + 7 * DAY_IN_SECONDS);
+        $next_recheck = gmdate('Y-m-d H:i:s', current_time('timestamp') + 7 * DAY_IN_SECONDS);
 
         foreach ($records as $record) {
             $url = trim($record->url_pattern);
@@ -2854,18 +2868,28 @@ function metasync_otto_recheck_404_exclusions()
             }
         }
 
-        if ($removed > 0) {
-            error_log("MetaSync OTTO: Recheck 404 exclusions - removed {$removed} URL(s) that are now available");
-        }
-        if ($marked_permanent > 0) {
-            error_log("MetaSync OTTO: Recheck 404 exclusions - marked {$marked_permanent} URL(s) as permanent (still 404 after 30 days)");
-        }
     } catch (Exception $e) {
-        error_log('MetaSync OTTO: Recheck 404 exclusions failed - ' . $e->getMessage());
+        error_log('MetaSync OTTO: Recheck 404 exclusions failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
     }
 }
 
 add_action('metasync_otto_recheck_404_exclusions', 'metasync_otto_recheck_404_exclusions');
+
+/**
+ * Background repair of the metasync_otto_excluded_urls schema (cron).
+ *
+ * Scheduled by metasync_is_otto_url_manually_excluded() when a render-path
+ * read fails because the auto_excluded column is missing (pre-2.7.4 install
+ * whose version migration did not run). Runs the DB layer's self-healing
+ * column migration off the visitor request instead of ALTERing inline.
+ */
+function metasync_repair_otto_excluded_schema()
+{
+    require_once plugin_dir_path(__FILE__) . 'class-metasync-otto-excluded-urls-database.php';
+    Metasync_Otto_Excluded_URLs_Database::ensure_schema();
+}
+
+add_action('metasync_repair_otto_excluded_schema', 'metasync_repair_otto_excluded_schema');
 
 /**
  * Check if a post/page would return 404 without making HTTP request
@@ -3045,7 +3069,7 @@ function metasync_otto_is_unthrottled_infrastructure_agent( $detection = array()
 	}
 
 	// WP Cloud's warmer also tags its requests with a query marker.
-	if ( ! $is_infra && isset( $_GET['x-cache-engine'] ) ) {
+	if ( ! $is_infra && isset( $_GET['x-cache-engine'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only flag for render throttling
 		$is_infra = true;
 	}
 

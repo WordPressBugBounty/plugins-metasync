@@ -58,7 +58,7 @@ class Metasync_Admin_Ajax
             global $wpdb;
             if (isset($wpdb) && is_object($wpdb) && method_exists($wpdb, 'query') && method_exists($wpdb, 'prepare')) {
                 $serialize = function ($value) { return function_exists('maybe_serialize') ? maybe_serialize($value) : serialize($value); };
-                $wpdb->query($wpdb->prepare(
+                $wpdb->query($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- atomic compare-and-swap on option rows — the WHERE-guarded UPDATE/DELETE is the lock primitive
                     "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
                     $serialize($replacement), $key, $serialize($held)
                 ));
@@ -80,7 +80,7 @@ class Metasync_Admin_Ajax
             global $wpdb;
             if (isset($wpdb) && is_object($wpdb) && method_exists($wpdb, 'query') && method_exists($wpdb, 'prepare')) {
                 $serialized = function_exists('maybe_serialize') ? maybe_serialize($held) : serialize($held);
-                $wpdb->query($wpdb->prepare(
+                $wpdb->query($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- atomic compare-and-swap on option rows — the WHERE-guarded UPDATE/DELETE is the lock primitive
                     "DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
                     $key,
                     $serialized
@@ -128,7 +128,7 @@ class Metasync_Admin_Ajax
     {
         $execution_time = Metasync_Settings_Fields::instance()->get_execution_setting('max_execution_time');
         if (function_exists('set_time_limit')) {
-            @set_time_limit($execution_time);
+            @set_time_limit($execution_time); // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- runtime PHP setting with no WordPress API
         }
         
         Metasync_Settings_Fields::instance()->apply_memory_limit();
@@ -139,8 +139,8 @@ class Metasync_Admin_Ajax
             wp_send_json_error(['message' => 'Insufficient permissions.']);
         }
 
-        $type = isset($_POST['type']) ? sanitize_text_field($_POST['type']) : '';
-        $plugin = isset($_POST['plugin']) ? sanitize_text_field($_POST['plugin']) : '';
+        $type = isset($_POST['type']) ? sanitize_text_field(wp_unslash($_POST['type'])) : '';
+        $plugin = isset($_POST['plugin']) ? sanitize_text_field(wp_unslash($_POST['plugin'])) : '';
         $offset = isset($_POST['offset']) ? intval($_POST['offset']) : 0;
 
         if (empty($type) || empty($plugin)) {
@@ -180,7 +180,7 @@ class Metasync_Admin_Ajax
     {
         $execution_time = Metasync_Settings_Fields::instance()->get_execution_setting('max_execution_time');
         if (function_exists('set_time_limit')) {
-            @set_time_limit($execution_time);
+            @set_time_limit($execution_time); // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- runtime PHP setting with no WordPress API
         }
         
         Metasync_Settings_Fields::instance()->apply_memory_limit();
@@ -191,7 +191,7 @@ class Metasync_Admin_Ajax
             wp_send_json_error(['message' => 'Insufficient permissions.']);
         }
 
-        $plugin = isset($_POST['plugin']) ? sanitize_text_field($_POST['plugin']) : '';
+        $plugin = isset($_POST['plugin']) ? sanitize_text_field(wp_unslash($_POST['plugin'])) : '';
         $import_titles = isset($_POST['import_titles']) ? (bool) intval($_POST['import_titles']) : true;
         $import_descriptions = isset($_POST['import_descriptions']) ? (bool) intval($_POST['import_descriptions']) : true;
         $import_social_text = isset($_POST['import_social_text']) ? (bool) intval($_POST['import_social_text']) : true;
@@ -564,8 +564,8 @@ class Metasync_Admin_Ajax
             wp_die('Insufficient permissions');
         }
 
-        $uri = sanitize_text_field($_POST['uri']);
-        $redirect_url = sanitize_url($_POST['redirect_url']);
+        $uri = sanitize_text_field(wp_unslash($_POST['uri']));
+        $redirect_url = sanitize_url(wp_unslash($_POST['redirect_url']));
 
         if (empty($uri) || empty($redirect_url)) {
             wp_send_json_error('Missing required parameters');
@@ -636,7 +636,7 @@ class Metasync_Admin_Ajax
             delete_expired_transients(true);
             $cleanup_stats['expired_transients'] = 'cleaned_by_wordpress';
             
-            $plugin_transients = $wpdb->get_results(
+            $plugin_transients = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- transient enumeration/cleanup on the options table — no API to scan or bulk-delete transient rows
                 "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE '_transient_metasync_%'",
                 ARRAY_A
             );
@@ -647,7 +647,7 @@ class Metasync_Admin_Ajax
                 $cleanup_stats['plugin_transients']++;
             }
             
-            $rate_limit_transients = $wpdb->get_results(
+            $rate_limit_transients = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- transient enumeration/cleanup on the options table — no API to scan or bulk-delete transient rows
                 "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE '_transient_sa_connect_rate_limit_%'",
                 ARRAY_A
             );
@@ -658,7 +658,7 @@ class Metasync_Admin_Ajax
                 $cleanup_stats['rate_limit_transients']++;
             }
             
-            $telemetry_transients = $wpdb->get_results(
+            $telemetry_transients = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- transient enumeration/cleanup on the options table — no API to scan or bulk-delete transient rows
                 "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE '_transient_metasync_telemetry_%'",
                 ARRAY_A
             );
@@ -669,7 +669,7 @@ class Metasync_Admin_Ajax
                 $cleanup_stats['telemetry_transients']++;
             }
             
-            $sa_connect_success_transients = $wpdb->get_results(
+            $sa_connect_success_transients = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- transient enumeration/cleanup on the options table — no API to scan or bulk-delete transient rows
                 "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE '_transient_metasync_sa_connect_success_%'",
                 ARRAY_A
             );
@@ -682,12 +682,10 @@ class Metasync_Admin_Ajax
             
             $cleanup_stats['execution_time'] = round((microtime(true) - $cleanup_stats['start_time']) * 1000, 2);
             $cleanup_stats['next_run'] = wp_next_scheduled('metasync_cleanup_transients') ? 
-                                        date('Y-m-d H:i:s T', wp_next_scheduled('metasync_cleanup_transients')) : 'N/A';
-            
-            error_log('MetaSync: Transient cleanup completed - ' . json_encode($cleanup_stats));
+                                        gmdate('Y-m-d H:i:s T', wp_next_scheduled('metasync_cleanup_transients')) : 'N/A';
             
         } catch (Exception $e) {
-            error_log('MetaSync: Transient cleanup failed - ' . $e->getMessage());
+            error_log('MetaSync: Transient cleanup failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         }
     }
 
@@ -819,7 +817,7 @@ class Metasync_Admin_Ajax
             if (!function_exists('metasync_sentry_capture_feedback')) {
                 # Log warning if function doesn't exist
                 if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('MetaSync: Sentry feedback function not available for report submission.');
+                    error_log('MetaSync: Sentry feedback function not available for report submission.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
                 }
             } else {
                 $feedback_data = array(
@@ -848,11 +846,9 @@ class Metasync_Admin_Ajax
             } else {
                 # Fallback: Log locally if Sentry fails or is unavailable
                 if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log(sprintf(
-                        'MetaSync Client Report (Fallback): UUID: %s | Title: %s | Message: %s | Severity: %s',
+                    error_log(sprintf( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
+                        'MetaSync Client Report (Fallback): UUID: %s | Severity: %s',
                         $project_uuid,
-                        $issue_title,
-                        $issue_message,
                         $issue_severity
                     ));
                 }
@@ -868,7 +864,7 @@ class Metasync_Admin_Ajax
         } catch (Exception $e) {
             # Log the error securely (only in debug mode)
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log(sprintf(
+                error_log(sprintf( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
                     'MetaSync Report Submission Error: %s in %s on line %d',
                     $e->getMessage(),
                     $e->getFile(),
@@ -1013,7 +1009,7 @@ class Metasync_Admin_Ajax
                 $this->release_recovery_lock($rate_owner);
             }
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log(sprintf(
+                error_log(sprintf( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
                     'MetaSync Password Recovery Error: %s in %s on line %d',
                     $e->getMessage(),
                     $e->getFile(),
@@ -1163,7 +1159,7 @@ class Metasync_Admin_Ajax
         } catch (Exception $e) {
             # Log error if debug is enabled
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('MetaSync Theme Save Error: ' . $e->getMessage());
+                error_log('MetaSync Theme Save Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
             }
             
             wp_send_json_error(array('message' => 'Failed to save theme preference.'));
@@ -1306,7 +1302,7 @@ class Metasync_Admin_Ajax
             }
             
             # Generate unique filename
-            $timestamp = date('Y-m-d_H-i-s');
+            $timestamp = gmdate('Y-m-d_H-i-s');
             $zip_filename = 'metasync-whitelabel-plugin-' . $timestamp . '.zip';
             $json_filename = 'whitelabel-settings.json';
             $zip_path = $temp_dir . '/' . $zip_filename;
@@ -1369,12 +1365,12 @@ class Metasync_Admin_Ajax
             header('Expires: 0');
             
             # Output file and clean up
-            readfile($zip_path);
-            unlink($zip_path);
+            readfile($zip_path); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_readfile -- streams a large file to output without loading it into memory
+            wp_delete_file($zip_path);
             
             # Clean up temp directory if empty
             if (is_dir($temp_dir) && count(scandir($temp_dir)) == 2) {
-                rmdir($temp_dir);
+                rmdir($temp_dir); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- WP_Filesystem would prompt for FTP credentials on non-direct hosts
             }
             
             # Exit to prevent WordPress from adding anything to the response
@@ -1383,10 +1379,10 @@ class Metasync_Admin_Ajax
         } catch (Exception $e) {
             # Log error if debug is enabled
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('MetaSync Whitelabel Export Error: ' . $e->getMessage());
+                error_log('MetaSync Whitelabel Export Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
             }
             
-            wp_die('Failed to export whitelabel settings: ' . $e->getMessage());
+            wp_die(esc_html__('Failed to export whitelabel settings.', 'metasync'));
         }
     }
 
@@ -1433,8 +1429,8 @@ class Metasync_Admin_Ajax
     {
         global $wpdb;
 
-        $query = "
-            SELECT p.ID, p.post_title, p.post_modified, p.post_type
+        $html_pages = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- admin dashboard widget join over posts+postmeta — aggregate view, no WordPress API for the join
+            "SELECT p.ID, p.post_title, p.post_modified, p.post_type
             FROM {$wpdb->posts} p
             INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id
             WHERE p.post_status = 'publish'
@@ -1443,9 +1439,8 @@ class Metasync_Admin_Ajax
             GROUP BY p.ID
             ORDER BY p.post_modified DESC
             LIMIT 10
-        ";
-
-        $html_pages = $wpdb->get_results($query);
+        "
+        );
         $total_count = count($html_pages);
 
         $label = $this->get_html_source_label();
@@ -1454,11 +1449,12 @@ class Metasync_Admin_Ajax
             echo '<div class="metasync-dashboard-widget-empty">';
             echo '<span class="dashicons dashicons-admin-page" style="font-size: 48px; opacity: 0.3; display: block; margin: 20px auto;"></span>';
             echo '<p style="text-align: center; color: #666;">';
+            /* translators: %s: HTML source label. */
             echo sprintf(__('No pages created with %s yet.', 'metasync'), '<strong>' . esc_html($label) . '</strong>');
             echo '</p>';
             echo '<p style="text-align: center;">';
-            echo '<a href="' . admin_url('admin.php?page=' . Metasync_Admin::$page_slug) . '" class="button button-primary">';
-            echo __('Get Started', 'metasync');
+            echo '<a href="' . esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug)) . '" class="button button-primary">';
+            echo esc_html__('Get Started', 'metasync');
             echo '</a>';
             echo '</p>';
             echo '</div>';
@@ -1469,13 +1465,13 @@ class Metasync_Admin_Ajax
 
         echo '<div class="metasync-widget-stats">';
         echo '<div class="metasync-stat-box">';
-        echo '<span class="metasync-stat-number">' . $total_count . '</span>';
-        echo '<span class="metasync-stat-label">' . __('AI-Generated Pages', 'metasync') . '</span>';
+        echo '<span class="metasync-stat-number">' . esc_html((string) $total_count) . '</span>';
+        echo '<span class="metasync-stat-label">' . esc_html__('AI-Generated Pages', 'metasync') . '</span>';
         echo '</div>';
         echo '</div>';
 
         echo '<div class="metasync-widget-list">';
-        echo '<h4>' . __('Recent Pages', 'metasync') . '</h4>';
+        echo '<h4>' . esc_html__('Recent Pages', 'metasync') . '</h4>';
         echo '<ul>';
 
         foreach ($html_pages as $page) {
@@ -1490,9 +1486,10 @@ class Metasync_Admin_Ajax
             echo esc_html($page->post_title ?: __('(no title)', 'metasync'));
             echo '</a>';
             echo '<span class="metasync-page-meta">';
-            echo sprintf(__('Updated %s ago', 'metasync'), $time_ago);
+            /* translators: %s: human-readable time difference. */
+            echo esc_html(sprintf(__('Updated %s ago', 'metasync'), $time_ago));
             echo ' • ';
-            echo '<a href="' . esc_url($view_link) . '" target="_blank">' . __('View', 'metasync') . '</a>';
+            echo '<a href="' . esc_url($view_link) . '" target="_blank">' . esc_html__('View', 'metasync') . '</a>';
             echo '</span>';
             echo '</div>';
             echo '</li>';
@@ -1502,8 +1499,8 @@ class Metasync_Admin_Ajax
         echo '</div>';
 
         echo '<div class="metasync-widget-footer">';
-        echo '<a href="' . admin_url('edit.php?post_type=page') . '">';
-        echo __('View All Pages', 'metasync') . ' →';
+        echo '<a href="' . esc_url(admin_url("edit.php?post_type=page")) . '">';
+        echo esc_html__('View All Pages', 'metasync') . ' →';
         echo '</a>';
         echo '</div>';
 

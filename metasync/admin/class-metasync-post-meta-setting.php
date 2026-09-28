@@ -58,7 +58,7 @@ class Metasync_Post_Meta_Settings
 
 		// Resolve the current post ID in admin_init context: $_GET['post'] on the
 		// edit screen, $_POST['post_ID'] on save. Mirrors the sidebar enqueue.
-		$post_id = isset($_GET['post']) ? intval($_GET['post']) : (isset($_POST['post_ID']) ? intval($_POST['post_ID']) : 0);
+		$post_id = isset($_GET['post']) ? intval($_GET['post']) : (isset($_POST['post_ID']) ? intval($_POST['post_ID']) : 0); // phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.NonceVerification.Recommended -- read-only post ID to pick meta boxes
 
 		// LPS / custom-HTML pages carry their own baked SEO served before wp_head,
 		// so the editable SEO fields here do nothing and mislead editors.
@@ -298,7 +298,7 @@ class Metasync_Post_Meta_Settings
 			return;
 		}
 
-		$post_data =  metasync_sanitize_input_array($_POST);
+		$post_data =  metasync_sanitize_input_array($_POST); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- wp_verify_nonce() runs before any meta write
 		// Check for new field name first, then old for backward compatibility
 		$field_name = isset($post_data['common_robots_meta']) ? 'common_robots_meta' : 'common_robots_mata';
 
@@ -332,7 +332,7 @@ class Metasync_Post_Meta_Settings
 			return;
 		}
 
-		$post_data =  metasync_sanitize_input_array($_POST);
+		$post_data =  metasync_sanitize_input_array($_POST); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- wp_verify_nonce() runs before any meta write
 		// Check for new field name first, then old for backward compatibility
 		$field_name = isset($post_data['advanced_robots_meta']) ? 'advanced_robots_meta' : 'advanced_robots_mata';
 
@@ -354,7 +354,7 @@ class Metasync_Post_Meta_Settings
 		if (!current_user_can('edit_post', $post_id))
 			return;
 
-		$post_data =  metasync_sanitize_input_array($_POST);
+		$post_data =  metasync_sanitize_input_array($_POST); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- wp_verify_nonce() runs before any meta write
 		// Check for new field name first, then old for backward compatibility
 		$field_name = isset($post_data['post_redirect_meta']) ? 'post_redirect_meta' : 'post_redirect_mata';
 
@@ -512,7 +512,7 @@ class Metasync_Post_Meta_Settings
 		if (!current_user_can('edit_post', $post_id))
 			return;
 
-		$post_data =  metasync_sanitize_input_array($_POST);
+		$post_data =  metasync_sanitize_input_array($_POST); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- wp_verify_nonce() runs before any meta write
 		// Check for new field name first, then old for backward compatibility
 		$field_name = isset($post_data['post_canonical_url_meta']) ? 'post_canonical_url_meta' : 'post_canonical_url_mata';
 
@@ -675,10 +675,12 @@ class Metasync_Post_Meta_Settings
 		wp_nonce_field('metasync_seo_meta_nonce', 'metasync_seo_meta_nonce');
 		?>
 		<p style="color: #666; margin-bottom: 12px;">
+			<?php /* translators: %s: OTTO name (whitelabel). */ ?>
 			<?php printf(esc_html__('Set the SEO Title and Meta Description for this post. Leave the field blank to use %s suggestion.', 'metasync'), esc_html(Metasync::get_whitelabel_otto_name())); ?>
 		</p>
 		<?php if ($title_is_imported) : ?>
 			<p style="color: #666; margin-bottom: 12px;">
+				<?php /* translators: %s: OTTO name (whitelabel). */ ?>
 				<?php printf(esc_html__('The greyed-out value below was imported from another SEO plugin. It is used only until %s has a suggestion for this page.', 'metasync'), esc_html(Metasync::get_whitelabel_otto_name())); ?>
 			</p>
 		<?php endif; ?>
@@ -720,18 +722,20 @@ class Metasync_Post_Meta_Settings
 		}
 
 		if (isset($_POST['metasync_seo_title'])) {
-			$seo_title = sanitize_text_field($_POST['metasync_seo_title']);
+			$seo_title = sanitize_text_field(wp_unslash($_POST['metasync_seo_title']));
 			if (!empty($seo_title)) {
-				update_post_meta($post_id, '_metasync_seo_title', $seo_title);
+				// update_post_meta() unslashes again, so re-slash to keep
+				// literal backslashes and quotes in the stored value.
+				update_post_meta($post_id, '_metasync_seo_title', wp_slash($seo_title));
 			} else {
 				delete_post_meta($post_id, '_metasync_seo_title');
 			}
 		}
 
 		if (isset($_POST['metasync_seo_desc'])) {
-			$seo_desc = sanitize_textarea_field($_POST['metasync_seo_desc']);
+			$seo_desc = sanitize_textarea_field(wp_unslash($_POST['metasync_seo_desc']));
 			if (!empty($seo_desc)) {
-				update_post_meta($post_id, '_metasync_seo_desc', $seo_desc);
+				update_post_meta($post_id, '_metasync_seo_desc', wp_slash($seo_desc));
 			} else {
 				delete_post_meta($post_id, '_metasync_seo_desc');
 			}

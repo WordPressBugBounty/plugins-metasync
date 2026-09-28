@@ -2487,7 +2487,11 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
 .sync-log-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    /* Centred rather than flex-start: the title section used to be a two-line
+     * block (24px heading + description) that read fine top-aligned, but it is
+     * now a single line of copy sitting beside a 34px control row. Top-aligning
+     * a one-line block against that row leaves the text visibly high. */
+    align-items: center;
     margin-bottom: 30px;
     gap: 20px;
 }
@@ -2496,12 +2500,9 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     flex: 1;
 }
 
-.sync-log-title-section h2 {
-    color: var(--dashboard-text-primary);
-    margin-bottom: 8px;
-    font-size: 24px;
-    font-weight: 600;
-}
+/* The card no longer renders an <h2> — the page title and description come
+ * from the layout header (render_layout_open), and the card carries only the
+ * 90-day retention hint. See admin/class-metasync-admin.php. */
 
 /* Sync Log Filters */
 .sync-log-filters {
@@ -2529,6 +2530,47 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     .sync-filter-select {
         min-width: 150px;
     }
+}
+
+/*
+ * Changes Log toolbar — one shared height for the Clear Log button and the two
+ * filter selects.
+ *
+ * The button is styled inline in the renderer (padding:6px 14px, no height) and
+ * rendered ~29px, while the selects picked up WordPress core's own
+ * `select { min-height: 40px }` (wp-admin forms.css) on top of
+ * .sync-filter-select's padding — so the button sat noticeably shorter than the
+ * controls beside it.
+ *
+ * min-height is the load-bearing declaration here: core's min-height:40px beats
+ * a plain height:34px no matter how specific the selector, because min-height
+ * wins over height by definition. Setting both pins the row at 34px.
+ */
+#metasync-clear-sync-log-btn,
+.sync-log-filters .sync-filter-select {
+    height: 34px;
+    min-height: 34px;
+    box-sizing: border-box;
+}
+
+/* Vertical padding is zeroed so the fixed height above is what the row sees;
+ * .sync-filter-select's own padding:8px 12px would otherwise fight it. The base
+ * padding-right (34px, reserving space for the chevron) is !important there and
+ * still applies. */
+.sync-log-filters .sync-filter-select {
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: 32px;
+}
+
+/* The button keeps its inline padding:6px 14px, which leaves a 20px content box
+ * inside the 34px border-box height — too short for a 32px line-height, so the
+ * label would sit off-centre. Flex centering makes line-height irrelevant. */
+#metasync-clear-sync-log-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
 }
 
 .sync-filter-select {
@@ -2725,11 +2767,18 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     color: var(--dashboard-text-secondary);
 }
 
-.sync-log-empty h3 {
+/* The empty-state heading is an <h2>: the card's own <h2> is gone, so the
+ * layout's <h1> is the only heading above it and an <h3> here would skip a
+ * level. Scoped through .metasync-dashboard-wrap to out-specify
+ * ".metasync-dashboard-wrap .dashboard-card h2" (0,3,1) above, which would
+ * otherwise impose its 1.5rem card-title sizing and flex display on what is
+ * a centred empty-state message. Sizing matches the previous <h3>. */
+.metasync-dashboard-wrap .sync-log-empty h2 {
     color: var(--dashboard-text-primary);
-    margin-bottom: 8px;
+    margin: 0 0 8px 0;
     font-size: 18px;
     font-weight: 600;
+    display: block;
 }
 
 .sync-log-empty p {
@@ -2759,6 +2808,59 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
     display: flex;
     align-items: center;
     gap: 8px;
+}
+
+/*
+ * Rows-per-page selector on the Changes Log footer.
+ *
+ * .metasync-per-page-select is emitted by Metasync_Per_Page_Helper::render_selector()
+ * on four screens (Redirections, 404 Monitor, Changes Log, Media Library), but
+ * only the other three style it. On the Changes Log it fell through to the
+ * generic ".metasync-dashboard-wrap select" rule — width:100%, max-width:400px,
+ * padding:12px 16px — so a two-digit control rendered ~295px wide and 64px tall
+ * next to 34px dashboard controls.
+ *
+ * Scoped to .sync-log-pagination-info, a Changes Log-only wrapper, rather than
+ * to the shared class: the other three screens already size this control via
+ * their own rules (".wrap .tablenav select" for Redirections and 404 Monitor,
+ * "#metasync-image-library-form .tablenav select" for Media Library), and a
+ * shared rule here would be one more thing competing with them. Keeping it
+ * page-scoped means those screens are untouched by construction, not by
+ * winning a specificity tie.
+ *
+ * min-height pairs with height for the same reason as the toolbar rule above —
+ * core's select{min-height:40px} would otherwise inflate it back to 40px.
+ *
+ * Sizing only: admin/js/metasync-per-page.js drives behaviour off the element's
+ * data-* attributes, which CSS must not disturb.
+ */
+.sync-log-pagination-info .metasync-per-page-select {
+    height: 34px;
+    min-height: 34px;
+    line-height: 32px;
+    padding: 0 28px 0 10px;
+    font-size: 13px;
+    width: auto;
+    border-radius: 6px;
+    box-sizing: border-box;
+    vertical-align: middle;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23d1d5db' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 14px;
+}
+
+/* Mirrors .sync-filter-select option. The rule above is the first to apply
+ * appearance:none to this control, and dark-theme <option> popups need their
+ * colours stated explicitly rather than inherited. */
+.sync-log-pagination-info .metasync-per-page-select option {
+    background: var(--dashboard-card-bg);
+    color: var(--dashboard-text-primary);
+    padding: 8px;
 }
 
 .sync-pagination-btn {
@@ -2862,6 +2964,11 @@ body:has(.metasync-dashboard-wrap) .jp-identity-crisis-container {
         width: 100%;
     }
     
+    /* The vertical half of this padding is intentionally overridden by
+     * ".sync-log-filters .sync-filter-select" (0,2,0) above, which pins the
+     * toolbar row at 34px. Do NOT re-declare padding here under that
+     * descendant selector: it would tie on specificity, win on source order,
+     * and silently restore the misalignment this rule set exists to avoid. */
     .sync-filter-select {
         min-width: 110px;
         font-size: 13px;

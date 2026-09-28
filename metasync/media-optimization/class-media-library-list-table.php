@@ -383,7 +383,7 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
             return;
         }
 
-        $current_status = isset($_REQUEST['status_filter']) ? sanitize_text_field($_REQUEST['status_filter']) : '';
+        $current_status = isset($_REQUEST['status_filter']) ? sanitize_text_field(wp_unslash($_REQUEST['status_filter'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only list-table view state
         ?>
         <div class="alignleft actions">
             <select name="status_filter">
@@ -500,7 +500,7 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
      * Override get_pagenum to use custom paged param.
      */
     public function get_pagenum(): int {
-        $pagenum = isset($_REQUEST[self::PAGED_PARAM]) ? absint($_REQUEST[self::PAGED_PARAM]) : 0;
+        $pagenum = isset($_REQUEST[self::PAGED_PARAM]) ? absint($_REQUEST[self::PAGED_PARAM]) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only list-table view state
 
         if (isset($this->_pagination_args['total_pages']) && $pagenum > $this->_pagination_args['total_pages']) {
             $pagenum = $this->_pagination_args['total_pages'];
@@ -522,6 +522,7 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
         $current     = $this->get_pagenum();
 
         $output = '<span class="displaying-num">' . sprintf(
+            /* translators: %s: number of items. */
             _n('%s item', '%s items', $total_items, 'metasync'),
             number_format_i18n($total_items)
         ) . '</span>';
@@ -606,6 +607,7 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
             $first_link . $prev_link .
             '<span class="paging-input">' .
             sprintf(
+                /* translators: 1: current page number, 2: total number of pages. */
                 _x('%1$s of %2$s', 'paging', 'metasync'),
                 $html_current_page,
                 $html_total_pages
@@ -626,8 +628,8 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
         $current_url = set_url_scheme('http://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']);
         $current_url = remove_query_arg(['paged', self::PAGED_PARAM], $current_url);
 
-        $current_orderby = isset($_GET[self::ORDERBY_PARAM]) ? sanitize_text_field($_GET[self::ORDERBY_PARAM]) : '';
-        $current_order   = isset($_GET[self::ORDER_PARAM]) ? sanitize_text_field($_GET[self::ORDER_PARAM]) : 'asc';
+        $current_orderby = isset($_GET[self::ORDERBY_PARAM]) ? sanitize_text_field(wp_unslash($_GET[self::ORDERBY_PARAM])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only list-table view state
+        $current_order   = isset($_GET[self::ORDER_PARAM]) ? sanitize_text_field(wp_unslash($_GET[self::ORDER_PARAM])) : 'asc'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only list-table view state
 
         foreach ($columns as $column_key => $column_display_name) {
             $class = ['manage-column', "column-$column_key"];
@@ -693,9 +695,7 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
 
         global $wpdb;
 
-        $ids = wp_list_pluck($this->items, 'ID');
-        $id_set = implode(',', array_map('intval', $ids));
-        $valid_statuses = "'publish','draft','private','pending','future'";
+        $ids = array_map('intval', wp_list_pluck($this->items, 'ID'));
 
         // 1. post_parent relationships
         foreach ($this->items as $item) {
@@ -708,15 +708,17 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
         }
 
         // 2. Featured image relationships (_thumbnail_id meta)
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        $featured_rows = $wpdb->get_results(
-            "SELECT CAST(pm.meta_value AS UNSIGNED) AS attachment_id, pm.post_id
-             FROM {$wpdb->postmeta} pm
-             INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
-             WHERE pm.meta_key = '_thumbnail_id'
-               AND pm.meta_value IN ({$id_set})
-               AND p.post_status IN ({$valid_statuses})
-               AND p.post_type NOT IN ('attachment','revision')"
+        $featured_rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- admin list-table joins over posts+postmeta — aggregate view, no WordPress API for the join
+            $wpdb->prepare(
+                "SELECT CAST(pm.meta_value AS UNSIGNED) AS attachment_id, pm.post_id
+                 FROM {$wpdb->postmeta} pm
+                 INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+                 WHERE pm.meta_key = '_thumbnail_id'
+                   AND pm.meta_value IN (" . implode(',', array_fill(0, count($ids), '%d')) . ")
+                   AND p.post_status IN ('publish','draft','private','pending','future')
+                   AND p.post_type NOT IN ('attachment','revision')",
+                $ids
+            )
         );
 
         foreach ($featured_rows as $row) {
@@ -761,14 +763,18 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
             $like_clauses = array_unique($like_clauses);
             $like_sql     = implode(' OR ', $like_clauses);
 
-            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-            $content_rows = $wpdb->get_results(
+            // Each LIKE fragment is itself prepare()'d above; the status list
+            // is literal. Only the OR-joined fragment list is dynamic, and every
+            // fragment in it carries its own bound value.
+            // phpcs:disable WordPress.DB.PreparedSQL.NotPrepared -- $like_sql is an OR-join of prepare()'d fragments built above
+            $content_rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- admin list-table joins over posts+postmeta — aggregate view, no WordPress API for the join
                 "SELECT p.ID AS post_id, p.post_content
                  FROM {$wpdb->posts} p
                  WHERE ({$like_sql})
                    AND p.post_type NOT IN ('attachment','revision')
-                   AND p.post_status IN ({$valid_statuses})"
+                   AND p.post_status IN ('publish','draft','private','pending','future')"
             );
+            // phpcs:enable WordPress.DB.PreparedSQL.NotPrepared
 
             foreach ($content_rows as $row) {
                 $post_id = (int) $row->post_id;
@@ -791,10 +797,10 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
      */
     private function get_filters(): array {
         return [
-            'search'  => isset($_REQUEST['s']) ? sanitize_text_field($_REQUEST['s']) : '',
-            'status'  => isset($_REQUEST['status_filter']) ? sanitize_text_field($_REQUEST['status_filter']) : '',
-            'orderby' => isset($_REQUEST[self::ORDERBY_PARAM]) ? sanitize_sql_orderby($_REQUEST[self::ORDERBY_PARAM]) ?: 'date' : 'date',
-            'order'   => isset($_REQUEST[self::ORDER_PARAM]) && strtolower($_REQUEST[self::ORDER_PARAM]) === 'asc' ? 'ASC' : 'DESC',
+            'search'  => isset($_REQUEST['s']) ? sanitize_text_field(wp_unslash($_REQUEST['s'])) : '', // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only list-table view state
+            'status'  => isset($_REQUEST['status_filter']) ? sanitize_text_field(wp_unslash($_REQUEST['status_filter'])) : '', // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only list-table view state
+            'orderby' => isset($_REQUEST[self::ORDERBY_PARAM]) ? sanitize_sql_orderby($_REQUEST[self::ORDERBY_PARAM]) ?: 'date' : 'date', // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only list-table view state
+            'order'   => isset($_REQUEST[self::ORDER_PARAM]) && strtolower($_REQUEST[self::ORDER_PARAM]) === 'asc' ? 'ASC' : 'DESC', // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only list-table view state
         ];
     }
 

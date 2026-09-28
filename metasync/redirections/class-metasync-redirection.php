@@ -79,6 +79,10 @@ class Metasync_Redirection
                 if ((is_int($source_key) || ctype_digit((string) $source_key)) && is_string($source_value) && $source_value !== '') {
                     $source_key = $source_value;
                 }
+                // Rows saved before the input-unslash fix may still hold
+                // magic-quoted sources; heal at read time so they keep
+                // matching the unslashed request URI.
+                $source_key = wp_unslash((string) $source_key);
                 $pattern_type = in_array($source_value, array('exact', 'contain', 'start', 'end', 'wildcard', 'regex'))
                     ? $source_value
                     : ($global_pattern_type ? $global_pattern_type : 'exact');
@@ -87,7 +91,7 @@ class Metasync_Redirection
                     // Normalize: extract path from full URLs, ensure leading slash, strip trailing slash
                     $norm = (string) $source_key;
                     if (strpos($norm, 'http') === 0) {
-                        $parsed = parse_url($norm);
+                        $parsed = wp_parse_url($norm);
                         $norm = isset($parsed['path']) ? $parsed['path'] : '/';
                     }
                     if ($norm === '' || $norm[0] !== '/') {
@@ -115,7 +119,7 @@ class Metasync_Redirection
     public function create_admin_redirection_interface()
     {
         # Check if we should show import interface
-        $request_data = metasync_sanitize_input_array($_REQUEST);
+        $request_data = metasync_sanitize_input_array($_REQUEST); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only view switch, the import verifies its own nonce
         if (isset($request_data['action']) && $request_data['action'] === 'import') {
             $this->show_import_interface();
             return;
@@ -159,7 +163,7 @@ class Metasync_Redirection
             return;
         }
 
-        $plugin = isset($_POST['plugin']) ? sanitize_text_field($_POST['plugin']) : '';
+        $plugin = isset($_POST['plugin']) ? sanitize_text_field(wp_unslash($_POST['plugin'])) : '';
 
         if (empty($plugin)) {
             wp_send_json_error(['message' => 'No plugin specified.']);
@@ -198,7 +202,7 @@ class Metasync_Redirection
      */
     private function handle_csv_import_ajax()
     {
-        $file = isset($_FILES['csv_file']) && is_array($_FILES['csv_file']) ? $_FILES['csv_file'] : [];
+        $file = isset($_FILES['csv_file']) && is_array($_FILES['csv_file']) ? $_FILES['csv_file'] : []; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- private, caller verifies a nonce and capability first
 
         // wp_send_json_error() ends the request, so no return is needed (or
         // reachable) after any of these guards.
@@ -266,6 +270,10 @@ class Metasync_Redirection
                 $source_key = $source_value;
             }
 
+            // Heal magic-quoted sources saved before the input-unslash fix so
+            // pattern matching sees the literal value the user typed.
+            $source_key = wp_unslash((string) $source_key);
+
             // Determine pattern type: use source value if it's a valid pattern, otherwise use global pattern_type
             $pattern_type = in_array($source_value, ['exact', 'contain', 'start', 'end', 'wildcard', 'regex'])
                 ? $source_value
@@ -277,7 +285,7 @@ class Metasync_Redirection
 
             // If source is a full URL, extract just the path part
             if (strpos($source_key, 'http') === 0) {
-                $parsed_url = parse_url($source_key);
+                $parsed_url = wp_parse_url($source_key);
                 $normalized_source = $parsed_url['path'] ?? '';
             }
 
@@ -415,7 +423,14 @@ class Metasync_Redirection
                         if (empty($destination)) {
                             $destination = home_url();
                         }
-                        wp_redirect($destination, $row->http_code);
+                        // Same syntax hygiene as the default branch: the opt-in
+                        // permits external hosts, never syntactic evasion, so a
+                        // backslash trick like '/\evil.com' still bounces home.
+                        $checked = Metasync_Redirection_Validator::normalize_destination($destination);
+                        if (!Metasync_Redirection_Validator::is_safe_destination_syntax($checked)) {
+                            $checked = home_url();
+                        }
+                        $this->safe_redirect_to_destination($checked, $row->http_code);
                     } else {
                         // Stored destinations can carry backslashes (imports,
                         // older rows). Browsers read them as path separators, so
@@ -426,9 +441,9 @@ class Metasync_Redirection
                         if (!Metasync_Redirection_Validator::is_safe_destination_syntax($checked)) {
                             $checked = home_url();
                         }
-                        wp_redirect(wp_validate_redirect($checked, home_url()), $row->http_code);
+                        $this->safe_redirect_to_destination(wp_validate_redirect($checked, home_url()), $row->http_code);
                     }
-                    die;
+                    // Both branches terminate inside safe_redirect_to_destination().
                 }
                 // Match found and processed, return true to stop checking other rules
                 return true;
@@ -437,6 +452,47 @@ class Metasync_Redirection
 
         // No match found
         return false;
+    }
+
+    /**
+     * Emit a redirect through wp_safe_redirect() and end execution.
+     *
+     * wp_safe_redirect() confines the Location header to hosts WordPress
+     * trusts (this site plus anything on the allowed_redirect_hosts
+     * allowlist). The one intentional external destination is an exact-match
+     * rule saved by an admin while the metasync_allow_external_redirects
+     * opt-in is enabled, so the parsed host of the already syntax-validated
+     * destination is allowlisted for this request only. Everything else —
+     * same-site destinations, relative paths — passes through untouched.
+     *
+     * @param string $destination Validated destination URL or path.
+     * @param string|int $http_code Redirect status code from the rule row.
+     * @return void Never returns; wp_safe_redirect() is followed by exit.
+     */
+    private function safe_redirect_to_destination($destination, $http_code)
+    {
+        $host = wp_parse_url($destination, PHP_URL_HOST);
+        $grant_host = null;
+        if (is_string($host) && $host !== '') {
+            // Scope the temporary host grant to this one redirect. The filter
+            // runs while wp_safe_redirect() validates the Location header and
+            // is removed before exit: shutdown callbacks registered elsewhere
+            // still fire after exit, so the grant must not outlive the call.
+            $grant_host = static function ($allowed_hosts, $checked_host = '') use ($host) {
+                if (is_array($allowed_hosts)) {
+                    $allowed_hosts[] = $host;
+                }
+                return $allowed_hosts;
+            };
+            add_filter('allowed_redirect_hosts', $grant_host, 10, 2);
+        }
+        wp_safe_redirect($destination, $http_code);
+        if (null !== $grant_host) {
+            // Removal matches on priority + callback identity; core's
+            // remove_filter() takes no accepted-args parameter.
+            remove_filter('allowed_redirect_hosts', $grant_host, 10);
+        }
+        exit;
     }
 
     /**
@@ -452,7 +508,7 @@ class Metasync_Redirection
         if (empty($url) || !is_string($url)) {
             return $url;
         }
-        $parsed = parse_url($url);
+        $parsed = wp_parse_url($url);
         $scheme = isset($parsed['scheme']) ? $parsed['scheme'] : 'https';
         $host = isset($parsed['host']) ? $parsed['host'] : '';
         $base = $scheme . '://' . $host;
@@ -476,7 +532,7 @@ class Metasync_Redirection
             $dest = $this->append_query_string($dest, $query);
             if (strpos($dest, 'http') === 0) {
                 $url = $dest;
-                $parsed = parse_url($url);
+                $parsed = wp_parse_url($url);
                 $scheme = isset($parsed['scheme']) ? $parsed['scheme'] : 'https';
                 $host = isset($parsed['host']) ? $parsed['host'] : '';
                 $base = $scheme . '://' . $host;
@@ -641,10 +697,10 @@ class Metasync_Redirection
         // that differs from the local site. Relative paths (e.g. /about) have no host
         // and are always internal.
         $is_external = false;
-        $parsed_dest = parse_url($destination);
+        $parsed_dest = wp_parse_url($destination);
         if (!empty($parsed_dest['host'])) {
-            $site_host = parse_url(site_url(), PHP_URL_HOST);
-            $is_external = (strcasecmp($parsed_dest['host'], $site_host) !== 0);
+            $site_host = wp_parse_url(site_url(), PHP_URL_HOST);
+            $is_external = false === $site_host || strcasecmp($parsed_dest['host'], (string) $site_host) !== 0;
         }
 
         if ($is_external) {
@@ -691,7 +747,7 @@ class Metasync_Redirection
             return '/';
         }
         if (strpos($url, 'http') === 0) {
-            $parsed = parse_url($url);
+            $parsed = wp_parse_url($url);
             $path = isset($parsed['path']) ? $parsed['path'] : '/';
         } else {
             $path = $url;
@@ -985,6 +1041,11 @@ class Metasync_Redirection
                 $source_key = $source_value;
             }
 
+            // Heal magic-quoted sources saved before the input-unslash fix so
+            // this health-check view matches with the same semantics as the
+            // live front-end matcher.
+            $source_key = wp_unslash((string) $source_key);
+
             // Resolve pattern type: per-source value (exact, contain, start, end, wildcard, regex) or row-level default
             $pattern_type = in_array($source_value, array('exact', 'contain', 'start', 'end', 'wildcard', 'regex'))
                 ? $source_value
@@ -995,7 +1056,7 @@ class Metasync_Redirection
 
             // If source is a full URL, use only the path for matching (consistent with front-end redirect behavior)
             if (strpos($source_key, 'http') === 0) {
-                $parsed_src = parse_url($source_key);
+                $parsed_src = wp_parse_url($source_key);
                 $normalized_source = isset($parsed_src['path']) ? $parsed_src['path'] : '';
             }
 
@@ -1190,8 +1251,9 @@ class Metasync_Redirection
             return;
         }
 
-        // Get current URI
-        $request_uri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '/';
+        // Get current URI. wp_magic_quotes() slashes $_SERVER too, so unslash
+        // here to compare against the literal (unslashed) stored sources.
+        $request_uri = isset($_SERVER['REQUEST_URI']) ? wp_unslash((string) $_SERVER['REQUEST_URI']) : '/';
 
         // Keep the raw query for the redirect destination. It is deliberately
         // excluded from matching below, but must survive the browser redirect.
@@ -1379,7 +1441,7 @@ class Metasync_Redirection
 
         // Use error handler to catch warnings from malformed patterns
         $error_occurred = false;
-        set_error_handler(function() use (&$error_occurred) {
+        set_error_handler(function() use (&$error_occurred) { // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler -- genuine failure path, bounded, no secrets
             $error_occurred = true;
             return true; // Suppress the error
         }, E_WARNING);

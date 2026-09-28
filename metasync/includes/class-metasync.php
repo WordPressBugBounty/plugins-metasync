@@ -162,7 +162,7 @@ class Metasync
 		if (file_exists(plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php')) {
 			require_once plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php';
 		} else {
-			error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php');
+			error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(dirname(__FILE__)) . 'google-index/google-index-init.php'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 		}
 
 		// The SEO precedence resolver is referenced statically from the render
@@ -280,14 +280,10 @@ class Metasync
 		$this->loader->add_action('wp_ajax_metasync_check_connect_status', $plugin_admin, 'check_searchatlas_connect_status');
 		$this->loader->add_action('wp_ajax_metasync_reset_authentication', $plugin_admin, 'reset_searchatlas_authentication');
 
-		// Auto-update filter
-		$this->loader->add_filter('auto_update_plugin', $plugin_admin, 'control_plugin_auto_updates', 10, 2);
-
 		// Search Atlas Connect development/testing endpoints
 		$this->loader->add_action('wp_ajax_metasync_test_enhanced_tokens', $plugin_admin, 'test_enhanced_searchatlas_tokens');
 		$this->loader->add_action('wp_ajax_metasync_test_whitelabel_domain', $plugin_admin, 'test_whitelabel_domain');
 		$this->loader->add_action('wp_ajax_metasync_test_ajax_endpoint', $plugin_admin, 'test_searchatlas_ajax_endpoint');
-		$this->loader->add_action('wp_ajax_metasync_simple_ajax_test', $plugin_admin, 'simple_ajax_test');
 
 
 		$post_meta_setting = new Metasync_Post_Meta_Settings();
@@ -305,9 +301,9 @@ class Metasync
 		// SEO Health CSV export: must run on admin_init (before output).
 		// Cheap $_GET check avoids loading the class on every admin page.
 		if (
-			isset($_GET['page'], $_GET['export'], $_GET['_wpnonce']) &&
-			$_GET['export'] === 'csv' &&
-			strpos($_GET['page'], '-seo-health') !== false
+			isset($_GET['page'], $_GET['export'], $_GET['_wpnonce']) && // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- routing check, the handler verifies nonce and capability
+			$_GET['export'] === 'csv' && // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- routing check, the handler verifies nonce and capability
+			strpos($_GET['page'], '-seo-health') !== false // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- routing check, the handler verifies nonce and capability
 		) {
 			$this->loader->add_action('admin_init', Metasync_SEO_Health::get_instance(), 'handle_csv_export', 1);
 		}
@@ -649,7 +645,7 @@ class Metasync
 		foreach ($url_replacements as $production => $staging) {
 			if (strpos($url, $production) === 0) {
 				$url = str_replace($production, $staging, $url);
-				error_log("MetaSync Endpoint Filter: Replaced {$production} with {$staging} in URL: {$original_url}");
+				error_log("MetaSync Endpoint Filter: Replaced {$production} with {$staging} in URL: {$original_url}"); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
 				break;
 			}
 		}
@@ -935,7 +931,7 @@ class Metasync
 
 		if (!function_exists('openssl_encrypt')) {
 			// OpenSSL unavailable — store plaintext rather than lose the key.
-			error_log('MetaSync: OpenSSL is unavailable — the Search Atlas API key was stored WITHOUT encryption at rest.');
+			error_log('MetaSync: OpenSSL is unavailable — the Search Atlas API key was stored WITHOUT encryption at rest.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 			return $plaintext;
 		}
 
@@ -946,7 +942,7 @@ class Metasync
 
 		if ($ciphertext === false) {
 			// Encryption failed — fall back to plaintext storage, but say so.
-			error_log('MetaSync: API key encryption failed — the Search Atlas API key was stored WITHOUT encryption at rest.');
+			error_log('MetaSync: API key encryption failed — the Search Atlas API key was stored WITHOUT encryption at rest.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 			return $plaintext;
 		}
 
@@ -1155,7 +1151,7 @@ class Metasync
 
 		if (!function_exists('openssl_encrypt')) {
 			// OpenSSL unavailable — store plaintext rather than lose the secret.
-			error_log('MetaSync: OpenSSL is unavailable — a secret was stored WITHOUT encryption at rest.');
+			error_log('MetaSync: OpenSSL is unavailable — a secret was stored WITHOUT encryption at rest.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 			return $plaintext;
 		}
 
@@ -1166,7 +1162,7 @@ class Metasync
 
 		if ($ciphertext === false) {
 			// Encryption failed — fall back to plaintext storage, but say so.
-			error_log('MetaSync: Secret encryption failed — a secret was stored WITHOUT encryption at rest.');
+			error_log('MetaSync: Secret encryption failed — a secret was stored WITHOUT encryption at rest.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 			return $plaintext;
 		}
 
@@ -1593,7 +1589,7 @@ class Metasync
 			
 		} catch (Exception $e) {
 			// Fallback logging if structured logging fails
-			error_log('MetaSync API Key Event Logging Error: ' . $e->getMessage());
+			error_log('MetaSync API Key Event Logging Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 		}
 	}
 
@@ -1659,7 +1655,7 @@ class Metasync
 		if ($global_hits !== false && $global_hits >= 50) {
 			// More than 50 404s per minute - stop logging to protect database
 			if ($global_hits === 50) {
-				error_log('MetaSync 404 Monitor: Rate limit exceeded - 50+ 404s per minute. Pausing logging.');
+				error_log('MetaSync 404 Monitor: Rate limit exceeded - 50+ 404s per minute. Pausing logging.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 			}
 			set_transient($global_rate_key, $global_hits + 1, 60);
 			return;
@@ -1686,7 +1682,7 @@ class Metasync
 		$db_404 = new Metasync_Error_Monitor_Database();
 
 		// Get user agent (sanitized)
-		$user_agent = isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field($_SERVER['HTTP_USER_AGENT']) : '';
+		$user_agent = isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'])) : '';
 
 		// Log the 404 error
 		$result = $db_404->update([
@@ -1714,7 +1710,7 @@ class Metasync
 		}
 		if (empty($host)) {
 			// Fallback to WordPress site URL if available
-			$host = parse_url(home_url(), PHP_URL_HOST);
+			$host = wp_parse_url(home_url(), PHP_URL_HOST);
 		}
 		
 		// Safely get REQUEST_URI with fallback

@@ -71,7 +71,13 @@ class Metasync_Hreflang_Output
         // switch turns the whole feature off: no panel, no meta registration, and
         // no front-end hreflang emission — manual entries or WPML-derived alike.
         // WPML's own hreflang output is left untouched either way.
-        if (class_exists('Metasync_Feature_Flags')
+        //
+        // defined() rather than class_exists(): during the upgrade window a stale
+        // opcache copy of Metasync_Feature_Flags satisfies class_exists() while
+        // lacking a newly added constant, and reading LANGUAGE_ALTERNATES off it
+        // is a fatal. This runs on wp_head, so that fatal is a white screen.
+        // @phpstan-ignore-next-line function.alreadyNarrowedType
+        if (defined('Metasync_Feature_Flags::LANGUAGE_ALTERNATES')
             && Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::LANGUAGE_ALTERNATES)) {
             return;
         }
@@ -150,7 +156,11 @@ class Metasync_Hreflang_Output
             return false;
         }
 
-        if (class_exists('Metasync_Feature_Flags')
+        // defined() rather than class_exists(): see output_hreflang_tags() — a
+        // stale opcache copy passes class_exists() but has no LANGUAGE_ALTERNATES
+        // constant, and reading it is a fatal on a front-end path.
+        // @phpstan-ignore-next-line function.alreadyNarrowedType
+        if (defined('Metasync_Feature_Flags::LANGUAGE_ALTERNATES')
             && Metasync_Feature_Flags::is_disabled(Metasync_Feature_Flags::LANGUAGE_ALTERNATES)) {
             return false;
         }
@@ -247,10 +257,9 @@ class Metasync_Hreflang_Output
         }
 
         $element_type = 'post_' . $post->post_type;
-        $table = $wpdb->prefix . 'icl_translations';
 
-        $trid = $wpdb->get_var($wpdb->prepare(
-            "SELECT trid FROM {$table} WHERE element_id = %d AND element_type = %s LIMIT 1",
+        $trid = $wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- WPML translation table read — the third-party table has no WordPress API; fresh per-page hreflang is required
+            "SELECT trid FROM {$wpdb->prefix}icl_translations WHERE element_id = %d AND element_type = %s LIMIT 1",
             $post_id,
             $element_type
         ));
@@ -261,9 +270,9 @@ class Metasync_Hreflang_Output
 
         // Only published translations: icl_translations holds rows for
         // drafts, pending, scheduled and (until cleanup) trashed posts too.
-        $rows = $wpdb->get_results($wpdb->prepare(
+        $rows = $wpdb->get_results($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- WPML translation table read — the third-party table has no WordPress API; fresh per-page hreflang is required
             "SELECT t.language_code, t.element_id
-               FROM {$table} t
+               FROM {$wpdb->prefix}icl_translations t
                INNER JOIN {$wpdb->posts} p ON p.ID = t.element_id
               WHERE t.trid = %d AND p.post_status = 'publish'",
             $trid

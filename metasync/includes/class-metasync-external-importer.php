@@ -177,6 +177,7 @@ class Metasync_External_Importer
 
         switch ($plugin) {
             case 'yoast':
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
                 $count = (int) $wpdb->get_var("
                     SELECT COUNT(DISTINCT post_id)
                     FROM {$wpdb->postmeta}
@@ -186,20 +187,21 @@ class Metasync_External_Importer
                 break;
 
             case 'rankmath':
-                $count = (int) $wpdb->get_var("
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
+                $count = (int) $wpdb->get_var($wpdb->prepare("
                     SELECT COUNT(DISTINCT post_id)
                     FROM {$wpdb->postmeta}
-                    WHERE meta_key LIKE 'rank_math_%'
+                    WHERE meta_key LIKE %s
                     AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-                ");
+                ", 'rank_math_%'));
                 break;
 
             case 'aioseo':
                 $table = $wpdb->prefix . 'aioseo_posts';
-                if ($wpdb->get_var("SHOW TABLES LIKE '$table'") === $table) {
+                if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table))) === $table) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
                     $count = (int) $wpdb->get_var("
                         SELECT COUNT(post_id)
-                        FROM {$table}
+                        FROM {$wpdb->prefix}aioseo_posts
                         WHERE post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
                     ");
                 }
@@ -223,6 +225,7 @@ class Metasync_External_Importer
                 // Check for Yoast schema meta
                 // Yoast Premium stores schema type in _yoast_wpseo_schema_article_type
                 // Free version may use _yoast_wpseo_schema (JSON)
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
                 $count = (int) $wpdb->get_var("
                     SELECT COUNT(DISTINCT post_id)
                     FROM {$wpdb->postmeta}
@@ -235,6 +238,7 @@ class Metasync_External_Importer
                 // Check for Rank Math schema meta (any schema type)
                 // Rank Math uses meta keys like: rank_math_schema_Article, rank_math_schema_BlogPosting, rank_math_schema_Product, etc.
                 // Exclude shortcode schemas (rank_math_shortcode_schema_*)
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
                 $count = (int) $wpdb->get_var("
                     SELECT COUNT(DISTINCT post_id)
                     FROM {$wpdb->postmeta}
@@ -247,10 +251,10 @@ class Metasync_External_Importer
             case 'aioseo':
                 // Check for AIOSEO schema in table
                 $table = $wpdb->prefix . 'aioseo_posts';
-                if ($wpdb->get_var("SHOW TABLES LIKE '$table'") === $table) {
+                if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table))) === $table) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
                     $count = (int) $wpdb->get_var("
                         SELECT COUNT(post_id)
-                        FROM {$table}
+                        FROM {$wpdb->prefix}aioseo_posts
                         WHERE (schema_type IS NOT NULL AND schema_type != '')
                         AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
                     ");
@@ -273,6 +277,7 @@ class Metasync_External_Importer
         switch ($plugin) {
             case 'yoast':
                 // Check for Yoast SEO title or description
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
                 $count = (int) $wpdb->get_var("
                     SELECT COUNT(DISTINCT post_id)
                     FROM {$wpdb->postmeta}
@@ -284,6 +289,7 @@ class Metasync_External_Importer
 
             case 'rankmath':
                 // Check for Rank Math title or description
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
                 $count = (int) $wpdb->get_var("
                     SELECT COUNT(DISTINCT post_id)
                     FROM {$wpdb->postmeta}
@@ -296,10 +302,10 @@ class Metasync_External_Importer
             case 'aioseo':
                 // Check for AIOSEO title or description in their custom table
                 $table = $wpdb->prefix . 'aioseo_posts';
-                if ($wpdb->get_var("SHOW TABLES LIKE '$table'") === $table) {
+                if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table))) === $table) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
                     $count = (int) $wpdb->get_var("
                         SELECT COUNT(post_id)
-                        FROM {$table}
+                        FROM {$wpdb->prefix}aioseo_posts
                         WHERE ((title IS NOT NULL AND title != '') OR (description IS NOT NULL AND description != ''))
                         AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
                     ");
@@ -316,7 +322,7 @@ class Metasync_External_Importer
                         $post_types        = array_keys($templates);
                         $type_placeholders = implode(', ', array_fill(0, count($post_types), '%s'));
 
-                        $template_count = (int) $wpdb->get_var($wpdb->prepare(
+                        $template_count = (int) $wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
                             "SELECT COUNT(*)
                              FROM {$wpdb->posts}
                              WHERE post_status = 'publish'
@@ -348,6 +354,7 @@ class Metasync_External_Importer
 
         switch ($plugin) {
             case 'yoast':
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
                 $count = (int) $wpdb->get_var("
                     SELECT COUNT(DISTINCT post_id)
                     FROM {$wpdb->postmeta}
@@ -358,6 +365,7 @@ class Metasync_External_Importer
                 break;
 
             case 'rankmath':
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
                 $count = (int) $wpdb->get_var("
                     SELECT COUNT(DISTINCT post_id)
                     FROM {$wpdb->postmeta}
@@ -368,6 +376,7 @@ class Metasync_External_Importer
                 break;
 
             case 'aioseo':
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
                 $count = (int) $wpdb->get_var("
                     SELECT COUNT(DISTINCT post_id)
                     FROM {$wpdb->postmeta}
@@ -430,6 +439,7 @@ class Metasync_External_Importer
         $offset = intval($options['offset']);
         $overwrite = (bool) $options['overwrite_existing'];
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
         $total_posts = (int) $wpdb->get_var("
             SELECT COUNT(DISTINCT post_id)
             FROM {$wpdb->postmeta}
@@ -438,6 +448,7 @@ class Metasync_External_Importer
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
         ");
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
         $posts = $wpdb->get_results($wpdb->prepare("
             SELECT DISTINCT post_id
             FROM {$wpdb->postmeta}
@@ -493,6 +504,7 @@ class Metasync_External_Importer
         $offset = intval($options['offset']);
         $overwrite = (bool) $options['overwrite_existing'];
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
         $total_posts = (int) $wpdb->get_var("
             SELECT COUNT(DISTINCT post_id)
             FROM {$wpdb->postmeta}
@@ -501,6 +513,7 @@ class Metasync_External_Importer
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
         ");
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
         $posts = $wpdb->get_results($wpdb->prepare("
             SELECT DISTINCT post_id
             FROM {$wpdb->postmeta}
@@ -556,6 +569,7 @@ class Metasync_External_Importer
         $offset = intval($options['offset']);
         $overwrite = (bool) $options['overwrite_existing'];
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
         $total_posts = (int) $wpdb->get_var("
             SELECT COUNT(DISTINCT post_id)
             FROM {$wpdb->postmeta}
@@ -564,6 +578,7 @@ class Metasync_External_Importer
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
         ");
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
         $posts = $wpdb->get_results($wpdb->prepare("
             SELECT DISTINCT post_id
             FROM {$wpdb->postmeta}
@@ -763,22 +778,24 @@ class Metasync_External_Importer
         $offset = intval($options['offset']);
 
         // Get total count (for progress tracking)
-        $total = (int) $wpdb->get_var("
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
+        $total = (int) $wpdb->get_var($wpdb->prepare("
             SELECT COUNT(DISTINCT post_id)
             FROM {$wpdb->postmeta}
-            WHERE meta_key LIKE '_yoast_wpseo_%'
+            WHERE meta_key LIKE %s
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-        ");
+        ", '_yoast_wpseo_%'));
 
         // Get batch of posts with Yoast robots meta
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
         $posts = $wpdb->get_results($wpdb->prepare("
             SELECT DISTINCT post_id
             FROM {$wpdb->postmeta}
-            WHERE meta_key LIKE '_yoast_wpseo_%'
+            WHERE meta_key LIKE %s
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
             ORDER BY post_id ASC
             LIMIT %d OFFSET %d
-        ", $batch_size, $offset));
+        ", '_yoast_wpseo_%', $batch_size, $offset));
 
         foreach ($posts as $post_obj) {
             $post_id = $post_obj->post_id;
@@ -904,22 +921,24 @@ class Metasync_External_Importer
         $offset = intval($options['offset']);
 
         // Get total count (for progress tracking)
-        $total = (int) $wpdb->get_var("
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
+        $total = (int) $wpdb->get_var($wpdb->prepare("
             SELECT COUNT(DISTINCT post_id)
             FROM {$wpdb->postmeta}
-            WHERE meta_key LIKE 'rank_math_%'
+            WHERE meta_key LIKE %s
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-        ");
+        ", 'rank_math_%'));
 
         // Get batch of posts with Rank Math robots meta
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
         $posts = $wpdb->get_results($wpdb->prepare("
             SELECT DISTINCT post_id
             FROM {$wpdb->postmeta}
-            WHERE meta_key LIKE 'rank_math_%'
+            WHERE meta_key LIKE %s
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
             ORDER BY post_id ASC
             LIMIT %d OFFSET %d
-        ", $batch_size, $offset));
+        ", 'rank_math_%', $batch_size, $offset));
 
         foreach ($posts as $post_obj) {
             $post_id = $post_obj->post_id;
@@ -1044,26 +1063,28 @@ class Metasync_External_Importer
         $aioseo_table = $wpdb->prefix . 'aioseo_posts';
 
         // Check if table exists
-        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$aioseo_table'") === $aioseo_table;
+        $table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($aioseo_table))) === $aioseo_table; // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
 
         if (!$table_exists) {
             return ['success' => false, 'message' => 'AIOSEO table not found.'];
         }
 
         // Get total count (for progress tracking)
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
         $total = (int) $wpdb->get_var("
             SELECT COUNT(*)
-            FROM {$aioseo_table}
+            FROM {$wpdb->prefix}aioseo_posts
             WHERE post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
         ");
 
         // Get batch of posts with AIOSEO settings
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
         $posts = $wpdb->get_results($wpdb->prepare("
             SELECT post_id, robots_default, robots_noindex, robots_nofollow,
                    robots_noarchive, robots_nosnippet, robots_noimageindex,
                    robots_max_snippet, robots_max_imagepreview, robots_max_videopreview,
                    canonical_url
-            FROM {$aioseo_table}
+            FROM {$wpdb->prefix}aioseo_posts
             WHERE post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
             ORDER BY post_id ASC
             LIMIT %d OFFSET %d
@@ -1217,6 +1238,7 @@ class Metasync_External_Importer
         $imported_count = 0;
 
         // First, try to import from full schema JSON (free version or old approach)
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
         $posts = $wpdb->get_results("
             SELECT post_id, meta_value
             FROM {$wpdb->postmeta}
@@ -1249,6 +1271,7 @@ class Metasync_External_Importer
         }
 
         // Second, try to import from schema type (Premium version)
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
         $posts = $wpdb->get_results("
             SELECT post_id, meta_value
             FROM {$wpdb->postmeta}
@@ -1304,6 +1327,7 @@ class Metasync_External_Importer
 
         // Get all posts with any Rank Math schema (dynamically detect schema types)
         // Exclude shortcode schemas
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
         $posts = $wpdb->get_results("
             SELECT DISTINCT pm.post_id, pm.meta_key, pm.meta_value
             FROM {$wpdb->postmeta} pm
@@ -1361,14 +1385,15 @@ class Metasync_External_Importer
 
         // Check if AIOSEO table exists
         $table = $wpdb->prefix . 'aioseo_posts';
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table'") !== $table) {
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table))) !== $table) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
             return 0;
         }
 
         // Get all posts with AIOSEO schema
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
         $posts = $wpdb->get_results("
             SELECT post_id, schema_type, schema_type_options
-            FROM {$table}
+            FROM {$wpdb->prefix}aioseo_posts
             WHERE (schema_type IS NOT NULL AND schema_type != '')
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
         ");
@@ -2702,7 +2727,7 @@ class Metasync_External_Importer
             ];
 
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log(sprintf(
+                error_log(sprintf( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
                     'MetaSync importer: unresolved %s placeholder for post %d (%s) — %s',
                     $plugin,
                     (int) $post_id,
@@ -3103,20 +3128,21 @@ class Metasync_External_Importer
         }
 
         // Get total count (for progress tracking)
-        $meta_keys_placeholders = implode(',', array_fill(0, count($meta_keys), '%s'));
-        $total_posts = (int) $wpdb->get_var($wpdb->prepare("
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
+        $total_posts = (int) $wpdb->get_var($wpdb->prepare('
             SELECT COUNT(DISTINCT post_id)
-            FROM {$wpdb->postmeta}
-            WHERE meta_key IN ($meta_keys_placeholders)
+            FROM ' . $wpdb->postmeta . '
+            WHERE meta_key IN (' . implode(',', array_fill(0, count($meta_keys), '%s')) . ")
             AND meta_value != ''
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
         ", $meta_keys));
 
         // Get batch of posts with Yoast data
-        $posts = $wpdb->get_results($wpdb->prepare("
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
+        $posts = $wpdb->get_results($wpdb->prepare('
             SELECT DISTINCT post_id
-            FROM {$wpdb->postmeta}
-            WHERE meta_key IN ($meta_keys_placeholders)
+            FROM ' . $wpdb->postmeta . '
+            WHERE meta_key IN (' . implode(',', array_fill(0, count($meta_keys), '%s')) . ")
             AND meta_value != ''
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
             ORDER BY post_id ASC
@@ -3305,20 +3331,21 @@ class Metasync_External_Importer
         }
 
         // Get total count
-        $meta_keys_placeholders = implode(',', array_fill(0, count($meta_keys), '%s'));
-        $total_posts = (int) $wpdb->get_var($wpdb->prepare("
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
+        $total_posts = (int) $wpdb->get_var($wpdb->prepare('
             SELECT COUNT(DISTINCT post_id)
-            FROM {$wpdb->postmeta}
-            WHERE meta_key IN ($meta_keys_placeholders)
+            FROM ' . $wpdb->postmeta . '
+            WHERE meta_key IN (' . implode(',', array_fill(0, count($meta_keys), '%s')) . ")
             AND meta_value != ''
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
         ", $meta_keys));
 
         // Get batch of posts
-        $posts = $wpdb->get_results($wpdb->prepare("
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
+        $posts = $wpdb->get_results($wpdb->prepare('
             SELECT DISTINCT post_id
-            FROM {$wpdb->postmeta}
-            WHERE meta_key IN ($meta_keys_placeholders)
+            FROM ' . $wpdb->postmeta . '
+            WHERE meta_key IN (' . implode(',', array_fill(0, count($meta_keys), '%s')) . ")
             AND meta_value != ''
             AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
             ORDER BY post_id ASC
@@ -3482,7 +3509,7 @@ class Metasync_External_Importer
 
         // Check if AIOSEO table exists
         $table = $wpdb->prefix . 'aioseo_posts';
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table'") !== $table) {
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table))) !== $table) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
             return [
                 'success' => false,
                 'message' => 'AIOSEO database table not found.'
@@ -3574,14 +3601,16 @@ class Metasync_External_Importer
             // the override-only walk always imported. The second arm keeps every
             // row holding real AIOSEO data in scope whatever its post type, so
             // adding a template never removes anything from the import.
+            // $joined_has_value is built only from the fixed $value_columns
+            // allowlist above; table names are inline literals.
             $from_clause = "FROM {$wpdb->posts} p
-                LEFT JOIN {$table} a ON a.post_id = p.ID
+                LEFT JOIN {$wpdb->prefix}aioseo_posts a ON a.post_id = p.ID
                 WHERE p.post_status = 'publish'
-                AND (p.post_type IN ({$type_placeholders}) OR ({$joined_has_value}))";
+                AND (p.post_type IN (" . implode(', ', array_fill(0, count($template_post_types), '%s')) . ") OR ({$joined_has_value}))";
 
-            $total_posts = (int) $wpdb->get_var(
-                $wpdb->prepare("SELECT COUNT(*) {$from_clause}", $template_post_types)
-            );
+            // Assembled from the literal fragments above; post types bind via prepare().
+            $count_query = "SELECT COUNT(*) {$from_clause}";
+            $total_posts = (int) $wpdb->get_var($wpdb->prepare($count_query, $template_post_types)); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery -- fragments built from fixed allowlists, values bound via prepare()
 
             $joined_columns = array_map(
                 function ($column) {
@@ -3595,34 +3624,41 @@ class Metasync_External_Importer
             $joined_select = 'p.ID AS post_id, p.post_type AS post_type, '
                 . implode(', ', $joined_columns);
 
-            $posts = $wpdb->get_results($wpdb->prepare(
-                "SELECT {$joined_select}
+            // Assembled from the literal fragments above; post types bind via prepare().
+            $posts_query = "SELECT {$joined_select}
                  {$from_clause}
                  ORDER BY p.ID ASC
-                 LIMIT %d OFFSET %d",
-                array_merge($template_post_types, [$batch_size, $offset])
-            ));
+                 LIMIT %d OFFSET %d";
+            $posts = $wpdb->get_results($wpdb->prepare($posts_query, array_merge($template_post_types, [$batch_size, $offset]))); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery -- fragments built from fixed allowlists, values bound via prepare()
         } else {
             // No usable templates — e.g. only the social options are selected, or
             // aioseo_options_dynamic is missing. Fall back to the original
             // override-only walk so those sites behave exactly as before.
             $select_clause = implode(', ', array_merge(['post_id'], $value_columns));
 
+            // $where_clause / $select_clause are built only from the fixed
+            // $value_columns allowlist above.
+            // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $where_clause is built only from the fixed $value_columns allowlist above
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
             $total_posts = (int) $wpdb->get_var("
                 SELECT COUNT(post_id)
-                FROM {$table}
+                FROM {$wpdb->prefix}aioseo_posts
                 WHERE ({$where_clause})
                 AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
             ");
+            // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
+            // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $select_clause / $where_clause are built only from the fixed $value_columns allowlist above
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
             $posts = $wpdb->get_results($wpdb->prepare("
                 SELECT {$select_clause}
-                FROM {$table}
+                FROM {$wpdb->prefix}aioseo_posts
                 WHERE ({$where_clause})
                 AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
                 ORDER BY post_id ASC
                 LIMIT %d OFFSET %d
             ", $batch_size, $offset));
+            // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         }
 
         $imported_count = 0;
@@ -4098,7 +4134,7 @@ class Metasync_External_Importer
 
         $table = $wpdb->prefix . 'aioseo_terms';
 
-        $table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+        $table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
         if ($table_exists !== $table) {
             return [
                 'success' => false,
@@ -4106,9 +4142,9 @@ class Metasync_External_Importer
             ];
         }
 
-        $rows = $wpdb->get_results($wpdb->prepare(
+        $rows = $wpdb->get_results($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
             "SELECT term_id, title, description, og_title, og_description, canonical_url, robots_noindex
-             FROM {$table}
+             FROM {$wpdb->prefix}aioseo_terms
              ORDER BY term_id ASC
              LIMIT %d OFFSET %d",
             $batch_size,

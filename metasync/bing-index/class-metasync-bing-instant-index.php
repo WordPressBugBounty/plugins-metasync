@@ -173,7 +173,7 @@ class Metasync_Bing_Instant_Index
 	public static function match_virtual_key_request($request_uri)
 	{
 		$request_uri = strtok((string) $request_uri, '?');
-		$path = parse_url($request_uri, PHP_URL_PATH);
+		$path = wp_parse_url($request_uri, PHP_URL_PATH);
 		if (!is_string($path) || substr($path, -4) !== '.txt') {
 			return null;
 		}
@@ -306,10 +306,10 @@ class Metasync_Bing_Instant_Index
 	 */
 	public function get_input_urls()
 	{
-		if (!isset($_POST['metasync_bing_url'])) {
+		if (!isset($_POST['metasync_bing_url'])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- caller runs check_ajax_referer() and an access check first
 			return [];
 		}
-		return array_values(array_filter(array_map('trim', explode("\n", sanitize_textarea_field(wp_unslash($_POST['metasync_bing_url']))))));
+		return array_values(array_filter(array_map('trim', explode("\n", sanitize_textarea_field(wp_unslash($_POST['metasync_bing_url'])))))); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- caller runs check_ajax_referer() and an access check first
 	}
 
 	/**
@@ -319,7 +319,7 @@ class Metasync_Bing_Instant_Index
 	 */
 	public function send()
 	{
-		if (!isset($_POST['metasync_bing_url'])) {
+		if (!isset($_POST['metasync_bing_url'])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- caller runs check_ajax_referer() and an access check first
 			wp_send_json([
 				'success' => false,
 				'message' => 'No URLs provided for submission.'
@@ -482,7 +482,7 @@ class Metasync_Bing_Instant_Index
 		$endpoint = $endpoint_type === 'bing' ? $this->bing_endpoint : $this->indexnow_endpoint;
 
 		$site_url = get_site_url();
-		$host = parse_url($site_url, PHP_URL_HOST);
+		$host = wp_parse_url($site_url, PHP_URL_HOST);
 
 		// Prepare the request payload
 		$payload = [
@@ -753,7 +753,7 @@ class Metasync_Bing_Instant_Index
 					['url' => $url]
 				);
 			} else {
-				error_log('MetaSync IndexNow auto-submit failed for ' . $url . ': ' . $message);
+				error_log('MetaSync IndexNow auto-submit failed for ' . $url . ': ' . $message); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 			}
 		}
 	}

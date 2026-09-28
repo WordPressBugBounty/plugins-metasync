@@ -118,7 +118,7 @@ class Metasync_HTML_Visual_Editor
      */
     public function maybe_enqueue_editor_assets()
     {
-        $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
+        $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check to enqueue editor assets
 
         if ($page !== $this->get_editor_page_slug()) {
             return;
@@ -280,6 +280,7 @@ class Metasync_HTML_Visual_Editor
         $actions['edit_html'] = sprintf(
             '<a href="%s" title="%s">%s</a>',
             esc_url($edit_url),
+            /* translators: %s: company name (whitelabel-aware). */
             esc_attr(sprintf(__('Edit with %s Visual Editor', 'metasync'), $label)),
             __('Edit HTML', 'metasync')
         );
@@ -293,6 +294,7 @@ class Metasync_HTML_Visual_Editor
     public function add_editor_page()
     {
         $label = Metasync::get_whitelabel_company_name() ?: 'SearchAtlas';
+        /* translators: %s: company name (whitelabel-aware). */
         $page_title = sprintf(__('%s HTML Editor', 'metasync'), $label);
 
         add_submenu_page(
@@ -316,7 +318,7 @@ class Metasync_HTML_Visual_Editor
         }
 
         // Get post ID
-        $post_id = isset($_GET['post_id']) ? intval($_GET['post_id']) : 0;
+        $post_id = isset($_GET['post_id']) ? intval($_GET['post_id']) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only post ID, capability checked, view only
 
         if (!$post_id) {
             wp_die(__('Invalid page ID.', 'metasync'));
@@ -460,7 +462,7 @@ class Metasync_HTML_Visual_Editor
             $this->version
         );
 
-        $post_id = isset($_GET['post_id']) ? intval($_GET['post_id']) : 0;
+        $post_id = isset($_GET['post_id']) ? intval($_GET['post_id']) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only post ID passed to script data
 
         // Localize script with data
         wp_localize_script('metasync-html-editor', 'metasyncEditor', array(
@@ -495,6 +497,7 @@ class Metasync_HTML_Visual_Editor
                 'load_failed_core' => __('The visual editor library could not be loaded, so this page cannot be edited visually. Reload the page, and if the problem continues check whether a browser extension, proxy or content security policy is blocking plugin scripts.', 'metasync'),
                 'load_failed_blocks' => __('The editor loaded, but its extra block library is unavailable, so the Blocks panel only offers the built-in blocks. Existing page content can still be edited and saved normally.', 'metasync'),
                 'load_failed_init' => __('The visual editor failed to start while loading this page. Reload to try again; the saved page content has not been changed.', 'metasync'),
+                /* translators: %s: name of the missing component. */
                 'load_failed_detail' => __('Missing component: %s', 'metasync'),
                 'reload' => __('Reload page', 'metasync'),
                 'dismiss' => __('Dismiss', 'metasync'),

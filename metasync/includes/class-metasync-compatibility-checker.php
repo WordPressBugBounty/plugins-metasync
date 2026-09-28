@@ -1350,39 +1350,42 @@ class Metasync_Compatibility_Checker
 
     public function get_plugin_logo($plugin_key, $type)
     {
+        // Compatibility icons are bundled locally; loading images from external
+        // servers (wp.org, vendor sites, CDNs) counts as offloaded content and
+        // is disallowed for wordpress.org releases.
+        $assets = plugins_url('assets/images/compat/', dirname(__DIR__) . '/metasync.php');
+
         $logos = [
             'page_builder' => [
-                'elementor' => 'https://ps.w.org/elementor/assets/icon-256x256.gif',
-                'gutenberg' => 'https://i0.wp.com/wordpress.org/files/2023/02/wmark.png',
-                'divi'      => 'https://www.elegantthemes.com/images/logo.svg',
-                'oxygen'    => 'https://oxygenbuilder.com/wp-content/uploads/2021/09/oxygen-logo-icon.png',
-                'bricks'    => 'https://bricksbuilder.io/wp-content/uploads/2021/05/bricks-icon.svg',
+                'elementor' => $assets . 'elementor.svg',
+                'gutenberg' => $assets . 'gutenberg.svg',
+                'divi'      => $assets . 'divi.svg',
+                'oxygen'    => $assets . 'oxygen.svg',
+                'bricks'    => $assets . 'bricks.svg',
             ],
             'theme' => [
-                'astra'           => 'https://ps.w.org/astra/assets/icon-128x128.png',
-                'generatepress'   => 'https://ps.w.org/generatepress/assets/icon-128x128.png',
-                'oceanwp'         => 'https://ps.w.org/ocean-extra/assets/icon-128x128.png',
-                'hello-elementor' => 'https://ps.w.org/hello-elementor/assets/icon-128x128.png',
-                'kadence'         => 'https://ps.w.org/kadence-blocks/assets/icon-128x128.png',
+                'astra'           => $assets . 'astra.svg',
+                'generatepress'   => $assets . 'generatepress.svg',
+                'oceanwp'         => $assets . 'oceanwp.svg',
+                'hello-elementor' => $assets . 'hello-elementor.svg',
+                'kadence'         => $assets . 'kadence.svg',
             ],
             'seo' => [
-                'yoast'   => 'https://ps.w.org/wordpress-seo/assets/icon-128x128.gif',
-                'rankmath' => 'https://ps.w.org/seo-by-rank-math/assets/icon-128x128.png',
-                'aioseo'  => 'https://ps.w.org/all-in-one-seo-pack/assets/icon-128x128.png',
+                'yoast'   => $assets . 'yoast.svg',
+                'rankmath' => $assets . 'rankmath.svg',
+                'aioseo'  => $assets . 'aioseo.svg',
             ],
             'cache' => [
-                // Not on wp.org — bundle a local icon instead of borrowing an
-                // unrelated wp.org plugin's logo.
-                'wp-rocket'               => plugins_url('assets/images/compat/wp-rocket.svg', dirname(__DIR__) . '/metasync.php'),
-                'litespeed-cache'         => 'https://ps.w.org/litespeed-cache/assets/icon-128x128.png',
-                'w3-total-cache'          => 'https://ps.w.org/w3-total-cache/assets/icon-128x128.png',
-                'sg-cachepress'           => 'https://ps.w.org/sg-cachepress/assets/icon-128x128.png',
-                'hummingbird-performance' => 'https://ps.w.org/hummingbird-performance/assets/icon-128x128.png',
-                'autoptimize'             => 'https://ps.w.org/autoptimize/assets/icon-128x128.png',
+                'wp-rocket'               => $assets . 'wp-rocket.svg',
+                'litespeed-cache'         => $assets . 'litespeed-cache.svg',
+                'w3-total-cache'          => $assets . 'w3-total-cache.svg',
+                'sg-cachepress'           => $assets . 'sg-cachepress.svg',
+                'hummingbird-performance' => $assets . 'hummingbird-performance.svg',
+                'autoptimize'             => $assets . 'autoptimize.svg',
             ],
             'cdn' => [
-                'cloudflare' => 'https://ps.w.org/cloudflare/assets/icon-128x128.png',
-                'fastly'     => plugins_url('assets/images/compat/fastly.svg', dirname(__DIR__) . '/metasync.php'),
+                'cloudflare' => $assets . 'cloudflare.svg',
+                'fastly'     => $assets . 'fastly.svg',
             ],
         ];
 

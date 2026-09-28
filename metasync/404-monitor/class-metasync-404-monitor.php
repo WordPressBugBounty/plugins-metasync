@@ -62,17 +62,15 @@ class Metasync_Error_Monitor
     public function suggest_redirections_from_404($limit = 10)
     {
         global $wpdb;
-        $table_name = $wpdb->prefix . 'metasync_404_logs';
         
         // Get most frequent 404 errors
-        $query = $wpdb->prepare("
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- admin dashboard read over the plugin 404 custom table — fresh rows required per render
+        $errors = $wpdb->get_results($wpdb->prepare("
             SELECT uri, hits_count, date_time 
-            FROM {$table_name} 
+            FROM `{$wpdb->prefix}metasync_404_logs` 
             ORDER BY hits_count DESC, date_time DESC 
             LIMIT %d
-        ", $limit);
-        
-        $errors = $wpdb->get_results($query);
+        ", $limit));
         $suggestions = [];
         
         foreach ($errors as $error) {

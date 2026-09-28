@@ -699,12 +699,11 @@ class Metasync_Sitemap_Generator
             // and a post is noindex when it contains 'noindex' => 'noindex'.
             $post_ids = wp_list_pluck($posts, 'ID');
             $post_ids = array_map('intval', $post_ids);
-            $id_placeholders = implode(',', array_fill(0, count($post_ids), '%d'));
             $noindex_pattern = '%"noindex";s:7:"noindex"%';
             $noindex_args = array_merge($post_ids, [$noindex_pattern]);
-            $noindex_ids = (array) $wpdb->get_col(
+            $noindex_ids = (array) $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- sitemap build read — output is transient-cached with lifecycle bust hooks; these queries run only on cache rebuilds
                 $wpdb->prepare(
-                    "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = 'metasync_common_robots' AND post_id IN ({$id_placeholders}) AND meta_value LIKE %s",
+                    'SELECT post_id FROM ' . $wpdb->postmeta . " WHERE meta_key = 'metasync_common_robots' AND post_id IN (" . implode(',', array_fill(0, count($post_ids), '%d')) . ') AND meta_value LIKE %s',
                     $noindex_args
                 )
             );
@@ -719,9 +718,9 @@ class Metasync_Sitemap_Generator
             // Per-post redirects are a Yoast SEO Premium feature; the gate
             // avoids a wasted meta query per chunk on free-Yoast sites.
             if (apply_filters('metasync_sitemap_yoast_redirects_active', defined('WPSEO_VERSION') && defined('WPSEO_PREMIUM_VERSION'))) {
-                $yoast_ids = (array) $wpdb->get_col(
+                $yoast_ids = (array) $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- sitemap build read — output is transient-cached with lifecycle bust hooks; these queries run only on cache rebuilds
                     $wpdb->prepare(
-                        "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_yoast_wpseo_redirect' AND meta_value <> '' AND post_id IN ({$id_placeholders})",
+                        'SELECT post_id FROM ' . $wpdb->postmeta . " WHERE meta_key = '_yoast_wpseo_redirect' AND meta_value <> '' AND post_id IN (" . implode(',', array_fill(0, count($post_ids), '%d')) . ')',
                         $post_ids
                     )
                 );
@@ -745,11 +744,10 @@ class Metasync_Sitemap_Generator
                     '_yoast_wpseo_primary_category',
                     'rank_math_primary_category',
                 ];
-                $key_placeholders = implode(',', array_fill(0, count($primary_keys), '%s'));
                 $primary_args = array_merge($post_ids, $primary_keys);
-                $primary_rows = (array) $wpdb->get_results(
+                $primary_rows = (array) $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- sitemap build read — output is transient-cached with lifecycle bust hooks; these queries run only on cache rebuilds
                     $wpdb->prepare(
-                        "SELECT post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN ({$id_placeholders}) AND meta_key IN ({$key_placeholders})",
+                        'SELECT post_id, meta_key, meta_value FROM ' . $wpdb->postmeta . ' WHERE post_id IN (' . implode(',', array_fill(0, count($post_ids), '%d')) . ') AND meta_key IN (' . implode(',', array_fill(0, count($primary_keys), '%s')) . ')',
                         $primary_args
                     ),
                     ARRAY_A
@@ -841,7 +839,7 @@ class Metasync_Sitemap_Generator
                 clean_post_cache((int) $chunk_post_id);
             }
 
-            unset($query, $posts, $noindex_ids, $noindex_set, $post_ids, $id_placeholders, $noindex_args, $prefetch, $primary_rows, $primary_args, $primary_keys, $key_placeholders, $chunk_post_ids, $yoast_ids, $yoast_redirect_set);
+            unset($query, $posts, $noindex_ids, $noindex_set, $post_ids, $noindex_args, $prefetch, $primary_rows, $primary_args, $primary_keys, $chunk_post_ids, $yoast_ids, $yoast_redirect_set);
             $paged++;
         }
 
@@ -890,16 +888,15 @@ class Metasync_Sitemap_Generator
 
             // Single aggregated query: most-recently-modified post per term in this taxonomy.
             $type_values = array_values($post_types);
-            $type_placeholders = implode(',', array_fill(0, count($type_values), '%s'));
             $lastmod_args = array_merge([$taxonomy], $type_values);
-            $lastmod_rows = $wpdb->get_results(
+            $lastmod_rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- sitemap build read — output is transient-cached with lifecycle bust hooks; these queries run only on cache rebuilds
                 $wpdb->prepare(
-                    "SELECT tt.term_id, MAX(p.post_modified_gmt) AS lastmod
-                     FROM {$wpdb->term_taxonomy} tt
-                     INNER JOIN {$wpdb->term_relationships} tr ON tr.term_taxonomy_id = tt.term_taxonomy_id
-                     INNER JOIN {$wpdb->posts} p ON p.ID = tr.object_id
-                     WHERE tt.taxonomy = %s AND p.post_status = 'publish' AND p.post_type IN ({$type_placeholders})
-                     GROUP BY tt.term_id",
+                    'SELECT tt.term_id, MAX(p.post_modified_gmt) AS lastmod
+                     FROM ' . $wpdb->term_taxonomy . ' tt
+                     INNER JOIN ' . $wpdb->term_relationships . ' tr ON tr.term_taxonomy_id = tt.term_taxonomy_id
+                     INNER JOIN ' . $wpdb->posts . " p ON p.ID = tr.object_id
+                     WHERE tt.taxonomy = %s AND p.post_status = 'publish' AND p.post_type IN (" . implode(',', array_fill(0, count($type_values), '%s')) . ')
+                     GROUP BY tt.term_id',
                     $lastmod_args
                 ),
                 ARRAY_A
@@ -995,7 +992,7 @@ class Metasync_Sitemap_Generator
     private function build_sitemap_xml_string($urls)
     {
         if (!class_exists('DOMDocument')) {
-            error_log('MetaSync: sitemap generation skipped — DOMDocument (php-dom extension) is not available on this server.');
+            error_log('MetaSync: sitemap generation skipped — DOMDocument (php-dom extension) is not available on this server.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return '';
         }
 
@@ -1024,7 +1021,7 @@ class Metasync_Sitemap_Generator
     private function build_sitemap_index_xml_string($sitemap_files)
     {
         if (!class_exists('DOMDocument')) {
-            error_log('MetaSync: sitemap index generation skipped — DOMDocument (php-dom extension) is not available on this server.');
+            error_log('MetaSync: sitemap index generation skipped — DOMDocument (php-dom extension) is not available on this server.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return '';
         }
 
@@ -1075,7 +1072,7 @@ class Metasync_Sitemap_Generator
             return false;
         }
 
-        if (rename($tmp_path, $final_path)) {
+        if (rename($tmp_path, $final_path)) { // phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- atomic same-filesystem replace; WP_Filesystem::move() needs credential bootstrapping on non-direct hosts
             return true;
         }
 
@@ -1090,9 +1087,9 @@ class Metasync_Sitemap_Generator
      */
     private function safe_unlink($path)
     {
-        if (file_exists($path) && !unlink($path)) {
+        if (file_exists($path) && !unlink($path)) { // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- boolean return value is consumed
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('MetaSync: failed to remove temp file: ' . $path);
+                error_log('MetaSync: failed to remove temp file: ' . $path); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
             }
         }
     }
@@ -1187,9 +1184,9 @@ class Metasync_Sitemap_Generator
 
         // Our own redirect manager.
         $metasync_table = $wpdb->prefix . 'metasync_redirections';
-        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $metasync_table)) === $metasync_table) {
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $metasync_table)) === $metasync_table) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- sitemap build read — output is transient-cached with lifecycle bust hooks; these queries run only on cache rebuilds
             $rows = (array) $wpdb->get_results(
-                "SELECT sources_from, pattern_type FROM {$metasync_table} WHERE status = 'active'",
+                "SELECT sources_from, pattern_type FROM {$wpdb->prefix}metasync_redirections WHERE status = 'active'",
                 ARRAY_A
             );
             foreach ($rows as $row) {
@@ -1245,9 +1242,9 @@ class Metasync_Sitemap_Generator
         }
         if (apply_filters('metasync_sitemap_rank_math_active', $rank_math_active)) {
             $rank_math_table = $wpdb->prefix . 'rank_math_redirections';
-            if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $rank_math_table)) === $rank_math_table) {
+            if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $rank_math_table)) === $rank_math_table) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- sitemap build read — output is transient-cached with lifecycle bust hooks; these queries run only on cache rebuilds
                 $rows = (array) $wpdb->get_results(
-                    "SELECT sources FROM {$rank_math_table} WHERE status = 'active'",
+                    "SELECT sources FROM {$wpdb->prefix}rank_math_redirections WHERE status = 'active'",
                     ARRAY_A
                 );
                 foreach ($rows as $row) {
@@ -1316,7 +1313,7 @@ class Metasync_Sitemap_Generator
     {
         $path = $url_or_path;
         if (is_string($url_or_path) && strpos($url_or_path, 'http') === 0) {
-            $parsed = parse_url($url_or_path);
+            $parsed = wp_parse_url($url_or_path);
             // A bare domain ('https://example.com') is the site root.
             $path = isset($parsed['path']) ? $parsed['path'] : '/';
         }
@@ -1592,7 +1589,7 @@ class Metasync_Sitemap_Generator
         if ('general' === $type || 'all' === $type) {
             // Delete physical sitemap index
             if (file_exists($this->sitemap_index_path)) {
-                @unlink($this->sitemap_index_path);
+                @wp_delete_file($this->sitemap_index_path);
                 $deleted = true;
             }
 
@@ -1618,7 +1615,7 @@ class Metasync_Sitemap_Generator
                 }
                 $path = ABSPATH . $filename;
                 if (file_exists($path)) {
-                    @unlink($path);
+                    @wp_delete_file($path);
                     $deleted = true;
                 }
                 $chunk_tkey = 'metasync_vsm_' . md5($filename);
@@ -1628,15 +1625,19 @@ class Metasync_Sitemap_Generator
                 }
             }
 
-            // Also check for any sitemap*.xml files that might exist
-            $files = glob(ABSPATH . 'sitemap*.xml');
-            if ($files) {
-                foreach ($files as $file) {
-                    // Only delete sitemap files that match our pattern
-                    if (preg_match('/sitemap\d*\.xml$/', basename($file))) {
-                        @unlink($file);
-                        $deleted = true;
-                    }
+            // Delete only physical sitemap files tracked as MetaSync-owned.
+            $sitemap_files = get_option('metasync_sitemap_files', []);
+            $tracked_names = [];
+            foreach ($sitemap_files as $sitemap) {
+                if (is_array($sitemap) && !empty($sitemap['filename'])) {
+                    $tracked_names[] = basename($sitemap['filename']);
+                }
+            }
+            foreach (array_unique($tracked_names) as $filename) {
+                $file = ABSPATH . $filename;
+                if (preg_match('/^sitemap\d*\.xml$/', $filename) && file_exists($file)) {
+                    @wp_delete_file($file);
+                    $deleted = true;
                 }
             }
         }
@@ -1650,7 +1651,7 @@ class Metasync_Sitemap_Generator
             }
             $physical = ABSPATH . $news_file;
             if (file_exists($physical)) {
-                @unlink($physical);
+                @wp_delete_file($physical);
                 $deleted = true;
             }
 
@@ -1676,7 +1677,7 @@ class Metasync_Sitemap_Generator
             }
             $physical = ABSPATH . $video_file;
             if (file_exists($physical)) {
-                @unlink($physical);
+                @wp_delete_file($physical);
                 $deleted = true;
             }
 
@@ -2273,7 +2274,7 @@ class Metasync_Sitemap_Generator
         }
 
         if (false === $stored) {
-            error_log('MetaSync: failed to store virtual sitemap "' . $filename . '" — the sitemap will not be served.');
+            error_log('MetaSync: failed to store virtual sitemap "' . $filename . '" — the sitemap will not be served.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return false;
         }
 

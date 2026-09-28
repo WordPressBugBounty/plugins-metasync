@@ -309,6 +309,7 @@ if (!defined('WPINC')) {
                 <div class="metasync-feature-status-item">
                     <span class="metasync-feature-dot <?php echo !empty($settings['enable_lazy_loading']) ? 'active' : 'inactive'; ?>"></span>
                     <span><?php esc_html_e('Lazy Loading', 'metasync'); ?></span>
+                    <?php /* translators: %d: number of leading images to skip. */ ?>
                     <span class="metasync-feature-format"><?php echo !empty($settings['enable_lazy_loading']) ? sprintf(esc_html__('Skip %d', 'metasync'), (int) $settings['lcp_skip_count']) : ''; ?></span>
                 </div>
                 <div class="metasync-feature-status-item">

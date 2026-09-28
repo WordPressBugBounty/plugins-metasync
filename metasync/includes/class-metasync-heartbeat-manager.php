@@ -553,7 +553,7 @@ class Metasync_Heartbeat_Manager
             $log_message .= ' | ' . implode(', ', $context_parts);
         }
 
-        error_log($log_message);
+        error_log($log_message); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
     }
 
     public function clear_public_hash_cache($otto_pixel_uuid = '')
@@ -627,7 +627,7 @@ class Metasync_Heartbeat_Manager
             $message .= ' | ' . implode(', ', $details_formatted);
         }
 
-        error_log($message);
+        error_log($message); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 
         if ($level === 'error' || $level === 'critical') {
             $this->store_heartbeat_error_log($event, $details);
@@ -647,7 +647,7 @@ class Metasync_Heartbeat_Manager
             $truncated = substr($truncated, 0, $last_space);
         }
 
-        $truncated = strip_tags($truncated);
+        $truncated = wp_strip_all_tags($truncated);
         return $truncated . '... [truncated]';
     }
 
@@ -696,7 +696,7 @@ class Metasync_Heartbeat_Manager
                 ));
             }
         } catch (Exception $e) {
-            error_log('Failed to store heartbeat error log: ' . $e->getMessage());
+            error_log('Failed to store heartbeat error log: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         }
     }
 
@@ -988,30 +988,36 @@ class Metasync_Heartbeat_Manager
     {
         $schedules['metasync_every_2_hours'] = array(
             'interval' => 2 * HOUR_IN_SECONDS,
+            /* translators: %s: effective plugin name (whitelabel-aware). */
             'display' => esc_html(sprintf(__('Every 2 Hours (%s)', 'metasync'), Metasync::get_effective_plugin_name()))
         );
 
         $schedules['metasync_every_2_minutes'] = array(
             'interval' => 2 * MINUTE_IN_SECONDS,
+            /* translators: %s: effective plugin name (whitelabel-aware). */
             'display' => esc_html(sprintf(__('Every 2 Minutes (%s Burst)', 'metasync'), Metasync::get_effective_plugin_name()))
         );
         $schedules['metasync_every_5_minutes'] = array(
             'interval' => 5 * MINUTE_IN_SECONDS,
+            /* translators: %s: effective plugin name (whitelabel-aware). */
             'display' => esc_html(sprintf(__('Every 5 Minutes (%s)', 'metasync'), Metasync::get_effective_plugin_name()))
         );
         // 10-minute heartbeat cadence used for UNREGISTERED + KEY_PENDING short-interval behavior
         $schedules['metasync_every_10_minutes'] = array(
             'interval' => 10 * MINUTE_IN_SECONDS,
+            /* translators: %s: effective plugin name (whitelabel-aware). */
             'display' => esc_html(sprintf(__('Every 10 Minutes (%s)', 'metasync'), Metasync::get_effective_plugin_name()))
         );
 
         $schedules['metasync_daily_cleanup'] = array(
             'interval' => DAY_IN_SECONDS,
+            /* translators: %s: effective plugin name (whitelabel-aware). */
             'display' => esc_html(sprintf(__('Daily (%s Cleanup)', 'metasync'), Metasync::get_effective_plugin_name()))
         );
 
         $schedules['metasync_weekly'] = array(
             'interval' => 7 * DAY_IN_SECONDS,
+            /* translators: %s: effective plugin name (whitelabel-aware). */
             'display' => esc_html(sprintf(__('Weekly (%s)', 'metasync'), Metasync::get_effective_plugin_name()))
         );
 

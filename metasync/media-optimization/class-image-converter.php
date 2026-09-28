@@ -338,7 +338,7 @@ class Metasync_Image_Converter {
         // already .webp/.avif and preg_replace returns the path unchanged).
         $converted_path = preg_replace(self::ORIGINAL_EXT_PATTERN, $ext, $file);
         if ($converted_path && $converted_path !== $file && file_exists($converted_path)) {
-            @unlink($converted_path);
+            @wp_delete_file($converted_path);
         }
 
         // Delete converted sub-sizes
@@ -349,7 +349,7 @@ class Metasync_Image_Converter {
                 $size_path      = $upload_dir . '/' . $size_data['file'];
                 $size_converted = preg_replace(self::ORIGINAL_EXT_PATTERN, $ext, $size_path);
                 if ($size_converted && $size_converted !== $size_path && file_exists($size_converted)) {
-                    @unlink($size_converted);
+                    @wp_delete_file($size_converted);
                 }
             }
         }
@@ -410,7 +410,7 @@ class Metasync_Image_Converter {
             foreach ($exts as $ext) {
                 $converted = preg_replace(self::ORIGINAL_EXT_PATTERN, $ext, $path);
                 if ($converted && $converted !== $path && file_exists($converted)) {
-                    @unlink($converted);
+                    @wp_delete_file($converted);
                 }
             }
         }
@@ -455,7 +455,7 @@ class Metasync_Image_Converter {
      * case callers must rely on get_remaining_time() to bail out early.
      */
     protected static function reset_time_limit(): bool {
-        if (function_exists('set_time_limit') && @set_time_limit(self::UPLOAD_TIME_LIMIT)) {
+        if (function_exists('set_time_limit') && @set_time_limit(self::UPLOAD_TIME_LIMIT)) { // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- long-running batch job; WordPress has no equivalent API
             self::$timer_started_at = microtime(true);
             return true;
         }
@@ -521,7 +521,7 @@ class Metasync_Image_Converter {
             // per-iteration timer resets below cannot keep one request busy
             // indefinitely.
             if ((microtime(true) - $pass_started) >= self::UPLOAD_TIME_LIMIT) {
-                error_log('[MetaSync Media Opt] Sub-size time budget exceeded, skipping remaining sub-sizes from: ' . $size_name);
+                error_log('[MetaSync Media Opt] Sub-size time budget exceeded, skipping remaining sub-sizes from: ' . $size_name); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 break;
             }
 
@@ -529,14 +529,14 @@ class Metasync_Image_Converter {
             // disables set_time_limit(), bail out before PHP's limit kills
             // the request.
             if (!static::reset_time_limit() && static::get_remaining_time() <= 0) {
-                error_log('[MetaSync Media Opt] Execution time nearly exhausted, skipping remaining sub-sizes from: ' . $size_name);
+                error_log('[MetaSync Media Opt] Execution time nearly exhausted, skipping remaining sub-sizes from: ' . $size_name); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 break;
             }
 
             // Check available memory before each sub-size conversion
             $available = static::get_available_memory();
             if ($available < self::MIN_MEMORY_FOR_SUBSIZE) {
-                error_log('[MetaSync Media Opt] Low memory (' . size_format($available) . '), skipping remaining sub-sizes from: ' . $size_name);
+                error_log('[MetaSync Media Opt] Low memory (' . size_format($available) . '), skipping remaining sub-sizes from: ' . $size_name); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 break;
             }
 
@@ -559,11 +559,11 @@ class Metasync_Image_Converter {
                 // (photo-1024x768.jpg), and the original is unrecoverable
                 // once deleted.
                 self::rewrite_content_paths($size_file, $size_converted);
-                @unlink($size_file);
+                @wp_delete_file($size_file);
                 $size_data['file']     = basename($size_converted);
                 $size_data['mime-type'] = "image/{$format}";
             } elseif ($size_converted && $strategy === 'replace') {
-                error_log('[MetaSync Media Opt] Sub-size conversion produced invalid output, original preserved: ' . self::redact_path($size_file));
+                error_log('[MetaSync Media Opt] Sub-size conversion produced invalid output, original preserved: ' . self::redact_path($size_file)); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
 
             // Release cyclic references between sub-size conversions
@@ -614,7 +614,7 @@ class Metasync_Image_Converter {
         }
 
         if (filesize($source) > self::MAX_CONVERT_BYTES) {
-            error_log('[MetaSync Media Opt] Source file exceeds MAX_CONVERT_BYTES limit, skipping: ' . self::redact_path($source));
+            error_log('[MetaSync Media Opt] Source file exceeds MAX_CONVERT_BYTES limit, skipping: ' . self::redact_path($source)); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return null;
         }
 
@@ -622,7 +622,7 @@ class Metasync_Image_Converter {
         // On hosts where set_time_limit() is disabled the request
         // keeps its original cap, and the fatal reported by Sentry fired here.
         if (static::get_remaining_time() <= 0) {
-            error_log('[MetaSync Media Opt] Execution time nearly exhausted, skipping conversion: ' . basename($source));
+            error_log('[MetaSync Media Opt] Execution time nearly exhausted, skipping conversion: ' . basename($source)); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return null;
         }
 
@@ -642,7 +642,7 @@ class Metasync_Image_Converter {
         }
         $available = self::get_available_memory();
         if ($estimated > $available * 0.8) {
-            error_log('[MetaSync Media Opt] Skipping ' . basename($source) . ': estimated memory (' . size_format($estimated) . ') exceeds 80% of available (' . size_format($available) . ')');
+            error_log('[MetaSync Media Opt] Skipping ' . basename($source) . ': estimated memory (' . size_format($estimated) . ') exceeds 80% of available (' . size_format($available) . ')'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return null;
         }
 
@@ -662,7 +662,7 @@ class Metasync_Image_Converter {
                     return $result;
                 }
             } catch (\Exception $e) {
-                error_log('[MetaSync Media Opt] Imagick conversion failed, trying GD: ' . $e->getMessage());
+                error_log('[MetaSync Media Opt] Imagick conversion failed, trying GD: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
 
@@ -670,7 +670,7 @@ class Metasync_Image_Converter {
             try {
                 return self::do_convert_with_gd($source, $dest, $format, $quality, $target_dimensions);
             } catch (\Exception $e) {
-                error_log('[MetaSync Media Opt] GD conversion failed: ' . $e->getMessage());
+                error_log('[MetaSync Media Opt] GD conversion failed: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
 
@@ -695,8 +695,8 @@ class Metasync_Image_Converter {
 
         if ($img->writeImage($dest)) {
             if (!file_exists($dest) || !filesize($dest)) {
-                @unlink($dest);
-                error_log('[MetaSync Media Opt] Imagick wrote 0-byte or missing output, discarding: ' . self::redact_path($dest));
+                @wp_delete_file($dest);
+                error_log('[MetaSync Media Opt] Imagick wrote 0-byte or missing output, discarding: ' . self::redact_path($dest)); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 $img->destroy();
                 return null;
             }
@@ -764,8 +764,8 @@ class Metasync_Image_Converter {
         imagedestroy($gd_img);
 
         if (!$success || !file_exists($dest) || !filesize($dest)) {
-            @unlink($dest);
-            error_log('[MetaSync Media Opt] GD produced empty or missing output, discarding: ' . self::redact_path($dest));
+            @wp_delete_file($dest);
+            error_log('[MetaSync Media Opt] GD produced empty or missing output, discarding: ' . self::redact_path($dest)); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return null;
         }
 
@@ -777,7 +777,7 @@ class Metasync_Image_Converter {
      */
     private static function do_replace_original(int $id, string $old_path, string $new_path, array &$meta, string $fmt): void {
         if (!file_exists($new_path) || !filesize($new_path)) {
-            error_log('[MetaSync Media Opt] Converted file is missing or empty, original preserved: ' . self::redact_path($old_path));
+            error_log('[MetaSync Media Opt] Converted file is missing or empty, original preserved: ' . self::redact_path($old_path)); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return;
         }
 
@@ -807,7 +807,7 @@ class Metasync_Image_Converter {
         self::rewrite_content_paths($old_path, $new_path);
 
         // Content now points at the converted file — the original is redundant.
-        @unlink($old_path);
+        @wp_delete_file($old_path);
     }
 
     /**
@@ -885,7 +885,7 @@ class Metasync_Image_Converter {
         $max_batches = 100000;
 
         for ($batch = 0; $batch < $max_batches; $batch++) {
-            $affected = $wpdb->query($wpdb->prepare(
+            $affected = $wpdb->query($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- batched bulk post_content rewrite — no bulk WordPress API; chunked by LIMIT to bound lock time
                 "UPDATE {$wpdb->posts} SET post_content = REPLACE(post_content, %s, %s)
                  WHERE post_content LIKE %s ORDER BY ID LIMIT %d",
                 $old_path,

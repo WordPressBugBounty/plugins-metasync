@@ -569,7 +569,7 @@ class MCP_Tool_Get_Discussion_Settings extends MCP_Tool_Base {
             'default_ping_status' => get_option('default_ping_status'), // 'open' or 'closed'
             'comment_registration' => (bool)get_option('comment_registration'), // Must be registered to comment
             'comment_moderation' => (bool)get_option('comment_moderation'), // Comments must be manually approved
-            'comment_whitelist' => (bool)get_option('comment_whitelist'), // Comment author must have previously approved comment
+            'comment_previously_approved' => (bool)get_option('comment_previously_approved'), // Comment author must have previously approved comment
             'comments_per_page' => (int)get_option('comments_per_page'),
             'thread_comments' => (bool)get_option('thread_comments'), // Enable threaded comments
             'thread_comments_depth' => (int)get_option('thread_comments_depth'),

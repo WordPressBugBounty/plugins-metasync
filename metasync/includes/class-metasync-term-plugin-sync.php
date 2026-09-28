@@ -503,8 +503,13 @@ class Metasync_Term_Plugin_Sync {
         $current = null;
         if ($row_existed) {
             $select = '`' . implode('`, `', array_map('esc_sql', $columns)) . '`';
-            $current = $wpdb->get_row(
-                $wpdb->prepare("SELECT {$select} FROM {$table} WHERE term_id = %d", $term_id),
+            // Column list is esc_sql()'d above; the table is a fixed literal.
+            $current = $wpdb->get_row( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- mirrors term meta into third-party plugin storage (Yoast/AIOSEO tables) — no WordPress API for their schemas
+                $wpdb->prepare(
+                    // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- column list esc_sql()'d above, table is a fixed literal
+                    "SELECT {$select} FROM {$wpdb->prefix}aioseo_terms WHERE term_id = %d",
+                    $term_id
+                ),
                 ARRAY_A
             );
 
@@ -572,7 +577,7 @@ class Metasync_Term_Plugin_Sync {
         $table = $wpdb->prefix . 'aioseo_terms';
 
         // Bail if the AIOSEO term table does not exist (plugin not initialised).
-        $table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+        $table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- mirrors term meta into third-party plugin storage (Yoast/AIOSEO tables) — no WordPress API for their schemas
         if ($table_exists !== $table) {
             return false;
         }
@@ -607,8 +612,8 @@ class Metasync_Term_Plugin_Sync {
 
         $row['updated'] = current_time('mysql');
 
-        $existing_id = $wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM {$table} WHERE term_id = %d",
+        $existing_id = $wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- mirrors term meta into third-party plugin storage (Yoast/AIOSEO tables) — no WordPress API for their schemas
+            "SELECT id FROM {$wpdb->prefix}aioseo_terms WHERE term_id = %d",
             $term_id
         ));
 
@@ -629,7 +634,7 @@ class Metasync_Term_Plugin_Sync {
                 return false;
             }
 
-            $updated = $wpdb->update($table, $row, ['term_id' => $term_id]);
+            $updated = $wpdb->update($table, $row, ['term_id' => $term_id]); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- mirrors term meta into third-party plugin storage (Yoast/AIOSEO tables) — no WordPress API for their schemas
             return $updated !== false;
         }
 
@@ -658,7 +663,7 @@ class Metasync_Term_Plugin_Sync {
         // Merge defaults first, then $row on top so our noindex value wins.
         $row = array_merge($robot_defaults, $row);
 
-        $inserted = $wpdb->insert($table, $row);
+        $inserted = $wpdb->insert($table, $row); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- mirrors term meta into third-party plugin storage (Yoast/AIOSEO tables) — no WordPress API for their schemas
 
         // The row_existed='0' marker was recorded before the insert, because a
         // marker that will not save has to be able to veto the write. A failed

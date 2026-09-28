@@ -73,7 +73,10 @@ class Metasync_Debug_Manager
      * @param Metasync_Admin $admin The admin instance (needed for header/nav rendering).
      */
     public function metasync_display_error_log($admin) {
-        $log_file = WP_CONTENT_DIR . '/metasync_data/plugin_errors.log';
+        $log_file = Metasync_Data_Store::file_path('plugin_errors.log');
+        if (false === $log_file) {
+            $log_file = '';
+        }
         if (!Metasync::current_user_has_plugin_access()) {
             return;
         }
@@ -235,7 +238,7 @@ class Metasync_Debug_Manager
      */
     public function metasync_update_wp_config() {
         $wp_config_path = ABSPATH . 'wp-config.php';
-        if (file_exists($wp_config_path) && is_writable($wp_config_path)) {
+        if (file_exists($wp_config_path) && wp_is_writable($wp_config_path)) {
             $config_file = file_get_contents($wp_config_path);
     
             $wp_debug_enabled = get_option('wp_debug_enabled', 'false') === 'true' ? 'true' : 'false';
@@ -259,6 +262,12 @@ class Metasync_Debug_Manager
                 $config_file = str_replace("/* That's all, stop editing! Happy publishing. */", "define('WP_DEBUG_DISPLAY', $wp_debug_display_enabled);\n\n/* That's all, stop editing! Happy publishing. */", $config_file);
             }
     
+            // ABSPATH is intentional and verified: the Debug Mode feature
+            // toggles WP_DEBUG constants in wp-config.php itself, the one
+            // file whose location ABSPATH exists to describe. It is not a
+            // plugin-directory or generated-content write, so it stays here
+            // (Plugin Check's ABSPATHDetected warning is a false positive —
+            // wp-config.php cannot live in the uploads directory).
             file_put_contents($wp_config_path, $config_file);
         } else {
             wp_die('The wp-config.php file is not writable. Please check the file permissions.');
@@ -752,7 +761,7 @@ define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</
         if (isset($_POST['metasync_debug_mode_action_advanced'])) {
             if (!wp_verify_nonce($_POST['metasync_debug_mode_nonce_advanced'], 'metasync_debug_mode_action_advanced')) {
                 $redirect_url = admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced&debug_error=1');
-                wp_redirect($redirect_url);
+                wp_safe_redirect($redirect_url);
                 exit;
             }
 
@@ -762,7 +771,7 @@ define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</
 
             if (!class_exists('Metasync_Debug_Mode_Manager')) {
                 $redirect_url = admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced&debug_error=1&msg=manager_not_available');
-                wp_redirect($redirect_url);
+                wp_safe_redirect($redirect_url);
                 exit;
             }
 
@@ -801,7 +810,7 @@ define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</
                     break;
             }
 
-            wp_redirect($redirect_url);
+            wp_safe_redirect($redirect_url);
             exit;
         }
     }
@@ -817,25 +826,28 @@ define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</
 
         if (isset($_POST['clear_log'])) {
             if (wp_verify_nonce($_POST['clear_log_nonce'], 'metasync_clear_log_nonce')) {
-                $log_file = WP_CONTENT_DIR . '/metasync_data/plugin_errors.log';
+                $data_dir = Metasync_Data_Store::base_dir();
+                $log_file = Metasync_Data_Store::file_path('plugin_errors.log');
 
-                if (file_exists($log_file)) {
+                if (false !== $log_file && file_exists($log_file)) {
                     file_put_contents($log_file, '');
 
-                    $backup_files = glob(WP_CONTENT_DIR . '/metasync_data/plugin_errors.log.old.*');
-                    if ($backup_files) {
-                        foreach ($backup_files as $backup_file) {
-                            @unlink($backup_file);
+                    if (false !== $data_dir) {
+                        $backup_files = glob($data_dir . '/plugin_errors.log.old.*');
+                        if ($backup_files) {
+                            foreach ($backup_files as $backup_file) {
+                                @wp_delete_file($backup_file);
+                            }
                         }
                     }
                 }
 
                 $redirect_url = admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced&log_cleared=1');
-                wp_redirect($redirect_url);
+                wp_safe_redirect($redirect_url);
                 exit;
             } else {
                 $redirect_url = admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced&clear_error=1');
-                wp_redirect($redirect_url);
+                wp_safe_redirect($redirect_url);
                 exit;
             }
         }
@@ -845,16 +857,16 @@ define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</
                 if (class_exists('Metasync_Error_Logger')) {
                     Metasync_Error_Logger::clear_error_summary();
                     $redirect_url = admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced&error_summary_cleared=1');
-                    wp_redirect($redirect_url);
+                    wp_safe_redirect($redirect_url);
                     exit;
                 } else {
                     $redirect_url = admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced&error_summary_error=1');
-                    wp_redirect($redirect_url);
+                    wp_safe_redirect($redirect_url);
                     exit;
                 }
             } else {
                 $redirect_url = admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced&error_summary_error=1');
-                wp_redirect($redirect_url);
+                wp_safe_redirect($redirect_url);
                 exit;
             }
         }
@@ -936,11 +948,11 @@ define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</
                 ), 'info');
                 
                 $redirect_url = admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced&settings_cleared=1');
-                wp_redirect($redirect_url);
+                wp_safe_redirect($redirect_url);
                 exit;
             } else {
                 $redirect_url = admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced&clear_settings_error=1');
-                wp_redirect($redirect_url);
+                wp_safe_redirect($redirect_url);
                 exit;
             }
         }
@@ -957,7 +969,7 @@ define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</
     {
         $execution_time = $this->get_execution_setting('max_execution_time');
         if (function_exists('set_time_limit')) {
-            @set_time_limit($execution_time);
+            @set_time_limit($execution_time); // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- runtime PHP setting with no WordPress API
         }
         
         $log_file = WP_CONTENT_DIR . '/debug.log';
@@ -991,14 +1003,14 @@ define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</
     {
         $execution_time = $this->get_execution_setting('max_execution_time');
         if (function_exists('set_time_limit')) {
-            @set_time_limit($execution_time);
+            @set_time_limit($execution_time); // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- runtime PHP setting with no WordPress API
         }
         
         if ($lines === null) {
             $lines = $this->get_execution_setting('log_batch_size');
         }
         
-        $handle = fopen($file_path, 'r');
+        $handle = fopen($file_path, 'r'); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- streaming file I/O; WP_Filesystem cannot return a raw stream handle
         if (!$handle) {
             return false;
         }
@@ -1029,7 +1041,7 @@ define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</
             array_unshift($result_lines, strrev($line));
         }
         
-        fclose($handle);
+        fclose($handle); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- operates on a native stream handle
         
         return implode("\n", $result_lines);
     }

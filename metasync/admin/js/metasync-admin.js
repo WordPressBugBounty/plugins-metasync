@@ -272,7 +272,8 @@
 	function metasyncLGLogin(user, pass) {
 		jQuery.post(ajaxurl, {
 			action: 'metasync_lglogin',
-			username: user, password: pass
+			username: user, password: pass,
+			nonce: metaSync.lglogin_nonce || ''
 		}, function (response) {
 			if (typeof response.token !== 'undefined') {
 				$('#linkgraph_token').val(response.token);
@@ -921,7 +922,16 @@
 				text: '📚 Learn More About Registration',
 				action: function () { 
 					var docDomain = metaSync.documentation_domain || 'https://searchatlas.com';
-					window.open(docDomain, '_blank');
+					try {
+						var parsedDoc = new URL(docDomain);
+						if (parsedDoc.protocol === 'https:' || parsedDoc.protocol === 'http:') {
+							var a = document.createElement('a');
+							a.href = parsedDoc.href;
+							a.target = '_blank';
+							a.rel = 'noopener';
+							a.click();
+						}
+					} catch (e) { /* invalid URL */ }
 				}
 			}, {
 				text: '🔄 Try Authentication Again',
@@ -2180,7 +2190,8 @@
 			type: 'GET',
 			data: {
 				action: 'metasync_clear_otto_cache',
-				clear_otto_cache: 1
+				clear_otto_cache: 1,
+				nonce: metaSync.clear_otto_cache_nonce || ''
 			},
 			success: function (response) {
 				const now = new Date();

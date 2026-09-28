@@ -66,7 +66,6 @@ class Metasync_Oxygen_Compat
         $updated = self::resign_templates();
 
         if ($updated > 0) {
-            error_log("MetaSync Oxygen Compat: Re-signed shortcodes in {$updated} template(s).");
             $full_fp = self::build_full_fingerprint(); // Recompute after DB writes
         }
 
@@ -119,7 +118,7 @@ class Metasync_Oxygen_Compat
 
         $key = get_option('oxygen_private_key', '');
 
-        $row = $wpdb->get_row(
+        $row = $wpdb->get_row( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- reads Oxygen builder template storage — the third-party builder has no WordPress API
             "SELECT COUNT(*) AS cnt, MAX(p.post_modified_gmt) AS latest
              FROM {$wpdb->posts} p
              INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key = '_ct_builder_json'
@@ -143,7 +142,7 @@ class Metasync_Oxygen_Compat
 
         $key = get_option('oxygen_private_key', '');
 
-        $json_rows = $wpdb->get_col(
+        $json_rows = $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- reads Oxygen builder template storage — the third-party builder has no WordPress API
             "SELECT pm.meta_value
              FROM {$wpdb->postmeta} pm
              INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
@@ -169,7 +168,7 @@ class Metasync_Oxygen_Compat
             return 0;
         }
 
-        $template_ids = $wpdb->get_col(
+        $template_ids = $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- reads Oxygen builder template storage — the third-party builder has no WordPress API
             "SELECT p.ID
              FROM {$wpdb->posts} p
              WHERE p.post_type = 'ct_template'

@@ -276,6 +276,7 @@ class Metasync_Seo_Sync_Settings {
                         <?php
                         if ($is_running) {
                             printf(
+                                /* translators: 1: number of items already restored, 2: total number of items. */
                                 esc_html__('Restoring %1$d of %2$d items...', 'metasync'),
                                 (int) $batch['processed'],
                                 (int) $batch['total']
@@ -354,6 +355,7 @@ class Metasync_Seo_Sync_Settings {
                 restoreBtn.addEventListener('click', function () {
                     var confirmMsg = <?php echo wp_json_encode(
                         sprintf(
+                            /* translators: %d: number of objects that will be restored. */
                             __('This will restore the original SEO values on all %d objects and disable syncing to other plugins. Are you sure you want to proceed?', 'metasync'),
                             $total_saved
                         )
@@ -596,10 +598,13 @@ class Metasync_Seo_Sync_Settings {
         return sprintf(
             /* translators: 1: product name, 2: OTTO product name. */
             __(
-                "%1\$s will write the SEO title, meta description, focus keyword, Open Graph and Twitter values, canonical URL and schema %2\$s suggests into your active SEO plugin's fields, replacing what is there now.\n\n"
-                . "The value each field held before is saved first, so it can be restored.\n\n"
-                . "Turning this off later stops further writes. It does not undo writes already made — restoring the saved originals does that.\n\n"
-                . "This does not cover image alt text, heading rewrites or link corrections. Those change WordPress content directly and are controlled separately.",
+                "%1\$s will write the SEO title, meta description, focus keyword, Open Graph and Twitter values, canonical URL and schema %2\$s suggests into your active SEO plugin's fields, replacing what is there now.
+
+The value each field held before is saved first, so it can be restored.
+
+Turning this off later stops further writes. It does not undo writes already made — restoring the saved originals does that.
+
+This does not cover image alt text, heading rewrites or link corrections. Those change WordPress content directly and are controlled separately.",
                 'metasync'
             ),
             $product,

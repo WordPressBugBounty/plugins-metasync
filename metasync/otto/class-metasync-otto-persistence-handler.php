@@ -245,11 +245,11 @@ class Metasync_Otto_Persistence_Handler {
 
         # Method 3: Search by filename in database
         global $wpdb;
-        $filename = basename(parse_url($url, PHP_URL_PATH));
+        $filename = basename(wp_parse_url($url, PHP_URL_PATH));
         # Remove size suffix from filename
         $filename_base = preg_replace('/-\d+x\d+(?=\.[a-z]{3,4}$)/i', '', $filename);
         
-        $attachment_id = $wpdb->get_var($wpdb->prepare(
+        $attachment_id = $wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- attachment lookup by guid — guid search has no WordPress API
             "SELECT post_id FROM {$wpdb->postmeta} 
              WHERE meta_key = '_wp_attached_file' 
              AND meta_value LIKE %s 

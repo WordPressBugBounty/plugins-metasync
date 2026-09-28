@@ -98,7 +98,7 @@ class Metasync_Edge_Cache_Settings {
      */
     public static function save_from_post($post = null) {
         if ($post === null) {
-            $post = $_POST;
+            $post = $_POST; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- every caller verifies a nonce and capability first
         }
 
         // Only save if at least one edge-cache field is present in the payload.

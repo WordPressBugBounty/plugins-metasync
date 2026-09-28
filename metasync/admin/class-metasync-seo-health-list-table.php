@@ -164,6 +164,7 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 	{
 		return array(
 			'push_to_platform'     => _x('Push to platform for optimization', 'List table bulk action', 'metasync'),
+			/* translators: %s: effective plugin name (whitelabel-aware). */
 			'clear_metasync_cache' => sprintf(_x('Clear %s cache for selected', 'List table bulk action', 'metasync'), Metasync::get_effective_plugin_name()),
 		);
 	}
@@ -226,7 +227,7 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 	 */
 	private function render_filter_dropdown($name, $options, $default_label)
 	{
-		$current = isset($_GET[$name]) ? sanitize_text_field($_GET[$name]) : '';
+		$current = isset($_GET[$name]) ? sanitize_text_field(wp_unslash($_GET[$name])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, allow-listed filter and sort values for the list query
 		?>
 		<select name="<?php echo esc_attr($name); ?>">
 			<option value=""><?php echo esc_html($default_label); ?></option>
@@ -283,7 +284,7 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 		$this->process_bulk_action();
 
 		$current_page = $this->get_pagenum();
-		$missing_filter = isset($_GET['missing_filter']) ? sanitize_text_field($_GET['missing_filter']) : '';
+		$missing_filter = isset($_GET['missing_filter']) ? sanitize_text_field(wp_unslash($_GET['missing_filter'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, allow-listed filter and sort values for the list query
 
 		$args = array(
 			'post_status' => array('publish', 'draft'),
@@ -292,28 +293,28 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 		);
 
 		// Post type filter — validate against allowed types
-		$post_type_filter = isset($_GET['post_type_filter']) ? sanitize_text_field($_GET['post_type_filter']) : '';
+		$post_type_filter = isset($_GET['post_type_filter']) ? sanitize_text_field(wp_unslash($_GET['post_type_filter'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, allow-listed filter and sort values for the list query
 		$supported_types = Metasync_SEO_Health::get_supported_post_types();
 		$args['post_type'] = (!empty($post_type_filter) && in_array($post_type_filter, $supported_types, true))
 			? $post_type_filter
 			: $supported_types;
 
 		// Status filter — validate against allowed statuses
-		$status_filter = isset($_GET['status_filter']) ? sanitize_text_field($_GET['status_filter']) : '';
+		$status_filter = isset($_GET['status_filter']) ? sanitize_text_field(wp_unslash($_GET['status_filter'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, allow-listed filter and sort values for the list query
 		if (!empty($status_filter) && in_array($status_filter, array('publish', 'draft'), true)) {
 			$args['post_status'] = $status_filter;
 		}
 
 		// Search
-		$search = isset($_GET['s']) ? sanitize_text_field($_GET['s']) : '';
+		$search = isset($_GET['s']) ? sanitize_text_field(wp_unslash($_GET['s'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, allow-listed filter and sort values for the list query
 		if (!empty($search)) {
 			$args['s'] = $search;
 		}
 
 		// Sorting — validate orderby against allowed columns
 		$allowed_orderby = array('title', 'post_type', 'post_status', 'post_modified', 'date');
-		$orderby = isset($_GET['orderby']) ? sanitize_text_field($_GET['orderby']) : '';
-		$order = isset($_GET['order']) ? sanitize_text_field($_GET['order']) : '';
+		$orderby = isset($_GET['orderby']) ? sanitize_text_field(wp_unslash($_GET['orderby'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, allow-listed filter and sort values for the list query
+		$order = isset($_GET['order']) ? sanitize_text_field(wp_unslash($_GET['order'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, allow-listed filter and sort values for the list query
 		if (!empty($orderby) && in_array($orderby, $allowed_orderby, true)) {
 			$args['orderby'] = $orderby;
 			$args['order'] = (!empty($order) && in_array(strtoupper($order), array('ASC', 'DESC'), true))
@@ -421,32 +422,37 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 		global $wpdb;
 
 		if ($filter === 'missing_schema') {
-			$sql = " AND NOT EXISTS (\n"
-				. "\tSELECT 1\n"
-				. "\tFROM {$wpdb->postmeta} AS metasync_seo_health_meta\n"
-				. "\tWHERE metasync_seo_health_meta.post_id = {$wpdb->posts}.ID\n"
-				. "\t\tAND metasync_seo_health_meta.meta_key = %s\n"
-				. "\t\tAND metasync_seo_health_meta.meta_value NOT IN ('', '[]')\n"
-				. ")";
-			return $wpdb->prepare($sql, 'metasync_schema_markup');
+			return $wpdb->prepare(
+				" AND NOT EXISTS (\n"
+					. "\tSELECT 1\n"
+					. "\tFROM {$wpdb->postmeta} AS metasync_seo_health_meta\n"
+					. "\tWHERE metasync_seo_health_meta.post_id = {$wpdb->posts}.ID\n"
+					. "\t\tAND metasync_seo_health_meta.meta_key = %s\n"
+					. "\t\tAND metasync_seo_health_meta.meta_value NOT IN ('', '[]')\n"
+					. ")",
+				'metasync_schema_markup'
+			);
 		}
 
 		if ($filter === 'missing_og_image') {
-			$sql = " AND NOT EXISTS (\n"
-				. "\tSELECT 1\n"
-				. "\tFROM {$wpdb->postmeta} AS metasync_seo_health_og\n"
-				. "\tWHERE metasync_seo_health_og.post_id = {$wpdb->posts}.ID\n"
-				. "\t\tAND metasync_seo_health_og.meta_key = %s\n"
-				. "\t\tAND metasync_seo_health_og.meta_value <> ''\n"
-				. ")\n"
-				. "AND NOT EXISTS (\n"
-				. "\tSELECT 1\n"
-				. "\tFROM {$wpdb->postmeta} AS metasync_seo_health_thumb\n"
-				. "\tWHERE metasync_seo_health_thumb.post_id = {$wpdb->posts}.ID\n"
-				. "\t\tAND metasync_seo_health_thumb.meta_key = %s\n"
-				. "\t\tAND metasync_seo_health_thumb.meta_value <> ''\n"
-				. ")";
-			return $wpdb->prepare($sql, '_metasync_og_image', '_thumbnail_id');
+			return $wpdb->prepare(
+				" AND NOT EXISTS (\n"
+					. "\tSELECT 1\n"
+					. "\tFROM {$wpdb->postmeta} AS metasync_seo_health_og\n"
+					. "\tWHERE metasync_seo_health_og.post_id = {$wpdb->posts}.ID\n"
+					. "\t\tAND metasync_seo_health_og.meta_key = %s\n"
+					. "\t\tAND metasync_seo_health_og.meta_value <> ''\n"
+					. ")\n"
+					. "AND NOT EXISTS (\n"
+					. "\tSELECT 1\n"
+					. "\tFROM {$wpdb->postmeta} AS metasync_seo_health_thumb\n"
+					. "\tWHERE metasync_seo_health_thumb.post_id = {$wpdb->posts}.ID\n"
+					. "\t\tAND metasync_seo_health_thumb.meta_key = %s\n"
+					. "\t\tAND metasync_seo_health_thumb.meta_value <> ''\n"
+					. ")",
+				'_metasync_og_image',
+				'_thumbnail_id'
+			);
 		}
 
 		$keys = self::get_missing_meta_keys($filter);
@@ -454,16 +460,16 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 			return '';
 		}
 
-		$placeholders = implode(', ', array_fill(0, count($keys), '%s'));
-		$sql = " AND NOT EXISTS (\n"
-			. "\tSELECT 1\n"
-			. "\tFROM {$wpdb->postmeta} AS metasync_seo_health_meta\n"
-			. "\tWHERE metasync_seo_health_meta.post_id = {$wpdb->posts}.ID\n"
-			. "\t\tAND metasync_seo_health_meta.meta_key IN ({$placeholders})\n"
-			. "\t\tAND metasync_seo_health_meta.meta_value <> ''\n"
-			. ")";
-
-		return $wpdb->prepare($sql, $keys);
+		return $wpdb->prepare(
+			" AND NOT EXISTS (\n"
+				. "\tSELECT 1\n"
+				. "\tFROM {$wpdb->postmeta} AS metasync_seo_health_meta\n"
+				. "\tWHERE metasync_seo_health_meta.post_id = {$wpdb->posts}.ID\n"
+				. "\t\tAND metasync_seo_health_meta.meta_key IN (" . implode(', ', array_fill(0, count($keys), '%s')) . ")\n"
+				. "\t\tAND metasync_seo_health_meta.meta_value <> ''\n"
+				. ")",
+			$keys
+		);
 	}
 
 	/**

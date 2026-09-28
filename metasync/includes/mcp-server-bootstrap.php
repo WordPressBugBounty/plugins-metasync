@@ -28,7 +28,7 @@ function metasync_safe_register_mcp_tool($server, $class_name) {
 	static $logged_missing = [];
 	if (!class_exists($class_name)) {
 		if (empty($logged_missing[$class_name])) {
-			error_log('MetaSync MCP: ' . $class_name . ' class not found — skipping registration. Run composer dump-autoload to regenerate the classmap.');
+			error_log('MetaSync MCP: ' . $class_name . ' class not found — skipping registration. Run composer dump-autoload to regenerate the classmap.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 			$logged_missing[$class_name] = true;
 		}
 		return;
@@ -36,7 +36,7 @@ function metasync_safe_register_mcp_tool($server, $class_name) {
 	try {
 		$server->register_tool(new $class_name());
 	} catch (\Throwable $e) {
-		error_log('MetaSync MCP: Failed to register tool ' . $class_name . ': ' . $e->getMessage());
+		error_log('MetaSync MCP: Failed to register tool ' . $class_name . ': ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 	}
 }
 
@@ -67,7 +67,7 @@ function metasync_init_mcp_server() {
 		// SEO Inventory: shared builder + standalone REST endpoint
 		new Metasync_REST_SEO_Inventory();
 	} catch (\Throwable $e) {
-		error_log('MCP Server Initialization Error: ' . $e->getMessage());
+		error_log('MCP Server Initialization Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 		return;
 	}
 

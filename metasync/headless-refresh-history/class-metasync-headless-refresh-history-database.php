@@ -75,7 +75,7 @@ class Metasync_Headless_Refresh_History
 
         $table = $this->table_name();
 
-        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table) {
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for headless refresh bookkeeping (admin/cron consumers)
             self::$table_verified = true;
 
             return true;
@@ -98,7 +98,7 @@ class Metasync_Headless_Refresh_History
             KEY idx_outcome (outcome, created_at)
         ) {$wpdb->get_charset_collate()};");
 
-        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table) {
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for headless refresh bookkeeping (admin/cron consumers)
             self::$table_verified = true;
             delete_option(self::TABLE_RETRY_OPTION);
 
@@ -136,14 +136,14 @@ class Metasync_Headless_Refresh_History
             'created_at' => $args['created_at'],
         );
 
-        $result = $wpdb->insert($this->table_name(), $row);
+        $result = $wpdb->insert($this->table_name(), $row); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for headless refresh bookkeeping (admin/cron consumers)
 
         if ($result === false && !self::$table_verified) {
             # The only expected cause is a table that migration never created,
             # on a site upgraded without the activation hook running. Pay the
             # existence check once, then let every later insert stay cheap.
             if ($this->maybe_create_table()) {
-                $result = $wpdb->insert($this->table_name(), $row);
+                $result = $wpdb->insert($this->table_name(), $row); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for headless refresh bookkeeping (admin/cron consumers)
             }
         }
 
@@ -178,7 +178,7 @@ class Metasync_Headless_Refresh_History
 
         if ($lock > 0) {
             global $wpdb;
-            $claimed = $wpdb->query($wpdb->prepare(
+            $claimed = $wpdb->query($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for headless refresh bookkeeping (admin/cron consumers)
                 "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND CAST(option_value AS UNSIGNED) = %d",
                 (string) $now,
                 self::CLEANUP_LOCK_OPTION,
@@ -204,15 +204,14 @@ class Metasync_Headless_Refresh_History
     public function cleanup()
     {
         global $wpdb;
-        $table = $this->table_name();
 
-        $wpdb->query($wpdb->prepare(
-            "DELETE FROM {$table} WHERE created_at < %s",
+        $wpdb->query($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for headless refresh bookkeeping (admin/cron consumers)
+            "DELETE FROM {$wpdb->prefix}metasync_headless_refresh_history WHERE created_at < %s",
             gmdate('Y-m-d H:i:s', time() - self::RETENTION_DAYS * DAY_IN_SECONDS)
         ));
 
-        $ids = $wpdb->get_col($wpdb->prepare(
-            "SELECT id FROM {$table} ORDER BY id DESC LIMIT %d",
+        $ids = $wpdb->get_col($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for headless refresh bookkeeping (admin/cron consumers)
+            "SELECT id FROM {$wpdb->prefix}metasync_headless_refresh_history ORDER BY id DESC LIMIT %d",
             self::MAX_RECORDS
         ));
 
@@ -221,9 +220,8 @@ class Metasync_Headless_Refresh_History
         }
 
         $ids = array_map('absint', $ids);
-        $placeholders = implode(',', array_fill(0, count($ids), '%d'));
-        $wpdb->query($wpdb->prepare(
-            "DELETE FROM {$table} WHERE id NOT IN ({$placeholders})",
+        $wpdb->query($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for headless refresh bookkeeping (admin/cron consumers)
+            'DELETE FROM ' . $wpdb->prefix . 'metasync_headless_refresh_history WHERE id NOT IN (' . implode(',', array_fill(0, count($ids), '%d')) . ')',
             $ids
         ));
     }

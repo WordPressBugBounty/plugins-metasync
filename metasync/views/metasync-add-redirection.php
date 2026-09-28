@@ -255,7 +255,7 @@ p.description {
 </style>
 
 <div id="add-redirection-form">
-    <h1><?php echo (isset($_GET['action']) && $_GET['action'] == 'edit') ? 'Edit Redirection' : 'Add Redirection'; ?></h1>
+    <h1><?php echo (isset($_GET['action']) && $_GET['action'] == 'edit') ? 'Edit Redirection' : 'Add Redirection'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only heading selection ?></h1>
 
     <!-- Redirection Tips Section -->
     <div class="redirection-tips-container" style="margin-bottom: 20px;">
@@ -522,7 +522,7 @@ p.description {
                 $status = 'active';
                 $uri = '';
 
-                $get_data =  metasync_sanitize_input_array($_GET);
+                $get_data =  metasync_sanitize_input_array($_GET); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only edit-form prefill, the save carries its own nonce
 
                 if (isset($get_data['action'])) {
                     if (isset($get_data['uri']) && ($get_data['action'] == 'redirect' && !empty($get_data['uri']))) {
@@ -699,7 +699,7 @@ p.description {
 </div>
 
 <?php
-$get_data =  metasync_sanitize_input_array($_GET);
+$get_data =  metasync_sanitize_input_array($_GET); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only comparison with no effect
 if (isset($get_data['action']) && ($get_data['action'] == 'edit' || $get_data['action'] == 'redirect' || $get_data['action'] == 'add')) {
 ?>
 <?php } ?>

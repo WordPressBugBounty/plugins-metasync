@@ -179,7 +179,7 @@ class Metasync_OpenGraph {
             return false;
         }
         # 'default' text domain, matching the __() call core itself uses.
-        if ($value === 'Auto Draft' || $value === trim(__('Auto Draft'))) {
+        if ($value === 'Auto Draft' || $value === trim(__('Auto Draft', 'default'))) { // phpcs:ignore WordPress.WP.I18n.TextDomainMismatch -- resolves core's own 'Auto Draft' placeholder, which only exists in core's 'default' domain; the plugin text domain cannot reproduce it
             return true;
         }
         # Registry arm: a variant captured in another locale's admin request.
@@ -242,7 +242,7 @@ class Metasync_OpenGraph {
      * @return void
      */
     public static function seed_auto_draft_placeholder() {
-        self::remember_auto_draft_placeholder(__('Auto Draft'));
+        self::remember_auto_draft_placeholder(__('Auto Draft', 'default')); // phpcs:ignore WordPress.WP.I18n.TextDomainMismatch -- resolves core's own 'Auto Draft' placeholder, which only exists in core's 'default' domain; the plugin text domain cannot reproduce it
     }
 
     /**
@@ -731,7 +731,7 @@ class Metasync_OpenGraph {
         # LPS / custom-HTML pages bake their own OG/social tags into their HTML bundle,
         # served before wp_head — so this box does nothing on them. Hide it; the SEO
         # read-only notice covers the messaging.
-        $lps_post_id = isset($_GET['post']) ? intval($_GET['post']) : (isset($_POST['post_ID']) ? intval($_POST['post_ID']) : 0);
+        $lps_post_id = isset($_GET['post']) ? intval($_GET['post']) : (isset($_POST['post_ID']) ? intval($_POST['post_ID']) : 0); // phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.NonceVerification.Recommended -- read-only post ID to pick meta boxes
         if (function_exists('metasync_is_custom_or_lps_page') && $lps_post_id > 0 && metasync_is_custom_or_lps_page($lps_post_id)) {
             return;
         }
@@ -743,6 +743,7 @@ class Metasync_OpenGraph {
         foreach ($post_types as $post_type) {
             add_meta_box(
                 self::META_BOX_ID,
+                /* translators: %s: effective plugin name (whitelabel-aware). */
                 sprintf(esc_html__('Social Media & Open Graph by %s', 'metasync'), $plugin_name),
                 [$this, 'render_meta_box'],
                 $post_type,
@@ -1045,7 +1046,7 @@ class Metasync_OpenGraph {
         # __( 'Auto Draft' ), never trusted as a bare string, so a builder's
         # custom-seeded auto-draft title is never captured.
         if ($post->post_status === 'auto-draft'
-            && $title !== '' && $title === trim(__('Auto Draft'))) {
+            && $title !== '' && $title === trim(__('Auto Draft', 'default'))) { // phpcs:ignore WordPress.WP.I18n.TextDomainMismatch -- resolves core's own 'Auto Draft' placeholder, which only exists in core's 'default' domain; the plugin text domain cannot reproduce it
             self::remember_auto_draft_placeholder($title);
         }
 
@@ -1786,14 +1787,14 @@ class Metasync_OpenGraph {
         # Parse domain from URL
         $domain = '';
         if (!empty($url)) {
-            $parsed = parse_url($url);
+            $parsed = wp_parse_url($url);
             $domain = $parsed['host'] ?? '';
         }
         
         # Fallback to site URL if no domain found
         if (empty($domain)) {
             $site_url = get_site_url();
-            $parsed = parse_url($site_url);
+            $parsed = wp_parse_url($site_url);
             $domain = $parsed['host'] ?? 'your-site.com';
         }
         
@@ -2372,9 +2373,18 @@ class Metasync_OpenGraph {
      * Check if post slug changed via edit slug functionality
      */
     public function check_slug_change() {
+        # Fires on the same admin-ajax request as core's sample-permalink
+        # handler, but at priority 5 — before core validates the nonce and
+        # capability at its own priority-10 callback. Verify them ourselves
+        # before any post-meta write. Return (not die) so core still serves
+        # the preview request normally.
+        if (!check_ajax_referer('samplepermalink', 'samplepermalinknonce', false)) {
+            return;
+        }
+
         # Get the post ID from the request
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
-        if (!$post_id) {
+        if (!$post_id || !current_user_can('edit_post', $post_id)) {
             return;
         }
 
@@ -2409,7 +2419,7 @@ class Metasync_OpenGraph {
         if ($current_og_url !== $current_permalink && strpos($current_og_url, '?p=') === false) {
             # Check if the og:url was the old permalink by comparing with a generated old permalink
             $old_post = clone $post;
-            $old_slug = isset($_POST['new_slug']) ? sanitize_title($_POST['new_slug']) : $post->post_name;
+            $old_slug = isset($_POST['new_slug']) ? sanitize_title(wp_unslash($_POST['new_slug'])) : $post->post_name;
             
             # If the og:url doesn't match the current permalink, it might be the old one
             # We'll update it to the new permalink

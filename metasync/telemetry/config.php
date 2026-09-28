@@ -175,8 +175,8 @@ class Metasync_Telemetry_Config {
             return 'development';
         }
         
-        $host = parse_url(home_url(), PHP_URL_HOST);
-        if (strpos($host, 'staging') !== false || strpos($host, 'dev') !== false) {
+        $host = wp_parse_url(home_url(), PHP_URL_HOST);
+        if ($host !== false && $host !== null && (strpos($host, 'staging') !== false || strpos($host, 'dev') !== false)) {
             return 'staging';
         }
         
@@ -219,7 +219,7 @@ class Metasync_Telemetry_Config {
             'wordpress_version' => get_bloginfo('version'),
             'php_version' => PHP_VERSION,
             'php_os' => PHP_OS_FAMILY,
-            'mysql_version' => method_exists($wpdb, 'get_var') ? $wpdb->get_var('SELECT VERSION()') : 'unknown',
+            'mysql_version' => method_exists($wpdb, 'get_var') ? $wpdb->get_var('SELECT VERSION()') : 'unknown', // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- diagnostic metadata — SELECT VERSION() has no cached WordPress API
             'server_software' => isset($_SERVER['SERVER_SOFTWARE']) ? $_SERVER['SERVER_SOFTWARE'] : 'unknown',
             'active_plugins' => count(get_option('active_plugins', array())),
             'active_theme' => get_template(),

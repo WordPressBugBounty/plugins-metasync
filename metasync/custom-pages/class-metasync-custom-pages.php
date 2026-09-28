@@ -132,9 +132,9 @@ class Metasync_Custom_Pages
     public function mark_new_custom_html_page()
     {
         // Check if this is a page being created
-        if (isset($_GET['post_type']) && $_GET['post_type'] === 'page') {
+        if (isset($_GET['post_type']) && $_GET['post_type'] === 'page') { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- core gates post-new.php, this only flags the new auto-draft
             // Check if the metasync_html_page parameter is set
-            if (isset($_GET['metasync_html_page']) && $_GET['metasync_html_page'] === '1') {
+            if (isset($_GET['metasync_html_page']) && $_GET['metasync_html_page'] === '1') { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- core gates post-new.php, this only flags the new auto-draft
                 // Set a flag in session or add a filter to mark this page on first save
                 add_filter('wp_insert_post_data', array($this, 'flag_custom_html_page_on_insert'), 10, 2);
             }
@@ -425,7 +425,7 @@ class Metasync_Custom_Pages
 
         $is_otto_fetch = $has_fetch_detector
             ? Metasync_Otto_Render_Strategy::is_internal_fetch()
-            : (isset($_GET['is_otto_page_fetch']) && $_GET['is_otto_page_fetch'] === '1');
+            : (isset($_GET['is_otto_page_fetch']) && $_GET['is_otto_page_fetch'] === '1'); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only per-request flag to skip cache headers
 
         // Permission check for draft/pending pages
         if ($post->post_status !== 'publish') {
@@ -522,6 +522,7 @@ class Metasync_Custom_Pages
         if (!in_array($file_ext, $allowed_extensions, true)) {
             wp_send_json_error(array(
                 'message' => sprintf(
+                    /* translators: %s: list of allowed file extensions. */
                     esc_html__('Invalid file type. Only %s files are allowed.', 'metasync'),
                     implode(', ', $allowed_extensions)
                 )
@@ -553,7 +554,7 @@ class Metasync_Custom_Pages
         }
 
         // Clean up temp file
-        @unlink($file['tmp_name']);
+        @wp_delete_file($file['tmp_name']);
 
         // Return success with content
         wp_send_json_success(array(
@@ -590,7 +591,6 @@ class Metasync_Custom_Pages
         
         // Check if CodeMirror loaded successfully
         if ($cm_settings === false) {
-            error_log('MetaSync Custom Pages: CodeMirror failed to load');
             return;
         }
         

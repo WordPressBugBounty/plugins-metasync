@@ -33,7 +33,7 @@ if (!defined('ABSPATH')) {
 	} ?>
 
 	<?php
-	$get_data =  metasync_sanitize_input_array($_GET);
+	$get_data =  metasync_sanitize_input_array($_GET); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only form prefill, the submit verifies its own nonce
 	$urls   = home_url('/');
 	if (isset($get_data['posturl'])) {
 		$urls = esc_url_raw(wp_unslash($get_data['posturl']));

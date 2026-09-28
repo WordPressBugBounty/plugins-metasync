@@ -71,11 +71,11 @@ class Metasync_GA4 {
     }
 
     private function is_plugin_admin_page() {
-        if (!isset($_GET['page'])) {
+        if (!isset($_GET['page'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page and tab check for GA4 assets
             return false;
         }
 
-        $page = sanitize_text_field($_GET['page']);
+        $page = sanitize_text_field(wp_unslash($_GET['page'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page and tab check for GA4 assets
 
         $plugin_slug = 'searchatlas';
         if (class_exists('Metasync_Admin') && isset(Metasync_Admin::$page_slug)) {
@@ -86,11 +86,11 @@ class Metasync_GA4 {
     }
 
     private function get_admin_screen_name() {
-        if (!isset($_GET['page'])) {
+        if (!isset($_GET['page'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page and tab check for GA4 assets
             return 'Unknown';
         }
 
-        $page = sanitize_text_field($_GET['page']);
+        $page = sanitize_text_field(wp_unslash($_GET['page'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page and tab check for GA4 assets
 
         $plugin_slug = 'searchatlas';
         if (class_exists('Metasync_Admin') && isset(Metasync_Admin::$page_slug)) {
@@ -110,8 +110,8 @@ class Metasync_GA4 {
             'ottodebug'                         => 'OTTO Debug',
         );
 
-        if ($page === $plugin_slug && isset($_GET['tab'])) {
-            $tab = sanitize_text_field($_GET['tab']);
+        if ($page === $plugin_slug && isset($_GET['tab'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page and tab check for GA4 assets
+            $tab = sanitize_text_field(wp_unslash($_GET['tab'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page and tab check for GA4 assets
             return 'Settings - ' . ucfirst(str_replace('_', ' ', $tab));
         }
 

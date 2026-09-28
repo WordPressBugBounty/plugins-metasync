@@ -222,6 +222,17 @@ class Metasync_Review_Notice {
     public function ajax_dismiss_notice() {
         check_ajax_referer('metasync_review_notice', 'nonce');
 
+        // The flag is site-wide, so only admins may change it. The nonce is
+        // CSRF protection, not authorization.
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Insufficient permissions.']);
+            // The return is unreachable in WordPress (wp_send_json_error
+            // terminates the request) but keeps the handler safe under the
+            // non-terminating stubs the unit tests run with.
+            // @phpstan-ignore-next-line deadCode.unreachable
+            return;
+        }
+
         update_option('metasync_review_notice_dismissed', true);
         wp_send_json_success(['message' => 'Notice dismissed']);
     }
@@ -231,6 +242,13 @@ class Metasync_Review_Notice {
      */
     public function ajax_remind_later() {
         check_ajax_referer('metasync_review_notice', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Insufficient permissions.']);
+            // Same as above: defensive under test stubs, unreachable in WordPress.
+            // @phpstan-ignore-next-line deadCode.unreachable
+            return;
+        }
 
         $remind_at = time() + (self::REMIND_LATER_DAYS * DAY_IN_SECONDS);
         update_option('metasync_review_notice_remind_later', $remind_at);

@@ -269,7 +269,6 @@ class Metasync_Otto_Transient_Cache {
                         );
                     }
 
-                    error_log('MetaSync OTTO: Throttled, serving suggestions from cache for ' . $url);
                     self::$cache_status[$cache_status_key] = 'STALE';
                     return $stale;
                 }
@@ -461,11 +460,11 @@ class Metasync_Otto_Transient_Cache {
         if (class_exists('Metasync_API_Backoff_Manager')) {
             $backoff_manager = Metasync_API_Backoff_Manager::get_instance();
             if ($backoff_manager->is_endpoint_in_backoff($this->api_endpoint)) {
-                error_log('MetaSync OTTO: Request deferred - retry scheduled for this endpoint');
+                error_log('MetaSync OTTO: Request deferred - retry scheduled for this endpoint'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 # Try to use stale cache if available
                 $stale = get_transient($this->get_stale_key($url));
                 if ($stale !== false) {
-                    error_log('MetaSync OTTO: Serving suggestions from cache while retry is pending');
+                    error_log('MetaSync OTTO: Serving suggestions from cache while retry is pending'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                     return $stale;
                 }
                 return false;
@@ -501,11 +500,11 @@ class Metasync_Otto_Transient_Cache {
 
             # Check if error is due to backoff
             if ($response->get_error_code() === 'api_backoff_active') {
-                error_log('MetaSync OTTO: Request deferred by retry schedule - ' . $error_message);
+                error_log('MetaSync OTTO: Request deferred by retry schedule - ' . $error_message); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 # Try to use stale cache
                 $stale = get_transient($this->get_stale_key($url));
                 if ($stale !== false) {
-                    error_log('MetaSync OTTO: Serving suggestions from cache while retry is pending');
+                    error_log('MetaSync OTTO: Serving suggestions from cache while retry is pending'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                     return $stale;
                 }
             } else {
@@ -513,7 +512,7 @@ class Metasync_Otto_Transient_Cache {
                 # failure (cURL 28 timeout, connection refused, DNS failure). These are
                 # the failures that cost a full API_TIMEOUT of PHP-FPM worker time.
                 $this->record_breaker_failure();
-                error_log('MetaSync OTTO: API call failed for ' . $url . ' - ' . $error_message);
+                error_log('MetaSync OTTO: API call failed for ' . $url . ' - ' . $error_message); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
             return false;
         }
@@ -563,7 +562,7 @@ class Metasync_Otto_Transient_Cache {
             if (in_array($response_code, [429, 503], true)) {
                 $stale = get_transient($this->get_stale_key($url));
                 if ($stale !== false) {
-                    error_log('MetaSync OTTO: Serving suggestions from cache - source temporarily unavailable');
+                    error_log('MetaSync OTTO: Serving suggestions from cache - source temporarily unavailable'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                     return $stale;
                 }
             }
@@ -876,7 +875,7 @@ class Metasync_Otto_Transient_Cache {
         # other subsite for the rest of the minute.
         $site_id = is_multisite() ? get_current_blog_id() : 0;
         # Create rate limit key (per site, per minute)
-        $rate_key = self::RATE_LIMIT_PREFIX . $site_id . '_' . date('Y-m-d-H-i');
+        $rate_key = self::RATE_LIMIT_PREFIX . $site_id . '_' . gmdate('Y-m-d-H-i');
 
         # Get rate limit from execution settings
         $rate_limit = $this->get_rate_limit();
@@ -935,7 +934,7 @@ class Metasync_Otto_Transient_Cache {
         get_transient($key);
 
         # Timeout row first so WP's transient GC can reap the counter.
-        $wpdb->query(
+        $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- atomic lock/counter primitives on option rows — caching would defeat the atomicity these queries provide
             $wpdb->prepare(
                 "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
                 $timeout_option,
@@ -945,7 +944,7 @@ class Metasync_Otto_Transient_Cache {
 
         # MySQL reports 1 affected row for an insert and 2 for an update, which is
         # how we distinguish "first increment" from "incremented again".
-        $affected = $wpdb->query(
+        $affected = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- atomic lock/counter primitives on option rows — caching would defeat the atomicity these queries provide
             $wpdb->prepare(
                 "INSERT INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, '1', 'no')
                  ON DUPLICATE KEY UPDATE option_value = LAST_INSERT_ID(CAST(option_value AS UNSIGNED) + 1)",
@@ -1046,7 +1045,7 @@ class Metasync_Otto_Transient_Cache {
         $timeout_option  = '_transient_timeout_' . $lock_key;
         $value_option    = '_transient_' . $lock_key;
 
-        $inserted = $wpdb->query(
+        $inserted = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- atomic lock/counter primitives on option rows — caching would defeat the atomicity these queries provide
             $wpdb->prepare(
                 "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
                 $timeout_option,
@@ -1057,7 +1056,7 @@ class Metasync_Otto_Transient_Cache {
         if ($inserted === 1) {
             # We won the insert race — now write the value row. INSERT IGNORE keeps it
             # safe if a stale value row from a prior expired lock is still around.
-            $wpdb->query(
+            $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- atomic lock/counter primitives on option rows — caching would defeat the atomicity these queries provide
                 $wpdb->prepare(
                     "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
                     $value_option,
@@ -1069,7 +1068,7 @@ class Metasync_Otto_Transient_Cache {
 
         # Insert was ignored — a timeout row already exists. Check whether the
         # existing lock has expired so we can attempt to take it over.
-        $existing_expires = (int) $wpdb->get_var(
+        $existing_expires = (int) $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- atomic lock/counter primitives on option rows — caching would defeat the atomicity these queries provide
             $wpdb->prepare(
                 "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s",
                 $timeout_option
@@ -1083,7 +1082,7 @@ class Metasync_Otto_Transient_Cache {
 
         # Stale lock — try to claim it via compare-and-swap on the timeout column.
         # Only the worker whose UPDATE actually changes a row wins the race.
-        $updated = $wpdb->query(
+        $updated = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- atomic lock/counter primitives on option rows — caching would defeat the atomicity these queries provide
             $wpdb->prepare(
                 "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND CAST(option_value AS UNSIGNED) = %d",
                 (string) $new_expires,
@@ -1094,7 +1093,7 @@ class Metasync_Otto_Transient_Cache {
 
         if ($updated === 1) {
             # We won the takeover. Make sure the value row exists.
-            $wpdb->query(
+            $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- atomic lock/counter primitives on option rows — caching would defeat the atomicity these queries provide
                 $wpdb->prepare(
                     "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
                     $value_option,
@@ -1177,7 +1176,7 @@ class Metasync_Otto_Transient_Cache {
 
         # Match the scoped rate-limit key produced by can_make_api_call().
         $site_id = is_multisite() ? get_current_blog_id() : 0;
-        $rate_limit_key = self::RATE_LIMIT_PREFIX . $site_id . '_' . date('Y-m-d-H-i');
+        $rate_limit_key = self::RATE_LIMIT_PREFIX . $site_id . '_' . gmdate('Y-m-d-H-i');
 
         return [
             'url' => $url,
@@ -1226,13 +1225,16 @@ class Metasync_Otto_Transient_Cache {
         }
         $where_clause = implode(' OR ', $where_parts);
 
-        # Count entries before deletion
+        # Each WHERE fragment is itself prepare()'d above; only the OR-join
+        # is dynamic, and every fragment carries its own bound LIKE value.
+        # phpcs:disable WordPress.DB.PreparedSQL.NotPrepared -- $where_clause is an OR-join of prepare()'d fragments built above
         $count_query = "SELECT COUNT(*) FROM {$wpdb->options} WHERE " . $where_clause;
-        $cleared_count = (int) $wpdb->get_var($count_query);
+        $cleared_count = (int) $wpdb->get_var($count_query); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- expired-counter maintenance over options rows — no API to count matching transient rows
 
         # Batch delete all matching transients in single query
         $delete_query = "DELETE FROM {$wpdb->options} WHERE " . $where_clause;
-        $wpdb->query($delete_query);
+        $wpdb->query($delete_query); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- expired-counter maintenance over options rows — no API to bulk-delete matching transient rows
+        # phpcs:enable WordPress.DB.PreparedSQL.NotPrepared
 
         # Also clear object cache if available
         if (function_exists('wp_cache_flush_group')) {
@@ -1304,7 +1306,7 @@ class Metasync_Otto_Transient_Cache {
     public static function get_cache_count() {
         global $wpdb;
         
-        $count = $wpdb->get_var(
+        $count = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- counter inspection — no API to count matching transient rows
             $wpdb->prepare(
                 "SELECT COUNT(*) FROM {$wpdb->options} 
                  WHERE option_name LIKE %s",

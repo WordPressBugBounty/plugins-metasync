@@ -88,8 +88,8 @@ class Metasync_Sync_Requests
         $last_hb_request_time = $_throttle['last_heart_beat'] ?? 0;
 
         # PR3: Throttle depends on state — burst (KEY_PENDING within 30 min) allows 30s; else 5 min
-        $is_heartbeat = ($context === 'heartbeat') || filter_var($_POST['is_heart_beat'] ?? false, FILTER_VALIDATE_BOOLEAN);
-        $is_burst = !empty($_POST['is_burst']);
+        $is_heartbeat = ($context === 'heartbeat') || filter_var($_POST['is_heart_beat'] ?? false, FILTER_VALIDATE_BOOLEAN); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only throttle flags, callers are already authorized
+        $is_burst = !empty($_POST['is_burst']); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only throttle flags, callers are already authorized
         $heartbeat_state = $metasync_options['general']['heartbeat_state'] ?? '';
         $state_changed_at = (int) ($metasync_options['general']['heartbeat_state_changed_at'] ?? 0);
         $burst_window_end = $state_changed_at + (30 * 60); // 30 min cap
@@ -206,7 +206,7 @@ class Metasync_Sync_Requests
 
         # PERFORMANCE OPTIMIZATION: Handle timeout and connection errors
         if (is_wp_error($response)) {
-            error_log('MetaSync: Heartbeat sync failed: ' . $response->get_error_message());
+            error_log('MetaSync: Heartbeat sync failed: ' . $response->get_error_message()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             $this->saveHeartBeatError('heartbeat', 'Connection error: ' . $response->get_error_message(), array(1), 0);
             return;
         }
@@ -234,11 +234,11 @@ class Metasync_Sync_Requests
                 if (!empty($response_body['uuid_mismatch'])) {
                     # Domain clone: backend says local UUID is wrong for this domain
                     $_sync_updates['otto_pixel_uuid'] = $response_uuid;
-                    error_log('MetaSync: UUID corrected from ' . $current_uuid . ' to ' . $response_uuid . ' (domain clone detected)');
+                    error_log('MetaSync: UUID corrected from ' . $current_uuid . ' to ' . $response_uuid . ' (domain clone detected)'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 } elseif (empty($current_uuid)) {
                     # Self-heal: SSO callback failed but API key was saved; recover UUID from heartbeat
                     $_sync_updates['otto_pixel_uuid'] = $response_uuid;
-                    error_log('MetaSync: UUID set from heartbeat response (self-heal after SSO callback missed)');
+                    error_log('MetaSync: UUID set from heartbeat response (self-heal after SSO callback missed)'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 }
             }
 
@@ -461,7 +461,7 @@ class Metasync_Sync_Requests
 
         # PERFORMANCE OPTIMIZATION: Handle timeout and connection errors
         if (is_wp_error($response)) {
-            error_log('MetaSync: White label user sync failed: ' . $response->get_error_message());
+            error_log('MetaSync: White label user sync failed: ' . $response->get_error_message()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return;
         }
 

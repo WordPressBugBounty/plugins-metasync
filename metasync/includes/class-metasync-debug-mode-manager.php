@@ -230,8 +230,6 @@ class Metasync_Debug_Mode_Manager
             // Clear any previous notices
             delete_transient(self::NOTICE_TRANSIENT);
 
-            // Log the action
-            error_log('MetaSync: Debug mode enabled' . ($indefinite ? ' (indefinite)' : ' (24 hours)'));
         }
 
         return $result;
@@ -274,8 +272,6 @@ class Metasync_Debug_Mode_Manager
                 'info'
             );
 
-            // Log the action
-            error_log('MetaSync: Debug mode disabled - ' . $reason);
         }
 
         return $result;
@@ -403,16 +399,16 @@ class Metasync_Debug_Mode_Manager
 
         // Remove existing .old file if it exists
         if (file_exists($backup_path)) {
-            @unlink($backup_path);
+            @wp_delete_file($backup_path);
         }
 
         // Rename current log to .old
-        $result = @rename($this->log_file_path, $backup_path);
+        $result = @rename($this->log_file_path, $backup_path); // phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- atomic same-filesystem replace; WP_Filesystem::move() needs credential bootstrapping on non-direct hosts
 
         if ($result) {
             // Create new empty log file
             @file_put_contents($this->log_file_path, '');
-            error_log('MetaSync: Debug log rotated - exceeded 10MB limit');
+            error_log('MetaSync: Debug log rotated - exceeded 10MB limit'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- plugin logger sink / last-resort fallback
         }
 
         // Cleanup old rotations (keep only MAX_ROTATED_LOGS)
@@ -443,7 +439,7 @@ class Metasync_Debug_Mode_Manager
             // Delete oldest files, keep only MAX_ROTATED_LOGS
             $to_delete = array_slice($old_logs, 0, count($old_logs) - self::MAX_ROTATED_LOGS);
             foreach ($to_delete as $old_log) {
-                @unlink($old_log);
+                @wp_delete_file($old_log);
             }
         }
     }
@@ -566,7 +562,7 @@ class Metasync_Debug_Mode_Manager
                 // admin_notices never fires during a REST request, so the controller's own
                 // notice would be discarded - use the transient notices the admin reads.
                 $this->add_notice('wp-config.php could not be updated: ' . $reason, 'error');
-                error_log('MetaSync: wp-config.php not updated - ' . $reason);
+                error_log('MetaSync: wp-config.php not updated - ' . $reason); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 
                 return $partial ? self::WRITE_PARTIAL : self::WRITE_FAILED;
             }
@@ -577,7 +573,7 @@ class Metasync_Debug_Mode_Manager
             // an ordinary REST request.
             update_option('wp_debug_enabled', $previousEnabled);
             update_option('wp_debug_log_enabled', $previousLog);
-            error_log('MetaSync: Error updating wp-config.php - ' . $e->getMessage());
+            error_log('MetaSync: Error updating wp-config.php - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return self::WRITE_FAILED;
         }
     }

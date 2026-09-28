@@ -357,8 +357,8 @@ class Metasync_Breadcrumbs {
 
         // --- Search results ---
         if (is_search()) {
-            /* translators: %s: search query */
             $trail[] = array(
+                /* translators: %s: search query. */
                 'label' => sprintf(__('Search results for "%s"', 'metasync'), get_search_query()),
                 'url'   => '',
             );

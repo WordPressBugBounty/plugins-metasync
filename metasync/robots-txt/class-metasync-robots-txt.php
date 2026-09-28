@@ -222,7 +222,7 @@ class Metasync_Robots_Txt
             // Set secure permissions: 0644 (rw-r--r--)
             // Owner can read/write, group and others can only read
             // This is the WordPress standard for files
-            @chmod($this->robots_file_path, 0644);
+            @chmod($this->robots_file_path, 0644); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_chmod -- direct POSIX permission change; WP_Filesystem would prompt for FTP credentials on non-direct hosts
             // Clear virtual mode if file was successfully written
             $this->database->clear_virtual_content();
             return true;
@@ -284,6 +284,7 @@ class Metasync_Robots_Txt
             // Check for valid directives
             if (!preg_match('/^(User-agent|Disallow|Allow|Sitemap|Crawl-delay):/i', $line)) {
                 $errors[] = sprintf(
+                    /* translators: %d: line number in robots.txt. */
                     esc_html__('Line %d: Invalid directive. Valid directives are: User-agent, Disallow, Allow, Sitemap, Crawl-delay', 'metasync'),
                     $line_num + 1
                 );
@@ -470,12 +471,12 @@ class Metasync_Robots_Txt
     {
         // If file exists, check if it's writable
         if (file_exists($this->robots_file_path)) {
-            return is_writable($this->robots_file_path);
+            return wp_is_writable($this->robots_file_path);
         }
 
         // If file doesn't exist, check if parent directory is writable
         // If not writable, virtual mode will be used
-        return is_writable(ABSPATH);
+        return wp_is_writable(ABSPATH);
     }
 
     /**

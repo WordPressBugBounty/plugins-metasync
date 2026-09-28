@@ -189,47 +189,28 @@ class Metasync_Error_Logger {
      * @return bool True on success, false on failure
      */
     private static function write_to_log_file($log_line) {
-        // Get log directory (same as Log_Manager uses)
-        $log_directory = WP_CONTENT_DIR . '/metasync_data';
-        
-        // Create directory if it doesn't exist
-        if (!is_dir($log_directory)) {
-            if (!@mkdir($log_directory, 0755, true)) {
-                error_log('Metasync_Error_Logger: Failed to create log directory: ' . $log_directory);
-                return false;
-            }
+        // Directory creation, web-server protection, and writability
+        // guarantees live in Metasync_Data_Store so every writer agrees on
+        // the location; a false return means "no writable data directory".
+        $log_directory = Metasync_Data_Store::base_dir();
+        if (false === $log_directory) {
+            return false;
         }
 
-        // Protect log directory from direct web access
-        $htaccess_file = $log_directory . '/.htaccess';
-        if (!file_exists($htaccess_file)) {
-            @file_put_contents($htaccess_file, "Order deny,allow\nDeny from all\n");
-        }
-        $index_file = $log_directory . '/index.php';
-        if (!file_exists($index_file)) {
-            @file_put_contents($index_file, "<?php\n// Silence is golden\n");
-        }
-        
-        // Verify directory is writable
-        if (!is_writable($log_directory)) {
-            @chmod($log_directory, 0755);
-            if (!is_writable($log_directory)) {
-                error_log('Metasync_Error_Logger: Directory not writable: ' . $log_directory);
-                return false;
-            }
-        }
-        
         // Get log file path
-        $log_file = wp_normalize_path($log_directory . '/' . self::LOG_FILE_NAME);
+        $log_file = Metasync_Data_Store::file_path(self::LOG_FILE_NAME);
+        if (false === $log_file) {
+            return false;
+        }
         
         // Serialize rotation and append across requests. Locking only the log
         // file is insufficient because rename() changes the inode being locked.
-        $rotation_lock = @fopen($log_file . '.lock', 'c');
+        $rotation_lock = @fopen($log_file . '.lock', 'c'); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- streaming file I/O; WP_Filesystem cannot return a raw stream handle
         if (false === $rotation_lock || !flock($rotation_lock, LOCK_EX)) {
             if (false !== $rotation_lock) {
-                fclose($rotation_lock);
+                fclose($rotation_lock); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- operates on a native stream handle
             }
-            error_log('Metasync_Error_Logger: Failed to lock log file: ' . $log_file);
+            error_log('Metasync_Error_Logger: Failed to lock log file: ' . $log_file); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- plugin logger sink / last-resort fallback
             return false;
         }
 
@@ -239,24 +220,24 @@ class Metasync_Error_Logger {
         if (false !== $log_size && $log_size >= self::MAX_LOG_SIZE) {
             $backup = $log_file . '.old';
             if (file_exists($backup)) {
-                @unlink($backup);
+                @wp_delete_file($backup);
             }
-            @rename($log_file, $backup);
+            @rename($log_file, $backup); // phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- atomic same-filesystem replace; WP_Filesystem::move() needs credential bootstrapping on non-direct hosts
         }
 
         // Append to log file with file locking
         $result = @file_put_contents($log_file, $log_line, FILE_APPEND | LOCK_EX);
         flock($rotation_lock, LOCK_UN);
-        fclose($rotation_lock);
+        fclose($rotation_lock); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- operates on a native stream handle
 
         if ($result === false) {
-            error_log('Metasync_Error_Logger: Failed to write to log file: ' . $log_file);
+            error_log('Metasync_Error_Logger: Failed to write to log file: ' . $log_file); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- plugin logger sink / last-resort fallback
             return false;
         }
         
         // Set file permissions if file was just created
         if (!file_exists($log_file) || filesize($log_file) === strlen($log_line)) {
-            @chmod($log_file, 0644);
+            @chmod($log_file, 0644); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_chmod -- direct POSIX permission change; WP_Filesystem would prompt for FTP credentials on non-direct hosts
         }
         
         return true;
@@ -477,7 +458,7 @@ add_action('action_scheduler_before_process_queue', 'metasync_check_action_sched
 // Also check on shutdown (for immediate detection, throttled)
 add_action('shutdown', function() {
     // Only check in admin or if triggered manually
-    if (is_admin() || isset($_GET['metasync_check_queue'])) {
+    if (is_admin() || isset($_GET['metasync_check_queue'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, throttled queue check
         metasync_check_action_scheduler_queue_overflow();
     }
 }, 999);

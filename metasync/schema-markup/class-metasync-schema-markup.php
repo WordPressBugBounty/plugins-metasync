@@ -84,7 +84,7 @@ class Metasync_Schema_Markup
         // LPS / custom-HTML pages bake their own SEO (incl. any schema) into their HTML
         // bundle, served before wp_head — so this box does nothing on them. Hide it; the
         // SEO read-only notice covers the messaging.
-        $lps_post_id = isset($_GET['post']) ? intval($_GET['post']) : (isset($_POST['post_ID']) ? intval($_POST['post_ID']) : 0);
+        $lps_post_id = isset($_GET['post']) ? intval($_GET['post']) : (isset($_POST['post_ID']) ? intval($_POST['post_ID']) : 0); // phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.NonceVerification.Recommended -- read-only post ID to pick meta boxes
         if (function_exists('metasync_is_custom_or_lps_page') && $lps_post_id > 0 && metasync_is_custom_or_lps_page($lps_post_id)) {
             return;
         }
@@ -123,7 +123,7 @@ class Metasync_Schema_Markup
 
         ?>
         <div class="metasync-schema-markup-container">
-            
+
             <?php if (!$global_schema_enabled): ?>
             <div class="metasync-schema-global-disabled-notice" style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 15px 0; border-radius: 4px;">
                 <p style="margin: 0 0 8px 0; font-weight: 600; color: #856404;">
@@ -131,8 +131,8 @@ class Metasync_Schema_Markup
                     Global Schema Markup is Disabled
                 </p>
                 <p style="margin: 0; color: #856404; font-size: 13px;">
-                    Schema markup is disabled globally. Please enable it in 
-                    <a href="<?php echo admin_url('admin.php?page=searchatlas'); ?>" target="_blank">General Configuration → Enable Schema</a> 
+                    Schema markup is disabled globally. Please enable it in
+                    <a href="<?php echo esc_url(admin_url('admin.php?page=searchatlas')); ?>" target="_blank">General Configuration → Enable Schema</a>
                     for schema markup to be output on the frontend.
                 </p>
             </div>
@@ -231,9 +231,9 @@ class Metasync_Schema_Markup
             'VideoObject' => 'Video Object'
         ];
         $display_name = isset($schema_type_names[$schema_type]) ? $schema_type_names[$schema_type] : ucfirst($schema_type);
-        
+
         ?>
-        <div class="schema-type-item" data-index="<?php echo esc_attr($index); ?>" style="margin: 15px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9;">
+        <div class="schema-type-item" data-index="<?php echo esc_attr((string) $index); ?>" style="margin: 15px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9;">
             <div class="schema-type-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                 <h5 style="margin: 0; color: #333;">
                     <span class="dashicons dashicons-tag" style="color: #0073aa;"></span>
@@ -243,10 +243,10 @@ class Metasync_Schema_Markup
                     <span class="dashicons dashicons-trash"></span> Remove
                 </button>
             </div>
-            
+
             <div class="schema-type-content">
-                <input type="hidden" name="schema_markup[types][<?php echo esc_attr($index); ?>][type]" value="<?php echo esc_attr($schema_type); ?>">
-                
+                <input type="hidden" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][type]" value="<?php echo esc_attr($schema_type); ?>">
+
                 <div class="schema-fields-container">
                     <?php $this->render_schema_fields($schema_type, $schema_fields, $index); ?>
                 </div>
@@ -314,7 +314,7 @@ class Metasync_Schema_Markup
 
     /**
      * Get default values for schema fields (title, description, image)
-     * 
+     *
      * @param int $post_id Post ID
      * @return array Array with 'title', 'description', 'image' keys
      */
@@ -351,7 +351,7 @@ class Metasync_Schema_Markup
 
     /**
      * Render override default fields section
-     * 
+     *
      * @param array $fields Schema fields
      * @param int $index Schema type index
      * @param string $schema_type Schema type (article, product, recipe)
@@ -361,13 +361,13 @@ class Metasync_Schema_Markup
     {
         global $post;
         $post_id = $post ? $post->ID : 0;
-        
+
         if (!$post_id) {
             return;
         }
 
         $defaults = $this->get_default_schema_values($post_id);
-        
+
         // Get override values - only populate with placeholders for NEW schemas (keys don't exist)
         // If keys exist but are empty, respect the user's choice to leave them blank
         if (!array_key_exists('title_override', $fields)) {
@@ -377,7 +377,7 @@ class Metasync_Schema_Markup
             // Existing schema - respect saved value (even if blank)
             $title_override = $fields['title_override'];
         }
-        
+
         if (!array_key_exists('description_override', $fields)) {
             // New schema - populate with placeholder
             $description_override = '{{post_description}}';
@@ -385,7 +385,7 @@ class Metasync_Schema_Markup
             // Existing schema - respect saved value (even if blank)
             $description_override = $fields['description_override'];
         }
-        
+
         if (!array_key_exists('image_override', $fields)) {
             // New schema - populate with placeholder
             $image_override = '{{featured_image}}';
@@ -393,18 +393,18 @@ class Metasync_Schema_Markup
             // Existing schema - respect saved value (even if blank)
             $image_override = $fields['image_override'];
         }
-        
+
         // Use override value for image preview if provided and not a placeholder, otherwise use default
         $image_placeholder = ($image_override && !$this->is_placeholder($image_override)) ? $image_override : $defaults['image'];
 
         // Check if any overrides are active (not empty and not placeholders)
-        $has_overrides = (!empty($title_override) && !$this->is_placeholder($title_override)) || 
-                        (!empty($description_override) && !$this->is_placeholder($description_override)) || 
+        $has_overrides = (!empty($title_override) && !$this->is_placeholder($title_override)) ||
+                        (!empty($description_override) && !$this->is_placeholder($description_override)) ||
                         (!empty($image_override) && !$this->is_placeholder($image_override));
-        
+
         ?>
         <div class="schema-override-fields-section" style="margin-bottom: 20px;">
-            <div class="schema-override-header" style="background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; padding: 10px; cursor: pointer;" data-toggle-target="override-fields-<?php echo $index; ?>">
+            <div class="schema-override-header" style="background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; padding: 10px; cursor: pointer;" data-toggle-target="override-fields-<?php echo esc_attr((string) $index); ?>">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <h4 style="margin: 0; font-size: 14px; font-weight: 600; color: #333;">
                         <span class="dashicons dashicons-edit" style="color: #0073aa; vertical-align: middle;"></span>
@@ -416,24 +416,24 @@ class Metasync_Schema_Markup
                     <span class="dashicons dashicons-arrow-down-alt2 toggle-icon" style="color: #666; transition: transform 0.3s;"></span>
                 </div>
             </div>
-            
-            <div class="schema-override-content" id="override-fields-<?php echo $index; ?>" style="display: none; padding: 15px; background: #fff; border: 1px solid #ddd; border-top: none; border-radius: 0 0 4px 4px;">
+
+            <div class="schema-override-content" id="override-fields-<?php echo esc_attr((string) $index); ?>" style="display: none; padding: 15px; background: #fff; border: 1px solid #ddd; border-top: none; border-radius: 0 0 4px 4px;">
                 <p class="description" style="margin: 0 0 15px 0; color: #000000; font-size: 13px;">
                     These fields are required and will be used in schema markup.
                 </p>
 
                 <div class="schema-field" style="margin-bottom: 15px;">
-                    <label for="override_title_<?php echo $index; ?>" style="display: block; font-weight: 600; margin-bottom: 5px; color: #333;">
+                    <label for="override_title_<?php echo esc_attr((string) $index); ?>" style="display: block; font-weight: 600; margin-bottom: 5px; color: #333;">
                         Title: <span style="color: #dc3232;">*</span>
                     </label>
                     <div style="display: flex; gap: 8px; align-items: center;">
-                        <input type="text" 
-                               name="schema_markup[types][<?php echo $index; ?>][fields][title_override]" 
-                               id="override_title_<?php echo $index; ?>" 
-                               value="<?php echo esc_attr($title_override); ?>" 
+                        <input type="text"
+                               name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][title_override]"
+                               id="override_title_<?php echo esc_attr((string) $index); ?>"
+                               value="<?php echo esc_attr($title_override); ?>"
                                data-default-value="{{post_title}}"
                                style="flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 3px; font-size: 14px;">
-                        <button type="button" class="button reset-override-field" data-field="override_title_<?php echo $index; ?>" style="flex-shrink: 0;">
+                        <button type="button" class="button reset-override-field" data-field="override_title_<?php echo esc_attr((string) $index); ?>" style="flex-shrink: 0;">
                             Reset
                         </button>
                     </div>
@@ -443,16 +443,16 @@ class Metasync_Schema_Markup
                 </div>
 
                 <div class="schema-field" style="margin-bottom: 15px;">
-                    <label for="override_description_<?php echo $index; ?>" style="display: block; font-weight: 600; margin-bottom: 5px; color: #333;">
+                    <label for="override_description_<?php echo esc_attr((string) $index); ?>" style="display: block; font-weight: 600; margin-bottom: 5px; color: #333;">
                         Description: <span style="color: #dc3232;">*</span>
                     </label>
                     <div style="display: flex; gap: 8px; align-items: flex-start;">
-                        <textarea name="schema_markup[types][<?php echo $index; ?>][fields][description_override]" 
-                                  id="override_description_<?php echo $index; ?>" 
+                        <textarea name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][description_override]"
+                                  id="override_description_<?php echo esc_attr((string) $index); ?>"
                                   data-default-value="{{post_description}}"
                                   rows="4"
                                   style="flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 3px; font-size: 14px; resize: vertical;"><?php echo esc_textarea($description_override); ?></textarea>
-                        <button type="button" class="button reset-override-field" data-field="override_description_<?php echo $index; ?>" style="flex-shrink: 0; margin-top: 0;">
+                        <button type="button" class="button reset-override-field" data-field="override_description_<?php echo esc_attr((string) $index); ?>" style="flex-shrink: 0; margin-top: 0;">
                             Reset
                         </button>
                     </div>
@@ -463,30 +463,30 @@ class Metasync_Schema_Markup
 
                 <?php if ($include_image): ?>
                 <div class="schema-field" style="margin-bottom: 15px;">
-                    <label for="override_image_<?php echo $index; ?>" style="display: block; font-weight: 600; margin-bottom: 5px; color: #333;">
+                    <label for="override_image_<?php echo esc_attr((string) $index); ?>" style="display: block; font-weight: 600; margin-bottom: 5px; color: #333;">
                         Image: <span style="color: #dc3232;">*</span>
                     </label>
                     <div class="image-upload-container" style="margin-bottom: 10px;">
                         <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px;">
-                            <input type="text" 
-                                   name="schema_markup[types][<?php echo $index; ?>][fields][image_override]" 
-                                   id="override_image_<?php echo $index; ?>" 
-                                   value="<?php echo esc_attr($image_override); ?>" 
+                            <input type="text"
+                                   name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][image_override]"
+                                   id="override_image_<?php echo esc_attr((string) $index); ?>"
+                                   value="<?php echo esc_attr($image_override); ?>"
                                    data-default-value="{{featured_image}}"
                                    style="flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 3px; font-size: 14px;">
-                            <button type="button" class="button upload-image-button" data-target="<?php echo $index; ?>" data-field-id="override_image_<?php echo $index; ?>">
+                            <button type="button" class="button upload-image-button" data-target="<?php echo esc_attr((string) $index); ?>" data-field-id="override_image_<?php echo esc_attr((string) $index); ?>">
                                 Upload Image
                             </button>
-                            <button type="button" class="button reset-override-field" data-field="override_image_<?php echo $index; ?>" style="flex-shrink: 0;">
+                            <button type="button" class="button reset-override-field" data-field="override_image_<?php echo esc_attr((string) $index); ?>" style="flex-shrink: 0;">
                                 Reset
                             </button>
                         </div>
                         <?php if ($image_placeholder): ?>
-                        <div class="image-preview" id="override_image_preview_<?php echo $index; ?>" style="margin-top: 10px;">
+                        <div class="image-preview" id="override_image_preview_<?php echo esc_attr((string) $index); ?>" style="margin-top: 10px;">
                             <img src="<?php echo esc_attr($image_placeholder); ?>" alt="Image Preview" style="max-width: 200px; max-height: 150px; border: 1px solid #ddd; padding: 5px; border-radius: 3px;">
                         </div>
                         <?php else: ?>
-                        <div class="image-preview" id="override_image_preview_<?php echo $index; ?>" style="display: none; margin-top: 10px;">
+                        <div class="image-preview" id="override_image_preview_<?php echo esc_attr((string) $index); ?>" style="display: none; margin-top: 10px;">
                             <img src="" alt="Image Preview" style="max-width: 200px; max-height: 150px; border: 1px solid #ddd; padding: 5px; border-radius: 3px;">
                         </div>
                         <?php endif; ?>
@@ -515,21 +515,21 @@ class Metasync_Schema_Markup
 
             <h4>Article Information</h4>
             <p class="description" style="margin-top: 0;">Optional fields to enhance your article schema.</p>
-            
+
             <div class="schema-field">
-                <label for="article_organization_name_<?php echo $index; ?>">Organization Name:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][organization_name]" id="article_organization_name_<?php echo $index; ?>" value="<?php echo esc_attr($organization_name); ?>" placeholder="e.g., Search Atlas">
+                <label for="article_organization_name_<?php echo esc_attr((string) $index); ?>">Organization Name:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][organization_name]" id="article_organization_name_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($organization_name); ?>" placeholder="e.g., Search Atlas">
                 <p class="description">The name of the organization that published this article.</p>
             </div>
 
             <div class="schema-field">
-                <label for="article_organization_logo_<?php echo $index; ?>">Organization Logo:</label>
+                <label for="article_organization_logo_<?php echo esc_attr((string) $index); ?>">Organization Logo:</label>
                 <div class="logo-upload-container">
-                    <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][organization_logo]" id="article_organization_logo_<?php echo $index; ?>" value="<?php echo esc_attr($organization_logo); ?>" placeholder="https://example.com/logo.png" style="width: 70%; margin-right: 10px;">
-                    <button type="button" class="button upload-logo-button" data-target="<?php echo $index; ?>">Upload Logo</button>
-                    <button type="button" class="button remove-logo-button" data-target="<?php echo $index; ?>" style="<?php echo empty($organization_logo) ? 'display: none;' : ''; ?>">Remove</button>
+                    <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][organization_logo]" id="article_organization_logo_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($organization_logo); ?>" placeholder="https://example.com/logo.png" style="width: 70%; margin-right: 10px;">
+                    <button type="button" class="button upload-logo-button" data-target="<?php echo esc_attr((string) $index); ?>">Upload Logo</button>
+                    <button type="button" class="button remove-logo-button" data-target="<?php echo esc_attr((string) $index); ?>" style="<?php echo empty($organization_logo) ? 'display: none;' : ''; ?>">Remove</button>
                 </div>
-                <div class="logo-preview" id="logo_preview_<?php echo $index; ?>" style="<?php echo empty($organization_logo) ? 'display: none;' : ''; ?>">
+                <div class="logo-preview" id="logo_preview_<?php echo esc_attr((string) $index); ?>" style="<?php echo empty($organization_logo) ? 'display: none;' : ''; ?>">
                     <img src="<?php echo esc_attr($organization_logo); ?>" alt="Logo Preview" style="max-width: 200px; max-height: 100px; margin-top: 10px; border: 1px solid #ddd; padding: 5px;">
                 </div>
                 <p class="description">Logo of the organization (recommended for better rich results).</p>
@@ -550,23 +550,23 @@ class Metasync_Schema_Markup
         <div class="schema-field-group">
             <h4>FAQ Questions & Answers</h4>
             <p class="description">Add questions and answers for your FAQ page. Both fields are required for each FAQ item.</p>
-            
+
             <div class="faq-items-list">
                 <?php foreach ($faq_items as $faq_index => $item): ?>
                     <div class="faq-item" style="margin: 15px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9;">
                         <div class="schema-field">
-                            <label>Question <?php echo $faq_index + 1; ?>: <span style="color: #dc3232;">*</span></label>
-                            <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][faq_items][<?php echo $faq_index; ?>][question]" value="<?php echo esc_attr($item['question']); ?>" placeholder="Enter your question" style="width: 100%; margin-bottom: 10px;">
+                            <label>Question <?php echo esc_html((string) ($faq_index + 1)); ?>: <span style="color: #dc3232;">*</span></label>
+                            <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][faq_items][<?php echo esc_attr((string) $faq_index); ?>][question]" value="<?php echo esc_attr($item['question']); ?>" placeholder="Enter your question" style="width: 100%; margin-bottom: 10px;">
                         </div>
                         <div class="schema-field">
-                            <label>Answer <?php echo $faq_index + 1; ?>: <span style="color: #dc3232;">*</span></label>
-                            <textarea name="schema_markup[types][<?php echo $index; ?>][fields][faq_items][<?php echo $faq_index; ?>][answer]" placeholder="Enter your answer" style="width: 100%; height: 80px; margin-bottom: 10px;"><?php echo esc_textarea($item['answer']); ?></textarea>
+                            <label>Answer <?php echo esc_html((string) ($faq_index + 1)); ?>: <span style="color: #dc3232;">*</span></label>
+                            <textarea name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][faq_items][<?php echo esc_attr((string) $faq_index); ?>][answer]" placeholder="Enter your answer" style="width: 100%; height: 80px; margin-bottom: 10px;"><?php echo esc_textarea($item['answer']); ?></textarea>
                         </div>
                         <button type="button" class="button remove-faq-item" style="background: #dc3232; color: white; border-color: #dc3232;">Remove Question</button>
                     </div>
                 <?php endforeach; ?>
             </div>
-            
+
             <button type="button" class="button add-faq-item" style="margin-top: 10px;">Add Question</button>
         </div>
         <?php
@@ -590,26 +590,26 @@ class Metasync_Schema_Markup
 
             <h4>Product Information</h4>
             <p class="description" style="margin-top: 0;">Fill in the product details below. Fields marked with * are required.</p>
-            
+
             <div class="schema-field">
-                <label for="product_sku_<?php echo $index; ?>">SKU:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][sku]" id="product_sku_<?php echo $index; ?>" value="<?php echo esc_attr($sku); ?>" placeholder="Product SKU">
+                <label for="product_sku_<?php echo esc_attr((string) $index); ?>">SKU:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][sku]" id="product_sku_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($sku); ?>" placeholder="Product SKU">
             </div>
 
             <div class="schema-field">
-                <label for="product_brand_<?php echo $index; ?>">Brand:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][brand]" id="product_brand_<?php echo $index; ?>" value="<?php echo esc_attr($brand); ?>" placeholder="Product Brand">
+                <label for="product_brand_<?php echo esc_attr((string) $index); ?>">Brand:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][brand]" id="product_brand_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($brand); ?>" placeholder="Product Brand">
             </div>
 
             <div class="schema-field">
-                <label for="product_price_<?php echo $index; ?>">Price: <span style="color: #dc3232;">*</span></label>
-                <input type="number" step="0.01" name="schema_markup[types][<?php echo $index; ?>][fields][price]" id="product_price_<?php echo $index; ?>" value="<?php echo esc_attr($price); ?>" placeholder="0.00">
+                <label for="product_price_<?php echo esc_attr((string) $index); ?>">Price: <span style="color: #dc3232;">*</span></label>
+                <input type="number" step="0.01" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][price]" id="product_price_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($price); ?>" placeholder="0.00">
                 <p class="description">Required: Enter the product price (must be greater than 0).</p>
             </div>
 
             <div class="schema-field">
-                <label for="product_currency_<?php echo $index; ?>">Currency:</label>
-                <select name="schema_markup[types][<?php echo $index; ?>][fields][currency]" id="product_currency_<?php echo $index; ?>">
+                <label for="product_currency_<?php echo esc_attr((string) $index); ?>">Currency:</label>
+                <select name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][currency]" id="product_currency_<?php echo esc_attr((string) $index); ?>">
                     <option value="USD" <?php selected($currency, 'USD'); ?>>USD</option>
                     <option value="EUR" <?php selected($currency, 'EUR'); ?>>EUR</option>
                     <option value="GBP" <?php selected($currency, 'GBP'); ?>>GBP</option>
@@ -619,8 +619,8 @@ class Metasync_Schema_Markup
             </div>
 
             <div class="schema-field">
-                <label for="product_availability_<?php echo $index; ?>">Availability:</label>
-                <select name="schema_markup[types][<?php echo $index; ?>][fields][availability]" id="product_availability_<?php echo $index; ?>">
+                <label for="product_availability_<?php echo esc_attr((string) $index); ?>">Availability:</label>
+                <select name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][availability]" id="product_availability_<?php echo esc_attr((string) $index); ?>">
                     <option value="InStock" <?php selected($availability, 'InStock'); ?>>In Stock</option>
                     <option value="OutOfStock" <?php selected($availability, 'OutOfStock'); ?>>Out of Stock</option>
                     <option value="PreOrder" <?php selected($availability, 'PreOrder'); ?>>Pre-Order</option>
@@ -629,8 +629,8 @@ class Metasync_Schema_Markup
             </div>
 
             <div class="schema-field">
-                <label for="product_condition_<?php echo $index; ?>">Condition:</label>
-                <select name="schema_markup[types][<?php echo $index; ?>][fields][condition]" id="product_condition_<?php echo $index; ?>">
+                <label for="product_condition_<?php echo esc_attr((string) $index); ?>">Condition:</label>
+                <select name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][condition]" id="product_condition_<?php echo esc_attr((string) $index); ?>">
                     <option value="NewCondition" <?php selected($condition, 'NewCondition'); ?>>New</option>
                     <option value="UsedCondition" <?php selected($condition, 'UsedCondition'); ?>>Used</option>
                     <option value="RefurbishedCondition" <?php selected($condition, 'RefurbishedCondition'); ?>>Refurbished</option>
@@ -660,10 +660,10 @@ class Metasync_Schema_Markup
 
             <h4>Recipe Information</h4>
             <p class="description" style="margin-top: 0;">Optional fields to enhance your recipe schema.</p>
-            
+
             <div class="schema-field">
-                <label for="recipe_yield_<?php echo $index; ?>">Yield (servings):</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][yield]" id="recipe_yield_<?php echo $index; ?>" value="<?php echo esc_attr($yield); ?>" placeholder="e.g., 4 servings">
+                <label for="recipe_yield_<?php echo esc_attr((string) $index); ?>">Yield (servings):</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][yield]" id="recipe_yield_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($yield); ?>" placeholder="e.g., 4 servings">
             </div>
 
             <div class="schema-field">
@@ -671,7 +671,7 @@ class Metasync_Schema_Markup
                 <div class="ingredients-list">
                     <?php foreach ($ingredients as $ingredient): ?>
                     <div class="ingredient-item">
-                        <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][ingredients][]" value="<?php echo esc_attr($ingredient); ?>" placeholder="Enter ingredient">
+                        <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][ingredients][]" value="<?php echo esc_attr($ingredient); ?>" placeholder="Enter ingredient">
                         <button type="button" class="remove-item">Remove</button>
                     </div>
                     <?php endforeach; ?>
@@ -684,7 +684,7 @@ class Metasync_Schema_Markup
                 <div class="instructions-list">
                     <?php foreach ($instructions as $instruction): ?>
                     <div class="instruction-item">
-                        <textarea name="schema_markup[types][<?php echo $index; ?>][fields][instructions][]" placeholder="Enter instruction step"><?php echo esc_textarea($instruction); ?></textarea>
+                        <textarea name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][instructions][]" placeholder="Enter instruction step"><?php echo esc_textarea($instruction); ?></textarea>
                         <button type="button" class="remove-item">Remove</button>
                     </div>
                     <?php endforeach; ?>
@@ -693,23 +693,23 @@ class Metasync_Schema_Markup
             </div>
 
             <div class="schema-field">
-                <label for="recipe_prep_time_<?php echo $index; ?>">Prep Time (minutes):</label>
-                <input type="number" step="any" min="0" name="schema_markup[types][<?php echo $index; ?>][fields][prep_time]" id="recipe_prep_time_<?php echo $index; ?>" value="<?php echo esc_attr($prep_time); ?>" placeholder="15" class="recipe-time-input">
+                <label for="recipe_prep_time_<?php echo esc_attr((string) $index); ?>">Prep Time (minutes):</label>
+                <input type="number" step="any" min="0" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][prep_time]" id="recipe_prep_time_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($prep_time); ?>" placeholder="15" class="recipe-time-input">
             </div>
 
             <div class="schema-field">
-                <label for="recipe_cook_time_<?php echo $index; ?>">Cook Time (minutes):</label>
-                <input type="number" step="any" min="0" name="schema_markup[types][<?php echo $index; ?>][fields][cook_time]" id="recipe_cook_time_<?php echo $index; ?>" value="<?php echo esc_attr($cook_time); ?>" placeholder="30" class="recipe-time-input">
+                <label for="recipe_cook_time_<?php echo esc_attr((string) $index); ?>">Cook Time (minutes):</label>
+                <input type="number" step="any" min="0" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][cook_time]" id="recipe_cook_time_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($cook_time); ?>" placeholder="30" class="recipe-time-input">
             </div>
 
             <div class="schema-field">
-                <label for="recipe_total_time_<?php echo $index; ?>">Total Time (minutes):</label>
-                <input type="number" step="any" min="0" name="schema_markup[types][<?php echo $index; ?>][fields][total_time]" id="recipe_total_time_<?php echo $index; ?>" value="<?php echo esc_attr($total_time); ?>" placeholder="45" class="recipe-time-input">
+                <label for="recipe_total_time_<?php echo esc_attr((string) $index); ?>">Total Time (minutes):</label>
+                <input type="number" step="any" min="0" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][total_time]" id="recipe_total_time_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($total_time); ?>" placeholder="45" class="recipe-time-input">
             </div>
 
             <div class="schema-field">
-                <label for="recipe_calories_<?php echo $index; ?>">Calories per serving:</label>
-                <input type="number" name="schema_markup[types][<?php echo $index; ?>][fields][calories]" id="recipe_calories_<?php echo $index; ?>" value="<?php echo esc_attr($calories); ?>" placeholder="250">
+                <label for="recipe_calories_<?php echo esc_attr((string) $index); ?>">Calories per serving:</label>
+                <input type="number" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][calories]" id="recipe_calories_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($calories); ?>" placeholder="250">
             </div>
         </div>
         <?php
@@ -741,72 +741,72 @@ class Metasync_Schema_Markup
             <p class="description" style="margin-top: 0;">Fill in the business details below. Fields marked with * are required.</p>
 
             <div class="schema-field">
-                <label for="local_business_name_<?php echo $index; ?>">Business Name: <span style="color: #dc3232;">*</span></label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][business_name]" id="local_business_name_<?php echo $index; ?>" value="<?php echo esc_attr($business_name); ?>" placeholder="e.g., Joe's Coffee Shop" style="width: 100%;">
+                <label for="local_business_name_<?php echo esc_attr((string) $index); ?>">Business Name: <span style="color: #dc3232;">*</span></label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][business_name]" id="local_business_name_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($business_name); ?>" placeholder="e.g., Joe's Coffee Shop" style="width: 100%;">
             </div>
 
             <div class="schema-field">
-                <label for="local_business_street_<?php echo $index; ?>">Street Address: <span style="color: #dc3232;">*</span></label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][street_address]" id="local_business_street_<?php echo $index; ?>" value="<?php echo esc_attr($street_address); ?>" placeholder="e.g., 123 Main St" style="width: 100%;">
+                <label for="local_business_street_<?php echo esc_attr((string) $index); ?>">Street Address: <span style="color: #dc3232;">*</span></label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][street_address]" id="local_business_street_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($street_address); ?>" placeholder="e.g., 123 Main St" style="width: 100%;">
             </div>
 
             <div class="schema-field">
-                <label for="local_business_description_<?php echo $index; ?>">Description:</label>
-                <textarea name="schema_markup[types][<?php echo $index; ?>][fields][description]" id="local_business_description_<?php echo $index; ?>" placeholder="Brief description of the business" style="width: 100%; height: 80px;"><?php echo esc_textarea($description); ?></textarea>
+                <label for="local_business_description_<?php echo esc_attr((string) $index); ?>">Description:</label>
+                <textarea name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][description]" id="local_business_description_<?php echo esc_attr((string) $index); ?>" placeholder="Brief description of the business" style="width: 100%; height: 80px;"><?php echo esc_textarea($description); ?></textarea>
             </div>
 
             <div class="schema-field">
-                <label for="local_business_url_<?php echo $index; ?>">URL:</label>
-                <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][url]" id="local_business_url_<?php echo $index; ?>" value="<?php echo esc_attr($url); ?>" placeholder="https://example.com" style="width: 100%;">
+                <label for="local_business_url_<?php echo esc_attr((string) $index); ?>">URL:</label>
+                <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][url]" id="local_business_url_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($url); ?>" placeholder="https://example.com" style="width: 100%;">
             </div>
 
             <div class="schema-field">
-                <label for="local_business_telephone_<?php echo $index; ?>">Telephone:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][telephone]" id="local_business_telephone_<?php echo $index; ?>" value="<?php echo esc_attr($telephone); ?>" placeholder="e.g., +1-555-555-5555">
+                <label for="local_business_telephone_<?php echo esc_attr((string) $index); ?>">Telephone:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][telephone]" id="local_business_telephone_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($telephone); ?>" placeholder="e.g., +1-555-555-5555">
             </div>
 
             <div class="schema-field">
-                <label for="local_business_price_range_<?php echo $index; ?>">Price Range:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][price_range]" id="local_business_price_range_<?php echo $index; ?>" value="<?php echo esc_attr($price_range); ?>" placeholder="$$$">
+                <label for="local_business_price_range_<?php echo esc_attr((string) $index); ?>">Price Range:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][price_range]" id="local_business_price_range_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($price_range); ?>" placeholder="$$$">
             </div>
 
             <div class="schema-field">
-                <label for="local_business_image_<?php echo $index; ?>">Image:</label>
-                <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][image]" id="local_business_image_<?php echo $index; ?>" value="<?php echo esc_attr($image); ?>" placeholder="https://example.com/image.jpg" style="width: 100%;">
+                <label for="local_business_image_<?php echo esc_attr((string) $index); ?>">Image:</label>
+                <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][image]" id="local_business_image_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($image); ?>" placeholder="https://example.com/image.jpg" style="width: 100%;">
             </div>
 
             <h4>Address Details</h4>
 
             <div class="schema-field">
-                <label for="local_business_city_<?php echo $index; ?>">City:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][city]" id="local_business_city_<?php echo $index; ?>" value="<?php echo esc_attr($city); ?>" placeholder="e.g., San Francisco">
+                <label for="local_business_city_<?php echo esc_attr((string) $index); ?>">City:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][city]" id="local_business_city_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($city); ?>" placeholder="e.g., San Francisco">
             </div>
 
             <div class="schema-field">
-                <label for="local_business_state_<?php echo $index; ?>">State:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][state]" id="local_business_state_<?php echo $index; ?>" value="<?php echo esc_attr($state); ?>" placeholder="e.g., CA">
+                <label for="local_business_state_<?php echo esc_attr((string) $index); ?>">State:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][state]" id="local_business_state_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($state); ?>" placeholder="e.g., CA">
             </div>
 
             <div class="schema-field">
-                <label for="local_business_postal_code_<?php echo $index; ?>">Postal Code:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][postal_code]" id="local_business_postal_code_<?php echo $index; ?>" value="<?php echo esc_attr($postal_code); ?>" placeholder="e.g., 94105">
+                <label for="local_business_postal_code_<?php echo esc_attr((string) $index); ?>">Postal Code:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][postal_code]" id="local_business_postal_code_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($postal_code); ?>" placeholder="e.g., 94105">
             </div>
 
             <div class="schema-field">
-                <label for="local_business_country_<?php echo $index; ?>">Country:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][country]" id="local_business_country_<?php echo $index; ?>" value="<?php echo esc_attr($country); ?>" placeholder="e.g., US">
+                <label for="local_business_country_<?php echo esc_attr((string) $index); ?>">Country:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][country]" id="local_business_country_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($country); ?>" placeholder="e.g., US">
             </div>
 
             <h4>Geo Coordinates</h4>
 
             <div class="schema-field">
-                <label for="local_business_latitude_<?php echo $index; ?>">Latitude:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][latitude]" id="local_business_latitude_<?php echo $index; ?>" value="<?php echo esc_attr($latitude); ?>" placeholder="e.g., 37.7749">
+                <label for="local_business_latitude_<?php echo esc_attr((string) $index); ?>">Latitude:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][latitude]" id="local_business_latitude_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($latitude); ?>" placeholder="e.g., 37.7749">
             </div>
 
             <div class="schema-field">
-                <label for="local_business_longitude_<?php echo $index; ?>">Longitude:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][longitude]" id="local_business_longitude_<?php echo $index; ?>" value="<?php echo esc_attr($longitude); ?>" placeholder="e.g., -122.4194">
+                <label for="local_business_longitude_<?php echo esc_attr((string) $index); ?>">Longitude:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][longitude]" id="local_business_longitude_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($longitude); ?>" placeholder="e.g., -122.4194">
             </div>
 
             <h4>Opening Hours</h4>
@@ -816,15 +816,15 @@ class Metasync_Schema_Markup
                 <?php if (!empty($opening_hours)): ?>
                     <?php foreach ($opening_hours as $oh_index => $hours): ?>
                         <div class="opening-hours-item" style="margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9;">
-                            <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][opening_hours][<?php echo $oh_index; ?>][day]" value="<?php echo esc_attr($hours['day']); ?>" placeholder="e.g., Monday" style="width: 30%;">
-                            <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][opening_hours][<?php echo $oh_index; ?>][open]" value="<?php echo esc_attr($hours['open']); ?>" placeholder="09:00" style="width: 25%;">
-                            <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][opening_hours][<?php echo $oh_index; ?>][close]" value="<?php echo esc_attr($hours['close']); ?>" placeholder="17:00" style="width: 25%;">
+                            <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][opening_hours][<?php echo esc_attr($oh_index); ?>][day]" value="<?php echo esc_attr($hours['day']); ?>" placeholder="e.g., Monday" style="width: 30%;">
+                            <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][opening_hours][<?php echo esc_attr($oh_index); ?>][open]" value="<?php echo esc_attr($hours['open']); ?>" placeholder="09:00" style="width: 25%;">
+                            <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][opening_hours][<?php echo esc_attr($oh_index); ?>][close]" value="<?php echo esc_attr($hours['close']); ?>" placeholder="17:00" style="width: 25%;">
                             <button type="button" class="button remove-item">Remove</button>
                         </div>
                     <?php endforeach; ?>
                 <?php endif; ?>
             </div>
-            <button type="button" class="button add-opening-hours" data-index="<?php echo $index; ?>" style="margin-top: 10px;">Add Opening Hours</button>
+            <button type="button" class="button add-opening-hours" data-index="<?php echo esc_attr((string) $index); ?>" style="margin-top: 10px;">Add Opening Hours</button>
         </div>
         <?php
     }
@@ -848,13 +848,13 @@ class Metasync_Schema_Markup
             <p class="description" style="margin-top: 0;">Fill in the how-to details below. At least one step with instructions is required.</p>
 
             <div class="schema-field">
-                <label for="howto_total_time_<?php echo $index; ?>">Total Time (minutes):</label>
-                <input type="number" step="any" min="0" name="schema_markup[types][<?php echo $index; ?>][fields][total_time]" id="howto_total_time_<?php echo $index; ?>" value="<?php echo esc_attr($total_time); ?>" placeholder="30" class="recipe-time-input">
+                <label for="howto_total_time_<?php echo esc_attr((string) $index); ?>">Total Time (minutes):</label>
+                <input type="number" step="any" min="0" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][total_time]" id="howto_total_time_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($total_time); ?>" placeholder="30" class="recipe-time-input">
             </div>
 
             <div class="schema-field">
-                <label for="howto_estimated_cost_<?php echo $index; ?>">Estimated Cost:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][estimated_cost]" id="howto_estimated_cost_<?php echo $index; ?>" value="<?php echo esc_attr($estimated_cost); ?>" placeholder="e.g., 20.00 USD">
+                <label for="howto_estimated_cost_<?php echo esc_attr((string) $index); ?>">Estimated Cost:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][estimated_cost]" id="howto_estimated_cost_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($estimated_cost); ?>" placeholder="e.g., 20.00 USD">
             </div>
 
             <div class="schema-field">
@@ -862,12 +862,12 @@ class Metasync_Schema_Markup
                 <div class="supplies-list">
                     <?php foreach ($supplies as $supply): ?>
                     <div class="supply-item">
-                        <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][supplies][]" value="<?php echo esc_attr($supply); ?>" placeholder="Enter supply">
+                        <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][supplies][]" value="<?php echo esc_attr($supply); ?>" placeholder="Enter supply">
                         <button type="button" class="remove-item">Remove</button>
                     </div>
                     <?php endforeach; ?>
                 </div>
-                <button type="button" class="button add-supply" data-index="<?php echo $index; ?>" style="margin-top: 5px;">Add Supply</button>
+                <button type="button" class="button add-supply" data-index="<?php echo esc_attr((string) $index); ?>" style="margin-top: 5px;">Add Supply</button>
             </div>
 
             <div class="schema-field">
@@ -875,12 +875,12 @@ class Metasync_Schema_Markup
                 <div class="tools-list">
                     <?php foreach ($tools as $tool): ?>
                     <div class="tool-item">
-                        <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][tools][]" value="<?php echo esc_attr($tool); ?>" placeholder="Enter tool">
+                        <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][tools][]" value="<?php echo esc_attr($tool); ?>" placeholder="Enter tool">
                         <button type="button" class="remove-item">Remove</button>
                     </div>
                     <?php endforeach; ?>
                 </div>
-                <button type="button" class="button add-tool" data-index="<?php echo $index; ?>" style="margin-top: 5px;">Add Tool</button>
+                <button type="button" class="button add-tool" data-index="<?php echo esc_attr((string) $index); ?>" style="margin-top: 5px;">Add Tool</button>
             </div>
 
             <h4>Steps</h4>
@@ -890,18 +890,18 @@ class Metasync_Schema_Markup
                 <?php foreach ($steps as $step_index => $step): ?>
                     <div class="howto-step-item" style="margin: 15px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9;">
                         <div class="schema-field">
-                            <label>Step <?php echo $step_index + 1; ?> Instructions: <span style="color: #dc3232;">*</span></label>
-                            <textarea name="schema_markup[types][<?php echo $index; ?>][fields][steps][<?php echo $step_index; ?>][instructions]" placeholder="Enter step instructions" style="width: 100%; height: 80px;"><?php echo esc_textarea(isset($step['instructions']) ? $step['instructions'] : ''); ?></textarea>
+                            <label>Step <?php echo esc_html((string) ($step_index + 1)); ?> Instructions: <span style="color: #dc3232;">*</span></label>
+                            <textarea name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][steps][<?php echo esc_attr((string) $step_index); ?>][instructions]" placeholder="Enter step instructions" style="width: 100%; height: 80px;"><?php echo esc_textarea(isset($step['instructions']) ? $step['instructions'] : ''); ?></textarea>
                         </div>
                         <div class="schema-field">
-                            <label>Step <?php echo $step_index + 1; ?> Image (optional):</label>
-                            <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][steps][<?php echo $step_index; ?>][image]" value="<?php echo esc_attr(isset($step['image']) ? $step['image'] : ''); ?>" placeholder="https://example.com/step-image.jpg" style="width: 100%;">
+                            <label>Step <?php echo esc_html((string) ($step_index + 1)); ?> Image (optional):</label>
+                            <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][steps][<?php echo esc_attr((string) $step_index); ?>][image]" value="<?php echo esc_attr(isset($step['image']) ? $step['image'] : ''); ?>" placeholder="https://example.com/step-image.jpg" style="width: 100%;">
                         </div>
                         <button type="button" class="button remove-howto-step" style="background: #dc3232; color: white; border-color: #dc3232;">Remove Step</button>
                     </div>
                 <?php endforeach; ?>
             </div>
-            <button type="button" class="button add-howto-step" data-index="<?php echo $index; ?>" style="margin-top: 10px;">Add Step</button>
+            <button type="button" class="button add-howto-step" data-index="<?php echo esc_attr((string) $index); ?>" style="margin-top: 10px;">Add Step</button>
         </div>
         <?php
     }
@@ -925,40 +925,40 @@ class Metasync_Schema_Markup
             <p class="description" style="margin-top: 0;">Fill in the video details below. Fields marked with * are required.</p>
 
             <div class="schema-field">
-                <label for="video_name_<?php echo $index; ?>">Video Name: <span style="color: #dc3232;">*</span></label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][video_name]" id="video_name_<?php echo $index; ?>" value="<?php echo esc_attr($video_name); ?>" placeholder="e.g., How to Bake a Cake" style="width: 100%;">
+                <label for="video_name_<?php echo esc_attr((string) $index); ?>">Video Name: <span style="color: #dc3232;">*</span></label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][video_name]" id="video_name_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($video_name); ?>" placeholder="e.g., How to Bake a Cake" style="width: 100%;">
             </div>
 
             <div class="schema-field">
-                <label for="video_description_<?php echo $index; ?>">Video Description: <span style="color: #dc3232;">*</span></label>
-                <textarea name="schema_markup[types][<?php echo $index; ?>][fields][video_description]" id="video_description_<?php echo $index; ?>" placeholder="Brief description of the video" style="width: 100%; height: 80px;"><?php echo esc_textarea($video_description); ?></textarea>
+                <label for="video_description_<?php echo esc_attr((string) $index); ?>">Video Description: <span style="color: #dc3232;">*</span></label>
+                <textarea name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][video_description]" id="video_description_<?php echo esc_attr((string) $index); ?>" placeholder="Brief description of the video" style="width: 100%; height: 80px;"><?php echo esc_textarea($video_description); ?></textarea>
             </div>
 
             <div class="schema-field">
-                <label for="video_thumbnail_url_<?php echo $index; ?>">Thumbnail URL: <span style="color: #dc3232;">*</span></label>
-                <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][thumbnail_url]" id="video_thumbnail_url_<?php echo $index; ?>" value="<?php echo esc_attr($thumbnail_url); ?>" placeholder="https://example.com/thumbnail.jpg" style="width: 100%;">
+                <label for="video_thumbnail_url_<?php echo esc_attr((string) $index); ?>">Thumbnail URL: <span style="color: #dc3232;">*</span></label>
+                <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][thumbnail_url]" id="video_thumbnail_url_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($thumbnail_url); ?>" placeholder="https://example.com/thumbnail.jpg" style="width: 100%;">
             </div>
 
             <div class="schema-field">
-                <label for="video_upload_date_<?php echo $index; ?>">Upload Date: <span style="color: #dc3232;">*</span></label>
-                <input type="date" name="schema_markup[types][<?php echo $index; ?>][fields][upload_date]" id="video_upload_date_<?php echo $index; ?>" value="<?php echo esc_attr($upload_date); ?>">
+                <label for="video_upload_date_<?php echo esc_attr((string) $index); ?>">Upload Date: <span style="color: #dc3232;">*</span></label>
+                <input type="date" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][upload_date]" id="video_upload_date_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($upload_date); ?>">
             </div>
 
             <div class="schema-field">
-                <label for="video_content_url_<?php echo $index; ?>">Content URL:</label>
-                <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][content_url]" id="video_content_url_<?php echo $index; ?>" value="<?php echo esc_attr($content_url); ?>" placeholder="https://example.com/video.mp4" style="width: 100%;">
+                <label for="video_content_url_<?php echo esc_attr((string) $index); ?>">Content URL:</label>
+                <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][content_url]" id="video_content_url_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($content_url); ?>" placeholder="https://example.com/video.mp4" style="width: 100%;">
                 <p class="description">Direct URL to the video file.</p>
             </div>
 
             <div class="schema-field">
-                <label for="video_embed_url_<?php echo $index; ?>">Embed URL:</label>
-                <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][embed_url]" id="video_embed_url_<?php echo $index; ?>" value="<?php echo esc_attr($embed_url); ?>" placeholder="https://www.youtube.com/embed/xxxxx" style="width: 100%;">
+                <label for="video_embed_url_<?php echo esc_attr((string) $index); ?>">Embed URL:</label>
+                <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][embed_url]" id="video_embed_url_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($embed_url); ?>" placeholder="https://www.youtube.com/embed/xxxxx" style="width: 100%;">
                 <p class="description">URL for embedding the video (e.g., YouTube embed URL).</p>
             </div>
 
             <div class="schema-field">
-                <label for="video_duration_<?php echo $index; ?>">Duration (minutes):</label>
-                <input type="number" step="any" min="0" name="schema_markup[types][<?php echo $index; ?>][fields][duration]" id="video_duration_<?php echo $index; ?>" value="<?php echo esc_attr($duration); ?>" placeholder="10" class="recipe-time-input">
+                <label for="video_duration_<?php echo esc_attr((string) $index); ?>">Duration (minutes):</label>
+                <input type="number" step="any" min="0" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][duration]" id="video_duration_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($duration); ?>" placeholder="10" class="recipe-time-input">
             </div>
         </div>
         <?php
@@ -981,8 +981,8 @@ class Metasync_Schema_Markup
         }
 
         // Verify nonce
-        if (!isset($_POST['metasync_schema_markup_nonce']) || 
-            !wp_verify_nonce($_POST['metasync_schema_markup_nonce'], 'metasync_schema_markup_nonce')) {
+        $schema_nonce = isset($_POST['metasync_schema_markup_nonce']) ? sanitize_text_field(wp_unslash($_POST['metasync_schema_markup_nonce'])) : '';
+        if (!wp_verify_nonce($schema_nonce, 'metasync_schema_markup_nonce')) {
             return;
         }
 
@@ -993,38 +993,39 @@ class Metasync_Schema_Markup
 
         // Get existing schema data to preserve if needed
         $existing_schema_data = get_post_meta($post_id, 'metasync_schema_markup', true);
-        
+
         // Start from the stored value because OTTO owns otto_jsonld while this
         // form owns enabled/types. Updating one owner must not erase the other.
         $schema_data = is_array($existing_schema_data) ? $existing_schema_data : [];
         $schema_data['enabled'] = false;
         $schema_data['types'] = [];
-        
+
         if (isset($_POST['schema_markup'])) {
+            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitised below via the recursive Metasync_Common::sanitize_array() (sanitize_url/sanitize_text_field per leaf).
             $post_data = $this->common->sanitize_array(wp_unslash($_POST['schema_markup']));
-            
+
             $schema_data['enabled'] = isset($post_data['enabled']) ? (bool)$post_data['enabled'] : false;
             $schema_data['types'] = [];
-            
+
             // Process multiple schema types and ensure uniqueness
             if (isset($post_data['types']) && is_array($post_data['types'])) {
                 $seen_types = [];
                 foreach ($post_data['types'] as $type_data) {
                     if (!empty($type_data['type'])) {
                         $schema_type = sanitize_text_field($type_data['type']);
-                        
+
                         // Skip if this schema type already exists (keep first occurrence)
                         if (in_array($schema_type, $seen_types)) {
                             continue;
                         }
-                        
+
                         $schema_fields = isset($type_data['fields']) ? $this->sanitize_schema_fields($type_data['fields'], $schema_type) : [];
-                        
+
                         $schema_data['types'][] = [
                             'type' => $schema_type,
                             'fields' => $schema_fields
                         ];
-                        
+
                         // Mark this type as seen
                         $seen_types[] = $schema_type;
                     }
@@ -1048,23 +1049,23 @@ class Metasync_Schema_Markup
         if (!empty($schema_data['enabled']) && !empty($schema_data['types'])) {
             // Validate schema requirements for all types
             $all_validation_errors = [];
-            
+
             foreach ($schema_data['types'] as $schema_type_data) {
                 $validation_errors = $this->validate_schema_requirements($post_id, $schema_type_data['type'], $schema_type_data['fields']);
                 if (!empty($validation_errors)) {
                     $all_validation_errors = array_merge($all_validation_errors, $validation_errors);
                 }
             }
-            
+
             if (!empty($all_validation_errors)) {
                 // Store validation errors as post meta
                 update_post_meta($post_id, '_metasync_schema_validation_errors', $all_validation_errors);
-                
+
                 // Set a transient to show admin notice immediately after save
                 set_transient('metasync_schema_validation_error_' . $post_id, $all_validation_errors, 45);
             }
         }
-        
+
         // WordPress unslashes metadata before serialization; slash the complete
         // value so escaped JSON inside OTTO's persistent copy stays valid.
         update_post_meta($post_id, 'metasync_schema_markup', wp_slash($schema_data));
@@ -1079,7 +1080,7 @@ class Metasync_Schema_Markup
 
     /**
      * Validate schema requirements based on type
-     * 
+     *
      * @param int $post_id The post ID
      * @param string $type Schema type
      * @param array $fields Schema fields
@@ -1144,7 +1145,7 @@ class Metasync_Schema_Markup
     /**
      * Validate Article schema requirements
      * Article requires: Headline, Description, and Image
-     * 
+     *
      * @param int $post_id The post ID
      * @param array $fields Schema fields
      * @return array Array of validation errors
@@ -1188,7 +1189,7 @@ class Metasync_Schema_Markup
     /**
      * Validate Product schema requirements
      * Product requires: Name, Description, Image, and Price
-     * 
+     *
      * @param int $post_id The post ID
      * @param array $fields Schema fields
      * @return array Array of validation errors
@@ -1240,7 +1241,7 @@ class Metasync_Schema_Markup
     /**
      * Validate Recipe schema requirements
      * Recipe requires: Name, Description, and Image
-     * 
+     *
      * @param int $post_id The post ID
      * @param array $fields Schema fields
      * @return array Array of validation errors
@@ -1284,7 +1285,7 @@ class Metasync_Schema_Markup
     /**
      * Validate FAQ schema requirements
      * FAQ requires at least one Q&A pair with non-empty question and answer
-     * 
+     *
      * @param int $post_id The post ID
      * @param array $fields Schema fields
      * @return array Array of validation errors
@@ -1480,7 +1481,7 @@ class Metasync_Schema_Markup
 
         // Check for validation errors from transient (immediately after save)
         $errors = get_transient('metasync_schema_validation_error_' . $post_id);
-        
+
         // If no transient, check post meta (for persistent errors)
         if ($errors === false) {
             $errors = get_post_meta($post_id, '_metasync_schema_validation_errors', true);
@@ -1522,7 +1523,7 @@ class Metasync_Schema_Markup
         // Store placeholders as-is in database, will be replaced during JSON generation
         $sanitized['title_override'] = isset($fields['title_override']) ? sanitize_text_field($fields['title_override']) : '';
         $sanitized['description_override'] = isset($fields['description_override']) ? sanitize_textarea_field($fields['description_override']) : '';
-        
+
         // For image_override, check if it's a placeholder before sanitizing as URL
         $image_override_raw = isset($fields['image_override']) ? trim($fields['image_override']) : '';
         if ($this->is_placeholder($image_override_raw)) {
@@ -1895,6 +1896,7 @@ class Metasync_Schema_Markup
             $graph_json = metasync_safe_json_ld_encode($final_json_ld, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
             if (is_string($graph_json) && $graph_json !== '') {
                 echo '<script type="application/ld+json" class="metasync-schema">' . "\n";
+                // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- already context-escaped by metasync_safe_json_ld_encode (wp_json_encode + "</" breakout neutralisation); a json_decode/wp_json_encode round-trip would corrupt Unicode payloads.
                 echo $graph_json;
                 echo "\n" . '</script>' . "\n";
             }
@@ -1945,7 +1947,7 @@ class Metasync_Schema_Markup
 
     /**
      * Replace placeholders with actual dynamic values
-     * 
+     *
      * @param string $value Value that may contain placeholders
      * @param int $post_id Post ID
      * @return string Value with placeholders replaced
@@ -1957,18 +1959,18 @@ class Metasync_Schema_Markup
         }
 
         $defaults = $this->get_default_schema_values($post_id);
-        
+
         // Replace placeholders with actual values
         $value = str_replace('{{post_title}}', $defaults['title'], $value);
         $value = str_replace('{{post_description}}', $defaults['description'], $value);
         $value = str_replace('{{featured_image}}', $defaults['image'], $value);
-        
+
         return $value;
     }
 
     /**
      * Check if a value is a placeholder (should be treated as empty/default)
-     * 
+     *
      * @param string $value Value to check
      * @return bool True if value is a placeholder
      */
@@ -1981,7 +1983,7 @@ class Metasync_Schema_Markup
     /**
      * Get effective schema value (override if provided, otherwise default)
      * Replaces placeholders with actual dynamic values during JSON generation
-     * 
+     *
      * @param string $field_name Field name (title_override, description_override, image_override)
      * @param array $fields Schema fields array
      * @param int $post_id Post ID
@@ -1992,13 +1994,13 @@ class Metasync_Schema_Markup
         // Get override value from database
         $override_key = $field_name;
         $override_value = isset($fields[$override_key]) ? trim($fields[$override_key]) : '';
-        
+
         // If override value is empty (blank field), return empty
         // This will trigger validation error - user must either fill it or use placeholder
         if (empty($override_value)) {
             return '';
         }
-        
+
         // If override value is provided (including placeholders), replace placeholders with actual data
         return $this->replace_placeholders($override_value, $post_id);
     }
@@ -2172,7 +2174,7 @@ class Metasync_Schema_Markup
             $author_id = $post->post_author;
             $author_name = get_the_author_meta('display_name', $author_id);
             $author_url = get_author_posts_url($author_id);
-            
+
             $article_data['author'] = [
                 '@type' => 'Person',
                 'name' => $author_name,
@@ -2209,7 +2211,7 @@ class Metasync_Schema_Markup
         // Add FAQ mainEntity
         if (!empty($fields['faq_items'])) {
             $faq_data['mainEntity'] = [];
-            
+
             foreach ($fields['faq_items'] as $item) {
                 $faq_data['mainEntity'][] = [
                     '@type' => 'Question',
@@ -2379,23 +2381,23 @@ class Metasync_Schema_Markup
             <p class="description" style="margin-top: 0;">Fields marked with * are required.</p>
 
             <div class="schema-field">
-                <label for="event_name_<?php echo $index; ?>">Event Name: <span style="color: #dc3232;">*</span></label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][name]" id="event_name_<?php echo $index; ?>" value="<?php echo esc_attr($name); ?>" placeholder="e.g., Annual Tech Conference">
+                <label for="event_name_<?php echo esc_attr((string) $index); ?>">Event Name: <span style="color: #dc3232;">*</span></label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][name]" id="event_name_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($name); ?>" placeholder="e.g., Annual Tech Conference">
             </div>
 
             <div class="schema-field">
-                <label for="event_startDate_<?php echo $index; ?>">Start Date: <span style="color: #dc3232;">*</span></label>
-                <input type="datetime-local" name="schema_markup[types][<?php echo $index; ?>][fields][startDate]" id="event_startDate_<?php echo $index; ?>" value="<?php echo esc_attr($startDate); ?>">
+                <label for="event_startDate_<?php echo esc_attr((string) $index); ?>">Start Date: <span style="color: #dc3232;">*</span></label>
+                <input type="datetime-local" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][startDate]" id="event_startDate_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($startDate); ?>">
             </div>
 
             <div class="schema-field">
-                <label for="event_endDate_<?php echo $index; ?>">End Date:</label>
-                <input type="datetime-local" name="schema_markup[types][<?php echo $index; ?>][fields][endDate]" id="event_endDate_<?php echo $index; ?>" value="<?php echo esc_attr($endDate); ?>">
+                <label for="event_endDate_<?php echo esc_attr((string) $index); ?>">End Date:</label>
+                <input type="datetime-local" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][endDate]" id="event_endDate_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($endDate); ?>">
             </div>
 
             <div class="schema-field">
-                <label for="event_status_<?php echo $index; ?>">Event Status:</label>
-                <select name="schema_markup[types][<?php echo $index; ?>][fields][eventStatus]" id="event_status_<?php echo $index; ?>">
+                <label for="event_status_<?php echo esc_attr((string) $index); ?>">Event Status:</label>
+                <select name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][eventStatus]" id="event_status_<?php echo esc_attr((string) $index); ?>">
                     <option value="EventScheduled" <?php selected($eventStatus, 'EventScheduled'); ?>>Scheduled</option>
                     <option value="EventCancelled" <?php selected($eventStatus, 'EventCancelled'); ?>>Cancelled</option>
                     <option value="EventPostponed" <?php selected($eventStatus, 'EventPostponed'); ?>>Postponed</option>
@@ -2404,8 +2406,8 @@ class Metasync_Schema_Markup
             </div>
 
             <div class="schema-field">
-                <label for="event_attendance_<?php echo $index; ?>">Attendance Mode:</label>
-                <select name="schema_markup[types][<?php echo $index; ?>][fields][eventAttendanceMode]" id="event_attendance_<?php echo $index; ?>">
+                <label for="event_attendance_<?php echo esc_attr((string) $index); ?>">Attendance Mode:</label>
+                <select name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][eventAttendanceMode]" id="event_attendance_<?php echo esc_attr((string) $index); ?>">
                     <option value="OfflineEventAttendanceMode" <?php selected($eventAttendanceMode, 'OfflineEventAttendanceMode'); ?>>In-Person</option>
                     <option value="OnlineEventAttendanceMode" <?php selected($eventAttendanceMode, 'OnlineEventAttendanceMode'); ?>>Online</option>
                     <option value="MixedEventAttendanceMode" <?php selected($eventAttendanceMode, 'MixedEventAttendanceMode'); ?>>Mixed</option>
@@ -2413,38 +2415,38 @@ class Metasync_Schema_Markup
             </div>
 
             <div class="schema-field">
-                <label for="event_location_name_<?php echo $index; ?>">Location Name:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][location_name]" id="event_location_name_<?php echo $index; ?>" value="<?php echo esc_attr($location_name); ?>" placeholder="e.g., Convention Center">
+                <label for="event_location_name_<?php echo esc_attr((string) $index); ?>">Location Name:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][location_name]" id="event_location_name_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($location_name); ?>" placeholder="e.g., Convention Center">
             </div>
 
             <div class="schema-field">
-                <label for="event_location_address_<?php echo $index; ?>">Location Address:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][location_address]" id="event_location_address_<?php echo $index; ?>" value="<?php echo esc_attr($location_address); ?>" placeholder="e.g., 123 Main St, City, State">
+                <label for="event_location_address_<?php echo esc_attr((string) $index); ?>">Location Address:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][location_address]" id="event_location_address_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($location_address); ?>" placeholder="e.g., 123 Main St, City, State">
             </div>
 
             <div class="schema-field">
-                <label for="event_organizer_name_<?php echo $index; ?>">Organizer Name:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][organizer_name]" id="event_organizer_name_<?php echo $index; ?>" value="<?php echo esc_attr($organizer_name); ?>" placeholder="Organization name">
+                <label for="event_organizer_name_<?php echo esc_attr((string) $index); ?>">Organizer Name:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][organizer_name]" id="event_organizer_name_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($organizer_name); ?>" placeholder="Organization name">
             </div>
 
             <div class="schema-field">
-                <label for="event_organizer_url_<?php echo $index; ?>">Organizer URL:</label>
-                <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][organizer_url]" id="event_organizer_url_<?php echo $index; ?>" value="<?php echo esc_attr($organizer_url); ?>" placeholder="https://example.com">
+                <label for="event_organizer_url_<?php echo esc_attr((string) $index); ?>">Organizer URL:</label>
+                <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][organizer_url]" id="event_organizer_url_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($organizer_url); ?>" placeholder="https://example.com">
             </div>
 
             <div class="schema-field">
-                <label for="event_offer_price_<?php echo $index; ?>">Ticket Price:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][offer_price]" id="event_offer_price_<?php echo $index; ?>" value="<?php echo esc_attr($offer_price); ?>" placeholder="0.00">
+                <label for="event_offer_price_<?php echo esc_attr((string) $index); ?>">Ticket Price:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][offer_price]" id="event_offer_price_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($offer_price); ?>" placeholder="0.00">
             </div>
 
             <div class="schema-field">
-                <label for="event_offer_currency_<?php echo $index; ?>">Price Currency:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][offer_priceCurrency]" id="event_offer_currency_<?php echo $index; ?>" value="<?php echo esc_attr($offer_priceCurrency); ?>" placeholder="USD">
+                <label for="event_offer_currency_<?php echo esc_attr((string) $index); ?>">Price Currency:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][offer_priceCurrency]" id="event_offer_currency_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($offer_priceCurrency); ?>" placeholder="USD">
             </div>
 
             <div class="schema-field">
-                <label for="event_offer_availability_<?php echo $index; ?>">Availability:</label>
-                <select name="schema_markup[types][<?php echo $index; ?>][fields][offer_availability]" id="event_offer_availability_<?php echo $index; ?>">
+                <label for="event_offer_availability_<?php echo esc_attr((string) $index); ?>">Availability:</label>
+                <select name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][offer_availability]" id="event_offer_availability_<?php echo esc_attr((string) $index); ?>">
                     <option value="InStock" <?php selected($offer_availability, 'InStock'); ?>>In Stock</option>
                     <option value="SoldOut" <?php selected($offer_availability, 'SoldOut'); ?>>Sold Out</option>
                     <option value="PreOrder" <?php selected($offer_availability, 'PreOrder'); ?>>Pre-Order</option>
@@ -2453,18 +2455,18 @@ class Metasync_Schema_Markup
             </div>
 
             <div class="schema-field">
-                <label for="event_offer_url_<?php echo $index; ?>">Ticket URL:</label>
-                <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][offer_url]" id="event_offer_url_<?php echo $index; ?>" value="<?php echo esc_attr($offer_url); ?>" placeholder="https://example.com/tickets">
+                <label for="event_offer_url_<?php echo esc_attr((string) $index); ?>">Ticket URL:</label>
+                <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][offer_url]" id="event_offer_url_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($offer_url); ?>" placeholder="https://example.com/tickets">
             </div>
 
             <div class="schema-field">
-                <label for="event_image_<?php echo $index; ?>">Image URL:</label>
-                <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][image]" id="event_image_<?php echo $index; ?>" value="<?php echo esc_attr($image); ?>" placeholder="https://example.com/event-image.jpg">
+                <label for="event_image_<?php echo esc_attr((string) $index); ?>">Image URL:</label>
+                <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][image]" id="event_image_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($image); ?>" placeholder="https://example.com/event-image.jpg">
             </div>
 
             <div class="schema-field">
-                <label for="event_description_<?php echo $index; ?>">Description:</label>
-                <textarea name="schema_markup[types][<?php echo $index; ?>][fields][description]" id="event_description_<?php echo $index; ?>" rows="4" style="width: 100%;" placeholder="Event description"><?php echo esc_textarea($description); ?></textarea>
+                <label for="event_description_<?php echo esc_attr((string) $index); ?>">Description:</label>
+                <textarea name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][description]" id="event_description_<?php echo esc_attr((string) $index); ?>" rows="4" style="width: 100%;" placeholder="Event description"><?php echo esc_textarea($description); ?></textarea>
             </div>
         </div>
         <?php
@@ -2615,28 +2617,28 @@ class Metasync_Schema_Markup
             <p class="description" style="margin-top: 0;">Fields marked with * are required.</p>
 
             <div class="schema-field">
-                <label for="job_title_<?php echo $index; ?>">Job Title: <span style="color: #dc3232;">*</span></label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][title]" id="job_title_<?php echo $index; ?>" value="<?php echo esc_attr($title); ?>" placeholder="e.g., Software Engineer">
+                <label for="job_title_<?php echo esc_attr((string) $index); ?>">Job Title: <span style="color: #dc3232;">*</span></label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][title]" id="job_title_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($title); ?>" placeholder="e.g., Software Engineer">
             </div>
 
             <div class="schema-field">
-                <label for="job_description_<?php echo $index; ?>">Description: <span style="color: #dc3232;">*</span></label>
-                <textarea name="schema_markup[types][<?php echo $index; ?>][fields][description]" id="job_description_<?php echo $index; ?>" rows="4" style="width: 100%;" placeholder="Job description"><?php echo esc_textarea($description); ?></textarea>
+                <label for="job_description_<?php echo esc_attr((string) $index); ?>">Description: <span style="color: #dc3232;">*</span></label>
+                <textarea name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][description]" id="job_description_<?php echo esc_attr((string) $index); ?>" rows="4" style="width: 100%;" placeholder="Job description"><?php echo esc_textarea($description); ?></textarea>
             </div>
 
             <div class="schema-field">
-                <label for="job_datePosted_<?php echo $index; ?>">Date Posted: <span style="color: #dc3232;">*</span></label>
-                <input type="date" name="schema_markup[types][<?php echo $index; ?>][fields][datePosted]" id="job_datePosted_<?php echo $index; ?>" value="<?php echo esc_attr($datePosted); ?>">
+                <label for="job_datePosted_<?php echo esc_attr((string) $index); ?>">Date Posted: <span style="color: #dc3232;">*</span></label>
+                <input type="date" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][datePosted]" id="job_datePosted_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($datePosted); ?>">
             </div>
 
             <div class="schema-field">
-                <label for="job_validThrough_<?php echo $index; ?>">Valid Through:</label>
-                <input type="date" name="schema_markup[types][<?php echo $index; ?>][fields][validThrough]" id="job_validThrough_<?php echo $index; ?>" value="<?php echo esc_attr($validThrough); ?>">
+                <label for="job_validThrough_<?php echo esc_attr((string) $index); ?>">Valid Through:</label>
+                <input type="date" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][validThrough]" id="job_validThrough_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($validThrough); ?>">
             </div>
 
             <div class="schema-field">
-                <label for="job_employmentType_<?php echo $index; ?>">Employment Type:</label>
-                <select name="schema_markup[types][<?php echo $index; ?>][fields][employmentType]" id="job_employmentType_<?php echo $index; ?>">
+                <label for="job_employmentType_<?php echo esc_attr((string) $index); ?>">Employment Type:</label>
+                <select name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][employmentType]" id="job_employmentType_<?php echo esc_attr((string) $index); ?>">
                     <option value="FULL_TIME" <?php selected($employmentType, 'FULL_TIME'); ?>>Full Time</option>
                     <option value="PART_TIME" <?php selected($employmentType, 'PART_TIME'); ?>>Part Time</option>
                     <option value="CONTRACTOR" <?php selected($employmentType, 'CONTRACTOR'); ?>>Contractor</option>
@@ -2649,38 +2651,38 @@ class Metasync_Schema_Markup
             </div>
 
             <div class="schema-field">
-                <label for="job_org_name_<?php echo $index; ?>">Hiring Organization: <span style="color: #dc3232;">*</span></label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][hiringOrganization_name]" id="job_org_name_<?php echo $index; ?>" value="<?php echo esc_attr($hiringOrganization_name); ?>" placeholder="Company name">
+                <label for="job_org_name_<?php echo esc_attr((string) $index); ?>">Hiring Organization: <span style="color: #dc3232;">*</span></label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][hiringOrganization_name]" id="job_org_name_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($hiringOrganization_name); ?>" placeholder="Company name">
             </div>
 
             <div class="schema-field">
-                <label for="job_org_url_<?php echo $index; ?>">Organization URL:</label>
-                <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][hiringOrganization_sameAs]" id="job_org_url_<?php echo $index; ?>" value="<?php echo esc_attr($hiringOrganization_sameAs); ?>" placeholder="https://example.com">
+                <label for="job_org_url_<?php echo esc_attr((string) $index); ?>">Organization URL:</label>
+                <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][hiringOrganization_sameAs]" id="job_org_url_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($hiringOrganization_sameAs); ?>" placeholder="https://example.com">
             </div>
 
             <div class="schema-field">
-                <label for="job_org_logo_<?php echo $index; ?>">Organization Logo URL:</label>
-                <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][hiringOrganization_logo]" id="job_org_logo_<?php echo $index; ?>" value="<?php echo esc_attr($hiringOrganization_logo); ?>" placeholder="https://example.com/logo.png">
+                <label for="job_org_logo_<?php echo esc_attr((string) $index); ?>">Organization Logo URL:</label>
+                <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][hiringOrganization_logo]" id="job_org_logo_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($hiringOrganization_logo); ?>" placeholder="https://example.com/logo.png">
             </div>
 
             <div class="schema-field">
-                <label for="job_location_<?php echo $index; ?>">Job Location: <span style="color: #dc3232;">*</span></label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][jobLocation_address]" id="job_location_<?php echo $index; ?>" value="<?php echo esc_attr($jobLocation_address); ?>" placeholder="e.g., 123 Main St, City, State">
+                <label for="job_location_<?php echo esc_attr((string) $index); ?>">Job Location: <span style="color: #dc3232;">*</span></label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][jobLocation_address]" id="job_location_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($jobLocation_address); ?>" placeholder="e.g., 123 Main St, City, State">
             </div>
 
             <div class="schema-field">
-                <label for="job_salary_currency_<?php echo $index; ?>">Salary Currency:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][baseSalary_currency]" id="job_salary_currency_<?php echo $index; ?>" value="<?php echo esc_attr($baseSalary_currency); ?>" placeholder="USD">
+                <label for="job_salary_currency_<?php echo esc_attr((string) $index); ?>">Salary Currency:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][baseSalary_currency]" id="job_salary_currency_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($baseSalary_currency); ?>" placeholder="USD">
             </div>
 
             <div class="schema-field">
-                <label for="job_salary_value_<?php echo $index; ?>">Salary Value:</label>
-                <input type="number" step="0.01" name="schema_markup[types][<?php echo $index; ?>][fields][baseSalary_value]" id="job_salary_value_<?php echo $index; ?>" value="<?php echo esc_attr($baseSalary_value); ?>" placeholder="0.00">
+                <label for="job_salary_value_<?php echo esc_attr((string) $index); ?>">Salary Value:</label>
+                <input type="number" step="0.01" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][baseSalary_value]" id="job_salary_value_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($baseSalary_value); ?>" placeholder="0.00">
             </div>
 
             <div class="schema-field">
-                <label for="job_salary_unit_<?php echo $index; ?>">Salary Unit:</label>
-                <select name="schema_markup[types][<?php echo $index; ?>][fields][baseSalary_unitText]" id="job_salary_unit_<?php echo $index; ?>">
+                <label for="job_salary_unit_<?php echo esc_attr((string) $index); ?>">Salary Unit:</label>
+                <select name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][baseSalary_unitText]" id="job_salary_unit_<?php echo esc_attr((string) $index); ?>">
                     <option value="HOUR" <?php selected($baseSalary_unitText, 'HOUR'); ?>>Per Hour</option>
                     <option value="DAY" <?php selected($baseSalary_unitText, 'DAY'); ?>>Per Day</option>
                     <option value="WEEK" <?php selected($baseSalary_unitText, 'WEEK'); ?>>Per Week</option>
@@ -2800,28 +2802,28 @@ class Metasync_Schema_Markup
             <p class="description" style="margin-top: 0;">Fields marked with * are required.</p>
 
             <div class="schema-field">
-                <label for="review_item_<?php echo $index; ?>">Item Reviewed: <span style="color: #dc3232;">*</span></label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][itemReviewed_name]" id="review_item_<?php echo $index; ?>" value="<?php echo esc_attr($itemReviewed_name); ?>" placeholder="Name of the item being reviewed">
+                <label for="review_item_<?php echo esc_attr((string) $index); ?>">Item Reviewed: <span style="color: #dc3232;">*</span></label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][itemReviewed_name]" id="review_item_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($itemReviewed_name); ?>" placeholder="Name of the item being reviewed">
             </div>
 
             <div class="schema-field">
-                <label for="review_rating_<?php echo $index; ?>">Rating Value: <span style="color: #dc3232;">*</span></label>
-                <input type="number" step="0.1" min="1" max="5" name="schema_markup[types][<?php echo $index; ?>][fields][reviewRating_ratingValue]" id="review_rating_<?php echo $index; ?>" value="<?php echo esc_attr($reviewRating_ratingValue); ?>" placeholder="1-5">
+                <label for="review_rating_<?php echo esc_attr((string) $index); ?>">Rating Value: <span style="color: #dc3232;">*</span></label>
+                <input type="number" step="0.1" min="1" max="5" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][reviewRating_ratingValue]" id="review_rating_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($reviewRating_ratingValue); ?>" placeholder="1-5">
             </div>
 
             <div class="schema-field">
-                <label for="review_best_rating_<?php echo $index; ?>">Best Rating:</label>
-                <input type="number" step="1" min="1" name="schema_markup[types][<?php echo $index; ?>][fields][reviewRating_bestRating]" id="review_best_rating_<?php echo $index; ?>" value="<?php echo esc_attr($reviewRating_bestRating); ?>" placeholder="5">
+                <label for="review_best_rating_<?php echo esc_attr((string) $index); ?>">Best Rating:</label>
+                <input type="number" step="1" min="1" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][reviewRating_bestRating]" id="review_best_rating_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($reviewRating_bestRating); ?>" placeholder="5">
             </div>
 
             <div class="schema-field">
-                <label for="review_author_<?php echo $index; ?>">Author Name: <span style="color: #dc3232;">*</span></label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][author_name]" id="review_author_<?php echo $index; ?>" value="<?php echo esc_attr($author_name); ?>" placeholder="Reviewer name">
+                <label for="review_author_<?php echo esc_attr((string) $index); ?>">Author Name: <span style="color: #dc3232;">*</span></label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][author_name]" id="review_author_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($author_name); ?>" placeholder="Reviewer name">
             </div>
 
             <div class="schema-field">
-                <label for="review_body_<?php echo $index; ?>">Review Body:</label>
-                <textarea name="schema_markup[types][<?php echo $index; ?>][fields][reviewBody]" id="review_body_<?php echo $index; ?>" rows="4" style="width: 100%;" placeholder="The review text"><?php echo esc_textarea($reviewBody); ?></textarea>
+                <label for="review_body_<?php echo esc_attr((string) $index); ?>">Review Body:</label>
+                <textarea name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][reviewBody]" id="review_body_<?php echo esc_attr((string) $index); ?>" rows="4" style="width: 100%;" placeholder="The review text"><?php echo esc_textarea($reviewBody); ?></textarea>
             </div>
         </div>
         <?php
@@ -2905,28 +2907,28 @@ class Metasync_Schema_Markup
             <p class="description" style="margin-top: 0;">Fields marked with * are required.</p>
 
             <div class="schema-field">
-                <label for="course_name_<?php echo $index; ?>">Course Name: <span style="color: #dc3232;">*</span></label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][name]" id="course_name_<?php echo $index; ?>" value="<?php echo esc_attr($name); ?>" placeholder="e.g., Introduction to Web Development">
+                <label for="course_name_<?php echo esc_attr((string) $index); ?>">Course Name: <span style="color: #dc3232;">*</span></label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][name]" id="course_name_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($name); ?>" placeholder="e.g., Introduction to Web Development">
             </div>
 
             <div class="schema-field">
-                <label for="course_description_<?php echo $index; ?>">Description:</label>
-                <textarea name="schema_markup[types][<?php echo $index; ?>][fields][description]" id="course_description_<?php echo $index; ?>" rows="4" style="width: 100%;" placeholder="Course description"><?php echo esc_textarea($description); ?></textarea>
+                <label for="course_description_<?php echo esc_attr((string) $index); ?>">Description:</label>
+                <textarea name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][description]" id="course_description_<?php echo esc_attr((string) $index); ?>" rows="4" style="width: 100%;" placeholder="Course description"><?php echo esc_textarea($description); ?></textarea>
             </div>
 
             <div class="schema-field">
-                <label for="course_provider_<?php echo $index; ?>">Provider Name: <span style="color: #dc3232;">*</span></label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][provider_name]" id="course_provider_<?php echo $index; ?>" value="<?php echo esc_attr($provider_name); ?>" placeholder="Organization providing the course">
+                <label for="course_provider_<?php echo esc_attr((string) $index); ?>">Provider Name: <span style="color: #dc3232;">*</span></label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][provider_name]" id="course_provider_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($provider_name); ?>" placeholder="Organization providing the course">
             </div>
 
             <div class="schema-field">
-                <label for="course_provider_url_<?php echo $index; ?>">Provider URL:</label>
-                <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][provider_sameAs]" id="course_provider_url_<?php echo $index; ?>" value="<?php echo esc_attr($provider_sameAs); ?>" placeholder="https://example.com">
+                <label for="course_provider_url_<?php echo esc_attr((string) $index); ?>">Provider URL:</label>
+                <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][provider_sameAs]" id="course_provider_url_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($provider_sameAs); ?>" placeholder="https://example.com">
             </div>
 
             <div class="schema-field">
-                <label for="course_mode_<?php echo $index; ?>">Course Mode:</label>
-                <select name="schema_markup[types][<?php echo $index; ?>][fields][courseInstance_courseMode]" id="course_mode_<?php echo $index; ?>">
+                <label for="course_mode_<?php echo esc_attr((string) $index); ?>">Course Mode:</label>
+                <select name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][courseInstance_courseMode]" id="course_mode_<?php echo esc_attr((string) $index); ?>">
                     <option value="online" <?php selected($courseInstance_courseMode, 'online'); ?>>Online</option>
                     <option value="onsite" <?php selected($courseInstance_courseMode, 'onsite'); ?>>On-site</option>
                     <option value="blended" <?php selected($courseInstance_courseMode, 'blended'); ?>>Blended</option>
@@ -2934,8 +2936,8 @@ class Metasync_Schema_Markup
             </div>
 
             <div class="schema-field">
-                <label for="course_instructor_<?php echo $index; ?>">Instructor Name:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][courseInstance_instructor_name]" id="course_instructor_<?php echo $index; ?>" value="<?php echo esc_attr($courseInstance_instructor_name); ?>" placeholder="Instructor name">
+                <label for="course_instructor_<?php echo esc_attr((string) $index); ?>">Instructor Name:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][courseInstance_instructor_name]" id="course_instructor_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($courseInstance_instructor_name); ?>" placeholder="Instructor name">
             </div>
         </div>
         <?php
@@ -3021,33 +3023,33 @@ class Metasync_Schema_Markup
             <h4>Organization Information</h4>
 
             <div class="schema-field">
-                <label for="org_name_<?php echo $index; ?>">Organization Name:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][name]" id="org_name_<?php echo $index; ?>" value="<?php echo esc_attr($name); ?>" placeholder="Organization name">
+                <label for="org_name_<?php echo esc_attr((string) $index); ?>">Organization Name:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][name]" id="org_name_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($name); ?>" placeholder="Organization name">
             </div>
 
             <div class="schema-field">
-                <label for="org_url_<?php echo $index; ?>">URL:</label>
-                <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][url]" id="org_url_<?php echo $index; ?>" value="<?php echo esc_attr($url); ?>" placeholder="https://example.com">
+                <label for="org_url_<?php echo esc_attr((string) $index); ?>">URL:</label>
+                <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][url]" id="org_url_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($url); ?>" placeholder="https://example.com">
             </div>
 
             <div class="schema-field">
-                <label for="org_logo_<?php echo $index; ?>">Logo URL:</label>
-                <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][logo]" id="org_logo_<?php echo $index; ?>" value="<?php echo esc_attr($logo); ?>" placeholder="https://example.com/logo.png">
+                <label for="org_logo_<?php echo esc_attr((string) $index); ?>">Logo URL:</label>
+                <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][logo]" id="org_logo_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($logo); ?>" placeholder="https://example.com/logo.png">
             </div>
 
             <div class="schema-field">
-                <label for="org_phone_<?php echo $index; ?>">Contact Telephone:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][contactPoint_telephone]" id="org_phone_<?php echo $index; ?>" value="<?php echo esc_attr($contactPoint_telephone); ?>" placeholder="+1-555-1234">
+                <label for="org_phone_<?php echo esc_attr((string) $index); ?>">Contact Telephone:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][contactPoint_telephone]" id="org_phone_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($contactPoint_telephone); ?>" placeholder="+1-555-1234">
             </div>
 
             <div class="schema-field">
-                <label for="org_contact_type_<?php echo $index; ?>">Contact Type:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][contactPoint_contactType]" id="org_contact_type_<?php echo $index; ?>" value="<?php echo esc_attr($contactPoint_contactType); ?>" placeholder="customer service">
+                <label for="org_contact_type_<?php echo esc_attr((string) $index); ?>">Contact Type:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][contactPoint_contactType]" id="org_contact_type_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($contactPoint_contactType); ?>" placeholder="customer service">
             </div>
 
             <div class="schema-field">
-                <label for="org_sameas_<?php echo $index; ?>">Social Profiles (one URL per line):</label>
-                <textarea name="schema_markup[types][<?php echo $index; ?>][fields][sameAs]" id="org_sameas_<?php echo $index; ?>" rows="4" style="width: 100%;" placeholder="https://facebook.com/...&#10;https://twitter.com/..."><?php echo esc_textarea($sameAs); ?></textarea>
+                <label for="org_sameas_<?php echo esc_attr((string) $index); ?>">Social Profiles (one URL per line):</label>
+                <textarea name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][sameAs]" id="org_sameas_<?php echo esc_attr((string) $index); ?>" rows="4" style="width: 100%;" placeholder="https://facebook.com/...&#10;https://twitter.com/..."><?php echo esc_textarea($sameAs); ?></textarea>
             </div>
         </div>
         <?php
@@ -3142,38 +3144,38 @@ class Metasync_Schema_Markup
             <?php endif; ?>
 
             <div class="schema-field">
-                <label for="person_name_<?php echo $index; ?>">Name:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][name]" id="person_name_<?php echo $index; ?>" value="<?php echo esc_attr($name); ?>" placeholder="Full name">
+                <label for="person_name_<?php echo esc_attr((string) $index); ?>">Name:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][name]" id="person_name_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($name); ?>" placeholder="Full name">
             </div>
 
             <div class="schema-field">
-                <label for="person_url_<?php echo $index; ?>">URL:</label>
-                <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][url]" id="person_url_<?php echo $index; ?>" value="<?php echo esc_attr($url); ?>" placeholder="https://example.com">
+                <label for="person_url_<?php echo esc_attr((string) $index); ?>">URL:</label>
+                <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][url]" id="person_url_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($url); ?>" placeholder="https://example.com">
             </div>
 
             <div class="schema-field">
-                <label for="person_jobtitle_<?php echo $index; ?>">Job Title:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][jobTitle]" id="person_jobtitle_<?php echo $index; ?>" value="<?php echo esc_attr($jobTitle); ?>" placeholder="e.g., Software Engineer">
+                <label for="person_jobtitle_<?php echo esc_attr((string) $index); ?>">Job Title:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][jobTitle]" id="person_jobtitle_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($jobTitle); ?>" placeholder="e.g., Software Engineer">
             </div>
 
             <div class="schema-field">
-                <label for="person_worksfor_<?php echo $index; ?>">Works For (Organization Name):</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][worksFor]" id="person_worksfor_<?php echo $index; ?>" value="<?php echo esc_attr($worksFor); ?>" placeholder="e.g., Search Atlas">
+                <label for="person_worksfor_<?php echo esc_attr((string) $index); ?>">Works For (Organization Name):</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][worksFor]" id="person_worksfor_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($worksFor); ?>" placeholder="e.g., Search Atlas">
             </div>
 
             <div class="schema-field">
-                <label for="person_email_<?php echo $index; ?>">Email:</label>
-                <input type="email" name="schema_markup[types][<?php echo $index; ?>][fields][email]" id="person_email_<?php echo $index; ?>" value="<?php echo esc_attr($email); ?>" placeholder="email@example.com">
+                <label for="person_email_<?php echo esc_attr((string) $index); ?>">Email:</label>
+                <input type="email" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][email]" id="person_email_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($email); ?>" placeholder="email@example.com">
             </div>
 
             <div class="schema-field">
-                <label for="person_image_<?php echo $index; ?>">Image URL:</label>
-                <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][image]" id="person_image_<?php echo $index; ?>" value="<?php echo esc_attr($image); ?>" placeholder="https://example.com/photo.jpg">
+                <label for="person_image_<?php echo esc_attr((string) $index); ?>">Image URL:</label>
+                <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][image]" id="person_image_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($image); ?>" placeholder="https://example.com/photo.jpg">
             </div>
 
             <div class="schema-field">
-                <label for="person_sameas_<?php echo $index; ?>">Social Profiles (one URL per line):</label>
-                <textarea name="schema_markup[types][<?php echo $index; ?>][fields][sameAs]" id="person_sameas_<?php echo $index; ?>" rows="4" style="width: 100%;" placeholder="https://linkedin.com/in/...&#10;https://twitter.com/..."><?php echo esc_textarea($sameAs); ?></textarea>
+                <label for="person_sameas_<?php echo esc_attr((string) $index); ?>">Social Profiles (one URL per line):</label>
+                <textarea name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][sameAs]" id="person_sameas_<?php echo esc_attr((string) $index); ?>" rows="4" style="width: 100%;" placeholder="https://linkedin.com/in/...&#10;https://twitter.com/..."><?php echo esc_textarea($sameAs); ?></textarea>
             </div>
         </div>
         <?php
@@ -3252,26 +3254,26 @@ class Metasync_Schema_Markup
             <h4>Website Information</h4>
 
             <div class="schema-field">
-                <label for="website_name_<?php echo $index; ?>">Website Name:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][name]" id="website_name_<?php echo $index; ?>" value="<?php echo esc_attr($name); ?>" placeholder="Your website name">
+                <label for="website_name_<?php echo esc_attr((string) $index); ?>">Website Name:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][name]" id="website_name_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($name); ?>" placeholder="Your website name">
             </div>
 
             <div class="schema-field">
-                <label for="website_url_<?php echo $index; ?>">URL:</label>
-                <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][url]" id="website_url_<?php echo $index; ?>" value="<?php echo esc_attr($url); ?>" placeholder="https://example.com">
+                <label for="website_url_<?php echo esc_attr((string) $index); ?>">URL:</label>
+                <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][url]" id="website_url_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($url); ?>" placeholder="https://example.com">
             </div>
 
             <div class="schema-field">
                 <label>
-                    <input type="checkbox" name="schema_markup[types][<?php echo $index; ?>][fields][searchbox_enabled]" value="1" <?php checked($searchbox_enabled, true); ?>>
+                    <input type="checkbox" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][searchbox_enabled]" value="1" <?php checked($searchbox_enabled, true); ?>>
                     Enable Sitelinks Searchbox
                 </label>
                 <p class="description">Adds SearchAction for Google Sitelinks Searchbox in SERPs.</p>
             </div>
 
             <div class="schema-field">
-                <label for="website_query_<?php echo $index; ?>">Search URL Template:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][searchbox_query_input]" id="website_query_<?php echo $index; ?>" value="<?php echo esc_attr($searchbox_query_input); ?>" placeholder="/?s={search_term_string}">
+                <label for="website_query_<?php echo esc_attr((string) $index); ?>">Search URL Template:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][searchbox_query_input]" id="website_query_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($searchbox_query_input); ?>" placeholder="/?s={search_term_string}">
                 <p class="description">Search URL template (default: /?s={search_term_string})</p>
             </div>
         </div>
@@ -3336,15 +3338,15 @@ class Metasync_Schema_Markup
             <p class="description" style="margin-top: 0;">Optional fields to enhance your news article schema.</p>
 
             <div class="schema-field">
-                <label for="newsarticle_organization_name_<?php echo $index; ?>">Organization Name:</label>
-                <input type="text" name="schema_markup[types][<?php echo $index; ?>][fields][organization_name]" id="newsarticle_organization_name_<?php echo $index; ?>" value="<?php echo esc_attr($organization_name); ?>" placeholder="e.g., News Corp">
+                <label for="newsarticle_organization_name_<?php echo esc_attr((string) $index); ?>">Organization Name:</label>
+                <input type="text" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][organization_name]" id="newsarticle_organization_name_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($organization_name); ?>" placeholder="e.g., News Corp">
                 <p class="description">The name of the organization that published this article.</p>
             </div>
 
             <div class="schema-field">
-                <label for="newsarticle_organization_logo_<?php echo $index; ?>">Organization Logo:</label>
+                <label for="newsarticle_organization_logo_<?php echo esc_attr((string) $index); ?>">Organization Logo:</label>
                 <div class="logo-upload-container">
-                    <input type="url" name="schema_markup[types][<?php echo $index; ?>][fields][organization_logo]" id="newsarticle_organization_logo_<?php echo $index; ?>" value="<?php echo esc_attr($organization_logo); ?>" placeholder="https://example.com/logo.png" style="width: 70%; margin-right: 10px;">
+                    <input type="url" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][organization_logo]" id="newsarticle_organization_logo_<?php echo esc_attr((string) $index); ?>" value="<?php echo esc_attr($organization_logo); ?>" placeholder="https://example.com/logo.png" style="width: 70%; margin-right: 10px;">
                 </div>
                 <p class="description">Logo of the organization (recommended for better rich results).</p>
             </div>
@@ -3667,10 +3669,10 @@ class Metasync_Schema_Markup
         }
 
         wp_enqueue_script('jquery');
-        
+
         // Enqueue WordPress media scripts for image uploader
         wp_enqueue_media();
-        
+
         // Enqueue schema markup admin CSS
         wp_enqueue_style(
             'metasync-schema-markup-admin',
@@ -3679,7 +3681,7 @@ class Metasync_Schema_Markup
             $this->version,
             'all'
         );
-        
+
         // Enqueue schema markup admin JS
         wp_enqueue_script(
             'metasync-schema-markup-admin',
@@ -3688,7 +3690,7 @@ class Metasync_Schema_Markup
             $this->version,
             true
         );
-        
+
         // Localize script with nonces
         wp_localize_script(
             'metasync-schema-markup-admin',
@@ -3749,7 +3751,7 @@ class Metasync_Schema_Markup
             wp_send_json_error(['message' => 'Security check failed'], 403);
         }
 
-        $schema_type = sanitize_text_field($_POST['schema_type']);
+        $schema_type = isset($_POST['schema_type']) ? sanitize_text_field(wp_unslash($_POST['schema_type'])) : '';
         $index = isset($_POST['index']) ? intval($_POST['index']) : 0;
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
 
@@ -3790,13 +3792,14 @@ class Metasync_Schema_Markup
         $post = $this->authorize_schema_post_request($post_id);
 
         // Check if schema is enabled
-        $schema_enabled = isset($_POST['schema_enabled']) && $_POST['schema_enabled'];
+        $schema_enabled = isset($_POST['schema_enabled']) && rest_sanitize_boolean(wp_unslash($_POST['schema_enabled']));
         if (!$schema_enabled) {
             wp_send_json_error(['message' => 'Schema markup is not enabled']);
         }
 
         // Get schema types data
-        $schema_types = isset($_POST['schema_types']) ? $_POST['schema_types'] : [];
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- every field of every entry is sanitised per-type in sanitize_schema_fields() below before anything is stored.
+        $schema_types = isset($_POST['schema_types']) ? wp_unslash($_POST['schema_types']) : [];
         if (empty($schema_types)) {
             wp_send_json_error(['message' => 'No schema types provided']);
         }
@@ -3812,7 +3815,7 @@ class Metasync_Schema_Markup
                 $schema_type = sanitize_text_field($type_data['type']);
                 $fields = isset($type_data['fields']) ? $type_data['fields'] : [];
                 $sanitized_fields = $this->sanitize_schema_fields($fields, $schema_type);
-                
+
                 $schema_data['types'][] = [
                     'type' => $schema_type,
                     'fields' => $sanitized_fields
@@ -3843,10 +3846,10 @@ class Metasync_Schema_Markup
                     'HowTo' => 'How-To',
                     'VideoObject' => 'Video Object'
                 ];
-                $schema_type_name = isset($schema_type_display_names[$schema_type_data['type']]) 
-                    ? $schema_type_display_names[$schema_type_data['type']] 
+                $schema_type_name = isset($schema_type_display_names[$schema_type_data['type']])
+                    ? $schema_type_display_names[$schema_type_data['type']]
                     : ucfirst($schema_type_data['type']);
-                
+
                 foreach ($validation_errors as $error) {
                     $all_validation_errors[] = [
                         'schema_type' => $schema_type_name,
@@ -3883,7 +3886,7 @@ class Metasync_Schema_Markup
             '@context' => 'https://schema.org',
             '@graph' => $all_json_ld
         ];
-        
+
         $formatted_json = metasync_safe_json_ld_encode($final_json_ld, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
         if (!is_string($formatted_json) || $formatted_json === '') {
             wp_send_json_error(['message' => 'Could not encode schema markup']);
@@ -4092,7 +4095,7 @@ class Metasync_Schema_Markup
             try {
                 $this->sync_schema_to_yoast($post_id, $type, $fields);
             } catch (\Exception $e) {
-                error_log('MetaSync: Yoast schema sync failed for post ' . $post_id . ' — ' . $e->getMessage());
+                error_log('MetaSync: Yoast schema sync failed for post ' . $post_id . ' — ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
 
@@ -4101,7 +4104,7 @@ class Metasync_Schema_Markup
             try {
                 $this->sync_schema_to_rank_math($post_id, $type, $fields);
             } catch (\Exception $e) {
-                error_log('MetaSync: Rank Math schema sync failed for post ' . $post_id . ' — ' . $e->getMessage());
+                error_log('MetaSync: Rank Math schema sync failed for post ' . $post_id . ' — ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
     }
@@ -4315,7 +4318,7 @@ class Metasync_Schema_Markup
     /**
      * Get images for schema markup
      * Currently returns featured image, but designed to support multiple sources in future
-     * 
+     *
      * @param int $post_id The post ID
      * @return array Array of image URLs
      */

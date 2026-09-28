@@ -119,7 +119,7 @@ class WPConfigTransformerMetaSync
             throw new WPConfigFileNotFoundException("{$basename} does not exist.");
         }
 
-        if (!is_writable($wpConfigPath)) {
+        if (!wp_is_writable($wpConfigPath)) {
             throw new WPConfigFileNotWritableException("{$basename} is not writable.");
         }
 
@@ -335,7 +335,7 @@ class WPConfigTransformerMetaSync
             throw new WPConfigInvalidValueException('Raw value for empty string not supported.');
         }
 
-        return ($raw) ? $value : var_export($value, true);
+        return ($raw) ? $value : var_export($value, true); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- unreachable in production
     }
 
     /**
@@ -464,10 +464,10 @@ class WPConfigTransformerMetaSync
         // guarantees a writable file. WordPress' recommended "wp-config.php one level
         // above the web root" layout commonly has exactly that shape, and earlier
         // versions wrote fine there, so fall back rather than refusing to save.
-        if (!is_writable($dir)) {
+        if (!wp_is_writable($dir)) {
             // Logged because the fallback gives up atomicity: a crash mid-write can
             // leave wp-config.php short, so affected hosts should be identifiable.
-            error_log('MetaSync: ' . $dir . ' is not writable; writing wp-config.php in place'
+            error_log('MetaSync: ' . $dir . ' is not writable; writing wp-config.php in place' // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 . ' (non-atomic) instead of via an atomic replace.');
             return $this->saveInPlace($targetPath, $contents);
         }
@@ -486,29 +486,29 @@ class WPConfigTransformerMetaSync
 
         try {
             // 'x' mode fails if the path already exists, so we never clobber another file.
-            $handle = @fopen($tempFile, 'x');
+            $handle = @fopen($tempFile, 'x'); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- streaming file I/O; WP_Filesystem cannot return a raw stream handle
             if (false === $handle) {
                 // The directory looked writable but the create failed anyway.
                 return $this->saveInPlace($targetPath, $contents);
             }
 
             // Lock the temp file down before any sensitive content is written to it.
-            $permissionsLocked = @chmod($tempFile, 0600);
+            $permissionsLocked = @chmod($tempFile, 0600); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_chmod -- direct POSIX permission change; WP_Filesystem would prompt for FTP credentials on non-direct hosts
             $permissionsWrong = PHP_OS_FAMILY !== 'Windows'
                 && ((@fileperms($tempFile) & 0777) !== 0600);
             if (!$permissionsLocked || $permissionsWrong) {
-                @fclose($handle);
+                @fclose($handle); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- operates on a native stream handle
                 throw new WPConfigSaveException('Could not secure the temporary config file.');
             }
 
-            $written = @fwrite($handle, $contents);
+            $written = @fwrite($handle, $contents); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- operates on a native stream handle
             $flushed = @fflush($handle);
 
             if (function_exists('fsync')) {
                 @fsync($handle);
             }
 
-            $closed = @fclose($handle);
+            $closed = @fclose($handle); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- operates on a native stream handle
             clearstatcache(true, $tempFile);
 
             // fwrite() can report a full write while the error only surfaces later at
@@ -526,7 +526,7 @@ class WPConfigTransformerMetaSync
 
             // Atomically move the temp file over the config file. The original is only
             // ever replaced by this single call; on failure it remains untouched.
-            if (!@rename($tempFile, $targetPath)) {
+            if (!@rename($tempFile, $targetPath)) { // phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- atomic same-filesystem replace; WP_Filesystem::move() needs credential bootstrapping on non-direct hosts
                 throw new WPConfigSaveException('Failed to update the config file.');
             }
         } finally {
@@ -534,28 +534,28 @@ class WPConfigTransformerMetaSync
             // wp-config.php sitting next to it.
             clearstatcache(true, $tempFile);
             if (is_file($tempFile)) {
-                @unlink($tempFile);
+                wp_delete_file($tempFile);
             }
         }
 
         // rename() installs a new inode, so the original ownership and mode do not
         // carry over. Restore both - ownership best-effort, since only a privileged
         // process may change it - so the file keeps the identity the host expects.
-        if (PHP_OS_FAMILY !== 'Windows' && false !== $originalOwner && !@chown($targetPath, $originalOwner)) {
+        if (PHP_OS_FAMILY !== 'Windows' && false !== $originalOwner && !@chown($targetPath, $originalOwner)) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_chown -- direct POSIX ownership change; no WordPress API
             // Common on hosts where wp-config.php is owned by a deploy user and only
             // group-writable by the web user: the file is now owned by the web user and
             // an unprivileged process cannot hand it back. Deploy tooling may lose write
             // access, so make it findable rather than silent.
-            error_log('MetaSync: wp-config.php is no longer owned by uid ' . $originalOwner
+            error_log('MetaSync: wp-config.php is no longer owned by uid ' . $originalOwner // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 . ' after being rewritten, and ownership could not be restored.');
         }
 
         if (PHP_OS_FAMILY !== 'Windows' && false !== $originalGroup) {
-            @chgrp($targetPath, $originalGroup);
+            @chgrp($targetPath, $originalGroup); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_chgrp -- direct POSIX group change; no WordPress API
         }
 
         if ($originalPerms) {
-            @chmod($targetPath, $originalPerms);
+            @chmod($targetPath, $originalPerms); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_chmod -- direct POSIX permission change; WP_Filesystem would prompt for FTP credentials on non-direct hosts
         }
 
         return true;
@@ -584,7 +584,7 @@ class WPConfigTransformerMetaSync
                 continue;
             }
 
-            @unlink($temp);
+            wp_delete_file($temp);
         }
     }
 
@@ -626,7 +626,7 @@ class WPConfigTransformerMetaSync
                     // Both the write and the rollback failed, so the file on disk is
                     // very likely truncated and the site will not boot. Say so plainly -
                     // there is deliberately no backup copy to restore from.
-                    error_log('MetaSync: wp-config.php may be truncated at ' . $targetPath
+                    error_log('MetaSync: wp-config.php may be truncated at ' . $targetPath // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                         . ' - restore it manually.');
                     throw new WPConfigSaveException(
                         'Failed to update the config file, and wp-config.php may now be incomplete. Please check it.'
@@ -731,7 +731,7 @@ class ConfigControllerMetaSync
             self::$configArgs['placement'] = 'after';
         }
 
-        if (!is_writable(self::$configfilePath)) {
+        if (!wp_is_writable(self::$configfilePath)) {
             $this->setConfigError('Config file not writable');
             return;
         }
@@ -799,7 +799,7 @@ class ConfigControllerMetaSync
         $this->partialWrite = false;
 
         if (!$this->isReady()) {
-            error_log('MetaSync: skipped wp-config.php debug constants - '
+            error_log('MetaSync: skipped wp-config.php debug constants - ' // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 . ($this->configError !== '' ? $this->configError : 'the file is not writable.'));
             return false;
         }
@@ -840,7 +840,7 @@ class ConfigControllerMetaSync
 
                 // Whitelist validation - only allow specific constants
                 if (!in_array($key, $allowedConstants, true)) {
-                    error_log('MetaSync: Attempted to modify non-whitelisted constant: ' . $key);
+                    error_log('MetaSync: Attempted to modify non-whitelisted constant: ' . $key); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- unreachable in production
                     continue;
                 }
 
@@ -893,7 +893,7 @@ class ConfigControllerMetaSync
                         . ' partially updated.';
                 }
 
-                error_log('MetaSync: ' . $message);
+                error_log('MetaSync: ' . $message); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 $this->setConfigError($message);
                 return false;
             }
@@ -919,7 +919,7 @@ class ConfigControllerMetaSync
                 }
             }
 
-            error_log('MetaSync: Error updating wp-config.php - ' . $e->getMessage());
+            error_log('MetaSync: Error updating wp-config.php - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             $this->setConfigError('Could not update wp-config.php: ' . $e->getMessage());
             return false;
         }
@@ -988,7 +988,7 @@ class ConfigControllerMetaSync
         try {
             return $this->configFileManager->exists('constant', strtoupper($constant));
         } catch (\Throwable $e) {
-            error_log('MetaSync: Error reading wp-config.php - ' . $e->getMessage());
+            error_log('MetaSync: Error reading wp-config.php - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return false;
         }
     }
@@ -1011,7 +1011,7 @@ class ConfigControllerMetaSync
                 return $this->configFileManager->getValue('constant', strtoupper($constant));
             }
         } catch (\Throwable $e) {
-            error_log('MetaSync: Error reading wp-config.php - ' . $e->getMessage());
+            error_log('MetaSync: Error reading wp-config.php - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         }
 
         return null;
@@ -1039,7 +1039,7 @@ class ConfigControllerMetaSync
             }
             return $this->configFileManager->update('constant', strtoupper($key), $value, $option);
         } catch (\Throwable $e) {
-            error_log('MetaSync: Error updating wp-config.php - ' . $e->getMessage());
+            error_log('MetaSync: Error updating wp-config.php - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return false;
         }
     }

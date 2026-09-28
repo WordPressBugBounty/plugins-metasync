@@ -55,6 +55,7 @@ $cache_stats = Metasync_Minification_Cache::get_cache_stats();
 
                 <p class="metasync-field-description" style="margin-top: 12px;">
                     <?php printf(
+                        /* translators: %s: cache directory path. */
                         esc_html__('Cache directory: %s', 'metasync'),
                         '<code>' . esc_html(Metasync_Minification_Cache::get_cache_dir()) . '</code>'
                     ); ?>

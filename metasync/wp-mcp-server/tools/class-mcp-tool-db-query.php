@@ -50,7 +50,7 @@ class MCP_Tool_DB_Tables extends MCP_Tool_Base {
 
         $prefix_only = !isset($params['prefix_only']) || $params['prefix_only'] !== false;
 
-        $rows = $wpdb->get_results(
+        $rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- the tool purpose is executing caller-supplied, allowlisted SQL — direct $wpdb is the feature
             $wpdb->prepare(
                 'SELECT
                     table_name        AS `table`,
@@ -126,10 +126,9 @@ class MCP_Tool_DB_Describe extends MCP_Tool_Base {
         $table = $this->resolve_table_name(sanitize_text_field($params['table']));
         $this->assert_table_exists($table);
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name validated above
-        $columns = $wpdb->get_results("DESCRIBE `{$table}`", ARRAY_A);
+        $columns = $wpdb->get_results("DESCRIBE `{$table}`", ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery -- the tool purpose is executing caller-supplied, allowlisted SQL — direct $wpdb is the feature -- table name validated above
 
-        $indexes = $wpdb->get_results("SHOW INDEX FROM `{$table}`", ARRAY_A);
+        $indexes = $wpdb->get_results("SHOW INDEX FROM `{$table}`", ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery -- the tool purpose is executing caller-supplied, allowlisted SQL — direct $wpdb is the feature -- table name validated above
         $index_map = [];
         foreach ($indexes as $idx) {
             $col = $idx['Column_name'];
@@ -171,7 +170,7 @@ class MCP_Tool_DB_Describe extends MCP_Tool_Base {
     private function assert_table_exists($table) {
         global $wpdb;
         // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        $exists = $wpdb->get_var($wpdb->prepare(
+        $exists = $wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- the tool purpose is executing caller-supplied, allowlisted SQL — direct $wpdb is the feature
             'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = %s AND table_name = %s',
             DB_NAME,
             $table
@@ -396,13 +395,12 @@ class MCP_Tool_DB_Select extends MCP_Tool_Base {
         $prev_time_limit = (int) ini_get('max_execution_time');
         // Give the DB-level hint a chance to fire first; the PHP fallback
         // trails by a small margin so it only kicks in as a hard backstop.
-        @set_time_limit($to['timeout'] + 2);
+        @set_time_limit($to['timeout'] + 2); // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- runtime PHP setting with no WordPress API; per-query timeout backstop
 
         try {
-            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- user-provided query, validated above
-            $results = $wpdb->get_results($to['sql'], ARRAY_A);
+            $results = $wpdb->get_results($to['sql'], ARRAY_A); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery -- the tool purpose is executing caller-supplied, allowlisted SQL — direct $wpdb is the feature -- user-provided query, validated above
         } finally {
-            @set_time_limit($prev_time_limit);
+            @set_time_limit($prev_time_limit); // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- runtime PHP setting with no WordPress API; per-query timeout backstop
         }
 
         if ($wpdb->last_error) {

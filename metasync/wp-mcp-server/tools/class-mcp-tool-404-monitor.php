@@ -133,16 +133,16 @@ class MCP_Tool_Get_404_Stats extends MCP_Tool_Base {
         $db = new Metasync_Error_Monitor_Database();
 
         global $wpdb;
-        $table_name = $wpdb->prefix . 'metasync_404_logs';
 
         // Get stats
-        $total_errors = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
-        $total_hits = $wpdb->get_var("SELECT SUM(hits_count) FROM $table_name");
+        $total_errors = $wpdb->get_var("SELECT COUNT(*) FROM `{$wpdb->prefix}metasync_404_logs`"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- MCP tool surface — authenticated admin-equivalent queries over the plugin custom table
+        $total_hits = $wpdb->get_var("SELECT SUM(hits_count) FROM `{$wpdb->prefix}metasync_404_logs`"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- MCP tool surface — authenticated admin-equivalent queries over the plugin custom table
 
         // Get top 10 errors
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- MCP tool surface — authenticated admin-equivalent queries over the plugin custom table
         $top_errors = $wpdb->get_results("
             SELECT uri, hits_count, date_time
-            FROM $table_name
+            FROM `{$wpdb->prefix}metasync_404_logs`
             ORDER BY hits_count DESC
             LIMIT 10
         ");
@@ -246,10 +246,9 @@ class MCP_Tool_Clear_404_Errors extends MCP_Tool_Base {
         }
 
         global $wpdb;
-        $table_name = $wpdb->prefix . 'metasync_404_logs';
 
         // Clear all 404 errors
-        $result = $wpdb->query("TRUNCATE TABLE $table_name");
+        $result = $wpdb->query("TRUNCATE TABLE `{$wpdb->prefix}metasync_404_logs`");
 
         if ($result === false) {
             throw new Exception('Failed to clear 404 errors');
@@ -321,8 +320,7 @@ class MCP_Tool_Create_Redirect_From_404 extends MCP_Tool_Base {
 
         // Get 404 error
         global $wpdb;
-        $table_name = $wpdb->prefix . 'metasync_404_logs';
-        $error = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $error_id));
+        $error = $wpdb->get_row($wpdb->prepare("SELECT * FROM `{$wpdb->prefix}metasync_404_logs` WHERE id = %d", $error_id)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- MCP tool surface — authenticated admin-equivalent queries over the plugin custom table
 
         if (!$error) {
             throw new Exception(sprintf("404 error not found: %d", absint($error_id)));

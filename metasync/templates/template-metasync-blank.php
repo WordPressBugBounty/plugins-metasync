@@ -20,8 +20,6 @@ $css_links = get_post_meta($post_id, 'css_links', true);
 $inline_css = get_post_meta($post_id, 'inline_css', true);
 // get post meta data for js_links
 $js_links = get_post_meta($post_id, 'js_links', true);
-// get post meta data for inline_js
-$inline_js = get_post_meta($post_id, 'inline_js',  true);
 // check if the key css_links exist
 if($css_links!==''){
 // Loop through all the css link
@@ -30,6 +28,7 @@ if (is_array($decoded_css_links)) {
 foreach ($decoded_css_links as $css_link) {
 	// SECURITY FIX: Validate and escape CSS URLs
 	if (filter_var($css_link, FILTER_VALIDATE_URL) && (strpos($css_link, 'http') === 0)) {
+		// phpcs:ignore WordPress.WP.EnqueuedResources.NonEnqueuedStylesheet -- Dynamic per-post CSS URLs from the user's page settings (css_links meta) must print in <head> of this bare custom-page template; enqueueing after wp_head() would relocate them to the footer.
 		echo '<link href="' . esc_url($css_link) . '" rel="stylesheet"/>';
 	}
 }
@@ -56,6 +55,7 @@ if (is_array($decoded_js_links)) {
 foreach ($decoded_js_links as $js_link) {
 	// SECURITY FIX: Validate and escape JS URLs
 	if (filter_var($js_link, FILTER_VALIDATE_URL) && (strpos($js_link, 'http') === 0)) {
+		// phpcs:ignore WordPress.WP.EnqueuedResources.NonEnqueuedScript -- Dynamic per-post JS URLs from the user's page settings (js_links meta) must print in <head> of this bare custom-page template; enqueueing after wp_head() would relocate them to the footer.
 		echo '<script src="' . esc_url($js_link) . '"></script>';
 	}
 }
@@ -63,7 +63,7 @@ foreach ($decoded_js_links as $js_link) {
 }
 ?>
 
-<body class="text-gray-800 font-sans leading-normal gradient-bg postid-<?= esc_attr($post_id) ?>">
+<body class="text-gray-800 font-sans leading-normal gradient-bg postid-<?php echo esc_attr($post_id); ?>">
 	<?php
 	// get content of the post
 	$content = apply_filters('the_content', get_the_content());
@@ -72,19 +72,6 @@ foreach ($decoded_js_links as $js_link) {
 </body>
 <?php
 wp_footer();
-// check if the key inline_js exist
-$inline_js_decoded = !empty($inline_js) ? json_decode($inline_js) : null;
-if(is_array($inline_js_decoded)){
-// Loop through all the inline script and print the script tags after body
-$decoded_inline_js = json_decode($inline_js);
-if (is_array($decoded_inline_js)) {
-foreach ($decoded_inline_js as $js) {
-	// SECURITY FIX: Completely block inline JS to prevent XSS
-	// This feature is disabled for security reasons
-	error_log('MetaSync Security: Inline JS blocked for security - content: ' . substr($js, 0, 100));
-}
-}
-}
 
 ?>
 

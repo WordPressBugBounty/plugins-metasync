@@ -350,7 +350,7 @@ class Metasync_Dimension_Injector {
         $tmp = wp_tempnam($url);
         file_put_contents($tmp, $body);
         $info = @getimagesize($tmp);
-        @unlink($tmp);
+        @wp_delete_file($tmp);
 
         if ($info && $info[0] > 0 && $info[1] > 0) {
             return ['width' => $info[0], 'height' => $info[1]];

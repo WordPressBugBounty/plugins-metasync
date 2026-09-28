@@ -87,14 +87,14 @@ class MCP_Tool_System_Diagnostics extends MCP_Tool_Base {
         ];
 
         // ── Database ─────────────────────────────────────────────────
-        $db_version = $wpdb->get_var('SELECT VERSION()');
+        $db_version = $wpdb->get_var('SELECT VERSION()'); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- MCP diagnostic — server metadata (version, table count) has no cached WordPress API
         $db = [
             'mysql_version' => $db_version,
             'db_name'       => defined('DB_NAME') ? DB_NAME : 'N/A',
             'db_host'       => defined('DB_HOST') ? DB_HOST : 'N/A',
             'db_charset'    => defined('DB_CHARSET') ? DB_CHARSET : 'N/A',
             'table_prefix'  => $wpdb->prefix,
-            'table_count'   => (int) $wpdb->get_var(
+            'table_count'   => (int) $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- MCP diagnostic — server metadata (version, table count) has no cached WordPress API
                 $wpdb->prepare('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = %s', DB_NAME)
             ),
         ];
@@ -281,7 +281,7 @@ class MCP_Tool_Get_Cron_Jobs extends MCP_Tool_Base {
                     $events[] = [
                         'hook'           => $hook,
                         'next_run_ts'    => $timestamp,
-                        'next_run'       => date('Y-m-d H:i:s', $timestamp),
+                        'next_run'       => gmdate('Y-m-d H:i:s', $timestamp),
                         'overdue_seconds'=> max(0, $now - $timestamp),
                         'overdue'        => $timestamp < $now,
                         'schedule'       => $schedule,

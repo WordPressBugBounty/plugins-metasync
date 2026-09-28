@@ -391,7 +391,7 @@ class Metasync_Custom_Pages_Admin
             return;
         }
 
-        $action = sanitize_text_field($_GET['action']);
+        $action = sanitize_text_field(wp_unslash($_GET['action']));
 
         switch ($action) {
             case 'delete':

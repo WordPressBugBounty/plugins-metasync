@@ -57,7 +57,7 @@ class Metasync_Llms_Txt_Generator
 
         $request_uri = isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
         $request_uri = strtok($request_uri, '?');
-        $path = rtrim(parse_url($request_uri, PHP_URL_PATH), '/');
+        $path = rtrim(wp_parse_url($request_uri, PHP_URL_PATH), '/');
 
         $is_short = ($path === '/llms.txt');
         $is_full  = ($path === '/llms-full.txt');

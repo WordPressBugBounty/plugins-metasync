@@ -77,7 +77,7 @@ class Metasync_Robots_Txt_Database
 
         $charset_collate = $wpdb->get_charset_collate();
 
-        $sql = "CREATE TABLE IF NOT EXISTS {$this->table_name} (
+        $sql = "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}metasync_robots_txt_backups (
             id bigint(20) NOT NULL AUTO_INCREMENT,
             content longtext NOT NULL,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
@@ -100,7 +100,7 @@ class Metasync_Robots_Txt_Database
     {
         global $wpdb;
 
-        $result = $wpdb->insert(
+        $result = $wpdb->insert( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for robots.txt backups (admin save/restore paths)
             $this->table_name,
             array(
                 'content' => $content,
@@ -131,7 +131,7 @@ class Metasync_Robots_Txt_Database
     {
         global $wpdb;
 
-        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $this->table_name)) !== $this->table_name) {
+        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $this->table_name)) !== $this->table_name) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for robots.txt backups (admin save/restore paths)
             $this->create_table();
             return array();
         }
@@ -139,10 +139,10 @@ class Metasync_Robots_Txt_Database
         $limit = absint($limit);
         $offset = absint($offset);
 
-        $results = $wpdb->get_results(
+        $results = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for robots.txt backups (admin save/restore paths)
             $wpdb->prepare(
                 "SELECT b.*, u.display_name as created_by_name
-                FROM {$this->table_name} b
+                FROM {$wpdb->prefix}metasync_robots_txt_backups b
                 LEFT JOIN {$wpdb->users} u ON b.created_by = u.ID
                 ORDER BY b.created_at DESC, b.id DESC
                 LIMIT %d OFFSET %d",
@@ -164,11 +164,11 @@ class Metasync_Robots_Txt_Database
     {
         global $wpdb;
 
-        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $this->table_name)) !== $this->table_name) {
+        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $this->table_name)) !== $this->table_name) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for robots.txt backups (admin save/restore paths)
             return 0;
         }
 
-        return (int) $wpdb->get_var("SELECT COUNT(*) FROM {$this->table_name}");
+        return (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}metasync_robots_txt_backups"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for robots.txt backups (admin save/restore paths)
     }
 
     /**
@@ -181,9 +181,9 @@ class Metasync_Robots_Txt_Database
     {
         global $wpdb;
 
-        $result = $wpdb->get_row(
+        $result = $wpdb->get_row( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for robots.txt backups (admin save/restore paths)
             $wpdb->prepare(
-                "SELECT * FROM {$this->table_name} WHERE id = %d",
+                "SELECT * FROM {$wpdb->prefix}metasync_robots_txt_backups WHERE id = %d",
                 $backup_id
             ),
             ARRAY_A
@@ -202,7 +202,7 @@ class Metasync_Robots_Txt_Database
     {
         global $wpdb;
 
-        $result = $wpdb->delete(
+        $result = $wpdb->delete( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for robots.txt backups (admin save/restore paths)
             $this->table_name,
             array('id' => $backup_id),
             array('%d')
@@ -226,9 +226,9 @@ class Metasync_Robots_Txt_Database
         global $wpdb;
 
         // First, get the IDs to keep (avoids MySQL subquery deadlock)
-        $ids_to_keep = $wpdb->get_col(
+        $ids_to_keep = $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for robots.txt backups (admin save/restore paths)
             $wpdb->prepare(
-                "SELECT id FROM {$this->table_name}
+                "SELECT id FROM {$wpdb->prefix}metasync_robots_txt_backups
                 ORDER BY created_at DESC, id DESC
                 LIMIT %d",
                 $keep_count
@@ -241,9 +241,9 @@ class Metasync_Robots_Txt_Database
 
         // Delete all records NOT in the keep list
         $placeholders = implode(',', array_fill(0, count($ids_to_keep), '%d'));
-        $wpdb->query(
+        $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for robots.txt backups (admin save/restore paths)
             $wpdb->prepare(
-                "DELETE FROM {$this->table_name}
+                "DELETE FROM {$wpdb->prefix}metasync_robots_txt_backups
                 WHERE id NOT IN ($placeholders)",
                 $ids_to_keep
             )
@@ -258,7 +258,7 @@ class Metasync_Robots_Txt_Database
     public function drop_table()
     {
         global $wpdb;
-        $wpdb->query("DROP TABLE IF EXISTS {$this->table_name}");
+        $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}metasync_robots_txt_backups"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- uninstall cleanup — intentional table removal when the plugin is deleted
     }
 
     /**

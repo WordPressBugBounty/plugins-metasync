@@ -213,7 +213,6 @@ class Metasync_Admin
         add_action('admin_init', array($this, 'settings_page_init'));
         add_filter('all_plugins',  array($this,'metasync_plugin_white_label'));
         add_filter( 'plugin_row_meta',array($this,'metasync_view_detials_url'),10,3);
-        add_filter('site_transient_update_plugins', array($this, 'inject_whitelabel_icon_into_update_transient'));
 
         // Display transient error/success messages for redirections
         add_action('admin_notices', array($this, 'display_redirection_messages'));
@@ -499,7 +498,7 @@ class Metasync_Admin
     }
 
     public function metasync_fouc_prevention_style() {
-        if ( ! isset( $_GET['page'] ) || strpos( $_GET['page'], self::$page_slug ) !== 0 ) {
+        if ( ! isset( $_GET['page'] ) || strpos( sanitize_key(wp_unslash($_GET['page'])), self::$page_slug ) !== 0 ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check for an inline style
             return;
         }
         ?>
@@ -523,11 +522,11 @@ class Metasync_Admin
     }
 
     public function suppress_notices_on_wizard_page() {
-        if ( ! isset( $_GET['page'] ) ) {
+        if ( ! isset( $_GET['page'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check to hide notices for this request
             return;
         }
 
-        $page = sanitize_text_field( wp_unslash( $_GET['page'] ) );
+        $page = sanitize_key(wp_unslash($_GET['page'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only navigation values for a same-site redirect
 
         // Setup wizard: strip every notice for a fully focused, distraction-free screen.
         if ( strpos( $page, '-setup-wizard' ) !== false ) {
@@ -647,7 +646,7 @@ class Metasync_Admin
             #Redirect url to the new slug
             $redirect_url = admin_url('admin.php?page=' . $current_slug);
             
-            wp_redirect($redirect_url);
+            wp_safe_redirect($redirect_url);
             exit;
         }
     }
@@ -701,11 +700,11 @@ class Metasync_Admin
      */
     public function maybe_redirect_to_wizard() {
         // Only redirect if wizard should be shown
-        if (get_option('metasync_show_wizard') && !isset($_GET['page'])) {
+        if (get_option('metasync_show_wizard') && !isset($_GET['page'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- isset() routing check for a redirect to a fixed admin URL
             delete_option('metasync_show_wizard');
 
             // Don't redirect during AJAX, cron, or bulk activation
-            if (wp_doing_ajax() || wp_doing_cron() || isset($_GET['activate-multi'])) {
+            if (wp_doing_ajax() || wp_doing_cron() || isset($_GET['activate-multi'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- isset() routing check for a redirect to a fixed admin URL
                 return;
             }
 
@@ -727,11 +726,11 @@ class Metasync_Admin
      * "searchatlas".
      */
     public function redirect_legacy_instant_indexing_page() {
-        if (wp_doing_ajax() || wp_doing_cron() || !is_admin() || !isset($_GET['page'])) {
+        if (wp_doing_ajax() || wp_doing_cron() || !is_admin() || !isset($_GET['page'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only navigation values for a same-site redirect
             return;
         }
 
-        $page = sanitize_key(wp_unslash($_GET['page']));
+        $page = sanitize_key(wp_unslash($_GET['page'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check to hide notices for this request
         $legacy_page = self::$page_slug . '-instant-index';
         if ($page !== $legacy_page || !Metasync::current_user_has_plugin_access()) {
             return;
@@ -748,8 +747,8 @@ class Metasync_Admin
             $target = admin_url('admin.php?page=' . self::$page_slug . '-seo-controls');
             $query = [];
             foreach (['tab', 'subtab'] as $key) {
-                if (isset($_GET[$key])) {
-                    $query[$key] = sanitize_key(wp_unslash($_GET[$key]));
+                if (isset($_GET[$key])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only navigation values for a same-site redirect
+                    $query[$key] = sanitize_key(wp_unslash($_GET[$key])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only navigation values for a same-site redirect
                 }
             }
             if (!empty($query)) {
@@ -811,7 +810,7 @@ class Metasync_Admin
             $_COOKIE['metasync_previous_slug'] = $new_slug;           
             // Redirect to the new slug
             $redirect_url = admin_url('admin.php?page=' . $old_slug);
-            wp_redirect($redirect_url);
+            wp_safe_redirect($redirect_url);
             exit;
         }else{
             self::$page_slug = Metasync::get_option('general')['white_label_plugin_menu_slug']==""  ? "searchatlas":Metasync::get_option('general')['white_label_plugin_menu_slug'];
@@ -819,7 +818,7 @@ class Metasync_Admin
 
             #add redirection for when the old slug is not defined
             #this fixes the redirect issue #
-            wp_redirect($redirect_url);
+            wp_safe_redirect($redirect_url);
             exit;
         }
     }
@@ -832,7 +831,8 @@ class Metasync_Admin
                     $meta = sprintf(
                         '<a href="%s" class="thickbox open-plugin-details-modal" aria-label="%s" data-title="%s">%s</a>',
                         add_query_arg('TB_iframe', 'true', $plugin_uri),
-                        esc_attr(sprintf(esc_html__('More information about %s'), $plugin_data['Name'])),
+                        /* translators: %s: plugin name. */
+                        esc_attr(sprintf(esc_html__('More information about %s', 'metasync'), $plugin_data['Name'])),
                         esc_attr($plugin_data['Name']),
                         esc_html__('View details', 'metasync')
                     );
@@ -882,58 +882,13 @@ class Metasync_Admin
     }
 
     /**
-     * Inject the whitelabel icon into the update_plugins transient so that
-     * /wp-admin/update-core.php (Dashboard → Updates) shows the WL icon
-     * instead of the SearchAtlas icon returned by the update API.
-     *
-     * @param  object $transient  The site transient object.
-     * @return object
-     */
-    public function inject_whitelabel_icon_into_update_transient($transient) {
-        if (empty($transient) || !is_object($transient)) {
-            return $transient;
-        }
-
-        $general = Metasync::get_option('general');
-        if (!is_array($general)) {
-            return $transient;
-        }
-
-        $icon_url = $general['white_label_plugin_menu_icon'] ?? '';
-        if (empty($icon_url)) {
-            return $transient;
-        }
-
-        $this_plugin = plugin_basename(dirname(__DIR__) . '/metasync.php');
-
-        // Inject into pending updates list
-        if (!empty($transient->response) && isset($transient->response[$this_plugin])) {
-            $transient->response[$this_plugin]->icons = [
-                '1x'  => $icon_url,
-                '2x'  => $icon_url,
-            ];
-        }
-
-        // Also inject into the "no update needed" list so the icon appears
-        // on the updates screen even when the plugin is up-to-date
-        if (!empty($transient->no_update) && isset($transient->no_update[$this_plugin])) {
-            $transient->no_update[$this_plugin]->icons = [
-                '1x'  => $icon_url,
-                '2x'  => $icon_url,
-            ];
-        }
-
-        return $transient;
-    }
-
-    /**
      * Register the stylesheets for the admin area.
      *
      * @since    1.0.0
      */
     public function enqueue_styles()
     {
-        $current_page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
+        $current_page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check to pick stylesheets
 
         if (strpos($current_page, self::$page_slug) === 0) {
             wp_enqueue_style(
@@ -964,7 +919,7 @@ class Metasync_Admin
         }
 
         // Enqueue wizard CSS if on wizard page
-        if (isset($_GET['page']) && strpos($_GET['page'], '-setup-wizard') !== false) {
+        if (isset($_GET['page']) && strpos(sanitize_key(wp_unslash($_GET['page'])), '-setup-wizard') !== false) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check to pick stylesheets
             wp_enqueue_style(
                 $this->plugin_name . '-setup-wizard',
                 plugin_dir_url(__FILE__) . 'css/metasync-setup-wizard.css',
@@ -975,7 +930,7 @@ class Metasync_Admin
         }
 
         // Enqueue SEO Health CSS if on the SEO Health page
-        if (isset($_GET['page']) && strpos($_GET['page'], '-seo-health') !== false) {
+        if (isset($_GET['page']) && strpos(sanitize_key(wp_unslash($_GET['page'])), '-seo-health') !== false) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check to pick stylesheets
             wp_enqueue_style(
                 $this->plugin_name . '-seo-health',
                 plugin_dir_url(__FILE__) . 'css/metasync-seo-health.css',
@@ -994,7 +949,7 @@ class Metasync_Admin
     public function enqueue_scripts()
     {
         // --- Phase 5 (#887): Extracted inline JS files ---
-        $current_page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
+        $current_page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check to pick scripts
         $plugin_root_url = plugin_dir_url(dirname(__FILE__));
         $is_metasync_page = ($current_page === self::$page_slug || strpos($current_page, self::$page_slug) === 0);
 
@@ -1057,6 +1012,14 @@ class Metasync_Admin
                 $this->version,
                 true
             );
+            // Selector navigation is a GET, so the per-page nonce rides along
+            // as a query parameter and gates the user_meta persist in
+            // Metasync_Per_Page_Helper::resolve().
+            wp_localize_script(
+                $this->plugin_name . '-per-page',
+                'metasyncPerPage',
+                array('nonces' => Metasync_Per_Page_Helper::page_nonces())
+            );
         }
 
         // Dashboard iframe height (only on dashboard page)
@@ -1109,10 +1072,10 @@ class Metasync_Admin
             );
             // Pass the active tab from server (handles POST redirect)
             $sitemap_active_tab = 'general';
-            if (isset($_GET['tab']) && in_array($_GET['tab'], ['general', 'news', 'video'], true)) {
-                $sitemap_active_tab = sanitize_text_field(wp_unslash($_GET['tab']));
-            } elseif (isset($_POST['redirect_tab']) && in_array($_POST['redirect_tab'], ['general', 'news', 'video'], true)) {
-                $sitemap_active_tab = sanitize_text_field(wp_unslash($_POST['redirect_tab']));
+            if (isset($_GET['tab']) && in_array($_GET['tab'], ['general', 'news', 'video'], true)) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, allow-listed tab selection for the UI
+                $sitemap_active_tab = sanitize_text_field(wp_unslash($_GET['tab'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, allow-listed tab selection for the UI
+            } elseif (isset($_POST['redirect_tab']) && in_array($_POST['redirect_tab'], ['general', 'news', 'video'], true)) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only, allow-listed tab selection for the UI
+                $sitemap_active_tab = sanitize_text_field(wp_unslash($_POST['redirect_tab'])); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only, allow-listed tab selection for the UI
             }
             wp_localize_script($this->plugin_name . '-sitemap-tabs', 'metasyncSitemapTabs', [
                 'activeTab' => $sitemap_active_tab,
@@ -1442,6 +1405,8 @@ class Metasync_Admin
                 'sa_connect_nonce' => $sa_connect_nonce,
                 'reset_auth_nonce' => wp_create_nonce('metasync_reset_auth_nonce'),
                 'burst_ping_nonce' => wp_create_nonce('metasync_burst_ping'),
+                'clear_otto_cache_nonce' => wp_create_nonce('metasync_clear_otto_cache'),
+                'lglogin_nonce' => wp_create_nonce('metasync_lglogin'),
                 'heartbeat_state' => $heartbeat_state,
                 'dashboard_domain' => self::get_effective_dashboard_domain(),
                 'support_email' => Metasync::SUPPORT_EMAIL,
@@ -1507,7 +1472,7 @@ class Metasync_Admin
         // Display update warning banner if plugin update is available
         add_action('admin_notices', array($this, 'display_update_warning_banner'));
         // Enqueue wizard assets if on wizard page
-        if (isset($_GET['page']) && strpos($_GET['page'], '-setup-wizard') !== false) {
+        if (isset($_GET['page']) && strpos(sanitize_key(wp_unslash($_GET['page'])), '-setup-wizard') !== false) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check to pick scripts
             wp_enqueue_script(
                 $this->plugin_name . '-setup-wizard',
                 plugin_dir_url(__FILE__) . 'js/metasync-setup-wizard.js',
@@ -1708,11 +1673,6 @@ class Metasync_Admin
         Metasync_Connect_Manager::instance()->test_searchatlas_ajax_endpoint();
     }
 
-    public function simple_ajax_test()
-    {
-        Metasync_Connect_Manager::instance()->simple_ajax_test();
-    }
-
     /**
      * Create Admin Dashboard Iframe Page
      * Embeds the Search Atlas dashboard directly in WordPress admin
@@ -1801,7 +1761,7 @@ class Metasync_Admin
                         echo '<p style="color: var(--dashboard-text-secondary);">ℹ️ No cache plugins detected.</p>';
                     }
                 } catch (Exception $e) {
-                    error_log('MetaSync Cache Status Error: ' . $e->getMessage());
+                    error_log('MetaSync Cache Status Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                     echo '<p style="color: var(--dashboard-error);">⚠️ An error occurred while retrieving cache plugin status.</p>';
                 }
             } else {
@@ -1820,10 +1780,10 @@ class Metasync_Admin
 
             <?php
             // Display success/error messages
-            if (isset($_GET['cache_cleared']) && $_GET['cache_cleared'] == '1') {
-                $cleared = isset($_GET['cleared']) ? intval($_GET['cleared']) : 0;
-                $failed = isset($_GET['failed']) ? intval($_GET['failed']) : 0;
-                $plugins = isset($_GET['plugins']) ? sanitize_text_field(wp_unslash($_GET['plugins'])) : '';
+            if (isset($_GET['cache_cleared']) && $_GET['cache_cleared'] == '1') { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result notice after a nonce-checked purge
+                $cleared = isset($_GET['cleared']) ? intval($_GET['cleared']) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result notice after a nonce-checked purge
+                $failed = isset($_GET['failed']) ? intval($_GET['failed']) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result notice after a nonce-checked purge
+                $plugins = isset($_GET['plugins']) ? sanitize_text_field(wp_unslash($_GET['plugins'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result notice after a nonce-checked purge
 
                 if ($cleared > 0) {
                     echo '<div class="notice notice-success inline" style="margin-top: 15px;"><p>';
@@ -1845,8 +1805,8 @@ class Metasync_Admin
                 }
             }
 
-            if (isset($_GET['cache_error']) && $_GET['cache_error'] == '1') {
-                $message = isset($_GET['message']) ? urldecode(sanitize_text_field(wp_unslash($_GET['message']))) : '';
+            if (isset($_GET['cache_error']) && $_GET['cache_error'] == '1') { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result notice after a nonce-checked purge
+                $message = isset($_GET['message']) ? urldecode(sanitize_text_field(wp_unslash($_GET['message']))) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result notice after a nonce-checked purge
                 if (empty($message)) {
                     $message = 'An unknown error occurred while clearing cache. Please check error logs for details.';
                 }
@@ -1945,10 +1905,11 @@ class Metasync_Admin
 
             <?php
             // Hosting cache result messages
-            if (isset($_GET['hosting_cache_cleared']) && $_GET['hosting_cache_cleared'] == '1') {
-                $hc_cleared      = isset($_GET['hc_cleared'])      ? sanitize_text_field(urldecode($_GET['hc_cleared']))      : '';
-                $hc_failed       = isset($_GET['hc_failed'])       ? sanitize_text_field(urldecode($_GET['hc_failed']))       : '';
-                $hc_not_detected = isset($_GET['hc_not_detected']) ? sanitize_text_field(urldecode($_GET['hc_not_detected'])) : '';
+            if (isset($_GET['hosting_cache_cleared']) && $_GET['hosting_cache_cleared'] == '1') { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result notice after a nonce-checked purge
+                // phpcs:disable WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- each value is unslashed and sanitized on the following assignments.
+                $hc_cleared      = isset($_GET['hc_cleared'])      ? sanitize_text_field(urldecode(wp_unslash($_GET['hc_cleared'])))      : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result notice after a nonce-checked purge
+                $hc_failed       = isset($_GET['hc_failed'])       ? sanitize_text_field(urldecode(wp_unslash($_GET['hc_failed'])))       : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result notice after a nonce-checked purge
+                $hc_not_detected = isset($_GET['hc_not_detected']) ? sanitize_text_field(urldecode(wp_unslash($_GET['hc_not_detected']))) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result notice after a nonce-checked purge
 
                 if ($hc_cleared) {
                     echo '<div class="notice notice-success inline" style="margin-top: 15px;"><p>';
@@ -1965,6 +1926,7 @@ class Metasync_Admin
                     echo 'ℹ️ No enabled hosting providers were detected on this server (' . esc_html($hc_not_detected) . ').';
                     echo '</p></div>';
                 }
+                // phpcs:enable WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
             }
             ?>
 
@@ -2131,9 +2093,9 @@ class Metasync_Admin
             
             <?php
             // Display success/error messages
-            if (isset($_GET['otto_cache_cleared']) && $_GET['otto_cache_cleared'] == '1') {
-                $cleared_count = isset($_GET['count']) ? intval($_GET['count']) : 0;
-                $url = isset($_GET['url']) ? urldecode(sanitize_text_field(wp_unslash($_GET['url']))) : '';
+            if (isset($_GET['otto_cache_cleared']) && $_GET['otto_cache_cleared'] == '1') { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice or prefill, the form submit carries a nonce
+                $cleared_count = isset($_GET['count']) ? intval($_GET['count']) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice or prefill, the form submit carries a nonce
+                $url = isset($_GET['url']) ? urldecode(sanitize_text_field(wp_unslash($_GET['url']))) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice or prefill, the form submit carries a nonce
                 
                 echo '<div class="notice notice-success inline" style="margin-top: 15px;"><p>';
                 if (!empty($url)) {
@@ -2144,8 +2106,8 @@ class Metasync_Admin
                 echo '</p></div>';
             }
             
-            if (isset($_GET['otto_cache_error']) && $_GET['otto_cache_error'] == '1') {
-                $message = isset($_GET['message']) ? urldecode(sanitize_text_field(wp_unslash($_GET['message']))) : 'An unknown error occurred.';
+            if (isset($_GET['otto_cache_error']) && $_GET['otto_cache_error'] == '1') { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice or prefill, the form submit carries a nonce
+                $message = isset($_GET['message']) ? urldecode(sanitize_text_field(wp_unslash($_GET['message']))) : 'An unknown error occurred.'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice or prefill, the form submit carries a nonce
                 echo '<div class="notice notice-error inline" style="margin-top: 15px;"><p>';
                 echo '❌ <strong>Error:</strong> ' . esc_html($message);
                 echo '</p></div>';
@@ -2186,7 +2148,7 @@ class Metasync_Admin
                                 <input type="url"
                                        id="otto_cache_url"
                                        name="otto_cache_url"
-                                       value="<?php echo isset($_GET['url']) ? esc_attr(urldecode(sanitize_text_field(wp_unslash($_GET['url'])))) : ''; ?>"
+                                       value="<?php echo isset($_GET['url']) ? esc_attr(urldecode(sanitize_text_field(wp_unslash($_GET['url'])))) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice or prefill, the form submit carries a nonce ?>"
                                        class="regular-text"
                                        placeholder="https://example.com/page/"
                                        required />
@@ -2259,7 +2221,8 @@ class Metasync_Admin
      * AJAX handler for saving hosting cache settings
      */
     public function ajax_save_hosting_cache_settings() {
-        if (!isset($_POST['hosting_cache_nonce']) || !wp_verify_nonce($_POST['hosting_cache_nonce'], 'metasync_hosting_cache_nonce')) {
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce is validated immediately by wp_verify_nonce().
+        if (!isset($_POST['hosting_cache_nonce']) || !wp_verify_nonce(wp_unslash($_POST['hosting_cache_nonce']), 'metasync_hosting_cache_nonce')) {
             wp_send_json_error(array('message' => 'Security check failed'));
             return;
         }
@@ -2282,7 +2245,8 @@ class Metasync_Admin
      * AJAX handler: save object cache behaviour settings
      */
     public function ajax_save_object_cache_settings() {
-        if (!isset($_POST['object_cache_nonce']) || !wp_verify_nonce($_POST['object_cache_nonce'], 'metasync_object_cache_nonce')) {
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce is validated immediately by wp_verify_nonce().
+        if (!isset($_POST['object_cache_nonce']) || !wp_verify_nonce(wp_unslash($_POST['object_cache_nonce']), 'metasync_object_cache_nonce')) {
             wp_send_json_error(array('message' => 'Security check failed'));
             return;
         }
@@ -2311,7 +2275,8 @@ class Metasync_Admin
      * AJAX handler for saving OTTO Cache TTL
      */
     public function ajax_save_otto_cache_ttl() {
-        if (!isset($_POST['otto_cache_ttl_nonce']) || !wp_verify_nonce($_POST['otto_cache_ttl_nonce'], 'metasync_otto_cache_ttl_nonce')) {
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce is validated immediately by wp_verify_nonce().
+        if (!isset($_POST['otto_cache_ttl_nonce']) || !wp_verify_nonce(wp_unslash($_POST['otto_cache_ttl_nonce']), 'metasync_otto_cache_ttl_nonce')) {
             wp_send_json_error(array('message' => 'Security check failed.'));
             return;
         }
@@ -2339,7 +2304,8 @@ class Metasync_Admin
      * admin_post handler: purge WP Engine and Kinsta hosting-level caches
      */
     public function handle_purge_hosting_cache() {
-        if (!isset($_POST['hosting_cache_purge_nonce']) || !wp_verify_nonce($_POST['hosting_cache_purge_nonce'], 'metasync_hosting_cache_purge_nonce')) {
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce is validated immediately by wp_verify_nonce().
+        if (!isset($_POST['hosting_cache_purge_nonce']) || !wp_verify_nonce(wp_unslash($_POST['hosting_cache_purge_nonce']), 'metasync_hosting_cache_purge_nonce')) {
             wp_die('Security check failed');
         }
 
@@ -2361,7 +2327,7 @@ class Metasync_Admin
                     WpeCommon::purge_memcached();
                     $cleared[] = 'WP Engine';
                 } catch (Exception $e) {
-                    error_log('MetaSync: WP Engine hosting cache purge failed - ' . $e->getMessage());
+                    error_log('MetaSync: WP Engine hosting cache purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                     $failed[] = 'WP Engine';
                 }
             } else {
@@ -2376,7 +2342,7 @@ class Metasync_Admin
                     KinstaCache::get_instance()->kinsta_cache_purge_full();
                     $cleared[] = 'Kinsta';
                 } catch (Exception $e) {
-                    error_log('MetaSync: Kinsta hosting cache purge failed - ' . $e->getMessage());
+                    error_log('MetaSync: Kinsta hosting cache purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                     $failed[] = 'Kinsta';
                 }
             } else {
@@ -2773,7 +2739,7 @@ class Metasync_Admin
             (new Metasync_Sync_Requests())->SyncCustomerParams();
         } catch (Exception $e) {
             # Log any API request errors for debugging
-            error_log('Metasync API Error: ' . $e->getMessage());
+            error_log('Metasync API Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         }
     }
     
@@ -2790,7 +2756,7 @@ class Metasync_Admin
             (new Metasync_Sync_Requests())->SyncCustomerParams();
         } catch (Exception $e) {
             # Log any API request errors for debugging
-            error_log('Metasync API Error: ' . $e->getMessage());
+            error_log('Metasync API Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         }
     }
 
@@ -2829,7 +2795,7 @@ class Metasync_Admin
             // the save (and the reset) to site admins, not just anyone who can
             // open the page via plugin_access_roles.
             if (!current_user_can('manage_options')) {
-                wp_die(__('Sorry, you are not allowed to manage media optimization settings.', 'metasync'));
+                wp_die(esc_html__('Sorry, you are not allowed to manage media optimization settings.', 'metasync'));
             }
 
             // Handle reset to defaults
@@ -2838,6 +2804,7 @@ class Metasync_Admin
                 Metasync_Media_Settings::save_settings($defaults);
                 $save_success = true;
             } elseif (isset($_POST['metasync_media'])) {
+                // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated and sanitised by Metasync_Media_Settings::save_settings().
                 $input = wp_unslash($_POST['metasync_media']);
                 Metasync_Media_Settings::save_settings($input);
                 $save_success = true;
@@ -2871,6 +2838,13 @@ class Metasync_Admin
      */
     public function create_admin_code_minification_page()
     {
+        // Settings shape the whole site's asset pipeline — restrict
+        // the save (and the reset) to site admins, not just anyone who can
+        // open the page via plugin_access_roles.
+        if (!empty($_POST) && !current_user_can('manage_options')) {
+            wp_die(esc_html__('Sorry, you are not allowed to manage code minification settings.', 'metasync'));
+        }
+
         $this->render_layout_open('Code Minification', 'code_minification', 'Minify CSS, JavaScript, and HTML to improve performance.');
         // Load settings and compatibility classes
         require_once plugin_dir_path(dirname(__FILE__)) . 'code-minification/class-minification-settings.php';
@@ -2889,6 +2863,7 @@ class Metasync_Admin
                 Metasync_Minification_Settings::save_settings($defaults);
                 $save_success = true;
             } elseif (isset($_POST['metasync_code_min'])) {
+                // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated and sanitised by Metasync_Minification_Settings::save_settings().
                 $input = (array) wp_unslash($_POST['metasync_code_min']);
                 Metasync_Minification_Settings::save_settings($input);
                 $save_success = true;
@@ -2945,6 +2920,7 @@ class Metasync_Admin
         if (filesize($file) > $max_bytes) {
             $size_mb = round(filesize($file) / 1024 / 1024, 1);
             wp_send_json_error(sprintf(
+                /* translators: %s: file size in megabytes. */
                 __('Optimization skipped: file size (%s MB) exceeds the 10 MB safety limit to prevent memory issues.', 'metasync'),
                 $size_mb
             ));
@@ -3155,6 +3131,7 @@ class Metasync_Admin
                 $skipped++;
                 $file = get_attached_file($id);
                 $name = $file ? basename($file) : "ID {$id}";
+                /* translators: %s: attachment file name. */
                 $errors[] = sprintf(__('%s: skipped — original image unavailable.', 'metasync'), $name);
                 continue;
             }
@@ -3165,6 +3142,7 @@ class Metasync_Admin
                 $failed++;
                 $file = get_attached_file($id);
                 $name = $file ? basename($file) : "ID {$id}";
+                /* translators: %s: attachment file name. */
                 $errors[] = sprintf(__('%s: revert failed (original file may not exist).', 'metasync'), $name);
             }
         }
@@ -3342,6 +3320,15 @@ class Metasync_Admin
      */
     public function create_admin_xml_sitemap_page()
     {
+        // Every form action below mutates site-wide state — sitemap options,
+        // sitemap files on disk, robots.txt, other plugins' sitemap generators
+        // — so they are restricted to site admins, not just anyone who can
+        // open the page via plugin_access_roles. The nonce is CSRF
+        // protection, not authorization.
+        if (!empty($_POST) && !current_user_can('manage_options')) {
+            wp_die(esc_html__('Sorry, you are not allowed to manage sitemap settings.', 'metasync'));
+        }
+
         // Load sitemap generator class
         require_once plugin_dir_path(dirname(__FILE__)) . 'sitemap/class-metasync-sitemap-generator.php';
 
@@ -3374,6 +3361,7 @@ class Metasync_Admin
             $result = $sitemap_generator->generate_sitemap();
             if (is_wp_error($result)) {
                 echo '<div class="notice notice-error"><p>' . esc_html(
+                    /* translators: %s: error message. */
                     sprintf(__('Settings saved but sitemap generation failed: %s', 'metasync'), $result->get_error_message())
                 ) . '</p></div>';
             } elseif (false === $result) {
@@ -3390,8 +3378,8 @@ class Metasync_Admin
             // Build generic taxonomy filters
             $news_taxonomies = [];
             if (!empty($_POST['news_taxonomies']) && is_array($_POST['news_taxonomies'])) {
-                foreach ($_POST['news_taxonomies'] as $tax_name => $term_ids) {
-                    $news_taxonomies[sanitize_key($tax_name)] = array_map('absint', (array) $term_ids);
+                foreach (wp_unslash($_POST['news_taxonomies']) as $tax_name => $term_ids) {
+                    $news_taxonomies[sanitize_key($tax_name)] = array_map('absint', (array) wp_unslash($term_ids));
                 }
             }
 
@@ -3418,7 +3406,7 @@ class Metasync_Admin
             } else {
                 // Also remove physical file if it exists
                 if (file_exists(ABSPATH . 'news-sitemap.xml')) {
-                    @unlink(ABSPATH . 'news-sitemap.xml');
+                    @wp_delete_file(ABSPATH . 'news-sitemap.xml');
                 }
                 echo '<div class="notice notice-success"><p>' . esc_html__('News sitemap settings saved. Sitemap cache cleared.', 'metasync') . '</p></div>';
             }
@@ -3431,8 +3419,8 @@ class Metasync_Admin
             // Build generic taxonomy filters
             $video_taxonomies = [];
             if (!empty($_POST['video_taxonomies']) && is_array($_POST['video_taxonomies'])) {
-                foreach ($_POST['video_taxonomies'] as $tax_name => $term_ids) {
-                    $video_taxonomies[sanitize_key($tax_name)] = array_map('absint', (array) $term_ids);
+                foreach (wp_unslash($_POST['video_taxonomies']) as $tax_name => $term_ids) {
+                    $video_taxonomies[sanitize_key($tax_name)] = array_map('absint', (array) wp_unslash($term_ids));
                 }
             }
 
@@ -3460,7 +3448,7 @@ class Metasync_Admin
             } else {
                 // Also remove physical file if it exists
                 if (file_exists(ABSPATH . 'video-sitemap.xml')) {
-                    @unlink(ABSPATH . 'video-sitemap.xml');
+                    @wp_delete_file(ABSPATH . 'video-sitemap.xml');
                 }
                 echo '<div class="notice notice-success"><p>' . esc_html__('Video sitemap settings saved. Sitemap cache cleared.', 'metasync') . '</p></div>';
             }
@@ -3530,8 +3518,9 @@ class Metasync_Admin
 
                 if (is_wp_error($result)) {
                     $error_msg = $result->get_error_message();
-                    error_log('[MetaSync] Sitemap generation failed: ' . $error_msg);
+                    error_log('[MetaSync] Sitemap generation failed: ' . $error_msg); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                     echo '<div class="notice notice-error"><p>' . esc_html(
+                        /* translators: %s: error message. */
                         sprintf(__('Sitemap generation failed: %s', 'metasync'), $error_msg)
                     ) . '</p></div>';
                 } elseif (false === $result) {
@@ -3540,6 +3529,7 @@ class Metasync_Admin
                     $message = esc_html__('Sitemap generated successfully!', 'metasync');
                     if (!empty($extras)) {
                         $message .= ' ' . sprintf(
+                            /* translators: %s: list of sitemap types. */
                             esc_html__('Also generated %s sitemap(s).', 'metasync'),
                             implode(' & ', $extras)
                         );
@@ -3837,6 +3827,7 @@ class Metasync_Admin
             return;
         }
         echo '<div class="notice notice-info is-dismissible"><p>';
+        /* translators: %s: effective plugin name (whitelabel-aware). */
         echo esc_html(sprintf(__('Note: Another SEO plugin (Yoast, Rank Math, or AIOSEO) may also be generating /llms.txt. %s\'s version takes priority when enabled.', 'metasync'), Metasync::get_effective_plugin_name()));
         echo '</p></div>';
     }
@@ -4030,15 +4021,15 @@ class Metasync_Admin
         }
 
         // Get pagination parameters
-        $page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
+        $page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and pagination values for the sync log
         $per_page = Metasync_Per_Page_Helper::resolve('sync_log', 10);
         $offset = ($page - 1) * $per_page;
 
         // Get filters
         $filters = [
             // UI exposes date_range and status only. We compute date_from/date_to based on date_range
-            'date_range' => isset($_GET['date_range']) ? sanitize_text_field(wp_unslash($_GET['date_range'])) : '',
-            'status' => isset($_GET['status']) ? sanitize_text_field(wp_unslash($_GET['status'])) : '',
+            'date_range' => isset($_GET['date_range']) ? sanitize_text_field(wp_unslash($_GET['date_range'])) : '', // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and pagination values for the sync log
+            'status' => isset($_GET['status']) ? sanitize_text_field(wp_unslash($_GET['status'])) : '', // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and pagination values for the sync log
         ];
 
         // Map date_range to concrete date_from/date_to for DB queries
@@ -4049,26 +4040,26 @@ class Metasync_Admin
 
         if (!empty($date_range)) {
             // End boundary is now by default
-            $date_to = date('Y-m-d H:i:s', $wp_now_ts);
+            $date_to = gmdate('Y-m-d H:i:s', $wp_now_ts);
 
             if ($date_range === 'today') {
                 $start_ts = strtotime('today', $wp_now_ts);
-                $date_from = date('Y-m-d H:i:s', $start_ts);
+                $date_from = gmdate('Y-m-d H:i:s', $start_ts);
             } elseif ($date_range === 'yesterday') {
                 $start_ts = strtotime('yesterday', $wp_now_ts);
                 $end_ts = strtotime('today', $wp_now_ts) - 1; // end of yesterday
-                $date_from = date('Y-m-d H:i:s', $start_ts);
-                $date_to = date('Y-m-d H:i:s', $end_ts);
+                $date_from = gmdate('Y-m-d H:i:s', $start_ts);
+                $date_to = gmdate('Y-m-d H:i:s', $end_ts);
             } elseif ($date_range === 'this_week') {
                 $start_of_week = (int) get_option('start_of_week', 1); // 0=Sun, 1=Mon
-                $day_of_week = (int) date('w', $wp_now_ts); // 0=Sun..6=Sat
+                $day_of_week = (int) gmdate('w', $wp_now_ts); // 0=Sun..6=Sat
                 // Convert start_of_week to PHP's 0..6 where 0=Sunday
                 $delta_days = ($day_of_week - $start_of_week + 7) % 7;
                 $start_ts = strtotime('-' . $delta_days . ' days', strtotime('today', $wp_now_ts));
-                $date_from = date('Y-m-d H:i:s', $start_ts);
+                $date_from = gmdate('Y-m-d H:i:s', $start_ts);
             } elseif ($date_range === 'this_month') {
-                $start_ts = strtotime(date('Y-m-01 00:00:00', $wp_now_ts));
-                $date_from = date('Y-m-d H:i:s', $start_ts);
+                $start_ts = strtotime(gmdate('Y-m-01 00:00:00', $wp_now_ts));
+                $date_from = gmdate('Y-m-d H:i:s', $start_ts);
             } elseif ($date_range === 'all') {
                 // no bounds
             }
@@ -4097,10 +4088,22 @@ class Metasync_Admin
             <div class="dashboard-card">
                 <div class="sync-log-header">
                     <div class="sync-log-title-section">
-                        <h2>Changes Log</h2>
-                        <p style="color: var(--dashboard-text-secondary); margin-bottom: 0;">
-                            Recent content synchronizations from external tools.
-                            <span style="margin-left:8px; font-size:12px; opacity:.75;">Records are automatically removed after 90 days.</span>
+                        <?php
+                        // The page title and description are already rendered by
+                        // render_layout_open() above. Repeating them here printed
+                        // "Changes Log" twice on screen, so the card keeps only the
+                        // retention hint — the one piece of copy the layout header
+                        // does not carry.
+                        ?>
+                        <p style="color: var(--dashboard-text-secondary); margin-top: 0; margin-bottom: 0;">
+                            <?php
+                            // No opacity here: this used to be a de-emphasised
+                            // aside trailing a full-contrast sentence, but it is
+                            // now the card's only copy. At 12px/.75 it composites
+                            // to 4.28:1 on the card background, under the 4.5:1
+                            // AA floor; at full strength it reads 6.52:1.
+                            ?>
+                            <span style="font-size:13px;">Records are automatically removed after 90 days.</span>
                         </p>
                     </div>
 
@@ -4112,7 +4115,7 @@ class Metasync_Admin
                             🗑 Clear Log
                         </button>
                         <form method="get" class="sync-filters-form" onchange="this.submit()" style="display:flex;flex-direction:row;align-items:center;gap:12px;flex-wrap:nowrap;">
-                            <input type="hidden" name="page" value="<?php echo esc_attr($_GET['page']); ?>">
+                            <input type="hidden" name="page" value="<?php echo esc_attr(sanitize_key(wp_unslash($_GET['page']))); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and pagination values for the sync log ?>">
 
                             <select name="date_range" class="sync-filter-select">
                                 <option value="all" <?php selected($filters['date_range'] ?? 'all', 'all'); ?>> All Time</option>
@@ -4136,7 +4139,7 @@ class Metasync_Admin
                     <?php if (empty($sync_records)): ?>
                         <div class="sync-log-empty">
                             <div class="sync-log-empty-icon"><span class="dashicons dashicons-media-default" style="font-size:48px;width:48px;height:48px;color:var(--dashboard-text-secondary);"></span></div>
-                            <h3>No sync records found</h3>
+                            <h2>No sync records found</h2>
                             <p>Sync records will appear here when content/pages receive new updates.</p>
                         </div>
                     <?php else: ?>
@@ -4195,22 +4198,23 @@ class Metasync_Admin
                 <div class="sync-log-pagination">
                     <div class="sync-log-pagination-info">
                         Total records: <?php echo intval( $total_records ); ?><?php if ($total_records > 0): ?> | Showing <?php echo intval( $offset ) + 1; ?>-<?php echo intval( min($offset + $per_page, $total_records) ); ?><?php endif; ?>
-                        <?php echo Metasync_Per_Page_Helper::render_selector('sync_log', $per_page); ?>
+                        <?php // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- helper returns a complete escaped selector element.
+                        echo Metasync_Per_Page_Helper::render_selector('sync_log', absint($per_page)); ?>
                     </div>
 
                     <?php if ($total_pages > 1): ?>
                         <div class="sync-log-pagination-controls">
                             <?php if ($page > 1): ?>
-                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo intval( $page ) - 1; ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>" class="sync-pagination-btn">‹</a>
+                                <a href="?page=<?php echo esc_attr(sanitize_key(wp_unslash($_GET['page']))); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and pagination values for the sync log ?>&paged=<?php echo intval( $page ) - 1; ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>" class="sync-pagination-btn">‹</a>
                             <?php endif; ?>
 
                             <?php for ($i = max(1, $page - 2); $i <= min($total_pages, $page + 2); $i++): ?>
-                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo intval( $i ); ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>"
+                                <a href="?page=<?php echo esc_attr(sanitize_key(wp_unslash($_GET['page']))); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and pagination values for the sync log ?>&paged=<?php echo intval( $i ); ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>"
                                    class="sync-pagination-btn <?php echo $i === $page ? 'active' : ''; ?>"><?php echo intval( $i ); ?></a>
                             <?php endfor; ?>
 
                             <?php if ($page < $total_pages): ?>
-                                <a href="?page=<?php echo esc_attr($_GET['page']); ?>&paged=<?php echo intval( $page ) + 1; ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>" class="sync-pagination-btn">›</a>
+                                <a href="?page=<?php echo esc_attr(sanitize_key(wp_unslash($_GET['page']))); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and pagination values for the sync log ?>&paged=<?php echo intval( $page ) + 1; ?><?php echo esc_html( $this->build_filter_query_string($filters) ); ?>" class="sync-pagination-btn">›</a>
                             <?php endif; ?>
                         </div>
                     <?php endif; ?>
@@ -4301,8 +4305,8 @@ class Metasync_Admin
         // Preserve the user-selected results-per-page value across page
         // navigation so a non-default page size survives clicking a page link.
         $per_page_key = Metasync_Per_Page_Helper::request_key('sync_log');
-        if (isset($_GET[$per_page_key])) {
-            $per_page = (int) $_GET[$per_page_key];
+        if (isset($_GET[$per_page_key])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, allow-listed per-page value for links
+            $per_page = (int) $_GET[$per_page_key]; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, allow-listed per-page value for links
             if (in_array($per_page, Metasync_Per_Page_Helper::allowed_values(), true)) {
                 $query_parts[] = $per_page_key . '=' . $per_page;
             }
@@ -4483,16 +4487,6 @@ class Metasync_Admin
         Metasync_Connect_Manager::instance()->handle_session_management_early();
     }
 
-    /**
-     * @deprecated 2.5.12 Use Metasync_Auth_Manager instead of sessions for authentication
-     */
-    private function safe_session_start() {
-        // This method is deprecated and no longer used
-        // Authentication now uses Metasync_Auth_Manager with WordPress transients and user meta
-        _deprecated_function(__METHOD__, '2.5.12', 'Metasync_Auth_Manager');
-        return Metasync_Session_Helper::safe_start();
-    }
-
     private function handle_whitelabel_session_logic()
     {
         Metasync_Connect_Manager::instance()->handle_whitelabel_session_logic();
@@ -4590,7 +4584,7 @@ class Metasync_Admin
                     Effective Threshold
                 </label>
                 <div style="padding: 10px 12px; background: var(--dashboard-input-bg); border: 1px solid var(--dashboard-border); border-radius: 6px; color: var(--dashboard-text-secondary);">
-                    <strong id="effective_threshold_value"><?php echo round($effective_threshold, 2); ?></strong>
+                    <strong id="effective_threshold_value"><?php echo esc_html((string) round($effective_threshold, 2)); ?></strong>
                 </div>
                 <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
                     Calculated as: cores × per-core threshold
@@ -4610,11 +4604,11 @@ class Metasync_Admin
                     </div>
                     <div>
                         <div style="font-size: 12px; color: var(--dashboard-text-secondary); margin-bottom: 4px;">Max Load Observed</div>
-                        <div style="font-size: 18px; font-weight: 600; color: var(--dashboard-text);"><?php echo round($stats['max_load'], 2); ?></div>
+                        <div style="font-size: 18px; font-weight: 600; color: var(--dashboard-text);"><?php echo esc_html((string) round($stats['max_load'], 2)); ?></div>
                     </div>
                     <div>
                         <div style="font-size: 12px; color: var(--dashboard-text-secondary); margin-bottom: 4px;">Average Load</div>
-                        <div style="font-size: 18px; font-weight: 600; color: var(--dashboard-text);"><?php echo round($stats['avg_load'], 2); ?></div>
+                        <div style="font-size: 18px; font-weight: 600; color: var(--dashboard-text);"><?php echo esc_html((string) round($stats['avg_load'], 2)); ?></div>
                     </div>
                 </div>
             </div>
@@ -5323,7 +5317,7 @@ class Metasync_Admin
     public function display_page_builder_notice() {
         // Only relevant on the plugin's own settings page — avoid repeating
         // this notice across every admin screen.
-        if (!isset($_GET['page']) || $_GET['page'] !== self::$page_slug) {
+        if (!isset($_GET['page']) || wp_unslash($_GET['page']) !== self::$page_slug) {
             return;
         }
 
@@ -5341,7 +5335,7 @@ class Metasync_Admin
         }
 
         // Handle dismiss action
-        if (isset($_GET['metasync_dismiss_builder_notice']) && wp_verify_nonce($_GET['_wpnonce'] ?? '', 'metasync_dismiss_builder')) {
+        if (isset($_GET['metasync_dismiss_builder_notice'], $_GET['_wpnonce']) && wp_verify_nonce(sanitize_text_field(wp_unslash($_GET['_wpnonce'])), 'metasync_dismiss_builder')) {
             update_user_meta(get_current_user_id(), 'metasync_builder_notice_dismissed', '1');
             return;
         }
@@ -5438,7 +5432,8 @@ class Metasync_Admin
      */
     public function ajax_save_performance_settings() {
         # Check nonce for security and return early if invalid
-        if (!isset($_POST['meta_sync_nonce']) || !wp_verify_nonce($_POST['meta_sync_nonce'], 'meta_sync_general_setting_nonce')) {
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce is validated immediately by wp_verify_nonce().
+        if (!isset($_POST['meta_sync_nonce']) || !wp_verify_nonce(wp_unslash($_POST['meta_sync_nonce']), 'meta_sync_general_setting_nonce')) {
             wp_send_json_error(array('message' => 'Invalid nonce'));
             return;
         }
@@ -5508,7 +5503,7 @@ class Metasync_Admin
             $scheduled = wp_schedule_event(time(), 'metasync_daily_cleanup', 'metasync_cleanup_transients');
             
             if (!$scheduled) {
-                error_log('MetaSync: Failed to schedule transient cleanup cron job');
+                error_log('MetaSync: Failed to schedule transient cleanup cron job'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
     }
@@ -5521,7 +5516,7 @@ class Metasync_Admin
         $timestamp = wp_next_scheduled('metasync_cleanup_transients');
         if ($timestamp) {
             wp_unschedule_event($timestamp, 'metasync_cleanup_transients');
-            error_log('MetaSync: Transient cleanup cron job unscheduled');
+            error_log('MetaSync: Transient cleanup cron job unscheduled'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- unreachable in production
         }
     }
     
@@ -5545,10 +5540,8 @@ class Metasync_Admin
         if (!wp_next_scheduled('metasync_hidden_post_check')) {
             $scheduled = wp_schedule_event(time(), 'metasync_weekly', 'metasync_hidden_post_check');
             
-            if ($scheduled) {
-                error_log('MetaSync: Hidden post manager cron job scheduled successfully (runs every 7 days)');
-            } else {
-                error_log('MetaSync: Failed to schedule hidden post manager cron job');
+            if (!$scheduled) {
+                error_log('MetaSync: Failed to schedule hidden post manager cron job'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
     }
@@ -5561,10 +5554,8 @@ class Metasync_Admin
     {
         if (!wp_next_scheduled('metasync_otto_recheck_404_exclusions')) {
             $scheduled = wp_schedule_event(time(), 'metasync_daily_cleanup', 'metasync_otto_recheck_404_exclusions');
-            if ($scheduled) {
-                error_log('MetaSync: OTTO 404 recheck cron job scheduled successfully (runs daily)');
-            } else {
-                error_log('MetaSync: Failed to schedule OTTO 404 recheck cron job');
+            if (!$scheduled) {
+                error_log('MetaSync: Failed to schedule OTTO 404 recheck cron job'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             }
         }
     }
@@ -5639,11 +5630,11 @@ class Metasync_Admin
         try {
             // 1. Post revisions
             if (!empty($settings['clean_post_revisions'])) {
-                $stats['post_revisions'] = (int) $wpdb->query(
+                $stats['post_revisions'] = (int) $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- bulk site-maintenance operations (revisions/trash/spam/transients/orphans) — no bulk WordPress API exists
                     "DELETE FROM {$wpdb->posts} WHERE post_type = 'revision'"
                 );
                 // Remove postmeta left behind by deleted revisions
-                $wpdb->query(
+                $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- bulk site-maintenance operations (revisions/trash/spam/transients/orphans) — no bulk WordPress API exists
                     "DELETE pm FROM {$wpdb->postmeta} pm
                      LEFT JOIN {$wpdb->posts} p ON p.ID = pm.post_id
                      WHERE p.ID IS NULL"
@@ -5653,18 +5644,17 @@ class Metasync_Admin
             // 2. Trashed posts + their postmeta
             if (!empty($settings['clean_trashed_posts'])) {
                 // Collect IDs first to cleanly remove postmeta
-                $trashed_ids = $wpdb->get_col(
+                $trashed_ids = $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- bulk site-maintenance operations (revisions/trash/spam/transients/orphans) — no bulk WordPress API exists
                     "SELECT ID FROM {$wpdb->posts} WHERE post_status = 'trash'"
                 );
                 if (!empty($trashed_ids)) {
-                    $placeholders = implode(',', array_fill(0, count($trashed_ids), '%d'));
-                    $wpdb->query(
+                    $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- bulk site-maintenance operations (revisions/trash/spam/transients/orphans) — no bulk WordPress API exists
                         $wpdb->prepare(
-                            "DELETE FROM {$wpdb->postmeta} WHERE post_id IN ($placeholders)",
+                            'DELETE FROM ' . $wpdb->postmeta . ' WHERE post_id IN (' . implode(',', array_fill(0, count($trashed_ids), '%d')) . ')',
                             $trashed_ids
                         )
                     );
-                    $stats['trashed_posts'] = (int) $wpdb->query(
+                    $stats['trashed_posts'] = (int) $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- bulk site-maintenance operations (revisions/trash/spam/transients/orphans) — no bulk WordPress API exists
                         "DELETE FROM {$wpdb->posts} WHERE post_status = 'trash'"
                     );
                 } else {
@@ -5674,14 +5664,14 @@ class Metasync_Admin
 
             // 3. Trashed comments
             if (!empty($settings['clean_trashed_comments'])) {
-                $stats['trashed_comments'] = (int) $wpdb->query(
+                $stats['trashed_comments'] = (int) $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- bulk site-maintenance operations (revisions/trash/spam/transients/orphans) — no bulk WordPress API exists
                     "DELETE FROM {$wpdb->comments} WHERE comment_approved = 'trash'"
                 );
             }
 
             // 4. Spam comments
             if (!empty($settings['clean_spam_comments'])) {
-                $stats['spam_comments'] = (int) $wpdb->query(
+                $stats['spam_comments'] = (int) $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- bulk site-maintenance operations (revisions/trash/spam/transients/orphans) — no bulk WordPress API exists
                     "DELETE FROM {$wpdb->comments} WHERE comment_approved = 'spam'"
                 );
             }
@@ -5689,13 +5679,13 @@ class Metasync_Admin
             // 5. Expired transients — direct SQL, no cache flush
             if (!empty($settings['clean_expired_transients'])) {
                 // Delete timeout rows that have already expired
-                $wpdb->query(
+                $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- bulk site-maintenance operations (revisions/trash/spam/transients/orphans) — no bulk WordPress API exists
                     "DELETE FROM {$wpdb->options}
                      WHERE option_name LIKE '\_transient\_timeout\_%'
                      AND option_value + 0 < UNIX_TIMESTAMP()"
                 );
                 // Delete value rows whose timeout row no longer exists
-                $stats['expired_transients'] = (int) $wpdb->query(
+                $stats['expired_transients'] = (int) $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- bulk site-maintenance operations (revisions/trash/spam/transients/orphans) — no bulk WordPress API exists
                     "DELETE o FROM {$wpdb->options} o
                      LEFT JOIN {$wpdb->options} t
                        ON t.option_name = CONCAT('_transient_timeout_', SUBSTRING(o.option_name, 12))
@@ -5707,7 +5697,7 @@ class Metasync_Admin
 
             // 6. Orphaned postmeta (post_id references a post that no longer exists)
             if (!empty($settings['clean_orphaned_postmeta'])) {
-                $stats['orphaned_postmeta'] = (int) $wpdb->query(
+                $stats['orphaned_postmeta'] = (int) $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- bulk site-maintenance operations (revisions/trash/spam/transients/orphans) — no bulk WordPress API exists
                     "DELETE pm FROM {$wpdb->postmeta} pm
                      LEFT JOIN {$wpdb->posts} p ON p.ID = pm.post_id
                      WHERE p.ID IS NULL"
@@ -5721,10 +5711,8 @@ class Metasync_Admin
             $settings['last_run_stats'] = $stats;
             update_option('metasync_db_cleanup_settings', $settings);
 
-            error_log('MetaSync: DB cleanup completed — ' . json_encode($stats));
-
         } catch (Exception $e) {
-            error_log('MetaSync: DB cleanup failed — ' . $e->getMessage());
+            error_log('MetaSync: DB cleanup failed — ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         }
     }
 
@@ -5943,8 +5931,9 @@ class Metasync_Admin
      * AJAX: Save DB cleanup settings and reschedule cron accordingly.
      */
     public function ajax_save_db_cleanup_settings() {
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce is validated immediately by wp_verify_nonce().
         if (!isset($_POST['db_cleanup_settings_nonce']) ||
-            !wp_verify_nonce($_POST['db_cleanup_settings_nonce'], 'metasync_db_cleanup_settings_nonce')) {
+            !wp_verify_nonce(wp_unslash($_POST['db_cleanup_settings_nonce']), 'metasync_db_cleanup_settings_nonce')) {
             wp_send_json_error(array('message' => 'Invalid security token. Please refresh the page and try again.'));
             return;
         }
@@ -6003,8 +5992,9 @@ class Metasync_Admin
      * Persists current form state first so unsaved checkbox changes are respected.
      */
     public function ajax_run_db_cleanup() {
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce is validated immediately by wp_verify_nonce().
         if (!isset($_POST['db_cleanup_settings_nonce']) ||
-            !wp_verify_nonce($_POST['db_cleanup_settings_nonce'], 'metasync_db_cleanup_settings_nonce')) {
+            !wp_verify_nonce(wp_unslash($_POST['db_cleanup_settings_nonce']), 'metasync_db_cleanup_settings_nonce')) {
             wp_send_json_error(array('message' => 'Invalid security token.'));
             return;
         }
@@ -6079,33 +6069,6 @@ class Metasync_Admin
             'timestamp_label' => $timestamp_label,
             'stats_html'      => $stats_html,
         ));
-    }
-
-    /**
-     * Control plugin auto-updates based on user setting
-     *
-     * @param bool $update Whether to update
-     * @param object $item Update offer
-     * @return bool Whether to allow auto-update
-     */
-    public function control_plugin_auto_updates($update, $item)
-    {
-        # Check if the item object has the slug property
-        if (!isset($item->slug)) {
-            return $update;
-        }
-
-        // Check if this is our plugin
-        if ($item->slug === 'metasync') {
-            $general_settings = Metasync::get_option('general') ?? [];
-            $enable_auto_updates = $general_settings['enable_auto_updates'] ?? false;
-
-            // Return the user's preference (true = allow auto-updates, false = prevent)
-            return $enable_auto_updates === 'true' || $enable_auto_updates === true;
-        }
-
-        // For other plugins, don't interfere with their auto-update settings
-        return $update;
     }
 
     /**
@@ -6256,6 +6219,7 @@ class Metasync_Admin
         if ($has_raw_html || !empty($has_custom_css)) {
             $label = $this->get_html_source_label();
             $tooltip = sprintf(
+                /* translators: %s: HTML source label. */
                 __('This page was created using %s HTML-to-Builder converter', 'metasync'),
                 $label
             );
@@ -6310,6 +6274,7 @@ class Metasync_Admin
         if ($has_raw_html || !empty($has_custom_css)) {
             $label = $this->get_html_source_label();
             $message = sprintf(
+                /* translators: %s: HTML source label. */
                 __('This page was created using %s HTML-to-Builder converter. The design is preserved with custom CSS and inline styles.', 'metasync'),
                 '<strong>' . esc_html($label) . '</strong>'
             );
@@ -6325,7 +6290,7 @@ class Metasync_Admin
                     </div>
                 </div>',
                 esc_html($label),
-                $message
+                wp_kses($message, array('strong' => array()))
             );
         }
     }
@@ -6350,7 +6315,7 @@ class Metasync_Admin
         <fieldset class="inline-edit-col-left metasync-quick-edit-source">
             <div class="inline-edit-col">
                 <label>
-                    <span class="title"><?php _e('Source', 'metasync'); ?></span>
+                    <span class="title"><?php esc_html_e('Source', 'metasync'); ?></span>
                     <span class="metasync-quick-edit-badge-container"></span>
                 </label>
             </div>
@@ -6364,6 +6329,7 @@ class Metasync_Admin
     public function add_html_pages_dashboard_widget()
     {
         $label = $this->get_html_source_label();
+        /* translators: %s: HTML source label. */
         $widget_title = sprintf(__('%s Pages', 'metasync'), $label);
 
         wp_add_dashboard_widget(

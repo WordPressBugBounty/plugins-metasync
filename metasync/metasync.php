@@ -12,10 +12,10 @@
  * @since		1.0.0
  *
  * @wordpress-plugin
- * Plugin Name:       Search Atlas: The Premier AI SEO Plugin for Instant Optimization
+ * Plugin Name:       Search Atlas SEO - OTTO AI SEO Automation for WordPress
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.7.0
+ * Version:           2.7.1
  * Requires PHP:      8.1
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
@@ -58,7 +58,7 @@ require_once __DIR__ . '/includes/class-metasync-seo-restore.php';
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.7.0';
+$metasync_version = '2.7.1';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -146,8 +146,8 @@ if (!function_exists('metasync_is_non_metasync_admin_ajax')) {
 		if (!defined('DOING_AJAX') || !DOING_AJAX) {
 			return ($result = false);
 		}
-		$action = isset($_POST['action']) ? sanitize_text_field(wp_unslash($_POST['action']))
-				: (isset($_GET['action']) ? sanitize_text_field(wp_unslash($_GET['action'])) : '');
+		$action = isset($_POST['action']) ? sanitize_text_field(wp_unslash($_POST['action'])) // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only action-name prefix check during boot
+				: (isset($_GET['action']) ? sanitize_text_field(wp_unslash($_GET['action'])) : ''); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action-name prefix check during boot
 		if ($action === '') {
 			return ($result = true);
 		}
@@ -189,6 +189,7 @@ if (!function_exists('metasync_is_mcp_rest_request')) {
 // Phase 2 — these files have file-level side effects (add_action outside class body)
 // and must remain as explicit require_once until refactored.
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-api-backoff-rest.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-data-store.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-error-logger.php';
 
 // Shared helpers (custom/LPS page detection + query exclusion) — loaded in all
@@ -450,7 +451,7 @@ function metasync_migrate_physical_sitemaps()
             if (false !== get_transient($tkey)) {
                 // The parked transient doubles as a 30-day backup of the
                 // content before the file is removed from disk.
-                @unlink($file);
+                @wp_delete_file($file);
                 $virtual_index[$bn] = $tkey;
                 if ($bn !== 'sitemap_index.xml' && $bn !== 'news-sitemap.xml' && $bn !== 'video-sitemap.xml') {
                     $migrated_files[] = [

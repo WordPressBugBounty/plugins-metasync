@@ -44,7 +44,8 @@ class MetaSync_DBMigration
 		require_once dirname(__FILE__, 2) . '/404-monitor/class-metasync-404-monitor-database.php';
 		$tableName = esc_sql($wpdb->prefix . Metasync_Error_Monitor_Database::$table_name);
 
-		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $tableName)) != $tableName) {
+		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $tableName)) != $tableName) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			$table_sql = "CREATE TABLE {$tableName} (
 				id BIGINT(20) unsigned NOT NULL AUTO_INCREMENT,
 				uri VARCHAR(255) NOT NULL,
@@ -62,8 +63,9 @@ class MetaSync_DBMigration
 		require_once dirname(__FILE__, 2) . '/redirections/class-metasync-redirection-database.php';
 		$tableNameRedirection = esc_sql($wpdb->prefix . Metasync_Redirection_Database::$table_name);
 
-		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableNameRedirection)) != $tableNameRedirection) {
-			$table_sql = "CREATE TABLE {$tableNameRedirection} (
+		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableNameRedirection)) != $tableNameRedirection) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+			$table_sql = "CREATE TABLE {$wpdb->prefix}metasync_redirections (
 				id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
 				sources_from TEXT NOT NULL,
 				url_redirect_to TEXT NOT NULL,
@@ -86,39 +88,39 @@ class MetaSync_DBMigration
 			dbDelta($table_sql);
 		} else {
 			// Check if new columns exist and add them if they don't
-			$columns = $wpdb->get_col("DESCRIBE {$tableNameRedirection}");
+			$columns = $wpdb->get_col("DESCRIBE {$wpdb->prefix}metasync_redirections"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 
 			if (!in_array('pattern_type', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD COLUMN pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex', 'wildcard') NOT NULL DEFAULT 'exact' AFTER status");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_redirections ADD COLUMN pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex', 'wildcard') NOT NULL DEFAULT 'exact' AFTER status"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 
 			if (!in_array('regex_pattern', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD COLUMN regex_pattern TEXT NULL AFTER pattern_type");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_redirections ADD COLUMN regex_pattern TEXT NULL AFTER pattern_type"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 
 			if (!in_array('description', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD COLUMN description TEXT NULL AFTER regex_pattern");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_redirections ADD COLUMN description TEXT NULL AFTER regex_pattern"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 
 			// Add indexes if they don't exist
-			$indexes = $wpdb->get_results("SHOW INDEX FROM {$tableNameRedirection}");
+			$indexes = $wpdb->get_results("SHOW INDEX FROM {$wpdb->prefix}metasync_redirections"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			$index_names = array_column($indexes, 'Key_name');
 
 			if (!in_array('pattern_type', $index_names)) {
-				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD KEY pattern_type (pattern_type)");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_redirections ADD KEY pattern_type (pattern_type)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 
 			if (!in_array('created_at', $index_names)) {
-				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD KEY created_at (created_at)");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_redirections ADD KEY created_at (created_at)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 
 			// PERFORMANCE OPTIMIZATION: Add composite index for active redirects lookup
 			if (!in_array('idx_active_redirects', $index_names)) {
-				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD KEY idx_active_redirects (status, sources_from(191))");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_redirections ADD KEY idx_active_redirects (status, sources_from(191))"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 
 			// Set default pattern_type for existing records
-			$wpdb->query("UPDATE {$tableNameRedirection} SET pattern_type = 'exact' WHERE pattern_type IS NULL OR pattern_type = ''");
+			$wpdb->query("UPDATE {$wpdb->prefix}metasync_redirections SET pattern_type = 'exact' WHERE pattern_type IS NULL OR pattern_type = ''"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 		}
 
 		// One-time migration: auto-enable external redirects if the site already has any
@@ -129,25 +131,36 @@ class MetaSync_DBMigration
 			// www-prefixed site count as external and silently flip the setting.
 			$home_host = wp_parse_url(home_url(), PHP_URL_HOST);
 			$home_host = is_string($home_host) ? strtolower(preg_replace('/^www\./i', '', $home_host)) : '';
-			$params = ['http%'];
+
 			if ($home_host !== '') {
-				$not_like = '';
-				foreach (['http://', 'https://'] as $scheme) {
-					foreach ([$home_host, 'www.' . $home_host] as $host) {
-						$not_like .= ' AND url_redirect_to NOT LIKE %s';
-						$params[] = $wpdb->esc_like($scheme . $host) . '%';
-					}
-				}
+				// NOT LIKE per home-URL variant, preserving the original
+				// scheme × host ordering (http/https × bare/www).
+				$external_count = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+					$wpdb->prepare(
+						"SELECT COUNT(*) FROM {$wpdb->prefix}metasync_redirections
+						 WHERE url_redirect_to LIKE %s
+						 AND url_redirect_to NOT LIKE %s
+						 AND url_redirect_to NOT LIKE %s
+						 AND url_redirect_to NOT LIKE %s
+						 AND url_redirect_to NOT LIKE %s",
+						'http%',
+						$wpdb->esc_like('http://' . $home_host) . '%',
+						$wpdb->esc_like('http://www.' . $home_host) . '%',
+						$wpdb->esc_like('https://' . $home_host) . '%',
+						$wpdb->esc_like('https://www.' . $home_host) . '%'
+					)
+				);
 			} else {
-				$not_like = ' AND url_redirect_to NOT LIKE %s';
-				$params[] = $wpdb->esc_like(trailingslashit(home_url())) . '%';
+				$external_count = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+					$wpdb->prepare(
+						"SELECT COUNT(*) FROM {$wpdb->prefix}metasync_redirections
+						 WHERE url_redirect_to LIKE %s
+						 AND url_redirect_to NOT LIKE %s",
+						'http%',
+						$wpdb->esc_like(trailingslashit(home_url())) . '%'
+					)
+				);
 			}
-			$external_count = $wpdb->get_var(
-				$wpdb->prepare(
-					"SELECT COUNT(*) FROM {$tableNameRedirection} WHERE url_redirect_to LIKE %s{$not_like}",
-					...$params
-				)
-			);
 			if ($external_count > 0) {
 				update_option('metasync_allow_external_redirects', 1, true);
 			}
@@ -158,7 +171,8 @@ class MetaSync_DBMigration
 		require_once dirname(__FILE__, 2) . '/heartbeat-error-monitor/class-metasync-heartbeat-error-monitor-database.php';
 		$tableNameHeartBeatErrorMonitor = esc_sql($wpdb->prefix . Metasync_HeartBeat_Error_Monitor_Database::$table_name);
 
-		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableNameHeartBeatErrorMonitor)) != $tableNameHeartBeatErrorMonitor) {
+		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableNameHeartBeatErrorMonitor)) != $tableNameHeartBeatErrorMonitor) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			$table_sql = "CREATE TABLE {$tableNameHeartBeatErrorMonitor} (
 				id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
 				attribute_name VARCHAR(25) NOT NULL DEFAULT '',
@@ -174,7 +188,8 @@ class MetaSync_DBMigration
 					// Create Headless Refresh History Table
 			require_once dirname(__FILE__, 2) . '/headless-refresh-history/class-metasync-headless-refresh-history-database.php';
 			$tableNameHeadlessRefreshHistory = esc_sql($wpdb->prefix . Metasync_Headless_Refresh_History::$table_name);
-			if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableNameHeadlessRefreshHistory)) != $tableNameHeadlessRefreshHistory) {
+			if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableNameHeadlessRefreshHistory)) != $tableNameHeadlessRefreshHistory) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 				$table_sql = "CREATE TABLE {$tableNameHeadlessRefreshHistory} (
 					id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
 					object_type VARCHAR(20) NOT NULL DEFAULT '',
@@ -197,8 +212,9 @@ class MetaSync_DBMigration
 		require_once dirname(__FILE__, 2) . '/sync-history/class-metasync-sync-history-database.php';
 		$tableNameSyncHistory = esc_sql($wpdb->prefix . Metasync_Sync_History_Database::$table_name);
 
-		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableNameSyncHistory)) != $tableNameSyncHistory) {
-			$table_sql = "CREATE TABLE {$tableNameSyncHistory} (
+		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableNameSyncHistory)) != $tableNameSyncHistory) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+			$table_sql = "CREATE TABLE {$wpdb->prefix}metasync_sync_history (
 				id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
 				title VARCHAR(255) NOT NULL DEFAULT '',
 				source VARCHAR(50) NOT NULL DEFAULT '',
@@ -219,17 +235,17 @@ class MetaSync_DBMigration
 		} else {
 			// PERFORMANCE OPTIMIZATION: Add composite indexes to existing tables
 			// Check and add indexes if they don't exist
-			$indexes = $wpdb->get_results("SHOW INDEX FROM {$tableNameSyncHistory}");
+			$indexes = $wpdb->get_results("SHOW INDEX FROM {$wpdb->prefix}metasync_sync_history"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			$index_names = array_column($indexes, 'Key_name');
 
 			// Add deduplication index (source, created_at)
 			if (!in_array('idx_dedup', $index_names)) {
-				$wpdb->query("ALTER TABLE {$tableNameSyncHistory} ADD KEY idx_dedup (source, created_at)");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_sync_history ADD KEY idx_dedup (source, created_at)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 
 			// Add search index (title(50), source, created_at)
 			if (!in_array('idx_search', $index_names)) {
-				$wpdb->query("ALTER TABLE {$tableNameSyncHistory} ADD KEY idx_search (title(50), source, created_at)");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_sync_history ADD KEY idx_search (title(50), source, created_at)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 		}
 
@@ -237,8 +253,9 @@ class MetaSync_DBMigration
 		require_once dirname(__FILE__, 2) . '/otto/class-metasync-otto-excluded-urls-database.php';
 		$tableNameOttoExcludedURLs = esc_sql($wpdb->prefix . Metasync_Otto_Excluded_URLs_Database::$table_name);
 
-		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableNameOttoExcludedURLs)) != $tableNameOttoExcludedURLs) {
-			$table_sql = "CREATE TABLE {$tableNameOttoExcludedURLs} (
+		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableNameOttoExcludedURLs)) != $tableNameOttoExcludedURLs) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+			$table_sql = "CREATE TABLE {$wpdb->prefix}metasync_otto_excluded_urls (
 				id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
 				url_pattern TEXT NOT NULL,
 				pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex') NOT NULL DEFAULT 'exact',
@@ -265,7 +282,7 @@ class MetaSync_DBMigration
 		require_once dirname(__FILE__, 2) . '/robots-txt/class-metasync-robots-txt-database.php';
 		$robots_db = Metasync_Robots_Txt_Database::get_instance();
 		$table_name_robots = esc_sql($wpdb->prefix . 'metasync_robots_txt_backups');
-		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name_robots)) != $table_name_robots) {
+		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name_robots)) != $table_name_robots) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			$robots_db->create_table();
 		}
 
@@ -350,9 +367,10 @@ class MetaSync_DBMigration
 		require_once dirname(__FILE__, 2) . '/404-monitor/class-metasync-404-monitor-database.php';
 		$tableName404Monitor = esc_sql($wpdb->prefix . Metasync_Error_Monitor_Database::$table_name);
 
-		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableName404Monitor)) != $tableName404Monitor) {
+		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableName404Monitor)) != $tableName404Monitor) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			// Table doesn't exist, create enhanced version
-			$table_sql = "CREATE TABLE {$tableName404Monitor} (
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+			$table_sql = "CREATE TABLE {$wpdb->prefix}metasync_404_logs (
 				id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
 				uri TEXT NOT NULL,
 				hits_count BIGINT(20) unsigned NOT NULL DEFAULT '1',
@@ -369,40 +387,40 @@ class MetaSync_DBMigration
 			dbDelta($table_sql);
 		} else {
 			// Table exists, check for missing columns and add them
-			$columns = $wpdb->get_col("DESCRIBE {$tableName404Monitor}");
+			$columns = $wpdb->get_col("DESCRIBE {$wpdb->prefix}metasync_404_logs"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			
 			// Add referer column if it doesn't exist
 			if (!in_array('referer', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableName404Monitor} ADD COLUMN referer TEXT NULL AFTER user_agent");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_404_logs ADD COLUMN referer TEXT NULL AFTER user_agent"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 			
 			// Add ip_address column if it doesn't exist
 			if (!in_array('ip_address', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableName404Monitor} ADD COLUMN ip_address VARCHAR(45) NULL AFTER referer");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_404_logs ADD COLUMN ip_address VARCHAR(45) NULL AFTER referer"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 			
 			// Update uri column to TEXT if it's VARCHAR(255)
-			$uri_column = $wpdb->get_row("SHOW COLUMNS FROM {$tableName404Monitor} LIKE 'uri'");
+			$uri_column = $wpdb->get_row("SHOW COLUMNS FROM {$wpdb->prefix}metasync_404_logs LIKE 'uri'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			if ($uri_column && strpos($uri_column->Type, 'varchar') !== false) {
-				$wpdb->query("ALTER TABLE {$tableName404Monitor} MODIFY COLUMN uri TEXT NOT NULL");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_404_logs MODIFY COLUMN uri TEXT NOT NULL"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 			
 			// Update user_agent column to TEXT if it's VARCHAR(255)
-			$ua_column = $wpdb->get_row("SHOW COLUMNS FROM {$tableName404Monitor} LIKE 'user_agent'");
+			$ua_column = $wpdb->get_row("SHOW COLUMNS FROM {$wpdb->prefix}metasync_404_logs LIKE 'user_agent'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			if ($ua_column && strpos($ua_column->Type, 'varchar') !== false) {
-				$wpdb->query("ALTER TABLE {$tableName404Monitor} MODIFY COLUMN user_agent TEXT NULL");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_404_logs MODIFY COLUMN user_agent TEXT NULL"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 			
 			// Add missing indexes
-			$indexes = $wpdb->get_results("SHOW INDEX FROM {$tableName404Monitor}");
+			$indexes = $wpdb->get_results("SHOW INDEX FROM {$wpdb->prefix}metasync_404_logs"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			$index_names = array_column($indexes, 'Key_name');
 			
 			if (!in_array('hits_count', $index_names)) {
-				$wpdb->query("ALTER TABLE {$tableName404Monitor} ADD KEY hits_count (hits_count)");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_404_logs ADD KEY hits_count (hits_count)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 			
 			if (!in_array('date_time', $index_names)) {
-				$wpdb->query("ALTER TABLE {$tableName404Monitor} ADD KEY date_time (date_time)");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_404_logs ADD KEY date_time (date_time)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 		}
 
@@ -410,52 +428,52 @@ class MetaSync_DBMigration
 		require_once dirname(__FILE__, 2) . '/redirections/class-metasync-redirection-database.php';
 		$tableNameRedirection = esc_sql($wpdb->prefix . Metasync_Redirection_Database::$table_name);
 
-		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableNameRedirection)) == $tableNameRedirection) {
+		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s ", $tableNameRedirection)) == $tableNameRedirection) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			// Table exists, check for new columns
-			$columns = $wpdb->get_col("DESCRIBE {$tableNameRedirection}");
+			$columns = $wpdb->get_col("DESCRIBE {$wpdb->prefix}metasync_redirections");
 			
 			// Add pattern_type column if it doesn't exist
 			if (!in_array('pattern_type', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD COLUMN pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex', 'wildcard') NOT NULL DEFAULT 'exact' AFTER status");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_redirections ADD COLUMN pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex', 'wildcard') NOT NULL DEFAULT 'exact' AFTER status"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 			
 			// Add regex_pattern column if it doesn't exist
 			if (!in_array('regex_pattern', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD COLUMN regex_pattern TEXT NULL AFTER pattern_type");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_redirections ADD COLUMN regex_pattern TEXT NULL AFTER pattern_type"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 			
 			// Add description column if it doesn't exist
 			if (!in_array('description', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD COLUMN description TEXT NULL AFTER regex_pattern");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_redirections ADD COLUMN description TEXT NULL AFTER regex_pattern"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 			
 			// Add timestamp columns if they don't exist
 			if (!in_array('created_at', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD COLUMN created_at DATETIME NOT NULL DEFAULT '0000-00-00 00:00:00' AFTER description");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_redirections ADD COLUMN created_at DATETIME NOT NULL DEFAULT '0000-00-00 00:00:00' AFTER description"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 			
 			if (!in_array('updated_at', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD COLUMN updated_at DATETIME NOT NULL DEFAULT '0000-00-00 00:00:00' AFTER created_at");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_redirections ADD COLUMN updated_at DATETIME NOT NULL DEFAULT '0000-00-00 00:00:00' AFTER created_at"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 			
 			if (!in_array('last_accessed_at', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD COLUMN last_accessed_at DATETIME NOT NULL DEFAULT '0000-00-00 00:00:00' AFTER updated_at");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_redirections ADD COLUMN last_accessed_at DATETIME NOT NULL DEFAULT '0000-00-00 00:00:00' AFTER updated_at"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 			
 			// Add indexes if they don't exist
-			$indexes = $wpdb->get_results("SHOW INDEX FROM {$tableNameRedirection}");
+			$indexes = $wpdb->get_results("SHOW INDEX FROM {$wpdb->prefix}metasync_redirections"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			$index_names = array_column($indexes, 'Key_name');
 			
 			if (!in_array('pattern_type', $index_names)) {
-				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD KEY pattern_type (pattern_type)");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_redirections ADD KEY pattern_type (pattern_type)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 			
 			if (!in_array('created_at', $index_names)) {
-				$wpdb->query("ALTER TABLE {$tableNameRedirection} ADD KEY created_at (created_at)");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_redirections ADD KEY created_at (created_at)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 			
 			// Set default pattern_type for existing records
-			$wpdb->query("UPDATE {$tableNameRedirection} SET pattern_type = 'exact' WHERE pattern_type IS NULL OR pattern_type = ''");
+			$wpdb->query("UPDATE {$wpdb->prefix}metasync_redirections SET pattern_type = 'exact' WHERE pattern_type IS NULL OR pattern_type = ''"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 		}
 	}
 
@@ -472,7 +490,7 @@ class MetaSync_DBMigration
 		$table_name = esc_sql($wpdb->prefix . 'metasync_robots_txt_backups');
 
 		// Check if table already exists
-		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name)) != $table_name) {
+		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name)) != $table_name) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			// Table doesn't exist, create it
 			$robots_db->create_table();
 		}
@@ -494,9 +512,10 @@ class MetaSync_DBMigration
 		$tableNameOttoExcludedURLs = esc_sql($wpdb->prefix . Metasync_Otto_Excluded_URLs_Database::$table_name);
 
 		// Check if table already exists
-		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $tableNameOttoExcludedURLs)) != $tableNameOttoExcludedURLs) {
+		if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $tableNameOttoExcludedURLs)) != $tableNameOttoExcludedURLs) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			// Table doesn't exist, create it
-			$table_sql = "CREATE TABLE {$tableNameOttoExcludedURLs} (
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+			$table_sql = "CREATE TABLE {$wpdb->prefix}metasync_otto_excluded_urls (
 				id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
 				url_pattern TEXT NOT NULL,
 				pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex') NOT NULL DEFAULT 'exact',
@@ -523,70 +542,70 @@ class MetaSync_DBMigration
 			// error_log('MetaSync: OTTO Excluded URLs table created successfully (v2.5.9)');
 		} else {
 			// Table exists, verify structure and add any missing columns if needed
-			$columns = $wpdb->get_col("DESCRIBE {$tableNameOttoExcludedURLs}");
+			$columns = $wpdb->get_col("DESCRIBE {$wpdb->prefix}metasync_otto_excluded_urls"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 
 			// Check for required columns and add if missing
 			$missing_columns = false;
 
 			if (!in_array('pattern_type', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD COLUMN pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex') NOT NULL DEFAULT 'exact' AFTER url_pattern");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_otto_excluded_urls ADD COLUMN pattern_type ENUM('exact', 'contain', 'start', 'end', 'regex') NOT NULL DEFAULT 'exact' AFTER url_pattern"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 				$missing_columns = true;
 			}
 
 			if (!in_array('description', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD COLUMN description TEXT NULL AFTER pattern_type");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_otto_excluded_urls ADD COLUMN description TEXT NULL AFTER pattern_type"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 				$missing_columns = true;
 			}
 
 			if (!in_array('status', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD COLUMN status VARCHAR(25) NOT NULL DEFAULT 'active' AFTER description");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_otto_excluded_urls ADD COLUMN status VARCHAR(25) NOT NULL DEFAULT 'active' AFTER description"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 				$missing_columns = true;
 			}
 
 			if (!in_array('is_permanent', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD COLUMN is_permanent TINYINT(1) NOT NULL DEFAULT 0 AFTER status");
-				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD KEY is_permanent (is_permanent)");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_otto_excluded_urls ADD COLUMN is_permanent TINYINT(1) NOT NULL DEFAULT 0 AFTER status"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_otto_excluded_urls ADD KEY is_permanent (is_permanent)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 
 			if (!in_array('auto_excluded', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD COLUMN auto_excluded TINYINT(1) NOT NULL DEFAULT 0 AFTER is_permanent");
-				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD KEY auto_excluded (auto_excluded)");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_otto_excluded_urls ADD COLUMN auto_excluded TINYINT(1) NOT NULL DEFAULT 0 AFTER is_permanent"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_otto_excluded_urls ADD KEY auto_excluded (auto_excluded)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 				// Backfill: mark existing 404 exclusions as auto_excluded
-				$wpdb->query("UPDATE {$tableNameOttoExcludedURLs} SET auto_excluded = 1 WHERE description = 'Auto-excluded: 404'");
+				$wpdb->query("UPDATE {$wpdb->prefix}metasync_otto_excluded_urls SET auto_excluded = 1 WHERE description = 'Auto-excluded: 404'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 
 			if (!in_array('recheck_after', $columns)) {
-				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD COLUMN recheck_after DATETIME NULL DEFAULT NULL AFTER auto_excluded");
-				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD KEY recheck_after (recheck_after)");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_otto_excluded_urls ADD COLUMN recheck_after DATETIME NULL DEFAULT NULL AFTER auto_excluded"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_otto_excluded_urls ADD KEY recheck_after (recheck_after)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 				// Backfill: set recheck_after = created_at + 7 days for auto-excluded URLs
-				$wpdb->query("UPDATE {$tableNameOttoExcludedURLs} SET recheck_after = DATE_ADD(created_at, INTERVAL 7 DAY) WHERE auto_excluded = 1 AND (recheck_after IS NULL OR recheck_after = '0000-00-00 00:00:00')");
+				$wpdb->query("UPDATE {$wpdb->prefix}metasync_otto_excluded_urls SET recheck_after = DATE_ADD(created_at, INTERVAL 7 DAY) WHERE auto_excluded = 1 AND (recheck_after IS NULL OR recheck_after = '0000-00-00 00:00:00')"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 
 			// Check and add indexes if they don't exist
-			$indexes = $wpdb->get_results("SHOW INDEX FROM {$tableNameOttoExcludedURLs}");
+			$indexes = $wpdb->get_results("SHOW INDEX FROM {$wpdb->prefix}metasync_otto_excluded_urls"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			$index_names = array_column($indexes, 'Key_name');
 
 			if (!in_array('status', $index_names)) {
-				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD KEY status (status)");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_otto_excluded_urls ADD KEY status (status)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 
 			if (!in_array('pattern_type', $index_names)) {
-				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD KEY pattern_type (pattern_type)");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_otto_excluded_urls ADD KEY pattern_type (pattern_type)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 
 			if (!in_array('created_at', $index_names)) {
-				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD KEY created_at (created_at)");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_otto_excluded_urls ADD KEY created_at (created_at)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 
 			// Add unique index on url_pattern + pattern_type to prevent duplicates at database level
 			// Note: TEXT columns need a prefix length for indexing (767 is max for UTF8)
 			if (!in_array('url_pattern_type_unique', $index_names)) {
-				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD UNIQUE KEY url_pattern_type_unique (url_pattern(191), pattern_type)");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_otto_excluded_urls ADD UNIQUE KEY url_pattern_type_unique (url_pattern(191), pattern_type)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 
 			// Composite index for the cache-miss path in metasync_is_otto_url_manually_excluded()
 			if (!in_array('status_auto_excluded', $index_names)) {
-				$wpdb->query("ALTER TABLE {$tableNameOttoExcludedURLs} ADD KEY status_auto_excluded (status, auto_excluded)");
+				$wpdb->query("ALTER TABLE {$wpdb->prefix}metasync_otto_excluded_urls ADD KEY status_auto_excluded (status, auto_excluded)"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			}
 
 			// if ($missing_columns) {
@@ -612,41 +631,70 @@ class MetaSync_DBMigration
 		$meta_keys  = array('meta_canonical', '_metasync_canonical_url', '_yoast_wpseo_canonical', 'rank_math_canonical_url');
 		$bad_values = array('array', 'http://array', 'https://array');
 
-		$keys_placeholders = implode(',', array_fill(0, count($meta_keys), '%s'));
-		$vals_placeholders = implode(',', array_fill(0, count($bad_values), '%s'));
-
-		// Normalized comparison: trailing slashes stripped in SQL so
-		// "http://Array/" and "http://Array//" both match the literals.
-		$norm_meta = "LOWER(TRIM(TRAILING '/' FROM TRIM(meta_value)))";
-
 		// 1. Post meta + term meta: delete exact-match corrupted rows.
 		// Batched and deleted by primary key so huge postmeta tables aren't
 		// range-locked in one statement, with per-object meta-cache
 		// invalidation — raw SQL alone would leave persistent object caches
 		// (Redis/Memcached) serving the deleted value to Yoast/RankMath
-		// readers indefinitely.
-		$meta_targets = array(
-			array($wpdb->postmeta, 'post_id', 'post_meta'),
-			array($wpdb->termmeta, 'term_id', 'term_meta'),
-		);
-		foreach ($meta_targets as $target) {
-			list($table, $object_col, $cache_group) = $target;
-			for ($batch = 0; $batch < 50; $batch++) {
-				$rows = $wpdb->get_results($wpdb->prepare(
-					"SELECT meta_id, {$object_col} AS object_id FROM {$table} WHERE meta_key IN ({$keys_placeholders}) AND {$norm_meta} IN ({$vals_placeholders}) ORDER BY meta_id LIMIT 500",
-					array_merge($meta_keys, $bad_values)
-				));
-				if (empty($rows)) {
-					break;
-				}
-				$meta_ids = implode(',', array_map('intval', wp_list_pluck($rows, 'meta_id')));
-				$wpdb->query("DELETE FROM {$table} WHERE meta_id IN ({$meta_ids})");
-				foreach ($rows as $row) {
-					wp_cache_delete((int) $row->object_id, $cache_group);
-				}
-				if (count($rows) < 500) {
-					break;
-				}
+		// readers indefinitely. The two targets are written out explicitly
+		// so every table/column identifier is a literal in the statement.
+		//
+		// Normalized comparison: trailing slashes stripped in SQL so
+		// "http://Array/" and "http://Array//" both match the literals.
+
+		// 1a. Post meta.
+		for ($batch = 0; $batch < 50; $batch++) {
+			$rows = $wpdb->get_results($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+				'SELECT meta_id, post_id AS object_id FROM ' . $wpdb->postmeta
+					. ' WHERE meta_key IN (' . implode(',', array_fill(0, count($meta_keys), '%s')) . ')'
+					. " AND LOWER(TRIM(TRAILING '/' FROM TRIM(meta_value)))"
+					. ' IN (' . implode(',', array_fill(0, count($bad_values), '%s')) . ')'
+					. ' ORDER BY meta_id LIMIT 500',
+				array_merge($meta_keys, $bad_values)
+			));
+			if (empty($rows)) {
+				break;
+			}
+			$wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+				$wpdb->prepare(
+					'DELETE FROM ' . $wpdb->postmeta
+						. ' WHERE meta_id IN (' . implode(',', array_fill(0, count($rows), '%d')) . ')',
+					wp_list_pluck($rows, 'meta_id')
+				)
+			);
+			foreach ($rows as $row) {
+				wp_cache_delete((int) $row->object_id, 'post_meta');
+			}
+			if (count($rows) < 500) {
+				break;
+			}
+		}
+
+		// 1b. Term meta.
+		for ($batch = 0; $batch < 50; $batch++) {
+			$rows = $wpdb->get_results($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+				'SELECT meta_id, term_id AS object_id FROM ' . $wpdb->termmeta
+					. ' WHERE meta_key IN (' . implode(',', array_fill(0, count($meta_keys), '%s')) . ')'
+					. " AND LOWER(TRIM(TRAILING '/' FROM TRIM(meta_value)))"
+					. ' IN (' . implode(',', array_fill(0, count($bad_values), '%s')) . ')'
+					. ' ORDER BY meta_id LIMIT 500',
+				array_merge($meta_keys, $bad_values)
+			));
+			if (empty($rows)) {
+				break;
+			}
+			$wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+				$wpdb->prepare(
+					'DELETE FROM ' . $wpdb->termmeta
+						. ' WHERE meta_id IN (' . implode(',', array_fill(0, count($rows), '%d')) . ')',
+					wp_list_pluck($rows, 'meta_id')
+				)
+			);
+			foreach ($rows as $row) {
+				wp_cache_delete((int) $row->object_id, 'term_meta');
+			}
+			if (count($rows) < 500) {
+				break;
 			}
 		}
 
@@ -660,9 +708,12 @@ class MetaSync_DBMigration
 		if (class_exists('Metasync_Canonical_Sanitizer')) {
 			$own_keys = array('meta_canonical', '_metasync_canonical_url');
 			for ($batch = 0; $batch < 50; $batch++) {
-				$rows = $wpdb->get_results($wpdb->prepare(
-					"SELECT meta_id, post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE meta_key IN ({$keys_placeholders}) AND meta_value LIKE 'a:%%' ORDER BY meta_id LIMIT 500",
-					$meta_keys
+				$rows = $wpdb->get_results($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+					'SELECT meta_id, post_id, meta_key, meta_value FROM ' . $wpdb->postmeta
+						. ' WHERE meta_key IN (' . implode(',', array_fill(0, count($meta_keys), '%s')) . ')'
+						. " AND meta_value LIKE %s"
+						. ' ORDER BY meta_id LIMIT 500',
+					array_merge($meta_keys, array('a:%'))
 				));
 				if (empty($rows)) {
 					break;
@@ -673,9 +724,9 @@ class MetaSync_DBMigration
 						$repaired = Metasync_Canonical_Sanitizer::sanitize(maybe_unserialize($row->meta_value));
 					}
 					if ($repaired !== '') {
-						$wpdb->update($wpdb->postmeta, array('meta_value' => $repaired), array('meta_id' => (int) $row->meta_id));
+						$wpdb->update($wpdb->postmeta, array('meta_value' => $repaired), array('meta_id' => (int) $row->meta_id)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 					} else {
-						$wpdb->delete($wpdb->postmeta, array('meta_id' => (int) $row->meta_id));
+						$wpdb->delete($wpdb->postmeta, array('meta_id' => (int) $row->meta_id)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 					}
 					wp_cache_delete((int) $row->post_id, 'post_meta');
 				}
@@ -688,22 +739,34 @@ class MetaSync_DBMigration
 		// 3. Yoast indexable cache: null corrupted canonical columns so the
 		// frontend and sitemaps stop serving the bad value immediately.
 		$indexable_table = $wpdb->prefix . 'yoast_indexable';
-		if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($indexable_table))) === $indexable_table) {
+		if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($indexable_table))) === $indexable_table) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
 			$wpdb->query($wpdb->prepare(
-				"UPDATE {$indexable_table} SET canonical = NULL WHERE LOWER(TRIM(TRAILING '/' FROM TRIM(canonical))) IN ({$vals_placeholders})",
+				'UPDATE ' . $wpdb->prefix . 'yoast_indexable SET canonical = NULL'
+					. " WHERE LOWER(TRIM(TRAILING '/' FROM TRIM(canonical)))"
+					. ' IN (' . implode(',', array_fill(0, count($bad_values), '%s')) . ')',
 				$bad_values
 			));
 		}
 
 		// 4. AIOSEO custom tables: null corrupted canonical_url columns.
-		foreach (array('aioseo_posts', 'aioseo_terms') as $aioseo_table) {
-			$table = $wpdb->prefix . $aioseo_table;
-			if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table))) === $table) {
-				$wpdb->query($wpdb->prepare(
-					"UPDATE {$table} SET canonical_url = NULL WHERE LOWER(TRIM(TRAILING '/' FROM TRIM(canonical_url))) IN ({$vals_placeholders})",
-					$bad_values
-				));
-			}
+		// Both table names are fixed literals, written out explicitly.
+		$aioseo_posts = $wpdb->prefix . 'aioseo_posts';
+		if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($aioseo_posts))) === $aioseo_posts) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+			$wpdb->query($wpdb->prepare(
+				'UPDATE ' . $wpdb->prefix . 'aioseo_posts SET canonical_url = NULL'
+					. " WHERE LOWER(TRIM(TRAILING '/' FROM TRIM(canonical_url)))"
+					. ' IN (' . implode(',', array_fill(0, count($bad_values), '%s')) . ')',
+				$bad_values
+			));
+		}
+		$aioseo_terms = $wpdb->prefix . 'aioseo_terms';
+		if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($aioseo_terms))) === $aioseo_terms) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- activation/upgrade migration routine — schema changes are gated to activation and version bumps, never ordinary requests
+			$wpdb->query($wpdb->prepare(
+				'UPDATE ' . $wpdb->prefix . 'aioseo_terms SET canonical_url = NULL'
+					. " WHERE LOWER(TRIM(TRAILING '/' FROM TRIM(canonical_url)))"
+					. ' IN (' . implode(',', array_fill(0, count($bad_values), '%s')) . ')',
+				$bad_values
+			));
 		}
 
 		// 5. Yoast stores term canonicals in the wpseo_taxonomy_meta option,
@@ -829,7 +892,7 @@ class MetaSync_DBMigration
 		}
 
 		if ($scan_failed) {
-			error_log(sprintf(
+			error_log(sprintf( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 				'MetaSync: could not inspect %d wp-config.php backup directory scan(s); cleanup will be retried.',
 				$scan_failed
 			));
@@ -839,7 +902,7 @@ class MetaSync_DBMigration
 		if ($failed) {
 			// A copy left behind is exactly the exposure this cleanup exists to remove,
 			// so surface it rather than failing silently.
-			error_log(sprintf(
+			error_log(sprintf( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 				'MetaSync: could not delete %d leftover wp-config.php copy/copies in %s - remove them manually.',
 				$failed,
 				implode(', ', array_keys($sweptDirs))
@@ -850,7 +913,7 @@ class MetaSync_DBMigration
 		if (!$located) {
 			// wp-config.php was not in any directory we swept, so it is relocated somewhere
 			// we could not resolve. Leave the flag unset so a later upgrade tries again.
-			error_log('MetaSync: wp-config.php was not found while cleaning up legacy backup copies in '
+			error_log('MetaSync: wp-config.php was not found while cleaning up legacy backup copies in ' // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 				. implode(', ', array_keys($sweptDirs)) . ' - cleanup will be retried.');
 			return;
 		}
@@ -888,7 +951,7 @@ class MetaSync_DBMigration
 				continue;
 			}
 
-			if (@unlink($backup)) {
+			if (@unlink($backup)) { // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- boolean return value is consumed
 				$removed++;
 			} else {
 				$failed++;
@@ -913,7 +976,7 @@ class MetaSync_DBMigration
 				continue;
 			}
 
-			if (@unlink($temp)) {
+			if (@unlink($temp)) { // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- boolean return value is consumed
 				$removed++;
 			} else {
 				$failed++;

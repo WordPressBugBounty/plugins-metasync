@@ -44,12 +44,12 @@ class MetaSync_Sentry_WordPress {
             $this->scheme = 'proxy';
         } else {
             // Legacy DSN format for backward compatibility
-            $parsed = parse_url($this->dsn);
-            $this->public_key = isset($parsed['user']) ? $parsed['user'] : null;
-            $this->secret_key = isset($parsed['pass']) ? $parsed['pass'] : null;
-            $this->project_id = trim($parsed['path'], '/');
-            $this->host = isset($parsed['host']) ? $parsed['host'] : null;
-            $this->scheme = isset($parsed['scheme']) ? $parsed['scheme'] : 'https';
+            $parsed = wp_parse_url($this->dsn);
+            $this->public_key = is_array($parsed) && isset($parsed['user']) ? $parsed['user'] : null;
+            $this->secret_key = is_array($parsed) && isset($parsed['pass']) ? $parsed['pass'] : null;
+            $this->project_id = is_array($parsed) && isset($parsed['path']) ? trim($parsed['path'], '/') : null;
+            $this->host = is_array($parsed) && isset($parsed['host']) ? $parsed['host'] : null;
+            $this->scheme = is_array($parsed) && isset($parsed['scheme']) ? $parsed['scheme'] : 'https';
         }
     }
     
@@ -394,7 +394,7 @@ class MetaSync_Sentry_WordPress {
      * Check if the current environment is localhost/development
      */
     private function isLocalhost() {
-        $host = parse_url(home_url(), PHP_URL_HOST);
+        $host = wp_parse_url(home_url(), PHP_URL_HOST);
         
         // Check for common localhost patterns
         $localhost_patterns = [
@@ -409,7 +409,7 @@ class MetaSync_Sentry_WordPress {
         ];
         
         foreach ($localhost_patterns as $pattern) {
-            if (strpos($host, $pattern) !== false) {
+            if ($host !== false && $host !== null && strpos($host, $pattern) !== false) {
                 return true;
             }
         }
@@ -480,30 +480,21 @@ class MetaSync_Sentry_WordPress {
             'User-Agent' => 'WordPress MetaSync Plugin/' . $plugin_version
         ];
         
-        // Use cURL directly to ensure proper envelope format
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $envelope);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, array_map(function($key, $value) {
-            return $key . ': ' . $value;
-        }, array_keys($headers), $headers));
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 5); // 5 second timeout as requested
-        curl_setopt($ch, CURLOPT_USERAGENT, 'WordPress MetaSync Plugin/' . $plugin_version);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5); // 5 second connection timeout
-        
-        $response = curl_exec($ch);
-        $response_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $error = curl_error($ch);
-
-        #curl_close($ch);
+        $response_data = wp_remote_post($url, [
+            'body'      => $envelope,
+            'headers'   => $headers,
+            'timeout'   => 5, // 5 second timeout as requested
+            'sslverify' => true,
+            'user-agent' => 'WordPress MetaSync Plugin/' . $plugin_version,
+        ]);
+        $error = is_wp_error($response_data) ? $response_data->get_error_message() : '';
+        $response_code = is_wp_error($response_data) ? 0 : (int) wp_remote_retrieve_response_code($response_data);
+        $response = is_wp_error($response_data) ? '' : wp_remote_retrieve_body($response_data);
 
         // Log errors in debug mode for troubleshooting
         if (defined('WP_DEBUG') && WP_DEBUG && WP_DEBUG_LOG) {
             if ($error) {
-                error_log(sprintf(
+                error_log(sprintf( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
                     'MetaSync Sentry Error (%s): %s | Response Code: %s | Item Type: %s',
                     $item_type,
                     $error,
@@ -511,11 +502,10 @@ class MetaSync_Sentry_WordPress {
                     $item_type
                 ));
             } elseif ($response_code < 200 || $response_code >= 300) {
-                error_log(sprintf(
-                    'MetaSync Sentry HTTP Error (%s): Response Code: %s | Response: %s | Item Type: %s',
+                error_log(sprintf( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
+                    'MetaSync Sentry HTTP Error (%s): Response Code: %s | Item Type: %s',
                     $item_type,
                     $response_code,
-                    substr($response, 0, 200),
                     $item_type
                 ));
             }
@@ -740,7 +730,7 @@ class MetaSync_Sentry_WordPress {
             'active_plugins' => count(get_option('active_plugins', [])),
             'active_theme' => get_template(),
             'multisite' => is_multisite(),
-            'mysql_version' => method_exists($wpdb, 'get_var') ? $wpdb->get_var('SELECT VERSION()') : 'unknown',
+            'mysql_version' => method_exists($wpdb, 'get_var') ? $wpdb->get_var('SELECT VERSION()') : 'unknown', // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- diagnostic metadata — SELECT VERSION() has no cached WordPress API
             'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'unknown',
             // Dynamic data added per request
             'memory_usage' => memory_get_usage(true),
@@ -823,8 +813,8 @@ class MetaSync_Sentry_WordPress {
             return 'development';
         }
         
-        $host = parse_url(home_url(), PHP_URL_HOST);
-        if (strpos($host, 'staging') !== false || strpos($host, 'dev') !== false) {
+        $host = wp_parse_url(home_url(), PHP_URL_HOST);
+        if ($host !== false && $host !== null && (strpos($host, 'staging') !== false || strpos($host, 'dev') !== false)) {
             return 'staging';
         }
         

@@ -428,7 +428,7 @@ class Metasync_Media_Batch_Optimizer {
         } catch (\Throwable $e) {
             $progress['processed']++;
             $progress['failed']++;
-            error_log('[MetaSync Media Opt] Batch conversion error for attachment ' . $attachment_id . ': ' . $e->getMessage());
+            error_log('[MetaSync Media Opt] Batch conversion error for attachment ' . $attachment_id . ': ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         }
     }
 
@@ -479,7 +479,7 @@ class Metasync_Media_Batch_Optimizer {
         $last_id = 0;
 
         do {
-            $batch = $wpdb->get_col(
+            $batch = $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- batch picker for the one-shot optimization queue — postmeta filter has no WordPress API
                 $wpdb->prepare(
                     "SELECT p.ID
                      FROM {$wpdb->posts} p

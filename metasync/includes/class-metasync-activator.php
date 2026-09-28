@@ -565,7 +565,7 @@ class Metasync_Activator
 	{
 		$plugin_file = $plugin_file ?: plugin_dir_path(dirname(__FILE__)) . 'metasync.php';
 
-		if (!file_exists($plugin_file) || !is_writable($plugin_file)) {
+		if (!file_exists($plugin_file) || !wp_is_writable($plugin_file)) {
 			return false;
 		}
 
@@ -581,7 +581,7 @@ class Metasync_Activator
 		$header_map = array(
 			'white_label_plugin_name'        => array(
 				'header'  => 'Plugin Name',
-				'default' => 'Search Atlas: The Premier AI SEO Plugin for Instant Optimization',
+				'default' => 'Search Atlas SEO - OTTO AI SEO Automation for WordPress',
 			),
 			'white_label_plugin_description'  => array(
 				'header'  => 'Description',
@@ -683,7 +683,7 @@ class Metasync_Activator
 			return false;
 		}
 
-		$scheme = strtolower((string) parse_url($value, PHP_URL_SCHEME));
+		$scheme = strtolower((string) wp_parse_url($value, PHP_URL_SCHEME));
 
 		return in_array($scheme, array('http', 'https'), true);
 	}
@@ -734,17 +734,17 @@ class Metasync_Activator
 		$permissions = fileperms($plugin_file);
 		$written = file_put_contents($temp_file, $content, LOCK_EX);
 		if ($written !== strlen($content)) {
-			@unlink($temp_file);
+			@wp_delete_file($temp_file);
 			return false;
 		}
 
 		if ($permissions !== false) {
-			@chmod($temp_file, $permissions & 0777);
+			@chmod($temp_file, $permissions & 0777); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_chmod -- direct POSIX permission change; WP_Filesystem would prompt for FTP credentials on non-direct hosts
 		}
 
 		if ($rename_file === null) {
 			$rename_file = static function ($source, $destination) {
-				return @rename($source, $destination);
+				return @rename($source, $destination); // phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- atomic same-filesystem replace; WP_Filesystem::move() needs credential bootstrapping on non-direct hosts
 			};
 		}
 
@@ -754,7 +754,7 @@ class Metasync_Activator
 			return true;
 		}
 
-		@unlink($temp_file);
+		@wp_delete_file($temp_file);
 
 		return false;
 	}

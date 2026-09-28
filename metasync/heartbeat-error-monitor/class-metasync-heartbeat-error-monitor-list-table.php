@@ -75,6 +75,7 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 			return esc_html($item[$column_name]); # Fixed: Added esc_html() to prevent XSS
 			default:
 			#	return print_r($item, true); // Show the whole array for troubleshooting purposes.
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_print_r -- unreachable in production
 			return esc_html(print_r($item, true)); # Fixed: Added esc_html() to prevent XSS in debug output
 		}
 	}
@@ -90,6 +91,7 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 
 	protected function column_uri($item)
 	{
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page slug for a nonced row-action link
 		$request_data = metasync_sanitize_input_array($_REQUEST); // WPCS: Input var ok.
 		if (!isset($request_data['page'])) return;
 
@@ -143,15 +145,15 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 		// current_action() short-circuits on filter_action for exactly this
 		// reason, and dropping that check makes ticking rows, choosing a bulk
 		// action and then clicking Filter silently run the action.
-		if (!empty($_REQUEST['filter_action'])) {
+		if (!empty($_REQUEST['filter_action'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, only suppresses bulk actions
 			return false;
 		}
 
-		if (isset($_REQUEST['action']) && '-1' !== $_REQUEST['action'] && '' !== $_REQUEST['action']) {
-			return sanitize_text_field(wp_unslash($_REQUEST['action']));
+		if (isset($_REQUEST['action']) && '-1' !== $_REQUEST['action'] && '' !== $_REQUEST['action']) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action name, callers verify a nonce before any write
+			return sanitize_text_field(wp_unslash($_REQUEST['action'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action name, callers verify a nonce before any write
 		}
-		if (isset($_REQUEST['action2']) && '-1' !== $_REQUEST['action2'] && '' !== $_REQUEST['action2']) {
-			return sanitize_text_field(wp_unslash($_REQUEST['action2']));
+		if (isset($_REQUEST['action2']) && '-1' !== $_REQUEST['action2'] && '' !== $_REQUEST['action2']) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action name, callers verify a nonce before any write
+			return sanitize_text_field(wp_unslash($_REQUEST['action2'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action name, callers verify a nonce before any write
 		}
 		return parent::current_action();
 	}
@@ -168,7 +170,7 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 
 	protected function process_bulk_action()
 	{
-		$post_data = metasync_sanitize_input_array($_POST);
+		$post_data = metasync_sanitize_input_array($_POST); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- check_admin_referer() runs before any write
 		$items = isset($post_data['item']) && is_array($post_data['item']) ? array_map('sanitize_title', $post_data['item']) : [];
 
 		if (empty($post_data['item'])) return;
@@ -202,13 +204,26 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 
 	protected function process_row_action()
 	{
-		$get_data = metasync_sanitize_input_array($_GET);
+		// Only the delete row action changes state; bail on anything else so a
+		// normal page load never triggers a nonce failure.
+		if ('delete' !== $this->current_action()) {
+			return;
+		}
+
+		$get_data = metasync_sanitize_input_array($_GET); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- check_admin_referer() runs before the delete
 		$item = isset($get_data['id']) ? sanitize_text_field($get_data['id']) : '';
 
-		// Detect when row action is being triggered.
-		if ('delete' === $this->current_action()) {
-			$this->db_heartbeat_errors->delete([$item]);
+		// Verify the per-item nonce already attached to the Delete link in
+		// column_uri() (wp_nonce_url(..., 'deleteid_' . $item['id'])) and confirm
+		// plugin access before deleting. The link runs via GET, so without this it
+		// is open to CSRF.
+		check_admin_referer('deleteid_' . $item);
+
+		if (!Metasync::current_user_has_plugin_access()) {
+			return;
 		}
+
+		$this->db_heartbeat_errors->delete([$item]);
 	}
 
 	function prepare_items()
@@ -243,7 +258,7 @@ class Metasync_HeartBeat_Error_Monitor_List_Table extends WP_List_Table
 
 	protected function usort_reorder($a, $b)
 	{
-		$request_data = metasync_sanitize_input_array($_REQUEST);
+		$request_data = metasync_sanitize_input_array($_REQUEST); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only sort state for in-memory rows
 		// If no sort, default to title.
 		$orderby = !empty($request_data['orderby']) ? sanitize_sql_orderby($request_data['orderby']) : 'id';
 		// If no order, default to asc.

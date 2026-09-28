@@ -193,12 +193,12 @@ class MCP_Tool_Read_SEO_Plugin_Data extends MCP_Tool_Base {
         global $wpdb;
         try {
             $table = $wpdb->prefix . 'aioseo_posts';
-            $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+            $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- MCP tool surface — reads third-party plugin storage; no WordPress API for its table
             if ($exists !== $table) {
                 return null;
             }
 
-            $row = $wpdb->get_row(
+            $row = $wpdb->get_row( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- MCP tool surface — reads third-party plugin storage; no WordPress API for its table
                 $wpdb->prepare(
                     "SELECT title, description, canonical_url, robots_default, robots_noindex, robots_nofollow, schema_type
                      FROM {$wpdb->prefix}aioseo_posts

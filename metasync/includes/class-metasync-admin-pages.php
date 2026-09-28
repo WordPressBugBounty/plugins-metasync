@@ -218,12 +218,12 @@ class Metasync_Admin_Pages
 
     public function create_admin_settings_page()
     {
-        if (isset($_REQUEST['metasync_password_reset'])) {
+        if (isset($_REQUEST['metasync_password_reset'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- routing check, the reset form verifies its own nonce
             Metasync_Admin_Ajax::instance()->render_password_reset_page();
             return;
         }
 
-        $active_tab = isset($_GET['tab']) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'general';
+        $active_tab = isset($_GET['tab']) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab selection
 
         $whitelabel_settings = Metasync::get_whitelabel_settings();
 
@@ -251,7 +251,7 @@ class Metasync_Admin_Pages
             $auth = new Metasync_Auth_Manager('whitelabel', 1800);
             $password_validated = $auth->has_access();
 
-            if (isset($_POST['whitelabel_password_submit']) && !$password_validated) {
+            if (isset($_POST['whitelabel_password_submit']) && !$password_validated) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only access check for a display message
                 $password_error = 'Incorrect password. Please try again.';
             }
         }
@@ -909,8 +909,8 @@ class Metasync_Admin_Pages
                         <?php endif; ?>
 
                         <?php
-                        if (isset($_GET['debug_mode_enabled']) && $_GET['debug_mode_enabled'] == '1'):
-                            $indefinite = isset($_GET['indefinite']) && $_GET['indefinite'] == '1';
+                        if (isset($_GET['debug_mode_enabled']) && $_GET['debug_mode_enabled'] == '1'): // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for a static notice
+                            $indefinite = isset($_GET['indefinite']) && $_GET['indefinite'] == '1'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for a static notice
                         ?>
                         <div class="notice notice-success inline" style="margin-bottom: 20px;">
                             <p>
@@ -919,7 +919,7 @@ class Metasync_Admin_Pages
                         </div>
                         <?php endif; ?>
 
-                        <?php if (isset($_GET['debug_mode_disabled']) && $_GET['debug_mode_disabled'] == '1'): ?>
+                        <?php if (isset($_GET['debug_mode_disabled']) && $_GET['debug_mode_disabled'] == '1'): // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for a static notice ?>
                         <div class="notice notice-info inline" style="margin-bottom: 20px;">
                             <p>
                                 <strong>ℹ️ Debug Mode Disabled:</strong> Debug mode has been successfully disabled.
@@ -927,7 +927,7 @@ class Metasync_Admin_Pages
                         </div>
                         <?php endif; ?>
 
-                        <?php if (isset($_GET['debug_mode_extended']) && $_GET['debug_mode_extended'] == '1'): ?>
+                        <?php if (isset($_GET['debug_mode_extended']) && $_GET['debug_mode_extended'] == '1'): // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for a static notice ?>
                         <div class="notice notice-success inline" style="margin-bottom: 20px;">
                             <p>
                                 <strong>✅ Extended!</strong> Debug mode has been extended for another 24 hours.
@@ -935,7 +935,7 @@ class Metasync_Admin_Pages
                         </div>
                         <?php endif; ?>
 
-                        <?php if (isset($_GET['debug_error']) && $_GET['debug_error'] == '1'): ?>
+                        <?php if (isset($_GET['debug_error']) && $_GET['debug_error'] == '1'): // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for a static notice ?>
                         <div class="notice notice-error inline" style="margin-bottom: 20px;">
                             <p>
                                 <strong>❌ Error:</strong> Unable to perform the debug mode operation. Please try again.
@@ -1310,39 +1310,39 @@ class Metasync_Admin_Pages
             </style>
 
             <?php if ($active_tab === 'advanced'): ?>
-                <?php if (isset($_GET['settings_cleared']) && $_GET['settings_cleared'] == '1'): ?>
+                <?php if (isset($_GET['settings_cleared']) && $_GET['settings_cleared'] == '1'): // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for a static notice ?>
                     <div class="notice notice-success is-dismissible">
                         <p><strong>✅ Success!</strong> All plugin settings have been cleared successfully and a new Plugin Auth Token has been generated. Please reconfigure the plugin as needed.</p>
                     </div>
                 <?php endif; ?>
                 
-                <?php if (isset($_GET['clear_settings_error']) && $_GET['clear_settings_error'] == '1'): ?>
+                <?php if (isset($_GET['clear_settings_error']) && $_GET['clear_settings_error'] == '1'): // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for a static notice ?>
                     <div class="notice notice-error is-dismissible">
                         <p><strong>❌ Error!</strong> Failed to clear settings due to a security check failure. Please try again.</p>
                     </div>
                 <?php endif; ?>
                 
-                <?php if (isset($_GET['log_cleared']) && $_GET['log_cleared'] == '1'): ?>
+                <?php if (isset($_GET['log_cleared']) && $_GET['log_cleared'] == '1'): // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for a static notice ?>
                     <div class="notice notice-success is-dismissible">
                         <p><strong>✅ Success!</strong> Error logs have been cleared successfully.</p>
                     </div>
                 <?php endif; ?>
                 
-                <?php if (isset($_GET['clear_error']) && $_GET['clear_error'] == '1'): ?>
+                <?php if (isset($_GET['clear_error']) && $_GET['clear_error'] == '1'): // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for a static notice ?>
                     <div class="notice notice-error is-dismissible">
                         <p><strong>❌ Error!</strong> Failed to clear error logs due to a security check failure. Please try again.</p>
                     </div>
                 <?php endif; ?>
 
-                <?php if (isset($_GET['access_roles_saved']) && $_GET['access_roles_saved'] == '1'): ?>
+                <?php if (isset($_GET['access_roles_saved']) && $_GET['access_roles_saved'] == '1'): // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for a static notice ?>
                     <div class="notice notice-success is-dismissible">
                         <p><strong>✅ Success!</strong> Plugin access roles have been saved successfully.</p>
                     </div>
                 <?php endif; ?>
 
-                <?php if (isset($_GET['access_roles_error']) && $_GET['access_roles_error'] == '1'): ?>
+                <?php if (isset($_GET['access_roles_error']) && $_GET['access_roles_error'] == '1'): // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only result flag for a static notice ?>
                     <div class="notice notice-error is-dismissible">
-                        <p><strong>❌ Error!</strong> Failed to save plugin access roles. <?php echo isset($_GET['message']) ? esc_html(urldecode($_GET['message'])) : 'Please try again.'; ?></p>
+                        <p><strong>❌ Error!</strong> Failed to save plugin access roles. <?php echo isset($_GET['message']) ? esc_html(urldecode($_GET['message'])) : 'Please try again.'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only error text, escaped on output ?></p>
                     </div>
                 <?php endif; ?>
 
@@ -1378,6 +1378,13 @@ class Metasync_Admin_Pages
 
     public function create_admin_robots_txt_page()
     {
+        // The form below rewrites the site's physical robots.txt — restrict
+        // that to site admins, not just anyone who can open the page via
+        // plugin_access_roles. The nonce is CSRF protection, not authorization.
+        if (!empty($_POST) && !current_user_can('manage_options')) {
+            wp_die(esc_html__('Sorry, you are not allowed to manage robots.txt settings.', 'metasync'));
+        }
+
         ?>
         <?php $this->admin->render_layout_open('Robots.txt', 'robots_txt', 'Control which pages search engines can crawl.'); ?>
         
@@ -1440,82 +1447,6 @@ class Metasync_Admin_Pages
     public function create_admin_report_issue_page()
     {
         require_once plugin_dir_path(dirname(__FILE__)) . 'views/metasync-report-issue.php';
-    }
-
-    public function create_admin_xml_sitemap_page()
-    {
-        require_once plugin_dir_path(dirname(__FILE__)) . 'sitemap/class-metasync-sitemap-generator.php';
-
-        $sitemap_generator = new Metasync_Sitemap_Generator();
-
-        if (isset($_POST['metasync_sitemap_nonce'])) {
-            check_admin_referer('metasync_sitemap_action', 'metasync_sitemap_nonce');
-
-            if (isset($_POST['generate_sitemap'])) {
-                $disabled_plugins = $sitemap_generator->disable_other_sitemap_generators();
-
-                $result = $sitemap_generator->generate_sitemap();
-
-                if (is_wp_error($result)) {
-                    error_log('[MetaSync] Sitemap generation failed: ' . $result->get_error_message());
-                    echo '<div class="notice notice-error"><p>' . esc_html__('Sitemap generation failed. Please try again or check the error logs.', 'metasync') . '</p></div>';
-                } elseif (false === $result) {
-                    echo '<div class="notice notice-error"><p>' . esc_html__('Sitemap generation failed: the sitemap data could not be stored, so no sitemap is being served. Check your object cache and database write settings, then try again.', 'metasync') . '</p></div>';
-                } else {
-                    $message = esc_html__('Sitemap generated successfully!', 'metasync');
-                    if ($disabled_plugins) {
-                        $message .= ' ' . esc_html__('Conflicting sitemap generators have been automatically disabled.', 'metasync');
-                    }
-                    
-                    $robots_result = get_transient('metasync_sitemap_robots_updated');
-                    if ($robots_result && $robots_result['success']) {
-                        if ($robots_result['action'] === 'added') {
-                            $message .= ' ' . esc_html__('Sitemap URL has been added to robots.txt.', 'metasync');
-                        } elseif ($robots_result['action'] === 'updated') {
-                            $message .= ' ' . esc_html__('Sitemap URL has been updated in robots.txt.', 'metasync');
-                        } elseif ($robots_result['action'] === 'created') {
-                            $message .= ' ' . esc_html__('robots.txt file has been created with sitemap URL.', 'metasync');
-                        }
-                        delete_transient('metasync_sitemap_robots_updated');
-                    }
-                    
-                    echo '<div class="notice notice-success"><p>' . esc_html($message) . '</p></div>';
-                }
-            } elseif (isset($_POST['enable_auto_update'])) {
-                update_option('metasync_sitemap_auto_update', true);
-                $sitemap_generator->setup_auto_update_hooks();
-                echo '<div class="notice notice-success"><p>' . esc_html__('Auto-update enabled!', 'metasync') . '</p></div>';
-            } elseif (isset($_POST['disable_auto_update'])) {
-                update_option('metasync_sitemap_auto_update', false);
-                echo '<div class="notice notice-success"><p>' . esc_html__('Auto-update disabled!', 'metasync') . '</p></div>';
-            } elseif (isset($_POST['delete_sitemap'])) {
-                $deleted = $sitemap_generator->delete_sitemap();
-                if ($deleted) {
-                    update_option('metasync_sitemap_auto_update', false);
-                    // Re-enable WP core sitemap so the site isn't left with zero sitemaps
-                    delete_option('metasync_disable_wp_sitemap');
-                    echo '<div class="notice notice-success"><p>' . esc_html__('Sitemap deleted successfully!', 'metasync') . '</p></div>';
-                } else {
-                    echo '<div class="notice notice-error"><p>' . esc_html__('Failed to delete sitemap. The file may not exist or is not writable.', 'metasync') . '</p></div>';
-                }
-            } elseif (isset($_POST['enable_other_sitemaps'])) {
-                $enabled_plugins = $sitemap_generator->enable_other_sitemap_generators();
-                if ($enabled_plugins) {
-                    echo '<div class="notice notice-success"><p>' . esc_html__('Other sitemap plugins have been re-enabled successfully!', 'metasync') . '</p></div>';
-                } else {
-                    echo '<div class="notice notice-info"><p>' . esc_html__('No sitemap plugins were found to re-enable.', 'metasync') . '</p></div>';
-                }
-            }
-        }
-
-        $sitemap_exists = $sitemap_generator->sitemap_exists();
-        $sitemap_url = $sitemap_generator->get_sitemap_url();
-        $url_count = $sitemap_generator->count_urls();
-        $last_generated = $sitemap_generator->get_last_generated_time();
-        $auto_update_enabled = get_option('metasync_sitemap_auto_update', false);
-        $active_sitemap_plugins = $sitemap_generator->check_active_sitemap_plugins();
-
-        require_once plugin_dir_path(dirname(__FILE__)) . 'views/metasync-xml-sitemap.php';
     }
 
     public function create_admin_custom_pages_page()

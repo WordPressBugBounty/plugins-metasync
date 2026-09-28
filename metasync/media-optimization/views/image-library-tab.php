@@ -54,6 +54,7 @@ if (!defined('WPINC')) {
                 <?php
                 if ($batch_progress['status'] === 'running') {
                     printf(
+                        /* translators: 1: number of images processed so far, 2: total number of images in the batch. */
                         esc_html__('Optimizing %1$d of %2$d images...', 'metasync'),
                         $batch_progress['processed'],
                         $batch_progress['total']
@@ -95,7 +96,7 @@ if (!defined('WPINC')) {
 
 <!-- List Table -->
 <form method="get" id="metasync-image-library-form">
-    <input type="hidden" name="page" value="<?php echo esc_attr($_REQUEST['page'] ?? ''); ?>" />
+    <input type="hidden" name="page" value="<?php echo esc_attr($_REQUEST['page'] ?? ''); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page slug, escaped into a form field ?>" />
     <input type="hidden" name="tab" value="image-library" />
 
     <!-- Unified Toolbar: Optimize All + Search -->

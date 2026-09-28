@@ -21,9 +21,8 @@ class Metasync_Error_Monitor_Database
 	public function getAllRecords()
 	{
 		global $wpdb;
-		$tableName = $this->get_table_name();
 		# PERFORMANCE OPTIMIZATION: Select specific columns instead of *
-		return $wpdb->get_results(" SELECT id, uri, date_time, hits_count, user_agent FROM `$tableName` ORDER BY hits_count DESC, date_time DESC ");
+		return $wpdb->get_results("SELECT id, uri, date_time, hits_count, user_agent FROM `{$wpdb->prefix}metasync_404_logs` ORDER BY hits_count DESC, date_time DESC"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; reads feed admin list/dashboard views that need fresh rows
 	}
 
 	/**
@@ -33,7 +32,6 @@ class Metasync_Error_Monitor_Database
 	public function search_404_errors($filters = [])
 	{
 		global $wpdb;
-		$tableName = $this->get_table_name();
 		
 		$where_conditions = ['1=1'];
 		$where_values = [];
@@ -60,26 +58,33 @@ class Metasync_Error_Monitor_Database
 			$where_values[] = intval($filters['min_hits']);
 		}
 		
-		$where_clause = implode(' AND ', $where_conditions);
-		$order_by = !empty($filters['order_by']) ? sanitize_sql_orderby($filters['order_by']) : 'hits_count';
-		$order = !empty($filters['order']) && strtoupper($filters['order']) === 'ASC' ? 'ASC' : 'DESC';
+		$order = (!empty($filters['order']) && strtoupper($filters['order']) === 'ASC') ? 'ASC' : 'DESC';
+		
+		// ORDER BY is allowlisted: only literal column fragments below can
+		// reach the query; unknown input falls back to hits_count.
+		$sortable = array('id', 'uri', 'date_time', 'hits_count', 'user_agent');
+		$order_by_column = (isset($filters['order_by']) && in_array($filters['order_by'], $sortable, true)) ? $filters['order_by'] : 'hits_count';
+		$order_by_sql = sanitize_sql_orderby($order_by_column . ' ' . $order) ?: 'hits_count DESC';
 		
 		// Add pagination support
-		$limit_clause = '';
 		if (isset($filters['per_page']) && isset($filters['offset'])) {
-			$limit_clause = " LIMIT %d OFFSET %d";
 			$where_values[] = intval($filters['per_page']);
 			$where_values[] = intval($filters['offset']);
 		}
 
 		# PERFORMANCE OPTIMIZATION: Select specific columns instead of *
-		$query = "SELECT id, uri, date_time, hits_count, user_agent FROM `$tableName` WHERE $where_clause ORDER BY $order_by $order" . $limit_clause;
+		// Query assembled from literal placeholder fragments only; values bind via prepare().
+		$query = "SELECT id, uri, date_time, hits_count, user_agent FROM `{$wpdb->prefix}metasync_404_logs` WHERE " . implode(' AND ', $where_conditions)
+			. ' ORDER BY ' . $order_by_sql
+			. (isset($filters['per_page'], $filters['offset']) ? ' LIMIT %d OFFSET %d' : '');
 		
-		if (!empty($where_values)) {
-			return $wpdb->get_results($wpdb->prepare($query, $where_values));
-		} else {
-			return $wpdb->get_results($query);
+		// With no filters the assembled query is literal-only (no
+		// placeholders); prepare() rejects placeholder-less queries, so only
+		// route it through prepare() when there are values to bind.
+		if (empty($where_values)) {
+			return $wpdb->get_results($query); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery -- literal fragments only, nothing to bind
 		}
+		return $wpdb->get_results($wpdb->prepare($query, $where_values)); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery -- literal fragments + allowlisted ORDER BY, values bound via prepare()
 	}
 
 	/**
@@ -89,7 +94,6 @@ class Metasync_Error_Monitor_Database
 	public function count_404_errors($filters = [])
 	{
 		global $wpdb;
-		$tableName = $this->get_table_name();
 		
 		$where_conditions = ['1=1'];
 		$where_values = [];
@@ -116,14 +120,14 @@ class Metasync_Error_Monitor_Database
 			$where_values[] = intval($filters['min_hits']);
 		}
 		
-		$where_clause = implode(' AND ', $where_conditions);
-		$query = "SELECT COUNT(*) FROM `$tableName` WHERE $where_clause";
-		
-		if (!empty($where_values)) {
-			return $wpdb->get_var($wpdb->prepare($query, $where_values));
-		} else {
-			return $wpdb->get_var($query);
+		// Query assembled from literal placeholder fragments only; values bind via prepare().
+		$query = "SELECT COUNT(*) FROM `{$wpdb->prefix}metasync_404_logs` WHERE " . implode(' AND ', $where_conditions);
+
+		// Placeholder-less queries must skip prepare() (see search above).
+		if (empty($where_values)) {
+			return $wpdb->get_var($query); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery -- literal fragments only, nothing to bind
 		}
+		return $wpdb->get_var($wpdb->prepare($query, $where_values)); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery -- literal fragments only, values bound via prepare()
 	}
 
 	/**
@@ -132,35 +136,37 @@ class Metasync_Error_Monitor_Database
 	public function get_404_statistics()
 	{
 		global $wpdb;
-		$tableName = $this->get_table_name();
 		
 		$stats = [];
 		
 		// Total 404 errors
-		$stats['total_errors'] = $wpdb->get_var("SELECT COUNT(*) FROM `$tableName`");
+		$stats['total_errors'] = $wpdb->get_var("SELECT COUNT(*) FROM `{$wpdb->prefix}metasync_404_logs`"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; reads feed admin list/dashboard views that need fresh rows
 		
 		// Total hits
-		$stats['total_hits'] = $wpdb->get_var("SELECT SUM(hits_count) FROM `$tableName`");
+		$stats['total_hits'] = $wpdb->get_var("SELECT SUM(hits_count) FROM `{$wpdb->prefix}metasync_404_logs`"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; reads feed admin list/dashboard views that need fresh rows
 		
 		// Most frequent errors
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; reads feed admin list/dashboard views that need fresh rows
 		$stats['most_frequent'] = $wpdb->get_results("
 			SELECT uri, hits_count, date_time 
-			FROM `$tableName` 
+			FROM `{$wpdb->prefix}metasync_404_logs` 
 			ORDER BY hits_count DESC 
 			LIMIT 5
 		");
 		
 		// Recent errors (last 24 hours)
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; reads feed admin list/dashboard views that need fresh rows
 		$stats['recent_errors'] = $wpdb->get_var($wpdb->prepare("
 			SELECT COUNT(*) 
-			FROM `$tableName` 
+			FROM `{$wpdb->prefix}metasync_404_logs` 
 			WHERE date_time >= %s
-		", date('Y-m-d H:i:s', strtotime('-24 hours'))));
+		", gmdate('Y-m-d H:i:s', strtotime('-24 hours'))));
 		
 		// Errors by day (last 7 days)
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; reads feed admin list/dashboard views that need fresh rows
 		$stats['errors_by_day'] = $wpdb->get_results("
 			SELECT DATE(date_time) as date, COUNT(*) as count, SUM(hits_count) as hits
-			FROM `$tableName` 
+			FROM `{$wpdb->prefix}metasync_404_logs` 
 			WHERE date_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
 			GROUP BY DATE(date_time)
 			ORDER BY date DESC
@@ -192,7 +198,7 @@ class Metasync_Error_Monitor_Database
 			$this->delete_lowest_hits(20);
 		}
 
-		return $wpdb->insert($this->get_table_name(), $args);
+		return $wpdb->insert($this->get_table_name(), $args); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository write — 404 hit logging has no WordPress API
 	}
 
 	/**
@@ -260,8 +266,7 @@ class Metasync_Error_Monitor_Database
 	public function get_count()
 	{
 		global $wpdb;
-		$tableName = $this->get_table_name();
-		return (int) $wpdb->get_var("SELECT COUNT(*) FROM `$tableName`");
+		return (int) $wpdb->get_var("SELECT COUNT(*) FROM `{$wpdb->prefix}metasync_404_logs`"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; reads feed admin list/dashboard views that need fresh rows
 	}
 
 	/**
@@ -272,13 +277,9 @@ class Metasync_Error_Monitor_Database
 	public function delete($items)
 	{
 		global $wpdb;
-		$tableName = $this->get_table_name();
 		if (!is_array($items) || empty($items)) return;
-		$ids = implode(',', array_fill(0, count($items), '%d'));
-		$wpdb->query($wpdb->prepare(
-			" 
-			DELETE FROM `$tableName`
-			WHERE `id` IN ($ids) ",
+		$wpdb->query($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; reads feed admin list/dashboard views that need fresh rows
+			'DELETE FROM `' . $wpdb->prefix . 'metasync_404_logs` WHERE `id` IN (' . implode(',', array_fill(0, count($items), '%d')) . ')',
 			$items
 		));
 	}
@@ -293,9 +294,8 @@ class Metasync_Error_Monitor_Database
 	private function delete_lowest_hits($limit = 20)
 	{
 		global $wpdb;
-		$tableName = $this->get_table_name();
-		$wpdb->query($wpdb->prepare(
-			"DELETE FROM `$tableName` ORDER BY hits_count ASC, date_time ASC LIMIT %d",
+		$wpdb->query($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; reads feed admin list/dashboard views that need fresh rows
+			'DELETE FROM `' . $wpdb->prefix . 'metasync_404_logs` ORDER BY hits_count ASC, date_time ASC LIMIT %d',
 			$limit
 		));
 	}
@@ -306,8 +306,7 @@ class Metasync_Error_Monitor_Database
 	public function clear_logs()
 	{
 		global $wpdb;
-		$tableName = $this->get_table_name();
-		$wpdb->query("TRUNCATE TABLE {$tableName}");
+		$wpdb->query("TRUNCATE TABLE {$wpdb->prefix}metasync_404_logs");
 	}
 
 	/**
@@ -321,7 +320,7 @@ class Metasync_Error_Monitor_Database
 			'date_time'  => current_time('mysql'),
 			'hits_count' => absint($row->hits_count) + 1,
 		];
-		$wpdb->update($this->get_table_name(), $update_data, ['id' => $row->id]);
+		$wpdb->update($this->get_table_name(), $update_data, ['id' => $row->id]); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; reads feed admin list/dashboard views that need fresh rows
 	}
 
 	/**
@@ -331,7 +330,6 @@ class Metasync_Error_Monitor_Database
 	public function findByUri($value)
 	{
 		global $wpdb;
-		$tableName = $this->get_table_name();
-		return $wpdb->get_row($wpdb->prepare("SELECT * FROM `$tableName` WHERE `uri` = %s ", $value));
+		return $wpdb->get_row($wpdb->prepare("SELECT * FROM `{$wpdb->prefix}metasync_404_logs` WHERE `uri` = %s ", $value)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository — no WordPress API exists for plugin tables; reads feed admin list/dashboard views that need fresh rows
 	}
 }

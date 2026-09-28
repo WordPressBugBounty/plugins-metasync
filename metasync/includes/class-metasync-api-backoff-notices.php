@@ -154,7 +154,7 @@ class Metasync_API_Backoff_Notices {
 
         // Check if on MetaSync settings page or any page with metasync in the ID
         return strpos($screen->id, 'metasync') !== false ||
-               (isset($_GET['page']) && strpos($_GET['page'], 'metasync') !== false);
+               (isset($_GET['page']) && strpos($_GET['page'], 'metasync') !== false); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check to scope notice scripts
     }
 
     /**
@@ -218,13 +218,6 @@ class Metasync_API_Backoff_Notices {
         if (empty($endpoint_hash)) {
             wp_send_json_error(['message' => 'Invalid endpoint hash']);
         }
-
-        // Log the dismissal (notice will reappear on page refresh if still active)
-        error_log(sprintf(
-            '[MetaSync API_BACKOFF_NOTICE_DISMISSED] User %d dismissed notice for endpoint: %s',
-            get_current_user_id(),
-            $endpoint_hash
-        ));
 
         wp_send_json_success(['message' => 'Notice dismissed']);
     }

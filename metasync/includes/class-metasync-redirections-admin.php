@@ -66,7 +66,7 @@ class Metasync_Redirections_Admin
 
         $this->ensure_404_monitor_table();
 
-        $current_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'redirections';
+        $current_tab = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : 'redirections'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab selection
 
         $this->add_tabbed_interface_assets();
         $this->admin->render_layout_open('Redirections', 'redirections', 'Manage URL redirects and monitor 404 errors on your site.');
@@ -102,7 +102,7 @@ class Metasync_Redirections_Admin
     private function safe_redirect($url)
     {
         if (!headers_sent()) {
-            wp_redirect($url);
+            wp_safe_redirect($url);
             exit;
         } else {
             echo '<script type="text/javascript">window.location.href = "' . esc_url($url) . '";</script>';
@@ -136,13 +136,16 @@ class Metasync_Redirections_Admin
             wp_die('Insufficient permissions.');
         }
 
-        $source_urls = isset($_POST['source_url']) ? array_map('sanitize_text_field', $_POST['source_url']) : [];
-        $search_types = isset($_POST['search_type']) ? array_map('sanitize_text_field', $_POST['search_type']) : [];
-        $destination_url = isset($_POST['destination_url']) ? sanitize_text_field($_POST['destination_url']) : '';
+        // Unslash before sanitizing: source URLs with apostrophes/backslashes
+        // must be stored in their literal form so the front-end matcher (which
+        // compares against the unslashed request URI) can hit them.
+        $source_urls = isset($_POST['source_url']) ? array_map('sanitize_text_field', wp_unslash($_POST['source_url'])) : [];
+        $search_types = isset($_POST['search_type']) ? array_map('sanitize_text_field', wp_unslash($_POST['search_type'])) : [];
+        $destination_url = isset($_POST['destination_url']) ? sanitize_text_field(wp_unslash($_POST['destination_url'])) : '';
         $redirect_type = isset($_POST['redirect_type']) ? intval($_POST['redirect_type']) : 301;
-        $status = isset($_POST['status']) ? sanitize_text_field($_POST['status']) : 'active';
+        $status = isset($_POST['status']) ? sanitize_text_field(wp_unslash($_POST['status'])) : 'active';
         $regex_pattern = isset($_POST['regex_pattern']) ? wp_unslash(trim($_POST['regex_pattern'])) : '';
-        $description = isset($_POST['description']) ? sanitize_text_field($_POST['description']) : '';
+        $description = isset($_POST['description']) ? sanitize_text_field(wp_unslash($_POST['description'])) : '';
         $redirect_id = isset($_POST['redirect_id']) ? intval($_POST['redirect_id']) : 0;
 
         $validation_errors = [];
@@ -324,7 +327,7 @@ class Metasync_Redirections_Admin
             }
             
         } catch (Exception $e) {
-            error_log('MetaSync error: ' . $e->getMessage());
+            error_log('MetaSync error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             set_transient('metasync_redirection_error_' . $uid, 'An error occurred while saving the redirection. Please try again.', 45);
             $this->safe_redirect(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections'));
         }
@@ -549,7 +552,7 @@ class Metasync_Redirections_Admin
     private function render_redirections_tab($current_tab = null)
     {
         if ($current_tab === null) {
-            $current_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'redirections';
+            $current_tab = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : 'redirections'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab selection
         }
         $active_class = $current_tab === 'redirections' ? 'active' : '';
         
@@ -566,7 +569,7 @@ class Metasync_Redirections_Admin
     private function render_404_monitor_tab($current_tab = null)
     {
         if ($current_tab === null) {
-            $current_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'redirections';
+            $current_tab = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : 'redirections'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab selection
         }
         $active_class = $current_tab === '404-monitor' ? 'active' : '';
         
@@ -583,10 +586,10 @@ class Metasync_Redirections_Admin
                 $ErrorMonitor->create_admin_plugin_interface();
                 
             } catch (Exception $e) {
-                error_log('MetaSync 404 Monitor Error: ' . $e->getMessage());
+                error_log('MetaSync 404 Monitor Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 echo '<div class="notice notice-error"><p>An error occurred while loading the 404 monitor. Please check the server logs for details.</p></div>';
             } catch (Error $e) {
-                error_log('MetaSync 404 Monitor Fatal Error: ' . $e->getMessage());
+                error_log('MetaSync 404 Monitor Fatal Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 echo '<div class="notice notice-error"><p>A fatal error occurred while loading the 404 monitor. Please check the server logs for details.</p></div>';
             }
             ?>
@@ -601,7 +604,7 @@ class Metasync_Redirections_Admin
         
         $table_name = $wpdb->prefix . Metasync_Error_Monitor_Database::$table_name;
         
-        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name)) != $table_name) {
+        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name)) != $table_name) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- admin repair action — re-runs the migration check on demand from the UI
             require_once plugin_dir_path(dirname(__FILE__)) . 'database/class-db-migrations.php';
             MetaSync_DBMigration::run_migrations();
         }
@@ -612,11 +615,11 @@ class Metasync_Redirections_Admin
         global $wpdb;
         $table_name = $wpdb->prefix . 'metasync_redirections';
         
-        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name)) != $table_name) {
+        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name)) != $table_name) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- admin repair action — re-runs the migration check on demand from the UI
             return;
         }
         
-        $columns = $wpdb->get_col("DESCRIBE {$table_name}");
+        $columns = $wpdb->get_col("DESCRIBE {$wpdb->prefix}metasync_redirections"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- admin repair action — re-runs the migration check on demand from the UI
         $required_columns = ['pattern_type', 'regex_pattern', 'description', 'created_at', 'updated_at', 'last_accessed_at'];
         
         $missing_columns = array_diff($required_columns, $columns);

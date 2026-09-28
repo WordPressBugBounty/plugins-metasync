@@ -118,7 +118,7 @@ class Metasync_MCP_Sync_Logger {
             ]);
         } catch (Exception $e) {
             // Never break MCP execution because of logging.
-            error_log('MetaSync MCP Sync Logger error: ' . $e->getMessage());
+            error_log('MetaSync MCP Sync Logger error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         }
     }
 

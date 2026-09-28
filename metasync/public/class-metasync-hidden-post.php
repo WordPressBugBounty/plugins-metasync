@@ -57,7 +57,7 @@ class MetaSyncHiddenPostManager
     
         # Clean up the temp file
         if (file_exists($tmp_file_path)) {
-        @unlink($tmp_file_path); # Delete only the temp copy, not the original file
+        @wp_delete_file($tmp_file_path); # Delete only the temp copy, not the original file
         }
     
         if (is_wp_error($attachment_id)) {
@@ -105,15 +105,11 @@ class MetaSyncHiddenPostManager
         # Check if the post already exists by title
         global $wpdb;
 
-        # prepare query
-        $query = $wpdb->prepare(
+        # Get the Data (prepare query inline)
+        $existing_post = $wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- maintenance of the plugin hidden OG post — direct status/content surgery keeps it invisible to WP_Query consumers
             "SELECT ID FROM {$wpdb->posts} WHERE post_title = %s AND (post_type = 'post' OR post_type = 'metasync_post_type') LIMIT 1",
             $this->post_title
-        );
-
-
-        # Get the Data
-        $existing_post = $wpdb->get_var($query);
+        ));
 
         $this->get_image_url_Data();
         if ($existing_post) {
@@ -171,7 +167,7 @@ class MetaSyncHiddenPostManager
 
         # Flip to publish via direct DB write — bypasses transition_post_status
         global $wpdb;
-        $wpdb->update(
+        $wpdb->update( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- maintenance of the plugin hidden OG post — direct status/content surgery keeps it invisible to WP_Query consumers
             $wpdb->posts,
             ['post_status' => 'publish'],
             ['ID' => $post_id]
@@ -230,7 +226,7 @@ class MetaSyncHiddenPostManager
     {
         # Switch to page type via direct DB write — bypasses transition_post_status
         global $wpdb;
-        $wpdb->update(
+        $wpdb->update( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- maintenance of the plugin hidden OG post — direct status/content surgery keeps it invisible to WP_Query consumers
             $wpdb->posts,
             [
                 'post_type'   => 'page',
@@ -279,7 +275,7 @@ class MetaSyncHiddenPostManager
     private function check_and_fix_post_content($post_id,$post_type='post')
     {
         if (!class_exists('DOMDocument')) {
-            error_log('MetaSync: skipping check_and_fix_post_content — DOMDocument (php-dom extension) is not available on this server.');
+            error_log('MetaSync: skipping check_and_fix_post_content — DOMDocument (php-dom extension) is not available on this server.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             return false;
         }
 
@@ -410,20 +406,25 @@ class MetaSyncHiddenPostManager
      */
     protected function fetch_post_html($post_url)
     {
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $post_url); # Set the URL to fetch
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); # Return the response as a string
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); # Follow redirects if any
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10); # Bound connection establishment
-        curl_setopt($ch, CURLOPT_TIMEOUT, 15); # Bound the complete request
-        curl_setopt($ch, CURLOPT_MAXREDIRS, 5); # Bound redirect chains
-        $html = curl_exec($ch); # Execute the request and store the HTML response
-        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE); # Capture the HTTP status code
-        curl_close($ch); # Close the cURL session
+        $response = wp_remote_get(
+            $post_url,
+            [
+                'timeout' => 15,
+                'redirection' => 5,
+                'sslverify' => true,
+            ]
+        );
+
+        if (is_wp_error($response)) {
+            return [
+                'body' => false,
+                'status' => 0,
+            ];
+        }
 
         return [
-            'body' => $html,
-            'status' => (int) $http_code,
+            'body' => wp_remote_retrieve_body($response),
+            'status' => (int) wp_remote_retrieve_response_code($response),
         ];
     }
 
@@ -436,7 +437,7 @@ class MetaSyncHiddenPostManager
 
         # Single direct DB write for both type + status — bypasses
         # transition_post_status so auto-share plugins never see this post
-        $wpdb->update(
+        $wpdb->update( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- maintenance of the plugin hidden OG post — direct status/content surgery keeps it invisible to WP_Query consumers
             $wpdb->posts,
             [
                 'post_type'   => 'post',
@@ -455,7 +456,7 @@ class MetaSyncHiddenPostManager
 
         # Single direct DB write — bypasses transition_post_status on the
         # publish→draft transition (some plugins hook that direction too)
-        $wpdb->update(
+        $wpdb->update( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- maintenance of the plugin hidden OG post — direct status/content surgery keeps it invisible to WP_Query consumers
             $wpdb->posts,
             [
                 'post_status' => 'draft',

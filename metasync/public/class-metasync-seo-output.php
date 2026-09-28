@@ -174,12 +174,12 @@ class Metasync_Seo_Output
 		}
 
 		// Check if amp=1 query parameter is present
-		if (isset($_GET['amp']) && $_GET['amp'] == '1') {
+		if (isset($_GET['amp']) && $_GET['amp'] == '1') { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only AMP detection
 			return true;
 		}
 
 		// Check for other common AMP query parameters
-		if (isset($_GET['amp']) && !empty($_GET['amp'])) {
+		if (isset($_GET['amp']) && !empty($_GET['amp'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only AMP detection
 			return true;
 		}
 
@@ -558,7 +558,7 @@ class Metasync_Seo_Output
 			'webp' => 'image/webp',
 			'svg'  => 'image/svg+xml',
 		];
-		$file_ext        = strtolower(pathinfo(parse_url($image_url, PHP_URL_PATH) ?: $image_url, PATHINFO_EXTENSION));
+		$file_ext        = strtolower(pathinfo(wp_parse_url($image_url, PHP_URL_PATH) ?: $image_url, PATHINFO_EXTENSION));
 		$image_mime_type = $mime_types[$file_ext] ?? 'image/jpeg';
 
 		return [
@@ -1297,7 +1297,7 @@ class Metasync_Seo_Output
 				}
 				return $this->maybe_build_headless_url(get_permalink($blog_page_id), 'page');
 			}
-			if (Metasync_Headless_Config::is_active()) {
+			if ($this->headless_is_active()) {
 				return $this->get_headless_home_url();
 			}
 			return home_url('/');
@@ -1461,8 +1461,27 @@ class Metasync_Seo_Output
 	 * @param string $post_type Post type for an optional frontend path prefix.
 	 * @return mixed Original URL when inactive; public URL or empty string when active.
 	 */
+	/**
+	 * Is headless mode active?
+	 *
+	 * Delegates to metasync_headless_is_active() (includes/metasync-helpers.php),
+	 * which treats a class that the Composer classmap cannot resolve mid-upgrade
+	 * as "not headless" instead of fataling. function_exists() because this class
+	 * is also loaded directly — by tests and by early bootstrap paths — where the
+	 * helpers file may not have been required yet.
+	 *
+	 * @return bool
+	 */
+	private function headless_is_active() {
+		if (function_exists('metasync_headless_is_active')) {
+			return metasync_headless_is_active();
+		}
+
+		return class_exists('Metasync_Headless_Config') && Metasync_Headless_Config::is_active();
+	}
+
 	private function maybe_build_headless_url($url, $post_type = '') {
-		if (!Metasync_Headless_Config::is_active()) {
+		if (!$this->headless_is_active()) {
 			return $url;
 		}
 

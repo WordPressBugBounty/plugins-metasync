@@ -50,7 +50,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 	 */
 	public function get_pagenum()
 	{
-		$pagenum = isset($_REQUEST['paged_redir']) ? absint($_REQUEST['paged_redir']) : 0;
+		$pagenum = isset($_REQUEST['paged_redir']) ? absint($_REQUEST['paged_redir']) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page number for the list query
 
 		if (isset($this->_pagination_args['total_pages']) && $pagenum > $this->_pagination_args['total_pages']) {
 			$pagenum = $this->_pagination_args['total_pages'];
@@ -104,12 +104,12 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 		$current_url = remove_query_arg($removable_query_args, $current_url);
 
 		// Preserve the tab parameter
-		if (isset($_GET['tab'])) {
-			$current_url = add_query_arg('tab', sanitize_text_field($_GET['tab']), $current_url);
+		if (isset($_GET['tab'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only values used in pagination links
+			$current_url = add_query_arg('tab', sanitize_text_field(wp_unslash($_GET['tab'])), $current_url); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only values used in pagination links
 		}
 		
 		// If filter action was submitted, remove paged_redir to reset to page 1
-		if (isset($_POST['filter_action']) || isset($_POST['post-query-submit'])) {
+		if (isset($_POST['filter_action']) || isset($_POST['post-query-submit'])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only values used in pagination links
 			$current_url = remove_query_arg('paged_redir', $current_url);
 		}
 		
@@ -151,7 +151,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 			$page_links[] = sprintf(
 				"<a class='first-page button' href='%s'><span class='screen-reader-text'>%s</span><span aria-hidden='true'>%s</span></a>",
 				esc_url(remove_query_arg('paged_redir', $current_url)),
-				esc_html__('First page'),
+				esc_html__('First page', 'metasync'),
 				'&laquo;'
 			);
 		}
@@ -162,7 +162,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 			$page_links[] = sprintf(
 				"<a class='prev-page button' href='%s'><span class='screen-reader-text'>%s</span><span aria-hidden='true'>%s</span></a>",
 				esc_url(add_query_arg('paged_redir', max(1, $current - 1), $current_url)),
-				esc_html__('Previous page'),
+				esc_html__('Previous page', 'metasync'),
 				'&lsaquo;'
 			);
 		}
@@ -192,7 +192,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 			$page_links[] = sprintf(
 				"<a class='next-page button' href='%s'><span class='screen-reader-text'>%s</span><span aria-hidden='true'>%s</span></a>",
 				esc_url(add_query_arg('paged_redir', min($total_pages, $current + 1), $current_url)),
-				esc_html__('Next page'),
+				esc_html__('Next page', 'metasync'),
 				'&rsaquo;'
 			);
 		}
@@ -203,7 +203,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 			$page_links[] = sprintf(
 				"<a class='last-page button' href='%s'><span class='screen-reader-text'>%s</span><span aria-hidden='true'>%s</span></a>",
 				esc_url(add_query_arg('paged_redir', $total_pages, $current_url)),
-				esc_html__('Last page'),
+				esc_html__('Last page', 'metasync'),
 				'&raquo;'
 			);
 		}
@@ -302,25 +302,25 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 			$filters['search'] = $request_state['s_redir'];
 		}
 		
-		if (!empty($_REQUEST['status_filter'])) {
-			$filters['status'] = sanitize_text_field($_REQUEST['status_filter']);
+		if (!empty($_REQUEST['status_filter'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
+			$filters['status'] = sanitize_text_field(wp_unslash($_REQUEST['status_filter'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
 		}
 		
-		if (!empty($_REQUEST['pattern_filter'])) {
-			$filters['pattern_type'] = sanitize_text_field($_REQUEST['pattern_filter']);
+		if (!empty($_REQUEST['pattern_filter'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
+			$filters['pattern_type'] = sanitize_text_field(wp_unslash($_REQUEST['pattern_filter'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
 		}
 		
-		if (!empty($_REQUEST['http_code_filter'])) {
-			$filters['http_code'] = intval($_REQUEST['http_code_filter']);
+		if (!empty($_REQUEST['http_code_filter'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
+			$filters['http_code'] = intval($_REQUEST['http_code_filter']); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
 		}
 
 		// Use separate orderby/order parameters for redirections
-		if (!empty($_REQUEST['orderby_redir'])) {
-			$filters['order_by'] = sanitize_sql_orderby($_REQUEST['orderby_redir']);
+		if (!empty($_REQUEST['orderby_redir'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
+			$filters['order_by'] = sanitize_sql_orderby($_REQUEST['orderby_redir']); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
 		}
 
-		if (!empty($_REQUEST['order_redir'])) {
-			$filters['order'] = sanitize_text_field($_REQUEST['order_redir']);
+		if (!empty($_REQUEST['order_redir'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
+			$filters['order'] = sanitize_text_field(wp_unslash($_REQUEST['order_redir'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter and sort values for the list query
 		}
 		
 		return $filters;
@@ -362,7 +362,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 	 */
 	protected function get_orderby()
 	{
-		return isset($_REQUEST['orderby_redir']) ? sanitize_key($_REQUEST['orderby_redir']) : '';
+		return isset($_REQUEST['orderby_redir']) ? sanitize_key(wp_unslash($_REQUEST['orderby_redir'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only sort state for the column headers
 	}
 
 	/**
@@ -370,7 +370,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 	 */
 	protected function get_order()
 	{
-		$raw = isset($_REQUEST['order_redir']) ? strtolower(sanitize_key($_REQUEST['order_redir'])) : '';
+		$raw = isset($_REQUEST['order_redir']) ? strtolower(sanitize_key(wp_unslash($_REQUEST['order_redir']))) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only sort state for the column headers
 		if ($raw === 'desc') {
 			return 'desc';
 		}
@@ -384,7 +384,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 	{
 		list($columns, $hidden, $sortable, $primary) = $this->get_column_info();
 
-		$current_page = isset($_GET['page']) ? sanitize_text_field($_GET['page']) : Metasync_Admin::$page_slug;
+		$current_page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : Metasync_Admin::$page_slug; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page slug used in escaped sort links
 		$current_url = set_url_scheme('http://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']);
 		$current_url = remove_query_arg(['_wpnonce', '_wp_http_referer', 'action', 'action2', 'id'], $current_url);
 		$current_url = add_query_arg('page', $current_page, $current_url);
@@ -462,6 +462,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 				return $this->column_pattern_type($item);
 			default:
 				# return print_r($item, true); // Show the whole array for troubleshooting purposes.
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_print_r -- unreachable in production
 				return esc_html(print_r($item, true)); # Fixed: Added esc_html() to prevent XSS in debug output
 		}
 	}
@@ -477,6 +478,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 
 	protected function column_sources_from($item)
 	{
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, row-action links carry their own nonce
 		$request_data = metasync_sanitize_input_array($_REQUEST); // WPCS: Input var ok.
 		if (!isset($request_data['page'])) return;
 
@@ -629,15 +631,15 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 		// action and then clicking Filter silently run the action. The Search
 		// submit posts no filter_action, so it needs its own named marker to
 		// stop the same silent delete when it shares a form with the dropdown.
-		if (!empty($_REQUEST['filter_action']) || !empty($_REQUEST['search_submit'])) {
+		if (!empty($_REQUEST['filter_action']) || !empty($_REQUEST['search_submit'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action name, callers verify a nonce before any write
 			return false;
 		}
 
-		if (isset($_REQUEST['action']) && '-1' !== $_REQUEST['action'] && '' !== $_REQUEST['action']) {
-			return sanitize_text_field(wp_unslash($_REQUEST['action']));
+		if (isset($_REQUEST['action']) && '-1' !== $_REQUEST['action'] && '' !== $_REQUEST['action']) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action name, callers verify a nonce before any write
+			return sanitize_text_field(wp_unslash($_REQUEST['action'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action name, callers verify a nonce before any write
 		}
-		if (isset($_REQUEST['action2']) && '-1' !== $_REQUEST['action2'] && '' !== $_REQUEST['action2']) {
-			return sanitize_text_field(wp_unslash($_REQUEST['action2']));
+		if (isset($_REQUEST['action2']) && '-1' !== $_REQUEST['action2'] && '' !== $_REQUEST['action2']) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action name, callers verify a nonce before any write
+			return sanitize_text_field(wp_unslash($_REQUEST['action2'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action name, callers verify a nonce before any write
 		}
 		return parent::current_action();
 	}
@@ -740,7 +742,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 
 	protected function process_bulk_action()
 	{
-		$post_data = metasync_sanitize_input_array($_POST);
+		$post_data = metasync_sanitize_input_array($_POST); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- check_admin_referer() runs before any write
 		$items = isset($post_data['items']) && is_array($post_data['items']) ? array_map('sanitize_title', $post_data['items']) : [];
 
 		if (empty($post_data['items'])) return;

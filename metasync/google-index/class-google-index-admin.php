@@ -115,7 +115,7 @@ class Google_Index_Admin
             if (file_exists(plugin_dir_path(__FILE__) . 'google-index-init.php')) {
                 require_once plugin_dir_path(__FILE__) . 'google-index-init.php';
             } else {
-                error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(__FILE__) . 'google-index-init.php');
+                error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(__FILE__) . 'google-index-init.php'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 return;
             }
         }
@@ -142,9 +142,9 @@ class Google_Index_Admin
     public function process_google_index_settings()
     {
         // Only process if our fields are present in the request
-        if (!isset($_POST['google_index_service_account_json']) &&
-            !isset($_POST['google_index_clear_config']) &&
-            !isset($_FILES['google_index_service_account_file'])) {
+        if (!isset($_POST['google_index_service_account_json']) && // phpcs:ignore WordPress.Security.NonceVerification.Missing -- early-return checks, a nonce is verified before any write
+            !isset($_POST['google_index_clear_config']) && // phpcs:ignore WordPress.Security.NonceVerification.Missing -- early-return checks, a nonce is verified before any write
+            !isset($_FILES['google_index_service_account_file'])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- early-return checks, a nonce is verified before any write
             return; // No Google Index data to process
         }
 
@@ -153,7 +153,7 @@ class Google_Index_Admin
         }
 
         // Clearing does not need to load or inspect credential contents.
-        if (isset($_POST['google_index_clear_config'])) {
+        if (isset($_POST['google_index_clear_config'])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- authorize_settings_request() verified nonce and capability
             $this->clear_stored_service_account();
             $this->add_settings_notice('Service account configuration cleared successfully!', 'success');
             return;
@@ -208,7 +208,7 @@ class Google_Index_Admin
             // A partial deploy can leave the file present but the function
             // undefined, so re-check rather than assuming the require worked.
             if (!$this->module_function_available('google_index_save_service_account')) {
-                error_log('MetaSync Google Index: google_index_save_service_account() unavailable; expected google-index-init.php at ' . plugin_dir_path(__FILE__) . 'google-index-init.php');
+                error_log('MetaSync Google Index: google_index_save_service_account() unavailable; expected google-index-init.php at ' . plugin_dir_path(__FILE__) . 'google-index-init.php'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 
                 // Deliberately NOT 'error'. This optional sub-module failing to
                 // load must not abort the parent settings save — the embedded
@@ -221,16 +221,16 @@ class Google_Index_Admin
         $service_account_json = '';
 
         // Get JSON from textarea
-        if (isset($_POST['google_index_service_account_json'])) {
-            $service_account_json = sanitize_textarea_field(wp_unslash($_POST['google_index_service_account_json']));
+        if (isset($_POST['google_index_service_account_json'])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- private, callers verify a nonce and capability first
+            $service_account_json = sanitize_textarea_field(wp_unslash($_POST['google_index_service_account_json'])); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- private, callers verify a nonce and capability first
         }
 
         // Override with file upload if provided
-        if (isset($_FILES['google_index_service_account_file']) &&
-            !empty($_FILES['google_index_service_account_file']['tmp_name']) &&
-            file_exists($_FILES['google_index_service_account_file']['tmp_name'])) {
+        if (isset($_FILES['google_index_service_account_file']) && // phpcs:ignore WordPress.Security.NonceVerification.Missing -- private, callers verify a nonce and capability first
+            !empty($_FILES['google_index_service_account_file']['tmp_name']) && // phpcs:ignore WordPress.Security.NonceVerification.Missing -- private, callers verify a nonce and capability first
+            file_exists($_FILES['google_index_service_account_file']['tmp_name'])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- private, callers verify a nonce and capability first
 
-            $uploaded_json = file_get_contents($_FILES['google_index_service_account_file']['tmp_name']);
+            $uploaded_json = file_get_contents($_FILES['google_index_service_account_file']['tmp_name']); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- private, callers verify a nonce and capability first
             if ($uploaded_json !== false) {
                 $service_account_json = $uploaded_json; // Removed unnecessary wp_unslash
             }
@@ -495,7 +495,7 @@ class Google_Index_Admin
             if (file_exists(plugin_dir_path(__FILE__) . 'google-index-init.php')) {
                 require_once plugin_dir_path(__FILE__) . 'google-index-init.php';
             } else {
-                error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(__FILE__) . 'google-index-init.php');
+                error_log('MetaSync Google Index: google-index-init.php not found at ' . plugin_dir_path(__FILE__) . 'google-index-init.php'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
                 return;
             }
         }
@@ -564,11 +564,11 @@ class Google_Index_Admin
         // "general" tab, the Indexation Control page, and the standalone
         // Instant Indexing page. Gating on the tab alone left the standalone
         // page — the one the ticket is about — without any of this behaviour.
-        $current_page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
+        $current_page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page and tab check to enqueue scripts
         $is_standalone_page = (substr($current_page, -14) === '-instant-index');
 
         if (!$is_standalone_page) {
-            $current_tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : 'general';
+            $current_tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page and tab check to enqueue scripts
             if ($current_tab !== 'general' && strpos($hook, 'seo-controls') === false) {
                 return;
             }

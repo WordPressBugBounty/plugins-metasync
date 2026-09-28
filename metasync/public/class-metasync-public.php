@@ -379,7 +379,7 @@ class Metasync_Public
 	 * Enqueue custom CSS when Divi Visual Builder is active.
 	 */
 	public function enqueue_divi_builder_css() {
-		if ( empty( $_GET['et_fb'] ) ) {
+		if ( empty( $_GET['et_fb'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only builder flag for CSS enqueue
 			return;
 		}
 

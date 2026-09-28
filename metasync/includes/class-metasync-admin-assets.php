@@ -50,7 +50,7 @@ class Metasync_Admin_Assets
             'all'
         );
 
-        if (isset($_GET['page']) && strpos($_GET['page'], '-setup-wizard') !== false) {
+        if (isset($_GET['page']) && strpos($_GET['page'], '-setup-wizard') !== false) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check to enqueue wizard assets
             wp_enqueue_style(
                 $plugin_name . '-setup-wizard',
                 $admin_dir_url . 'css/metasync-setup-wizard.css',
@@ -132,6 +132,8 @@ class Metasync_Admin_Assets
 			'sa_connect_nonce' => $sa_connect_nonce,
 			'reset_auth_nonce' => wp_create_nonce('metasync_reset_auth_nonce'),
 			'burst_ping_nonce' => wp_create_nonce('metasync_burst_ping'),
+			'clear_otto_cache_nonce' => wp_create_nonce('metasync_clear_otto_cache'),
+			'lglogin_nonce' => wp_create_nonce('metasync_lglogin'),
 			'heartbeat_state' => $heartbeat_state,
 			'dashboard_domain' => Metasync_Admin::get_effective_dashboard_domain(),
 			'support_email' => Metasync::SUPPORT_EMAIL,
@@ -189,7 +191,7 @@ class Metasync_Admin_Assets
         ";
         wp_add_inline_script($plugin_name, $inline_script);
 
-        if (isset($_GET['page']) && strpos($_GET['page'], '-setup-wizard') !== false) {
+        if (isset($_GET['page']) && strpos($_GET['page'], '-setup-wizard') !== false) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check to enqueue wizard assets
             wp_enqueue_script(
                 $plugin_name . '-setup-wizard',
                 $admin_dir_url . 'js/metasync-setup-wizard.js',
