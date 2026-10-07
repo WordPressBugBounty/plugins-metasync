@@ -444,6 +444,7 @@ if (!defined('ABSPATH')) {
                     $initial_twitter_description = !empty($twitter_description) ? $twitter_description : '';
                     $initial_twitter_image = !empty($twitter_image) ? $twitter_image : '';
 
+                    // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- generate_preview_html() escapes every interpolated value internally (esc_url / esc_attr / esc_html)
                     echo $this->generate_preview_html($initial_title, $initial_description, $initial_image, $initial_url, $initial_twitter_title, $initial_twitter_description, $initial_twitter_image);
                     ?>
                 </div>

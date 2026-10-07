@@ -392,14 +392,16 @@ function metasync_extract_meta_title($seo_data) {
  */
 function metasync_extract_meta_description($seo_data) {
     # First check header replacements for meta description
+    # Only name="description" counts. og:description is social text with its own
+    # extractor; accepting it here saved it as the meta description whenever the
+    # real description arrived in header_html_insertion instead.
     if (!empty($seo_data['header_replacements']) && is_array($seo_data['header_replacements'])) {
         foreach ($seo_data['header_replacements'] as $replacement) {
             $is_meta_type = isset($replacement['type']) && $replacement['type'] === 'meta';
             $has_description_name = isset($replacement['name']) && $replacement['name'] === 'description';
-            $has_og_description = isset($replacement['property']) && $replacement['property'] === 'og:description';
             $has_value = !empty($replacement['recommended_value']);
 
-            if ($is_meta_type && ($has_description_name || $has_og_description) && $has_value) {
+            if ($is_meta_type && $has_description_name && $has_value) {
                 $description = sanitize_textarea_field($replacement['recommended_value']);
 
                 # Clean SEO plugin variables
@@ -796,7 +798,27 @@ function metasync_extract_structured_data($seo_data) {
  * @return array Success status and updated flags for all fields
  */
 function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
-    if (!$post_id || empty($seo_data)) {
+    if (!$post_id) {
+        return array(
+            'updated' => false,
+            'fields_updated' => array()
+        );
+    }
+
+    // A 204/404 OTTO response is normalized to an empty array. Clear only
+    // OTTO's volatile canonical in that case: an empty response means the
+    // previous suggestion is no longer authoritative, while the other SEO
+    // fields must not be treated as an undeploy without field-level data.
+    if (empty($seo_data)) {
+        $current_otto_canonical = get_post_meta($post_id, '_metasync_otto_canonical', true);
+        if (!empty($current_otto_canonical)) {
+            update_post_meta($post_id, '_metasync_otto_canonical', '');
+            return array(
+                'updated' => true,
+                'fields_updated' => array('otto_canonical' => '')
+            );
+        }
+
         return array(
             'updated' => false,
             'fields_updated' => array()
@@ -870,14 +892,52 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             }
         }
 
+        # Update OTTO's canonical staging key (volatile, ungated — mirrors the
+        # keywords block above). This is the value the precedence resolver reads
+        # so OTTO's canonical still renders on the paths OTTO itself bails out
+        # of (AJAX, 404, paged archives, cart/checkout, previews, throttled
+        # bots, per-post disable, ...). Copying it into _metasync_canonical_url
+        # / Rank Math / Yoast / AIOSEO storage stays gated by
+        # should_persist('canonical_url') further down.
+        $current_otto_canonical = $all_meta['_metasync_otto_canonical'][0] ?? '';
+        $otto_canonical = !empty($seo_data['canonical_url'])
+            ? Metasync_Canonical_Sanitizer::sanitize_for_save($seo_data['canonical_url'])
+            : '';
+        if ($otto_canonical !== '') {
+            # OTTO provided a usable canonical - update the staging key if different
+            if ($otto_canonical !== $current_otto_canonical) {
+                update_post_meta($post_id, '_metasync_otto_canonical', $otto_canonical);
+                $fields_updated['otto_canonical'] = $otto_canonical;
+                $any_updated = true;
+            }
+        } else {
+            # OTTO returned nothing usable - clear an existing staging value so a
+            # stale canonical from a previous sync cannot keep rendering.
+            if (!empty($current_otto_canonical)) {
+                update_post_meta($post_id, '_metasync_otto_canonical', '');
+                $fields_updated['otto_canonical'] = '';
+                $any_updated = true;
+            }
+        }
+
         # Collect AIOSEO field updates to write in a single DB call at the end
         $aioseo_field_updates = [];
 
-        # PERSISTENCE: meta_keywords → _metasync_focus_keyword + SEO plugin keyword fields
+        # PERSISTENCE: meta_keywords → _metasync_metakeywords + SEO plugin keyword fields
+        #
+        # The persisted copy lands on _metasync_metakeywords — the persisted-OTTO
+        # tier — not _metasync_focus_keyword (the customer key). Writing onto the
+        # customer key meant "Disable OTTO" could not reach the persisted value:
+        # it looked like customer input and kept rendering after the toggle was
+        # flipped. The dedicated key lets the precedence chain classify it as
+        # OTTO's and drop it under the opt-out.
+        #
+        # Migration: existing _metasync_focus_keyword values are left in place and
+        # treated as customer-owned — only new writes route here. No data is moved.
         if (class_exists('Metasync_Otto_Persistence_Settings') &&
             Metasync_Otto_Persistence_Settings::should_persist('meta_keywords') &&
             $meta_keywords !== null) {
-            update_post_meta($post_id, '_metasync_focus_keyword', sanitize_text_field($meta_keywords));
+            update_post_meta($post_id, '_metasync_metakeywords', sanitize_text_field($meta_keywords));
             $fields_updated['meta_keywords_persisted'] = true;
             if (metasync_is_plugin_active('seo-by-rank-math/rank-math.php') || metasync_is_plugin_active('seo-by-rankmath/rank-math.php')) {
                 metasync_persist_post_field($post_id, 'rank_math_focus_keyword', sanitize_text_field($meta_keywords));
@@ -897,6 +957,17 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
                     ],
                     'additional' => [],
                 ]);
+            }
+        } else {
+            # The flag is off (or OTTO returned no keyword). Clear the persisted
+            # tier so a value written while the flag was on does not freeze there
+            # and outrank OTTO's live suggestion — the persisted tier sits above
+            # the volatile one in the chain, so a frozen copy would win forever.
+            # Safe now that this key can never hold customer input —
+            # _metasync_focus_keyword is the customer key, not this one.
+            $existing_metakeywords = $all_meta['_metasync_metakeywords'][0] ?? '';
+            if (!empty($existing_metakeywords)) {
+                update_post_meta($post_id, '_metasync_metakeywords', '');
             }
         }
 
@@ -2860,6 +2931,8 @@ function metasync_register_seo_meta_fields() {
         '_metasync_otto_title',
         '_metasync_otto_description',
         '_metasync_otto_keywords',
+        '_metasync_otto_canonical',
+        '_metasync_metakeywords',
         '_metasync_otto_og_title',
         '_metasync_otto_og_description',
         '_metasync_otto_twitter_title',
@@ -3633,11 +3706,8 @@ function metasync_output_otto_meta_description() {
 
     # Output meta description tag if we found one
     if (!empty($description)) {
-        # Escape for HTML attribute
-        $description_escaped = esc_attr($description);
-
         # Output the meta tag with OTTO marker
-        echo '<meta name="description" content="' . $description_escaped . '" data-metasync-otto="true" />' . "\n";
+        echo '<meta name="description" content="' . esc_attr($description) . '" data-metasync-otto="true" />' . "\n";
     }
 }
 add_action('wp_head', 'metasync_output_otto_meta_description', 1);

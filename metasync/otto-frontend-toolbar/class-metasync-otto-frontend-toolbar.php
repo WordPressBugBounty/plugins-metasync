@@ -246,6 +246,35 @@ class Metasync_Otto_Frontend_Toolbar {
 	}
 
 	/**
+	 * Whether the per-page opt-out meta is set (ignores the URL exclusion list).
+	 *
+	 * @param int $post_id Post ID.
+	 * @return bool
+	 */
+	private function has_page_opt_out( $post_id ) {
+		$flag = get_post_meta( $post_id, self::META_KEY, true );
+
+		return $flag === '1' || $flag === 'true';
+	}
+
+	/**
+	 * Consent-gated analytics: a user turning OTTO off (or back on) for a page
+	 * is the strongest "OTTO hurt my site" signal. Sent only on a real change.
+	 *
+	 * @param bool $disabled     New state.
+	 * @param bool $was_disabled State before the toggle.
+	 */
+	private function track_page_opt_out( $disabled, $was_disabled ) {
+		if ( $disabled === $was_disabled ) {
+			return;
+		}
+		Metasync_PostHog::feature( 'otto_opt_out', array(
+			'scope'  => 'page',
+			'action' => $disabled ? 'disable' : 'enable',
+		) );
+	}
+
+	/**
 	 * Enqueue toolbar styles
 	 */
 	public function enqueue_styles() {
@@ -747,9 +776,11 @@ class Metasync_Otto_Frontend_Toolbar {
 
 		// Update OTTO status
 		$disabled = ( $otto_action === 'disable' );
+		$was_disabled = $this->has_page_opt_out( $post_id );
 		$success = $this->set_otto_status( $post_id, $disabled );
 
 		if ( $success ) {
+			$this->track_page_opt_out( $disabled, $was_disabled );
 			// Report the effective status rather than the requested one. A URL on the
 			// manual exclusion list stays disabled whatever the per-page meta now
 			// says, and the toolbar must not repaint itself "Enabled" for a page OTTO
@@ -816,10 +847,15 @@ class Metasync_Otto_Frontend_Toolbar {
 		}
 
 		// Toggle OTTO status
+		$was_disabled = $this->has_page_opt_out( $post_id );
 		if ( $action === 'enable' ) {
-			$this->set_otto_status( $post_id, false );
+			if ( $this->set_otto_status( $post_id, false ) ) {
+				$this->track_page_opt_out( false, $was_disabled );
+			}
 		} elseif ( $action === 'disable' ) {
-			$this->set_otto_status( $post_id, true );
+			if ( $this->set_otto_status( $post_id, true ) ) {
+				$this->track_page_opt_out( true, $was_disabled );
+			}
 			// Clear Divi's per-page CSS cache when OTTO is disabled.
 			// OTTO's HTTP render can corrupt the CSS cache file; clearing it
 			// forces Divi to rebuild it on the next normal render.

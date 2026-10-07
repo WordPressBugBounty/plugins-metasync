@@ -30,6 +30,16 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 	exit;
 }
 
+// Consent-gated churn signal. Sent first, while the consent option still
+// exists below; sends nothing when the site never opted in. The plugin main
+// file is not loaded during uninstall, so the key constant it normally
+// defines must be defined here or track() is a silent no-op.
+if ( ! defined( 'METASYNC_POSTHOG_API_KEY' ) ) {
+	define( 'METASYNC_POSTHOG_API_KEY', getenv('METASYNC_POSTHOG_API_KEY') !== false ? getenv('METASYNC_POSTHOG_API_KEY') : 'phc_ntSayCJE7Ad9eBHRG6ygBaY4BJMa8rFjXcXESun9ftkh' ); // gitleaks:allow -- public write-only PostHog project key
+}
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-posthog.php';
+Metasync_PostHog::get_instance()->track( 'plugin_uninstalled', array() );
+
 /**
  * Remove plugin data for the current site.
  *
@@ -63,6 +73,7 @@ function metasync_uninstall_cleanup() {
 		'metasync_check_debug_limits',
 		'metasync_speed_cache_cleanup',
 		'metasync_bing_indexnow_submit_event',
+		'metasync_ph_flush_rollups',
 	);
 	foreach ( $cron_hooks as $cron_hook ) {
 		wp_clear_scheduled_hook( $cron_hook );

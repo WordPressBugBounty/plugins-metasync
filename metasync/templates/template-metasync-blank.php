@@ -1,78 +1,68 @@
+<?php
+// If this file is called directly, abort before emitting any document output.
+if (!defined('ABSPATH')) {
+	exit;
+}
+?>
 <!DOCTYPE html>
 <html <?php language_attributes(); ?>>
 <head>
 	<meta charset="<?php bloginfo('charset'); ?>" />
 	<?php
-	// If this file is called directly, abort.
-	if (!defined('ABSPATH')) {
-		exit;
-	}
 	wp_head();
 	?>
 
 </head>
 <?php
-// get the post ID
 $post_id = get_the_ID();
-// get post meta data for css_links 
 $css_links = get_post_meta($post_id, 'css_links', true);
-// get post meta data for inline_css
 $inline_css = get_post_meta($post_id, 'inline_css', true);
-// get post meta data for js_links
 $js_links = get_post_meta($post_id, 'js_links', true);
-// check if the key css_links exist
-if($css_links!==''){
-// Loop through all the css link
-$decoded_css_links = json_decode($css_links);
-if (is_array($decoded_css_links)) {
-foreach ($decoded_css_links as $css_link) {
-	// SECURITY FIX: Validate and escape CSS URLs
-	if (filter_var($css_link, FILTER_VALIDATE_URL) && (strpos($css_link, 'http') === 0)) {
+
+$decode_meta_list = static function ($value) {
+	if (is_array($value)) {
+		return $value;
+	}
+	if (!is_string($value) || '' === $value) {
+		return array();
+	}
+
+	$decoded = json_decode($value, true);
+	return is_array($decoded) ? $decoded : array();
+};
+
+foreach ($decode_meta_list($css_links) as $css_link) {
+	if (is_string($css_link) && filter_var($css_link, FILTER_VALIDATE_URL) && 0 === strpos($css_link, 'http')) {
 		// phpcs:ignore WordPress.WP.EnqueuedResources.NonEnqueuedStylesheet -- Dynamic per-post CSS URLs from the user's page settings (css_links meta) must print in <head> of this bare custom-page template; enqueueing after wp_head() would relocate them to the footer.
 		echo '<link href="' . esc_url($css_link) . '" rel="stylesheet"/>';
 	}
 }
+
+foreach ($decode_meta_list($inline_css) as $css) {
+	if (is_string($css)) {
+		// SECURITY FIX: Sanitize CSS to prevent XSS.
+		$sanitized_css = wp_strip_all_tags($css);
+		echo '<style>' . esc_html($sanitized_css) . '</style>';
+	}
 }
-}
-// check if the key inline_css exist
-if($inline_css!==''){
-// Loop through all the inline css and print it
-$decoded_inline_css = json_decode($inline_css);
-if (is_array($decoded_inline_css)) {
-foreach ($decoded_inline_css as $css) {
-	// SECURITY FIX: Sanitize CSS to prevent XSS
-	$sanitized_css = wp_strip_all_tags($css);
-	echo '<style>' . esc_html($sanitized_css) . '</style>';
-}
-}
-}
-// check if the key js_links exist
-$js_links_decoded = !empty($js_links) ? json_decode($js_links) : null;
-if(is_array($js_links_decoded)){
-// Loop through all the js link and print it script tags
-$decoded_js_links = json_decode($js_links);
-if (is_array($decoded_js_links)) {
-foreach ($decoded_js_links as $js_link) {
-	// SECURITY FIX: Validate and escape JS URLs
-	if (filter_var($js_link, FILTER_VALIDATE_URL) && (strpos($js_link, 'http') === 0)) {
+
+foreach ($decode_meta_list($js_links) as $js_link) {
+	if (is_string($js_link) && filter_var($js_link, FILTER_VALIDATE_URL) && 0 === strpos($js_link, 'http')) {
 		// phpcs:ignore WordPress.WP.EnqueuedResources.NonEnqueuedScript -- Dynamic per-post JS URLs from the user's page settings (js_links meta) must print in <head> of this bare custom-page template; enqueueing after wp_head() would relocate them to the footer.
 		echo '<script src="' . esc_url($js_link) . '"></script>';
 	}
-}
-}
 }
 ?>
 
 <body class="text-gray-800 font-sans leading-normal gradient-bg postid-<?php echo esc_attr($post_id); ?>">
 	<?php
-	// get content of the post
 	$content = apply_filters('the_content', get_the_content());
+	// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- the_content() passthrough in a blank page template; escaping would corrupt the document
 	echo $content;
 	?>
 </body>
 <?php
 wp_footer();
-
 ?>
 
 </html>

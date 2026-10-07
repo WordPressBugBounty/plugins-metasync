@@ -51,13 +51,16 @@ document.addEventListener('DOMContentLoaded', function () {
 	}
 
 	// Handle regex pattern field visibility
-	var searchTypeSelects = document.querySelectorAll('select[name="search_type[]"]');
 	var regexRow = document.getElementById('regex_pattern_row');
 
 	function toggleRegexField() {
 		var hasRegex = false;
-		searchTypeSelects.forEach(function (select) {
-			if (select.value === 'regex') {
+		// Re-query on every call so rows added later are always included.
+		var sourceInputs = document.querySelectorAll('input[name="source_url[]"]');
+		document.querySelectorAll('select[name="search_type[]"]').forEach(function (select, index) {
+			// A selector on an unused blank row must not enable the global regex
+			// field or affect validation for populated redirect rows.
+			if (sourceInputs[index] && sourceInputs[index].value.trim() && select.value === 'regex') {
 				hasRegex = true;
 			}
 		});
@@ -70,16 +73,31 @@ document.addEventListener('DOMContentLoaded', function () {
 	// Initial check
 	toggleRegexField();
 
-	// Listen for changes
-	searchTypeSelects.forEach(function (select) {
-		select.addEventListener('change', toggleRegexField);
+	// Listen for changes on current and future selects through delegation.
+	document.addEventListener('change', function (e) {
+		if (e.target.matches('select[name="search_type[]"]')) {
+			toggleRegexField();
+		}
 	});
 
-	// Handle adding new source URLs
+	// Keep regex visibility in sync when a user fills or clears a row.
+	document.addEventListener('input', function (e) {
+		if (e.target.matches('input[name="source_url[]"]')) {
+			toggleRegexField();
+		}
+	});
+
+	// Handle adding new source URLs. This script is the sole owner of the
+	// redirect-row behavior — admin/js/metasync-admin.js must never bind to
+	// #addNewSourceUrl again, or every click appends two rows (WP-909).
 	var addButton = document.getElementById('addNewSourceUrl');
 	if (addButton) {
 		addButton.addEventListener('click', function () {
 			var sourceUrlsList = document.getElementById('source_urls');
+			if (!sourceUrlsList) {
+				return;
+			}
+
 			var newItem = document.createElement('li');
 			newItem.innerHTML =
                 '<input type="text" class="regular-text" name="source_url[]" value="">' +
@@ -92,25 +110,17 @@ document.addEventListener('DOMContentLoaded', function () {
                 '</select>' +
                 '<button type="button" class="source_url_delete">Remove</button>';
 			sourceUrlsList.appendChild(newItem);
-
-			// Add event listener to new select
-			var newSelect = newItem.querySelector('select[name="search_type[]"]');
-			newSelect.addEventListener('change', toggleRegexField);
-
-			// Add event listener to remove button
-			var removeButton = newItem.querySelector('.source_url_delete');
-			removeButton.addEventListener('click', function () {
-				newItem.remove();
-				toggleRegexField();
-			});
 		});
 	}
 
-	// Handle remove buttons
+	// Handle remove buttons (delegated so dynamically added rows are covered)
 	document.addEventListener('click', function (e) {
 		if (e.target.classList.contains('source_url_delete')) {
-			e.target.closest('li').remove();
-			toggleRegexField();
+			var item = e.target.closest('li');
+			if (item) {
+				item.remove();
+				toggleRegexField();
+			}
 		}
 	});
 
@@ -307,17 +317,21 @@ document.addEventListener('DOMContentLoaded', function () {
 			// 1. Validate source URLs
 			var sourceInputs = document.querySelectorAll('input[name="source_url[]"]');
 			var sourceUrls = [];
-			var hasEmptySource = false;
+			var hasAnySource = false;
 			var hasInvalidSource = false;
 
 			sourceInputs.forEach(function (input) {
 				var value = input.value.trim();
 
+				// Blank rows are unused "Add Another" placeholders — skip them so
+				// validation only covers redirects the user actually entered.
 				if (!value) {
-					hasEmptySource = true;
-					showError(input, 'Source URL is required');
-					isValid = false;
-				} else if (!validateURL(value)) {
+					return;
+				}
+
+				hasAnySource = true;
+
+				if (!validateURL(value)) {
 					hasInvalidSource = true;
 					showError(input, 'Please enter a valid URL (e.g., /path or https://example.com)');
 					isValid = false;
@@ -332,8 +346,15 @@ document.addEventListener('DOMContentLoaded', function () {
 				}
 			});
 
-			if (hasEmptySource) {
-				errors.push('All source URL fields must be filled in.');
+			// Only an entirely blank form is missing a source URL — a row the
+			// user typed into is reported as invalid above, not as absent.
+			if (!hasAnySource) {
+				var firstSourceInput = sourceInputs[0];
+				if (firstSourceInput) {
+					showError(firstSourceInput, 'Source URL is required');
+				}
+				errors.push('Please enter at least one source URL.');
+				isValid = false;
 			}
 			if (hasInvalidSource) {
 				errors.push('Please enter valid URLs for all source fields.');
@@ -361,10 +382,15 @@ document.addEventListener('DOMContentLoaded', function () {
 				}
 			}
 
-			// 4. Validate regex pattern (if regex is selected)
+			// Validate regex only for a populated source row. A blank row is an
+			// unused placeholder, even if its select was changed to "regex".
 			var hasRegexPattern = false;
-			document.querySelectorAll('select[name="search_type[]"]').forEach(function (select) {
-				if (select.value === 'regex') {
+			var searchTypeSelects = document.querySelectorAll('select[name="search_type[]"]');
+			sourceInputs.forEach(function (input, index) {
+				if (!input.value.trim()) {
+					return;
+				}
+				if (searchTypeSelects[index] && searchTypeSelects[index].value === 'regex') {
 					hasRegexPattern = true;
 				}
 			});

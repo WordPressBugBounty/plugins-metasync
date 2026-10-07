@@ -51,6 +51,9 @@
         },
         wpmlEntries: [],
         languageAlternatesEnabled: true,
+        breadcrumbs: {
+            titleFieldEnabled: true,
+        },
         otto: {
             globalEnabled: false,
             name: 'OTTO',
@@ -1380,6 +1383,12 @@
         }, [metaKey]);
 
         const { editPost } = useDispatch('core/editor');
+
+        // Keep hooks unconditional so the component remains hook-safe when the
+        // field is hidden. Missing config stays visible for older localized data.
+        if (config.breadcrumbs && config.breadcrumbs.titleFieldEnabled === false) {
+            return null;
+        }
 
         const handleChange = (newValue) => {
             editPost({ meta: { [metaKey]: newValue } });

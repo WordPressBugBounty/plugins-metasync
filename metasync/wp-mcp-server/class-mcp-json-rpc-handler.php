@@ -55,7 +55,7 @@ class MCP_JSON_RPC_Handler {
      */
     public function register_handler($method, $callback) {
         if (!is_callable($callback)) {
-            throw new InvalidArgumentException("Handler for method '{$method}' must be callable");
+            throw new InvalidArgumentException("Handler for method '{$method}' must be callable"); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
         $this->handlers[$method] = $callback;
     }

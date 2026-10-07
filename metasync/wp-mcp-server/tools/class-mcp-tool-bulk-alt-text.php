@@ -367,7 +367,7 @@ class MCP_Tool_Generate_Alt_Text extends MCP_Tool_Base {
         // Verify attachment exists
         $attachment = get_post($attachment_id);
         if (!$attachment || $attachment->post_type !== 'attachment') {
-            throw new Exception(sprintf("Attachment not found: %d", $attachment_id));
+            throw new Exception(sprintf("Attachment not found: %d", $attachment_id)); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         // Get existing data
@@ -555,7 +555,7 @@ class MCP_Tool_Validate_Alt_Text extends MCP_Tool_Base {
         // Verify attachment exists
         $attachment = get_post($attachment_id);
         if (!$attachment || $attachment->post_type !== 'attachment') {
-            throw new Exception(sprintf("Attachment not found: %d", $attachment_id));
+            throw new Exception(sprintf("Attachment not found: %d", $attachment_id)); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         $alt_text = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);

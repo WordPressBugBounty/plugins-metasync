@@ -181,6 +181,8 @@ class Metasync_Redirection
             # Perform import
             $result = $this->importer->import_from_plugin($plugin);
 
+            Metasync_PostHog::import_batch($plugin, 'redirections', $result);
+
             if ($result['success']) {
                 wp_send_json_success($result);
             } else {
@@ -223,6 +225,8 @@ class Metasync_Redirection
         }
 
         $result = $this->importer->import_csv_file($file['tmp_name']);
+
+        Metasync_PostHog::import_batch('csv', 'redirections', $result);
 
         if (!empty($result['success'])) {
             wp_send_json_success($result);

@@ -99,7 +99,7 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
                 if (!$normalized['valid']) {
                     throw new Exception(sprintf(
                         "Invalid hreflang language code '%s' — use an ISO code like 'en', 'en-US' (hyphen, not underscore) or 'x-default'",
-                        is_scalar($entry['lang']) ? (string) $entry['lang'] : gettype($entry['lang'])
+                        is_scalar($entry['lang']) ? (string) $entry['lang'] : gettype($entry['lang']) // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
                     ));
                 }
                 // Sanitize each URL to strip javascript: and other unsafe protocols.
@@ -107,7 +107,7 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
                 if (!Metasync_Hreflang_Output::is_absolute_http_url($url)) {
                     throw new Exception(sprintf(
                         "hreflang URL '%s' must be an absolute http(s) URL (relative paths are not valid hreflang hrefs)",
-                        (string) $entry['url']
+                        (string) $entry['url'] // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
                     ));
                 }
                 $clean[] = [
@@ -134,7 +134,7 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
             $allowed_keys = ['nofollow', 'noarchive', 'nosnippet', 'noimageindex', 'max_snippet', 'max_image_preview', 'max_video_preview'];
             foreach (array_keys($decoded) as $k) {
                 if (!in_array($k, $allowed_keys, true)) {
-                    throw new Exception("Unknown key '{$k}' in _metasync_robots_advanced. Allowed: " . implode(', ', $allowed_keys));
+                    throw new Exception("Unknown key '{$k}' in _metasync_robots_advanced. Allowed: " . implode(', ', $allowed_keys)); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
                 }
             }
             // Validate types
@@ -149,7 +149,7 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
             if (isset($decoded['max_image_preview'])) {
                 $valid = ['none', 'standard', 'large'];
                 if (!in_array($decoded['max_image_preview'], $valid, true)) {
-                    throw new Exception("max_image_preview must be one of: " . implode(', ', $valid));
+                    throw new Exception("max_image_preview must be one of: " . implode(', ', $valid)); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
                 }
             }
             if (isset($decoded['max_video_preview'])) {
@@ -210,7 +210,7 @@ class MCP_Tool_Update_Post_Meta extends MCP_Tool_Base {
         $updated = update_post_meta($post_id, $meta_key, $meta_value);
 
         if ($updated === false) {
-            throw new Exception("Failed to update meta key '{$meta_key}'");
+            throw new Exception("Failed to update meta key '{$meta_key}'"); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         $stored_value = get_post_meta($post_id, $meta_key, true);

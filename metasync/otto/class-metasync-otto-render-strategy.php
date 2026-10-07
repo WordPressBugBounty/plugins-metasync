@@ -241,7 +241,7 @@ class Metasync_Otto_Render_Strategy {
         # Check for known caching plugins that may conflict with output buffering
         $conflicting_plugins = [
             # Heavy output buffering plugins
-            'WP_Rocket' => class_exists('WP_Rocket'),
+            'WP_Rocket' => defined('WP_ROCKET_VERSION') || class_exists('WP_Rocket'),
             'W3TC' => defined('W3TC'),
             'LiteSpeed_Cache' => defined('LSCWP_V'),
 
@@ -1413,7 +1413,7 @@ class Metasync_Otto_Render_Strategy {
 
         # Check if WP Rocket is active — drives both the diagnostic header below
         # and the Cache-Control decision further down
-        $wp_rocket_active = class_exists('WP_Rocket');
+        $wp_rocket_active = defined('WP_ROCKET_VERSION') || class_exists('WP_Rocket');
 
         # Diagnostic headers: observability only, so gated behind Debug Mode.
         # Everything after this block is functional (browser/CDN caching) and
@@ -1529,7 +1529,7 @@ class Metasync_Otto_Render_Strategy {
             'current_method' => self::get_current_method(),
             'buffer_active' => self::$buffer_active,
             'detected_plugins' => [
-                'wp_rocket' => class_exists('WP_Rocket'),
+                'wp_rocket' => defined('WP_ROCKET_VERSION') || class_exists('WP_Rocket'),
                 'w3tc' => defined('W3TC'),
                 'litespeed' => defined('LSCWP_V'),
                 'autoptimize' => class_exists('autoptimizeMain'),

@@ -101,15 +101,15 @@ class Metasync_API_Backoff_Notices {
         $endpoint_hash = $backoff['endpoint_hash'];
 
         $notice_class = 'notice notice-warning is-dismissible metasync-backoff-notice';
-        $notice_id = 'metasync-backoff-' . esc_attr($endpoint_hash);
+        $notice_id = 'metasync-backoff-' . $endpoint_hash;
 
         $status_label = $response_code === 429 ? 'Rate Limited' : 'Service Unavailable';
         $status_icon = '⏸️';
 
         ?>
-        <div id="<?php echo $notice_id; ?>" class="<?php echo esc_attr($notice_class); ?>" data-endpoint-hash="<?php echo esc_attr($endpoint_hash); ?>">
+        <div id="<?php echo esc_attr($notice_id); ?>" class="<?php echo esc_attr($notice_class); ?>" data-endpoint-hash="<?php echo esc_attr($endpoint_hash); ?>">
             <div style="display: flex; align-items: flex-start; gap: 12px; padding: 4px 0;">
-                <div style="font-size: 24px; line-height: 1;"><?php echo $status_icon; ?></div>
+                <div style="font-size: 24px; line-height: 1;"><?php echo esc_html($status_icon); ?></div>
                 <div style="flex: 1;">
                     <p style="margin: 0 0 8px 0; font-weight: 600; font-size: 14px;">
                         <strong>API Backoff Active:</strong> <?php echo esc_html($endpoint); ?>

@@ -166,7 +166,7 @@ jQuery(document).ready(function($) {
             type: 'POST',
             data: {
                 action: 'metasync_validate_robots',
-                nonce: '<?php echo wp_create_nonce('metasync_nonce'); ?>',
+                nonce: '<?php echo esc_js(wp_create_nonce('metasync_nonce')); ?>',
                 content: content
             },
             success: function(response) {
@@ -280,7 +280,7 @@ jQuery(document).ready(function($) {
                 type: 'POST',
                 data: {
                     action: 'metasync_get_default_robots',
-                    nonce: '<?php echo wp_create_nonce('metasync_nonce'); ?>'
+                    nonce: '<?php echo esc_js(wp_create_nonce('metasync_nonce')); ?>'
                 },
                 success: function(response) {
                     if (response.success) {
@@ -300,7 +300,7 @@ jQuery(document).ready(function($) {
             type: 'POST',
             data: {
                 action: 'metasync_validate_robots',
-                nonce: '<?php echo wp_create_nonce('metasync_nonce'); ?>',
+                nonce: '<?php echo esc_js(wp_create_nonce('metasync_nonce')); ?>',
                 content: content
             },
             success: function(response) {
@@ -360,7 +360,7 @@ jQuery(document).ready(function($) {
             type: 'POST',
             data: {
                 action: 'metasync_preview_robots_backup',
-                nonce: '<?php echo wp_create_nonce('metasync_nonce'); ?>',
+                nonce: '<?php echo esc_js(wp_create_nonce('metasync_nonce')); ?>',
                 backup_id: backupId
             },
             success: function(response) {
@@ -403,7 +403,7 @@ jQuery(document).ready(function($) {
                         .removeClass('button-primary')
                         .addClass('button-restore')
                         .data('backup-id', backupId)
-                        .data('nonce', '<?php echo wp_create_nonce('metasync_restore_robots_backup'); ?>')
+                        .data('nonce', '<?php echo esc_js(wp_create_nonce('metasync_restore_robots_backup')); ?>')
                         .show();
                     
                     // Hide close button for preview

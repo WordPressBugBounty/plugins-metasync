@@ -204,7 +204,7 @@ class Metasync_Otto_MCP_Integration {
         ];
 
         if (!isset($tool_mapping[$action_name])) {
-            throw new Exception("Unknown OTTO action: {$action_name}");
+            throw new Exception("Unknown OTTO action: {$action_name}"); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         [$tool_name, $default_params] = $tool_mapping[$action_name];

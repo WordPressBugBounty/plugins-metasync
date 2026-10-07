@@ -126,7 +126,7 @@ function metasync_show_sentry_instructions() {
     } else {
         echo "<div style='background: #d1edff; border: 1px solid #74b9ff; padding: 10px; border-radius: 3px; margin-bottom: 15px;'>";
         echo "<strong>✅ Sentry Configured</strong><br>";
-        echo "Active DSN: " . substr($status['active_dsn'], 0, 30) . "...";
+        echo "Active DSN: " . esc_html(substr($status['active_dsn'], 0, 30)) . "...";
         echo "</div>";
     }
     
@@ -169,8 +169,8 @@ function metasync_show_sentry_instructions() {
     echo "<table style='border-collapse: collapse; width: 100%;'>";
     echo "<tr><td style='border: 1px solid #ddd; padding: 8px;'><strong>Telemetry Enabled:</strong></td><td style='border: 1px solid #ddd; padding: 8px;'>" . ($status['telemetry_enabled'] ? '✅ Yes' : '❌ No') . "</td></tr>";
     echo "<tr><td style='border: 1px solid #ddd; padding: 8px;'><strong>Sentry Enabled:</strong></td><td style='border: 1px solid #ddd; padding: 8px;'>" . ($status['sentry_enabled'] ? '✅ Yes' : '❌ No') . "</td></tr>";
-    echo "<tr><td style='border: 1px solid #ddd; padding: 8px;'><strong>Environment:</strong></td><td style='border: 1px solid #ddd; padding: 8px;'>" . $status['environment'] . "</td></tr>";
-    echo "<tr><td style='border: 1px solid #ddd; padding: 8px;'><strong>Plugin Version:</strong></td><td style='border: 1px solid #ddd; padding: 8px;'>" . $status['plugin_version'] . "</td></tr>";
+    echo "<tr><td style='border: 1px solid #ddd; padding: 8px;'><strong>Environment:</strong></td><td style='border: 1px solid #ddd; padding: 8px;'>" . esc_html($status['environment']) . "</td></tr>";
+    echo "<tr><td style='border: 1px solid #ddd; padding: 8px;'><strong>Plugin Version:</strong></td><td style='border: 1px solid #ddd; padding: 8px;'>" . esc_html($status['plugin_version']) . "</td></tr>";
     echo "</table>";
     
     echo "</div>";

@@ -316,8 +316,20 @@ class Metasync_Seo_Output
 		if (empty($post))
 			return;
 
-		# Keywords: render persisted OTTO focus keyword as <meta name="keywords">
-		$focus_keyword = get_post_meta($post->ID, '_metasync_focus_keyword', true);
+		# Keywords: resolve through the precedence chain rather than the customer
+		# tier alone. OTTO writes its suggestion to a staging key on every active
+		# sync; reading only the customer tier meant the suggestion rendered solely
+		# on pages OTTO server-side renders itself, and vanished on every path OTTO
+		# bails out of (404, search, paged archive, cart, AJAX, throttled bot).
+		# resolve() also honours the per-post "Disable OTTO" toggle, so a post OTTO
+		# has stood down from leaks no keyword of OTTO's — not the staging value,
+		# not the copy the meta_keywords persistence flag saved to its own key.
+		# The global SEO priority setting orders the customer and OTTO tiers the
+		# same way it orders title and description. A value the flag already
+		# copied into _metasync_focus_keyword before the tiers were separated is
+		# the customer tier by then and still renders — the toggle drops OTTO's
+		# own tiers, not everything OTTO ever wrote.
+		$focus_keyword = Metasync_Seo_Precedence::value($post->ID, Metasync_Seo_Precedence::FIELD_FOCUS_KEYWORD);
 		if (!empty($focus_keyword)) {
 			$list_page_meta['keywords'] = sanitize_text_field($focus_keyword);
 		}
@@ -641,6 +653,7 @@ class Metasync_Seo_Output
 			return;
 		}
 
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON-LD document; metasync_safe_json_ld_encode() produces the JSON payload for a <script> context
 		echo "\t<script type=\"application/ld+json\">" . $json . "</script>\n";
 	}
 
@@ -1357,18 +1370,44 @@ class Metasync_Seo_Output
 
 	/**
 	 * Get the canonical URL for a post
+	 *
+	 * Resolves through Metasync_Seo_Precedence::FIELD_CANONICAL — the persisted
+	 * or imported value (_metasync_canonical_url), then the Canonical meta box
+	 * value the customer typed, then OTTO's volatile staging key
+	 * (_metasync_otto_canonical, written on every active sync) — so a
+	 * deliberate OTTO canonical renders even on the paths OTTO itself bails out
+	 * of, instead of silently degrading to the permalink. The staging tier sits
+	 * below both manual keys because OTTO's SSR injection stands down when
+	 * either of them is set; any other order would render a different canonical
+	 * than SSR does. The chain also honours the per-post "Disable OTTO" toggle:
+	 * with OTTO stood down the staging tier is dropped.
+	 *
+	 * Every value is validated so legacy rows corrupted to the literal "Array"
+	 * (or stored as arrays) are never emitted. The permalink fallback below the
+	 * chain preserves the pre-existing behaviour when nothing is stored.
 	 */
 	private function get_canonical_url($post) {
-		# Check for persisted OTTO canonical URL first, then the Canonical meta
-		# box value (meta_canonical). Both are validated so legacy rows corrupted
-		# to the literal "Array" (or stored as arrays) are never emitted.
-		$metasync_canonical = Metasync_Canonical_Sanitizer::sanitize(
-			get_post_meta($post->ID, '_metasync_canonical_url', true)
-		);
-		if ($metasync_canonical === '') {
+		# Resolve the precedence chain first. include_otto defaults to the
+		# per-post "Disable OTTO" toggle inside resolve(), so a stood-down
+		# suggestion is never served. A partial install without the resolver
+		# degrades to the direct reads of the two manual keys it replaced.
+		$metasync_canonical = '';
+		if (class_exists('Metasync_Seo_Precedence')) {
 			$metasync_canonical = Metasync_Canonical_Sanitizer::sanitize(
-				get_post_meta($post->ID, 'meta_canonical', true)
+				Metasync_Seo_Precedence::value(
+					$post->ID,
+					Metasync_Seo_Precedence::FIELD_CANONICAL
+				)
 			);
+		} else {
+			$metasync_canonical = Metasync_Canonical_Sanitizer::sanitize(
+				get_post_meta($post->ID, '_metasync_canonical_url', true)
+			);
+			if ($metasync_canonical === '') {
+				$metasync_canonical = Metasync_Canonical_Sanitizer::sanitize(
+					get_post_meta($post->ID, 'meta_canonical', true)
+				);
+			}
 		}
 
 		if ($metasync_canonical !== '') {
@@ -1718,6 +1757,7 @@ class Metasync_Seo_Output
 		);
 
 		// Output cleaned content
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- the page's own HTML content passthrough after the robots-meta strip; escaping would corrupt the document
 		echo $content;
 
 		// Add our robots tag or comment based on settings

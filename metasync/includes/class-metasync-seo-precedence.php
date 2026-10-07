@@ -14,8 +14,8 @@
  *
  * ── Posts ────────────────────────────────────────────────────────────────
  *   _metasync_seo_title           the customer typed it in the sidebar or box
- *   _metasync_metatitle           OTTO's value, persisted by the sync
  *   _metasync_otto_title          OTTO's value for this request
+ *   _metasync_metatitle           OTTO's value, persisted by the sync
  *   _metasync_imported_seo_title  brought in from another SEO plugin
  *
  * ── Terms ────────────────────────────────────────────────────────────────
@@ -63,6 +63,47 @@ final class Metasync_Seo_Precedence
     const FIELD_TWITTER_IMAGE       = 'twitter_image';
 
     /**
+     * The focus keyword.
+     *
+     * It reached the front end through one raw key rather than a chain, so
+     * OTTO's suggestion was only ever rendered once something had copied it
+     * into the customer tier. Every other field OTTO fills resolves through
+     * this class and reads OTTO's staging key directly; this one now does too.
+     *
+     * "Focus keyword" names the field, not the shape of the value. The OTTO
+     * tier holds the whole comma-separated content string scraped out of the
+     * payload's keywords tag, not a single keyphrase — do not wire this chain
+     * straight into a single-keyphrase field such as rank_math_focus_keyword or
+     * _yoast_wpseo_focuskw without deciding how to narrow it first.
+     *
+     * Three tiers, mirroring title: the customer key, OTTO's volatile staging
+     * key and a persisted-OTTO key of its own (_metasync_metakeywords), so
+     * chain() can label the persisted tier OTTO's and drop it under
+     * include_otto=false. Previously the meta_keywords persistence flag wrote
+     * its copy to _metasync_focus_keyword — the customer key itself — so the
+     * Disable-OTTO opt-out could not reach it. Installs that ran with the flag
+     * on keep those legacy values where they are, treated as customer-owned.
+     */
+    const FIELD_FOCUS_KEYWORD       = 'focus_keyword';
+
+    /**
+     * Canonical URL.
+     *
+     * No imported tier: an import is migration data for a value the customer
+     * decides, and the importer writes its canonical straight into
+     * _metasync_canonical_url rather than a tier of its own.
+     *
+     * OTTO's staging key sits below both manual keys, not between them: OTTO's
+     * SSR injection stands down whenever either _metasync_canonical_url or
+     * meta_canonical holds a value, so a chain that ranked the staging key
+     * above the meta box would render OTTO's suggestion on the non-SSR paths
+     * and the customer's canonical on SSR — the same path-dependent canonical
+     * the staging key exists to eliminate. The order here mirrors the SSR
+     * stand-down order literally.
+     */
+    const FIELD_CANONICAL = 'canonical';
+
+    /**
      * Source labels, as the admin surfaces render them. An empty label means a
      * value MetaSync itself owns and needs no attribution.
      */
@@ -77,6 +118,7 @@ final class Metasync_Seo_Precedence
      */
     const KEY_PERSISTED_OTTO_TITLE = '_metasync_metatitle';
     const KEY_PERSISTED_OTTO_DESC  = '_metasync_metadesc';
+    const KEY_PERSISTED_OTTO_KEYWORD = '_metasync_metakeywords';
 
     /**
      * The one tier whose printing is owned by another emitter:
@@ -102,14 +144,27 @@ final class Metasync_Seo_Precedence
     /**
      * The tier the customer typed into the sidebar or meta box.
      *
-     * Named because the global priority setting moves exactly these two keys,
-     * and only these two. The other key labelled SOURCE_METASYNC on a post —
-     * the persisted _metasync_metatitle / _metasync_metadesc pair — holds
-     * OTTO's own value written by the sync, so demoting it under "prioritize
-     * OTTO" would push an OTTO value below OTTO. See demote_custom_tier().
+     * Named because the global priority setting moves exactly these keys —
+     * this pair plus the keyword's own below. The other key labelled
+     * SOURCE_METASYNC on a post — the persisted _metasync_metatitle /
+     * _metasync_metadesc pair — holds OTTO's own value written by the sync, so
+     * demoting it under "prioritize OTTO" would push an OTTO value below
+     * OTTO. See demote_custom_tier().
      */
     const KEY_CUSTOM_TITLE = '_metasync_seo_title';
     const KEY_CUSTOM_DESC  = '_metasync_seo_desc';
+
+    /**
+     * The customer's focus keyword, moved by the same global priority setting.
+     *
+     * Unlike the pair above this key has no persisted-OTTO twin: OTTO's own
+     * keyword lives only in its staging key, so there is no second
+     * SOURCE_METASYNC-labelled tier to keep clear of. The one caveat is the
+     * meta_keywords persistence flag, which copies OTTO's value straight into
+     * this key — a copy the chain cannot tell apart from typed input. See
+     * demote_custom_tier().
+     */
+    const KEY_CUSTOM_KEYWORD = '_metasync_focus_keyword';
 
     /**
      * Option value that hands precedence to OTTO. Anything else, including an
@@ -142,17 +197,53 @@ final class Metasync_Seo_Precedence
     private static function table() {
         return [
             self::TYPE_POST => [
+                // OTTO's staging key outranks its persisted copy: staging is
+                // refreshed by the sync (and, since the transient-miss backstop,
+                // by the render path itself), while the persisted key goes stale
+                // whenever OTTO persistence is switched off. A stale copy must
+                // not beat the fresh value on the rendered page.
                 self::FIELD_TITLE => [
                     '_metasync_seo_title'          => self::SOURCE_METASYNC,
-                    '_metasync_metatitle'          => self::SOURCE_METASYNC,
                     '_metasync_otto_title'         => self::SOURCE_OTTO,
+                    '_metasync_metatitle'          => self::SOURCE_METASYNC,
                     self::KEY_IMPORTED_TITLE       => self::SOURCE_IMPORTED,
                 ],
                 self::FIELD_DESCRIPTION => [
                     '_metasync_seo_desc'          => self::SOURCE_METASYNC,
-                    '_metasync_metadesc'          => self::SOURCE_METASYNC,
                     '_metasync_otto_description'  => self::SOURCE_OTTO,
+                    '_metasync_metadesc'          => self::SOURCE_METASYNC,
                     self::KEY_IMPORTED_DESC       => self::SOURCE_IMPORTED,
+                ],
+                // The focus keyword mirrors the title and description shape:
+                // the customer's value first, then OTTO's volatile staging
+                // value, then OTTO's persisted copy — staging outranks the
+                // persisted key for the same reason it does on the title:
+                // staging is refreshed by every sync while the persisted key
+                // only exists while the meta_keywords flag is on. Both OTTO
+                // tiers are dropped under "Disable OTTO" — the persisted tier
+                // having its own key is what lets chain() classify it as
+                // OTTO's. Previously the flag wrote its copy onto
+                // _metasync_focus_keyword (the customer key), so the toggle
+                // could not reach it and a persisted value froze there looking
+                // like customer input.
+                //
+                // Migration: installs that ran with the flag on already hold
+                // OTTO values on _metasync_focus_keyword, indistinguishable
+                // from customer input. They are left where they are and treated
+                // as customer-owned from here — only new writes route to the
+                // new persisted key. Moving them would silently discard real
+                // customer input. No data is migrated. No imported tier either:
+                // another SEO plugin's focus keyword is not migration data, and
+                // rendering one the customer never set would be wrong.
+                //
+                // Deliberately post-only, though OTTO does write
+                // _metasync_otto_keywords to term meta: no caller asks this
+                // class for a term keyword chain. Add a TYPE_TERM entry when
+                // one does.
+                self::FIELD_FOCUS_KEYWORD => [
+                    '_metasync_focus_keyword'        => self::SOURCE_METASYNC,
+                    '_metasync_otto_keywords'        => self::SOURCE_OTTO,
+                    self::KEY_PERSISTED_OTTO_KEYWORD => self::SOURCE_METASYNC,
                 ],
                 // Social chains mirror the order Metasync_OpenGraph resolves in
                 // — what the customer set, then OTTO's staging key, then a value
@@ -187,6 +278,19 @@ final class Metasync_Seo_Precedence
                 self::FIELD_TWITTER_IMAGE => [
                     '_metasync_twitter_image'       => self::SOURCE_METASYNC,
                     self::KEY_IMPORTED_TWITTER_IMAGE => self::SOURCE_IMPORTED,
+                ],
+                // Canonical: what was persisted or imported
+                // (_metasync_canonical_url) first, then the Canonical meta box
+                // value the customer typed, then OTTO's volatile staging key.
+                // That last position is not decoration — OTTO's SSR injection
+                // stands down when either manual key is set, so ranking the
+                // staging key above the meta box would make the non-SSR paths
+                // render a different canonical than SSR does. The emitter's
+                // permalink fallback sits below the chain.
+                self::FIELD_CANONICAL => [
+                    '_metasync_canonical_url'  => self::SOURCE_METASYNC,
+                    'meta_canonical'           => self::SOURCE_METASYNC,
+                    '_metasync_otto_canonical' => self::SOURCE_OTTO,
                 ],
             ],
             self::TYPE_TERM => [
@@ -263,9 +367,16 @@ final class Metasync_Seo_Precedence
         $include_persisted = array_key_exists('include_persisted_otto', $options) ? (bool) $options['include_persisted_otto'] : true;
         $include_imported  = array_key_exists('include_imported', $options) ? (bool) $options['include_imported'] : true;
 
-        $persisted_key = $field === self::FIELD_TITLE
-            ? self::KEY_PERSISTED_OTTO_TITLE
-            : self::KEY_PERSISTED_OTTO_DESC;
+        // The persisted-OTTO tier for each field that carries one. Title and
+        // description share the old behaviour; the keyword field has its own
+        // persisted key so the persistence flag no longer writes onto the
+        // customer tier.
+        $persisted_keys = [
+            self::FIELD_TITLE         => self::KEY_PERSISTED_OTTO_TITLE,
+            self::FIELD_DESCRIPTION   => self::KEY_PERSISTED_OTTO_DESC,
+            self::FIELD_FOCUS_KEYWORD => self::KEY_PERSISTED_OTTO_KEYWORD,
+        ];
+        $persisted_key = $persisted_keys[$field] ?? '';
 
         foreach ($chain as $key => $source) {
             // A tier labelled OTTO is OTTO's on either object type. The
@@ -304,7 +415,7 @@ final class Metasync_Seo_Precedence
     /**
      * Move the customer's own value below OTTO's when the site asks for it.
      *
-     * The global "SEO Title & Description Priority" setting exists because a
+     * The global "SEO Meta Priority" setting exists because a
      * page holding both a custom value and an approved OTTO suggestion renders
      * the custom one, which reads as a failed OTTO deployment. Flipping the
      * setting re-orders this chain; it never deletes anything. The custom key
@@ -312,8 +423,9 @@ final class Metasync_Seo_Precedence
      * nothing for the object — which is the whole point of demoting rather than
      * dropping it.
      *
-     * Only the page title and meta description move. OG and social tags carry
-     * their own chains and are deliberately left alone for now.
+     * Only the page title, meta description and focus keyword move. OG and
+     * social tags carry their own chains and are deliberately left alone for
+     * now.
      *
      * @param array<string,string> $chain       Ordered key => source, already filtered.
      * @param string               $field
@@ -328,7 +440,14 @@ final class Metasync_Seo_Precedence
             return $chain;
         }
 
-        if ($field !== self::FIELD_TITLE && $field !== self::FIELD_DESCRIPTION) {
+        // The fields the setting governs, as customer key => OTTO key pairs.
+        // Everything else — OG and social tags especially — keeps its chain.
+        $moved = [
+            self::FIELD_TITLE         => [self::KEY_CUSTOM_TITLE, '_metasync_otto_title'],
+            self::FIELD_DESCRIPTION   => [self::KEY_CUSTOM_DESC, '_metasync_otto_description'],
+            self::FIELD_FOCUS_KEYWORD => [self::KEY_CUSTOM_KEYWORD, '_metasync_otto_keywords'],
+        ];
+        if (!isset($moved[$field])) {
             return $chain;
         }
 
@@ -340,7 +459,7 @@ final class Metasync_Seo_Precedence
             return $chain;
         }
 
-        $custom_key = $field === self::FIELD_TITLE ? self::KEY_CUSTOM_TITLE : self::KEY_CUSTOM_DESC;
+        [$custom_key, $otto_key] = $moved[$field];
 
         // Nothing to move when the caller already dropped the custom tier, or
         // when OTTO's tier is gone — with no OTTO key left there is nothing for
@@ -349,16 +468,28 @@ final class Metasync_Seo_Precedence
             return $chain;
         }
 
-        $otto_key = $field === self::FIELD_TITLE ? '_metasync_otto_title' : '_metasync_otto_description';
         if (!array_key_exists($otto_key, $chain)) {
             return $chain;
         }
 
         // Rebuild rather than sort: the remaining tiers keep their documented
-        // order, and the custom key lands immediately after OTTO's — above the
-        // imported tier, which must stay last.
+        // order, and the custom key lands below every OTTO tier — above the
+        // imported tier, which must stay last. With staging ranked above the
+        // persisted pair, "immediately after staging" would drop the custom
+        // value between the two OTTO tiers and leave a persisted OTTO value
+        // below it — pushing an OTTO value below OTTO, which this setting
+        // exists to prevent. So the insertion anchor is whichever OTTO tier
+        // sits lowest in the (already filtered) chain: the persisted pair when
+        // both OTTO tiers are present, staging alone when only it remains.
         $custom_source = $chain[$custom_key];
         $rebuilt       = [];
+
+        $persisted_key = $field === self::FIELD_TITLE
+            ? self::KEY_PERSISTED_OTTO_TITLE
+            : self::KEY_PERSISTED_OTTO_DESC;
+        $anchor_keys   = array_key_exists($persisted_key, $chain)
+            ? [$otto_key, $persisted_key]
+            : [$otto_key];
 
         foreach ($chain as $key => $source) {
             if ($key === $custom_key) {
@@ -367,7 +498,7 @@ final class Metasync_Seo_Precedence
 
             $rebuilt[$key] = $source;
 
-            if ($key === $otto_key) {
+            if ($key === end($anchor_keys)) {
                 $rebuilt[$custom_key] = $custom_source;
             }
         }
@@ -484,7 +615,8 @@ final class Metasync_Seo_Precedence
      * being restated by every emitter that stamps a data-metasync-* marker.
      *
      * @param int   $object_id
-     * @param string $field    FIELD_TITLE or FIELD_DESCRIPTION.
+     * @param string $field    FIELD_TITLE, FIELD_DESCRIPTION or
+     *                         FIELD_FOCUS_KEYWORD.
      * @param array  $resolved A resolve() result.
      * @return bool
      */
@@ -500,17 +632,27 @@ final class Metasync_Seo_Precedence
 
         // Only the persisted tier is ambiguous, and only on a post: on a term
         // the same key holds a deliberately-set value that is not OTTO's.
-        $persisted = $field === self::FIELD_TITLE
-            ? self::KEY_PERSISTED_OTTO_TITLE
-            : self::KEY_PERSISTED_OTTO_DESC;
+        $persisted_map = [
+            self::FIELD_TITLE         => self::KEY_PERSISTED_OTTO_TITLE,
+            self::FIELD_DESCRIPTION   => self::KEY_PERSISTED_OTTO_DESC,
+            self::FIELD_FOCUS_KEYWORD => self::KEY_PERSISTED_OTTO_KEYWORD,
+        ];
+        $persisted = $persisted_map[$field] ?? '';
 
-        if ($resolved['key'] !== $persisted) {
+        if ($persisted === '' || $resolved['key'] !== $persisted) {
             return false;
         }
 
-        $staging = $field === self::FIELD_TITLE
-            ? '_metasync_otto_title'
-            : '_metasync_otto_description';
+        $staging_map = [
+            self::FIELD_TITLE         => '_metasync_otto_title',
+            self::FIELD_DESCRIPTION   => '_metasync_otto_description',
+            self::FIELD_FOCUS_KEYWORD => '_metasync_otto_keywords',
+        ];
+        $staging = $staging_map[$field] ?? '';
+
+        if ($staging === '') {
+            return false;
+        }
 
         $staged = self::read((int) $object_id, self::TYPE_POST, $staging);
 
@@ -612,6 +754,13 @@ final class Metasync_Seo_Precedence
 
         if ($field === self::FIELD_DESCRIPTION) {
             return self::KEY_CUSTOM_DESC;
+        }
+
+        // The keyword needs the explicit map rather than the array_shift
+        // fallback: under "prioritize OTTO" its customer key is no longer
+        // first in the chain, so shifting would drop the wrong tier.
+        if ($field === self::FIELD_FOCUS_KEYWORD) {
+            return self::KEY_CUSTOM_KEYWORD;
         }
 
         return '';

@@ -628,7 +628,7 @@ class Metasync_MCP_Server {
         } catch (InvalidArgumentException $e) {
             throw $e;
         } catch (Exception $e) {
-            throw new Exception('Tool execution failed: ' . $e->getMessage());
+            throw new Exception('Tool execution failed: ' . $e->getMessage()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
     }
 

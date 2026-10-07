@@ -342,7 +342,7 @@ class MCP_Tool_Get_WP_Option extends MCP_Tool_Base {
         $key = sanitize_text_field($params['option_name']);
 
         if (in_array($key, $this->blocked_keys, true)) {
-            throw new Exception("Option '{$key}' is blocked for security reasons");
+            throw new Exception("Option '{$key}' is blocked for security reasons"); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         $value = get_option($key, '__NOT_FOUND__');

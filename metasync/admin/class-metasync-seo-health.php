@@ -235,11 +235,11 @@ class Metasync_SEO_Health
 	public function handle_csv_export()
 	{
 		if (!wp_verify_nonce($_GET['_wpnonce'], 'metasync_seo_health_export')) {
-			wp_die(__('Security check failed.', 'metasync'));
+			wp_die(esc_html__('Security check failed.', 'metasync'));
 		}
 
 		if (!current_user_can('manage_options')) {
-			wp_die(__('You do not have permission to export.', 'metasync'));
+			wp_die(esc_html__('You do not have permission to export.', 'metasync'));
 		}
 
 		$this->export_csv();
@@ -478,7 +478,7 @@ class Metasync_SEO_Health
 				}
 			?>
 				<div class="metasync-health-stat-card">
-					<div class="stat-value <?php echo $color_class; ?>"><?php echo esc_html($display); ?></div>
+					<div class="stat-value <?php echo esc_attr($color_class); ?>"><?php echo esc_html($display); ?></div>
 					<div class="stat-label"><?php echo esc_html($card['label']); ?></div>
 				</div>
 			<?php endforeach; ?>

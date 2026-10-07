@@ -263,7 +263,13 @@ class Metasync_Admin
 
         add_action('admin_init', array($this, 'initialize_cookie'));
         add_action('admin_init', array($this, 'maybe_redirect_to_wizard'));
-        add_action('admin_init', array($this, 'redirect_legacy_instant_indexing_page'));
+
+        // The redirect must run on admin_menu, not admin_init: in current
+        // WordPress the unregistered-page access check in wp-admin/includes/
+        // menu.php fires from wp-admin/menu.php (required at admin.php:163),
+        // which is BEFORE admin_init (admin.php:180). Hooked on admin_init the
+        // redirect never ran — WP died with a 403 first for the removed slug.
+        add_action('admin_menu', array($this, 'redirect_legacy_instant_indexing_page'));
 
         // Add admin_post hooks for form submissions (WordPress standard way - no output buffering needed)
         add_action('admin_post_metasync_clear_all_cache_plugins', array($this, 'handle_clear_all_cache_plugins'));
@@ -388,9 +394,6 @@ class Metasync_Admin
 
         # Add AJAX handlers for Bing Instant Indexing (IndexNow)
         add_action('wp_ajax_metasync_send_bing_indexnow', array($this, 'ajax_send_bing_indexnow'));
-
-        # Add hooks for instant indexing settings saves
-        add_action('admin_init', array($this, 'save_instant_indexing_settings'));
 
         # Add hooks for instant indexing post actions
         add_filter('post_row_actions', array($this, 'add_instant_indexing_post_actions'), 10, 2);
@@ -701,8 +704,6 @@ class Metasync_Admin
     public function maybe_redirect_to_wizard() {
         // Only redirect if wizard should be shown
         if (get_option('metasync_show_wizard') && !isset($_GET['page'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- isset() routing check for a redirect to a fixed admin URL
-            delete_option('metasync_show_wizard');
-
             // Don't redirect during AJAX, cron, or bulk activation
             if (wp_doing_ajax() || wp_doing_cron() || isset($_GET['activate-multi'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- isset() routing check for a redirect to a fixed admin URL
                 return;
@@ -713,6 +714,7 @@ class Metasync_Admin
                 return;
             }
 
+            delete_option('metasync_show_wizard');
             wp_safe_redirect(admin_url('admin.php?page=' . self::$page_slug . '-setup-wizard'));
             exit;
         }
@@ -724,6 +726,10 @@ class Metasync_Admin
      * The menu entry is gone, but bookmarks and external links can still target
      * the old URL. Resolve the current white-label slug rather than assuming
      * "searchatlas".
+     *
+     * Hooked on admin_menu (see its registration): the unregistered-page 403 in
+     * wp-admin/includes/menu.php fires before admin_init, so any later hook
+     * would be too late to redirect.
      */
     public function redirect_legacy_instant_indexing_page() {
         if (wp_doing_ajax() || wp_doing_cron() || !is_admin() || !isset($_GET['page'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only navigation values for a same-site redirect
@@ -918,8 +924,9 @@ class Metasync_Admin
             );
         }
 
-        // Enqueue wizard CSS if on wizard page
-        if (isset($_GET['page']) && strpos(sanitize_key(wp_unslash($_GET['page'])), '-setup-wizard') !== false) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check to pick stylesheets
+        // Enqueue wizard CSS on all MetaSync pages because the reusable consent
+        // card is also displayed inside General Settings.
+        if (strpos($current_page, self::$page_slug) === 0 || (isset($_GET['page']) && strpos(sanitize_key(wp_unslash($_GET['page'])), '-setup-wizard') !== false)) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check to pick stylesheets
             wp_enqueue_style(
                 $this->plugin_name . '-setup-wizard',
                 plugin_dir_url(__FILE__) . 'css/metasync-setup-wizard.css',
@@ -3358,7 +3365,7 @@ class Metasync_Admin
             update_option('metasync_sitemap_settings', $sitemap_settings);
 
             // Regenerate sitemap with new content settings
-            $result = $sitemap_generator->generate_sitemap();
+            $result = $sitemap_generator->generate_sitemap( true );
             if (is_wp_error($result)) {
                 echo '<div class="notice notice-error"><p>' . esc_html(
                     /* translators: %s: error message. */
@@ -3514,7 +3521,7 @@ class Metasync_Admin
                 }
 
                 // Generate main sitemap (its index will include news/video since they now exist)
-                $result = $sitemap_generator->generate_sitemap();
+                $result = $sitemap_generator->generate_sitemap( true );
 
                 if (is_wp_error($result)) {
                     $error_msg = $result->get_error_message();
@@ -3937,7 +3944,7 @@ class Metasync_Admin
         register_rest_route('metasync/v1', '/ping', array(
             'methods' => array('GET', 'POST'),
             'callback' => array($this, 'handle_ping_rest_endpoint'),
-            'permission_callback' => '__return_true', // Allow public access
+            'permission_callback' => '__return_true',
             'args' => array(
                 'test' => array(
                     'description' => 'Optional test parameter',
@@ -6469,42 +6476,6 @@ class Metasync_Admin
         require_once plugin_dir_path(dirname(__FILE__)) . 'bing-index/class-metasync-bing-instant-index.php';
         $bing_instant_index = new Metasync_Bing_Instant_Index();
         $bing_instant_index->send();
-    }
-
-    /**
-     * Save instant indexing settings (Google and Bing)
-     *
-     * @since 2.6.0
-     * @return void
-     */
-    public function save_instant_indexing_settings()
-    {
-        // Check if this is a settings submission
-        if (!isset($_POST['submit'])) {
-            return;
-        }
-
-        // This handler runs on admin_init, which also fires inside
-        // admin-ajax.php before its login gate, so a bare isset() check let
-        // any request (including logged-out ones) rewrite the auto-submit
-        // post types. Require the nonce and plugin access before writing.
-        if (!isset($_POST['metasync_instant_indexing_nonce'])
-            || !wp_verify_nonce(sanitize_key(wp_unslash($_POST['metasync_instant_indexing_nonce'])), 'metasync_instant_indexing_settings')
-            || !Metasync::current_user_has_plugin_access()) {
-            return;
-        }
-
-        // Save post types for Google Instant Indexing auto-submit
-        if (isset($_POST['metasync_post_types'])) {
-            $post_data = metasync_sanitize_input_array($_POST);
-            $post_types = is_array($post_data['metasync_post_types']) ? array_map('sanitize_title', $post_data['metasync_post_types']) : [];
-
-            $settings = get_option('metasync_options_instant_indexing', ['post_types' => []]);
-            $settings['post_types'] = array_values($post_types);
-            update_option('metasync_options_instant_indexing', $settings);
-        }
-
-        // Note: Bing Instant Indexing settings are saved via AJAX in save_bing_inline_settings_ajax()
     }
 
     /**

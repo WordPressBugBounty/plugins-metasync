@@ -261,7 +261,7 @@ class Metasync_Edge_Cache_Settings {
         $is_enabled  = !empty($settings[$enabled_key]);
         $border      = $is_last ? '' : 'border-bottom: 1px solid var(--dashboard-border); padding-bottom: 20px; margin-bottom: 20px;';
         ?>
-        <div class="metasync-edge-provider" style="<?php echo $border; ?>">
+        <div class="metasync-edge-provider" style="<?php echo esc_attr($border); ?>">
             <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px; cursor: pointer;">
                 <input type="hidden" name="<?php echo esc_attr($enabled_key); ?>" value="0" />
                 <input type="checkbox"

@@ -22,11 +22,6 @@ class Google_Index_Admin
     private const SECTION_GOOGLE_INDEX = 'google_index_direct_settings';
 
     /**
-     * Nonce action shared by the two dedicated (standalone-page) endpoints.
-     */
-    private const ACCOUNT_NONCE_ACTION = 'metasync_google_index_account';
-
-    /**
      * Placeholder the redacted display JSON uses in place of the private key.
      *
      * Its presence means the textarea still holds what the server rendered, so
@@ -52,11 +47,6 @@ class Google_Index_Admin
 
         // AJAX handlers
         add_action('wp_ajax_metasync_google_index_direct_test', array($this, 'ajax_test_connection'));
-
-        // Dedicated save/clear for the standalone Instant Indexing page, which
-        // has no settings form to piggyback on.
-        add_action('wp_ajax_metasync_google_index_save_account', array($this, 'ajax_save_service_account'));
-        add_action('wp_ajax_metasync_google_index_clear_account', array($this, 'ajax_clear_service_account'));
     }
     
     
@@ -186,11 +176,9 @@ class Google_Index_Admin
      * Read the submitted service account from $_POST/$_FILES, validate it, and
      * persist it when it is a genuinely new credential.
      *
-     * Shared by the form-embedded flow and the dedicated standalone endpoint so
-     * both accept and reject exactly the same payloads. Returns a status rather
-     * than emitting a response, because the two callers report differently: the
-     * embedded flow must abort the parent save, the dedicated endpoint owns the
-     * whole response.
+     * Returns a status rather than emitting a response because the caller runs
+     * inside another form's save: it must abort the parent save on a bad
+     * credential, not answer for the whole request.
      *
      * @return array{status:string, message:string} status is one of:
      *         'saved'     - a new credential was written
@@ -334,65 +322,10 @@ class Google_Index_Admin
     }
 
     /**
-     * AJAX: save the service account from the standalone Instant Indexing page.
-     *
-     * The page has no settings form, so this endpoint carries its own nonce and
-     * capability check rather than relying on a parent save's.
-     */
-    public function ajax_save_service_account()
-    {
-        $this->authorize_account_request();
-
-        $result = $this->persist_submitted_service_account();
-
-        if ($result['status'] === 'error' || $result['status'] === 'unavailable') {
-            // Here the credential save IS the whole request, so a missing
-            // sub-module is a genuine failure and must be reported as one.
-            wp_send_json_error([
-                'message' => $result['message'],
-                'errors'  => [$result['message']],
-            ]);
-        }
-
-        if ($result['status'] === 'unchanged') {
-            // Nothing was submitted, or the textarea still holds the redacted
-            // text the server rendered. Reporting this plainly is better than a
-            // success banner for a save that wrote nothing.
-            wp_send_json_success([
-                'message' => 'No new service account JSON was provided, so the saved configuration is unchanged.',
-                'saved'   => false,
-            ]);
-        }
-
-        // Survives the page reload the JS performs, which is what actually
-        // renders the confirmation banner and the configured-state UI.
-        $this->add_settings_notice('Google Index service account configured successfully!', 'success');
-
-        wp_send_json_success([
-            'message' => 'Service account saved successfully!',
-            'saved'   => true,
-        ]);
-    }
-
-    /**
-     * AJAX: clear the stored service account from the standalone page.
-     */
-    public function ajax_clear_service_account()
-    {
-        $this->authorize_account_request();
-
-        $this->clear_stored_service_account();
-
-        $this->add_settings_notice('Service account configuration cleared successfully!', 'success');
-
-        wp_send_json_success(['message' => 'Service account configuration cleared successfully!']);
-    }
-
-    /**
      * Remove the stored service account and any token minted from it.
      *
-     * Shared by both clear paths: a cached access token that outlives the
-     * credential it was issued for would keep working until it expired.
+     * A cached access token that outlives the credential it was issued for
+     * would keep working until it expired.
      */
     private function clear_stored_service_account()
     {
@@ -404,29 +337,6 @@ class Google_Index_Admin
                 $instance->clear_token_cache();
             }
         }
-    }
-
-    /**
-     * Authorize a dedicated (standalone-page) service account request.
-     *
-     * Terminates the request with a 403 JSON response when the caller lacks the
-     * capability or a valid nonce.
-     */
-    private function authorize_account_request()
-    {
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(array('message' => 'Insufficient permissions.'), 403);
-        }
-
-        $nonce = isset($_POST['metasync_google_index_account_nonce'])
-            ? wp_unslash($_POST['metasync_google_index_account_nonce'])
-            : '';
-
-        if (!$nonce || !wp_verify_nonce($nonce, self::ACCOUNT_NONCE_ACTION)) {
-            wp_send_json_error(array('message' => 'Invalid nonce'), 403);
-        }
-
-        return true;
     }
     
     /**
@@ -468,8 +378,8 @@ class Google_Index_Admin
         $notices = get_transient('google_index_admin_notices');
         if (!empty($notices)) {
             foreach ($notices as $notice) {
-                $class = 'notice notice-' . esc_attr($notice['type']) . ' is-dismissible';
-                echo '<div class="' . $class . '">';
+                $class = 'notice notice-' . $notice['type'] . ' is-dismissible';
+                echo '<div class="' . esc_attr($class) . '">';
                 echo '<p><strong>Google Index:</strong> ' . esc_html($notice['message']) . '</p>';
                 echo '</div>';
             }
@@ -560,18 +470,9 @@ class Google_Index_Admin
             return;
         }
 
-        // The credentials section renders in three places: the General Settings
-        // "general" tab, the Indexation Control page, and the standalone
-        // Instant Indexing page. Gating on the tab alone left the standalone
-        // page — the one the ticket is about — without any of this behaviour.
-        $current_page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page and tab check to enqueue scripts
-        $is_standalone_page = (substr($current_page, -14) === '-instant-index');
-
-        if (!$is_standalone_page) {
-            $current_tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page and tab check to enqueue scripts
-            if ($current_tab !== 'general' && strpos($hook, 'seo-controls') === false) {
-                return;
-            }
+        $current_tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page and tab check to enqueue scripts
+        if ($current_tab !== 'general' && strpos($hook, 'seo-controls') === false) {
+            return;
         }
 
         // Add inline JavaScript for functionality
@@ -596,13 +497,6 @@ class Google_Index_Admin
             // mis-clicking Choose File.
             var originalJsonValue = $('#google_index_service_account_json').val();
 
-            // FileReader is async and the dedicated Save posts the textarea,
-            // not the file input. Without this flag a quick Save click after
-            // choosing a file would send the pre-file contents — on an already
-            // configured site that is the redacted text, so the save would
-            // silently do nothing and report 'no new JSON provided'.
-            var fileReadPending = false;
-
             // Test Connection builds its results list as an HTML string. The
             // values come from the API/server rather than the page, so escape
             // them before they reach that sink.
@@ -620,23 +514,7 @@ class Google_Index_Admin
                 box.append(notice);
             }
 
-            function showSaveMessage(text, type) {
-                var box = $('#google-index-save-messages');
-                if (!box.length) {
-                    // Embedded contexts have no dedicated box; fall back to the
-                    // file-message area so errors are never silent.
-                    showFileMessage(text, type);
-                    return;
-                }
-                box.empty();
-                if (!text) { return; }
-                var notice = $('<div>').addClass('notice notice-' + type + ' inline');
-                notice.append($('<p>').text(text));
-                box.append(notice);
-            }
-
             function clearSelectedFile(restoreTextarea) {
-                fileReadPending = false;
                 var input = $('#google_index_service_account_file');
                 if (input.length) {
                     input.val('');
@@ -690,9 +568,7 @@ class Google_Index_Admin
                     }
 
                     var reader = new FileReader();
-                    fileReadPending = true;
                     reader.onload = function(ev) {
-                        fileReadPending = false;
                         try {
                             var json = JSON.parse(ev.target.result);
                             var jsonString = JSON.stringify(json, null, 2);
@@ -700,7 +576,7 @@ class Google_Index_Admin
 
                             $('#google-index-selected-file-name').text(file.name);
                             $('#google-index-selected-file').show();
-                            showFileMessage('\"' + file.name + '\" loaded. Click Save Configuration to store it.', 'info');
+                            showFileMessage('\"' + file.name + '\" loaded. Save the page to store it.', 'info');
 
                             // Create and dispatch native events to ensure proper detection
                             setTimeout(function() {
@@ -719,7 +595,6 @@ class Google_Index_Admin
                         }
                     };
                     reader.onerror = function() {
-                        fileReadPending = false;
                         showFileMessage('\"' + file.name + '\" could not be read. Try choosing it again.', 'error');
                         $('#google-index-selected-file').hide();
                         $('#google_index_service_account_file').val('');
@@ -736,53 +611,6 @@ class Google_Index_Admin
 
             // Initialize integration after a small delay to ensure MetaSync is ready
             setTimeout(integrateWithUnsavedChangesDetection, 100);
-
-            // Dedicated save — standalone Instant Indexing page only.
-            $('#google-index-save-config').on('click', function(e) {
-                e.preventDefault();
-
-                if (fileReadPending) {
-                    showSaveMessage('Still reading the selected file. Try again in a moment.', 'warning');
-                    return;
-                }
-
-                var button = $(this);
-                var original = button.html();
-                button.prop('disabled', true).text('Saving...');
-                showSaveMessage('', 'info');
-
-                $.ajax({
-                    url: (typeof ajaxurl !== 'undefined') ? ajaxurl : metaSync.ajax_url,
-                    type: 'POST',
-                    data: {
-                        action: 'metasync_google_index_save_account',
-                        metasync_google_index_account_nonce: $('#metasync_google_index_account_nonce').val(),
-                        google_index_service_account_json: $('#google_index_service_account_json').val()
-                    },
-                    success: function(response) {
-                        if (response && response.success) {
-                            if (response.data && response.data.saved) {
-                                // Reload so the configured-state UI and the
-                                // transient success banner both render.
-                                window.location.reload();
-                                return;
-                            }
-                            showSaveMessage((response.data && response.data.message) || 'Nothing to save.', 'warning');
-                        } else {
-                            var msg = (response && response.data && response.data.message)
-                                ? response.data.message
-                                : 'Failed to save the service account.';
-                            showSaveMessage(msg, 'error');
-                        }
-                    },
-                    error: function() {
-                        showSaveMessage('Network error while saving. Please try again.', 'error');
-                    },
-                    complete: function() {
-                        button.prop('disabled', false).html(original);
-                    }
-                });
-            });
 
             // Handle test connection button
             $('#google-index-test-connection').on('click', function(e) {
@@ -850,35 +678,6 @@ class Google_Index_Admin
                 e.preventDefault();
 
                 if (!confirm('Are you sure you want to clear the service account configuration?')) {
-                    return;
-                }
-
-                var dedicatedNonce = $('#metasync_google_index_account_nonce').val();
-
-                if (dedicatedNonce) {
-                    // Standalone Instant Indexing page: there is no settings
-                    // form to serialize, so post to the dedicated endpoint.
-                    $.ajax({
-                        url: (typeof ajaxurl !== 'undefined') ? ajaxurl : metaSync.ajax_url,
-                        type: 'POST',
-                        data: {
-                            action: 'metasync_google_index_clear_account',
-                            metasync_google_index_account_nonce: dedicatedNonce
-                        },
-                        success: function(response) {
-                            if (response && response.success) {
-                                window.location.reload();
-                                return;
-                            }
-                            var msg = (response && response.data && response.data.message)
-                                ? response.data.message
-                                : 'Failed to clear the service account.';
-                            showSaveMessage(msg, 'error');
-                        },
-                        error: function() {
-                            showSaveMessage('Network error while clearing. Please try again.', 'error');
-                        }
-                    });
                     return;
                 }
 

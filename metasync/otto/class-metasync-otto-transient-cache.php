@@ -99,6 +99,14 @@ class Metasync_Otto_Transient_Cache {
      * Max API calls per minute
      */
     public const MAX_API_CALLS_PER_MINUTE = 10;
+
+    /**
+     * Cache status set when THIS request fetched the suggestions live (a
+     * transient miss that was answered by the API). Public because the
+     * render-path postmeta backstop keys off it: only a MISS owes a sync, and
+     * every other status must leave the database untouched.
+     */
+    public const STATUS_MISS = 'MISS';
     
     /**
      * API timeout (2 seconds)
@@ -137,6 +145,15 @@ class Metasync_Otto_Transient_Cache {
      * @var bool
      */
     private $last_failure_permanent = false;
+
+    /**
+     * Whether the last fetch returned the stale fallback rather than a fresh
+     * upstream response. The payload remains an array for callers that already
+     * consume fetch results, while this side-channel preserves freshness.
+     *
+     * @var bool
+     */
+    private $last_fetch_was_stale = false;
 
     /**
      * OTTO API endpoint
@@ -180,6 +197,11 @@ class Metasync_Otto_Transient_Cache {
         if (empty($url) || empty($this->otto_uuid)) {
             return false;
         }
+
+        # Reset the per-call freshness marker so it can only ever describe the
+        # fetch this invocation performs — never a stale flag left over from an
+        # earlier call on the same instance.
+        $this->last_fetch_was_stale = false;
 
         # PERFORMANCE OPTIMIZATION: Generate all cache keys once
         $keys = $this->get_cache_keys($url);
@@ -288,13 +310,19 @@ class Metasync_Otto_Transient_Cache {
             # legitimate case where suggestions change after an OTTO crawl.
 
             # Step 5: Store result in transient
-            if ($suggestions && $this->has_payload($suggestions)) {
+            if ($this->last_fetch_was_stale()) {
+                # fetch_from_api() intentionally returns stale data for visitor
+                # rendering during backoff/429/503. It is not a fresh API answer:
+                # never promote it to the live transient or report MISS, otherwise
+                # a warm request would overwrite the safety copy and purge it.
+                self::$cache_status[$cache_status_key] = 'STALE';
+            } elseif ($suggestions && $this->has_payload($suggestions)) {
                 # Has suggestions - cache for the admin-configured TTL (default 30 min)
                 $ttl = Metasync_Otto_Config::get_otto_cache_ttl_seconds();
                 set_transient($keys['transient'], $suggestions, $ttl);
                 # Keep a longer fallback without reducing live suggestion freshness.
                 set_transient($keys['stale'], $suggestions, self::STALE_TTL);
-                self::$cache_status[$cache_status_key] = 'MISS'; // Cache miss, fetched from API
+                self::$cache_status[$cache_status_key] = self::STATUS_MISS; // Cache miss, fetched from API
             } elseif ($suggestions !== false) {
                 # API responded 200 OK but genuinely no OTTO suggestions for this URL,
                 # or answered 404 (no data held for this URL at all).
@@ -402,7 +430,7 @@ class Metasync_Otto_Transient_Cache {
 
         return true;
     }
-    
+
     /**
      * Warm cache for a URL (pre-fetch and cache)
      * Called from the OTTO webhook handler — NOT from a page load.
@@ -415,20 +443,37 @@ class Metasync_Otto_Transient_Cache {
      * @return array|false Suggestions or false
      */
     public function warm_cache($url) {
-        # Invalidate existing cache first
-        $this->invalidate($url);
+        # Invalidate only the live cache and lock. The stale copy is the safety
+        # net for transport failures and must survive a failed warm attempt.
+        $keys = $this->get_cache_keys($url);
+        delete_transient($keys['transient']);
+        delete_transient($keys['lock']);
 
         # Use a longer timeout for this pre-warm request (webhook context, not page load).
         $saved_timeout = $this->fetch_timeout;
         $this->fetch_timeout = 8; // 8 seconds — enough for cross-region API calls
 
-        # Fetch and cache (with the longer timeout)
-        $result = $this->get_suggestions($url);
-
-        # Restore original timeout
-        $this->fetch_timeout = $saved_timeout;
-
-        return $result;
+        try {
+            # Fetch and cache (with the longer timeout). A stale fallback is useful
+            # for page rendering, but it is not a successful warm and must never be
+            # handed to the sync job as fresh data. fetch_from_api() can return a
+            # stale payload with a truthful STALE cache status (rate-limit and
+            # lock-timeout branches), or — worse — mark the run MISS and persist
+            # that stale payload as if it were fresh. Both shapes are caught here:
+            # the explicit flag, and the recorded cache status for the branches
+            # that never pass through fetch_from_api() at all.
+            $result = $this->get_suggestions($url);
+            $status = self::get_cache_status($keys['track']);
+            if ($status === 'STALE' || $status === 'API_ERROR' || $status === 'BREAKER_OPEN'
+                || $this->last_fetch_was_stale()) {
+                return false;
+            }
+            return $result;
+        } finally {
+            # A Throwable from storage or transport must not leave the 8s timeout
+            # on the object for a later page-load operation.
+            $this->fetch_timeout = $saved_timeout;
+        }
     }
 
     /**
@@ -446,6 +491,15 @@ class Metasync_Otto_Transient_Cache {
     }
 
     /**
+     * Whether the most recent API result was a stale fallback.
+     *
+     * @return bool
+     */
+    public function last_fetch_was_stale() {
+        return $this->last_fetch_was_stale;
+    }
+
+    /**
      * Fetch suggestions from OTTO API
      *
      * @param string $url The page URL
@@ -455,6 +509,7 @@ class Metasync_Otto_Transient_Cache {
         # Reset per call so a previous 404 cannot influence this one's handling.
         $this->last_fetch_was_404 = false;
         $this->last_failure_permanent = false;
+        $this->last_fetch_was_stale = false;
 
         # Check if endpoint is in backoff mode (explicit check for better error handling)
         if (class_exists('Metasync_API_Backoff_Manager')) {
@@ -465,6 +520,7 @@ class Metasync_Otto_Transient_Cache {
                 $stale = get_transient($this->get_stale_key($url));
                 if ($stale !== false) {
                     error_log('MetaSync OTTO: Serving suggestions from cache while retry is pending'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
+                    $this->last_fetch_was_stale = true;
                     return $stale;
                 }
                 return false;
@@ -505,6 +561,7 @@ class Metasync_Otto_Transient_Cache {
                 $stale = get_transient($this->get_stale_key($url));
                 if ($stale !== false) {
                     error_log('MetaSync OTTO: Serving suggestions from cache while retry is pending'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
+                    $this->last_fetch_was_stale = true;
                     return $stale;
                 }
             } else {
@@ -563,6 +620,7 @@ class Metasync_Otto_Transient_Cache {
                 $stale = get_transient($this->get_stale_key($url));
                 if ($stale !== false) {
                     error_log('MetaSync OTTO: Serving suggestions from cache - source temporarily unavailable'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
+                    $this->last_fetch_was_stale = true;
                     return $stale;
                 }
             }
@@ -1104,6 +1162,23 @@ class Metasync_Otto_Transient_Cache {
         }
 
         return false;
+    }
+
+    /**
+     * Atomically acquire a named lock using the same primitive get_suggestions()
+     * uses for its per-URL fetch lock.
+     *
+     * Exposed for callers that need their own short-lived mutual exclusion on
+     * the OTTO path (the render-path postmeta backstop) without duplicating the
+     * object-cache / MySQL test-and-set logic. Callers own the key namespace
+     * and MUST release with delete_transient( $lock_key ) when done.
+     *
+     * @param string $lock_key Lock transient key (without the _transient_ prefix).
+     * @param int    $ttl      Lock timeout in seconds.
+     * @return bool True if this caller acquired the lock, false if it was already held.
+     */
+    public function acquire_lock($lock_key, $ttl) {
+        return $this->acquire_lock_atomic((string) $lock_key, (int) $ttl);
     }
 
     /**

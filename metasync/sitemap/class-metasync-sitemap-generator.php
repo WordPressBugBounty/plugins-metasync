@@ -420,7 +420,7 @@ class Metasync_Sitemap_Generator
      *
      * @return bool|WP_Error True on success, WP_Error on failure
      */
-    public function generate_sitemap()
+    public function generate_sitemap( $track_generation = false )
     {
         try {
             // Delete existing general sitemap files first (preserve news/video)
@@ -504,6 +504,16 @@ class Metasync_Sitemap_Generator
             update_option('metasync_sitemap_files', $sitemap_files);
             update_option('metasync_sitemap_total_urls', count($all_urls));
             update_option('metasync_sitemap_last_generated', current_time('mysql'));
+
+            // Consent-gated product analytics: only callers passing
+            // $track_generation (the manual admin buttons) report; auto
+            // regeneration (save_post hooks, warm-up cron, MCP) must not —
+            // bulk publishing would otherwise send one event per post.
+            if ($track_generation && !wp_doing_cron()) {
+                Metasync_PostHog::feature('sitemap_generated', array(
+                    'url_count' => count($all_urls),
+                ));
+            }
 
             // Auto-update robots.txt with sitemap index URL
             $robots_result = $this->update_robots_txt_sitemap();
@@ -678,7 +688,7 @@ class Metasync_Sitemap_Generator
                 'update_post_meta_cache' => false,
                 'cache_results'          => true,
                 'ignore_sticky_posts'    => true,
-                'suppress_filters'       => true,
+                'suppress_filters'       => true, // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters -- sitemap must enumerate the full site regardless of language/plugin filtering
             ];
 
             if (!empty($sitemap_tax_query)) {
@@ -1499,26 +1509,27 @@ class Metasync_Sitemap_Generator
     public function get_sitemap_size()
     {
         $sitemap_files = get_option('metasync_sitemap_files', []);
-        if (empty($sitemap_files)) {
-            return false;
-        }
-
-        $total_size = 0;
-
-        // Add index file size
-        if (file_exists($this->sitemap_index_path)) {
-            $total_size += filesize($this->sitemap_index_path);
-        }
-
-        // Add all sitemap files size
-        foreach ($sitemap_files as $sitemap) {
-            $path = ABSPATH . $sitemap['filename'];
-            if (file_exists($path)) {
-                $total_size += filesize($path);
+        $filenames = ['sitemap_index.xml'];
+        foreach (is_array($sitemap_files) ? $sitemap_files : [] as $sitemap) {
+            if (!empty($sitemap['filename']) && is_string($sitemap['filename'])) {
+                $filenames[] = $sitemap['filename'];
             }
         }
 
-        return $total_size;
+        $total_size = 0;
+        $found_document = false;
+        foreach (array_unique($filenames) as $filename) {
+            // The document accessor prefers virtual/transient content and only
+            // falls back to legacy physical files when no virtual copy exists.
+            $content = $this->get_sitemap_document($filename);
+            if (false === $content) {
+                continue;
+            }
+            $found_document = true;
+            $total_size += strlen($content);
+        }
+
+        return $found_document ? $total_size : false;
     }
 
     /**
@@ -2429,6 +2440,11 @@ class Metasync_Sitemap_Generator
      */
     public function absorb_stray_physical_sitemaps()
     {
+        // This sweep is deliberately read/reconcile-only: it only handles
+        // filenames already owned by MetaSync and is throttled below.
+        // It must remain available on frontend requests because Apache may
+        // otherwise serve a stale physical sitemap before WordPress routing.
+
         // Cheap cross-request throttle. A miss here is the only path that
         // touches the filesystem. Expressed in DAY_IN_SECONDS because that is
         // the only time constant this class relies on being defined.
@@ -2634,6 +2650,7 @@ class Metasync_Sitemap_Generator
         header('Content-Type: application/xml; charset=utf-8');
         header('X-Robots-Tag: noindex');
         status_header(200);
+        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- XML sitemap document served as application/xml; entries are escaped upstream by the sitemap builder
         echo $virtual_content;
         exit;
     }

@@ -69,7 +69,7 @@ class MCP_Tool_Trigger_Otto_Optimization extends MCP_Tool_Base {
             $post_id = $this->sanitize_integer($params['post_id']);
             $url     = get_permalink($post_id);
             if (empty($url)) {
-                throw new Exception(sprintf('Unable to resolve permalink for post_id %d', $post_id));
+                throw new Exception(sprintf('Unable to resolve permalink for post_id %d', $post_id)); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
             }
         } else {
             $url     = $this->sanitize_url($params['url']);
@@ -103,7 +103,7 @@ class MCP_Tool_Trigger_Otto_Optimization extends MCP_Tool_Base {
             $rate_key    = hash('sha256', $rate_source);
             $rl_result   = Metasync_Rate_Limiter::get_instance()->check_rate_limit($rate_key, 10, 60, 'otto_trigger_');
             if (is_wp_error($rl_result)) {
-                throw new Exception($rl_result->get_error_message());
+                throw new Exception($rl_result->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
             }
         }
 
@@ -355,6 +355,7 @@ class MCP_Tool_Get_Otto_Status extends MCP_Tool_Base {
             '_metasync_otto_title',
             '_metasync_otto_description',
             '_metasync_otto_keywords',
+            '_metasync_otto_canonical',
             '_metasync_otto_og_title',
             '_metasync_otto_og_description',
             '_metasync_otto_twitter_title',
@@ -476,7 +477,7 @@ class MCP_Tool_Verify_SEO_Output extends MCP_Tool_Base {
         ]);
 
         if (is_wp_error($response)) {
-            throw new Exception('HTTP fetch failed: ' . $response->get_error_message());
+            throw new Exception('HTTP fetch failed: ' . $response->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         $status = (int) wp_remote_retrieve_response_code($response);

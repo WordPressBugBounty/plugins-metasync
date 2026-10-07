@@ -270,6 +270,16 @@ class Metasync_Admin_Pages
         ?>
         <?php
         /*
+         * options.php redirects back here after the native (no-JavaScript)
+         * settings submit. Scoped to metasync_messages so field-level
+         * rejections (e.g. invalid white-label branding) print without the
+         * generic "Settings saved." notice that would otherwise accompany
+         * a rejected save.
+         */
+        settings_errors('metasync_messages');
+        ?>
+        <?php
+        /*
         # Temporarily commented out: Clear Cache notice and button (can be re-enabled later)
 
         *    <div class="notice notice-success">
@@ -784,19 +794,19 @@ class Metasync_Admin_Pages
                         });
 
                         function hasPassword() {
-                            var passwordField = $('input[name="<?php echo Metasync_Admin::option_key; ?>[whitelabel][settings_password]"]');
+                            var passwordField = $('input[name="<?php echo esc_attr(Metasync_Admin::option_key); ?>[whitelabel][settings_password]"]');
                             var passwordValue = passwordField.val();
                             return passwordValue && passwordValue.length > 0;
                         }
 
                         function hasRecoveryEmail() {
-                            var recoveryEmailField = $('input[name="<?php echo Metasync_Admin::option_key; ?>[whitelabel][recovery_email]"]');
+                            var recoveryEmailField = $('input[name="<?php echo esc_attr(Metasync_Admin::option_key); ?>[whitelabel][recovery_email]"]');
                             var emailValue = recoveryEmailField.val();
                             return emailValue && emailValue.length > 0 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailValue);
                         }
 
-                        var passwordField = $('input[name="<?php echo Metasync_Admin::option_key; ?>[whitelabel][settings_password]"]');
-                        var recoveryEmailField = $('input[name="<?php echo Metasync_Admin::option_key; ?>[whitelabel][recovery_email]"]');
+                        var passwordField = $('input[name="<?php echo esc_attr(Metasync_Admin::option_key); ?>[whitelabel][settings_password]"]');
+                        var recoveryEmailField = $('input[name="<?php echo esc_attr(Metasync_Admin::option_key); ?>[whitelabel][recovery_email]"]');
 
                         passwordField.on('blur', function() {
                             if (hasPassword() && !hasRecoveryEmail()) {
@@ -836,7 +846,7 @@ class Metasync_Admin_Pages
                                 );
 
                                 setTimeout(function() {
-                                    $('input[name="<?php echo Metasync_Admin::option_key; ?>[whitelabel][settings_password]"]').focus();
+                                    $('input[name="<?php echo esc_attr(Metasync_Admin::option_key); ?>[whitelabel][settings_password]"]').focus();
                                 }, 300);
 
                                 return false;
@@ -974,7 +984,7 @@ class Metasync_Admin_Pages
                         'action': ''
                     });
 
-                    logoutForm.append('<?php echo wp_nonce_field("whitelabel_logout_nonce", "whitelabel_logout_nonce", true, false); ?>');
+                    logoutForm.append('<?php echo wp_nonce_field("whitelabel_logout_nonce", "whitelabel_logout_nonce", true, false); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- nonce markup from wp_nonce_field() is safe by construction; kses-based escaping strips the <input> and breaks the logout nonce ?>');
 
                     logoutForm.append($('<input>', {
                         'type': 'hidden',
@@ -1048,7 +1058,7 @@ class Metasync_Admin_Pages
                             url: ajaxUrl,
                             type: 'POST',
                             dataType: 'json',
-                            data: { action: action, nonce: '<?php echo wp_create_nonce('metasync_nonce'); ?>' },
+                            data: { action: action, nonce: '<?php echo esc_attr(wp_create_nonce('metasync_nonce')); ?>' },
                             timeout: 35000,
                             success: function(response, textStatus, xhr) {
                                 try {
@@ -1366,7 +1376,7 @@ class Metasync_Admin_Pages
                 <?php
         if (!isset(Metasync::get_option('general')['linkgraph_token']) || Metasync::get_option('general')['linkgraph_token'] == '') {
                     echo '<p style="color: #d54e21; margin-bottom: 15px;">Authentication required: Please authenticate with your ' . esc_html(Metasync::get_effective_plugin_name()) . ' account and save your auth token in general settings.</p>';
-                    echo '<a href="' . admin_url('admin.php?page=' . Metasync_Admin::$page_slug) . '" class="button button-secondary">Go to Settings</a>';
+                    echo '<a href="' . esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug)) . '" class="button button-secondary">Go to Settings</a>';
                 } else {
                     echo '<a href="' . esc_url($this->admin->get_dashboard_url()) . '" target="_blank" class="button button-primary">Open Dashboard</a>';
                 }
@@ -1407,6 +1417,9 @@ class Metasync_Admin_Pages
                     if (is_wp_error($result)) {
                         echo '<div class="notice notice-error"><p>' . esc_html($result->get_error_message()) . '</p></div>';
                     } else {
+                        Metasync_PostHog::feature('robots_txt_saved', array(
+                            'warning_count' => count($validation['warnings']),
+                        ));
                         echo '<div class="notice notice-success"><p>' . esc_html__('robots.txt file saved successfully!', 'metasync') . '</p></div>';
 
                         if (!empty($validation['warnings'])) {

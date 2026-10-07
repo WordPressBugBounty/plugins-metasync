@@ -202,7 +202,7 @@ class Metasync_Otto_Cache_Manager
                     <span id="metasync-hc-save-msg" style="display: none; font-size: 13px;"></span>
                 </div>
 
-                <input type="hidden" id="metasync-hc-nonce" value="<?php echo wp_create_nonce('metasync_hosting_cache_nonce'); ?>" />
+                <input type="hidden" id="metasync-hc-nonce" value="<?php echo esc_attr(wp_create_nonce('metasync_hosting_cache_nonce')); ?>" />
             </div>
 
             <!-- Purge button -->
@@ -656,6 +656,15 @@ class Metasync_Otto_Cache_Manager
             return;
         }
 
+        if ($result === 'reactivated' || $result === true) {
+            // Consent-gated analytics: excluding URLs from OTTO is an opt-out signal.
+            Metasync_PostHog::feature('otto_opt_out', [
+                'scope' => 'pattern',
+                'action' => 'add',
+                'pattern_type' => sanitize_key((string) $pattern_type),
+            ]);
+        }
+
         if ($result === 'reactivated') {
             $db->clear_cache();
 
@@ -729,6 +738,10 @@ class Metasync_Otto_Cache_Manager
         $result = $db->delete([$id]);
 
         if ($result) {
+            Metasync_PostHog::feature('otto_opt_out', [
+                'scope' => 'pattern',
+                'action' => 'remove',
+            ]);
             wp_send_json_success([
                 'message' => 'Excluded URL deleted successfully',
             ]);

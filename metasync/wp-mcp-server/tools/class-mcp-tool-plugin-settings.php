@@ -14,6 +14,153 @@ if (!defined('ABSPATH')) {
 }
 
 /**
+ * White-label guard for the MCP plugin-settings tools.
+ *
+ * The white-label workflow is agency → client: the agency sets branding,
+ * locks it with the whitelabel settings password in the admin UI, and ships
+ * the branded plugin to the client via Export-as-ZIP. That password only
+ * gates the admin UI tabs (handle_session_management_early()); it does not
+ * guard the MCP path. Exposing white-label settings through MCP would let
+ * any MCP credential holder (e.g. the client) re-brand the plugin or unset
+ * the password, unlocking the guarded UI tabs and bypassing the agency's
+ * lock entirely.
+ *
+ * White-label settings are therefore hidden from MCP reads and rejected on
+ * MCP writes. They remain manageable only through the password-gated admin
+ * UI and the whitelabel-settings.json import/export flow.
+ */
+final class MCP_Plugin_Settings_Whitelabel_Guard {
+
+    /**
+     * general.* option keys that carry white-label branding.
+     *
+     * Fallback only — when the plugin classes are loaded (production and
+     * most test paths), general_branding_keys() delegates to
+     * Metasync_Whitelabel_Preservation::general_whitelabel_keys() so this
+     * list can never drift from the reset/export source of truth.
+     */
+    private static $general_branding_keys_fallback = [
+        'white_label_plugin_name',
+        'white_label_plugin_description',
+        'white_label_plugin_author',
+        'white_label_plugin_author_uri',
+        'white_label_plugin_uri',
+        'white_label_plugin_menu_slug',
+        'white_label_plugin_menu_icon',
+        'whitelabel_otto_name',
+    ];
+
+    /**
+     * Extra legacy flat keys (beyond the general branding keys) that carry
+     * white-label data, including the settings password itself.
+     */
+    private static $extra_flat_protected_keys = [
+        'whitelabel_logo_url',
+        'whitelabel_domain_url',
+        'whitelabel_settings_password',
+    ];
+
+    /**
+     * Return the general.* keys that carry white-label branding, from the
+     * single source of truth when it is available.
+     *
+     * @return string[]
+     */
+    public static function general_branding_keys() {
+        if (class_exists('Metasync_Whitelabel_Preservation')) {
+            return Metasync_Whitelabel_Preservation::general_whitelabel_keys();
+        }
+        return self::$general_branding_keys_fallback;
+    }
+
+    /**
+     * Return every flat top-level key that must not leave the server via MCP.
+     *
+     * @return string[]
+     */
+    public static function flat_protected_keys() {
+        return array_merge(self::general_branding_keys(), self::$extra_flat_protected_keys);
+    }
+
+    /**
+     * Remove every white-label value from an option tree before it is
+     * returned to an MCP caller. Covers the nested whitelabel blob, the
+     * general branding keys, and any legacy flat keys.
+     *
+     * @param mixed $options
+     * @return mixed
+     */
+    public static function strip_from_options($options) {
+        if (!is_array($options)) {
+            return $options;
+        }
+        unset($options['whitelabel']);
+        if (isset($options['general']) && is_array($options['general'])) {
+            foreach (self::general_branding_keys() as $key) {
+                unset($options['general'][$key]);
+            }
+        }
+        foreach (self::flat_protected_keys() as $key) {
+            unset($options[$key]);
+        }
+        return $options;
+    }
+
+    /**
+     * Throw when resolved settings address any white-label path — the whole
+     * whitelabel section, a branding key nested under general, or a legacy
+     * flat key.
+     *
+     * Keys are compared in their sanitize_key()-normalized form. The guard
+     * runs BEFORE sanitize_settings(), but the store is written with
+     * post-sanitization keys, so a caller sending "Whitelabel",
+     * "White_Label_Plugin_Name", or "whitelabel\u0000" would otherwise sail
+     * past an exact match here and land on the protected path when
+     * sanitize_key() lowercases and strips the noise characters at write
+     * time.
+     *
+     * @param array $settings Resolved settings (post alias resolution).
+     * @return void
+     * @throws Exception When a white-label setting is addressed.
+     */
+    public static function assert_not_addressed($settings) {
+        if (!is_array($settings)) {
+            return;
+        }
+        foreach ($settings as $key => $value) {
+            $norm = sanitize_key((string) $key);
+            if ($norm === 'whitelabel') {
+                self::reject('whitelabel.*');
+            }
+            if (in_array($norm, self::flat_protected_keys(), true)) {
+                self::reject($norm);
+            }
+            if ($norm === 'general' && is_array($value)) {
+                foreach ($value as $general_key => $_) {
+                    $general_norm = sanitize_key((string) $general_key);
+                    if (in_array($general_norm, self::general_branding_keys(), true)) {
+                        self::reject('general.' . $general_norm);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * @param string $key
+     * @return void
+     * @throws Exception
+     */
+    private static function reject($key) {
+        throw new Exception(
+            'Setting "' . esc_html($key) . '" is not available through MCP: '
+            . 'white-label branding is managed only in the plugin admin UI '
+            . '(password-gated) or via the whitelabel-settings.json import/export flow.'
+        );
+    }
+}
+
+/**
  * Get Plugin Settings Tool
  */
 class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
@@ -23,7 +170,7 @@ class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
     }
 
     public function get_description() {
-        return 'Get all plugin settings or settings for a specific section. Returns the complete plugin configuration including features, SEO controls, API keys, and more.';
+        return 'Get all plugin settings or settings for a specific section. Returns the plugin configuration including features, SEO controls, API keys, and more. White-label settings are not available through this tool (manageable only in the password-gated admin UI).';
     }
 
     public function get_input_schema() {
@@ -32,10 +179,9 @@ class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
             'properties' => [
                 'section' => [
                     'type' => 'string',
-                    'description' => 'Optional: specific settings section to retrieve (e.g., "general", "whitelabel", "seo"). If omitted, returns all settings.',
+                    'description' => 'Optional: specific settings section to retrieve (e.g., "general", "seo", "social"). If omitted, returns all settings.',
                     'enum' => [
                         'general',
-                        'whitelabel',
                         'seo',
                         'social',
                         'advanced',
@@ -61,8 +207,13 @@ class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
         $this->validate_params($params);
         $this->require_capability('manage_options');
 
-        // Get all plugin options
-        $all_options = get_option(Metasync::option_name, []);
+        // Get all plugin options. White-label settings (branding and the
+        // whitelabel settings password) are stripped before the values leave
+        // the server — they are managed only through the password-gated admin
+        // UI and the whitelabel-settings.json import/export flow.
+        $all_options = MCP_Plugin_Settings_Whitelabel_Guard::strip_from_options(
+            get_option(Metasync::option_name, [])
+        );
 
         // If specific keys requested
         if (!empty($params['keys']) && is_array($params['keys'])) {
@@ -99,7 +250,7 @@ class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
             return $this->success([
                 'section' => $section,
                 'settings' => $this->mask_sensitive_values($result),
-                'count' => is_array($result) ? count($result) : 0
+                'count' => count($result)
             ]);
         }
 
@@ -109,7 +260,6 @@ class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
             'count' => count($all_options),
             'available_sections' => [
                 'general' => 'API keys, integration settings',
-                'whitelabel' => 'Branding and white-label configuration',
                 'seo' => 'SEO controls and indexation settings',
                 'social' => 'Social media and OpenGraph settings',
                 'advanced' => 'Advanced plugin features',
@@ -162,19 +312,6 @@ class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
                 'show_admin_bar_status',
                 'enable_schema_markup',
                 'default_schema_type'
-            ],
-            'whitelabel' => [
-                'white_label_plugin_name',
-                'whitelabel_otto_name',
-                'whitelabel_logo_url',
-                'whitelabel_domain_url',
-                'white_label_plugin_description',
-                'white_label_plugin_author',
-                'white_label_plugin_author_uri',
-                'white_label_plugin_uri',
-                'white_label_plugin_menu_slug',
-                'white_label_plugin_menu_icon',
-                'whitelabel_settings_password'
             ],
             'seo' => [
                 'index_date_archives',
@@ -230,7 +367,7 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
     }
 
     public function get_description() {
-        return 'Update one or more plugin settings. Allows modifying plugin configuration including features, SEO controls, API keys, whitelabel settings, and more.';
+        return 'Update one or more plugin settings. Allows modifying plugin configuration including features, SEO controls, API keys, and more. White-label settings are not available through this tool.';
     }
 
     public function get_input_schema() {
@@ -266,6 +403,22 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
         // Resolve any aliased or misnamed keys to their canonical nested paths
         $settings = $this->resolve_setting_aliases($params['settings']);
 
+        // otto_pixel_uuid is read-only. It is assigned only by the
+        // trusted Search Atlas / heartbeat synchronization flows; a username or
+        // any other arbitrary text stored here breaks OTTO SSR authentication.
+        // Reject the write outright rather than silently dropping it, so an
+        // MCP consumer knows to re-authenticate instead of retrying the write.
+        $this->assert_no_read_only_keys($settings);
+
+        // White-label settings (branding + the whitelabel settings password)
+        // must not be writable through MCP — the password only gates the
+        // admin UI, so an MCP write would bypass the agency's lock. Reject
+        // with an explanatory error rather than silently dropping the write.
+        // Asserted twice: once on the raw payload and once on its sanitized
+        // form, so any key spelling that survives into the store is caught.
+        MCP_Plugin_Settings_Whitelabel_Guard::assert_not_addressed($settings);
+        MCP_Plugin_Settings_Whitelabel_Guard::assert_not_addressed($this->sanitize_settings($settings));
+
         // Get current options
         $current_options = get_option(Metasync::option_name, []);
 
@@ -277,8 +430,72 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
             $new_options = $settings;
         }
 
+        // White-label branding values are mirrored into the metasync.php
+        // plugin header; a value that fails the header contract would be
+        // stored but could never be applied, leaving the options inconsistent
+        // with the Plugins screen branding. Reject the whole write with the
+        // offending fields named — the same contract the administrator form
+        // and the JSON package import enforce. Only keys this write actually
+        // supplies are checked, so legacy stored values never block unrelated
+        // settings updates.
+        if (!class_exists('Metasync_Activator')) {
+            require_once dirname(__DIR__, 2) . '/includes/class-metasync-activator.php';
+        }
+        $submitted_general = is_array($settings['general'] ?? null) ? $settings['general'] : [];
+        $submitted_branding = array_intersect_key(
+            $submitted_general,
+            array_flip(Metasync_Activator::BRANDING_HEADER_FIELDS)
+        );
+        $branding_errors = Metasync_Activator::validate_plugin_header_settings($submitted_branding);
+        if (!empty($branding_errors)) {
+            // The messages are plugin-controlled static labels; the escaping
+            // layer is inert here, but Plugin Check's EscapeOutput sniff
+            // requires an escaper on dynamic output inside an exception
+            // message, so keep it.
+            throw new Exception(
+                'Invalid white-label branding values; nothing was saved: '
+                . esc_html(implode(' ', array_values($branding_errors)))
+            );
+        }
+
+        // Replace mode can omit the read-only UUID, but omission must not
+        // disconnect the site. Always carry the stored value forward.
+        $stored_uuid_present = isset($current_options['general'])
+            && is_array($current_options['general'])
+            && array_key_exists('otto_pixel_uuid', $current_options['general']);
+        if ($stored_uuid_present) {
+            if (!isset($new_options['general']) || !is_array($new_options['general'])) {
+                $new_options['general'] = [];
+            }
+            $new_options['general']['otto_pixel_uuid'] = $current_options['general']['otto_pixel_uuid'];
+        }
+
         // Sanitize sensitive fields
         $new_options = $this->sanitize_settings($new_options);
+        if ($stored_uuid_present) {
+            $new_options['general']['otto_pixel_uuid'] = $current_options['general']['otto_pixel_uuid'];
+        }
+
+        // Replace mode can omit the whole whitelabel identity, but omission
+        // must not be able to destroy it either. Carry the stored whitelabel
+        // blob and general branding keys forward untouched (post-sanitize,
+        // like the UUID above, so stored values are not re-sanitized).
+        if (isset($current_options['whitelabel']) && is_array($current_options['whitelabel'])) {
+            if (!isset($new_options['whitelabel']) || !is_array($new_options['whitelabel'])) {
+                $new_options['whitelabel'] = [];
+            }
+            $new_options['whitelabel'] = array_merge($new_options['whitelabel'], $current_options['whitelabel']);
+        }
+        if (isset($current_options['general']) && is_array($current_options['general'])) {
+            foreach (MCP_Plugin_Settings_Whitelabel_Guard::general_branding_keys() as $key) {
+                if (array_key_exists($key, $current_options['general'])) {
+                    if (!isset($new_options['general']) || !is_array($new_options['general'])) {
+                        $new_options['general'] = [];
+                    }
+                    $new_options['general'][$key] = $current_options['general'][$key];
+                }
+            }
+        }
 
         // Encrypt the Search Atlas API key at rest if this update supplied a new
         // value. It is persisted as enc_v1: ciphertext so the cleartext never
@@ -294,9 +511,11 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
                 Metasync::encrypt_api_key($new_options['searchatlas_api_key']);
         }
 
-        // The whitelabel settings password is encrypted at rest —
-        // never persist a plaintext value. encrypt_secret() is a no-op on
-        // values that are already encrypted.
+        // Defense in depth only: with the whitelabel guard working, the
+        // carried-forward value is always the already-encrypted stored one,
+        // so encrypt_secret() is a no-op here. This can only do real work
+        // for a legacy plaintext-at-rest value; MCP callers cannot write
+        // this field (the guard above rejects every whitelabel path).
         if (!empty($new_options['whitelabel']['settings_password']) && is_string($new_options['whitelabel']['settings_password'])) {
             $new_options['whitelabel']['settings_password'] = Metasync::encrypt_secret($new_options['whitelabel']['settings_password']);
         }
@@ -349,6 +568,53 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
         }
 
         return $resolved;
+    }
+
+    /**
+     * Settings this tool refuses to write because another, trusted flow owns
+     * them.
+     *
+     * general.otto_pixel_uuid is assigned by the Search Atlas SSO callback and
+     * the heartbeat synchronization only. Storing anything else there — a
+     * WordPress username, or arbitrary text an agent guessed — breaks OTTO SSR
+     * authentication, so the write is rejected with an explanatory error
+     * rather than silently dropped.
+     */
+    private function get_read_only_setting_paths() {
+        return [
+            'otto_pixel_uuid'             => 'general.otto_pixel_uuid',
+            'general.otto_pixel_uuid'     => 'general.otto_pixel_uuid',
+            // The schema groups the UUID under "social"; a consumer following
+            // that documentation must get the same rejection rather than a
+            // silent write into a bogus top-level "social" section.
+            'social.otto_pixel_uuid'      => 'social.otto_pixel_uuid',
+        ];
+    }
+
+    /**
+     * Throw when the requested settings touch a read-only path.
+     *
+     * @param array $settings Resolved settings (post alias resolution).
+     * @return void
+     * @throws Exception When a read-only setting is addressed.
+     */
+    private function assert_no_read_only_keys($settings) {
+        foreach ($this->get_read_only_setting_paths() as $needle => $canonical) {
+            list($section, $key) = explode('.', $canonical);
+            $addressed = array_key_exists($needle, $settings)
+                || (isset($settings[$section]) && is_array($settings[$section]) && array_key_exists($key, $settings[$section]));
+            if ($addressed) {
+                $canonical_display = ($canonical === 'social.otto_pixel_uuid')
+                    ? 'general.otto_pixel_uuid'
+                    : $canonical;
+                throw new Exception(
+                    'Setting "' . esc_html($canonical_display) . '" is read-only: the '
+                    . 'OTTO Pixel UUID is assigned automatically by the Search Atlas / heartbeat '
+                    . 'synchronization flows and cannot be set through this tool. '
+                    . 'Use the plugin\'s one-click authentication to change it.'
+                );
+            }
+        }
     }
 
     /**
@@ -498,43 +764,6 @@ class MCP_Tool_List_Plugin_Settings_Schema extends MCP_Tool_Base {
                     ]
                 ]
             ],
-            'whitelabel' => [
-                'description' => 'White-label branding configuration',
-                'settings' => [
-                    'white_label_plugin_name' => [
-                        'type' => 'string',
-                        'description' => 'Custom plugin name'
-                    ],
-                    'whitelabel_otto_name' => [
-                        'type' => 'string',
-                        'description' => 'Custom Otto feature name'
-                    ],
-                    'whitelabel_logo_url' => [
-                        'type' => 'string',
-                        'description' => 'URL to custom logo image'
-                    ],
-                    'whitelabel_domain_url' => [
-                        'type' => 'string',
-                        'description' => 'Custom dashboard domain URL'
-                    ],
-                    'white_label_plugin_description' => [
-                        'type' => 'string',
-                        'description' => 'Custom plugin description'
-                    ],
-                    'white_label_plugin_author' => [
-                        'type' => 'string',
-                        'description' => 'Custom author name'
-                    ],
-                    'white_label_plugin_author_uri' => [
-                        'type' => 'string',
-                        'description' => 'Custom author URI'
-                    ],
-                    'white_label_plugin_uri' => [
-                        'type' => 'string',
-                        'description' => 'Custom plugin URI'
-                    ]
-                ]
-            ],
             'seo' => [
                 'description' => 'SEO controls and indexation settings',
                 'settings' => [
@@ -573,7 +802,8 @@ class MCP_Tool_List_Plugin_Settings_Schema extends MCP_Tool_Base {
                 'settings' => [
                     'otto_pixel_uuid' => [
                         'type' => 'string',
-                        'description' => 'Otto Pixel UUID for tracking'
+                        'description' => 'Otto Pixel UUID for tracking (READ-ONLY: assigned only by the Search Atlas / heartbeat synchronization; not writable via this tool)',
+                        'read_only' => true
                     ],
                     'otto_disable_on_loggedin' => [
                         'type' => 'boolean',
@@ -642,7 +872,7 @@ class MCP_Tool_List_Plugin_Settings_Schema extends MCP_Tool_Base {
             'schema' => $schema,
             'sections' => array_keys($schema),
             'total_sections' => count($schema),
-            'note' => 'Some settings like MCP configuration are stored as separate options, not in the main metasync_options array'
+            'note' => 'Some settings like MCP configuration are stored as separate options, not in the main metasync_options array. White-label branding settings are excluded from MCP entirely and are manageable only in the password-gated admin UI or via the whitelabel-settings.json import/export flow.'
         ]);
     }
 }

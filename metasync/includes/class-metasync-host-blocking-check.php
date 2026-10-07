@@ -500,6 +500,8 @@ class Metasync_Host_Blocking_Check
         $get  = $this->run_check('GET');
         $post = $this->run_check('POST');
 
+        $previous = $this->get_last_result();
+
         $result = [
             'get_blocked'  => !empty($get['blocked']),
             'post_blocked' => !empty($post['blocked']),
@@ -507,6 +509,8 @@ class Metasync_Host_Blocking_Check
         ];
 
         update_option(self::RESULT_OPTION, $result, true);
+
+        $this->track_result($result, $previous, !empty($get['checker_unreachable']) || !empty($post['checker_unreachable']));
 
         if (!empty($get['checker_unreachable']) || !empty($post['checker_unreachable'])) {
             $this->log(sprintf(
@@ -527,6 +531,42 @@ class Metasync_Host_Blocking_Check
         }
 
         return $result;
+    }
+
+    /**
+     * Consent-gated analytics for the automatic check: sent while the host is
+     * blocking us, and once when a block clears. A clean run that stays clean
+     * sends nothing; an inconclusive run never reports a block as cleared.
+     *
+     * @param array      $result       Result just stored.
+     * @param array|null $previous     Result before this run, null on first run.
+     * @param bool       $inconclusive Whether the checker itself was unreachable.
+     */
+    private function track_result(array $result, $previous, $inconclusive)
+    {
+        $blocked     = $result['get_blocked'] || $result['post_blocked'];
+        $was_blocked = is_array($previous) && (!empty($previous['get_blocked']) || !empty($previous['post_blocked']));
+
+        if (!$blocked && (!$was_blocked || $inconclusive)) {
+            return;
+        }
+
+        if ($previous === null) {
+            $trigger = 'first_check';
+        } elseif ($blocked !== $was_blocked
+            || $result['get_blocked'] !== !empty($previous['get_blocked'])
+            || $result['post_blocked'] !== !empty($previous['post_blocked'])) {
+            $trigger = 'state_change';
+        } else {
+            $trigger = 'recheck';
+        }
+
+        Metasync_PostHog::feature('host_blocking_detected', [
+            'get_blocked'  => $result['get_blocked'],
+            'post_blocked' => $result['post_blocked'],
+            'trigger'      => $trigger,
+            'inconclusive' => (bool) $inconclusive,
+        ]);
     }
 
     /**

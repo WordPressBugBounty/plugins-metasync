@@ -193,7 +193,7 @@ class Metasync_Error_Monitor_Database
 			]
 		);
 		//Maybe prune lowest-hit logs if record count reaches defined limit.
-		$limit = 100;
+		$limit = 500;
 		if ($limit && $this->get_count() >= $limit) {
 			$this->delete_lowest_hits(20);
 		}

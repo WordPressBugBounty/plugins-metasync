@@ -75,12 +75,12 @@ class MCP_Tool_Registry {
 
         // Check for duplicate
         if (isset($this->tools[$name])) {
-            throw new InvalidArgumentException("Tool '{$name}' is already registered");
+            throw new InvalidArgumentException("Tool '{$name}' is already registered"); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         // Validate tool has required methods
         if (!method_exists($tool, 'execute')) {
-            throw new InvalidArgumentException("Tool '{$name}' must implement execute() method");
+            throw new InvalidArgumentException("Tool '{$name}' must implement execute() method"); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         // Store tool

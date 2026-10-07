@@ -32,6 +32,8 @@ class Metasync_Otto_Clone_Meta_Cleaner {
         '_metasync_otto_title',
         '_metasync_otto_description',
         '_metasync_otto_keywords',
+        '_metasync_otto_canonical',
+        '_metasync_metakeywords',
         '_metasync_otto_og_title',
         '_metasync_otto_og_description',
         '_metasync_otto_twitter_title',

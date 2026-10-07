@@ -93,7 +93,7 @@ class MCP_Tool_Create_Custom_Page extends MCP_Tool_Base {
         $page_id = wp_insert_post($page_data, true);
 
         if (is_wp_error($page_id)) {
-            throw new Exception('Failed to create page: ' . $page_id->get_error_message());
+            throw new Exception('Failed to create page: ' . $page_id->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         // Mark as custom HTML page
@@ -426,7 +426,7 @@ class MCP_Tool_Update_Custom_Page extends MCP_Tool_Base {
         if (count($update_data) > 1) {
             $result = wp_update_post($update_data, true);
             if (is_wp_error($result)) {
-                throw new Exception('Failed to update page: ' . $result->get_error_message());
+                throw new Exception('Failed to update page: ' . $result->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
             }
         }
 
@@ -508,7 +508,7 @@ class MCP_Tool_Delete_Custom_Page extends MCP_Tool_Base {
         $result = $api->delete_custom_page_with_cleanup($page_id);
 
         if (is_wp_error($result)) {
-            throw new Exception($result->get_error_message());
+            throw new Exception($result->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         return $this->success(array_merge($result, [

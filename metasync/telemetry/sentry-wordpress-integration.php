@@ -244,6 +244,10 @@ class MetaSync_Sentry_WordPress {
             $event_data['tags'] = ['category' => 'user-feedback'];
         }
         
+        // Attach white-label metadata to the issue-report event (not only the
+        // user-feedback item) so support can identify the reporting site.
+        $event_data = self::apply_white_label_context($event_data, $feedback);
+
         // Send the event first with attachment
         $event_result = $this->sendToSentry($event_data, 'event', $attachment);
         
@@ -270,7 +274,44 @@ class MetaSync_Sentry_WordPress {
         
         return is_array($feedback_result) ? $feedback_result['success'] : $feedback_result;
     }
-    
+
+    /**
+     * Attach white-label metadata to an issue-report event payload.
+     *
+     * Support needs to tell from the Sentry event alone whether the reporting
+     * site is white-labeled, so the values go on the event itself (tags plus a
+     * white_label context), not only on the associated user-feedback item.
+     *
+     * Static and public so the unit suite can exercise the mapping directly;
+     * captureFeedback() runs the result through a private curl sender that has
+     * no test seam.
+     *
+     * @param array $event_data Event payload built by formatMessage().
+     * @param array $feedback   Feedback data supplied by the report handler.
+     * @return array The event payload with white-label tags and context added.
+     */
+    public static function apply_white_label_context(array $event_data, array $feedback)
+    {
+        $is_whitelabel = !empty($feedback['is_whitelabel']);
+        $brand_name = isset($feedback['whitelabel_brand_name'])
+            ? sanitize_text_field($feedback['whitelabel_brand_name']) : '';
+        $support_email = isset($feedback['whitelabel_support_email'])
+            ? sanitize_email($feedback['whitelabel_support_email']) : '';
+        $site_url = isset($feedback['site_url']) ? esc_url_raw($feedback['site_url']) : '';
+        $event_data['tags']['is_whitelabel'] = $is_whitelabel ? 'true' : 'false';
+        $event_data['tags']['whitelabel_brand_name'] = $brand_name;
+        $event_data['tags']['whitelabel_support_email'] = $support_email;
+        $event_data['tags']['site_url'] = $site_url;
+        $event_data['contexts']['white_label'] = array(
+            'is_whitelabel' => $is_whitelabel,
+            'whitelabel_brand_name' => $brand_name,
+            'whitelabel_support_email' => $support_email,
+            'site_url' => $site_url,
+        );
+
+        return $event_data;
+    }
+
     /**
      * Format exception data for Sentry API
      */

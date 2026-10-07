@@ -241,10 +241,61 @@ class Metasync_Seo_Suite
         $has_schema = isset($P['metasync-schema-markup']);
         $has_video  = isset($P['metasync-video-sitemap-meta']);
 
+        // Breadcrumb Title is useful while MetaSync breadcrumbs are enabled or
+        // while Yoast/Rank Math owns the rendered breadcrumb trail.
+        $has_breadcrumbs = class_exists('Metasync_Breadcrumbs')
+            ? Metasync_Breadcrumbs::is_breadcrumb_title_meaningful()
+            : true;
+
+        // The Language Alternates tab follows its own editor-settings switch,
+        // not the Canonical metabox's — disabling one must not hide the other.
+        // The defined() guard matches the REST registration's defence against
+        // an opcache-stale copy of the flags class during an upgrade window.
+        // @phpstan-ignore-next-line function.alreadyNarrowedType
+        $has_lang = defined('Metasync_Feature_Flags::LANGUAGE_ALTERNATES')
+            && Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::LANGUAGE_ALTERNATES);
+
         // Current values.
         $seo_title  = self::v($id, '_metasync_seo_title');
         $seo_desc   = self::v($id, '_metasync_seo_desc');
-        $otto_kw    = self::v($id, '_metasync_otto_keywords');
+
+        // The read-only "OTTO keyword" row shows OTTO's suggestion under a lock
+        // icon. Which tier that is — and whether OTTO counts at all, since the
+        // per-post "Disable OTTO" toggle makes its stored suggestion dead data —
+        // is the resolver's call, not this screen's. fallback() drops the
+        // customer tier and honours Disable OTTO, so an OTTO-disabled post stops
+        // showing a dead suggestion here.
+        $kw_fallback = Metasync_Seo_Precedence::fallback($id, Metasync_Seo_Precedence::FIELD_FOCUS_KEYWORD);
+        $otto_kw     = $kw_fallback['value'];
+
+        // Classic-editor fields sharing meta keys with the Gutenberg sidebar,
+        // so values round-trip between editors. The save path lives in
+        // Metasync_Classic_Seo_Fields (the Suite stays presentation-only).
+        $breadcrumb_title = self::v($id, '_metasync_breadcrumb_title');
+
+        // hreflang is stored as a JSON string of {lang, region, url} rows.
+        // Decode defensively — malformed, empty, and non-array stored values
+        // must not fatal — the same pattern
+        // Metasync_Hreflang_Output::get_manual_entries() already uses. Values
+        // render as stored, like the Gutenberg panel, which warns about (but
+        // keeps) rows that fail validation.
+        $hreflang_rows = array();
+        $raw_hreflang = get_post_meta($id, '_metasync_hreflang', true);
+        if (is_string($raw_hreflang) && $raw_hreflang !== '') {
+            $decoded = json_decode($raw_hreflang, true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $entry) {
+                    if (!is_array($entry)) {
+                        continue;
+                    }
+                    $hreflang_rows[] = array(
+                        'lang'   => isset($entry['lang'])   ? (string) $entry['lang']   : '',
+                        'region' => isset($entry['region']) ? (string) $entry['region'] : '',
+                        'url'    => isset($entry['url'])    ? (string) $entry['url']    : '',
+                    );
+                }
+            }
+        }
 
         // The greyed-out value each field shows when left blank: OTTO's
         // suggestion, or the imported value where OTTO is silent. Which tier
@@ -396,6 +447,12 @@ class Metasync_Seo_Suite
               if ($has_redir)  { wp_nonce_field('metasync_post_redirection_nonce', 'metasync_post_redirection_nonce'); }
               if ($has_social) { wp_nonce_field('metasync_opengraph_nonce', 'metasync_opengraph_nonce'); }
               if ($has_video)  { wp_nonce_field('metasync_video_sitemap_meta_nonce', 'metasync_video_sitemap_meta_nonce'); }
+              // Classic-editor-only fields: emit the nonce only when at least
+              // one of them actually renders (breadcrumb title in the SEO tab,
+              // Languages tab). Metasync_Classic_Seo_Fields verifies it.
+              if (($has_seo && $has_breadcrumbs) || $has_lang) {
+                  wp_nonce_field('metasync_classic_seo_fields_nonce', 'metasync_classic_seo_fields_nonce');
+              }
           }
           ?>
           <div class="metabox">
@@ -419,6 +476,7 @@ class Metasync_Seo_Suite
                 if ($has_seo)    { $tab('seo', '&#128269;', 'SEO'); }
                 if ($has_robots) { $tab('robots', '&#129302;', 'Robots'); }
                 if ($has_canon)  { $tab('canonical', '&#128279;', 'Canonical'); }
+                if ($has_lang)   { $tab('languages', '&#127760;', 'Languages'); }
                 if ($has_redir)  { $tab('redirect', '&#8618;&#65039;', 'Redirection'); }
                 if ($has_social) { $tab('social', '&#128226;', 'Social &amp; OG'); }
                 if ($has_schema) { $tab('schema', '&#128208;', 'Schema'); }
@@ -451,6 +509,13 @@ class Metasync_Seo_Suite
                     <div class="lbl"><span>Meta Description</span><span class="cc"><span class="dC">0</span>/160</span></div>
                     <textarea class="ctrl seoD" name="metasync_seo_desc" placeholder="<?php echo esc_attr($ghost_desc); ?>" oninput="mssRc()"><?php echo esc_textarea($seo_desc); ?></textarea>
                   </div>
+                  <?php if ($has_breadcrumbs): ?>
+                  <div class="field">
+                    <div class="lbl"><span>Breadcrumb Title</span><span class="mss-tip" title="The label shown for this post in breadcrumb trails. Leave blank to use the post title.">?</span></div>
+                    <input class="ctrl" name="_metasync_breadcrumb_title" value="<?php echo esc_attr($breadcrumb_title); ?>" placeholder="Defaults to the post title">
+                    <div class="hint">Overrides the breadcrumb label for this post. Leave blank to use the post title.</div>
+                  </div>
+                  <?php endif; ?>
                   <?php if ($otto_kw !== ''): ?>
                   <div class="field">
                     <div class="lbl"><span>Focus Keyword</span><span class="ro-badge">Managed by OTTO</span></div>
@@ -524,6 +589,45 @@ class Metasync_Seo_Suite
                     <input class="ctrl" type="text" name="post_canonical_url_meta" value="<?php echo esc_attr($canon); ?>" placeholder="<?php echo esc_attr($pretty); ?>">
                     <div class="hint">Leave blank to use this post's own URL.</div>
                   </div>
+                </div>
+                <?php endif; ?>
+
+                <?php if ($has_lang): ?>
+                <div class="<?php echo esc_attr($pcls()); ?>" data-p="languages">
+                  <h2 class="p-title">&#127760; Language Alternates</h2>
+                  <p class="p-sub">Tell search engines about translated or regional versions of this post.</p>
+                  <?php
+                  // Presence marker: with every row removed the rows inputs
+                  // are gone from the form entirely, so without this flag the
+                  // save handler could not tell "cleared" from "tab absent".
+                  ?>
+                  <input type="hidden" name="metasync_hreflang_present" value="1">
+                  <div class="mss-hreflang-rows">
+                    <?php
+                    $hfi = 0;
+                    foreach ($hreflang_rows as $hrow):
+                      $hname = 'metasync_hreflang_rows[' . (int) $hfi . ']';
+                      ?>
+                      <div class="mss-hrow">
+                        <div class="row">
+                          <div class="field"><div class="lbl"><span>Language</span></div>
+                            <input class="ctrl" name="<?php echo esc_attr($hname); ?>[lang]" value="<?php echo esc_attr($hrow['lang']); ?>" placeholder="en"></div>
+                          <div class="field"><div class="lbl"><span>Region</span></div>
+                            <input class="ctrl" name="<?php echo esc_attr($hname); ?>[region]" value="<?php echo esc_attr($hrow['region']); ?>" placeholder="US"></div>
+                        </div>
+                        <div class="field"><div class="lbl"><span>URL</span></div>
+                          <div class="mss-hrow-url">
+                            <input class="ctrl" type="text" name="<?php echo esc_attr($hname); ?>[url]" value="<?php echo esc_attr($hrow['url']); ?>" placeholder="https://example.com/en-us/">
+                            <button type="button" class="btn ghost sm mss-hreflang-remove" onclick="mssHreflangRemove(this)">Remove</button>
+                          </div></div>
+                      </div>
+                    <?php $hfi++; endforeach; ?>
+                  </div>
+                  <div class="mss-hreflang-empty"<?php echo empty($hreflang_rows) ? '' : ' style="display:none"'; ?>>
+                    <p>No language alternates yet. Add one to tell search engines about a translated or regional version of this post.</p>
+                  </div>
+                  <button type="button" class="btn ghost mss-hreflang-add" onclick="mssHreflangAdd(this)">&#43; Add alternate</button>
+                  <div class="hint">Use ISO codes (e.g. en, en-US, x-default) and absolute URLs. A self-reference is added automatically when missing.</div>
                 </div>
                 <?php endif; ?>
 
@@ -788,6 +892,46 @@ class Metasync_Seo_Suite
           ['_metasync_og_title','_metasync_og_description','_metasync_og_image','_metasync_twitter_title','_metasync_twitter_description','_metasync_twitter_image'].forEach(function(n){
             var e=byName(n); if(e) e.addEventListener('input',mssSocial);
           });
+          // Language Alternates row management. Rows post as
+          // metasync_hreflang_rows[N][lang|region|url]; the save handler
+          // re-indexes and JSON-encodes them, so gaps in N are harmless — but
+          // a NEW row must never reuse an index a surviving row still owns:
+          // PHP's last-wins parsing would overwrite that row's values.
+          window.mssHreflangAdd=function(btn){
+            var wrap=root.querySelector('.mss-hreflang-rows');
+            if(!wrap) return;
+            var empty=root.querySelector('.mss-hreflang-empty'); if(empty) empty.style.display='none';
+            var idx=-1;
+            wrap.querySelectorAll('.mss-hrow input[name^="metasync_hreflang_rows["]').forEach(function(input){
+              var m=input.name.match(/^metasync_hreflang_rows\[(\d+)\]/);
+              if(m){ idx=Math.max(idx,parseInt(m[1],10)); }
+            });
+            idx=idx+1;
+            var row=document.createElement('div'); row.className='mss-hrow';
+            row.innerHTML='<div class="row">'
+              +'<div class="field"><div class="lbl"><span>Language</span></div>'
+              +'<input class="ctrl" name="metasync_hreflang_rows['+idx+'][lang]" value="" placeholder="en"></div>'
+              +'<div class="field"><div class="lbl"><span>Region</span></div>'
+              +'<input class="ctrl" name="metasync_hreflang_rows['+idx+'][region]" value="" placeholder="US"></div>'
+              +'</div>'
+              +'<div class="field"><div class="lbl"><span>URL</span></div>'
+              +'<div class="mss-hrow-url">'
+              +'<input class="ctrl" type="text" name="metasync_hreflang_rows['+idx+'][url]" value="" placeholder="https://example.com/en-us/">'
+              +'<button type="button" class="btn ghost sm mss-hreflang-remove" onclick="mssHreflangRemove(this)">Remove</button>'
+              +'</div></div>';
+            wrap.appendChild(row);
+            var lang=row.querySelector('input'); if(lang) lang.focus();
+          };
+          window.mssHreflangRemove=function(btn){
+            var row=btn.closest('.mss-hrow');
+            if(!row) return;
+            var wrap=row.parentNode;
+            row.parentNode.removeChild(row);
+            if(wrap && !wrap.querySelector('.mss-hrow')){
+              var empty=root.querySelector('.mss-hreflang-empty');
+              if(empty) empty.style.display='';
+            }
+          };
           var twitterCard=byName('_metasync_twitter_card'); if(twitterCard)mssTwT(twitterCard); mssRc(); mssSocial();
         })();
         </script>
@@ -998,6 +1142,18 @@ class Metasync_Seo_Suite
      solid-red fills with white text and are deliberately left untouched. */
   #mss-root[data-theme="dark"] .mss-native .remove-schema-type,
   #mss-root[data-theme="dark"] .mss-native .remove-schema-type .dashicons{color:#f87171 !important;border-color:rgba(248,113,113,.45) !important}
+  /* Inline '?' tooltip on the Breadcrumb Title label. */
+  #mss-root .mss-tip{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--card-2);border:1px solid var(--border);color:var(--muted);font-size:11px;font-weight:700;cursor:help;flex:none}
+  /* Language Alternates rows. */
+  #mss-root .mss-hreflang-rows{display:flex;flex-direction:column;gap:14px;margin-bottom:16px}
+  #mss-root .mss-hrow{border:1px solid var(--border-soft);border-radius:10px;padding:13px 14px;background:var(--card-2)}
+  #mss-root .mss-hrow .row{grid-template-columns:1fr 1fr;gap:13px;margin-bottom:0}
+  #mss-root .mss-hrow .field{margin-bottom:11px}
+  #mss-root .mss-hrow .field:last-child{margin-bottom:0}
+  #mss-root .mss-hrow-url{display:flex;gap:9px;align-items:flex-start}
+  #mss-root .mss-hrow-url .ctrl{flex:1}
+  #mss-root .mss-hreflang-empty{color:var(--muted);font-size:12.5px;padding:14px;border:1.5px dashed var(--border);border-radius:10px;text-align:center;margin-bottom:16px;background:var(--card-2)}
+  #mss-root .mss-hreflang-empty p{margin:0}
 </style>
         <?php
     }

@@ -153,7 +153,10 @@
                     html += '<button type="button" class="button button-small otto-recheck-url" data-id="' + record.id + '" style="margin-right: 5px;">\uD83D\uDD04 Recheck</button>';
                 } else {
                     // Pattern rows match many URLs, so a single probe would be meaningless.
-                    html += '<button type="button" class="button button-small" disabled title="Only exact URL exclusions can be rechecked" style="margin-right: 5px;">\uD83D\uDD04 Recheck</button>';
+                    // The otto-recheck-disabled class mirrors the active button's
+                    // sizing so the grayed-out button keeps the same width/height as
+                    // the enabled one on Exact match rows.
+                    html += '<button type="button" class="button button-small otto-recheck-disabled" disabled title="Only exact URL exclusions can be rechecked" style="margin-right: 5px;">\uD83D\uDD04 Recheck</button>';
                 }
                 html += '<button type="button" class="button button-small otto-delete-url" data-id="' + record.id + '">\uD83D\uDDD1\uFE0F Delete</button>';
                 html += '</span></td>';

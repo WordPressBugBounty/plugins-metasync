@@ -279,7 +279,7 @@ class Metasync_Post_Meta_Settings
 	?>
 		<ul>
 			<li> Canonical URL:
-				<input type="text" class="regular-text" name="post_canonical_url_meta" placeholder="<?php echo get_permalink($post->ID) ?>" value="<?php echo esc_attr($post_canonical); ?>">
+				<input type="text" class="regular-text" name="post_canonical_url_meta" placeholder="<?php echo esc_url(get_permalink($post->ID)); ?>" value="<?php echo esc_attr($post_canonical); ?>">
 			</li>
 		</ul>
 <?php

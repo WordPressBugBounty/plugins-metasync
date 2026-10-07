@@ -104,7 +104,7 @@ class MCP_Tool_Create_Post extends MCP_Tool_Base {
         $post_id = wp_insert_post($post_data, true);
 
         if (is_wp_error($post_id)) {
-            throw new Exception('Failed to create post: ' . $post_id->get_error_message());
+            throw new Exception('Failed to create post: ' . $post_id->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         // Set categories if provided

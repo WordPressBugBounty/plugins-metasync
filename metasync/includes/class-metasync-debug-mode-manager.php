@@ -644,10 +644,10 @@ class Metasync_Debug_Mode_Manager
         }
 
         foreach ($notices as $notice) {
-            $class = 'notice notice-' . esc_attr($notice['type']) . ' is-dismissible';
+            $class = 'notice notice-' . $notice['type'] . ' is-dismissible';
             printf(
                 '<div class="%1$s"><p><strong>MetaSync Debug Mode:</strong> %2$s</p></div>',
-                $class,
+                esc_attr($class),
                 esc_html($notice['message'])
             );
         }

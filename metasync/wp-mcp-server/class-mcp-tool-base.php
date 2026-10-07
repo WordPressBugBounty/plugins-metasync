@@ -77,7 +77,7 @@ abstract class MCP_Tool_Base {
         if (isset($schema['required'])) {
             foreach ($schema['required'] as $required_field) {
                 if (!isset($params[$required_field])) {
-                    throw new InvalidArgumentException("Missing required parameter: {$required_field}");
+                    throw new InvalidArgumentException("Missing required parameter: {$required_field}"); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
                 }
             }
         }
@@ -93,22 +93,22 @@ abstract class MCP_Tool_Base {
                 $expected_type = isset($field_schema['type']) ? $field_schema['type'] : null;
 
                 if ($expected_type && !$this->validate_type($value, $expected_type)) {
-                    throw new InvalidArgumentException("Invalid type for parameter '{$field}': expected {$expected_type}");
+                    throw new InvalidArgumentException("Invalid type for parameter '{$field}': expected {$expected_type}"); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
                 }
 
                 // Validate enum
                 if (isset($field_schema['enum']) && !in_array($value, $field_schema['enum'], true)) {
                     $allowed = implode(', ', $field_schema['enum']);
-                    throw new InvalidArgumentException("Invalid value for parameter '{$field}': must be one of [{$allowed}]");
+                    throw new InvalidArgumentException("Invalid value for parameter '{$field}': must be one of [{$allowed}]"); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
                 }
 
                 // Validate min/max for integers
                 if ($expected_type === 'integer') {
                     if (isset($field_schema['minimum']) && $value < $field_schema['minimum']) {
-                        throw new InvalidArgumentException("Parameter '{$field}' must be >= {$field_schema['minimum']}");
+                        throw new InvalidArgumentException("Parameter '{$field}' must be >= {$field_schema['minimum']}"); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
                     }
                     if (isset($field_schema['maximum']) && $value > $field_schema['maximum']) {
-                        throw new InvalidArgumentException("Parameter '{$field}' must be <= {$field_schema['maximum']}");
+                        throw new InvalidArgumentException("Parameter '{$field}' must be <= {$field_schema['maximum']}"); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
                     }
                 }
             }
@@ -293,6 +293,6 @@ abstract class MCP_Tool_Base {
      * @throws Exception
      */
     protected function error($message, $code = 'error') {
-        throw new Exception($message);
+        throw new Exception($message); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
     }
 }

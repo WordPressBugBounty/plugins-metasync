@@ -534,6 +534,7 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
         $output .= Metasync_Per_Page_Helper::render_selector('media_library', $this->resolved_per_page, $which);
 
         if ($total_pages <= 1) {
+            // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- selector markup escaped inside Metasync_Per_Page_Helper::render_selector() (esc_attr / esc_html / %d)
             echo "<div class='tablenav-pages one-page'>$output</div>";
             return;
         }
@@ -616,6 +617,7 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
             $next_link . $last_link .
             '</span>';
 
+        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- mirrors WP core WP_List_Table::pagination(); link hrefs escaped via esc_url(), counts via number_format_i18n()
         echo "<div class='tablenav-pages'>$output</div>";
     }
 
@@ -674,6 +676,7 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
             $tag = ($column_key === 'cb') ? 'td' : 'th';
             $id  = $with_id ? "id='" . esc_attr($column_key) . "'" : '';
 
+            // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- mirrors WP core WP_List_Table::print_column_headers(); $id/$class escaped via esc_attr() just above, \$column_display_name via esc_html()
             echo '<' . esc_attr($tag) . ' ' . $id . " class='" . esc_attr(implode(' ', $class)) . "' " . esc_attr($attr) . '>' . $column_display_name . '</' . esc_attr($tag) . '>';
         }
     }
@@ -865,13 +868,18 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
     /**
      * The uncached library-wide scans. Called at most once per 15 minutes
      * outside a batch, never during one.
+     *
+     * Every scan is count-only: posts_per_page 1 keeps the row fetch at a
+     * single ID while found_rows still reports the full matching count, so a
+     * cache miss no longer transfers and allocates the whole attachment
+     * library's IDs three times over.
      */
     private static function query_stats(): array {
         $total = (new WP_Query([
             'post_type'      => 'attachment',
             'post_status'    => 'inherit',
             'post_mime_type' => self::IMAGE_MIME_TYPES,
-            'posts_per_page' => -1,
+            'posts_per_page' => 1,
             'fields'         => 'ids',
         ]))->found_posts;
 
@@ -879,7 +887,7 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
             'post_type'      => 'attachment',
             'post_status'    => 'inherit',
             'post_mime_type' => self::IMAGE_MIME_TYPES,
-            'posts_per_page' => -1,
+            'posts_per_page' => 1,
             'fields'         => 'ids',
             'meta_query'     => [
                 ['key' => '_metasync_converted_format', 'compare' => 'EXISTS'],
@@ -892,7 +900,7 @@ class Metasync_Media_Library_List_Table extends WP_List_Table {
             'post_type'      => 'attachment',
             'post_status'    => 'inherit',
             'post_mime_type' => self::OPTIMIZED_MIME_TYPES,
-            'posts_per_page' => -1,
+            'posts_per_page' => 1,
             'fields'         => 'ids',
             'meta_query'     => [
                 ['key' => '_metasync_converted_format', 'compare' => 'NOT EXISTS'],

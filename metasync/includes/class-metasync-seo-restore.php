@@ -857,6 +857,7 @@ class Metasync_Seo_Restore {
 	 */
 	public static function cancel_batch($error = ''): array {
 		$progress = self::get_progress();
+		$was_running = ($progress['status'] === 'running');
 		$progress['status'] = 'cancelled';
 		if ($error !== '') {
 			$progress['error'] = $error;
@@ -866,6 +867,10 @@ class Metasync_Seo_Restore {
 		delete_option(self::QUEUE_OPTION);
 		self::release_lock();
 		wp_clear_scheduled_hook(self::CRON_HOOK);
+
+		if ($was_running) {
+			self::track_run_finished($progress, $error !== '' ? 'cancelled_by_system' : 'cancelled');
+		}
 
 		return $progress;
 	}
@@ -1097,7 +1102,26 @@ class Metasync_Seo_Restore {
 
 		if ($finalized) {
 			self::record_history_summary($progress);
+			self::track_run_finished($progress, 'completed');
 		}
+	}
+
+	/**
+	 * Consent-gated analytics: undoing OTTO's writes is a pre-uninstall churn
+	 * signal. Sent only on the running -> finished transition, so a repeated
+	 * cancel or completion cannot double-count.
+	 *
+	 * @param array  $progress Final progress data.
+	 * @param string $status   completed | cancelled | cancelled_by_system.
+	 */
+	private static function track_run_finished(array $progress, string $status): void {
+		Metasync_PostHog::feature('seo_restore_completed', [
+			'status'          => $status,
+			'total'           => (int) ($progress['total'] ?? 0),
+			'processed'       => (int) ($progress['processed'] ?? 0),
+			'failed'          => (int) ($progress['failed'] ?? 0),
+			'fields_restored' => (int) ($progress['fields_restored'] ?? 0),
+		]);
 	}
 
 	/**

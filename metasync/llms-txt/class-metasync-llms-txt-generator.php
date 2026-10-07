@@ -100,6 +100,7 @@ class Metasync_Llms_Txt_Generator
         status_header(200);
         header('Content-Type: text/plain; charset=utf-8');
         header('X-Robots-Tag: noindex');
+        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- plain-text llms.txt document served as text/plain; the generated markdown is the payload
         echo $content;
         exit;
     }

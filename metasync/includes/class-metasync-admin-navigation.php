@@ -1376,7 +1376,7 @@ class Metasync_Admin_Navigation
                      $status_text_header = 'Not Synced';
                  }
                  ?>
-                 <div class="metasync-integration-status <?php echo $status_class_header; ?>"
+                 <div class="metasync-integration-status <?php echo esc_attr($status_class_header); ?>"
                       title="<?php echo esc_attr($status_title_header); ?>">
                      <span class="status-indicator"></span>
                      <span class="status-text"><?php echo esc_html($status_text_header); ?></span>
@@ -1638,7 +1638,7 @@ class Metasync_Admin_Navigation
      */
     public function render_layout_open($page_title = '', $current_page = '', $description = '')
     {
-        $theme       = esc_attr(get_option('metasync_theme', 'dark'));
+        $theme       = get_option('metasync_theme', 'dark');
         $plugin_name = Metasync::get_effective_plugin_name();
         $general     = Metasync::get_option('general') ?? [];
         $is_connected = Metasync_Heartbeat_Manager::instance()->is_heartbeat_connected($general);
@@ -1649,7 +1649,7 @@ class Metasync_Admin_Navigation
 
         $current_theme = get_option('metasync_theme', 'dark');
         ?>
-        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo $theme; ?>">
+        <div class="wrap metasync-dashboard-wrap" data-theme="<?php echo esc_attr($theme); ?>">
 
         <?php
         // Inject whitelabel color palette overrides
@@ -1681,6 +1681,7 @@ class Metasync_Admin_Navigation
                         }
                     }
                     if ($vars) {
+                        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- CSS custom properties inside a raw <style> element; every value is a regex-validated hex color and HTML entities are not decoded in raw text elements
                         echo $selector . '{' . $vars . '}';
                     }
                 }
@@ -1842,10 +1843,10 @@ class Metasync_Admin_Navigation
                 <?php foreach ($seo_items as $key => $item):
                     $is_active = ($current_page === $key);
                     $icon      = $icons[$key] ?? 'admin-generic';
-                    $url       = esc_url(admin_url('admin.php?page=' . $page_slug . $item['slug_suffix']));
+                    $url       = admin_url('admin.php?page=' . $page_slug . $item['slug_suffix']);
                 ?>
                     <li class="<?php echo $is_active ? 'metasync-sidenav-active' : ''; ?>">
-                        <a href="<?php echo $url; ?>">
+                        <a href="<?php echo esc_url($url); ?>">
                             <span class="metasync-sidenav-icon"><span class="dashicons dashicons-<?php echo esc_attr($icon); ?>"></span></span>
                             <?php echo esc_html($item['title']); ?>
                         </a>
@@ -1862,10 +1863,10 @@ class Metasync_Admin_Navigation
                     if ($key === 'report_issue') continue;
                     $is_active = ($current_page === $key);
                     $icon      = $icons[$key] ?? 'admin-generic';
-                    $url       = esc_url(admin_url('admin.php?page=' . $page_slug . $item['slug_suffix']));
+                    $url       = admin_url('admin.php?page=' . $page_slug . $item['slug_suffix']);
                 ?>
                     <li class="<?php echo $is_active ? 'metasync-sidenav-active' : ''; ?>">
-                        <a href="<?php echo $url; ?>">
+                        <a href="<?php echo esc_url($url); ?>">
                             <span class="metasync-sidenav-icon"><span class="dashicons dashicons-<?php echo esc_attr($icon); ?>"></span></span>
                             <?php echo esc_html($item['title']); ?>
                         </a>
@@ -1918,7 +1919,7 @@ class Metasync_Admin_Navigation
     {
         $plugin_name      = Metasync::get_effective_plugin_name();
         $otto_name        = Metasync::get_whitelabel_otto_name();
-        $settings_url     = esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug));
+        $settings_url     = admin_url('admin.php?page=' . Metasync_Admin::$page_slug);
         $homepage         = Metasync::HOMEPAGE_DOMAIN;
         $docs_url         = Metasync::DOCUMENTATION_DOMAIN;
         // These links point at Search Atlas properties, so they only belong
@@ -1948,7 +1949,7 @@ class Metasync_Admin_Navigation
                 <li><span class="promo-check">&#10003;</span> Automated schema markup</li>
                 <li><span class="promo-check">&#10003;</span> Instant Google indexing</li>
             </ul>
-            <a href="<?php echo $settings_url; ?>" class="metasync-promo-btn metasync-promo-btn--primary">
+            <a href="<?php echo esc_url($settings_url); ?>" class="metasync-promo-btn metasync-promo-btn--primary">
                 Connect Now
             </a>
         </div>

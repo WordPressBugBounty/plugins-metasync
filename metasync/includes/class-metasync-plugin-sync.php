@@ -62,6 +62,7 @@ class Metasync_Plugin_Sync {
 		'_metasync_seo_desc',
 		'_metasync_metatitle',
 		'_metasync_metadesc',
+		'_metasync_metakeywords',
 		'_metasync_robots_index',
 		'_metasync_robots_advanced',
 		'_metasync_og_title',
@@ -81,6 +82,7 @@ class Metasync_Plugin_Sync {
 		'_metasync_otto_twitter_title',
 		'_metasync_otto_twitter_description',
 		'_metasync_otto_keywords',
+		'_metasync_otto_canonical',
 	];
 
 	/**
@@ -103,6 +105,7 @@ class Metasync_Plugin_Sync {
 		'_metasync_otto_title'               => 'meta_title',
 		'_metasync_otto_description'         => 'meta_description',
 		'_metasync_otto_keywords'            => 'meta_keywords',
+		'_metasync_metakeywords'             => 'meta_keywords',
 		'_metasync_otto_og_title'            => 'og_title',
 		'_metasync_otto_og_description'      => 'og_description',
 		'_metasync_otto_twitter_title'       => 'twitter_title',
@@ -254,6 +257,7 @@ class Metasync_Plugin_Sync {
 			'_metasync_otto_twitter_title'      => 'twitter_title',
 			'_metasync_otto_twitter_description' => 'twitter_desc',
 			'_metasync_otto_keywords'           => 'focus_keyword',
+			'_metasync_metakeywords'            => 'focus_keyword',
 			// Legacy meta box keys → rebuild JSON
 			'metasync_common_robots'            => '_legacy_robots_to_json',
 			'metasync_advance_robots'           => '_legacy_robots_to_json',
@@ -560,7 +564,11 @@ class Metasync_Plugin_Sync {
 		// Canonical is validated at the source so a corrupted value ("Array")
 		// never propagates into Yoast/RankMath/AIOSEO storage.
 		$data['canonical'] = Metasync_Canonical_Sanitizer::sanitize($get('_metasync_canonical_url'));
-		$data['focus_keyword'] = $first('_metasync_focus_keyword', '_metasync_otto_keywords');
+		// The keyword takes its order from the resolver — customer value, then
+		// OTTO's volatile tier, then OTTO's persisted tier — so the persistence
+		// gating in $first() reaches the persisted copy too. Previously the
+		// persisted copy sat on the customer key, outranking the live one.
+		$data['focus_keyword'] = $first(...Metasync_Seo_Precedence::keys(Metasync_Seo_Precedence::FIELD_FOCUS_KEYWORD));
 		$data['breadcrumb_title'] = $get('_metasync_breadcrumb_title');
 
 		return $this->apply_feature_flags_to_payload($data);

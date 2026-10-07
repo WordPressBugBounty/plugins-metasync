@@ -206,6 +206,12 @@
 			// Collect data based on current step
 			switch(this.currentStep) {
 
+				case 2: // Connection and analytics consent
+					stepData.analytics = {
+						enabled: $('#wizard-analytics-consent').is(':checked')
+					};
+					break;
+
 				case 4: // SEO Settings
 					stepData.seo_settings = {
 						date_archives: $('input[name="seo_date_archives"]').is(':checked'),

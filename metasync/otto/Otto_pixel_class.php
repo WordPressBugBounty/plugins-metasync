@@ -8,25 +8,22 @@ if (!defined('ABSPATH')) {
  * This class handles the Otto Pixel Functions
  */
 Class Metasync_otto_pixel{
-    
+
     #otto html class
     public $o_html;
 
-    # crawl data option
-    public $option_name = 'metasync_otto_crawldata';
-
-	# no cache wp pages 
+	# no cache wp pages
 	public $no_cache_pages = ['wp-login.php'];
 
     # OTTO UUID
     private $otto_uuid;
 
-    # 
+    #
     function __construct($otto_uuid){
-        
+
         # store the UUID
         $this->otto_uuid = $otto_uuid;
-        
+
         # load the html class
         $this->o_html = new Metasync_otto_html($otto_uuid);
 
@@ -38,100 +35,6 @@ Class Metasync_otto_pixel{
         # No-op: Cache system has been removed
         # All pages are processed in real-time from OTTO API
         return true;
-    }
-
-
-    # method to save crawl data into
-    function save_crawl_data($data){
-
-        # get the option name 
-        $option_name = $this->option_name;
-
-        # handle data
-        $saved = get_option($option_name);
-
-        # log saved
-
-        # if saved false save
-        if(empty($saved['urls'])){
-            
-            # save the option
-            update_option($option_name, $data);
-
-            return;
-        }
-
-        # get new unique list of urls
-        $new_list = array_unique(array_merge($data['urls'], $saved['urls']));
-
-        # set data
-        $data['urls'] = $new_list;
-
-        # log saved
-
-        # save the option 
-        update_option($option_name, $data);
-    }
-
-    /**
-     * Check if a URL has been crawled by Otto
-     * - Validates domain against saved domain
-     * - Ignores query strings
-     * - Does exact path matching as Otto stores paths exactly as they appear
-     * @param string $url - Full URL to check
-     * @return bool - True if URL was crawled, false otherwise
-     */
-     function is_url_crawled($url) {
-        # Ensure valid input
-        if (empty($url) || !is_string($url)) {
-            return false;
-        }
-
-        # Get saved crawl data
-        $saved = get_option($this->option_name);
-
-        if (
-            empty($saved) ||
-            !is_array($saved) ||
-            empty($saved['domain']) ||
-            empty($saved['urls']) ||
-            !is_array($saved['urls'])
-        ) {
-            return false;
-        }
-
-        # Parse saved domain + incoming URL
-        $saved_domain   = wp_parse_url($saved['domain'], PHP_URL_HOST);
-        $incoming_domain = wp_parse_url($url, PHP_URL_HOST);
-
-        # Domain mismatch - not crawled
-        if (empty($saved_domain) || empty($incoming_domain) || strcasecmp($saved_domain, $incoming_domain) !== 0) {
-            return false;
-        }
-
-        # Parse incoming path (ignore query string)
-        $parsed_url = wp_parse_url($url);
-        $url_path   = $parsed_url['path'] ?? '/';
-
-        # Ensure path starts with / but don't modify trailing slashes
-        # Otto stores paths exactly as they appear in URLs
-        if (substr($url_path, 0, 1) !== '/') {
-            $url_path = '/' . $url_path;
-        }
-
-        # Compare against crawled URLs - exact match
-        foreach ($saved['urls'] as $crawled_url) {
-            if (!is_string($crawled_url)) {
-                continue;
-            }
-
-            # Direct comparison - Otto stores paths exactly as they are
-            if (strcasecmp($crawled_url, $url_path) === 0) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     # get the current route
@@ -324,6 +227,28 @@ Class Metasync_otto_pixel{
         # Get cache status for headers
         $cache_status = Metasync_Otto_Transient_Cache::get_cache_status($cache_track_key);
 
+        # POSTMETA BACKSTOP: a MISS means this request already paid for a live
+        # OTTO fetch, which makes it the cheapest possible place to repair the
+        # stored SEO meta when the crawl-notify webhook never ran. The sync is
+        # deferred to a shutdown callback that runs after the response HTML is
+        # built, so the rendered page and its timing are untouched. A HIT never
+        # reaches this branch — steady-state requests keep doing zero extra
+        # work. The class_exists()/method_exists() pair mirrors the guard
+        # above: during a plugin update an opcache can hold this file without
+        # the new class, and an unguarded static call would fatal the page.
+        # The whole hook sits in try/catch: in the mixed-opcache window a missing
+        # class constant is an Error, and the backstop must never fatal the page.
+        try {
+            $is_cache_miss = ($cache_status === Metasync_Otto_Transient_Cache::STATUS_MISS);
+            # @phpstan-ignore-next-line function.alreadyNarrowedType
+            if ($is_cache_miss && class_exists('Metasync_Otto_Backstop_Sync') && method_exists('Metasync_Otto_Backstop_Sync', 'maybe_defer_sync')) {
+                Metasync_Otto_Backstop_Sync::maybe_defer_sync($route, $suggestions, $cache_status);
+            }
+        } catch (Throwable $backstop_error) {
+            // Best-effort repair only; rendering continues untouched.
+            unset($backstop_error);
+        }
+
         # RENDER PRIORITY:
         # 1. WP Rocket rocket_buffer filter — WP Rocket caches OTTO-modified HTML,
         #    so Kinsta also caches the correct version. No exit(), no cache bypass.
@@ -341,7 +266,7 @@ Class Metasync_otto_pixel{
             # rocket_buffer fires inside WP Rocket's own cache pipeline, so the
             # cache file WP Rocket writes (and that Kinsta stores) is already
             # OTTO-modified. Eliminates the race where WP Rocket saved pre-OTTO HTML.
-            if (class_exists('WP_Rocket')) {
+            if (defined('WP_ROCKET_VERSION') || class_exists('WP_Rocket')) {
                 $wp_rocket_compat_mode = Metasync_Otto_Config::get_wp_rocket_compat_mode();
                 if ($wp_rocket_compat_mode !== 'http') {
                     # disable_otto exits in metasync_start_otto() before we get here, so
@@ -841,6 +766,7 @@ Class Metasync_otto_pixel{
         }
 
         # continue to render the html
+        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- server-rendered route HTML from the OTTO render strategy; escaping would corrupt the document
         echo $route_html_string;
 
         # prevent further wp execution

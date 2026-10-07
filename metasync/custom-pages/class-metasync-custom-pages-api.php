@@ -130,7 +130,7 @@ class Metasync_Custom_Pages_API
 	 */
 	public function validate_api_key($request)
 	{
-		// Get API key from Authorization: Bearer header (preferred), x-api-key header, or apikey query parameter
+		// Get API key from Authorization: Bearer header, x-api-key header, or apikey query parameter
 		$api_key = '';
 
 		$auth_header = $request->get_header('authorization');
@@ -617,7 +617,7 @@ class Metasync_Custom_Pages_API
 				'numberposts'      => 1,
 				'fields'           => 'ids',
 				'no_found_rows'    => true,
-				'suppress_filters' => true,
+				'suppress_filters' => true, // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters -- identity lookup for the duplicate-assets guard; query-filter plugins (WPML/Polylang) must not narrow it
 				'exclude'          => array($page_id),
 				'meta_key'         => Metasync_Custom_Pages::META_ASSETS_FOLDER,
 				'meta_value'       => $assets_folder,
@@ -942,7 +942,55 @@ class Metasync_Custom_Pages_API
 				'auth_method'    => $_lps_auth_method,
 				'api_key_prefix' => $_lps_api_key_prefix,
 			));
+			self::track_lps_import($_lps_result, $_lps_http_st, $_lps_input);
 		}
+	}
+
+	/**
+	 * Consent-gated analytics for Website Studio imports.
+	 *
+	 * Successes are rolled up hourly (a multi-page publish is one burst of
+	 * work, not N events). Failures and partial imports send one event per
+	 * error code per hour so a retry loop on the platform cannot flood it.
+	 * Hooked here, not in extract_and_create_lps_page(), because the MCP tool
+	 * also calls that and is already counted by the MCP rollup.
+	 *
+	 * @param WP_Error|array|null $result      Final import result.
+	 * @param int                 $http_status HTTP status returned.
+	 * @param array               $input       Audit input (pages_in_manifest).
+	 */
+	private static function track_lps_import($result, $http_status, array $input) {
+		$data  = (is_array($result) && isset($result['data']) && is_array($result['data'])) ? $result['data'] : array();
+		$mode  = (isset($data['mode']) && in_array($data['mode'], array('single', 'multi'), true)) ? $data['mode'] : 'unknown';
+		$pages = isset($input['pages_in_manifest']) ? (int) $input['pages_in_manifest'] : 0;
+
+		if ((int) $http_status === 200) {
+			Metasync_PostHog::rollup('lps_page_imported', array(
+				'imports_succeeded' => 1,
+				'imports_' . $mode  => 1,
+				'pages_total'       => $pages,
+			), 'hour');
+			return;
+		}
+
+		if (is_wp_error($result)) {
+			$error_code = (string) $result->get_error_code();
+		} elseif ((int) $http_status === 207) {
+			$error_code = 'partial_failure';
+		} elseif (is_array($result)) {
+			$error_code = 'all_pages_failed';
+		} else {
+			// The import threw before producing a result.
+			$error_code = 'unexpected_error';
+		}
+
+		Metasync_PostHog::feature_once('lps_page_imported', array(
+			'outcome'     => (int) $http_status === 207 ? 'partial' : 'failed',
+			'mode'        => $mode,
+			'pages_total' => $pages,
+			'error_code'  => substr(sanitize_key($error_code), 0, 60),
+			'http_status' => (int) $http_status,
+		), $error_code, HOUR_IN_SECONDS);
 	}
 
 	/**
@@ -1456,7 +1504,7 @@ class Metasync_Custom_Pages_API
 				'numberposts'      => 1,
 				'fields'           => 'ids',
 				'no_found_rows'    => true,
-				'suppress_filters' => true,
+				'suppress_filters' => true, // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters -- LPS home-page identity lookup; language/query filters must not hide the tagged page
 				'meta_query'       => array(
 					'relation' => 'AND',
 					array('key' => Metasync_Custom_Pages::META_LPS_PROJECT_REF, 'value' => $external_ref),
@@ -1474,7 +1522,7 @@ class Metasync_Custom_Pages_API
 			'numberposts'      => 1,
 			'fields'           => 'ids',
 			'no_found_rows'    => true,
-			'suppress_filters' => true,
+			'suppress_filters' => true, // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters -- LPS home-page identity lookup; language/query filters must not hide the tagged page
 			'meta_key'         => Metasync_Custom_Pages::META_LPS_HOME,
 			'meta_value'       => $assets_folder,
 		));
@@ -1909,7 +1957,7 @@ class Metasync_Custom_Pages_API
 			'post_status'      => array('publish', 'future', 'draft', 'pending', 'private'),
 			'posts_per_page'   => 1,
 			'fields'           => 'ids',
-			'suppress_filters' => true,
+			'suppress_filters' => true, // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters -- identity lookup mirroring find_lps_home_page(); query hooks must not alter the match
 			'no_found_rows'    => true,
 			'meta_query'       => array(
 				'relation' => 'AND',

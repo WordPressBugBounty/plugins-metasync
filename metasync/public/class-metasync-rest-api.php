@@ -183,7 +183,7 @@ class Metasync_Rest_Api
 			$api_key = sanitize_text_field(wp_unslash($_SERVER['HTTP_X_API_KEY']));
 		}
 
-		// Fallback: ?apikey= query param (deprecated)
+		// Fallback: ?apikey= query param (deprecated, kept for platform compatibility)
 		if (empty($api_key) && isset($_GET['apikey'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- API key credential in REST auth, not cookie auth
 			$api_key = sanitize_text_field(wp_unslash($_GET['apikey'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- API key credential in REST auth, not cookie auth
 		}
@@ -367,8 +367,8 @@ class Metasync_Rest_Api
 	 * Whether the current request carries a valid MetaSync API key.
 	 *
 	 * Reads credentials from the request globals so it works in filters that get
-	 * no WP_REST_Request. Accepts the same three sources as
-	 * rest_authorization_middleware().
+	 * no WP_REST_Request. Accepts Authorization: Bearer and X-API-Key headers,
+	 * matching rest_authorization_middleware().
 	 *
 	 * @return bool True only when a presented key matches the configured one.
 	 */
@@ -391,11 +391,6 @@ class Metasync_Rest_Api
 		// Secondary: X-API-Key header.
 		if ($api_key === '' && !empty($_SERVER['HTTP_X_API_KEY'])) {
 			$api_key = sanitize_text_field(wp_unslash($_SERVER['HTTP_X_API_KEY']));
-		}
-
-		// Fallback: ?apikey= query param (deprecated).
-		if ($api_key === '' && !empty($_GET['apikey'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- API key credential in REST auth, not cookie auth
-			$api_key = sanitize_text_field(wp_unslash($_GET['apikey'])); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- API key credential in REST auth, not cookie auth
 		}
 
 		if ($api_key === '') {
@@ -1785,6 +1780,63 @@ class Metasync_Rest_Api
 		return false;
 	}
 
+	/**
+	 * Find a post this plugin created that has the given title.
+	 *
+	 * Only posts flagged metasync_post=yes are considered, so a customer's own
+	 * page that happens to share the title is never picked up and overwritten.
+	 *
+	 * @param string $title     Post title to match exactly
+	 * @param string $post_type Post type to search
+	 * @return int|null Matching post ID, or null when there is none
+	 */
+	private function find_plugin_post_by_title($title, $post_type)
+	{
+		$query = new WP_Query(
+			array(
+				'post_type'      => $post_type,
+				'title'          => $title,
+				'post_status'    => array('publish', 'draft', 'pending'),
+				'meta_key'       => 'metasync_post',
+				'meta_value'     => 'yes',
+				'posts_per_page' => 2,
+				'no_found_rows'  => true,
+				'fields'         => 'ids',
+				'orderby'        => 'ID',
+				'order'          => 'ASC',
+			)
+		);
+
+		// Never guess when duplicate flagged posts share a title.
+		return 1 === count($query->posts) ? (int) $query->posts[0] : null;
+	}
+
+	/**
+	 * Limit what a create call may change on a post it only matched by title.
+	 *
+	 * A title match is a guess, so it must never take a page offline or move
+	 * its URL. A post that is live keeps its status and slug. A post that has
+	 * never been published may be published, and may take the requested slug
+	 * because nothing links to it yet.
+	 *
+	 * @param array  $post_args       Arguments about to be passed to wp_update_post()
+	 * @param string $existing_status Current status of the matched post
+	 * @return array Arguments with any unsafe status/slug change removed
+	 */
+	private function protect_title_matched_post(array $post_args, $existing_status)
+	{
+		if (!in_array($existing_status, array('draft', 'pending'), true)) {
+			unset($post_args['post_status'], $post_args['post_name']);
+			return $post_args;
+		}
+
+		if (isset($post_args['post_status']) && 'publish' !== $post_args['post_status']) {
+			unset($post_args['post_status']);
+		}
+
+		return $post_args;
+	}
+
 	public function create_item($request)
 	{
 		// Checking for type of object for response type
@@ -1936,17 +1988,13 @@ class Metasync_Rest_Api
 			# Fix to avoid PHP error if the get_page_by_path returns null
 			$getPostID_byURL = @get_page_by_path($item['permalink'], OBJECT, $new_post['post_type']);
 			$getPostID_byURL = $getPostID_byURL ? $getPostID_byURL->ID : null;
+			$matched_by_title = false;
 			if ($getPostID_byURL == NULL) {
 				// check if the post_title is set and not empty when called by otto_ai_page
 				if(isset($new_post['post_title']) && $new_post['post_title']!==''){
-				$getPostID_byURL = new WP_Query(
-					array(
-						'post_type' => $new_post['post_type'],
-						'title' => $new_post['post_title']
-					)
-				);
-				$getPostID_byURL = $getPostID_byURL->posts[0]->ID ?? null;
-			}
+					$getPostID_byURL = $this->find_plugin_post_by_title($new_post['post_title'], $new_post['post_type']);
+					$matched_by_title = (NULL !== $getPostID_byURL);
+				}
 			}
 
 			// Allow HTML code for landing page
@@ -1974,9 +2022,15 @@ class Metasync_Rest_Api
 				}
 
 			} else {
-				$new_post['ID'] = $post_id = $getPostID_byURL;
-				wp_update_post($new_post);
-				unset($new_post['ID']);
+				$post_id = $getPostID_byURL;
+				$update_post = $new_post;
+				$update_post['ID'] = $post_id;
+				if ($matched_by_title) {
+					$update_post = $this->protect_title_matched_post($update_post, get_post_status($post_id));
+				}
+				wp_update_post($update_post);
+				// Report what was actually saved, not what was requested.
+				$new_post['post_status'] = get_post_status($post_id);
 				$permalink = get_permalink($post_id);
 			}
 
@@ -2111,9 +2165,11 @@ class Metasync_Rest_Api
 					])
 				]);
 
-				# Track Content Genius event in GA4
+				# Both pipelines roll Content Genius syncs up to one hourly event
+				# with counts so a bulk sync of N articles stays a single send.
 				try {
 					Metasync_GA4::get_instance()->track_content_genius_event($post_id, strtolower($action));
+					Metasync_PostHog::content_genius_sync($new_post['post_type'], strtolower($action), !empty($item['is_landing_page']));
 				} catch (Exception $e) {
 					error_log('MetaSync: Analytics tracking failed for Content Genius - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 				}
@@ -2663,7 +2719,6 @@ class Metasync_Rest_Api
 
 			if (isset($post['post_status']) && !empty($post['post_status'])) {
 				$update_params['post_status'] = $post['post_status'] ? sanitize_text_field($post['post_status']) : 'publish';
-				$permalink = get_permalink($post_id);
 			}
 			if (isset($post['permalink']) || !empty($post['permalink'])) {
 				$update_params['post_name'] = sanitize_text_field($post['permalink']);
@@ -2704,6 +2759,9 @@ class Metasync_Rest_Api
 			}
 
 			$resp_update = $this->update_object($post_id, $update_params);
+			// Read the permalink only after the new slug and status are saved;
+			// before that it is the old URL (or ?p=ID for a draft).
+			$permalink = get_permalink($post_id);
 			if(isset($content['elementor_meta_data'])){
 				$this->metasync_apply_builder_meta($post_id, $content['elementor_meta_data']);
 				if ( did_action( 'elementor/loaded' ) ) {
@@ -2821,9 +2879,10 @@ class Metasync_Rest_Api
 					])
 				]);
 
-				# Track Content Genius event in GA4
+				# Track Content Genius event in GA4 and PostHog
 				try {
 					Metasync_GA4::get_instance()->track_content_genius_event($post_id, 'updated');
+					Metasync_PostHog::content_genius_sync($post_type, 'updated', !empty($post['is_landing_page']));
 				} catch (Exception $e) {
 					error_log('MetaSync: Analytics tracking failed for Content Genius - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
 				}
@@ -3909,12 +3968,16 @@ class Metasync_Rest_Api
 		}
 		
 		// Validate uuid
+		// The OTTO Pixel UUID must be a real UUID. Anything else (a WordPress
+		// username such as "raza.imran" from an unregistered-project SSO, or any
+		// other arbitrary text) breaks OTTO SSR authentication once stored, so a
+		// non-UUID is rejected with 422 and nothing is persisted.
 		if (empty($uuid)) {
 			$validation_errors['uuid'] = 'UUID is required';
 		} elseif (!is_string($uuid)) {
 			$validation_errors['uuid'] = 'UUID must be a string';
-		} elseif (strlen($uuid) > 100) {
-			$validation_errors['uuid'] = 'UUID must not exceed 100 characters';
+		} elseif (!Metasync::is_valid_uuid($uuid)) {
+			$validation_errors['uuid'] = 'UUID must be a valid UUID';
 		}
 		
 		// Validate status_code
@@ -4079,7 +4142,18 @@ class Metasync_Rest_Api
             if ($status_code === 200) {
                 // Encrypt the API key at rest; never store it in cleartext.
                 $options['general']['searchatlas_api_key'] = Metasync::encrypt_api_key($new_api_key);
-                $options['general']['otto_pixel_uuid'] = $new_otto_uuid;
+
+                // Defense-in-depth: the validator upstream already rejects a
+                // non-UUID with 422, but this method is also called directly
+                // (pull-based connect, tests, future callers), so the UUID is
+                // only stored when it passes the shared shape check. Anything
+                // else — a username landing here from an unregistered-project
+                // SSO — fails safe: the key is saved, the UUID is not.
+                if (Metasync::is_valid_uuid($new_otto_uuid)) {
+                    $options['general']['otto_pixel_uuid'] = $new_otto_uuid;
+                } else {
+                    error_log('MetaSync SA Connect: mark_searchatlas_nonce_used - refusing to store invalid OTTO Pixel UUID');
+                }
                 // Note: OTTO SSR is always enabled by default, no need to set
 
                 // Granular otto_config_status: record when SSO completed (ISO 8601 UTC)
@@ -4100,41 +4174,40 @@ class Metasync_Rest_Api
             } else {
             }
             
-            // Map whitelabel fields consistently (regardless of status_code)
+            // Map whitelabel fields consistently (regardless of status_code).
+            // Platform values only ever OVERWRITE local branding when they are
+            // actually sent — a plain (non-whitelabel) connect must not blank
+            // locally configured white-label identity, the same preservation
+            // rule the reset flows follow. Both readers
+            // (get_effective_plugin_name(), get_whitelabel_otto_name()) test
+            // with !empty(), so an omitted key keeps whatever was stored.
+            if (!empty($whitelabel_company_name)) {
+                $options['general']['white_label_plugin_name'] = $whitelabel_company_name;
+            }
+
+            // whitelabel_otto → OTTO Features naming (separate from plugin name)
+            if (!empty($whitelabel_otto)) {
+                $options['general']['whitelabel_otto_name'] = $whitelabel_otto;
+            }
+            
+            // Store whitelabel settings (hidden from UI but accessible to plugin logic).
+            // Same preservation rule: a non-whitelabel connect leaves an
+            // existing local white-label configuration untouched; platform
+            // values only land when the platform actually reports them.
             if ($is_whitelabel) {
-                // whitelabel_company_name → Plugin Name (general plugin branding)
-                if (!empty($whitelabel_company_name)) {
-                    $options['general']['white_label_plugin_name'] = $whitelabel_company_name;
+                if (!isset($options['whitelabel'])) {
+                    $options['whitelabel'] = array();
                 }
-                
-                // whitelabel_otto → OTTO Features naming (separate from plugin name)
-                if (!empty($whitelabel_otto)) {
-                    $options['general']['whitelabel_otto_name'] = $whitelabel_otto;
+
+                $options['whitelabel']['is_whitelabel'] = true;
+                if (!empty($whitelabel_domain)) {
+                    $options['whitelabel']['domain'] = $whitelabel_domain;
                 }
-            } else {
-                // Clear whitelabel fields when not whitelabel.
-                //
-                // Blanked rather than unset. This array is saved through
-                // Metasync::set_option(), and the settings sanitizer merges it
-                // over the stored option, so a key the array simply omits keeps
-                // whatever was stored — an unset here left the previous
-                // agency's plugin name and OTTO name in place forever. An empty
-                // string is a value the merge carries, and both readers
-                // (get_effective_plugin_name(), get_whitelabel_otto_name())
-                // test with !empty(), so it reads exactly like an absent key.
-                $options['general']['white_label_plugin_name'] = '';
-                $options['general']['whitelabel_otto_name'] = '';
+                if (!empty($whitelabel_logo)) {
+                    $options['whitelabel']['logo'] = $whitelabel_logo;
+                }
+                $options['whitelabel']['updated_at'] = time();
             }
-            
-            // Store whitelabel settings (hidden from UI but accessible to plugin logic)
-            if (!isset($options['whitelabel'])) {
-                $options['whitelabel'] = array();
-            }
-            
-            $options['whitelabel']['is_whitelabel'] = $is_whitelabel;
-            $options['whitelabel']['domain'] = $whitelabel_domain;
-            $options['whitelabel']['logo'] = $whitelabel_logo;
-            $options['whitelabel']['updated_at'] = time();
             
             // Log whitelabel configuration
             if ($is_whitelabel) {
@@ -4172,7 +4245,7 @@ class Metasync_Rest_Api
                     set_transient('metasync_heartbeat_status_cache', $cache_data, 300);
                     update_option('metasync_last_known_connection_state', true);
                     do_action('metasync_heartbeat_state_key_pending'); // PR3: burst mode
-                    $this->trigger_immediate_heartbeat_after_sa_connect();
+                    $this->trigger_immediate_heartbeat_after_sa_connect($token);
                 }
             }
 
@@ -4214,14 +4287,21 @@ class Metasync_Rest_Api
     /**
      * Trigger immediate heartbeat check after successful Search Atlas connect authentication
      * This provides immediate feedback to the user about connection status
+     *
+     * @param string $token Connect token; keys the once-per-connect analytics dedupe.
      */
-    private function trigger_immediate_heartbeat_after_sa_connect()
+    private function trigger_immediate_heartbeat_after_sa_connect($token)
     {
         try {
             // Use WordPress action system to trigger immediate heartbeat check
             // This is more reliable than trying to access admin class directly
             do_action('metasync_trigger_immediate_heartbeat', 'Search Atlas Connect - API key and UUID retrieved');
-            
+
+            // Consent-gated product analytics: the real activation moment.
+            // The pull-based poll can persist the same staged result more than once;
+            // one event per connect attempt.
+            Metasync_PostHog::feature_once('searchatlas_connected', array('success' => true), md5('connected|' . $token), 15 * MINUTE_IN_SECONDS);
+
             // Also ensure heartbeat cron is scheduled now that we have an API key
             do_action('metasync_ensure_heartbeat_cron_scheduled');
             

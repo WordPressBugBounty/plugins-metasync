@@ -18,6 +18,9 @@ class Metasync_Heartbeat_Manager
     /** @var self|null */
     private static $instance = null;
 
+    /** @var array Failure class of the last heartbeat test, for analytics. */
+    private $last_failure = array();
+
     /**
      * Get singleton instance.
      *
@@ -719,8 +722,10 @@ class Metasync_Heartbeat_Manager
         $response = $sync_request->SyncCustomerParams($apikey);
 
         $request_duration = round((microtime(true) - $start_time) * 1000, 2);
+        $this->last_failure = array();
 
         if (is_wp_error($response)) {
+            $this->last_failure = array('error_class' => 'transport', 'status_code' => 0);
             $this->log_heartbeat('error', 'Heartbeat test via SyncCustomerParams failed', array(
                 'error_code' => $response->get_error_code(),
                 'error_message' => $response->get_error_message(),
@@ -734,6 +739,11 @@ class Metasync_Heartbeat_Manager
         $body = wp_remote_retrieve_body($response);
 
         if ($status_code !== 200) {
+            // SyncCustomerParams() returns null for transport errors and non-200
+            // replies alike, so only a real response carries a status to report.
+            $this->last_failure = is_array($response)
+                ? array('error_class' => 'http', 'status_code' => (int) $status_code)
+                : array('error_class' => 'no_response', 'status_code' => 0);
             $this->log_heartbeat('error', 'Heartbeat test returned non-200 status', array(
                 'status_code' => $status_code,
                 'response_body' => $this->smart_truncate($body, 300),
@@ -976,9 +986,31 @@ class Metasync_Heartbeat_Manager
 
         set_transient('metasync_heartbeat_status_cache', $cache_data, 300);
 
+        $was_connected = $this->get_last_known_connection_state();
         $this->set_last_known_connection_state($is_connected);
+        $this->track_connection_change($was_connected, $is_connected);
 
         return $is_connected;
+    }
+
+    /**
+     * Consent-gated analytics: only the connected -> disconnected edge, so a
+     * site that stays down does not report on every cron tick.
+     *
+     * @param mixed $was_connected Stored state before this check. The stored
+     *                             bool comes back from the DB as '1' / '',
+     *                             hence the loose check.
+     * @param bool  $is_connected  Result of this check.
+     */
+    private function track_connection_change($was_connected, $is_connected)
+    {
+        if (empty($was_connected) || $is_connected) {
+            return;
+        }
+        Metasync_PostHog::feature_once('connection_lost', array(
+            'error_class' => $this->last_failure['error_class'] ?? 'unknown',
+            'status_code' => $this->last_failure['status_code'] ?? 0,
+        ), 'heartbeat', DAY_IN_SECONDS);
     }
 
     /**
@@ -1076,7 +1108,11 @@ class Metasync_Heartbeat_Manager
             $general['heartbeat_state'] = 'CONNECTED';
             $general['heartbeat_state_changed_at'] = time();
 
-            if (!empty($ping['otto_pixel_uuid']) && (empty($general['otto_pixel_uuid']) || $general['otto_pixel_uuid'] !== $ping['otto_pixel_uuid'])) {
+            // The UUID comes from the Search Atlas connection ping, but it is
+            // still gated by the shared UUID check: a non-UUID (username or
+            // other arbitrary text) must never be persisted here either.
+            if (!empty($ping['otto_pixel_uuid']) && Metasync::is_valid_uuid($ping['otto_pixel_uuid'])
+                && (empty($general['otto_pixel_uuid']) || $general['otto_pixel_uuid'] !== $ping['otto_pixel_uuid'])) {
                 $general['otto_pixel_uuid'] = sanitize_text_field($ping['otto_pixel_uuid']);
             }
 

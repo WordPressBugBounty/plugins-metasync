@@ -27,6 +27,71 @@ class Metasync_Error_Monitor
         $this->database = $database;
     }
 
+    /**
+     * Format a 404 URI into a short, human-readable label for chart bars and
+     * list-table rows.
+     *
+     * Absolute URLs (scheme + host) are reduced to just the path (+ query),
+     * because the host is shared across every row on a given site and is the
+     * part that eats the entire label budget under a naive head-truncation.
+     * Paths that still exceed $max_length are truncated from the middle so the
+     * distinguishing tail (the last path segment that identifies the page)
+     * stays visible.
+     *
+     * The caller is responsible for escaping the returned string for output.
+     *
+     * @param string $uri        The stored URI (absolute URL or relative path).
+     * @param int    $max_length Maximum label length in characters.
+     * @return string The formatted label (unescaped).
+     */
+    public static function format_uri_label($uri, $max_length = 60)
+    {
+        $uri = (string) $uri;
+
+        // Strip scheme + host from absolute URLs, keeping only the path and
+        // query string (the parts that differ between 404 rows on one site).
+        if (strpos($uri, 'http') === 0) {
+            $parsed = wp_parse_url($uri);
+            $path = isset($parsed['path']) ? $parsed['path'] : '';
+            if (isset($parsed['query']) && $parsed['query'] !== '') {
+                $path .= '?' . $parsed['query'];
+            }
+            $uri = $path !== '' ? $path : $uri;
+        }
+
+        // Ensure the result starts with a leading slash so relative paths
+        // ('.env', 'api/graphql') render as '/.env', '/api/graphql'.
+        if ($uri !== '' && $uri[0] !== '/') {
+            $uri = '/' . $uri;
+        }
+
+        // Middle-truncate over-long paths so the distinguishing tail stays
+        // visible (head-truncation would drop the last segment entirely).
+        // Count and cut by characters, not bytes: a byte cut through a
+        // multibyte character yields invalid UTF-8, which esc_html() turns
+        // into an empty string (blank chart label / table cell).
+        $use_mb = function_exists('mb_strlen') && function_exists('mb_substr');
+        $length = $use_mb ? mb_strlen($uri, 'UTF-8') : strlen($uri);
+        if ($length > $max_length) {
+            $ellipsis = '...';
+            $keep = $max_length - strlen($ellipsis);
+            if ($keep <= 0) {
+                // $max_length too small for head + tail; keep the tail only.
+                $uri = $ellipsis . ($use_mb ? mb_substr($uri, -$max_length, null, 'UTF-8') : substr($uri, -$max_length));
+            } else {
+                $head_len = (int) floor($keep / 2);
+                $tail_len = $keep - $head_len;
+                if ($use_mb) {
+                    $uri = mb_substr($uri, 0, $head_len, 'UTF-8') . $ellipsis . mb_substr($uri, -$tail_len, null, 'UTF-8');
+                } else {
+                    $uri = substr($uri, 0, $head_len) . $ellipsis . substr($uri, -$tail_len);
+                }
+            }
+        }
+
+        return $uri;
+    }
+
    
 
     public function create_admin_plugin_interface()
@@ -194,7 +259,13 @@ class Metasync_Error_Monitor
             'pattern_type' => 'exact',
             'description' => $description ?: 'Created from 404 suggestion'
         ];
-        
-        return $db_redirection->add($data);
+
+        $added = $db_redirection->add($data);
+
+        if ($added !== false) {
+            Metasync_PostHog::feature('redirect_created_from_404', array());
+        }
+
+        return $added;
     }
 }

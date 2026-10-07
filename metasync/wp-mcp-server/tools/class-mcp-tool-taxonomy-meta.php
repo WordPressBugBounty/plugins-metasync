@@ -68,7 +68,7 @@ class MCP_Tool_Get_Term_Meta extends MCP_Tool_Base {
         // Get term
         $term = get_term($term_id, $taxonomy);
         if (is_wp_error($term) || !$term) {
-            throw new Exception(sprintf("Term not found: %d", $term_id));
+            throw new Exception(sprintf("Term not found: %d", $term_id)); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         // Get all meta fields
@@ -219,7 +219,7 @@ class MCP_Tool_Update_Term_Meta extends MCP_Tool_Base {
         // Verify term exists
         $term = get_term($term_id, $taxonomy);
         if (is_wp_error($term) || !$term) {
-            throw new Exception(sprintf("Term not found: %d", $term_id));
+            throw new Exception(sprintf("Term not found: %d", $term_id)); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         $updated_fields = [];
@@ -635,7 +635,7 @@ class MCP_Tool_List_Terms_With_Meta extends MCP_Tool_Base {
 
         // Verify taxonomy exists
         if (!taxonomy_exists($taxonomy)) {
-            throw new Exception(sprintf("Taxonomy not found: %s", $taxonomy));
+            throw new Exception(sprintf("Taxonomy not found: %s", $taxonomy)); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         // Get terms
@@ -647,7 +647,7 @@ class MCP_Tool_List_Terms_With_Meta extends MCP_Tool_Base {
         ]);
 
         if (is_wp_error($terms)) {
-            throw new Exception('Failed to retrieve terms: ' . $terms->get_error_message());
+            throw new Exception('Failed to retrieve terms: ' . $terms->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         $terms_data = [];

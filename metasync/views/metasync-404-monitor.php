@@ -417,7 +417,6 @@ if (!defined('ABSPATH')) {
 		justify-content: space-between !important;
 		flex-wrap: nowrap !important;
 		gap: 12px !important;
-		overflow-x: auto !important;
 	}
 
 	.wrap .tablenav .actions {
@@ -627,6 +626,7 @@ if (!defined('ABSPATH')) {
 		gap: 8px !important;
 		margin-left: auto !important;
 		justify-content: flex-end !important;
+		margin-bottom: 0 !important;
 	}
 
 
@@ -792,11 +792,11 @@ if (!defined('ABSPATH')) {
 		</div>
 		<div class="metasync-stat-card">
 			<div class="metasync-stat-number"><?php echo intval($stats['recent_errors']); ?></div>
-			<div class="metasync-stat-label">Last 24 Hours</div>
+			<div class="metasync-stat-label">New 404s (last 24h)</div>
 		</div>
 		<div class="metasync-stat-card">
 			<div class="metasync-stat-number"><?php echo count($stats['most_frequent']); ?></div>
-			<div class="metasync-stat-label">Frequent Errors</div>
+			<div class="metasync-stat-label" title="Top tracked 404 endpoints displayed in the chart below">Top 404 URIs</div>
 		</div>
 	</div>
 
@@ -820,12 +820,13 @@ if (!defined('ABSPATH')) {
 			?>
 			<div class="metasync-chart-bar">
 				<div class="metasync-chart-bar-label" title="<?php echo esc_attr($error->uri); ?>">
-					<?php echo esc_html(substr($error->uri, 0, 60) . (strlen($error->uri) > 60 ? '...' : '')); ?>
+					<?php // 40 chars fits the 300px label box at 13px; a longer label would be re-cut by the CSS ellipsis and hide the path tail. ?>
+					<?php echo esc_html(Metasync_Error_Monitor::format_uri_label($error->uri, 40)); ?>
 				</div>
 				<div class="metasync-chart-bar-fill">
-					<div class="metasync-chart-bar-progress <?php echo esc_attr($color_class); ?>" style="width: <?php echo $percentage; ?>%"></div>
+					<div class="metasync-chart-bar-progress <?php echo esc_attr($color_class); ?>" style="width: <?php echo esc_attr((string) $percentage); ?>%"></div>
 				</div>
-				<div class="metasync-chart-bar-value"><?php echo $hits; ?></div>
+				<div class="metasync-chart-bar-value"><?php echo (int) $hits; ?></div>
 			</div>
 			<?php endforeach; ?>
 		<?php else: ?>

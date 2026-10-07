@@ -28,6 +28,17 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 	private $_displayed = false;
 	private $_nav_displayed = [];
 	/**
+	 * Lazy-built map of shadowed row IDs → winning row destination.
+	 *
+	 * Replicates Metasync_Redirection::ensure_redirect_index() semantics:
+	 * active rows are iterated in the same ORDER BY created_at DESC, id DESC
+	 * order as the engine, the last write to each normalized exact source
+	 * path wins, and every earlier (newer) row sharing that key is shadowed.
+	 *
+	 * @var array<int, string>|null
+	 */
+	private $shadowed_sources = null;
+	/**
 	 * User-resolved results-per-page value for this list (validated against
 	 * Metasync_Per_Page_Helper::ALLOWED_VALUES). Cached here so pagination()
 	 * can reuse it without re-resolving from the request / user meta.
@@ -225,6 +236,7 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 		}
 		$this->_pagination = "<div class='tablenav-pages{$page_class}'>$output</div>";
 
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- mirrors WP core WP_List_Table::pagination(); assembled above from esc_url()/esc_html()/number_format_i18n() output
 		echo $this->_pagination;
 
 		remove_filter('removable_query_args', array($this, 'preserve_tab_in_pagination'));
@@ -444,8 +456,53 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 				$class = "class='" . esc_attr(implode(' ', $class)) . "'";
 			}
 
+			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- mirrors WP core WP_List_Table::print_column_headers(); $scope is a literal, $id/$class escaped via esc_attr() and \$column_display_name via esc_html() just above
 			echo '<' . esc_attr($tag) . ' ' . $scope . ' ' . $id . ' ' . $class . '>' . $column_display_name . '</' . esc_attr($tag) . '>';
 		}
+	}
+
+	/**
+	 * Render the Last Accessed column.
+	 *
+	 * A redirect that has never been fired stores the MySQL zero-date
+	 * `0000-00-00 00:00:00` (or an empty string) in `last_accessed_at`.
+	 * Passing that raw value through to the user reads as a broken or
+	 * corrupted date, so render an explicit "Never" instead. Real
+	 * timestamps are formatted the same way the 404 Monitor formats its
+	 * date column (`date('M j, Y g:i A', ...)` with a human-time-diff
+	 * hint).
+	 *
+	 * WP_List_Table dispatches `column_{name}` methods before falling back
+	 * to `column_default()`, so defining this keeps the zero-date out of
+	 * `column_default()`'s raw `esc_html()` passthrough.
+	 */
+	protected function column_last_accessed_at($item)
+	{
+		$raw = isset($item['last_accessed_at']) ? $item['last_accessed_at'] : '';
+
+		// A redirect that has never been hit stores the database's empty
+		// timestamp. Treat an empty value, the exact zero-date string, and
+		// any unparseable / pre-epoch strtotime() result as "never accessed".
+		if (
+			empty($raw)
+			|| '0000-00-00 00:00:00' === $raw
+			|| '0000-00-00' === $raw
+		) {
+			return esc_html__('Never', 'metasync');
+		}
+
+		$timestamp = strtotime($raw);
+		if ($timestamp === false || $timestamp < 0) {
+			return esc_html__('Never', 'metasync');
+		}
+
+		$time_diff = human_time_diff($timestamp, current_time('timestamp'));
+
+		return sprintf(
+			'%s<br><small>%s ago</small>',
+			esc_html(gmdate('M j, Y g:i A', $timestamp)),
+			esc_html($time_diff)
+		);
 	}
 
 	protected function column_default($item, $column_name)
@@ -456,7 +513,6 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 			case 'http_code':
 			case 'hits_count':
 			case 'status':
-			case 'last_accessed_at':
 				return esc_html($item[$column_name]); # Fixed: Added esc_html() to prevent XSS
 			case 'pattern_type':
 				return $this->column_pattern_type($item);
@@ -474,6 +530,115 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 			$this->_args['plural'],  // Let's simply repurpose the table's singular label ("error").
 			$item['id']                // The value of the checkbox should be the record's ID.
 		);
+	}
+
+	/**
+	 * Build the shadowed-source index for the current page of rows.
+	 *
+	 * Two active redirect rows can share the same normalized exact source
+	 * path, but the redirect engine only ever fires one — the winner of the
+	 * last index write in ensure_redirect_index(). Every other active row
+	 * with that same source is "shadowed": it looks active in the list but
+	 * never fires. This replicates the engine's exact-index semantics
+	 * (ORDER BY created_at DESC, id DESC, last write wins) to flag the
+	 * losing rows so the user can tell which destination a visitor actually
+	 * reaches.
+	 *
+	 * Returns an array keyed by shadowed row ID, with the value being the
+	 * winning row's destination URL (for the tooltip). Only exact-pattern
+	 * sources are considered — wildcard/regex/contain/start/end sources do
+	 * not collapse onto a single key in the engine's index.
+	 *
+	 * @return array<int, string> Map of shadowed row ID => winning destination URL.
+	 */
+	protected function get_shadowed_sources()
+	{
+		if ($this->shadowed_sources !== null) {
+			return $this->shadowed_sources;
+		}
+
+		$this->shadowed_sources = array();
+
+		if ($this->db_redirection === null) {
+			return $this->shadowed_sources;
+		}
+
+		// getAllActiveRecords() returns rows ordered by created_at DESC, id DESC —
+		// the exact same order the engine iterates in ensure_redirect_index().
+		$active_rows = $this->db_redirection->getAllActiveRecords();
+		if (empty($active_rows)) {
+			return $this->shadowed_sources;
+		}
+
+		// For each normalized exact source path, the LAST row in the iteration
+		// order wins (its assignment to exact_index[$norm] overwrites earlier
+		// ones). Because the order is DESC, the oldest row is processed last,
+		// so the oldest active row wins — matching the engine exactly.
+		$winners = array();   // norm => { 'id' => int, 'destination' => string }
+		$seen    = array();   // norm => int[]  row ids that wrote this key
+
+		foreach ($active_rows as $row) {
+			$sources_from = !empty($row->sources_from)
+				? unserialize($row->sources_from, array('allowed_classes' => false))
+				: array();
+			$source_urls = is_array($sources_from) ? $sources_from : array();
+			$global_pattern_type = isset($row->pattern_type) ? $row->pattern_type : null;
+
+			foreach ($source_urls as $source_key => $source_value) {
+				// Legacy list-format rows store the URL as the VALUE under a
+				// numeric key; remap so the legacy source lands in the exact
+				// index instead of '/0'.
+				if ((is_int($source_key) || ctype_digit((string) $source_key)) && is_string($source_value) && $source_value !== '') {
+					$source_key = $source_value;
+				}
+				$pattern_type = in_array($source_value, array('exact', 'contain', 'start', 'end', 'wildcard', 'regex'))
+					? $source_value
+					: ($global_pattern_type ? $global_pattern_type : 'exact');
+
+				if ($pattern_type !== 'exact' || strpos((string) $source_key, '*') !== false) {
+					continue;
+				}
+
+				// Normalize: extract path from full URLs, ensure leading slash, strip trailing slash.
+				$norm = (string) $source_key;
+				if (strpos($norm, 'http') === 0) {
+					$parsed = wp_parse_url($norm);
+					$norm = isset($parsed['path']) ? $parsed['path'] : '/';
+				}
+				if ($norm === '' || $norm[0] !== '/') {
+					$norm = '/' . $norm;
+				}
+				$norm = rtrim($norm, '/') ?: '/';
+
+				if (!isset($seen[$norm])) {
+					$seen[$norm] = array();
+				}
+				$seen[$norm][] = (int) $row->id;
+				// Last write wins — overwrite with each row in iteration order,
+				// so the final value is the oldest row for this source.
+				$winners[$norm] = array(
+					'id'          => (int) $row->id,
+					'destination' => isset($row->url_redirect_to) ? (string) $row->url_redirect_to : '',
+				);
+			}
+		}
+
+		// Any source path claimed by more than one active row is a duplicate;
+		// every row that is NOT the winner is shadowed.
+		foreach ($seen as $norm => $ids) {
+			if (count($ids) < 2 || !isset($winners[$norm])) {
+				continue;
+			}
+			$winner_id = $winners[$norm]['id'];
+			$winner_dest = $winners[$norm]['destination'];
+			foreach ($ids as $row_id) {
+				if ($row_id !== $winner_id) {
+					$this->shadowed_sources[$row_id] = $winner_dest;
+				}
+			}
+		}
+
+		return $this->shadowed_sources;
 	}
 
 	protected function column_sources_from($item)
@@ -950,7 +1115,8 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 
 				echo sprintf(
 					'<span title="Label: %3$s">%1$s%2$s</span>',
-					$warning_icon,
+					// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- literal dashicon span defined in this method
+				$warning_icon,
 					esc_html($display_text),
 					esc_attr($clean_source)
 				);
@@ -967,6 +1133,25 @@ class Metasync_Redirection_List_Table extends WP_List_Table
 				);
 			}
 			echo "<br>";
+		}
+
+		// Shadowed-source badge: when two active exact-match rules share the
+		// same normalized source path, only the oldest row (the engine's last
+		// index write) ever fires. Flag the losing row so the user can tell
+		// the dead rule from the live one.
+		$shadowed = $this->get_shadowed_sources();
+		$row_id = isset($item['id']) ? (int) $item['id'] : 0;
+		if ($row_id > 0 && isset($shadowed[$row_id])) {
+			$winner_dest = $shadowed[$row_id];
+			echo sprintf(
+				'<span class="dashicons dashicons-warning" style="color: #d63638; font-size: 16px; vertical-align: middle; margin-right: 3px;" title="%1$s"></span>',
+				esc_attr(sprintf(
+					/* translators: %s: destination URL of the winning (firing) rule */
+					__('Shadowed — this rule never fires. An earlier active rule with the same source points to: %s', 'metasync'),
+					$winner_dest
+				))
+			);
+			echo '<span style="color: #d63638; font-size: 0.9em; font-weight: 600;">' . esc_html(__('Shadowed', 'metasync')) . '</span>';
 		}
 	}
 

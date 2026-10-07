@@ -56,8 +56,8 @@ if (!defined('WPINC')) {
                     printf(
                         /* translators: 1: number of images processed so far, 2: total number of images in the batch. */
                         esc_html__('Optimizing %1$d of %2$d images...', 'metasync'),
-                        $batch_progress['processed'],
-                        $batch_progress['total']
+                        (int) $batch_progress['processed'],
+                        (int) $batch_progress['total']
                     );
                 }
                 ?>

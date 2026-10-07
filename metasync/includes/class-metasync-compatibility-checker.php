@@ -39,6 +39,34 @@ class Metasync_Compatibility_Checker
             <div class="dashboard-card">
                 <?php $this->render_compatibility_sections(); ?>
             </div>
+
+            <?php
+            # Plugin-compatibility toggles. Registered under the
+            # <page_slug>_compatibility settings page only while the relevant
+            # plugin is active, so the card self-hides when neither plugin is
+            # present. Saves through options.php with a hidden active_tab so
+            # the General-tab sanitizer blocks stay inert.
+            $has_compat_fields = defined('WP_ROCKET_VERSION')
+                || class_exists('WP_Rocket')
+                || class_exists('SiteGround_Optimizer\Parser\Parser')
+                || defined('SiteGround_Optimizer\VERSION')
+                || class_exists('bookingpress_spam_protection');
+            if ($has_compat_fields) :
+                settings_errors();
+            ?>
+            <div class="dashboard-card" style="margin-top: 20px;">
+                <h2 style="margin: 0 0 4px 0;">Plugin Compatibility Settings</h2>
+                <p style="color: var(--dashboard-text-secondary); margin: 0 0 20px 0;">Control how <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> interacts with detected plugins. Each setting appears only while its plugin is active.</p>
+                <form method="post" action="options.php">
+                    <input type="hidden" name="active_tab" value="compatibility" />
+                    <?php
+                        settings_fields(Metasync_Admin::option_group);
+                        do_settings_sections(Metasync_Admin::$page_slug . '_compatibility');
+                        submit_button();
+                    ?>
+                </form>
+            </div>
+            <?php endif; ?>
             
             <!-- Section: Host Blocking Test -->
             <div id="ms-comp-host-test" class="dashboard-card" style="margin-top: 20px;">
@@ -135,7 +163,7 @@ class Metasync_Compatibility_Checker
                                     url: ajaxUrl,
                                     type: 'POST',
                                     dataType: 'json',
-                                    data: { action: action, nonce: '<?php echo wp_create_nonce("metasync_nonce"); ?>' },
+                                    data: { action: action, nonce: '<?php echo esc_attr(wp_create_nonce("metasync_nonce")); ?>' },
                                     timeout: 35000,
                                     success: function(response, textStatus, xhr) {
                                         try {
@@ -508,6 +536,8 @@ class Metasync_Compatibility_Checker
                 opacity: 0.7;
             }
 
+            /* Equal width so badges of different lengths (Exact, Contains,
+               etc.) render at the same size for a visually balanced column. */
             .otto-pattern-type-badge {
                 display: inline-block;
                 padding: 3px 8px;
@@ -516,6 +546,9 @@ class Metasync_Compatibility_Checker
                 font-weight: 600;
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
+                min-width: 90px;
+                text-align: center;
+                box-sizing: border-box;
             }
 
             /* Badge text is 11px uppercase, i.e. normal-size text: the darker
@@ -617,9 +650,13 @@ class Metasync_Compatibility_Checker
             }
 
             #otto-excluded-urls-table-container .otto-delete-url,
-            #otto-excluded-urls-table-container .otto-recheck-url {
+            #otto-excluded-urls-table-container .otto-recheck-url,
+            #otto-excluded-urls-table-container .otto-recheck-disabled {
                 padding: 4px 10px;
                 font-size: 12px;
+                box-sizing: border-box;
+                height: 26px;
+                line-height: 1;
             }
 
             #otto-excluded-urls-table-container .otto-delete-url {

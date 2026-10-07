@@ -9,8 +9,62 @@
  */
 
 /* ==========================================================================
-   Wizard Container
+   Analytics Consent Prototype
    ========================================================================== */
+
+.wizard-consent-card,
+.metasync-analytics-consent-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 22px;
+    margin: 28px auto 0;
+    padding: 26px 30px;
+    max-width: 820px;
+    background: var(--dashboard-card-bg, #ffffff);
+    border: 2px solid rgba(102, 126, 234, 0.35);
+    border-radius: 16px;
+    box-shadow: 0 8px 24px rgba(42, 48, 82, 0.08);
+}
+
+.wizard-consent-icon {
+    display: grid;
+    place-items: center;
+    flex: 0 0 46px;
+    width: 46px;
+    height: 46px;
+    color: #fff;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    border-radius: 12px;
+}
+
+.wizard-consent-icon .dashicons { font-size: 24px; width: 24px; height: 24px; }
+.wizard-consent-copy { flex: 1; }
+.wizard-consent-copy h3,
+.metasync-analytics-consent-copy h3 { margin: 0 0 8px; color: var(--dashboard-text-primary, #1a202c); font-size: 1.25rem; }
+.wizard-consent-copy p,
+.metasync-analytics-consent-copy p { margin: 0 0 10px; color: var(--dashboard-text-secondary, #4a5568); line-height: 1.55; }
+.wizard-consent-copy ul { margin: 12px 0; padding-left: 18px; color: var(--dashboard-text-secondary, #4a5568); }
+.wizard-consent-copy li { margin: 5px 0; }
+.wizard-consent-eyebrow { display: inline-block; margin-bottom: 6px; color: #667eea; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.wizard-consent-note { font-size: .875rem; }
+.wizard-consent-switch,
+.metasync-consent-switch { position: relative; display: inline-flex; flex: 0 0 auto; align-items: center; cursor: pointer; }
+.wizard-consent-switch input,
+.metasync-consent-switch input { position: absolute; opacity: 0; }
+.wizard-consent-slider,
+.metasync-consent-slider { width: 52px; height: 30px; background: #cbd5e1; border-radius: 999px; transition: .2s; }
+.wizard-consent-slider::after,
+.metasync-consent-slider::after { content: ''; display: block; width: 24px; height: 24px; margin: 3px; background: #fff; border-radius: 50%; transition: .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+.wizard-consent-switch input:checked + .wizard-consent-slider,
+.metasync-consent-switch input:checked + .metasync-consent-slider { background: #667eea; }
+.wizard-consent-switch input:checked + .wizard-consent-slider::after,
+.metasync-consent-switch input:checked + .metasync-consent-slider::after { transform: translateX(22px); }
+.wizard-consent-state,
+.metasync-consent-status { margin-left: 8px; color: var(--dashboard-text-secondary, #4a5568); font-size: .875rem; font-weight: 600; }
+.metasync-analytics-consent-card { max-width: none; margin: 0; }
+.metasync-analytics-consent-copy { flex: 1; }
+
+
 
 /* Override WordPress admin wrapper backgrounds */
 /* Target any page with setup-wizard in the body class */

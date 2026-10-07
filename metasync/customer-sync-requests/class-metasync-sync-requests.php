@@ -227,11 +227,16 @@ class Metasync_Sync_Requests
             $_sync_updates = [];
 
             # PR2: Parse heartbeat response for UUID self-healing and clone detection
+            # The UUID is only accepted when it is a real UUID: the
+            # heartbeat response is remote input, and usernames/arbitrary text
+            # landing in otto_pixel_uuid break OTTO SSR authentication.
             $response_body = json_decode(wp_remote_retrieve_body($response), true);
             $current_uuid = $metasync_options['general']['otto_pixel_uuid'] ?? '';
             if (is_array($response_body) && !empty($response_body['otto_pixel_uuid'])) {
                 $response_uuid = sanitize_text_field($response_body['otto_pixel_uuid']);
-                if (!empty($response_body['uuid_mismatch'])) {
+                if (!Metasync::is_valid_uuid($response_uuid)) {
+                    error_log('MetaSync: ignoring invalid otto_pixel_uuid from heartbeat response (not a UUID)');
+                } elseif (!empty($response_body['uuid_mismatch'])) {
                     # Domain clone: backend says local UUID is wrong for this domain
                     $_sync_updates['otto_pixel_uuid'] = $response_uuid;
                     error_log('MetaSync: UUID corrected from ' . $current_uuid . ' to ' . $response_uuid . ' (domain clone detected)'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets

@@ -98,6 +98,25 @@ class Metasync_Breadcrumbs {
     }
 
     /**
+     * True when the global breadcrumbs switch is on.
+     *
+     * True only when MetaSync's own trail renders (front-end trail and
+     * BreadcrumbList schema). Default: on, matching load_settings()'s
+     * defaults. Editor UI that merely *sets* a breadcrumb label must not gate
+     * on this alone — Yoast / Rank Math trails stay alive when ours is off —
+     * so those call is_breadcrumb_title_meaningful() instead.
+     *
+     * @return bool
+     */
+    public static function is_enabled() {
+        $saved = Metasync::get_option('breadcrumbs', array());
+        if (!is_array($saved) || !array_key_exists('enabled', $saved)) {
+            return true;
+        }
+        return (bool) $saved['enabled'];
+    }
+
+    /**
      * Load breadcrumb settings from the shared option.
      *
      * @return array
@@ -146,6 +165,15 @@ class Metasync_Breadcrumbs {
             return;
         }
 
+        // The user disabled breadcrumbs and no third-party breadcrumb provider
+        // is active: the override can never reach a trail, so we must not touch
+        // another plugin's storage on their behalf. Display-only gate — any
+        // stored value is left exactly as it is, so re-enabling breadcrumbs
+        // brings the override back.
+        if (!self::is_breadcrumb_title_meaningful()) {
+            return;
+        }
+
         static $is_cross_writing = false;
         if ($is_cross_writing) {
             return;
@@ -174,6 +202,67 @@ class Metasync_Breadcrumbs {
         }
 
         $is_cross_writing = false;
+    }
+
+    /**
+     * Is a breadcrumb title override meaningful on this site?
+     *
+     * True when MetaSync's own breadcrumb trail is enabled (the default, so a
+     * fresh install that never touched the breadcrumbs settings reads as
+     * enabled), OR when a plugin we cross-write the override into is active.
+     *
+     * A site that turned our breadcrumbs off and runs neither Yoast nor Rank
+     * Math has no breadcrumb the override could ever reach — there the
+     * Breadcrumb Title Override field is hidden and the cross-write is skipped.
+     * Disabling our trail does NOT disable Yoast / Rank Math breadcrumbs (those
+     * render from their own code paths), so the override stays meaningful on a
+     * Yoast site even with our breadcrumbs switched off.
+     *
+     * AIOSEO is deliberately excluded: we do not cross-write to it today.
+     *
+     * Shared by the Gutenberg sidebar (field visibility), the classic SEO
+     * Suite and its save handler, and the meta cross-write below.
+     *
+     * @return bool
+     */
+    public static function is_breadcrumb_title_meaningful() {
+        $settings = Metasync::get_option('breadcrumbs', array());
+        if (!is_array($settings)) {
+            $settings = array();
+        }
+        $settings = wp_parse_args($settings, array('enabled' => true));
+
+        if (!empty($settings['enabled'])) {
+            return true;
+        }
+
+        return self::is_third_party_breadcrumb_provider_active();
+    }
+
+    /**
+     * Is a third-party breadcrumb provider we cross-write to active?
+     *
+     * The same plugin-active checks the cross-write itself uses — Yoast free
+     * and Premium plus both Rank Math slug variants. AIOSEO is not included.
+     *
+     * @return bool
+     */
+    private static function is_third_party_breadcrumb_provider_active() {
+        if (!function_exists('is_plugin_active')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+
+        if (is_plugin_active('wordpress-seo/wp-seo.php') ||
+            is_plugin_active('wordpress-seo-premium/wp-seo-premium.php')) {
+            return true;
+        }
+
+        if (is_plugin_active('seo-by-rank-math/rank-math.php') ||
+            is_plugin_active('seo-by-rankmath/rank-math.php')) {
+            return true;
+        }
+
+        return false;
     }
 
     /**

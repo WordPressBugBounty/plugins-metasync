@@ -401,7 +401,7 @@ class Metasync_Debug_Manager
         <div style="margin-bottom: 30px;">
             <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">Controls</h4>
 
-            <form method="post" action="<?php echo admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced'); ?>">
+            <form method="post" action="<?php echo esc_url(admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced')); ?>">
                 <input type="hidden" name="metasync_debug_mode_action_advanced" value="1" />
                 <?php wp_nonce_field('metasync_debug_mode_action_advanced', 'metasync_debug_mode_nonce_advanced'); ?>
 
@@ -499,7 +499,7 @@ class Metasync_Debug_Manager
             });
 
             <?php if ($status['enabled'] && !$status['indefinite']): ?>
-            var initialTimeRemaining = <?php echo $status['time_remaining']; ?>;
+            var initialTimeRemaining = <?php echo (int) $status['time_remaining']; ?>;
             var hasReloaded = false;
 
             function updateDebugTimeRemaining() {
@@ -508,10 +508,10 @@ class Metasync_Debug_Manager
                 }
 
                 $.ajax({
-                    url: '<?php echo rest_url('metasync/v1/debug-mode/status'); ?>',
+                    url: '<?php echo esc_url(rest_url('metasync/v1/debug-mode/status')); ?>',
                     method: 'GET',
                     beforeSend: function(xhr) {
-                        xhr.setRequestHeader('X-WP-Nonce', '<?php echo wp_create_nonce('wp_rest'); ?>');
+                        xhr.setRequestHeader('X-WP-Nonce', '<?php echo esc_attr(wp_create_nonce('wp_rest')); ?>');
                     },
                     success: function(response) {
                         console.log('MetaSync Debug Mode Status:', response);
@@ -597,7 +597,7 @@ class Metasync_Debug_Manager
                                             <?php 
                                             $last_seen = strtotime($error['last_seen']);
                                             $time_diff = human_time_diff($last_seen, current_time('timestamp'));
-                                            echo esc_html($error['last_seen']) . ' <span style="color: var(--dashboard-text-secondary);">(' . $time_diff . ' ago)</span>';
+                                            echo esc_html($error['last_seen']) . ' <span style="color: var(--dashboard-text-secondary);">(' . esc_html($time_diff) . ' ago)</span>';
                                             ?>
                                         </td>
                                         <td style="padding: 10px 12px; color: var(--dashboard-text-primary); max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?php echo esc_attr($error['message']); ?>">
@@ -609,7 +609,7 @@ class Metasync_Debug_Manager
                         </table>
                     </div>
                     
-                    <form method="post" action="<?php echo admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced'); ?>" style="margin-bottom: 20px;">
+                    <form method="post" action="<?php echo esc_url(admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced')); ?>" style="margin-bottom: 20px;">
                         <input type="hidden" name="clear_error_summary" value="yes" />
                         <?php wp_nonce_field('metasync_clear_error_summary_nonce', 'clear_error_summary_nonce'); ?>
                         <button type="submit" class="button button-secondary" style="background: #dc3232; color: #ffffff; border: none; padding: 8px 16px; border-radius: 4px; font-weight: 500; cursor: pointer;">
@@ -643,7 +643,7 @@ class Metasync_Debug_Manager
             <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">Clear Error Logs</h4>
             <p style="margin-bottom: 15px; color: var(--dashboard-text-secondary);">Clear WordPress error logs to free up space and remove old entries.</p>
             
-            <form method="post" action="<?php echo admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced'); ?>" style="margin-bottom: 20px;">
+            <form method="post" action="<?php echo esc_url(admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced')); ?>" style="margin-bottom: 20px;">
                 <input type="hidden" name="clear_log" value="yes" />
                 <?php wp_nonce_field('metasync_clear_log_nonce', 'clear_log_nonce'); ?>
                 <button type="submit" class="metasync-btn-primary" style="background: var(--dashboard-gradient-primary); color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); display: inline-block; width: auto; min-width: 240px; max-width: fit-content;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0, 0, 0, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0, 0, 0, 0.1)';">
@@ -903,6 +903,16 @@ define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</
                     'metasync_code_minification',
                 ];
 
+                // Capture the complete white-label identity BEFORE the
+                // destructive clear so it can be restored afterwards. The
+                // reset is meant to remove operational data and credentials,
+                // not the reseller's public branding, logos, domains, custom
+                // OTTO name, visibility/access controls, or recovery settings.
+                if (!class_exists('Metasync_Whitelabel_Preservation')) {
+                    require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-whitelabel-preservation.php';
+                }
+                $whitelabel_state = Metasync_Whitelabel_Preservation::extract_whitelabel_state();
+
                 $cleared_count = 0;
                 foreach ($metasync_options_to_clear as $option_name) {
                     if (get_option($option_name) !== false) {
@@ -946,7 +956,33 @@ define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</
                     'new_token_prefix' => substr($new_plugin_auth_token, 0, 8) . '...',
                     'triggered_by' => 'settings_reset_action'
                 ), 'info');
-                
+
+                // Restore the preserved white-label identity over the freshly
+                // cleared options. A failed restore must not report success.
+                $restored = Metasync_Whitelabel_Preservation::restore_whitelabel_state($whitelabel_state);
+                if (!$restored) {
+                    $redirect_url = admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced&clear_settings_error=1');
+                    wp_redirect($redirect_url);
+                    exit;
+                }
+
+                // Re-synchronise the branded plugin file headers so the
+                // WordPress plugin list and the plugin UI stay branded after
+                // the reset. Only attempted when white-label branding exists,
+                // and a failed sync is logged as a warning, not reported as a
+                // reset failure: the reset itself (operational clear + fresh
+                // token + branding restore) has already succeeded at this
+                // point, and hosts with read-only plugin files would otherwise
+                // never see a successful reset.
+                if (!empty($whitelabel_state['whitelabel']) || !empty($whitelabel_state['general'])) {
+                    if (!class_exists('Metasync_Activator')) {
+                        require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-activator.php';
+                    }
+                    if (!Metasync_Activator::sync_plugin_file_headers()) {
+                        error_log('MetaSync: failed to re-synchronise branded plugin file headers after the settings reset.');
+                    }
+                }
+
                 $redirect_url = admin_url('admin.php?page=' . $this->get_page_slug() . '&tab=advanced&settings_cleared=1');
                 wp_safe_redirect($redirect_url);
                 exit;

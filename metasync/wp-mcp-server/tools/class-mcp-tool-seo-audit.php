@@ -635,7 +635,7 @@ class MCP_Tool_Detect_SEO_Conflicts extends MCP_Tool_Base {
             'timeout' => 10,
         ]);
         if (is_wp_error($response)) {
-            throw new Exception('Failed to fetch URL: ' . $response->get_error_message());
+            throw new Exception('Failed to fetch URL: ' . $response->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         $html = wp_remote_retrieve_body($response);

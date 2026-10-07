@@ -34,10 +34,6 @@ class Metasync_GA4 {
             return;
         }
 
-        if (get_option(self::OPT_IN_OPTION) === false) {
-            update_option(self::OPT_IN_OPTION, 'yes');
-        }
-
         add_action('admin_enqueue_scripts', array($this, 'enqueue_ga4_script'));
         add_action('admin_head', array($this, 'track_admin_page_view'));
     }
@@ -53,7 +49,7 @@ class Metasync_GA4 {
     }
 
     public function is_opted_in() {
-        return get_option(self::OPT_IN_OPTION, 'yes') === 'yes';
+        return get_option(self::OPT_IN_OPTION, 'no') === 'yes';
     }
 
     private function get_anonymized_user_id() {
@@ -170,11 +166,8 @@ window.metasyncGA4Track = function(eventName, params) {
             JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
         );
 
-        echo "<script type='text/javascript'>
-        if (typeof gtag !== 'undefined') {
-            gtag('event', 'plugin_admin_accessed', " . $params . ");
-        }
-        </script>";
+        $inline_tracking = "<script type='text/javascript'>\n        if (typeof gtag !== 'undefined') {\n            gtag('event', 'plugin_admin_accessed', " . $params . ");\n        }\n        </script>";
+        echo $inline_tracking; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $params is wp_json_encode() output with JSON_HEX_TAG/AMP/APOS/QUOT, safe inside an inline <script>
     }
 
     /**
@@ -192,10 +185,30 @@ window.metasyncGA4Track = function(eventName, params) {
             return;
         }
 
-        $this->send_mp_event('content_genius_article_' . strtolower($action), array(
-            'content_type' => $post->post_type,
-            'action'       => ucfirst($action),
-        ));
+        // Bulk syncs fire this once per article; roll up to at most one event
+        // per action per hour with accumulated counts so a sync of N articles
+        // stays a single send (same shape as the PostHog rollup).
+        $action = strtolower($action);
+        $key = 'metasync_ga4_cg_' . $action;
+        $state = get_option($key, array());
+        if (!is_array($state)) {
+            $state = array();
+        }
+        $counts = isset($state['counts']) && is_array($state['counts']) ? $state['counts'] : array();
+        $sent_at = (int) ($state['sent_at'] ?? 0);
+        $type = (string) $post->post_type;
+        $counts[$type] = ($counts[$type] ?? 0) + 1;
+
+        if (time() - $sent_at >= HOUR_IN_SECONDS) {
+            $this->send_mp_event('content_genius_article_' . $action, array(
+                'content_type' => $type,
+                'action'       => ucfirst($action),
+                'count'        => array_sum($counts),
+            ));
+            update_option($key, array('counts' => array(), 'sent_at' => time()), false);
+        } else {
+            update_option($key, array('counts' => $counts, 'sent_at' => $sent_at), false);
+        }
     }
 
     /**

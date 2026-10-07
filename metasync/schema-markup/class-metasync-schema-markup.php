@@ -1019,7 +1019,18 @@ class Metasync_Schema_Markup
                             continue;
                         }
 
-                        $schema_fields = isset($type_data['fields']) ? $this->sanitize_schema_fields($type_data['fields'], $schema_type) : [];
+                        // A type posted without a fields key is the "Add Schema Type"
+                        // block saved while its metasync_get_schema_fields AJAX was
+                        // still in flight — the form carries only the hidden [type]
+                        // input until that response lands. Persisting [] there
+                        // stored blank overrides, wrote false "requires a Headline"
+                        // validation errors, and suppressed the post's schema output.
+                        // Fall back to the same placeholder defaults the field
+                        // markup renders for a brand-new type, so an immediate save
+                        // stores exactly what waiting for the fields would have.
+                        $schema_fields = isset($type_data['fields'])
+                            ? $this->sanitize_schema_fields($type_data['fields'], $schema_type)
+                            : $this->sanitize_schema_fields($this->get_unsubmitted_schema_field_defaults(), $schema_type);
 
                         $schema_data['types'][] = [
                             'type' => $schema_type,
@@ -1510,6 +1521,26 @@ class Metasync_Schema_Markup
             <p><em>Please fix these issues to ensure your schema markup is valid and can be properly indexed by search engines.</em></p>
         </div>
         <?php
+    }
+
+    /**
+     * Field values a schema type's field markup carries before any user input.
+     *
+     * render_override_fields_section() seeds a brand-new type's override inputs
+     * with these placeholders (keys absent ⇒ placeholder), so a form save that
+     * happens to include the type block but not its fields — the
+     * metasync_get_schema_fields AJAX still in flight — is completed with the
+     * same defaults, keeping a raced save identical to one that waited.
+     *
+     * @return array Override-field placeholder values.
+     */
+    private function get_unsubmitted_schema_field_defaults()
+    {
+        return [
+            'title_override' => '{{post_title}}',
+            'description_override' => '{{post_description}}',
+            'image_override' => '{{featured_image}}',
+        ];
     }
 
     /**
@@ -3813,7 +3844,14 @@ class Metasync_Schema_Markup
         foreach ($schema_types as $type_data) {
             if (!empty($type_data['type'])) {
                 $schema_type = sanitize_text_field($type_data['type']);
-                $fields = isset($type_data['fields']) ? $type_data['fields'] : [];
+                // The preview collector sends fields: {} for a type whose
+                // metasync_get_schema_fields request has not landed yet; an
+                // empty override set would preview as "requires a Headline".
+                // Complete it with the same placeholders a brand-new type's
+                // markup carries, mirroring save_schema_markup_data().
+                $fields = !empty($type_data['fields'])
+                    ? $type_data['fields']
+                    : $this->get_unsubmitted_schema_field_defaults();
                 $sanitized_fields = $this->sanitize_schema_fields($fields, $schema_type);
 
                 $schema_data['types'][] = [

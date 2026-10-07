@@ -1240,10 +1240,17 @@ class Metasync_OpenGraph {
             ?: $this->get_featured_image_url($post->ID);
         $canonical_override = '';
         if (class_exists('Metasync_Headless_Config') && Metasync_Headless_Config::is_active()) {
-            # The same two-key chain the canonical tag itself resolves, so the
-            # two cannot disagree. meta_canonical is not a legacy alias: the
-            # REST sync and the classic-editor Canonical box both still write
-            # it, and the GraphQL surface reads both keys as well.
+            # The two manual keys of the canonical chain, in the same order the
+            # canonical tag resolves them. OTTO's volatile staging tier is
+            # deliberately left out: headless rehosts derived WordPress URLs,
+            # and an OTTO suggestion is not the author's answer about where
+            # content lives — a staged cross-domain canonical must not flow
+            # into headless og:url. The two can therefore disagree with the
+            # WordPress-render canonical tag only when OTTO is staging a
+            # canonical and no manual value exists; that is the documented
+            # scope split. meta_canonical is not a legacy alias: the REST sync
+            # and the classic-editor Canonical box both still write it, and
+            # the GraphQL surface reads both keys as well.
             foreach (array('_metasync_canonical_url', 'meta_canonical') as $canonical_key) {
                 $canonical_override = Metasync_Canonical_Sanitizer::sanitize(
                     get_post_meta($post->ID, $canonical_key, true)
@@ -1770,7 +1777,6 @@ class Metasync_OpenGraph {
             
             if (empty($preview_html)) {
                 wp_send_json_error(['message' => 'Failed to generate preview HTML']);
-                return;
             }
 
             wp_send_json_success(['preview' => $preview_html]);

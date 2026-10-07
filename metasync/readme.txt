@@ -4,7 +4,7 @@ Tags: seo, ai seo, otto, otto seo, schema
 Requires at least: 6.3
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 2.7.1
+Stable tag: 2.7.2
 License: GPL v3
 License URI: https://www.gnu.org/licenses/gpl-2.0.txt
 
@@ -96,6 +96,36 @@ Yes, along with a lot more - the plugin also includes media optimization, code s
 2.6.22 fixes OTTO breaking Divi-built pages and stops a partly finished update from taking your site's front end down. Update as soon as you can.
 
 == Changelog ==
+= 2.7.2 =
+* New Feature: Opt-in product analytics for the plugin admin, sent only after the site owner gives consent; existing installs are asked once through a dismissible notice that can be snoozed
+* New Feature: The Classic Editor SEO box now includes the Breadcrumb Title, Language Alternates and Primary Category fields
+* New Feature: OTTO webhook deliveries are now recorded in an audit log that is kept for seven days
+* Fix: OTTO's canonical URL is now kept on every render path instead of falling back to the permalink when the full OTTO render is skipped
+* Fix: OTTO no longer saves the og:description as the page's meta description
+* Fix: OTTO deployments are no longer lost when a cache warm-up fails, and stored OTTO titles, descriptions and keywords now refresh when the OTTO cache expires, so a missed OTTO notification no longer leaves stale SEO values behind
+* Fix: Fresh OTTO titles and descriptions now take priority over older persisted copies, and focus keywords follow the same priority order with duplicate meta keywords tags removed
+* Fix: Persisted OTTO keywords are now stored separately and no longer overwrite the customer's own keyword; the global priority setting is now named SEO Meta Priority
+* Fix: OTTO is now skipped on paginated archive pages only on Divi sites instead of on every site
+* Fix: Invalid values can no longer be stored as the OTTO Pixel UUID, and the UUID field is now read-only
+* Fix: The OTTO crawl data option no longer grows without limit, and the old stored data is cleaned up on upgrade
+* Fix: External schema import now reports accurate eligibility and results for Yoast, Rank Math and AIOSEO, and schema fields are no longer lost when a schema type is saved before its fields finish loading
+* Fix: Content publishing no longer takes over and unpublishes an existing post with the same title, and updates now return the correct permalink
+* Fix: White-label branding is now preserved when the plugin settings are reset, and invalid branding can no longer be saved, with each field showing its own error
+* Fix: The old Instant Indexing admin URL now redirects to Indexation Control instead of showing an access error
+* Fix: Indexation Controls now save each checkbox correctly instead of switching other archive rules on
+* Fix: Maintenance and diagnostics tasks can no longer be triggered by anonymous visitors, and access checks, error logging, sitemap size reporting and the blank page template have been hardened
+* Fix: Redirects that have never been used now show "Never" instead of a zero date, and the redirect form no longer saves empty rows
+* Fix: MCP category and tag creation now returns the existing term instead of failing when it already exists
+* Fix: Resolved the remaining errors from WordPress.org Plugin Check scans
+* Improvement: Media, REST API and 404 Monitor queries are optimized for large sites, and the 404 log is now capped
+* Improvement: Redirects that share the same source path now show a "Shadowed" badge and a warning on save
+* Improvement: The 404 Monitor now has clearer summary labels, short and distinct chart labels (including for non-ASCII URLs), and a cleaner toolbar and pagination
+* Improvement: Compatibility toggles have moved to the Compatibility page, the unused HTTP option was removed from the SiteGround setting, and WP Rocket is now detected reliably
+* Improvement: The robots.txt "Never block your entire site" warning now appears at the top of the editor sidebar, and the Excluded URLs Recheck button and match type badges are now consistently sized
+* Improvement: The Breadcrumb Title Override is now hidden when breadcrumbs are disabled
+* Improvement: Plugin issue reports now include white-label context, and white-label settings are no longer exposed through the MCP plugin settings tool
+* Improvement: Removed the orphaned standalone Instant Indexing save path and obsolete temporary admin access code
+
 = 2.7.1 =
 * Fix: The Changes Log admin page no longer shows misaligned headings or inconsistent toolbar control sizing
 * Fix: A "%" character in a saved settings value no longer fatals the page, and the plugin now survives partially-completed upgrades

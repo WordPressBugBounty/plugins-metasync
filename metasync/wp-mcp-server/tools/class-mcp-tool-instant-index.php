@@ -75,7 +75,7 @@ class MCP_Tool_Instant_Index_Update extends MCP_Tool_Base {
         }
 
         $error_msg = isset($result['error']['message']) ? $result['error']['message'] : 'Unknown error';
-        throw new Exception('Google API error: ' . $error_msg);
+        throw new Exception('Google API error: ' . $error_msg); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
     }
 }
 
@@ -138,7 +138,7 @@ class MCP_Tool_Instant_Index_Delete extends MCP_Tool_Base {
         }
 
         $error_msg = isset($result['error']['message']) ? $result['error']['message'] : 'Unknown error';
-        throw new Exception('Google API error: ' . $error_msg);
+        throw new Exception('Google API error: ' . $error_msg); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
     }
 }
 
@@ -200,7 +200,7 @@ class MCP_Tool_Instant_Index_Status extends MCP_Tool_Base {
         }
 
         $error_msg = isset($result['error']['message']) ? $result['error']['message'] : 'Unknown error';
-        throw new Exception('Google API error: ' . $error_msg);
+        throw new Exception('Google API error: ' . $error_msg); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
     }
 }
 

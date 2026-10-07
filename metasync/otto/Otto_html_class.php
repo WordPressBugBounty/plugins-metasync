@@ -1274,6 +1274,7 @@ Class Metasync_otto_html{
         # DEDUPLICATION: Remove duplicate <title>, meta description, OG, Twitter tags, canonical, and JSON-LD schema
         $result_html = $this->otto_guard_html($this->deduplicate_title_tags($result_html), $result_html, 'deduplicate_title_tags');
         $result_html = $this->otto_guard_html($this->deduplicate_description_tags($result_html), $result_html, 'deduplicate_description_tags');
+        $result_html = $this->otto_guard_html($this->deduplicate_keywords_tags($result_html), $result_html, 'deduplicate_keywords_tags');
         $result_html = $this->otto_guard_html($this->deduplicate_og_twitter_tags($result_html), $result_html, 'deduplicate_og_twitter_tags');
         $result_html = $this->otto_guard_html($this->apply_metabox_og_precedence($result_html), $result_html, 'apply_metabox_og_precedence');
         $result_html = $this->otto_guard_html($this->apply_custom_seo_precedence($result_html), $result_html, 'apply_custom_seo_precedence');
@@ -2240,7 +2241,16 @@ Class Metasync_otto_html{
             ? ' data-metasync-otto="true"'
             : ' data-metasync-seo="custom"';
         $tag = '<meta ' . $attr . '="' . $val . '" content="' . $content_escaped . '"' . $marker_attribute . ' />';
-        $pattern = '/<meta\s[^>]*' . preg_quote($attr, '/') . '\s*=\s*["\']' . preg_quote($val, '/') . '["\'][^>]*\/?>/i';
+        # The optional prefix group must end on whitespace or a quote so the
+        # attribute matched is $attr itself, not something merely ending in it:
+        # a bare [^>]*name= also matches data-name="keywords", so a third party's
+        # unrelated tag was consumed and rewritten while the real one survived —
+        # destroying their value AND leaving the duplicate the dedup had just
+        # collapsed. Making the group optional keeps the common
+        # <meta name="..." ...> form matching, where <meta\s has already consumed
+        # the only separator. Same rule as deduplicate_keywords_tags(); this
+        # helper serves title, description and keywords, so all three are covered.
+        $pattern = '/<meta\s(?:[^>]*[\s"\'])?' . preg_quote($attr, '/') . '\s*=\s*["\']' . preg_quote($val, '/') . '["\'][^>]*\/?>/i';
         $count = 0;
         $new = preg_replace_callback($pattern, function ($m) use ($tag) {
             return $tag;
@@ -2273,7 +2283,8 @@ Class Metasync_otto_html{
     }
 
     /**
-     * Enforce the resolved SEO title/description as the FINAL word over OTTO.
+     * Enforce the resolved SEO title, description and keywords as the FINAL
+     * word over OTTO.
      *
      * The resolver owns the global custom-versus-OTTO order. This final buffer
      * pass must use it too: otherwise the setting works through the sidebar
@@ -2343,6 +2354,38 @@ Class Metasync_otto_html{
                 ? 'otto'
                 : 'custom';
             $html = $this->force_custom_meta($html, 'name', 'description', $esc, $marker);
+        }
+
+        # Keywords — the same final pass as the description above, on the chain
+        # the resolver owns, so the global priority setting governs this tag
+        # too. OTTO's keywords tag arrives via header_html_insertion carrying
+        # a data-otto marker and is spliced in after wp_head, so it is always
+        # the later tag and always wins deduplicate_keywords_tags(); forcing
+        # the resolved winner here is what keeps the losing tier reachable at
+        # all — the single-printing-owner rule the description branch follows.
+        #
+        # The tier this forces is NOT guaranteed customer-typed, unlike the
+        # title and description keys above: the meta_keywords persistence flag
+        # writes OTTO's value straight to _metasync_focus_keyword, and neither
+        # that conditional write nor the clone cleaner (which strips only the
+        # _metasync_otto_* keys) ever clears it, so a stale flag copy can
+        # outrank a newer suggestion under custom-first. That key sharing is
+        # tracked separately — the fix is a key of its own for the persisted
+        # keyword, not a special case here.
+        $resolved_keyword = Metasync_Seo_Precedence::resolve(
+            $post_id,
+            Metasync_Seo_Precedence::FIELD_FOCUS_KEYWORD
+        );
+        if (!empty($resolved_keyword['value'])) {
+            $esc = htmlspecialchars($resolved_keyword['value'], ENT_QUOTES, 'UTF-8');
+            $marker = Metasync_Seo_Precedence::is_otto_value(
+                $post_id,
+                Metasync_Seo_Precedence::FIELD_FOCUS_KEYWORD,
+                $resolved_keyword
+            )
+                ? 'otto'
+                : 'custom';
+            $html = $this->force_custom_meta($html, 'name', 'keywords', $esc, $marker);
         }
 
         return $html;
@@ -3078,6 +3121,80 @@ Class Metasync_otto_html{
         # Remove all occurrences, re-inserting the keeper at the first position.
         # Callback form avoids backreference injection when the description content
         # contains $ followed by digits (e.g. "$50 off").
+        $first_replaced = false;
+        $html = preg_replace_callback($pattern, function ($m) use ($keeper, &$first_replaced) {
+            if (!$first_replaced) {
+                $first_replaced = true;
+                return $keeper;
+            }
+            return ''; # Remove subsequent duplicates
+        }, $html);
+
+        return $html;
+    }
+
+    /**
+     * Remove duplicate <meta name="keywords"> tags from HTML.
+     *
+     * OTTO ships its keywords tag inside header_html_insertion, and MetaSync's
+     * own SEO output now emits one too whenever the precedence chain resolves a
+     * keyword — so a server-side-rendered page can carry both.
+     *
+     * The keeper is OTTO's tag, or the first occurrence when no OTTO tag is
+     * present. Unlike deduplicate_description_tags() there is no
+     * customer-authored branch here: print_metatag() emits no data attribute, so
+     * a keywords tag never carries data-metasync-seo="custom" at this point in
+     * the pipeline. The customer tier is re-applied afterwards by
+     * apply_custom_seo_precedence(), which runs later and stamps the marker via
+     * force_custom_meta(). Collapsing to OTTO's tag here is therefore safe: it is
+     * not the final word on what the page renders.
+     *
+     * @param  string $html Full HTML document.
+     * @return string HTML with at most one <meta name="keywords">.
+     */
+    private function deduplicate_keywords_tags($html) {
+        # No is_string() guard, unlike deduplicate_description_tags() beside it.
+        # That asymmetry is forced, not an oversight: @param string makes the
+        # check provably always-true at PHPStan level 5, and the description
+        # sibling's copy is one of a fixed number of occurrences the baseline
+        # pins by count, so adding another fails the build. Both methods are
+        # only ever called with the buffer string.
+        if ($html === '') {
+            return $html;
+        }
+
+        # Match <meta ... name="keywords" ...> in either attribute order.
+        #
+        # The optional prefix group must end on whitespace or a quote so the
+        # attribute is `name`, not something merely ending in it: a bare
+        # [^>]*name= also matches data-name="keywords". Making the group
+        # optional keeps the common `<meta name="keywords" ...>` form matching,
+        # where <meta\s has already consumed the only separator.
+        #
+        # The opening quote must be immediately followed by "keywords", so
+        # name="news_keywords" is not matched.
+        $pattern = '/<meta\s(?:[^>]*[\s"\'])?name\s*=\s*["\']keywords["\'][^>]*\/?>/i';
+
+        if (preg_match_all($pattern, $html, $matches) <= 1) {
+            return $html; # 0 or 1 — nothing to deduplicate
+        }
+
+        $all_tags = $matches[0];
+
+        $otto_tag = null;
+        foreach ($all_tags as $tag) {
+            if (stripos($tag, 'data-otto-pixel') !== false ||
+                stripos($tag, 'data-metasync-otto') !== false ||
+                stripos($tag, 'data-otto') !== false
+            ) {
+                $otto_tag = $tag;
+                break;
+            }
+        }
+        $keeper = $otto_tag ?: $all_tags[0];
+
+        # Callback form avoids backreference injection when the keyword list
+        # contains $ followed by digits.
         $first_replaced = false;
         $html = preg_replace_callback($pattern, function ($m) use ($keeper, &$first_replaced) {
             if (!$first_replaced) {
@@ -4038,6 +4155,7 @@ Class Metasync_otto_html{
             # DEDUPLICATION: Remove duplicate <title>, meta description, OG, Twitter tags, canonical, and JSON-LD schema
             $result_html = $this->otto_guard_html($this->deduplicate_title_tags($result_html), $result_html, 'deduplicate_title_tags');
             $result_html = $this->otto_guard_html($this->deduplicate_description_tags($result_html), $result_html, 'deduplicate_description_tags');
+            $result_html = $this->otto_guard_html($this->deduplicate_keywords_tags($result_html), $result_html, 'deduplicate_keywords_tags');
             $result_html = $this->otto_guard_html($this->deduplicate_og_twitter_tags($result_html), $result_html, 'deduplicate_og_twitter_tags');
             $result_html = $this->otto_guard_html($this->apply_metabox_og_precedence($result_html), $result_html, 'apply_metabox_og_precedence');
             $result_html = $this->otto_guard_html($this->apply_custom_seo_precedence($result_html), $result_html, 'apply_custom_seo_precedence');

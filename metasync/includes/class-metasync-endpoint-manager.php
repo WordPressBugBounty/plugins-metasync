@@ -87,7 +87,10 @@ class Metasync_Endpoint_Manager {
 
 		$result = update_option( self::MODE_OPTION, $mode );
 
-		return $result;
+		// WordPress returns false when the requested value is already stored.
+		// Read it back so selecting the current mode remains an idempotent success,
+		// while a failed write that leaves another value still reports failure.
+		return $result || self::get_mode() === $mode;
 	}
 
 	/**

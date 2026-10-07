@@ -314,32 +314,32 @@ class Metasync_HTML_Visual_Editor
     {
         // Check permissions
         if (!current_user_can('edit_pages')) {
-            wp_die(__('You do not have sufficient permissions to access this page.', 'metasync'));
+            wp_die(esc_html__('You do not have sufficient permissions to access this page.', 'metasync'));
         }
 
         // Get post ID
         $post_id = isset($_GET['post_id']) ? intval($_GET['post_id']) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only post ID, capability checked, view only
 
         if (!$post_id) {
-            wp_die(__('Invalid page ID.', 'metasync'));
+            wp_die(esc_html__('Invalid page ID.', 'metasync'));
         }
 
         if (!current_user_can('edit_post', $post_id)) {
-            wp_die(__('You do not have sufficient permissions to access this page.', 'metasync'));
+            wp_die(esc_html__('You do not have sufficient permissions to access this page.', 'metasync'));
         }
 
         // Get post
         $post = get_post($post_id);
 
         if (!$post) {
-            wp_die(__('Page not found.', 'metasync'));
+            wp_die(esc_html__('Page not found.', 'metasync'));
         }
 
         // Check if raw HTML is enabled
         $has_raw_html = get_post_meta($post_id, '_metasync_raw_html_enabled', true);
 
         if (!$has_raw_html) {
-            wp_die(__('This page is not a raw HTML page.', 'metasync'));
+            wp_die(esc_html__('This page is not a raw HTML page.', 'metasync'));
         }
 
         // LPS pages are owned by the importer and are always complete
@@ -583,6 +583,7 @@ class Metasync_HTML_Visual_Editor
         // not the payload: what matters is whether the page being overwritten
         // is one the canvas could have represented faithfully.
         if (self::is_lps_page($post_id)) {
+            Metasync_PostHog::rollup('visual_editor_saved', array('blocked_lps' => 1));
             wp_send_json_error(
                 array('message' => __('This page was imported from Website Studio and cannot be saved from the visual editor.', 'metasync')),
                 409
@@ -592,6 +593,7 @@ class Metasync_HTML_Visual_Editor
         $stored = get_post_meta($post_id, '_metasync_raw_html_content', true);
 
         if (self::is_unsafe_for_visual_editor($stored)) {
+            Metasync_PostHog::rollup('visual_editor_saved', array('blocked_full_document' => 1));
             wp_send_json_error(
                 array('message' => __('This page is a complete HTML document, so saving it from the visual editor would discard its doctype, head and scripts. Use Edit HTML Directly on the page editor instead.', 'metasync')),
                 409
@@ -620,6 +622,9 @@ class Metasync_HTML_Visual_Editor
             'post_modified' => current_time('mysql'),
             'post_modified_gmt' => current_time('mysql', 1)
         ));
+
+        // Consent-gated analytics: daily counts, not one event per save.
+        Metasync_PostHog::rollup('visual_editor_saved', array('saved' => 1));
 
         wp_send_json_success(array(
             'message' => __('Page saved successfully', 'metasync'),

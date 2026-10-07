@@ -92,7 +92,7 @@ class Metasync_Setup_Wizard
 	{
 		// Check user has access
 		if (!Metasync::current_user_has_plugin_access()) {
-			wp_die(__('You do not have sufficient permissions to access this page.', 'metasync'));
+			wp_die(esc_html__('You do not have sufficient permissions to access this page.', 'metasync'));
 		}
 
 		// Get current wizard state
@@ -208,6 +208,7 @@ class Metasync_Setup_Wizard
 		$plugin_name = Metasync::get_effective_plugin_name();
 		$general_settings = Metasync::get_option('general');
 		$is_connected = !empty($general_settings['searchatlas_api_key']);
+		$analytics_enabled = get_option('metasync_analytics_opt_in', 'no') === 'yes';
 		?>
 		<div class="wizard-step wizard-step-connection" data-step="2">
 			<div class="wizard-step-header">
@@ -236,17 +237,36 @@ class Metasync_Setup_Wizard
 						<p>Your site is linked to <?php echo esc_html($plugin_name); ?>.</p>
 					</div>
 				<?php endif; ?>
+
+				<div class="wizard-consent-card">
+					<div class="wizard-consent-icon"><span class="dashicons dashicons-chart-bar"></span></div>
+					<div class="wizard-consent-copy">
+						<span class="wizard-consent-eyebrow">Optional</span>
+						<h3>Help improve <?php echo esc_html($plugin_name); ?></h3>
+						<p>Share limited usage data so we can understand which features are useful, prioritize improvements, and troubleshoot plugin issues.</p>
+						<ul>
+							<li>Includes your site URL, plugin version, WordPress environment, and feature usage</li>
+							<li>Never includes names, emails, customer content, API keys, or passwords</li>
+						</ul>
+						<p class="wizard-consent-note">You can change this at any time in General Settings.</p>
+					</div>
+					<label class="wizard-consent-switch" for="wizard-analytics-consent">
+						<input type="checkbox" id="wizard-analytics-consent" <?php checked($analytics_enabled); ?>>
+						<span class="wizard-consent-slider" aria-hidden="true"></span>
+						<span class="wizard-consent-state"><?php echo $analytics_enabled ? 'On' : 'Off'; ?></span>
+					</label>
+				</div>
 			</div>
 		</div>
-		<?php
-	}
+			<?php
+		}
 
-	/**
-	 * Render Step 3: Plugin Import
-	 *
-	 * @since    1.0.0
-	 */
-	public function render_step_import()
+		/**
+		 * Render Step 3: Plugin Import
+		 *
+		 * @since    1.0.0
+		 */
+		public function render_step_import()
 	{
 		$installed_plugins = $this->detect_seo_plugins();
 		?>

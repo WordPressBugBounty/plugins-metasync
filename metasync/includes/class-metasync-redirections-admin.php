@@ -159,19 +159,18 @@ class Metasync_Redirections_Admin
             foreach ($source_urls as $source_url) {
                 $trimmed_url = trim($source_url);
 
-                if (empty($trimmed_url)) {
-                    $empty_count++;
-                    continue;
-                }
+                if (!empty($trimmed_url)) {
+                    if (!$this->is_valid_url($trimmed_url)) {
+                        $validation_errors[] = 'Invalid source URL format: "' . esc_html($trimmed_url) . '". URLs should start with / for relative paths or be complete URLs.';
+                    }
 
-                if (!$this->is_valid_url($trimmed_url)) {
-                    $validation_errors[] = 'Invalid source URL format: "' . esc_html($trimmed_url) . '". URLs should start with / for relative paths or be complete URLs.';
-                }
-
-                if (in_array($trimmed_url, $processed_sources)) {
-                    $validation_errors[] = 'Duplicate source URL detected: "' . esc_html($trimmed_url) . '".';
+                    if (in_array($trimmed_url, $processed_sources)) {
+                        $validation_errors[] = 'Duplicate source URL detected: "' . esc_html($trimmed_url) . '".';
+                    } else {
+                        $processed_sources[] = $trimmed_url;
+                    }
                 } else {
-                    $processed_sources[] = $trimmed_url;
+                    $empty_count++;
                 }
             }
 
@@ -223,7 +222,10 @@ class Metasync_Redirections_Admin
         }
 
         $pattern_type = 'exact';
-        foreach ($search_types as $search_type) {
+        // Derive the global type only from populated rows. A blank placeholder
+        // with a changed select must not trigger regex validation or alter the
+        // behavior of a redirect the user actually entered.
+        foreach ($sources_from as $search_type) {
             if (!empty($search_type)) {
                 $pattern_type = $search_type;
                 break;
@@ -301,6 +303,21 @@ class Metasync_Redirections_Admin
             }
         }
 
+        // Non-blocking duplicate-source check: warn (but never block) when a
+        // submitted source duplicates an existing ACTIVE rule's exact source.
+        // Two active rows with the same normalized exact source path cannot
+        // both fire — the engine's index only keeps one — so saving a second
+        // active rule for a source that already has one creates a dead row.
+        // Exclude the row being edited so an edit-and-re-save does not warn
+        // against itself. An inactive submission cannot shadow (the engine's
+        // index only holds active rows), so skip the check in that case.
+        if ($status === 'active') {
+            $duplicate_warnings = $this->check_duplicate_active_sources($sources_from, $pattern_type, $redirect_id);
+            if ($duplicate_warnings !== '') {
+                set_transient('metasync_redirection_warning_' . $uid, $duplicate_warnings, 45);
+            }
+        }
+
         $data = [
             'sources_from' => serialize($sources_from),
             'url_redirect_to' => $destination_url,
@@ -344,6 +361,121 @@ class Metasync_Redirections_Admin
         }
 
         return filter_var($url, FILTER_VALIDATE_URL) !== false;
+    }
+
+    /**
+     * Non-blocking check for duplicate active exact sources.
+     *
+     * When a new (or edited) redirect saves an active exact-match source that
+     * another active row already uses, only one of the two will ever fire —
+     * the engine's exact-index keeps a single winner per source path. This
+     * returns a human-readable warning string listing the colliding sources
+     * (and the existing rule's destination) so the user knows the save
+     * succeeded but created a shadowed rule. It never blocks the save.
+     *
+     * Normalization mirrors Metasync_Redirection::ensure_redirect_index()
+     * exactly: extract the path from full URLs, force a leading slash, strip
+     * a trailing slash, and treat '/' as the root. Only exact-pattern sources
+     * are checked — wildcard/regex/contain/start/end sources do not collapse
+     * onto a single index key.
+     *
+     * @param array  $sources_from  Submitted sources (url => pattern_type).
+     * @param string $pattern_type  Global pattern type for the submission.
+     * @param int    $redirect_id    ID of the row being edited (excluded from the check), 0 for new.
+     * @return string  Warning message, or '' when no duplicate was found.
+     */
+    private function check_duplicate_active_sources(array $sources_from, $pattern_type, $redirect_id)
+    {
+        // Only exact-pattern submissions can shadow. If the global pattern type
+        // is not exact (regex/wildcard/contain/start/end) the sources do not go
+        // into the engine's exact index, so there is nothing to warn about.
+        if ($pattern_type !== 'exact') {
+            return '';
+        }
+
+        // Normalize the submitted sources into the same keys the engine uses.
+        $submitted_norms = array();
+        foreach (array_keys($sources_from) as $source_url) {
+            $source_url = trim((string) $source_url);
+            if ($source_url === '') {
+                continue;
+            }
+            $norm = $source_url;
+            if (strpos($norm, 'http') === 0) {
+                $parsed = wp_parse_url($norm);
+                $norm = isset($parsed['path']) ? $parsed['path'] : '/';
+            }
+            if ($norm === '' || $norm[0] !== '/') {
+                $norm = '/' . $norm;
+            }
+            $norm = rtrim($norm, '/') ?: '/';
+            $submitted_norms[$norm] = $source_url;
+        }
+
+        if (empty($submitted_norms)) {
+            return '';
+        }
+
+        // Build an index of existing active rows' normalized exact sources,
+        // excluding the row being edited so an edit does not warn against itself.
+        $existing = array(); // norm => [ 'destination' => string ]
+        $active_rows = $this->db_redirection->getAllActiveRecords();
+        if (is_array($active_rows)) {
+            foreach ($active_rows as $row) {
+                if ($redirect_id > 0 && (int) $row->id === (int) $redirect_id) {
+                    continue;
+                }
+                $sources = !empty($row->sources_from)
+                    ? unserialize($row->sources_from, ['allowed_classes' => false])
+                    : array();
+                $source_urls = is_array($sources) ? $sources : array();
+                $global_pattern_type = isset($row->pattern_type) ? $row->pattern_type : null;
+
+                foreach ($source_urls as $source_key => $source_value) {
+                    // Legacy list-format rows store the URL as the VALUE under a
+                    // numeric key; remap so the legacy source is normalized.
+                    if ((is_int($source_key) || ctype_digit((string) $source_key)) && is_string($source_value) && $source_value !== '') {
+                        $source_key = $source_value;
+                    }
+                    $row_pattern_type = in_array($source_value, ['exact', 'contain', 'start', 'end', 'wildcard', 'regex'])
+                        ? $source_value
+                        : ($global_pattern_type ? $global_pattern_type : 'exact');
+
+                    if ($row_pattern_type !== 'exact' || strpos((string) $source_key, '*') !== false) {
+                        continue;
+                    }
+
+                    $norm = (string) $source_key;
+                    if (strpos($norm, 'http') === 0) {
+                        $parsed = wp_parse_url($norm);
+                        $norm = isset($parsed['path']) ? $parsed['path'] : '/';
+                    }
+                    if ($norm === '' || $norm[0] !== '/') {
+                        $norm = '/' . $norm;
+                    }
+                    $norm = rtrim($norm, '/') ?: '/';
+
+                    $existing[$norm] = isset($row->url_redirect_to) ? (string) $row->url_redirect_to : '';
+                }
+            }
+        }
+
+        $collisions = array();
+        foreach ($submitted_norms as $norm => $original_source) {
+            if (isset($existing[$norm])) {
+                $collisions[] = sprintf(
+                    'Source "%s" is already used by an active redirect (destination: %s). Only one of the two rules will fire.',
+                    $original_source,
+                    $existing[$norm]
+                );
+            }
+        }
+
+        if (empty($collisions)) {
+            return '';
+        }
+
+        return implode(' ', $collisions);
     }
 
     private function add_tabbed_interface_assets()
@@ -557,7 +689,7 @@ class Metasync_Redirections_Admin
         $active_class = $current_tab === 'redirections' ? 'active' : '';
         
         ?>
-        <div id="redirections-content" class="metasync-tab-content <?php echo $active_class; ?>">
+        <div id="redirections-content" class="metasync-tab-content <?php echo esc_attr($active_class); ?>">
             <?php
             $redirection = new Metasync_Redirection($this->db_redirection);
             $redirection->create_admin_redirection_interface();
@@ -574,7 +706,7 @@ class Metasync_Redirections_Admin
         $active_class = $current_tab === '404-monitor' ? 'active' : '';
         
         ?>
-        <div id="404-monitor-content" class="metasync-tab-content <?php echo $active_class; ?>">
+        <div id="404-monitor-content" class="metasync-tab-content <?php echo esc_attr($active_class); ?>">
             <?php
             try {
                 require_once plugin_dir_path(dirname(__FILE__)) . '404-monitor/class-metasync-404-monitor-database.php';
@@ -627,7 +759,7 @@ class Metasync_Redirections_Admin
         if (!empty($missing_columns)) {
             add_action('admin_notices', function() use ($missing_columns) {
                 echo '<div class="notice notice-warning is-dismissible">';
-                echo '<p><strong>MetaSync:</strong> Database structure needs updating. Missing columns: ' . implode(', ', $missing_columns) . '</p>';
+                echo '<p><strong>MetaSync:</strong> Database structure needs updating. Missing columns: ' . esc_html(implode(', ', $missing_columns)) . '</p>';
                 echo '<p><button type="button" class="button button-secondary" onclick="updateDatabaseStructure()">Update Database Structure</button></p>';
                 echo '</div>';
                 
@@ -636,7 +768,7 @@ class Metasync_Redirections_Admin
                     if (confirm("This will update your database structure. Continue?")) {
                         const formData = new FormData();
                         formData.append("action", "metasync_update_db_structure");
-                        formData.append("nonce", "' . wp_create_nonce('metasync_update_db_nonce') . '");
+                        formData.append("nonce", "' . esc_attr(wp_create_nonce('metasync_update_db_nonce')) . '");
                         
                         fetch(ajaxurl, {
                             method: "POST",

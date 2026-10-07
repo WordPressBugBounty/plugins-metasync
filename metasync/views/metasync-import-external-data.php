@@ -41,7 +41,7 @@ $sections = [
     'schema' => [
         'title' => 'Schema Settings',
         'icon' => 'dashicons-layout',
-        'desc' => 'Import per-post schema markup (Article, FAQPage, Product, Recipe) with field mapping and variable substitution.'
+        'desc' => 'Import per-post schema markup (Article, FAQPage, Product, Recipe) with field mapping and variable substitution. Posts that already have schema, or whose source schema is empty or of an unsupported type, are not counted and are reported separately after import.'
     ]
 ];
 
@@ -583,7 +583,7 @@ if (!array_key_exists($active_tab, $sections)) {
                                     <?php elseif ($active_tab === 'indexation'): ?>
                                         Found <strong><?php echo esc_html($plugin['count']); ?></strong> <?php echo $plugin['count'] === 1 ? 'post' : 'posts'; ?> with indexation settings ready to import.
                                     <?php elseif ($active_tab === 'schema'): ?>
-                                        Found <strong><?php echo esc_html($plugin['count']); ?></strong> <?php echo $plugin['count'] === 1 ? 'post' : 'posts'; ?> with schema markup ready to import.
+                                        Found <strong><?php echo esc_html($plugin['count']); ?></strong> <?php echo $plugin['count'] === 1 ? 'post' : 'posts'; ?> with importable schema markup (supported type, not yet imported into <?php echo esc_html(Metasync::get_effective_plugin_name()); ?>).
                                     <?php else: ?>
                                         Settings detected and ready to import.
                                     <?php endif; ?>

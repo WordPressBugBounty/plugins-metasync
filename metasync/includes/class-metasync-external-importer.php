@@ -213,56 +213,453 @@ class Metasync_External_Importer
 
     /**
      * Check if schema data exists for a plugin
+     *
+     * Counts only records the importer would actually write: the source record
+     * must hold a supported, populated schema, and the post must not already
+     * carry a MetaSync schema block. The per-record rule is shared with the
+     * importers (see the *_schema_source_is_supported() helpers and
+     * post_has_metasync_schema()), so the count the Schema Settings page shows
+     * is the count an import can deliver — the old detector counted every
+     * provider row and reported posts that were silently skipped.
      */
     private function check_schema_data($plugin, &$count)
     {
-        global $wpdb;
-
         $count = 0;
+        $importable_posts = [];
 
         switch ($plugin) {
             case 'yoast':
-                // Check for Yoast schema meta
-                // Yoast Premium stores schema type in _yoast_wpseo_schema_article_type
-                // Free version may use _yoast_wpseo_schema (JSON)
-                // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-                $count = (int) $wpdb->get_var("
-                    SELECT COUNT(DISTINCT post_id)
-                    FROM {$wpdb->postmeta}
-                    WHERE (meta_key = '_yoast_wpseo_schema' OR meta_key = '_yoast_wpseo_schema_article_type')
-                    AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-                ");
+                foreach ($this->yoast_schema_candidate_rows(true) as $row) {
+                    $post_id = (int) $row->post_id;
+                    if (isset($importable_posts[$post_id])) {
+                        continue;
+                    }
+                    if ($this->yoast_schema_source_is_supported($row->meta_key, $row->meta_value) !== null) {
+                        $importable_posts[$post_id] = true;
+                    }
+                }
                 break;
 
             case 'rankmath':
-                // Check for Rank Math schema meta (any schema type)
-                // Rank Math uses meta keys like: rank_math_schema_Article, rank_math_schema_BlogPosting, rank_math_schema_Product, etc.
-                // Exclude shortcode schemas (rank_math_shortcode_schema_*)
-                // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-                $count = (int) $wpdb->get_var("
-                    SELECT COUNT(DISTINCT post_id)
-                    FROM {$wpdb->postmeta}
-                    WHERE meta_key LIKE 'rank_math_schema_%'
-                    AND meta_key NOT LIKE 'rank_math_shortcode_schema_%'
-                    AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-                ");
+                foreach ($this->rankmath_schema_candidate_rows(true) as $row) {
+                    $post_id = (int) $row->post_id;
+                    if (isset($importable_posts[$post_id])) {
+                        continue;
+                    }
+                    if ($this->rankmath_schema_source_is_supported($row->meta_key, $row->meta_value) !== null) {
+                        $importable_posts[$post_id] = true;
+                    }
+                }
                 break;
 
             case 'aioseo':
-                // Check for AIOSEO schema in table
-                $table = $wpdb->prefix . 'aioseo_posts';
-                if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table))) === $table) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-                    $count = (int) $wpdb->get_var("
-                        SELECT COUNT(post_id)
-                        FROM {$wpdb->prefix}aioseo_posts
-                        WHERE (schema_type IS NOT NULL AND schema_type != '')
-                        AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-                    ");
+                // AIOSEO's `default` rows carry no per-post schema at all, so
+                // they are filtered out before eligibility is even evaluated.
+                foreach ($this->aioseo_schema_candidate_rows(true) as $row) {
+                    $post_id = (int) $row->post_id;
+                    if (isset($importable_posts[$post_id])) {
+                        continue;
+                    }
+                    if ($this->aioseo_schema_source_is_supported($row->schema_type, $row->schema_type_options) !== null) {
+                        $importable_posts[$post_id] = true;
+                    }
                 }
                 break;
         }
 
+        $count = count($importable_posts);
+
         return $count > 0;
+    }
+
+    /**
+     * Yoast source rows that could hold per-post schema, for published posts.
+     *
+     * Shared by check_schema_data() and import_yoast_schema() so both look at
+     * exactly the same candidate set.
+     *
+     * @param  bool $only_new Skip posts that already hold a MetaSync schema block.
+     *                        Only the detector sets this: the importers must see
+     *                        every candidate so they can report those posts as
+     *                        already imported rather than silently dropping them.
+     * @return array<object> Rows with post_id, meta_key and meta_value.
+     */
+    private function yoast_schema_candidate_rows($only_new = false)
+    {
+        global $wpdb;
+
+        $query = "SELECT post_id, meta_key, meta_value
+            FROM {$wpdb->postmeta}
+            WHERE (meta_key = '_yoast_wpseo_schema' OR meta_key = '_yoast_wpseo_schema_article_type')
+            AND meta_value != ''
+            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+            " . ($only_new ? $this->sql_exclude_posts_with_metasync_schema($wpdb->postmeta) : '') . "
+            ORDER BY post_id ASC";
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists; table names come from wpdb, exclusion fragment is class-built SQL
+        return (array) $wpdb->get_results($query);
+    }
+
+    /**
+     * Rank Math source rows that could hold per-post schema, for published
+     * posts. Shortcode schemas are excluded, as the importer always has.
+     *
+     * @param  bool $only_new Skip posts that already hold a MetaSync schema block.
+     * @return array<object> Rows with post_id, meta_key and meta_value.
+     */
+    private function rankmath_schema_candidate_rows($only_new = false)
+    {
+        global $wpdb;
+
+        $query = "SELECT pm.post_id, pm.meta_key, pm.meta_value
+            FROM {$wpdb->postmeta} pm
+            WHERE pm.meta_key LIKE 'rank_math_schema_%'
+            AND pm.meta_key NOT LIKE 'rank_math_shortcode_schema_%'
+            AND pm.meta_value != ''
+            AND pm.meta_value != 'a:0:{}'
+            AND pm.post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+            " . ($only_new ? $this->sql_exclude_posts_with_metasync_schema('pm') : '') . "
+            ORDER BY pm.post_id ASC";
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists; table names come from wpdb, exclusion fragment is class-built SQL
+        return (array) $wpdb->get_results($query);
+    }
+
+    /**
+     * AIOSEO source rows that could hold per-post schema, for published posts.
+     *
+     * Returns an empty array when the AIOSEO table is absent (the plugin was
+     * never installed), matching the previous detector behaviour.
+     *
+     * @param  bool $only_new Skip posts that already hold a MetaSync schema block.
+     * @return array<object> Rows with post_id, schema_type and schema_type_options.
+     */
+    private function aioseo_schema_candidate_rows($only_new = false)
+    {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'aioseo_posts';
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table))) !== $table) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
+            return [];
+        }
+
+        // AIOSEO writes a row for every post it tracks, and the overwhelming
+        // majority carry schema_type 'default' with empty schema_type_options.
+        // Those rows represent the post-type default, not per-post schema, so
+        // they are dropped here rather than being reported as "unsupported" —
+        // counting them is what made the card claim hundreds of ready posts
+        // that no import could ever produce.
+        $query = "SELECT post_id, schema_type, schema_type_options
+            FROM {$table}
+            WHERE schema_type IS NOT NULL
+            AND schema_type != ''
+            AND schema_type != 'default'
+            AND schema_type_options IS NOT NULL
+            AND schema_type_options NOT IN ('', '{}', '[]', 'null')
+            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
+            " . ($only_new ? $this->sql_exclude_posts_with_metasync_schema($table) : '') . "
+            ORDER BY post_id ASC";
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists; table name comes from wpdb, exclusion fragment is class-built SQL
+        return (array) $wpdb->get_results($query);
+    }
+
+    /**
+     * SQL clause excluding posts that already hold a MetaSync schema block.
+     *
+     * Mirrors post_has_metasync_schema() in SQL: a metasync_schema_markup
+     * value whose "types" array exists and is non-empty. Values without a
+     * "types" list (an OTTO-deployed otto_jsonld block, for example) are
+     * deliberately not excluded — the importer does not skip those either.
+     * post_has_metasync_schema() is still evaluated per record in PHP, so the
+     * two checks cannot drift apart.
+     *
+     * @param  string $alias Table name or alias the candidate query exposes post_id under.
+     * @return string        "AND NOT EXISTS (...)" clause.
+     */
+    private function sql_exclude_posts_with_metasync_schema($alias)
+    {
+        global $wpdb;
+
+        return "AND NOT EXISTS (
+            SELECT 1
+            FROM {$wpdb->postmeta} ms
+            WHERE ms.post_id = {$alias}.post_id
+            AND ms.meta_key = 'metasync_schema_markup'
+            AND ms.meta_value LIKE '%s:5:\"types\";a:%'
+            AND ms.meta_value NOT LIKE '%s:5:\"types\";a:0:{}%'
+        )";
+    }
+
+    /**
+     * Whether a post already holds a MetaSync schema block an import must not
+     * overwrite.
+     *
+     * Same guard the importers have always applied: an existing
+     * metasync_schema_markup whose "types" list is populated means the schema
+     * was already migrated or set by hand, so the source record is skipped
+     * and reported as already imported rather than overwritten.
+     *
+     * @param  int $post_id Post ID.
+     * @return bool
+     */
+    private function post_has_metasync_schema($post_id)
+    {
+        $existing = get_post_meta($post_id, 'metasync_schema_markup', true);
+
+        return is_array($existing) && !empty($existing['types']);
+    }
+
+    /**
+     * Normalise a source schema type string to a supported MetaSync type.
+     *
+     * Shared by the Yoast and Rank Math eligibility checks and by the
+     * converters, so "which source types can we actually carry" has a single
+     * answer per provider.
+     *
+     * @param  string $raw_type Source @type / schema type, any case.
+     * @return string|null      MetaSync type slug, or null when unsupported.
+     */
+    private function supported_schema_type($raw_type)
+    {
+        $type = strtolower(trim((string) $raw_type));
+        if ($type === '') {
+            return null;
+        }
+
+        $map = [
+            'article'     => 'article',
+            'newsarticle' => 'article',
+            'blogposting' => 'article',
+            'faqpage'     => 'FAQPage',
+            'product'     => 'product',
+            'recipe'      => 'recipe',
+        ];
+
+        return $map[$type] ?? null;
+    }
+
+    /**
+     * Whether a Yoast source row holds schema the importer can convert.
+     *
+     * Returns the resolved MetaSync type when the row is supported, or null
+     * when it must not be counted or imported (unsupported type, empty or
+     * invalid payload). Used by both check_schema_data() and
+     * import_yoast_schema() so the two cannot drift.
+     *
+     * @param  string $meta_key   Source meta key.
+     * @param  string $meta_value Raw meta value.
+     * @return string|null
+     */
+    private function yoast_schema_source_is_supported($meta_key, $meta_value)
+    {
+        if ($meta_key === '_yoast_wpseo_schema_article_type') {
+            // Yoast Premium stores a bare type name; the importer builds an
+            // article skeleton from it.
+            return $this->supported_schema_type($meta_value);
+        }
+
+        if ($meta_key !== '_yoast_wpseo_schema') {
+            return null;
+        }
+
+        $value = trim((string) $meta_value);
+        if ($value === '') {
+            return null;
+        }
+
+        $decoded = json_decode($value, true);
+        if (!is_array($decoded) || $decoded === []) {
+            return null;
+        }
+
+        foreach ($this->yoast_schema_graph_items($decoded) as $item) {
+            if (!is_array($item) || !isset($item['@type'])) {
+                continue;
+            }
+
+            $raw_type = $item['@type'];
+            if (is_array($raw_type)) {
+                $raw_type = reset($raw_type);
+            }
+            if (!is_string($raw_type) || $raw_type === '') {
+                continue;
+            }
+
+            $supported = $this->supported_schema_type($raw_type);
+            if ($supported === null) {
+                continue;
+            }
+
+            // A FAQPage whose questions cannot be converted produces an empty
+            // MetaSync block, so it must not be counted as importable either.
+            if ($supported === 'FAQPage'
+                && !$this->faq_questions_are_convertible($item['mainEntity'] ?? [], 'yoast')) {
+                continue;
+            }
+
+            return $supported;
+        }
+
+        return null;
+    }
+
+    /**
+     * Iterate the schema entries inside a decoded Yoast payload.
+     *
+     * Supports the two storage shapes Yoast has used: the current
+     * `{"@graph": [...]}` wrapper and the legacy root array of entries.
+     *
+     * @param  array $decoded Decoded `_yoast_wpseo_schema` value.
+     * @return array          Iterable list of schema item arrays.
+     */
+    private function yoast_schema_graph_items($decoded)
+    {
+        if (isset($decoded['@graph']) && is_array($decoded['@graph'])) {
+            return $decoded['@graph'];
+        }
+
+        // A single schema object at the root: {"@type":"Article",...}.
+        if (isset($decoded['@type'])) {
+            return [$decoded];
+        }
+
+        // Legacy payload: a root array of entries, e.g.
+        // [{"@type":"Article","headline":"..."}, ...]. Only treat it as such
+        // when every element is an array — otherwise the value is an object
+        // whose keys are property names, not entries, and no entry carries a
+        // @type anyway.
+        $is_entry_list = $decoded !== [];
+        foreach ($decoded as $entry) {
+            if (!is_array($entry)) {
+                $is_entry_list = false;
+                break;
+            }
+        }
+
+        return $is_entry_list ? $decoded : [];
+    }
+
+    /**
+     * Whether a Rank Math source row holds schema the importer can convert.
+     *
+     * Returns the resolved MetaSync type when supported, null otherwise. The
+     * type lives in the meta key (rank_math_schema_Article), mirroring
+     * convert_rankmath_schema_to_metasync().
+     *
+     * @param  string $meta_key   Source meta key.
+     * @param  string $meta_value Raw meta value.
+     * @return string|null
+     */
+    private function rankmath_schema_source_is_supported($meta_key, $meta_value)
+    {
+        if (strpos((string) $meta_key, 'rank_math_schema_') !== 0) {
+            return null;
+        }
+
+        $schema_type = str_replace('rank_math_schema_', '', (string) $meta_key);
+        $supported   = $this->supported_schema_type($schema_type);
+
+        if ($supported === null) {
+            return null;
+        }
+
+        $decoded = maybe_unserialize($meta_value);
+        if (!is_array($decoded) || $decoded === []) {
+            return null;
+        }
+
+        // Keep the check in step with the converter: a FAQPage whose questions
+        // cannot be converted would yield an empty MetaSync block.
+        if ($supported === 'FAQPage'
+            && !$this->faq_questions_are_convertible($decoded['questions'] ?? [], 'rankmath')) {
+            return null;
+        }
+
+        return $supported;
+    }
+
+    /**
+     * Whether an AIOSEO row holds per-post schema the importer can convert.
+     *
+     * Returns the resolved MetaSync type when supported, null otherwise.
+     * `schema_type = 'default'` rows — the post-type default AIOSEO stamps on
+     * every tracked post — never reach this check from the candidate queries,
+     * but it is enforced here as well so the importer cannot regress into
+     * reporting them as "unsupported" source schemas.
+     *
+     * @param  string $schema_type         Raw schema_type column value.
+     * @param  string $schema_type_options Raw schema_type_options JSON.
+     * @return string|null
+     */
+    private function aioseo_schema_source_is_supported($schema_type, $schema_type_options)
+    {
+        $type = strtolower(trim((string) $schema_type));
+
+        if ($type === '' || $type === 'default' || $type === 'none') {
+            return null;
+        }
+
+        $supported = $this->supported_schema_type($type);
+        if ($supported === null) {
+            return null;
+        }
+
+        $decoded = json_decode(trim((string) $schema_type_options), true);
+        if (!is_array($decoded) || $decoded === []) {
+            return null;
+        }
+
+        // As above: an unconvertible FAQPage must not be counted as importable.
+        if ($supported === 'FAQPage'
+            && !$this->faq_questions_are_convertible($decoded['questions'] ?? [], 'aioseo')) {
+            return null;
+        }
+
+        return $supported;
+    }
+
+    /**
+     * Whether a FAQ question list holds at least one entry the converter can
+     * turn into a MetaSync FAQ item, for the given provider's key shape.
+     *
+     * Eligibility and conversion must agree: a source counted as importable
+     * has to produce a non-empty MetaSync block, or the detector over-reports
+     * again — the very defect this class of fix exists to close.
+     *
+     * A scalar `mainEntity`/`questions` value (corrupt or foreign meta) is
+     * simply not convertible; it must never fatal the eligibility check,
+     * which runs on every render of the Schema import tab.
+     *
+     * @param  mixed  $questions Question list from the source record.
+     * @param  string $provider  'yoast', 'rankmath' or 'aioseo'.
+     * @return bool
+     */
+    private function faq_questions_are_convertible($questions, $provider)
+    {
+        if (!is_array($questions)) {
+            return false;
+        }
+
+        foreach ($questions as $question) {
+            if (!is_array($question)) {
+                continue;
+            }
+
+            if ($provider === 'yoast') {
+                if (isset($question['name'], $question['acceptedAnswer']['text'])) {
+                    return true;
+                }
+            } elseif ($provider === 'rankmath') {
+                if (isset($question['name'], $question['text'])) {
+                    return true;
+                }
+            } elseif (isset($question['question'], $question['answer'])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1200,99 +1597,170 @@ class Metasync_External_Importer
 
     /**
      * Import Schema Settings (Per-Post Schema)
+     *
+     * Composes the user-facing result from the importer's breakdown so the
+     * message states what actually happened: no source schema, everything
+     * already migrated, everything unsupported/empty, or an import — including
+     * the partial case where some posts were skipped alongside the imports.
      */
     public function import_schema($plugin)
     {
-        $imported_count = 0;
-
         switch ($plugin) {
             case 'yoast':
-                $imported_count = $this->import_yoast_schema();
+                $breakdown = $this->import_yoast_schema();
                 break;
 
             case 'rankmath':
-                $imported_count = $this->import_rankmath_schema();
+                $breakdown = $this->import_rankmath_schema();
                 break;
 
             case 'aioseo':
-                $imported_count = $this->import_aioseo_schema();
+                $breakdown = $this->import_aioseo_schema();
                 break;
 
             default:
                 return ['success' => false, 'message' => 'Invalid plugin specified.'];
         }
 
-        if ($imported_count > 0) {
-            return ['success' => true, 'message' => "Successfully imported schema settings for $imported_count posts."];
+        $imported         = (int) $breakdown['imported'];
+        $already_imported = (int) $breakdown['already_imported'];
+        $unsupported      = (int) $breakdown['unsupported'];
+        $candidates       = (int) $breakdown['total_candidates'];
+
+        // No source rows at all — nothing was ever detected to begin with.
+        if ($candidates === 0) {
+            return [
+                'success'   => false,
+                'message'   => 'No post-level schema settings found to import.',
+                'breakdown' => $breakdown,
+            ];
         }
 
-        return ['success' => false, 'message' => 'No post-level schema settings found to import.'];
+        if ($imported === 0) {
+            // Every eligible source record is already in MetaSync.
+            if ($already_imported > 0 && $unsupported === 0) {
+                return [
+                    'success'   => false,
+                    'message'   => sprintf(
+                        'All %d eligible post(s) already have MetaSync schema — nothing left to import.',
+                        $already_imported
+                    ),
+                    'breakdown' => $breakdown,
+                ];
+            }
+
+            // Source schema exists, but none of it maps to a supported type.
+            if ($unsupported > 0 && $already_imported === 0) {
+                return [
+                    'success'   => false,
+                    'message'   => sprintf(
+                        'Found %d post(s) with schema settings, but none use a supported schema type '
+                        . '(Article, FAQPage, Product, Recipe) or their contents were empty.',
+                        $unsupported
+                    ),
+                    'breakdown' => $breakdown,
+                ];
+            }
+
+            // Both skip reasons applied, nothing imported.
+            return [
+                'success'   => false,
+                'message'   => sprintf(
+                    'No schema settings imported: %d post(s) already had MetaSync schema and %d post(s) had unsupported or empty schema settings.',
+                    $already_imported,
+                    $unsupported
+                ),
+                'breakdown' => $breakdown,
+            ];
+        }
+
+        $message = sprintf('Successfully imported schema settings for %d post(s).', $imported);
+
+        if ($already_imported > 0) {
+            $message .= sprintf(' Skipped %d post(s) that already had MetaSync schema.', $already_imported);
+        }
+        if ($unsupported > 0) {
+            $message .= sprintf(' Skipped %d post(s) with unsupported or empty schema settings.', $unsupported);
+        }
+
+        return ['success' => true, 'message' => $message, 'breakdown' => $breakdown];
+    }
+
+    /**
+     * Fresh per-import counters shared by the three schema importers.
+     *
+     * `total_candidates` counts distinct posts the importer looked at, so a
+     * post with several source rows is one candidate. Posts already holding a
+     * MetaSync schema count as `already_imported`; source rows that carry no
+     * supported, populated schema count as `unsupported`.
+     *
+     * @return array{imported:int, already_imported:int, unsupported:int, total_candidates:int}
+     */
+    private function empty_schema_breakdown()
+    {
+        return [
+            'imported'         => 0,
+            'already_imported' => 0,
+            'unsupported'      => 0,
+            'total_candidates' => 0,
+        ];
     }
 
     /**
      * Import per-post schema from Yoast SEO
+     *
+     * Rows are grouped per post first, because a post can carry both source
+     * keys and the outcome must be decided once per post: a MetaSync schema
+     * that already exists wins outright; otherwise the full JSON payload under
+     * `_yoast_wpseo_schema` is preferred, and only when it yields nothing does
+     * the bare Premium article type under `_yoast_wpseo_schema_article_type`
+     * produce a placeholder article schema. Every other combination is
+     * unsupported.
+     *
+     * @return array{imported:int, already_imported:int, unsupported:int, total_candidates:int}
      */
     private function import_yoast_schema()
     {
-        global $wpdb;
-        $imported_count = 0;
+        $breakdown = $this->empty_schema_breakdown();
 
-        // First, try to import from full schema JSON (free version or old approach)
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-        $posts = $wpdb->get_results("
-            SELECT post_id, meta_value
-            FROM {$wpdb->postmeta}
-            WHERE meta_key = '_yoast_wpseo_schema'
-            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-        ");
+        // post_id => [meta_key => row]
+        $rows_by_post = [];
+        foreach ($this->yoast_schema_candidate_rows() as $row) {
+            $rows_by_post[(int) $row->post_id][$row->meta_key] = $row;
+        }
 
-        foreach ($posts as $post_obj) {
-            $post_id = $post_obj->post_id;
-
-            // Check if Metasync schema already exists
+        foreach ($rows_by_post as $post_id => $rows) {
+            // A MetaSync schema that is already there outranks whatever the
+            // source plugin holds — the schema migration ran before (or an
+            // editor set it by hand) and overwriting it is not this tool's job.
             $existing_schema = get_post_meta($post_id, 'metasync_schema_markup', true);
-            if (!empty($existing_schema) && !empty($existing_schema['types'])) {
-                continue; // Skip if already has Metasync schema
-            }
-
-            // Decode Yoast schema JSON
-            $yoast_schema = json_decode((string)($post_obj->meta_value ?? ''), true);
-            if (empty($yoast_schema) || !is_array($yoast_schema)) {
+            if ($this->post_has_metasync_schema($post_id)) {
+                $breakdown['already_imported']++;
                 continue;
             }
 
-            // Convert Yoast schema to Metasync format
-            $metasync_schema = $this->convert_yoast_schema_to_metasync($yoast_schema, $post_id);
+            $schema_row       = $rows['_yoast_wpseo_schema'] ?? null;
+            $article_type_row = $rows['_yoast_wpseo_schema_article_type'] ?? null;
 
-            if (!empty($metasync_schema['types'])) {
-                update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
-                $imported_count++;
-            }
-        }
+            // Full JSON payload first (free version, or the legacy root array).
+            if ($schema_row !== null
+                && $this->yoast_schema_source_is_supported($schema_row->meta_key, $schema_row->meta_value) !== null) {
+                $yoast_schema = json_decode((string) ($schema_row->meta_value ?? ''), true);
+                $metasync_schema = is_array($yoast_schema)
+                    ? $this->convert_yoast_schema_to_metasync($yoast_schema, $post_id)
+                    : ['types' => []];
 
-        // Second, try to import from schema type (Premium version)
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-        $posts = $wpdb->get_results("
-            SELECT post_id, meta_value
-            FROM {$wpdb->postmeta}
-            WHERE meta_key = '_yoast_wpseo_schema_article_type'
-            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-        ");
-
-        foreach ($posts as $post_obj) {
-            $post_id = $post_obj->post_id;
-
-            // Check if Metasync schema already exists
-            $existing_schema = get_post_meta($post_id, 'metasync_schema_markup', true);
-            if (!empty($existing_schema) && !empty($existing_schema['types'])) {
-                continue; // Skip if already has Metasync schema
+                if (!empty($metasync_schema['types'])) {
+                    update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
+                    $breakdown['imported']++;
+                    continue;
+                }
             }
 
-            $schema_type = strtolower($post_obj->meta_value);
-
-            // Create basic article schema with placeholders
-            // Yoast Premium generates schema dynamically, so we create a minimal version
-            if ($schema_type === 'article' || $schema_type === 'newsarticle' || $schema_type === 'blogposting') {
+            // Bare Premium article type: build a minimal article schema with
+            // placeholders, since Yoast Premium generates schema dynamically.
+            if ($article_type_row !== null
+                && $this->yoast_schema_source_is_supported($article_type_row->meta_key, $article_type_row->meta_value) !== null) {
                 $metasync_schema = [
                     'enabled' => true,
                     'types' => [
@@ -1310,101 +1778,112 @@ class Metasync_External_Importer
                 ];
 
                 update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
-                $imported_count++;
+                $breakdown['imported']++;
+                continue;
             }
+
+            $breakdown['unsupported']++;
         }
 
-        return $imported_count;
+        $breakdown['total_candidates'] = count($rows_by_post);
+
+        return $breakdown;
     }
 
     /**
      * Import per-post schema from Rank Math
+     *
+     * Rows are grouped per post, mirroring check_schema_data(): a post with
+     * several `rank_math_schema_*` rows is a single candidate, imported from
+     * the first row that carries a supported, populated schema.
+     *
+     * @return array{imported:int, already_imported:int, unsupported:int, total_candidates:int}
      */
     private function import_rankmath_schema()
     {
-        global $wpdb;
-        $imported_count = 0;
+        $breakdown = $this->empty_schema_breakdown();
 
-        // Get all posts with any Rank Math schema (dynamically detect schema types)
-        // Exclude shortcode schemas
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-        $posts = $wpdb->get_results("
-            SELECT DISTINCT pm.post_id, pm.meta_key, pm.meta_value
-            FROM {$wpdb->postmeta} pm
-            WHERE pm.meta_key LIKE 'rank_math_schema_%'
-            AND pm.meta_key NOT LIKE 'rank_math_shortcode_schema_%'
-            AND pm.post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-            ORDER BY pm.post_id
-        ");
+        $rows_by_post = [];
+        foreach ($this->rankmath_schema_candidate_rows() as $row) {
+            $rows_by_post[(int) $row->post_id][] = $row;
+        }
 
-        $processed_posts = [];
-
-        foreach ($posts as $post_obj) {
-            $post_id = $post_obj->post_id;
-
-            // Skip if we already processed this post
-            if (in_array($post_id, $processed_posts)) {
-                continue;
-            }
-
-            // Check if Metasync schema already exists for this post
+        foreach ($rows_by_post as $post_id => $rows) {
             $existing_schema = get_post_meta($post_id, 'metasync_schema_markup', true);
-            if (!empty($existing_schema) && !empty($existing_schema['types'])) {
-                continue; // Skip if already has Metasync schema
-            }
-
-            // Extract schema type from meta key (e.g., rank_math_schema_BlogPosting -> BlogPosting)
-            $schema_type = str_replace('rank_math_schema_', '', $post_obj->meta_key);
-
-            // Decode Rank Math schema
-            $rm_schema = maybe_unserialize($post_obj->meta_value);
-            if (empty($rm_schema) || !is_array($rm_schema)) {
+            if ($this->post_has_metasync_schema($post_id)) {
+                $breakdown['already_imported']++;
                 continue;
             }
 
-            // Convert Rank Math schema to Metasync format
-            $metasync_schema = $this->convert_rankmath_schema_to_metasync($rm_schema, $schema_type, $post_id);
+            $imported = false;
 
-            if (!empty($metasync_schema['types'])) {
-                update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
-                $imported_count++;
-                $processed_posts[] = $post_id; // Mark post as processed
+            foreach ($rows as $row) {
+                if ($this->rankmath_schema_source_is_supported($row->meta_key, $row->meta_value) === null) {
+                    continue;
+                }
+
+                // Extract schema type from meta key (e.g., rank_math_schema_BlogPosting -> BlogPosting)
+                $schema_type = str_replace('rank_math_schema_', '', $row->meta_key);
+
+                // Decode Rank Math schema
+                $rm_schema = maybe_unserialize($row->meta_value);
+                if (empty($rm_schema) || !is_array($rm_schema)) {
+                    continue;
+                }
+
+                // Convert Rank Math schema to Metasync format
+                $metasync_schema = $this->convert_rankmath_schema_to_metasync($rm_schema, $schema_type, $post_id);
+
+                if (!empty($metasync_schema['types'])) {
+                    update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
+                    $breakdown['imported']++;
+                    $imported = true;
+                    break; // One schema block per post.
+                }
+            }
+
+            if (!$imported) {
+                $breakdown['unsupported']++;
             }
         }
 
-        return $imported_count;
+        $breakdown['total_candidates'] = count($rows_by_post);
+
+        return $breakdown;
     }
 
     /**
      * Import per-post schema from AIOSEO
+     *
+     * `schema_type = 'default'` rows and rows whose schema options are empty
+     * never reach this loop — they are excluded by aioseo_schema_candidate_rows()
+     * for the detector and the importer alike, so the two can never disagree
+     * about what counts as a candidate.
+     *
+     * @return array{imported:int, already_imported:int, unsupported:int, total_candidates:int}
      */
     private function import_aioseo_schema()
     {
-        global $wpdb;
-        $imported_count = 0;
+        $breakdown = $this->empty_schema_breakdown();
 
-        // Check if AIOSEO table exists
-        $table = $wpdb->prefix . 'aioseo_posts';
-        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table))) !== $table) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-            return 0;
+        // An absent AIOSEO table means there is nothing to import at all.
+        // Rows are keyed per post so the count matches check_schema_data(),
+        // which also counts distinct posts.
+        $rows_by_post = [];
+        foreach ($this->aioseo_schema_candidate_rows() as $aioseo_data) {
+            $rows_by_post[(int) $aioseo_data->post_id] = $aioseo_data;
         }
 
-        // Get all posts with AIOSEO schema
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-        $posts = $wpdb->get_results("
-            SELECT post_id, schema_type, schema_type_options
-            FROM {$wpdb->prefix}aioseo_posts
-            WHERE (schema_type IS NOT NULL AND schema_type != '')
-            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-        ");
-
-        foreach ($posts as $aioseo_data) {
-            $post_id = $aioseo_data->post_id;
-
-            // Check if Metasync schema already exists
+        foreach ($rows_by_post as $post_id => $aioseo_data) {
             $existing_schema = get_post_meta($post_id, 'metasync_schema_markup', true);
-            if (!empty($existing_schema) && !empty($existing_schema['types'])) {
-                continue; // Skip if already has Metasync schema
+            if ($this->post_has_metasync_schema($post_id)) {
+                $breakdown['already_imported']++;
+                continue;
+            }
+
+            if ($this->aioseo_schema_source_is_supported($aioseo_data->schema_type, $aioseo_data->schema_type_options) === null) {
+                $breakdown['unsupported']++;
+                continue;
             }
 
             // Decode AIOSEO schema options
@@ -1422,15 +1901,25 @@ class Metasync_External_Importer
 
             if (!empty($metasync_schema['types'])) {
                 update_post_meta($post_id, 'metasync_schema_markup', wp_slash(array_merge(is_array($existing_schema) ? $existing_schema : [], $metasync_schema)));
-                $imported_count++;
+                $breakdown['imported']++;
+            } else {
+                $breakdown['unsupported']++;
             }
         }
 
-        return $imported_count;
+        $breakdown['total_candidates'] = count($rows_by_post);
+
+        return $breakdown;
     }
 
     /**
      * Convert Yoast schema to Metasync format
+     *
+     * Handles both storage shapes Yoast has used: the current `@graph`
+     * wrapper and the legacy root array of entries. Both are iterated through
+     * yoast_schema_graph_items(), which is also what the eligibility check
+     * walks — so a payload the detector counts is a payload the importer can
+     * convert.
      */
     private function convert_yoast_schema_to_metasync($yoast_schema, $post_id)
     {
@@ -1439,10 +1928,12 @@ class Metasync_External_Importer
             'types' => []
         ];
 
-        // Yoast stores schema as a graph array
-        if (isset($yoast_schema['@graph']) && is_array($yoast_schema['@graph'])) {
-            foreach ($yoast_schema['@graph'] as $item) {
-                if (!isset($item['@type'])) {
+        // Yoast stores schema as a graph array (legacy installs: a root array
+        // of entries, or a single root object, instead of an @graph wrapper).
+        $graph_items = $this->yoast_schema_graph_items($yoast_schema);
+        if ($graph_items !== []) {
+            foreach ($graph_items as $item) {
+                if (!is_array($item) || !isset($item['@type'])) {
                     continue;
                 }
 
@@ -1631,7 +2122,11 @@ class Metasync_External_Importer
             'types' => []
         ];
 
-        $type = strtolower($schema_type);
+        // Normalise through the shared map so the article family
+        // (NewsArticle, BlogPosting) imports the same way the Yoast and Rank
+        // Math converters handle it — eligibility resolves them to 'article'
+        // too, and the two must agree on every type they let through.
+        $type = $this->supported_schema_type($schema_type);
 
         if ($type === 'article') {
             $metasync_schema['types'][] = [
@@ -1644,7 +2139,7 @@ class Metasync_External_Importer
                     'organization_logo' => isset($schema_options['organizationLogo']) ? $schema_options['organizationLogo'] : ''
                 ]
             ];
-        } elseif ($type === 'faqpage') {
+        } elseif ($type === 'FAQPage') {
             $faq_items = [];
             if (isset($schema_options['questions']) && is_array($schema_options['questions'])) {
                 foreach ($schema_options['questions'] as $question) {

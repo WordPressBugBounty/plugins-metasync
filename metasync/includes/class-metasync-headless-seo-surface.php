@@ -1772,8 +1772,9 @@ class Metasync_Headless_Seo_Surface
     /**
      * SEO title: override -> OTTO -> imported -> Yoast -> the post title.
      *
-     * `_metasync_metatitle` sits between the sidebar value and OTTO because the
-     * importer and MCP write there; the same order Metasync_Plugin_Sync uses.
+     * `_metasync_otto_title` ranks above `_metasync_metatitle` to mirror the
+     * shared chain in Metasync_Seo_Precedence: staging is the fresh OTTO value,
+     * the persisted key can go stale when OTTO persistence is off.
      *
      * @param array   $meta Raw post meta.
      * @param WP_Post $post
@@ -1783,8 +1784,8 @@ class Metasync_Headless_Seo_Surface
     {
         $resolved = self::first($meta, array(
             '_metasync_seo_title',
-            '_metasync_metatitle',
             '_metasync_otto_title',
+            '_metasync_metatitle',
             '_metasync_imported_seo_title',
         ));
 
@@ -1806,8 +1807,8 @@ class Metasync_Headless_Seo_Surface
     {
         $resolved = self::first($meta, array(
             '_metasync_seo_desc',
-            '_metasync_metadesc',
             '_metasync_otto_description',
+            '_metasync_metadesc',
             '_metasync_imported_seo_desc',
         ));
 

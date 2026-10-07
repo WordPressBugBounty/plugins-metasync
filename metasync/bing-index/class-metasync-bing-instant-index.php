@@ -155,6 +155,7 @@ class Metasync_Bing_Instant_Index
 		status_header(200);
 		header('Content-Type: text/plain; charset=utf-8');
 		header('X-Robots-Tag: noindex');
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- plain-text endpoint (Content-Type: text/plain above); the raw value is the payload
 		echo $key;
 		exit;
 	}

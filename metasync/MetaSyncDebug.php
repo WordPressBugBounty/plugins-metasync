@@ -116,11 +116,11 @@ class WPConfigTransformerMetaSync
         $basename = basename($wpConfigPath);
 
         if (!file_exists($wpConfigPath)) {
-            throw new WPConfigFileNotFoundException("{$basename} does not exist.");
+            throw new WPConfigFileNotFoundException("{$basename} does not exist."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         if (!wp_is_writable($wpConfigPath)) {
-            throw new WPConfigFileNotWritableException("{$basename} is not writable.");
+            throw new WPConfigFileNotWritableException("{$basename} is not writable."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         $this->wpConfigPath = $wpConfigPath;
@@ -150,7 +150,7 @@ class WPConfigTransformerMetaSync
         $this->wpConfigs = $this->parseWpConfig($this->wpConfigSrc);
 
         if (!isset($this->wpConfigs[$type])) {
-            throw new WPConfigInvalidTypeException("Config type '{$type}' does not exist.");
+            throw new WPConfigInvalidTypeException("Config type '{$type}' does not exist."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         return isset($this->wpConfigs[$type][$name]);
@@ -356,7 +356,7 @@ class WPConfigTransformerMetaSync
         } elseif ('variable' === $type) {
             $placeholder = '$%s = %s;';
         } else {
-            throw new WPConfigNormalizationException("Unable to normalize config type '{$type}'.");
+            throw new WPConfigNormalizationException("Unable to normalize config type '{$type}'."); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         return sprintf($placeholder, $name, $value);

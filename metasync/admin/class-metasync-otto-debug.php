@@ -64,6 +64,23 @@ class Metasync_Otto_Debug {
     }
 
     /**
+     * Whether a URL's crawl pipeline has completed, per the bounded
+     * Metasync_Otto_Job_Status store. Replaces the legacy unbounded
+     * metasync_otto_crawldata option lookup: state history is pruned
+     * 48 hours after completion, so a URL finished longer ago reads as
+     * "not crawled" here without implying Otto never touched it.
+     */
+    private static function is_url_crawled($url) {
+        if (!class_exists('Metasync_Otto_Job_Status')) {
+            return false;
+        }
+        $entry = Metasync_Otto_Job_Status::get($url);
+        return is_array($entry)
+            && isset($entry['state'])
+            && $entry['state'] === Metasync_Otto_Job_Status::STATE_COMPLETED;
+    }
+
+    /**
      * Add debug menu (internal only - hidden on customer production sites)
      */
     public function add_debug_menu() {
@@ -103,7 +120,6 @@ class Metasync_Otto_Debug {
                 <?php $this->render_configuration_status(); ?>
                 <?php $this->render_notification_endpoint_status(); ?>
                 <?php $this->render_api_connectivity_status(); ?>
-                <?php $this->render_crawl_data_status(); ?>
                 <?php $this->render_processing_status(); ?>
                 <?php $this->render_debug_tools(); ?>
             </div>
@@ -243,12 +259,12 @@ class Metasync_Otto_Debug {
             
             <div class="debug-item info">
                 <strong>Current User:</strong>
-                <span class="debug-value"><?php echo esc_html($current_user->user_login); ?> (ID: <?php echo $current_user->ID; ?>)</span>
+                <span class="debug-value"><?php echo esc_html($current_user->user_login); ?> (ID: <?php echo (int) $current_user->ID; ?>)</span>
             </div>
             
             <div class="debug-item info">
                 <strong>User Roles:</strong>
-                <span class="debug-value"><?php echo implode(', ', $current_user->roles); ?></span>
+                <span class="debug-value"><?php echo esc_html(implode(', ', $current_user->roles)); ?></span>
             </div>
             
             <div class="debug-item success">
@@ -346,7 +362,7 @@ class Metasync_Otto_Debug {
             
             <div class="debug-item info">
                 <strong>Plugin Version:</strong>
-                <span class="debug-value"><?php echo defined('METASYNC_VERSION') ? METASYNC_VERSION : 'Unknown'; ?></span>
+                <span class="debug-value"><?php echo esc_html(defined('METASYNC_VERSION') ? METASYNC_VERSION : 'Unknown'); ?></span>
             </div>
         </div>
         <?php
@@ -450,62 +466,11 @@ class Metasync_Otto_Debug {
     }
     
     /**
-     * Render crawl data status
-     */
-    private function render_crawl_data_status() {
-        $crawl_data = get_option('metasync_otto_crawldata');
-        
-        ?>
-        <div class="debug-section">
-            <h3><span class="status-indicator <?php echo !empty($crawl_data) ? 'status-success' : 'status-warning'; ?>"></span>Crawl Data Status</h3>
-            
-            <div class="debug-item <?php echo !empty($crawl_data) ? 'success' : 'warning'; ?>">
-                <strong>Crawl Data Available:</strong>
-                <span class="debug-value"><?php echo !empty($crawl_data) ? 'Yes' : 'No'; ?></span>
-            </div>
-            
-            <?php if (!empty($crawl_data)): ?>
-            <div class="debug-item info">
-                <strong>Domain:</strong>
-                <span class="debug-value"><?php echo esc_html($crawl_data['domain'] ?? 'Not Set'); ?></span>
-            </div>
-            
-            <div class="debug-item info">
-                <strong>Total URLs Crawled:</strong>
-                <span class="debug-value"><?php echo count($crawl_data['urls'] ?? []); ?></span>
-            </div>
-            
-            <div class="debug-item info">
-                <strong>Last Updated:</strong>
-                <span class="debug-value"><?php echo $this->get_option_last_updated('metasync_otto_crawldata'); ?></span>
-            </div>
-            
-            <div class="debug-item info">
-                <strong>Sample URLs:</strong>
-                <div class="debug-value">
-                    <?php 
-                    $sample_urls = array_slice($crawl_data['urls'] ?? [], 0, 5);
-                    foreach ($sample_urls as $url) {
-                        echo esc_html($url) . '<br>';
-                    }
-                    if (count($crawl_data['urls'] ?? []) > 5) {
-                        echo '... and ' . (count($crawl_data['urls']) - 5) . ' more';
-                    }
-                    ?>
-                </div>
-            </div>
-            <?php endif; ?>
-        </div>
-        <?php
-    }
-    
-    /**
      * Render processing status
      */
     private function render_processing_status() {
         $current_url = $this->get_current_url();
-        $otto_pixel = new Metasync_otto_pixel(Metasync::get_option('general')['otto_pixel_uuid'] ?? '');
-        $is_crawled = $otto_pixel->is_url_crawled($current_url);
+        $is_crawled = self::is_url_crawled($current_url);
         $render_diagnostics = $this->get_render_strategy_diagnostics();
         
         ?>
@@ -529,17 +494,17 @@ class Metasync_Otto_Debug {
             
             <div class="debug-item info">
                 <strong>Page Type:</strong>
-                <span class="debug-value"><?php echo $this->get_page_type(); ?></span>
+                <span class="debug-value"><?php echo esc_html($this->get_page_type()); ?></span>
             </div>
             
             <div class="debug-item info">
                 <strong>Cache Status:</strong>
-                <span class="debug-value"><?php echo $this->get_cache_status(); ?></span>
+                <span class="debug-value"><?php echo esc_html($this->get_cache_status()); ?></span>
             </div>
             
             <div class="debug-item info">
                 <strong>Processing Method:</strong>
-                <span class="debug-value"><?php echo $this->get_processing_method(); ?></span>
+                <span class="debug-value"><?php echo esc_html($this->get_processing_method()); ?></span>
             </div>
             
             <?php if (!empty($render_diagnostics) && isset($render_diagnostics['available']) === false): ?>
@@ -650,27 +615,6 @@ class Metasync_Otto_Debug {
         ));
         
         return !is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200;
-    }
-    
-    /**
-     * Get option last updated time
-     */
-    private function get_option_last_updated($option_name) {
-        global $wpdb;
-        
-        $result = $wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- admin debug tool — scratch diagnostics storage outside any WordPress API
-            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s",
-            $option_name
-        ));
-        
-        if ($result) {
-            $data = maybe_unserialize($result);
-            if (isset($data['last_updated'])) {
-                return gmdate('Y-m-d H:i:s', $data['last_updated']);
-            }
-        }
-        
-        return 'Unknown';
     }
     
     /**
@@ -873,18 +817,21 @@ class Metasync_Otto_Debug {
      */
     public function ajax_clear_otto_cache() {
         check_ajax_referer('metasync_otto_debug', 'nonce');
-        
+
         if (!current_user_can('manage_options') || !self::is_debug_tools_enabled()) {
             wp_die('Unauthorized');
         }
-        
-        // Clear crawl data
+
+        // Clear the retired crawl-data option if an internal debug tool is
+        // ever re-enabled. This explicit action is harmless and preserves
+        // the old clear-cache contract; production never reaches this
+        // handler because debug tools are hard-disabled.
         delete_option('metasync_otto_crawldata');
-        
+
         // Clear any cached API responses
         $general_options = Metasync::get_option('general');
         $otto_uuid = $general_options['otto_pixel_uuid'] ?? '';
-        
+
         if (!empty($otto_uuid)) {
             delete_transient(Metasync_Heartbeat_Manager::public_hash_cache_key($otto_uuid));
         }
@@ -1086,25 +1033,25 @@ class Metasync_Otto_Debug {
      * Test crawl status for URL
      */
     private function test_crawl_status($url) {
-        if (class_exists('Metasync_otto_pixel')) {
-            $otto_pixel = new Metasync_otto_pixel(false);
-            $is_crawled = $otto_pixel->is_url_crawled($url);
-            
-            // Get crawl data from options
-            $crawl_data = get_option('metasync_otto_crawldata');
-            
+        if (class_exists('Metasync_Otto_Job_Status')) {
+            $entry = Metasync_Otto_Job_Status::get($url);
+            $is_crawled = is_array($entry)
+                && isset($entry['state'])
+                && $entry['state'] === Metasync_Otto_Job_Status::STATE_COMPLETED;
+
             return array(
                 'status' => 'success',
                 'is_crawled' => $is_crawled,
-                'crawl_data' => $crawl_data,
-                'total_crawled_urls' => count($crawl_data['urls'] ?? array()),
-                'domain' => $crawl_data['domain'] ?? 'Not set'
+                'job_state' => is_array($entry) && isset($entry['state']) ? $entry['state'] : 'unknown',
+                'job_stage' => is_array($entry) && isset($entry['stage']) ? $entry['stage'] : '',
+                'job_attempts' => is_array($entry) && isset($entry['attempts']) ? (int) $entry['attempts'] : 0,
+                'job_updated' => is_array($entry) && isset($entry['updated']) ? $entry['updated'] : null
             );
         }
-        
+
         return array(
             'status' => 'error',
-            'message' => Metasync::get_whitelabel_otto_name() . ' pixel class not available'
+            'message' => Metasync::get_whitelabel_otto_name() . ' job status class not available'
         );
     }
     

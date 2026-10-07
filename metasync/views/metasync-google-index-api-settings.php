@@ -15,21 +15,6 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-/**
- * Whether this section is rendered outside any settings form.
- *
- * On General Settings and Indexation Control the section sits inside
- * #metaSyncGeneralSetting / #metaSyncSeoControlsForm, whose own save button
- * posts these fields along with everything else. The standalone Instant
- * Indexing page has no such form — its only button ("Save Post Types") posts
- * metasync_post_types and ignores the credentials entirely — so a service
- * account pasted or uploaded there could never be saved. In that context we
- * render a dedicated Save button wired to its own AJAX endpoint.
- *
- * Callers opt in by setting $google_index_standalone before the include.
- */
-$google_index_standalone = !empty($google_index_standalone);
-
 ?>
 
 <div style="padding: 20px;">
@@ -132,40 +117,7 @@ $google_index_standalone = !empty($google_index_standalone);
     </table>
 
     <!-- Action Buttons and Test Results -->
-    <?php if ($google_index_standalone): ?>
-        <!--
-            Standalone Instant Indexing page only. The embedded contexts are
-            saved by their own form's save button, so adding a second one there
-            would give the page two competing save paths.
-        -->
-        <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #ddd;">
-            <?php wp_nonce_field('metasync_google_index_account', 'metasync_google_index_account_nonce'); ?>
-            <button type="button"
-                    id="google-index-save-config"
-                    class="button button-primary">
-                <span class="dashicons dashicons-yes" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Save Configuration
-            </button>
-
-            <?php if ($is_configured): ?>
-                <button type="button"
-                        id="google-index-test-connection"
-                        class="button button-secondary"
-                        style="margin-left: 10px;">
-                    <span class="dashicons dashicons-yes" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Test Connection
-                </button>
-
-                <button type="button"
-                        id="google-index-clear-config"
-                        class="button button-link-delete"
-                        style="margin-left: 10px;">
-                    <span class="dashicons dashicons-trash" style="margin-top:3px;font-size:15px;width:15px;height:15px;"></span> Clear Configuration
-                </button>
-            <?php endif; ?>
-
-            <div id="google-index-save-messages" style="margin-top: 15px;"></div>
-            <div id="google-index-test-results" style="margin-top: 15px;"></div>
-        </div>
-    <?php elseif ($is_configured): ?>
+    <?php if ($is_configured): ?>
         <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #ddd;">
             <button type="button"
                     id="google-index-test-connection"

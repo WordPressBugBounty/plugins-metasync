@@ -105,12 +105,25 @@ jQuery(document).ready(function ($) {
 				plugin: plugin
 			},
 			success: function (response) {
+				var data = (response && response.data) ? response.data : {};
+				var message = data.message || 'Import failed.';
+
 				if (response.success) {
 					btn.addClass('success').text('\u2713 Imported');
-					resultDiv.addClass('success').text(response.data.message).slideDown();
+					resultDiv.addClass('success');
+					renderImportResult(resultDiv, data, message);
+					resultDiv.slideDown();
+				} else if (type === 'schema' && data.breakdown && hasCandidates(data.breakdown)) {
+					// Nothing new was written, but the run did look at real
+					// source records: already-migrated and unsupported counts
+					// are information, not an error to retry.
+					btn.addClass('success').text('\u2713 Checked');
+					resultDiv.addClass('success');
+					renderImportResult(resultDiv, data, message);
+					resultDiv.slideDown();
 				} else {
 					btn.prop('disabled', false).text('Import ' + type.charAt(0).toUpperCase() + type.slice(1));
-					resultDiv.addClass('error').text(response.data.message || 'Import failed.').slideDown();
+					resultDiv.addClass('error').text(message).slideDown();
 				}
 			},
 			error: function () {
@@ -118,6 +131,59 @@ jQuery(document).ready(function ($) {
 				resultDiv.addClass('error').text('Network error. Please try again.').slideDown();
 			}
 		});
+	}
+
+	/**
+	 * Whether a schema-import breakdown refers to real source records.
+	 *
+	 * A zero-candidate run means no source schema was ever detected \u2014 that
+	 * stays a plain error. Anything else is an accurate report about records
+	 * that do exist.
+	 */
+	function hasCandidates(breakdown) {
+		return (parseInt(breakdown.total_candidates, 10) || 0) > 0;
+	}
+
+	/**
+	 * Render an import result with its per-category breakdown.
+	 *
+	 * The message line already summarises the outcome; the breakdown lines
+	 * spell out imported / skipped (already had MetaSync schema) / unsupported,
+	 * each only when that category is non-zero so a plain import stays a plain
+	 * one-line result.
+	 */
+	function renderImportResult(resultDiv, data, message) {
+		resultDiv.empty();
+
+		resultDiv.append($('<div>').text(message));
+
+		var breakdown = data.breakdown;
+		if (!breakdown) {
+			return;
+		}
+
+		var imported = parseInt(breakdown.imported, 10) || 0;
+		var alreadyImported = parseInt(breakdown.already_imported, 10) || 0;
+		var unsupported = parseInt(breakdown.unsupported, 10) || 0;
+
+		if (alreadyImported > 0) {
+			resultDiv.append(
+				$('<div>').css('margin-top', '6px')
+					.text('\u2022 ' + alreadyImported + ' post(s) already had MetaSync schema and were skipped.')
+			);
+		}
+		if (unsupported > 0) {
+			resultDiv.append(
+				$('<div>').css('margin-top', '6px')
+					.text('\u2022 ' + unsupported + ' post(s) had unsupported or empty schema settings.')
+			);
+		}
+		if (imported > 0) {
+			resultDiv.append(
+				$('<div>').css('margin-top', '6px')
+					.text('\u2022 ' + imported + ' post(s) imported.')
+			);
+		}
 	}
 
 	// Perform batched indexation import with progress tracking

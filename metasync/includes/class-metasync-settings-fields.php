@@ -54,6 +54,14 @@ class Metasync_Settings_Fields {
         require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-seo-sync-settings.php';
 
         $sections = array(
+            'analytics' => array(
+                'title' => 'Usage Data & Product Improvement',
+                'description' => 'Choose whether to share limited usage data to help improve MetaSync',
+                'icon' => 'chart-bar',
+                'priority' => 70,
+                'default_open' => false,
+                'render_callback' => array($this, 'render_analytics_section'),
+            ),
             'connection' => array(
                 'title' => 'Connection & Authentication',
                 'description' => 'Manage your API connection and authentication settings',
@@ -76,9 +84,6 @@ class Metasync_Settings_Fields {
                     'otto_disable_on_loggedin',
                     'otto_disable_preview_button',
                     'seo_priority',
-                    'otto_wp_rocket_compat',
-                    'otto_sg_optimizer_compat',
-                    'bookingpress_session_compat',
                 )
             ),
             'edge_cache' => array(
@@ -341,14 +346,13 @@ class Metasync_Settings_Fields {
                 <p style="color: var(--dashboard-text-secondary); margin: 0 0 12px 0;">This action will permanently delete:</p>
                 <ul style="color: var(--dashboard-text-secondary); margin: 0 0 12px 20px; line-height: 1.8;">
                     <li>All API keys and authentication tokens</li>
-                    <li>White label branding settings</li>
                     <li>Plugin configuration and preferences</li>
                     <li>Instant indexing settings</li>
                     <li>Media optimization settings and cache</li>
                     <li>Code minification settings</li>
                     <li>All cached data and crawl information</li>
                 </ul>
-                <p style="color: var(--dashboard-warning, #f59e0b); margin: 0; font-weight: 600;">You will need to reconfigure the plugin completely after this reset.</p>
+                <p style="color: var(--dashboard-warning, #f59e0b); margin: 0; font-weight: 600;">You will need to reconfigure the plugin's operational settings after this reset.</p>
             </div>
             <form method="post" action="" onsubmit="return confirmClearSettings(event)">
                 <?php wp_nonce_field('metasync_clear_all_settings_nonce', 'clear_all_settings_nonce'); ?>
@@ -390,7 +394,7 @@ class Metasync_Settings_Fields {
                 return false;
             }
 
-            var secondConfirm = confirm("🚨 FINAL WARNING 🚨\n\nThis will delete:\n• All API keys and authentication tokens\n• White label branding settings\n• Plugin configuration and preferences\n• Instant indexing settings\n• Media optimization settings and cache\n• Code minification settings\n• All cached data\n\nYou will need to reconfigure the entire plugin from scratch.\n\nType 'DELETE' in the next prompt to confirm.");
+            var secondConfirm = confirm("🚨 FINAL WARNING 🚨\n\nThis will delete:\n• All API keys and authentication tokens\n• Plugin configuration and preferences\n• Instant indexing settings\n• Media optimization settings and cache\n• Code minification settings\n• All cached data\n\nYou will need to reconfigure the plugin's operational settings from scratch.\n\nType 'DELETE' in the next prompt to confirm.");
             if (!secondConfirm) {
                 return false;
             }
@@ -1131,7 +1135,7 @@ class Metasync_Settings_Fields {
             'otto_pixel_uuid' => sprintf('Your unique %s tracking pixel identifier. This UUID is used to track %s modifications and analytics on your website pages.', $otto_name, $otto_name),
             'otto_disable_on_loggedin' => sprintf('Disable %s modifications when you are logged in to WordPress. This allows you to see and edit the original content without %s\'s enhancements during editing sessions.', $otto_name, $otto_name),
             'otto_disable_preview_button' => sprintf('Hide the %s frontend toolbar that displays the status indicator, preview button, and debug button. Enable this for a cleaner frontend experience.', $otto_name),
-            'seo_priority' => sprintf('Choose which value appears first on a page when both your custom SEO value and an approved %s suggestion are available. This changes what visitors see; it does not delete or overwrite saved values.', $otto_name),
+            'seo_priority' => sprintf('Choose which value appears first on a page when both your custom SEO value (title, description or focus keyword, edited on the post/page screen) and an approved %s suggestion are available. This changes what visitors see; it does not delete or overwrite saved values.', $otto_name),
             'otto_wp_rocket_compat' => sprintf('WP Rocket Compatibility Mode: Controls how %s interacts with WP Rocket. "Auto" (recommended) allows both to work together by avoiding DONOTCACHEPAGE constant unless necessary for Brizy pages or SG Optimizer conflicts. This ensures WP Rocket\'s JavaScript delay and optimization features continue working.', $otto_name),
             'otto_sg_optimizer_compat' => sprintf('SiteGround Optimizer Compatibility Mode: Controls how %s renders on SiteGround hosting. "Auto" (recommended) uses the internal HTTP fetch, which protects themes that defer inline CSS to the footer (e.g. Divi). "Buffer Mode" renders in-process with no internal fetch — faster on sites whose pages can never be host-cached, for example when a plugin starts a PHP session on every request (BookingPress sessions are removed automatically, so this does not apply to them).', $otto_name),
             'bookingpress_session_compat' => 'BookingPress Session Compatibility: Controls whether MetaSync removes the PHP session BookingPress starts on every public page, so hosts such as SiteGround can page-cache the site again.',
@@ -1162,6 +1166,33 @@ class Metasync_Settings_Fields {
             'article_tags' => 'Adds each of your WordPress post tags as a separate social "tag" so platforms understand the topics a post covers. Turn off if you don\'t want your tags exposed in share metadata.',
             'twitter_image_alt' => 'Adds descriptive alt text to the image shown when your page is shared on X/Twitter, improving accessibility for screen-reader users. Uses your saved alt text or the image\'s own alt attribute.'
         );
+    }
+
+    public function render_analytics_section() {
+        $enabled = get_option('metasync_analytics_opt_in', 'no') === 'yes';
+        $plugin_name = Metasync::get_effective_plugin_name();
+        /* translators: %s: Plugin name. */
+        $heading = sprintf(__('Help improve %s', 'metasync'), $plugin_name);
+        /* translators: %s: Plugin name. */
+        $intro = sprintf(__('Allow %s to collect limited usage analytics. This helps us understand which features are used, improve the product, and identify problems.', 'metasync'), $plugin_name);
+        /* translators: %s: Plugin name. */
+        $toggle_label = sprintf(__('Share usage data with %s', 'metasync'), $plugin_name);
+        ?>
+        <div class="metasync-analytics-consent-card">
+            <div class="metasync-analytics-consent-copy">
+                <h3><?php echo esc_html($heading); ?></h3>
+                <p><?php echo esc_html($intro); ?></p>
+                <p class="description"><?php esc_html_e('We collect limited technical information such as your site URL, plugin version, WordPress and PHP versions, user role, and feature usage. We do not collect passwords, API keys, customer content, names, or email addresses.', 'metasync'); ?></p>
+            </div>
+            <label class="metasync-consent-switch" for="metasync_analytics_opt_in">
+                <input type="hidden" name="metasync_analytics_opt_in" value="no" />
+                <input type="checkbox" id="metasync_analytics_opt_in" name="metasync_analytics_opt_in" value="yes" <?php checked($enabled); ?> />
+                <span class="metasync-consent-slider" aria-hidden="true"></span>
+                <span class="screen-reader-text"><?php echo esc_html($toggle_label); ?></span>
+            </label>
+            <span class="metasync-consent-status" aria-live="polite" data-enabled-label="<?php esc_attr_e('Enabled', 'metasync'); ?>" data-disabled-label="<?php esc_attr_e('Off', 'metasync'); ?>"><?php echo $enabled ? esc_html__('Enabled', 'metasync') : esc_html__('Off', 'metasync'); ?></span>
+        </div>
+        <?php
     }
 
     public function get_field_section($field_id) {
@@ -1540,6 +1571,9 @@ class Metasync_Settings_Fields {
         printf('</p>');
 
         printf('</div>');
+
+        // The OTTO Pixel UUID is shown once, by the read-only Settings-API
+        // field in the OTTO Server-Side Rendering section; do not repeat it here.
 
         if(  isset(Metasync::get_option('general')['searchatlas_api_key'])&&Metasync::get_option('general')['searchatlas_api_key']!=''){
             $timestamp = @Metasync::get_option('general')['send_auth_token_timestamp'];

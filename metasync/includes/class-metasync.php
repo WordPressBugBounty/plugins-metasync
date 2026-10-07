@@ -298,6 +298,15 @@ class Metasync
 		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-seo-suite.php';
 		new Metasync_Seo_Suite();
 
+		// Classic-editor save path for the three fields that exist only as
+		// Gutenberg sidebar (REST) meta otherwise: breadcrumb title, language
+		// alternates, primary category. The Suite renders the first two and
+		// emits the nonce; this handler persists them from the classic form.
+		// It guards itself against block-editor and managed-page context, so
+		// it is safe to register unconditionally.
+		require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-metasync-classic-seo-fields.php';
+		new Metasync_Classic_Seo_Fields();
+
 		// SEO Health CSV export: must run on admin_init (before output).
 		// Cheap $_GET check avoids loading the class on every admin page.
 		if (
@@ -342,11 +351,6 @@ class Metasync
 		}
 		if (class_exists('Metasync_Breadcrumbs_Schema')) {
 			new Metasync_Breadcrumbs_Schema($this->get_plugin_name(), $this->get_version());
-		}
-
-		// Initialize Developer Panel (for endpoint switching)
-		if (class_exists('Metasync_Dev_Panel')) {
-			$dev_panel = new Metasync_Dev_Panel($this->get_plugin_name(), $this->get_version());
 		}
 
 		// Initialize Site Health integration
@@ -569,6 +573,18 @@ class Metasync
 		if ( ! get_option( 'metasync_sitemap_bb_exclusion_applied' ) ) {
 			$this->loader->add_action('init', $this, 'maybe_regenerate_sitemap_after_upgrade');
 		}
+
+		// One-time upgrade: delete the legacy Otto crawl-data option. Nothing
+		// reads or writes it anymore (the webhook and SEO sync job stopped
+		// persisting crawl data), and on sites where OTTO crawled many URLs
+		// the row could grow to megabytes while being autoloaded on every
+		// request before WordPress 6.6. The guard below runs on every request,
+		// so the flag must be autoloaded (like the sitemap flag above): a
+		// boolean true costs ~2 bytes inside the alloptions query WordPress
+		// already always runs, keeping the steady-state cost a cache hit.
+		if ( ! get_option( 'metasync_otto_crawldata_removed' ) ) {
+			$this->loader->add_action('init', $this, 'maybe_delete_legacy_otto_crawl_data');
+		}
 	}
 
 	/**
@@ -597,6 +613,38 @@ class Metasync
 		}
 		// If sitemap is not in use, don't set the flag — retry on next load
 		// so that enabling sitemaps later will still clean up BB templates.
+	}
+
+	/**
+	 * One-time upgrade routine: delete the legacy Otto crawl-data option.
+	 *
+	 * The option stored every URL Otto ever sent and grew without bound;
+	 * nothing writes it anymore and nothing in production reads it (per-URL
+	 * state lives in Metasync_Otto_Job_Status, delivery receipts in
+	 * Metasync_Otto_Webhook_Audit, both bounded). This drops the leftover
+	 * row — which on long-running sites can be megabytes of autoloaded data.
+	 *
+	 * Runs once on 'init' and sets a flag so it never runs again. The flag
+	 * is autoloaded deliberately: the registration guard reads it on every
+	 * request, and an autoloaded boolean is a free cache hit inside the
+	 * alloptions query WordPress always performs — a non-autoloaded flag
+	 * would cost a dedicated SELECT per request forever, the exact waste
+	 * this routine exists to remove. delete_option() is called directly
+	 * without reading the option first: loading a multi-megabyte value into
+	 * memory just to delete it would be the one way this cleanup could hurt
+	 * a site, and the SQL DELETE never needs the value.
+	 */
+	public function maybe_delete_legacy_otto_crawl_data() {
+		$done_key = 'metasync_otto_crawldata_removed';
+		if ( get_option( $done_key ) ) {
+			return;
+		}
+
+		// No "feature in use" conditional here, unlike the sitemap routine:
+		// the row is dead weight whether or not Otto is configured, and
+		// delete_option() on an absent row is a cheap no-op.
+		delete_option( 'metasync_otto_crawldata' );
+		update_option( $done_key, true );
 	}
 
 	/**
@@ -901,6 +949,50 @@ class Metasync
 	public static function is_encrypted_api_key($value)
 	{
 		return is_string($value) && strncmp($value, self::API_KEY_ENC_PREFIX, strlen(self::API_KEY_ENC_PREFIX)) === 0;
+	}
+
+	/**
+	 * Whether a value is a strictly valid UUID (versions 1-8).
+	 *
+	 * The single shared validator for every write path that persists
+	 * `general.otto_pixel_uuid` (SSO push callback, pull-based connect,
+	 * heartbeat writes, settings sanitizer). The OTTO Pixel UUID must never
+	 * hold arbitrary text — usernames such as `raza.imran` landing in it
+	 * break OTTO SSR authentication — so every write path funnels through
+	 * this check instead of a scattered one-off regex.
+	 *
+	 * Deliberately stricter than wp_is_uuid(), which only checks the
+	 * 8-4-4-4-12 hex shape and would accept placeholder values such as
+	 * `11111111-2222-3333-4444-555555555555`. The version nibble (first hex
+	 * of the third group) must be 1-8 — RFC 4122 defined 1-5 and RFC 9562
+	 * added 6/7/8, which modern generators increasingly emit — and the
+	 * variant nibble (first hex of the fourth group) must be 8/9/a/b. That
+	 * keeps behaviour identical with and without the WP helper loaded (unit
+	 * tests run without it).
+	 *
+	 * An empty string is NOT valid: clearing the field is a separate concern
+	 * owned by the disconnect flow (unset + write_options_without_stored_merge),
+	 * so '' must not masquerade as a usable UUID here.
+	 *
+	 * @param mixed $value
+	 * @return bool True only for a canonical 8-4-4-4-12 hex UUID of version 1-8
+	 *              with an RFC-4122 variant (8/9/a/b) in the fourth group.
+	 */
+	public static function is_valid_uuid($value)
+	{
+		if (!is_string($value)) {
+			return false;
+		}
+
+		$value = trim($value);
+		if ($value === '') {
+			return false;
+		}
+
+		return (bool) preg_match(
+			'/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
+			$value
+		);
 	}
 
 	/**
@@ -1495,6 +1587,7 @@ class Metasync
 	 */
 	public static function render_tooltip_icon($tooltip_id, $text)
 	{
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- get_tooltip_icon_html() escapes every interpolated value internally (esc_attr / esc_html)
 		echo self::get_tooltip_icon_html($tooltip_id, $text);
 	}
 

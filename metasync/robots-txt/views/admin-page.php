@@ -122,25 +122,6 @@ $robots_url = trailingslashit($site_url) . 'robots.txt';
         </div>
 
         <div class="metasync-robots-txt-sidebar">
-            <div class="metasync-card">
-                <div class="metasync-card-header">
-                    <h3><?php esc_html_e('Backup History', 'metasync'); ?></h3>
-                </div>
-
-                <?php
-                // Backup History is paginated so the list always reflects the
-                // full stored state (and its true total), rather than a fixed
-                // slice that makes deleted entries appear to "reappear".
-                $robots_txt         = Metasync_Robots_Txt::get_instance();
-                $backup_per_page    = Metasync_Robots_Txt_Database::BACKUPS_PER_PAGE;
-                $backup_total       = $robots_txt->get_backup_count();
-                $backup_total_pages = max(1, (int) ceil($backup_total / $backup_per_page));
-                $backup_page        = 1;
-                // $backups already holds the first page (from the controller).
-                require __DIR__ . '/backup-history.php';
-                ?>
-            </div>
-
             <div class="metasync-card metasync-warnings-card">
                 <div class="metasync-card-header">
                     <h3><?php esc_html_e('Important Notes', 'metasync'); ?></h3>
@@ -159,6 +140,25 @@ $robots_url = trailingslashit($site_url) . 'robots.txt';
                         <?php esc_html_e('Some hosting providers may override robots.txt files. Check with your host if changes don\'t work.', 'metasync'); ?>
                     </li>
                 </ul>
+            </div>
+
+            <div class="metasync-card">
+                <div class="metasync-card-header">
+                    <h3><?php esc_html_e('Backup History', 'metasync'); ?></h3>
+                </div>
+
+                <?php
+                // Backup History is paginated so the list always reflects the
+                // full stored state (and its true total), rather than a fixed
+                // slice that makes deleted entries appear to "reappear".
+                $robots_txt         = Metasync_Robots_Txt::get_instance();
+                $backup_per_page    = Metasync_Robots_Txt_Database::BACKUPS_PER_PAGE;
+                $backup_total       = $robots_txt->get_backup_count();
+                $backup_total_pages = max(1, (int) ceil($backup_total / $backup_per_page));
+                $backup_page        = 1;
+                // $backups already holds the first page (from the controller).
+                require __DIR__ . '/backup-history.php';
+                ?>
             </div>
         </div>
     </div>

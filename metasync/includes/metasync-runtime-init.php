@@ -21,12 +21,16 @@ if (!defined('WPINC')) {
  * Only loads after WordPress, plugins, and themes are fully loaded
  */
 function metasync_init_analytics() {
-	// Only initialize in admin area (excludes AJAX and REST API requests)
+	// Initialize the consent-gated PostHog dispatcher in every request context
+	// so REST, MCP, cron, and admin events share one central gate.
+	Metasync_PostHog::get_instance();
+
+	// GA4's browser integration remains limited to MetaSync admin screens.
 	if (is_admin() && !wp_doing_ajax() && !defined('REST_REQUEST')) {
 		Metasync_GA4::get_instance();
 	}
 }
-add_action('admin_init', 'metasync_init_analytics', 10);
+add_action('init', 'metasync_init_analytics', 1);
 
 /**
  * Initialize API Backoff System
@@ -62,6 +66,21 @@ function metasync_init_review_notice() {
 	}
 }
 add_action('init', 'metasync_init_review_notice');
+
+/**
+ * Initialize Analytics Consent Notice
+ * Asks existing installs to opt in to usage analytics; re-shows every
+ * 10 days while consent stays off.
+ */
+function metasync_init_analytics_consent_notice() {
+	if (metasync_is_non_metasync_admin_ajax()) {
+		return;
+	}
+	if (is_admin()) {
+		Metasync_Analytics_Consent_Notice::get_instance();
+	}
+}
+add_action('init', 'metasync_init_analytics_consent_notice');
 
 /**
  * Initialize Host Blocking Check

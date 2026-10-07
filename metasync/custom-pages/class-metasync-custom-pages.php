@@ -261,7 +261,7 @@ class Metasync_Custom_Pages
                               rows="20"
                               style="font-family: Consolas, Monaco, monospace; width: 100%;"><?php 
                               // Output HTML content - don't use esc_textarea as it might break large HTML
-                              echo htmlspecialchars($html_content, ENT_QUOTES, 'UTF-8'); 
+                              echo htmlspecialchars($html_content, ENT_QUOTES, 'UTF-8'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- htmlspecialchars(ENT_QUOTES) is the escaping call (esc_textarea equivalent for large HTML)
                     ?></textarea>
                 </div>
 

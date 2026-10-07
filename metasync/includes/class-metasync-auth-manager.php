@@ -446,7 +446,13 @@ class Metasync_Auth_Manager {
      * @return bool True if user has access, false otherwise
      */
     public static function user_has_access($user_id, $context = 'default') {
+        $user_id = absint($user_id);
+        if (!$user_id) {
+            return false;
+        }
+
         $auth = new self($context);
+        $auth->user_id = $user_id;
         return $auth->has_access();
     }
 }

@@ -203,6 +203,132 @@
 	}
 
 	/**
+	 * White-label branding fields that are mirrored into the metasync.php
+	 * plugin header. Keyed by the form input name.
+	 */
+	var brandingFieldConfigs = {
+		'metasync_options[general][white_label_plugin_name]': { label: 'Plugin Name', url: false },
+		'metasync_options[general][white_label_plugin_description]': { label: 'Plugin Description', url: false },
+		'metasync_options[general][white_label_plugin_author]': { label: 'Author', url: false },
+		'metasync_options[general][white_label_plugin_author_uri]': { label: 'Author URL', url: true },
+		'metasync_options[general][white_label_plugin_uri]': { label: 'Plugin URL', url: true }
+	};
+
+	/**
+	 * Client-side mirror of the server-side plugin-header contract for the
+	 * white-label branding fields, for immediate feedback while typing or
+	 * submitting. The server-side validation stays authoritative.
+	 *
+	 * @param {string} value Trimmed field value.
+	 * @param {boolean} isUrl Whether the value must be an http(s) URL.
+	 * @returns {string} Empty when valid, otherwise the problem description.
+	 */
+	function validateBrandingValue(value, isUrl) {
+		if (value === '') {
+			return '';
+		}
+		if (/[\r\n]/.test(value)) {
+			return 'must be a single line';
+		}
+		if (value.indexOf('*/') !== -1) {
+			return 'must not contain "*/"';
+		}
+		if (/<\?php|\?>/i.test(value)) {
+			return 'must not contain PHP tags';
+		}
+		// Control characters, line/paragraph separators, and invisible format
+		// characters (including the bidirectional marks used for brand spoofing).
+		// Unicode property escapes cover exactly the ranges the server checks
+		// (Cc, Cf, Zl, Zp) without literal control-character sequences.
+		try {
+			if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(value)) {
+				return 'must not contain control or invisible characters';
+			}
+		} catch (e) {
+			// Very old engines without Unicode property escapes: fall through,
+			// the server-side check remains authoritative.
+		}
+		// Mirror of the server allow-list: letters (incl. Unicode), marks,
+		// numbers, punctuation, symbols and space separators (incl. NBSP and
+		// the ideographic space, which the server-side contract accepts).
+		try {
+			if (!/^[\p{L}\p{M}\p{N}\p{P}\p{S}\p{Zs}]+$/u.test(value)) {
+				return 'contains characters that are not allowed';
+			}
+		} catch (e) {
+			// Very old engines without Unicode property escapes: fall through,
+			// the server-side check remains authoritative.
+		}
+		if (isUrl) {
+			var parsed;
+			try {
+				parsed = new URL(value);
+			} catch (e) {
+				return 'must be a valid http:// or https:// address';
+			}
+			if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+				return 'must be a valid http:// or https:// address';
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * Remove all inline white-label branding field errors.
+	 */
+	function clearBrandingFieldErrors() {
+		$('.metasync-branding-field-error').remove();
+	}
+
+	/**
+	 * Show an inline error beside a branding input. Accepts either the full
+	 * input name or the bare setting key (as returned by the server).
+	 *
+	 * @param {string} fieldKey Input name or white-label setting key.
+	 * @param {string} message Error message to display.
+	 */
+	function showBrandingFieldError(fieldKey, message) {
+		var inputName = brandingFieldConfigs[fieldKey]
+			? fieldKey
+			: 'metasync_options[general][' + fieldKey + ']';
+		var input = $('input[name="' + inputName + '"]');
+		if (input.length === 0) {
+			return;
+		}
+		input.last().after(
+			$('<p>').addClass('description metasync-branding-field-error')
+				.css({ color: 'var(--dashboard-error, #b32d2e)', fontWeight: 600, marginTop: '4px' })
+				.text(message)
+		);
+	}
+
+	/**
+	 * Validate every branding input currently in the DOM (both save paths —
+	 * the form submit handler and the floating "Save Now" button — call this).
+	 * Renders the inline per-field errors and returns the message list.
+	 *
+	 * @returns {string[]} Error messages; empty when everything is valid.
+	 */
+	function validateBrandingFieldsInDom() {
+		clearBrandingFieldErrors();
+		var problems = [];
+		Object.keys(brandingFieldConfigs).forEach(function (inputName) {
+			var config = brandingFieldConfigs[inputName];
+			var input = $('input[name="' + inputName + '"]');
+			if (input.length === 0) {
+				return;
+			}
+			var problem = validateBrandingValue(String(input.val() || '').trim(), config.url);
+			if (problem) {
+				var fullMessage = config.label + ' ' + problem + '.';
+				showBrandingFieldError(inputName, fullMessage);
+				problems.push(fullMessage);
+			}
+		});
+		return problems;
+	}
+
+	/**
 	 * Display notice message in plugin area
 	 * @param {string} type - Notice type: 'success' or 'error'
 	 * @param {string} title - Notice title
@@ -1650,7 +1776,21 @@
 		}
 	}
 
+	function updateAnalyticsConsentStatus() {
+		var $toggle = $('#metasync_analytics_opt_in');
+		var $status = $('.metasync-consent-status');
+		if (!$toggle.length || !$status.length) {
+			return;
+		}
+
+		var label = $toggle.is(':checked') ? $status.data('enabled-label') : $status.data('disabled-label');
+		$status.text(label);
+	}
+
+	$(document).on('change', '#metasync_analytics_opt_in', updateAnalyticsConsentStatus);
+
 	$(function () {
+		updateAnalyticsConsentStatus();
 		$('#addNewTime').on('click', function () {
 			$('#daysTime').append(
 				'<li>' +
@@ -1698,27 +1838,6 @@
 			return;
 		});
 		$(document).on('click', '#number-delete', deleteNumber);
-	});
-
-	function deleteSourceUrl() {
-		$(this).parent().remove();
-	}
-	$(function () {
-		$('#addNewSourceUrl').on('click', function () {
-			$('#source_urls').append(
-				'<li>' +
-				'<input type="text" class="regular-text" name="source_url[]">' +
-				'<select name="search_type[]">' +
-				'<option value="exact">Exact</option>' +
-				'<option value="contain">Contain</option>' +
-				'<option value="start">Start With</option>' +
-				'<option value="end">End With</option>' +
-				'</select>' +
-				'<button id="source_url_delete">Remove</button>' +
-				'</li>');
-			return;
-		});
-		$(document).on('click', '#source_url_delete', deleteSourceUrl);
 	});
 
 	$(function () {
@@ -2293,6 +2412,25 @@
 			}
 			
 			e.preventDefault(); // Prevent the default form submission for regular settings
+
+			// Immediate client-side validation of the white-label branding
+			// fields (the server-side contract stays authoritative): block the
+			// submit and show an error beside each invalid field instead of
+			// letting an invalid value reach the server and get rejected there.
+			var brandingValidationErrors = validateBrandingFieldsInDom();
+			if (brandingValidationErrors.length > 0) {
+				var $brandingErrorNotice = $('<div>').addClass('notice notice-error metasync-error-wrap');
+				var $brandingErrorList = $('<ul>');
+				brandingValidationErrors.forEach(function (errorMessage) {
+					$brandingErrorList.append($('<li>').text(errorMessage));
+				});
+				$brandingErrorNotice.append($brandingErrorList);
+				$('.metasync-error-wrap').remove();
+				$('#metaSyncGeneralSetting').before($brandingErrorNotice);
+				$('html, body').animate({ scrollTop: 0 }, 'slow');
+				return;
+			}
+
 			var actionField = $(this).find('input[name="action"]');
 			var optionPage= $(this).find('input[name="option_page"]');
 			var wpHttpReferer= $(this).find('input[name="_wp_http_referer"]');
@@ -2370,10 +2508,11 @@
 					}else {
 						// Handle error response
 						const errors = response.data?.errors || [];
+						const fieldErrors = response.data?.field_errors || {};
 
 						// Build error notice using DOM methods to avoid XSS
 						var $errorNotice = $('<div>').addClass('notice notice-error metasync-error-wrap');
-						if (Array.isArray(errors)) {
+						if (Array.isArray(errors) && errors.length > 0) {
 							var $ul = $('<ul>');
 							errors.forEach(function (err) {
 								$ul.append($('<li>').text(err));
@@ -2386,6 +2525,13 @@
 
 						// Insert the error message before the form
 						$('#metaSyncGeneralSetting').before($errorNotice);
+
+						// Field-specific feedback: show the server's per-field
+						// error beside each rejected white-label branding input.
+						clearBrandingFieldErrors();
+						Object.keys(fieldErrors).forEach(function (settingKey) {
+							showBrandingFieldError(settingKey, fieldErrors[settingKey]);
+						});
 
 						// Scroll to the top to ensure visibility
 						$('html, body').animate({ scrollTop: 0 }, 'slow');
@@ -2625,15 +2771,45 @@
 		// Save Changes function - use AJAX instead of form submission
 		window.saveChanges = function () {
 			isSaving = true;
-			
-			// Completely remove the floating notification immediately when clicked
+
+			var $form = $('#metaSyncGeneralSetting');
+			if ($form.length > 0) {
+				// Immediate client-side validation of the white-label branding
+				// fields — the floating save bypasses the form submit handler,
+				// so the same contract is enforced here too. The server-side
+				// validation stays authoritative. Runs BEFORE the notification
+				// is removed so a blocked save keeps the persistent unsaved-
+				// changes cue visible.
+				var brandingProblems = validateBrandingFieldsInDom();
+				if (brandingProblems.length > 0) {
+					var $brandingNotice = $('<div>').addClass('notice notice-error metasync-save-notice').css({ margin: '20px 0', padding: '12px' });
+					var $brandingList = $('<ul>');
+					brandingProblems.forEach(function (errorMessage) {
+						$brandingList.append($('<li>').text(errorMessage));
+					});
+					$brandingNotice.append($brandingList);
+					$('.metasync-save-notice').remove();
+					var $navWrapperForBranding = $('.metasync-nav-wrapper');
+					if ($navWrapperForBranding.length > 0) {
+						$navWrapperForBranding.after($brandingNotice);
+					} else {
+						$('.metasync-dashboard-wrap').prepend($brandingNotice);
+					}
+					$('html, body').animate({ scrollTop: 0 }, 'slow');
+					isSaving = false;
+					return;
+				}
+			}
+
+			// Completely remove the floating notification immediately when the
+			// save is actually proceeding (a blocked save left it in place).
 			var $notification = $('.metasync-unsaved-notification');
 			if ($notification.length > 0) {
 				$notification.remove(); // Completely remove from DOM, no animations
 			}
-			
-			var $form = $('#metaSyncGeneralSetting');
+
 			if ($form.length > 0) {
+
 				// Get form data and submit via AJAX
 				var formData = $form.serialize();
 				
@@ -2726,6 +2902,7 @@
 						} else {
 							// Handle validation errors
 							var errors = response.data && response.data.errors ? response.data.errors : [];
+							var fieldErrors = (response.data && response.data.field_errors) ? response.data.field_errors : {};
 
 							// Build error notice using DOM methods to avoid XSS
 							var $errorNotice = $('<div>').addClass('notice notice-error metasync-error-wrap').css({ margin: '20px', padding: '12px' });
@@ -2751,7 +2928,14 @@
 								// Fallback: insert at top of plugin content area
 								$('.metasync-dashboard-wrap').prepend($errorNotice);
 							}
-							
+
+							// Field-specific feedback: show the server's per-field
+							// error beside each rejected white-label branding input.
+							clearBrandingFieldErrors();
+							Object.keys(fieldErrors).forEach(function (settingKey) {
+								showBrandingFieldError(settingKey, fieldErrors[settingKey]);
+							});
+
 							// Scroll to the error message for better visibility
 							$('html, body').animate({ scrollTop: 0 }, 'slow');
 							

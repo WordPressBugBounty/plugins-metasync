@@ -77,7 +77,7 @@ class MCP_Tool_List_Categories extends MCP_Tool_Base {
         $categories = get_terms($args);
 
         if (is_wp_error($categories)) {
-            throw new Exception('Failed to retrieve categories: ' . $categories->get_error_message());
+            throw new Exception('Failed to retrieve categories: ' . $categories->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         $categories_data = [];
@@ -154,7 +154,7 @@ class MCP_Tool_Get_Category extends MCP_Tool_Base {
         }
 
         if (is_wp_error($category)) {
-            throw new Exception('Failed to retrieve category: ' . $category->get_error_message());
+            throw new Exception('Failed to retrieve category: ' . $category->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         if (!$category) {
@@ -233,7 +233,22 @@ class MCP_Tool_Create_Category extends MCP_Tool_Base {
         );
 
         if (is_wp_error($result)) {
-            throw new Exception('Failed to create category: ' . $result->get_error_message());
+            if ($result->get_error_code() === 'term_exists') {
+                $category = get_term((int) $result->get_error_data(), 'category');
+                if ($category && !is_wp_error($category)) {
+                    return $this->success([
+                        'term_id' => $category->term_id,
+                        'name' => $category->name,
+                        'slug' => $category->slug,
+                        'description' => $category->description,
+                        'parent' => $category->parent,
+                        'created' => false,
+                        'message' => 'Category already exists',
+                    ]);
+                }
+            }
+
+            throw new Exception('Failed to create category: ' . $result->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         $category = get_term($result['term_id'], 'category');
@@ -244,6 +259,7 @@ class MCP_Tool_Create_Category extends MCP_Tool_Base {
             'slug' => $category->slug,
             'description' => $category->description,
             'parent' => $category->parent,
+            'created' => true,
             'message' => 'Category created successfully',
         ]);
     }
@@ -330,7 +346,7 @@ class MCP_Tool_Update_Category extends MCP_Tool_Base {
         $result = wp_update_term($category_id, 'category', $args);
 
         if (is_wp_error($result)) {
-            throw new Exception('Failed to update category: ' . $result->get_error_message());
+            throw new Exception('Failed to update category: ' . $result->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         $updated_category = get_term($result['term_id'], 'category');
@@ -397,7 +413,7 @@ class MCP_Tool_Delete_Category extends MCP_Tool_Base {
         $result = wp_delete_term($category_id, 'category');
 
         if (is_wp_error($result)) {
-            throw new Exception('Failed to delete category: ' . $result->get_error_message());
+            throw new Exception('Failed to delete category: ' . $result->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         if (!$result) {
@@ -530,7 +546,7 @@ class MCP_Tool_Set_Post_Categories extends MCP_Tool_Base {
         $result = wp_set_post_categories($post_id, $category_ids);
 
         if (is_wp_error($result)) {
-            throw new Exception('Failed to set categories: ' . $result->get_error_message());
+            throw new Exception('Failed to set categories: ' . $result->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         // Get updated categories
@@ -616,7 +632,7 @@ class MCP_Tool_List_Tags extends MCP_Tool_Base {
         $tags = get_terms($args);
 
         if (is_wp_error($tags)) {
-            throw new Exception('Failed to retrieve tags: ' . $tags->get_error_message());
+            throw new Exception('Failed to retrieve tags: ' . $tags->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         $tags_data = [];
@@ -691,7 +707,7 @@ class MCP_Tool_Get_Tag extends MCP_Tool_Base {
         }
 
         if (is_wp_error($tag)) {
-            throw new Exception('Failed to retrieve tag: ' . $tag->get_error_message());
+            throw new Exception('Failed to retrieve tag: ' . $tag->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         if (!$tag) {
@@ -763,7 +779,21 @@ class MCP_Tool_Create_Tag extends MCP_Tool_Base {
         );
 
         if (is_wp_error($result)) {
-            throw new Exception('Failed to create tag: ' . $result->get_error_message());
+            if ($result->get_error_code() === 'term_exists') {
+                $tag = get_term((int) $result->get_error_data(), 'post_tag');
+                if ($tag && !is_wp_error($tag)) {
+                    return $this->success([
+                        'term_id' => $tag->term_id,
+                        'name' => $tag->name,
+                        'slug' => $tag->slug,
+                        'description' => $tag->description,
+                        'created' => false,
+                        'message' => 'Tag already exists',
+                    ]);
+                }
+            }
+
+            throw new Exception('Failed to create tag: ' . $result->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         $tag = get_term($result['term_id'], 'post_tag');
@@ -773,6 +803,7 @@ class MCP_Tool_Create_Tag extends MCP_Tool_Base {
             'name' => $tag->name,
             'slug' => $tag->slug,
             'description' => $tag->description,
+            'created' => true,
             'message' => 'Tag created successfully',
         ]);
     }
@@ -851,7 +882,7 @@ class MCP_Tool_Update_Tag extends MCP_Tool_Base {
         $result = wp_update_term($tag_id, 'post_tag', $args);
 
         if (is_wp_error($result)) {
-            throw new Exception('Failed to update tag: ' . $result->get_error_message());
+            throw new Exception('Failed to update tag: ' . $result->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         $updated_tag = get_term($result['term_id'], 'post_tag');
@@ -911,7 +942,7 @@ class MCP_Tool_Delete_Tag extends MCP_Tool_Base {
         $result = wp_delete_term($tag_id, 'post_tag');
 
         if (is_wp_error($result)) {
-            throw new Exception('Failed to delete tag: ' . $result->get_error_message());
+            throw new Exception('Failed to delete tag: ' . $result->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         if (!$result) {
@@ -1049,7 +1080,7 @@ class MCP_Tool_Set_Post_Tags extends MCP_Tool_Base {
         $result = wp_set_post_tags($post_id, $tags, $append);
 
         if (is_wp_error($result)) {
-            throw new Exception('Failed to set tags: ' . $result->get_error_message());
+            throw new Exception('Failed to set tags: ' . $result->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         // Get updated tags

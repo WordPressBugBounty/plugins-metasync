@@ -264,6 +264,12 @@ class Metasync_Settings_Registration
             array(self::instance(), 'sanitize')
         );
 
+        // Analytics consent is deliberately NOT registered in the shared option
+        // group: options.php writes null for every registered-but-absent field,
+        // so saving any other page in the group would silently flip consent to
+        // 'no'. It is persisted only by the General tab AJAX save path, which
+        // handles both opt-in and opt-out explicitly.
+
         // LLMs.txt settings are stored in a dedicated option so MCP tools and
         // the admin UI share one source of truth.
         register_setting(
@@ -690,12 +696,28 @@ class Metasync_Settings_Registration
          */
 
         # field to accept the otto pixel
+        # Read-only: the UUID is populated only by the trusted Search
+        # Atlas / heartbeat flows. The input stays in the DOM (readonly, like
+        # the apikey/linkgraph_token fields) so metasync-admin.js can keep
+        # targeting it by name to reflect connect/disconnect state, and the
+        # server rejects any submitted value regardless.
         add_settings_field(
             'otto_pixel_uuid',
             $whitelabel_otto_name . ' Pixel UUID',
-            function() use ($option_key) {
-                $value = Metasync::get_option('general')['otto_pixel_uuid'] ?? '';   
-                echo '<input type="text" size="40" value = "'.esc_attr($value).'" name="' . esc_attr($option_key) . '[general][otto_pixel_uuid]"/>';
+            function() use ($option_key, $whitelabel_otto_name) {
+                $value = Metasync::get_option('general')['otto_pixel_uuid'] ?? '';
+                printf(
+                    '<input type="text" id="otto_pixel_uuid" size="40" value="%s" name="%s" readonly="readonly" />',
+                    esc_attr($value),
+                    esc_attr($option_key . '[general][otto_pixel_uuid]')
+                );
+                printf(
+                    '<p class="description">%s</p>',
+                    esc_html(sprintf(
+                        'Read-only. This UUID is assigned automatically by %s when you connect your account.',
+                        $whitelabel_otto_name
+                    ))
+                );
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -743,10 +765,11 @@ class Metasync_Settings_Registration
         #
         # This only re-orders what RENDERS. Nothing is written to or deleted
         # from the stored post meta, so unchecking it restores the custom value
-        # untouched. Applies to the SEO title and meta description only.
+        # untouched. Applies to the SEO title, meta description and focus
+        # keyword.
         add_settings_field(
             'seo_priority',
-            'SEO Title & Description Priority',
+            'SEO Meta Priority',
             function() use ($whitelabel_otto_name, $option_key) {
                 $seo_priority = Metasync::get_option('general')['seo_priority'] ?? '';
                 $checked = $seo_priority === Metasync_Seo_Precedence::PRIORITY_OTTO ? 'checked' : '';
@@ -760,7 +783,7 @@ class Metasync_Settings_Registration
                     esc_html($whitelabel_otto_name)
                 );
                 printf(
-                    '<p class="description" id="seo_priority_description"><strong>Off:</strong> Your custom title and description appear first; %1$s fills in only where you have no value.<br><strong>On:</strong> Approved %1$s values appear first; your custom values remain the fallback.<br><span class="metasync-seo-priority-note">Your saved values are never deleted or overwritten.</span></p>',
+                    '<p class="description" id="seo_priority_description"><strong>Off:</strong> Your custom SEO title, description and focus keyword — the values you edit on the post/page edit screen — appear first; %1$s fills in only where you have no value.<br><strong>On:</strong> Approved %1$s values appear first; your custom values remain the fallback.<br><span class="metasync-seo-priority-note">Your saved values are never deleted or overwritten.</span></p>',
                     esc_html($whitelabel_otto_name)
                 );
                 echo '</div>';
@@ -769,69 +792,85 @@ class Metasync_Settings_Registration
             $SECTION_METASYNC
         );
 
-        # WP Rocket compatibility mode setting
-        add_settings_field(
-            'otto_wp_rocket_compat',
-            'WP Rocket Compatibility',
-            function() use ($whitelabel_otto_name, $option_key) {
-                $value = Metasync::get_option('general')['otto_wp_rocket_compat'] ?? 'auto';
-                $wp_rocket_active = class_exists('WP_Rocket');
+        # ───────────────────────────────────────────────────────────────
+        # Plugin-compatibility toggles live on the dedicated Compatibility
+        # page (admin.php?page=<slug>-compatibility), not the General tab.
+        # Each toggle is registered only while its related plugin is active,
+        # so the page never offers a control for a plugin that is not
+        # present. The stored value survives while the field is hidden —
+        # the save loop is isset-guarded and keeps absent keys.
+        # ───────────────────────────────────────────────────────────────
+        $compat_page_slug = $page_slug . '_compatibility';
 
-                echo '<select id="otto_wp_rocket_compat" name="' . esc_attr($option_key) . '[general][otto_wp_rocket_compat]">';
-                echo '<option value="auto"' . selected($value, 'auto', false) . '>Auto (Recommended)</option>';
-                echo '<option value="buffer"' . selected($value, 'buffer', false) . '>Buffer Mode (Faster)</option>';
-                echo '<option value="http"' . selected($value, 'http', false) . '>HTTP Mode (Safer)</option>';
-                echo '<option value="disable_otto"' . selected($value, 'disable_otto', false) . '>Disable ' . esc_html($whitelabel_otto_name) . ' when WP Rocket is active</option>';
-                echo '</select>';
+        add_settings_section(
+            'metasync_compat_toggles',
+            '',
+            function() {},
+            $compat_page_slug
+        );
 
-                if ($wp_rocket_active) {
+        # WP Rocket compatibility toggle.
+        # Only registered when WP Rocket is actually present.
+        # WP Rocket defines WP_ROCKET_VERSION; a WP_Rocket class only exists in
+        # some builds, so check both.
+        if (defined('WP_ROCKET_VERSION') || class_exists('WP_Rocket')) {
+            add_settings_field(
+                'otto_wp_rocket_compat',
+                'WP Rocket Compatibility',
+                function() use ($whitelabel_otto_name, $option_key) {
+                    $value = Metasync::get_option('general')['otto_wp_rocket_compat'] ?? 'auto';
+
+                    echo '<select id="otto_wp_rocket_compat" name="' . esc_attr($option_key) . '[general][otto_wp_rocket_compat]">';
+                    echo '<option value="auto"' . selected($value, 'auto', false) . '>Auto (Recommended)</option>';
+                    echo '<option value="buffer"' . selected($value, 'buffer', false) . '>Buffer Mode (Faster)</option>';
+                    echo '<option value="http"' . selected($value, 'http', false) . '>HTTP Mode (Safer)</option>';
+                    echo '<option value="disable_otto"' . selected($value, 'disable_otto', false) . '>Disable ' . esc_html($whitelabel_otto_name) . ' when WP Rocket is active</option>';
+                    echo '</select>';
+
                     echo '<p class="description" style="color: #0073aa; margin-top: 8px;">✓ WP Rocket detected - compatibility mode active</p>';
-                }
 
-                echo '<p class="description" style="margin-top: 8px;">';
-                echo '<strong>Auto (Recommended):</strong> Allows both ' . esc_html($whitelabel_otto_name) . ' and WP Rocket to work together. Does not set DONOTCACHEPAGE unless required (Brizy pages, SG Optimizer conflicts).<br>';
-                echo '<strong>Buffer Mode:</strong> Forces output buffering method. Fastest but may conflict with some configurations.<br>';
-                echo '<strong>HTTP Mode:</strong> Forces internal HTTP fetch method. Slower but more compatible.<br>';
-                echo '<strong>Disable ' . esc_html($whitelabel_otto_name) . ':</strong> Completely disables ' . esc_html($whitelabel_otto_name) . ' when WP Rocket is detected. Use if issues persist.';
-                echo '</p>';
-            },
-            $page_slug . '_general',
-            $SECTION_METASYNC
-        );
+                    echo '<p class="description" style="margin-top: 8px;">';
+                    echo '<strong>Auto (Recommended):</strong> Allows both ' . esc_html($whitelabel_otto_name) . ' and WP Rocket to work together. Does not set DONOTCACHEPAGE unless required (Brizy pages, SG Optimizer conflicts).<br>';
+                    echo '<strong>Buffer Mode:</strong> Forces output buffering method. Fastest but may conflict with some configurations.<br>';
+                    echo '<strong>HTTP Mode:</strong> Forces internal HTTP fetch method. Slower but more compatible.<br>';
+                    echo '<strong>Disable ' . esc_html($whitelabel_otto_name) . ':</strong> Completely disables ' . esc_html($whitelabel_otto_name) . ' when WP Rocket is detected. Use if issues persist.';
+                    echo '</p>';
+                },
+                $compat_page_slug,
+                'metasync_compat_toggles'
+            );
+        }
 
-        # SiteGround Optimizer compatibility mode setting
-        add_settings_field(
-            'otto_sg_optimizer_compat',
-            'SiteGround Optimizer Compatibility',
-            function() use ($option_key) {
-                $value = Metasync::get_option('general')['otto_sg_optimizer_compat'] ?? 'auto';
-                $sg_optimizer_active = defined('SiteGround_Optimizer\VERSION') || class_exists('SiteGround_Optimizer\Parser\Parser');
+        # SiteGround Optimizer compatibility toggle.
+        # Only registered when SiteGround Optimizer is actually present.
+        if (defined('SiteGround_Optimizer\VERSION') || class_exists('SiteGround_Optimizer\Parser\Parser')) {
+            add_settings_field(
+                'otto_sg_optimizer_compat',
+                'SiteGround Optimizer Compatibility',
+                function() use ($option_key) {
+                    $value = Metasync::get_option('general')['otto_sg_optimizer_compat'] ?? 'auto';
 
-                echo '<select id="otto_sg_optimizer_compat" name="' . esc_attr($option_key) . '[general][otto_sg_optimizer_compat]">';
-                echo '<option value="auto"' . selected($value, 'auto', false) . '>Auto (Recommended)</option>';
-                echo '<option value="buffer"' . selected($value, 'buffer', false) . '>Buffer Mode (Faster)</option>';
-                echo '<option value="http"' . selected($value, 'http', false) . '>HTTP Mode (Safer)</option>';
-                echo '</select>';
+                    echo '<select id="otto_sg_optimizer_compat" name="' . esc_attr($option_key) . '[general][otto_sg_optimizer_compat]">';
+                    echo '<option value="auto"' . selected($value, 'auto', false) . '>Auto (Recommended)</option>';
+                    echo '<option value="buffer"' . selected($value, 'buffer', false) . '>Buffer Mode (Faster)</option>';
+                    echo '</select>';
 
-                if ($sg_optimizer_active) {
                     echo '<p class="description" style="color: #0073aa; margin-top: 8px;">✓ SiteGround Optimizer detected - compatibility mode active</p>';
-                }
 
-                echo '<p class="description" style="margin-top: 8px;">';
-                echo '<strong>Auto (Recommended):</strong> Uses the internal HTTP fetch method with SG Optimizer, protecting themes that defer inline CSS to the footer (e.g. Divi).<br>';
-                echo '<strong>Buffer Mode (Faster):</strong> Renders in-process with no internal page fetch, roughly halving uncached render time. Best when pages can never be host-cached anyway (e.g. a plugin starts a PHP session on every request — though MetaSync already removes that automatically for BookingPress). May conflict with Divi-style themes.<br>';
-                echo '<strong>HTTP Mode:</strong> Forces the internal HTTP fetch method. Slower but more compatible.';
-                echo '</p>';
-            },
-            $page_slug . '_general',
-            $SECTION_METASYNC
-        );
+                    echo '<p class="description" style="margin-top: 8px;">';
+                    echo '<strong>Auto (Recommended):</strong> Uses the internal HTTP fetch method with SG Optimizer, protecting themes that defer inline CSS to the footer (e.g. Divi).<br>';
+                    echo '<strong>Buffer Mode (Faster):</strong> Renders in-process with no internal page fetch, roughly halving uncached render time. Best when pages can never be host-cached anyway (e.g. a plugin starts a PHP session on every request — though MetaSync already removes that automatically for BookingPress). May conflict with Divi-style themes.';
+                    echo '</p>';
+                },
+                $compat_page_slug,
+                'metasync_compat_toggles'
+            );
+        }
 
-        # BookingPress front-end session compatibility setting.
+        # BookingPress front-end session compatibility toggle.
         # Only registered when BookingPress is actually present on the site:
         # the shim no-ops without it, so the field would be noise for every
-        # other install. The stored value survives while the field is hidden
-        # (the save loop is isset-guarded and keeps absent keys).
+        # other install.
         if (class_exists('bookingpress_spam_protection')) {
             add_settings_field(
                 'bookingpress_session_compat',
@@ -852,8 +891,8 @@ class Metasync_Settings_Registration
                     echo '<strong>Disabled:</strong> Leaves BookingPress exactly as installed (no page caching while it stays active).';
                     echo '</p>';
                 },
-                $page_slug . '_general',
-                $SECTION_METASYNC
+                $compat_page_slug,
+                'metasync_compat_toggles'
             );
         }
 
@@ -2033,6 +2072,69 @@ class Metasync_Settings_Registration
     }
 
     /**
+     * Enforce the read-only contract on general.otto_pixel_uuid.
+     *
+     * The UUID is owned by trusted Search Atlas flows and explicit disconnect.
+     * Any changed value submitted through the settings form is rejected and the
+     * stored UUID is preserved verbatim. Programmatic trusted writers bypass
+     * this form-submission guard.
+     *
+     * @param array $merged The layered-merge result about to be saved.
+     * @param array $stored The stored option, used as the preserved value.
+     * @return array The merged array with the stored otto_pixel_uuid kept.
+     */
+    private static function protect_otto_pixel_uuid(array $merged, array $stored)
+    {
+        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- sanitize callback, the caller already verified the nonce
+        if (!isset($_POST['metasync_options']['general'])
+            || !is_array($_POST['metasync_options']['general'])
+            || !array_key_exists('otto_pixel_uuid', $_POST['metasync_options']['general'])) {
+            return $merged;
+        }
+
+        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- sanitize callback, the caller already verified the nonce
+        $submitted = $_POST['metasync_options']['general']['otto_pixel_uuid'];
+        if (is_string($submitted)) {
+            $submitted = sanitize_text_field(wp_unslash($submitted));
+        }
+        $candidate = $merged['general']['otto_pixel_uuid'] ?? null;
+
+        // A trusted flow may have replaced the submitted value after the form
+        // was posted; such a value is not user-authored and must survive.
+        // The trust inference must NOT rest on the inequality alone: the
+        // merged candidate comes from the raw submission layer and can differ
+        // from the sanitized $submitted merely because sanitization alters
+        // the payload (tags, line breaks, repeated spaces). A mismatch on
+        // its own must never authorize storing the raw value, so only a
+        // sanctioned shape may pass through: the empty string (the
+        // disconnected state) or a strictly valid UUID — the only values
+        // trusted writers ever set. Everything else falls back to stored.
+        if ($candidate !== $submitted
+            && ($candidate === '' || Metasync::is_valid_uuid($candidate))) {
+            return $merged;
+        }
+
+        $stored_value = $stored['general']['otto_pixel_uuid'] ?? null;
+        if ($candidate === $stored_value) {
+            return $merged;
+        }
+
+        if (is_string($stored_value)) {
+            $merged['general']['otto_pixel_uuid'] = $stored_value;
+        } else {
+            unset($merged['general']['otto_pixel_uuid']);
+        }
+
+        add_settings_error(
+            'metasync_messages',
+            'metasync_otto_pixel_uuid_readonly',
+            __('OTTO Pixel UUID is read-only and can only be assigned by the Search Atlas / heartbeat synchronization.', 'metasync'),
+            'error'
+        );
+        return $merged;
+    }
+
+    /**
      * Whether the array is a numerically-indexed list (keys 0..n-1).
      *
      * Answers false for the empty array — range(0, -1) counts downwards and
@@ -2145,10 +2247,29 @@ class Metasync_Settings_Registration
             }
         }
         $general_tab_submitted = ($active_tab === 'general');
+        $compatibility_tab_submitted = ($active_tab === 'compatibility');
 
         // General Settings
         if (isset($input['general']['apikey'])) {
             $new_input['general']['apikey'] = sanitize_text_field($input['general']['apikey']);
+        }
+
+        # Plugin-compatibility toggles live on the Compatibility page, which
+        # saves through options.php with a hidden active_tab=compatibility so
+        # the General-tab-gated blocks below never fire. Sanitize the two
+        # toggles explicitly so the raw submission never reaches storage
+        # unsanitized, and so a value that is absent (toggle hidden because
+        # its plugin is not active) keeps its stored value via the merge.
+        if ($compatibility_tab_submitted) {
+            if (isset($input['general']['otto_wp_rocket_compat'])) {
+                $new_input['general']['otto_wp_rocket_compat'] = sanitize_text_field($input['general']['otto_wp_rocket_compat']);
+            }
+            if (isset($input['general']['otto_sg_optimizer_compat'])) {
+                $new_input['general']['otto_sg_optimizer_compat'] = sanitize_text_field($input['general']['otto_sg_optimizer_compat']);
+            }
+            if (isset($input['general']['bookingpress_session_compat'])) {
+                $new_input['general']['bookingpress_session_compat'] = sanitize_text_field($input['general']['bookingpress_session_compat']);
+            }
         }
 
         // Meta Box Visibility Settings
@@ -2653,18 +2774,13 @@ class Metasync_Settings_Registration
             }
         }
 
-        // Indexation Control Settings
-        if (isset($input['seo_controls']['index_date_archives'])) {
-            $new_input['seo_controls']['index_date_archives'] = boolval($input['seo_controls']['index_date_archives']);
-        }
-        if (isset($input['seo_controls']['index_tag_archives'])) {
-            $new_input['seo_controls']['index_tag_archives'] = boolval($input['seo_controls']['index_tag_archives']);
-        }
-        if (isset($input['seo_controls']['index_author_archives'])) {
-            $new_input['seo_controls']['index_author_archives'] = boolval($input['seo_controls']['index_author_archives']);
-        }
-        if (isset($input['seo_controls']['index_format_archives'])) {
-            $new_input['seo_controls']['index_format_archives'] = boolval($input['seo_controls']['index_format_archives']);
+        // Indexation Control Settings. Stored as the strings 'true'/'false' (the form,
+        // the setup wizard and count_index_rule_changes() all compare against those);
+        // boolval('false') is true, which silently turned every unchecked box on.
+        foreach (array('index_date_archives', 'index_tag_archives', 'index_author_archives', 'index_format_archives') as $index_field) {
+            if (isset($input['seo_controls'][$index_field])) {
+                $new_input['seo_controls'][$index_field] = filter_var($input['seo_controls'][$index_field], FILTER_VALIDATE_BOOLEAN) ? 'true' : 'false';
+            }
         }
 
         // Handle post-save heartbeat trigger for domain changes
@@ -2703,10 +2819,68 @@ class Metasync_Settings_Registration
             $input['whitelabel'] = $new_input['whitelabel'];
         }
 
+        // The branding contract must also hold on the native options.php
+        // submit (administrators with JavaScript disabled or broken — the
+        // AJAX handler never runs for them): a value that could not be
+        // written to metasync.php must not be persisted either. A rejected
+        // key is stripped from the raw layer so the layered merge keeps the
+        // stored value, leaving options and the physical header untouched.
+        // The AJAX save and the JSON import already enforce this contract
+        // before their writes, so for them this is a consistent no-op.
+        if (!class_exists('Metasync_Activator')) {
+            // Defensive only: real requests always have the activator via the
+            // plugin boot / Composer classmap. Plain dirname() (not
+            // plugin_dir_path()) keeps this loadable in the isolated unit
+            // harnesses that define neither.
+            $activator_file = dirname(__FILE__) . '/class-metasync-activator.php';
+            if (is_readable($activator_file)) {
+                require_once $activator_file;
+            }
+        }
+        if (class_exists('Metasync_Activator') && isset($input['general']) && is_array($input['general'])) {
+            $branding_contract_fields = array(
+                'white_label_plugin_name' => false,
+                'white_label_plugin_description' => false,
+                'white_label_plugin_author' => false,
+                'white_label_plugin_author_uri' => true,
+                'white_label_plugin_uri' => true,
+            );
+            foreach ($branding_contract_fields as $branding_key => $branding_is_url) {
+                if (!array_key_exists($branding_key, $input['general']) || !is_string($input['general'][$branding_key])) {
+                    continue;
+                }
+                $branding_value = trim(wp_unslash($input['general'][$branding_key]));
+                if ($branding_value === ''
+                    || Metasync_Activator::is_valid_plugin_header_value($branding_value, $branding_is_url)) {
+                    continue;
+                }
+                add_settings_error(
+                    'metasync_messages',
+                    'metasync_branding_' . $branding_key,
+                    $branding_is_url
+                        ? sprintf('%s must be a valid http:// or https:// address.', $branding_key === 'white_label_plugin_author_uri' ? 'Author URL' : 'Plugin URL')
+                        : sprintf('%s contains characters that cannot be saved (line breaks, control or invisible characters, "*/", or PHP tags are not allowed).', $branding_key === 'white_label_plugin_name' ? 'Plugin Name' : ($branding_key === 'white_label_plugin_description' ? 'Plugin Description' : 'Author')),
+                    'error'
+                );
+                unset($input['general'][$branding_key]);
+            }
+        }
+
         // Layered merge: stored option, then the raw submission, then the
         // sanitized values. Replaces the former shallow array_merge(), which
         // let the raw submission overwrite every sanitized section wholesale.
         $result = self::merge_option_layers($stored_option, $input, $new_input);
+
+        // otto_pixel_uuid is read-only. The field is populated only by
+        // the trusted Search Atlas / heartbeat flows, and sanitize_option runs
+        // on every update_option() of this option — including the AJAX save and
+        // a forged POST that smuggles the key in — so this is the last line of
+        // defence for the shape of the stored value. An empty string (the
+        // disconnected state) and a valid UUID pass through; anything else
+        // (a username or other arbitrary text) falls back to the stored value.
+        // The disconnect flow is unaffected: it unsets the key and writes
+        // through write_options_without_stored_merge(), never through here.
+        $result = self::protect_otto_pixel_uuid($result, $stored_option);
 
         if ($whitelabel_reset) {
             $result['whitelabel'] = $new_input['whitelabel'];
@@ -2768,7 +2942,10 @@ class Metasync_Settings_Registration
             'white_label_plugin_author', 'white_label_plugin_menu_slug',
             'white_label_plugin_menu_icon', 'enabled_plugin_css',
             'enabled_elementor_plugin_css_color','enabled_elementor_plugin_css',
-            'otto_pixel_uuid','periodic_clear_otto_cache','periodic_clear_ottopage_cache',
+            // The OTTO Pixel UUID is deliberately NOT listed here. It is
+            // read-only and populated only by the trusted Search Atlas /
+            // heartbeat flows; sanitize() preserves the stored value.
+            'periodic_clear_otto_cache','periodic_clear_ottopage_cache',
             'periodic_clear_ottopost_cache', 'whitelabel_otto_name', 'otto_wp_rocket_compat',
             'otto_sg_optimizer_compat',
             'bookingpress_session_compat'
@@ -2800,6 +2977,19 @@ class Metasync_Settings_Registration
         // without blocking the rest of the settings save.
         $whitelabel_errors = [];
 
+        // Branding field errors use the same contract as the physical
+        // plugin-header updater; they are blocking because a value that cannot
+        // be written to metasync.php must not be persisted to the options
+        // either (that divergence is exactly what WP-636 closes).
+        $branding_errors = [];
+
+        // The five white-label branding fields share the plugin-header
+        // validation contract, so the activator (which owns that contract)
+        // must be available before the field loops run.
+        if (!class_exists('Metasync_Activator')) {
+            require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-activator.php';
+        }
+
         foreach ($text_fields as $field) {
 
             if (isset($_POST['metasync_options']['general'][$field])) {
@@ -2815,8 +3005,7 @@ class Metasync_Settings_Registration
                     'white_label_plugin_author',
                     'white_label_plugin_menu_slug',
                     'white_label_plugin_menu_icon',
-                    'whitelabel_otto_name',
-                    'otto_pixel_uuid'
+                    'whitelabel_otto_name'
                 ];
 
                 if ($value === '' && !in_array($field, $clearable_fields)) {
@@ -2831,6 +3020,23 @@ class Metasync_Settings_Registration
                         $whitelabel_errors[$field] = 'Plugin name must not exceed 18 characters';
                         continue;
                     }
+                }
+
+                // Branding text must satisfy the plugin-header contract. The
+                // raw value is checked before sanitisation so multiline or
+                // control-character input is rejected with an error instead of
+                // being silently mangled into something else that gets saved.
+                $branding_text_fields = [
+                    'white_label_plugin_name' => 'Plugin Name',
+                    'white_label_plugin_description' => 'Plugin Description',
+                    'white_label_plugin_author' => 'Author',
+                ];
+                if (isset($branding_text_fields[$field])
+                    && $value !== ''
+                    && !Metasync_Activator::is_valid_plugin_header_value($value, false)) {
+                    $branding_errors[$field] = $branding_text_fields[$field]
+                        . ' contains characters that cannot be saved (line breaks, control or invisible characters, "*/", or PHP tags are not allowed).';
+                    continue;
                 }
 
                 if ($field === 'white_label_plugin_menu_icon') {
@@ -2923,14 +3129,32 @@ class Metasync_Settings_Registration
                     $host = isset($parsed_url['host']) ? $parsed_url['host'] : '';
 
                     if (strpos($host, '.') !== false || filter_var($host, FILTER_VALIDATE_IP)) {
-                        $metasync_options['general'][$field] = esc_url_raw($value);
+                        // Branding URLs must additionally satisfy the plugin-header
+                        // contract (http/https scheme, no embedded control characters);
+                        // anything else would be saved but silently fail to reach
+                        // metasync.php, leaving options inconsistent with the Plugins
+                        // screen branding.
+                        $branding_url_field_names = [
+                            'white_label_plugin_author_uri' => 'Author URL',
+                            'white_label_plugin_uri' => 'Plugin URL',
+                        ];
+                        if (!Metasync_Activator::is_valid_plugin_header_value($value, true)) {
+                            $branding_errors[$field] = $branding_url_field_names[$field]
+                                . ' must be a valid http:// or https:// address.';
+                        } else {
+                            $metasync_options['general'][$field] = esc_url_raw($value);
+                        }
                     } else {
                         $field_name = ($field === 'white_label_plugin_author_uri') ? 'Author URL' : 'Plugin URL';
-                        $validation_errors[] = 'Invalid ' . $field_name . ' format. Please use a proper domain name (e.g., example.com).';
+                        // Pushed into $branding_errors only: the blocking
+                        // merge below appends every branding message to the
+                        // response errors, so a second direct push would render
+                        // the same message twice.
+                        $branding_errors[$field] = 'Invalid ' . $field_name . ' format. Please use a proper domain name (e.g., example.com).';
                     }
                 } else {
                     $field_name = ($field === 'white_label_plugin_author_uri') ? 'Author URL' : 'Plugin URL';
-                    $validation_errors[] = 'Invalid ' . $field_name . ' format.';
+                    $branding_errors[$field] = $field_name . ' must be a valid http:// or https:// address.';
                 }
             }
             }
@@ -3050,15 +3274,65 @@ class Metasync_Settings_Registration
             }
         }
 
+        // Branding errors block the whole save: an invalid value must never
+        // be persisted, and the response carries the field keys so the client
+        // can render the error beside each offending input.
+        foreach ($branding_errors as $branding_error) {
+            $validation_errors[] = $branding_error;
+        }
+
         if (!empty($validation_errors)) {
             $this->force_release_settings_recovery_lock();
             wp_send_json_error([
-                'errors' => $validation_errors
+                'errors' => $validation_errors,
+                'field_errors' => $branding_errors,
             ]);
             return;
         }
 
+        // The analytics consent toggle posts at the top level (hidden fallback
+        // plus checkbox), not under metasync_options, so persist it here. This
+        // is the "turn it off at any time" path promised in the readme.
+        if ($general_tab_submitted && isset($_POST['metasync_analytics_opt_in'])) {
+            $consent = sanitize_key(wp_unslash($_POST['metasync_analytics_opt_in']));
+            update_option('metasync_analytics_opt_in', $consent === 'yes' ? 'yes' : 'no');
+            update_option('metasync_analytics_consent_explicit', 'yes');
+        }
+
         $old_options = Metasync::get_option('general') ?? [];
+
+        // White-label branding is persisted twice — into the options and into
+        // the physical metasync.php header — so the header update is applied
+        // BEFORE any option write. On failure nothing has been persisted and
+        // both the file and the stored options still carry the previous
+        // branding; the save is rejected instead of ending up inconsistent.
+        $branding_headers_written = false;
+        $original_plugin_file_content = false;
+        $plugin_header_file = Metasync_Activator::plugin_header_file_path();
+        if ($general_tab_submitted || $whitelabel_tab_submitted) {
+            $original_plugin_file_content = file_get_contents($plugin_header_file);
+            $headers_applied = Metasync_Activator::apply_plugin_file_headers_for_save(
+                $metasync_options['general'],
+                is_array($old_options) ? $old_options : array()
+            );
+            if ($headers_applied === false) {
+                $this->force_release_settings_recovery_lock();
+                wp_send_json_error([
+                    'errors' => array(
+                        'White-label branding could not be written to the plugin file (metasync.php may be read-only or damaged). Nothing was saved; the previous branding is unchanged.',
+                    ),
+                ]);
+                // The return is unreachable in WordPress (wp_send_json_error
+                // terminates the request) but keeps the handler safe under the
+                // non-terminating stubs the unit tests run with.
+                // @phpstan-ignore-next-line deadCode.unreachable
+                return;
+            }
+            if ($headers_applied === true && is_string($original_plugin_file_content)) {
+                $branding_headers_written = file_get_contents($plugin_header_file) !== $original_plugin_file_content;
+            }
+        }
+
         // Stored value is encrypted at rest (or legacy plaintext/empty). Keep it as-is
         // for preserve/revert, and decrypt a separate copy for plaintext comparison.
         $old_stored_api_key = $old_options['searchatlas_api_key'] ?? '';
@@ -3104,12 +3378,17 @@ class Metasync_Settings_Registration
                 if ( $ping['connected'] === true ) {
                     $api_key_validated = true;
                     $is_connected      = true;
-                    if ( ! empty( $ping['otto_pixel_uuid'] ) ) {
+                    // Trusted ping flow: only a real UUID is stored. The
+                    // form itself can no longer submit this field, so this ping is
+                    // one of the few remaining sanctioned write paths for it.
+                    if ( ! empty( $ping['otto_pixel_uuid'] ) && Metasync::is_valid_uuid( $ping['otto_pixel_uuid'] ) ) {
                         $existing_uuid = $metasync_options['general']['otto_pixel_uuid'] ?? '';
                         if ( empty( $existing_uuid ) || $existing_uuid !== $ping['otto_pixel_uuid'] ) {
                             $metasync_options['general']['otto_pixel_uuid'] = sanitize_text_field( $ping['otto_pixel_uuid'] );
                             Metasync::set_option($metasync_options);
                         }
+                    } elseif ( ! empty( $ping['otto_pixel_uuid'] ) ) {
+                        error_log('MetaSync: ignoring invalid otto_pixel_uuid from connection ping (not a UUID)');
                     }
                 } else {
                     // POST succeeded but ping didn't confirm — keep the key, warn user
@@ -3162,6 +3441,13 @@ class Metasync_Settings_Registration
         $api_key_changed = $old_api_key !== $new_api_key;
         $api_key_added = empty($old_api_key) && !empty($new_api_key);
         $api_key_removed = !empty($old_api_key) && empty($new_api_key);
+
+        if ( $api_key_removed ) {
+            Metasync_PostHog::feature('searchatlas_disconnected', array(
+                'method' => 'key_removed',
+                'was_connected' => true,
+            ));
+        }
 
         if ( $api_key_validated === true ) {
             # Use current_time('mysql') so the value is consistent with the
@@ -3355,6 +3641,35 @@ class Metasync_Settings_Registration
             $llms_input = wp_unslash($_POST['metasync_llms_txt_settings']);
             if (is_array($llms_input)) {
                 update_option('metasync_llms_txt_settings', $this->sanitize_llms_txt_settings($llms_input));
+            }
+        }
+
+        // The plugin file already carries the new branding; confirm the
+        // options write landed the same values. On divergence, roll the file
+        // back to the captured content so the Plugins screen never shows
+        // branding the stored options contradict, and report the save as
+        // rejected rather than a success.
+        if ($branding_headers_written) {
+            $stored_branding = Metasync::get_option('general');
+            $stored_branding = is_array($stored_branding) ? $stored_branding : array();
+            $proposed_branding = $metasync_options['general'];
+            foreach (Metasync_Activator::BRANDING_HEADER_FIELDS as $branding_key) {
+                if ((string) ($stored_branding[$branding_key] ?? '') !== (string) ($proposed_branding[$branding_key] ?? '')) {
+                    $restored = Metasync_Activator::restore_plugin_file_content($plugin_header_file, $original_plugin_file_content);
+                    $this->force_release_settings_recovery_lock();
+                    wp_send_json_error([
+                        'errors' => array(
+                            $restored
+                                ? 'White-label branding could not be saved. The previous settings and plugin branding were left unchanged.'
+                                : 'White-label branding could not be saved and the plugin file branding could not be rolled back (metasync.php may be read-only). Re-save once the file is writable so the plugin header matches the stored settings.',
+                        ),
+                    ]);
+                    // The return is unreachable in WordPress (wp_send_json_error
+                    // terminates the request) but keeps the handler safe under the
+                    // non-terminating stubs the unit tests run with.
+                    // @phpstan-ignore-next-line deadCode.unreachable
+                    return;
+                }
             }
         }
 
@@ -4046,6 +4361,33 @@ class Metasync_Settings_Registration
     }
 
     /**
+     * How many indexation rules a SEO Controls save actually changed.
+     *
+     * Older saves stored real booleans, this handler stores 'true'/'false'
+     * strings, so the stored side is normalised before comparing.
+     *
+     * @param array $before Stored seo_controls before the save.
+     * @param array $after  seo_controls as just saved ('true'/'false').
+     * @param array $fields Field names the save handled.
+     * @return int
+     */
+    public static function count_index_rule_changes(array $before, array $after, array $fields)
+    {
+        $changed = 0;
+        foreach ($fields as $field) {
+            if (strpos($field, 'index_') !== 0 && $field !== 'noindex_empty_archives') {
+                continue;
+            }
+            $was = filter_var($before[$field] ?? false, FILTER_VALIDATE_BOOLEAN);
+            $now = ($after[$field] ?? 'false') === 'true';
+            if ($was !== $now) {
+                $changed++;
+            }
+        }
+        return $changed;
+    }
+
+    /**
      * AJAX handler for saving SEO / Indexation Control settings.
      *
      * Moved from Metasync_Admin – the admin class now delegates here.
@@ -4122,6 +4464,20 @@ class Metasync_Settings_Registration
         }
 
             if ($result && $bing_save_result) {
+                // Consent-gated analytics: only when an indexation rule really
+                // changed. Firing from the options sanitize callback counted
+                // every unrelated write of metasync_options as a change.
+                $rules_changed = self::count_index_rule_changes(
+                    $original_options['seo_controls'] ?? array(),
+                    $current_options['seo_controls'],
+                    $seo_control_fields
+                );
+                if ($rules_changed > 0) {
+                    Metasync_PostHog::feature('indexation_rule_changed', array(
+                        'rules_changed' => $rules_changed,
+                    ));
+                }
+
                 $success_message = 'Indexation Control settings saved successfully!';
                 if (isset($_POST['metasync_bing_api_key_inline'])) {
                     $success_message = 'Indexation Control and Bing Instant Indexing settings saved successfully!';

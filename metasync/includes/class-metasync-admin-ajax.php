@@ -169,6 +169,15 @@ class Metasync_Admin_Ajax
                 break;
         }
 
+        // A schema import that only found already-migrated or unsupported
+        // records is an accurate report, not a failure — keep the breakdown
+        // with the response so the UI can show each category separately.
+        if (isset($result['breakdown'])) {
+            $result['breakdown'] = array_map('intval', (array) $result['breakdown']);
+        }
+
+        Metasync_PostHog::import_batch($plugin, $type, $result, $offset);
+
         if ($result['success']) {
             wp_send_json_success($result);
         } else {
@@ -217,6 +226,10 @@ class Metasync_Admin_Ajax
         ];
 
         $result = $importer->import_seo_metadata($plugin, $options);
+
+        Metasync_PostHog::import_batch($plugin, 'seo_metadata', $result, $offset, array(
+            'overwrite_existing' => $overwrite_existing,
+        ));
 
         if ($result['success']) {
             wp_send_json_success($result);
@@ -320,7 +333,7 @@ class Metasync_Admin_Ajax
         $raw_data = isset($_POST['data']) ? $_POST['data'] : array();
 
         // Allowlist top-level wizard data keys to prevent mass assignment
-        $allowed_wizard_keys = array('verification', 'seo_settings', 'schema');
+        $allowed_wizard_keys = array('verification', 'seo_settings', 'schema', 'analytics');
         $data = is_array($raw_data) ? array_intersect_key($raw_data, array_flip($allowed_wizard_keys)) : array();
 
         $options = get_option('metasync_options', array());
@@ -352,6 +365,11 @@ class Metasync_Admin_Ajax
             $options['general']['default_schema_type'] = sanitize_text_field($data['schema']['default_type']);
         }
 
+        if (isset($data['analytics']) && is_array($data['analytics'])) {
+            update_option('metasync_analytics_opt_in', !empty($data['analytics']['enabled']) ? 'yes' : 'no');
+            update_option('metasync_analytics_consent_explicit', 'yes');
+        }
+
         update_option('metasync_options', $options);
 
         wp_send_json_success(array('message' => 'Progress saved'));
@@ -374,6 +392,12 @@ class Metasync_Admin_Ajax
 
         $user_id = get_current_user_id();
         delete_transient("metasync_wizard_state_{$user_id}");
+
+        // Consent-gated product analytics: setup funnel completion.
+        $general_settings = Metasync::get_option('general');
+        Metasync_PostHog::feature('setup_wizard_completed', array(
+            'connected' => !empty($general_settings['searchatlas_api_key']),
+        ));
 
         wp_send_json_success(array('message' => 'Wizard completed'));
     }
@@ -689,6 +713,41 @@ class Metasync_Admin_Ajax
         }
     }
 
+    /**
+     * Collect the locally stored white-label settings for an issue-report payload.
+     *
+     * The values are attached to the Sentry event so support can tell from the
+     * event alone whether the reporting site is white-labeled. Local options
+     * can be stale — the reply-drafting process must still cross-check the
+     * backend account record before sending.
+     *
+     * Static and public so the unit suite can exercise the reads directly; the
+     * AJAX handler itself dies on wp_send_json_* before returning.
+     *
+     * @return array Keys: is_whitelabel, whitelabel_brand_name, whitelabel_support_email, site_url.
+     */
+    public static function build_issue_report_whitelabel_context()
+    {
+        $whitelabel_settings = Metasync::get_whitelabel_settings();
+        if (!is_array($whitelabel_settings)) {
+            $whitelabel_settings = array();
+        }
+        $whitelabel_support_email = '';
+        foreach (array('support_email_override', 'support_email', 'recovery_email') as $email_key) {
+            if (!empty($whitelabel_settings[$email_key])) {
+                $whitelabel_support_email = sanitize_email($whitelabel_settings[$email_key]);
+                break;
+            }
+        }
+        return array(
+            'is_whitelabel' => Metasync::is_whitelabel_enabled(),
+            'whitelabel_brand_name' => !empty($whitelabel_settings['company_name'])
+                ? sanitize_text_field($whitelabel_settings['company_name']) : '',
+            'whitelabel_support_email' => $whitelabel_support_email,
+            'site_url' => esc_url_raw(home_url()),
+        );
+    }
+
     public function ajax_submit_issue_report()
     {
         try {
@@ -761,6 +820,9 @@ class Metasync_Admin_Ajax
                 }
             }
 
+            # Read the locally stored white-label settings for the report payload.
+            $whitelabel_context = self::build_issue_report_whitelabel_context();
+
             # Get general options (same way as used throughout the plugin)
             $general_options = Metasync::get_option('general');
             if (!is_array($general_options)) {
@@ -822,7 +884,11 @@ class Metasync_Admin_Ajax
             } else {
                 $feedback_data = array(
                     'message' => $issue_message,
-                    'severity' => $issue_severity
+                    'severity' => $issue_severity,
+                    'is_whitelabel' => $whitelabel_context['is_whitelabel'],
+                    'whitelabel_brand_name' => $whitelabel_context['whitelabel_brand_name'],
+                    'whitelabel_support_email' => $whitelabel_context['whitelabel_support_email'],
+                    'site_url' => $whitelabel_context['site_url']
                 );
                 
                 # Add user information if requested
@@ -1215,38 +1281,18 @@ class Metasync_Admin_Ajax
         }
 
         try {
-            # Get all whitelabel settings
-            $whitelabel_settings = Metasync::get_whitelabel_settings();
-
-            # Export the settings password as plaintext (not the encrypted blob):
-            # the encryption key derives from this site's salts, so the blob
-            # would be undecryptable after import on a different site. The
-            # importer re-encrypts it at rest with the destination site's salts.
-            if (!empty($whitelabel_settings['settings_password'])) {
-                $whitelabel_settings['settings_password'] = Metasync::get_whitelabel_password();
+            # Source the white-label export payload from the shared helper so
+            # reset and export can never drift apart: whatever the reset
+            # preserves is exactly what the export serialises. No API
+            # credentials (apikey / searchatlas_api_key / otto_pixel_uuid / ...)
+            # are ever serialised - the helper only captures the whitelabel
+            # blob and the general branding keys.
+            if (!class_exists('Metasync_Whitelabel_Preservation')) {
+                require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-whitelabel-preservation.php';
             }
-
-            # Get general settings that relate to whitelabel
-            $general_settings = Metasync::get_option('general');
-            $whitelabel_related_general = array();
-
-            # Include ALL whitelabel-related general settings
-            $whitelabel_keys = array(
-                'white_label_plugin_name',
-                'white_label_plugin_description',
-                'white_label_plugin_author',
-                'white_label_plugin_author_uri',
-                'white_label_plugin_uri',
-                'white_label_plugin_menu_slug',
-                'white_label_plugin_menu_icon',
-                'whitelabel_otto_name'
-            );
-
-            foreach ($whitelabel_keys as $key) {
-                if (isset($general_settings[$key])) {
-                    $whitelabel_related_general[$key] = $general_settings[$key];
-                }
-            }
+            $export_payload = Metasync_Whitelabel_Preservation::build_whitelabel_export_data();
+            $whitelabel_settings = $export_payload['whitelabel_settings'];
+            $whitelabel_related_general = $export_payload['general_settings'];
             
             # Bundle the menu icon file so it survives import on a different site.
             # If the icon is a local URL (media library), replace it with a special
@@ -1450,7 +1496,7 @@ class Metasync_Admin_Ajax
             echo '<span class="dashicons dashicons-admin-page" style="font-size: 48px; opacity: 0.3; display: block; margin: 20px auto;"></span>';
             echo '<p style="text-align: center; color: #666;">';
             /* translators: %s: HTML source label. */
-            echo sprintf(__('No pages created with %s yet.', 'metasync'), '<strong>' . esc_html($label) . '</strong>');
+            echo sprintf(esc_html__('No pages created with %s yet.', 'metasync'), '<strong>' . esc_html($label) . '</strong>');
             echo '</p>';
             echo '<p style="text-align: center;">';
             echo '<a href="' . esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug)) . '" class="button button-primary">';

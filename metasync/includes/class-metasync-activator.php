@@ -40,12 +40,35 @@ class Metasync_Activator
 	 const IMPORT_RETRY_BACKOFF_SECONDS = 3600;
 
 	/**
+	 * The white-label settings whose values are mirrored into the
+	 * metasync.php plugin header.
+	 *
+	 * @var string[]
+	 */
+	const BRANDING_HEADER_FIELDS = [
+		'white_label_plugin_name',
+		'white_label_plugin_description',
+		'white_label_plugin_author',
+		'white_label_plugin_author_uri',
+		'white_label_plugin_uri',
+	];
+
+	/**
 	 * Machine-readable reason for the most recent import failure, consumed
 	 * by render_whitelabel_import_failure_notice().
 	 *
 	 * @var string
 	 */
 	 private static $last_import_error = '';
+
+	/**
+	 * Field-specific validation errors for the most recent import failure,
+	 * keyed by white-label setting name. Populated only when the import was
+	 * rejected because a branding value fails the plugin-header contract.
+	 *
+	 * @var array<string, string>
+	 */
+	 private static $last_import_invalid_fields = array();
 
 	/**
 	 * Canonical list of MetaSync custom WP-Cron hooks.
@@ -282,11 +305,15 @@ class Metasync_Activator
 
 			// File has changed, import settings
 			if (!self::import_whitelabel_settings()) {
-				update_option(self::IMPORT_FAILURE_OPTION, array(
+				$failure = array(
 					'file_hash' => $file_hash,
 					'failed_at' => time(),
 					'error' => self::$last_import_error,
-				));
+				);
+				if (self::$last_import_error === 'branding_field_invalid' && !empty(self::$last_import_invalid_fields)) {
+					$failure['invalid_fields'] = self::$last_import_invalid_fields;
+				}
+				update_option(self::IMPORT_FAILURE_OPTION, $failure);
 				return false;
 			}
 			delete_option(self::IMPORT_FAILURE_OPTION);
@@ -310,6 +337,16 @@ class Metasync_Activator
 	}
 
 	/**
+	 * Field-specific branding errors of the most recent failed White Label import.
+	 *
+	 * @return array<string, string>
+	 */
+	public static function get_last_import_invalid_fields()
+	{
+		return self::$last_import_invalid_fields;
+	}
+
+	/**
 	 * Admin notice for a White Label JSON import that keeps failing.
 	 * Registered from metasync_check_whitelabel_on_admin(); the state is set
 	 * by check_whitelabel_settings_update() when an import fails.
@@ -330,14 +367,27 @@ class Metasync_Activator
 			'json_invalid' => 'the file is not valid JSON',
 			'json_structure_invalid' => 'the file structure is invalid',
 			'plugin_file_unreadable' => 'metasync.php could not be read',
+			'branding_field_invalid' => 'the white-label branding values are not valid',
 			'plugin_header_write_failed' => 'the plugin file headers could not be updated (is metasync.php writable?)',
 			'recovery_lock_busy' => 'another password operation was in progress',
 			'options_write_failed' => 'the settings could not be saved',
 		);
 		$reason = isset($failure['error'], $reasons[$failure['error']]) ? $reasons[$failure['error']] : 'an unexpected error occurred';
+
+		// Field-specific detail for a content rejection: name the exact
+		// branding field so the package can be fixed rather than retried blind.
 		echo '<div class="notice notice-error"><p><strong>White Label settings import failed.</strong> '
 			. 'MetaSync could not import <code>whitelabel-settings.json</code>: ' . esc_html($reason)
-			. '. The import will be retried automatically; fix the file and reload to retry immediately.</p></div>';
+			. '. The import will be retried automatically; fix the file and reload to retry immediately.</p>';
+		if (isset($failure['invalid_fields']) && is_array($failure['invalid_fields']) && !empty($failure['invalid_fields'])) {
+			echo '<ul style="margin: 8px 0 0 0; list-style: disc; padding-left: 20px;">';
+			foreach ($failure['invalid_fields'] as $message) {
+				echo '<li>' . esc_html((string) $message) . '</li>';
+			}
+			echo '</ul>';
+			echo '<p style="margin: 8px 0 0 0;">Allowed: single-line text (including valid Unicode) and http(s) URLs. Line breaks, control/invisible characters, comment-ending text, PHP tags, and non-http(s) URLs are rejected.</p>';
+		}
+		echo '</div>';
 	}
 
 	/**
@@ -356,6 +406,7 @@ class Metasync_Activator
 		}
 
 		self::$last_import_error = 'unknown';
+		self::$last_import_invalid_fields = array();
 
 		// Read JSON file
 		$json_content = file_get_contents($json_file);
@@ -428,6 +479,14 @@ class Metasync_Activator
 		);
 		if (!self::update_plugin_file_headers($header_data, $plugin_file)) {
 			self::$last_import_error = 'plugin_header_write_failed';
+			// Distinguish a content rejection (invalid branding values) from an
+			// environmental failure (unwritable file, mangled header block) so the
+			// admin notice can point at the offending field.
+			$invalid_fields = self::validate_plugin_header_settings($options['general'] ?? array());
+			if (!empty($invalid_fields)) {
+				self::$last_import_error = 'branding_field_invalid';
+				self::$last_import_invalid_fields = $invalid_fields;
+			}
 			return false;
 		}
 
@@ -554,6 +613,132 @@ class Metasync_Activator
 	}
 
 	/**
+	 * Absolute path of the plugin file whose header carries the branding.
+	 *
+	 * @return string
+	 */
+	public static function plugin_header_file_path()
+	{
+		return plugin_dir_path(dirname(__FILE__)) . 'metasync.php';
+	}
+
+	/**
+	 * Apply a proposed save's branding to the physical plugin header BEFORE
+	 * the options write starts, so an unwritable or malformed target stops
+	 * the save while nothing has been persisted yet.
+	 *
+	 * Returns null when none of the branding values changed (the file is left
+	 * untouched — unrelated saves must not rewrite metasync.php), true when
+	 * the header now matches the proposed values, and false when the update
+	 * was rejected or failed (file unchanged, save must be aborted).
+	 *
+	 * @param mixed $proposed_general General section proposed for saving.
+	 * @param mixed $stored_general   General section currently stored.
+	 * @return bool|null
+	 */
+	public static function apply_plugin_file_headers_for_save($proposed_general, $stored_general)
+	{
+		$proposed_general = is_array($proposed_general) ? $proposed_general : array();
+		$stored_general = is_array($stored_general) ? $stored_general : array();
+
+		$changed = false;
+		foreach (self::BRANDING_HEADER_FIELDS as $key) {
+			if ((string) ($proposed_general[$key] ?? '') !== (string) ($stored_general[$key] ?? '')) {
+				$changed = true;
+				break;
+			}
+		}
+		if (!$changed) {
+			return null;
+		}
+
+		return self::update_plugin_file_headers(array('general_settings' => $proposed_general));
+	}
+
+	/**
+	 * Restore a previous metasync.php content after a save that wrote new
+	 * headers but then failed to persist the matching options.
+	 *
+	 * @param string $plugin_file       Absolute path to metasync.php.
+	 * @param string|false $original_content  Content captured before the header write (file_get_contents() result).
+	 * @return bool Whether the restore succeeded.
+	 */
+	public static function restore_plugin_file_content($plugin_file, $original_content)
+	{
+		if (!is_string($original_content) || $original_content === '') {
+			return false;
+		}
+		if (!self::atomically_replace_plugin_file($plugin_file, $original_content)) {
+			return false;
+		}
+		wp_cache_delete('plugins', 'plugins');
+		return true;
+	}
+
+	/**
+	 * Validate the five values that are written into metasync.php's plugin header.
+	 *
+	 * This is deliberately shared by administrator saves and package imports so
+	 * both paths enforce the same contract before options are persisted.
+	 *
+	 * @param mixed $general General settings submitted or imported.
+	 * @return array<string, string> Field-specific errors, keyed by setting name.
+	 */
+	public static function validate_plugin_header_settings($general)
+	{
+		$general = is_array($general) ? $general : array();
+		$header_map = array(
+			'white_label_plugin_name' => array(
+				'label' => 'Plugin Name',
+				'default' => 'Search Atlas SEO - OTTO AI SEO Automation for WordPress',
+				'url' => false,
+			),
+			'white_label_plugin_description' => array(
+				'label' => 'Plugin Description',
+				'default' => 'Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.',
+				'url' => false,
+			),
+			'white_label_plugin_author' => array(
+				'label' => 'Author',
+				'default' => 'Search Atlas',
+				'url' => false,
+			),
+			'white_label_plugin_author_uri' => array(
+				'label' => 'Author URI',
+				'default' => 'https://searchatlas.com',
+				'url' => true,
+			),
+			'white_label_plugin_uri' => array(
+				'label' => 'Plugin URI',
+				'default' => 'https://searchatlas.com/',
+				'url' => true,
+			),
+		);
+		$errors = array();
+
+		foreach ($header_map as $key => $config) {
+			// A present-but-empty string resets to the default; a scalar like
+			// "0" is a real value and must not be conflated with unset (the
+			// classic PHP !empty() trap). Malformed non-strings fall through
+			// to the is_string rejection below.
+			$value = $config['default'];
+			if (array_key_exists($key, $general)) {
+				$raw = $general[$key];
+				if (is_string($raw)) {
+					$value = $raw !== '' ? $raw : $config['default'];
+				} elseif ($raw !== null) {
+					$value = $raw;
+				}
+			}
+			if (!is_string($value) || !self::is_valid_plugin_header_value($value, $config['url'])) {
+				$errors[$key] = sprintf('%s contains invalid characters or format.', $config['label']);
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
 	 * Update the main plugin file headers with whitelabel values
 	 * WordPress reads plugin metadata directly from the file header comments,
 	 * so modifying these ensures whitelabel shows even when the plugin is deactivated.
@@ -608,10 +793,19 @@ class Metasync_Activator
 		foreach ($header_map as $setting_key => $field_config) {
 			$header_field = $field_config['header'];
 
-			// Use whitelabel value if set, otherwise restore default
-			$new_value = !empty($general[$setting_key])
-				? $general[$setting_key]
-				: $field_config['default'];
+			// Use whitelabel value if set, otherwise restore default. A scalar
+			// like "0" is a real value, not an unset field; an empty string or
+			// null restores the default; malformed non-strings are rejected by
+			// the is_string check below.
+			$new_value = $field_config['default'];
+			if (array_key_exists($setting_key, $general)) {
+				$raw_value = $general[$setting_key];
+				if (is_string($raw_value)) {
+					$new_value = $raw_value !== '' ? $raw_value : $field_config['default'];
+				} elseif ($raw_value !== null) {
+					$new_value = $raw_value;
+				}
+			}
 
 			if (!is_string($new_value) || !self::is_valid_plugin_header_value($new_value, in_array($setting_key, $url_fields, true))) {
 				return false;
@@ -664,8 +858,15 @@ class Metasync_Activator
 
 	/**
 	 * Validate a value before placing it inside the plugin's PHP docblock.
+	 *
+	 * Public so form/import handlers can pre-validate a value with the exact
+	 * contract used when metasync.php is physically rewritten.
+	 *
+	 * @param string $value Candidate header value.
+	 * @param bool   $is_url Whether the value must be an http(s) URL.
+	 * @return bool
 	 */
-	private static function is_valid_plugin_header_value($value, $is_url)
+	public static function is_valid_plugin_header_value($value, $is_url)
 	{
 		if (
 			$value === ''

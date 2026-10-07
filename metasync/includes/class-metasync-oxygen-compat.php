@@ -35,6 +35,14 @@ class Metasync_Oxygen_Compat
      */
     public static function maybe_resign_shortcodes()
     {
+        if (function_exists('wp_doing_ajax') && wp_doing_ajax()) {
+            return;
+        }
+
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
         if (!self::should_run()) {
             return;
         }

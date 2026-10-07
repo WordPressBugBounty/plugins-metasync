@@ -45,6 +45,7 @@ require_once plugin_dir_path( __FILE__ ) . '/Otto_pixel_class.php';
 require_once plugin_dir_path( __FILE__ ) . '/metasync-otto-seo-functions.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-transient-cache.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-job-status.php';
+require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-webhook-audit.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-render-strategy.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-config.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-bot-detector.php';
@@ -114,6 +115,7 @@ add_action('wp_head', function(){
     $otto_tag = '<meta name="otto" content="uuid='.esc_attr(Metasync_Otto_Config::get_otto_uuid()).'; type=wordpress; enabled='.esc_attr($string_enabled).'; version='.esc_attr($plugin_version).'">';
 
     # out the otto tag
+    // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- meta tag assembled on the line above with esc_attr() on every interpolated value
     echo $otto_tag;
 }, 1); # Priority 1 to output early in head
 
@@ -166,6 +168,11 @@ function metasync_otto_job_event_pending($route) {
 # function to register the route
 function metasync_otto_crawl_notify($request){
 
+    # receipt time is captured before validation and scheduling, so the audit
+    # record describes when WordPress received the delivery, not when its work
+    # happened to finish.
+    $received_at = time();
+
     # get request data params
     $data = $request->get_json_params();
 
@@ -187,11 +194,26 @@ function metasync_otto_crawl_notify($request){
 
     }
 
-    # load otto pixel
-    $otto_pixel = new Metasync_otto_pixel(false);
-
-    # save the otto data first (cheap local DB write — kept synchronous)
-    $otto_pixel->save_crawl_data($data);
+    # The audit trail is deliberately after payload validation: invalid requests
+    # receive the existing 400 response and are not recorded as deliveries.
+    # It is also before any scheduling so a valid delivery is captured even if
+    # later work is deferred or rejected. The failure guard is intentionally
+    # broader than Exception: a broken option adapter or stale plugin copy must
+    # never turn an otherwise acknowledged webhook into a 500 response.
+    try {
+        if (metasync_otto_class_provides('Metasync_Otto_Webhook_Audit', 'record')) {
+            Metasync_Otto_Webhook_Audit::record(
+                $received_at,
+                $data['domain'],
+                $data['urls']
+            );
+        }
+    } catch (Throwable $metasync_otto_audit_failure) {
+        error_log(
+            'MetaSync OTTO: failed to record crawl-notify webhook audit entry: '
+            . $metasync_otto_audit_failure->getMessage()
+        ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- audit failure must not break webhook acknowledgement
+    }
 
     # Defer the expensive per-URL work (OTTO API fetch, post meta sync,
     # per-URL cache purge) to background jobs. The webhook caller enforces a
@@ -425,8 +447,30 @@ function metasync_handle_otto_crawl_url_job($route = '', $retry_count = 0) {
 
         Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_COMPLETED, 'job', $retry_count, $outcome);
 
-    } catch (Exception $e) {
-        $schedule_retry('exception:' . $e->getMessage());
+    } catch (\Throwable $e) {
+        # Cron must survive both Exception and PHP 7+ Error failures. Always use
+        # the same bounded retry path, and emit structured context without the URL
+        # payload or credentials. The retry is booked BEFORE the log attempt so a
+        # failing logger can never swallow the retry; logging is best-effort.
+        $schedule_retry('throwable:' . get_class($e));
+        if (class_exists('Metasync_Error_Logger')) {
+            try {
+                Metasync_Error_Logger::log(
+                    Metasync_Error_Logger::CATEGORY_OTTO_RENDER,
+                    Metasync_Error_Logger::SEVERITY_ERROR,
+                    'OTTO crawl-url job threw; retry policy applied',
+                    [
+                        'operation' => 'crawl_url_job',
+                        'outcome' => 'throwable',
+                        'retry_count' => (int) $retry_count,
+                        'exception' => get_class($e),
+                    ]
+                );
+            } catch (\Throwable $logger_error) {
+                # Logging must never kill the handler after the retry is booked.
+                error_log('MetaSync OTTO: crawl-url job error log failed: ' . $logger_error->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
+            }
+        }
     }
 }
 
@@ -890,7 +934,7 @@ function metasync_start_otto(){
     }
 
     # OPTIMIZED: Check if Otto should be disabled for WP Rocket compatibility
-    if (class_exists('WP_Rocket')) {
+    if (defined('WP_ROCKET_VERSION') || class_exists('WP_Rocket')) {
         $wp_rocket_compat_mode = Metasync_Otto_Config::get_wp_rocket_compat_mode();
 
         if ($wp_rocket_compat_mode === 'disable_otto') {
@@ -898,12 +942,23 @@ function metasync_start_otto(){
         }
     }
 
-    # Skip OTTO for Divi AJAX pagination and paginated archive requests.
-    # ?et_blog = Divi AJAX pagination callback
+    # Skip OTTO for Divi AJAX pagination, and for paginated archive requests
+    # on Divi-built sites.
+    # ?et_blog = Divi AJAX pagination callback — always skipped, on every
+    # theme, because Divi fires it regardless of the site layout.
     # /page/N/ = paginated blog/archive pages — OTTO's buffer/HTTP render causes
     # module numbering mismatch between page 1 (with TB template) and page N
     # (without TB template), breaking Divi's JS pagination selector matching.
-    if (isset($_GET['et_blog']) || (is_paged() && !is_singular())) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only front-end check that skips OTTO
+    # That mismatch is a Divi rendering bug, so the /page/N/ skip is gated on
+    # Divi detection: non-Divi sites (Elementor + the7, ...) keep OTTO on real
+    # paginated archives. Detection covers the Divi theme and its child themes
+    # (get_template() returns the PARENT template dir, "Divi" either way), the
+    # Extra theme and the Divi Builder plugin (both define ET_BUILDER_VERSION
+    # / et_setup_theme — same TB machinery, same bug).
+    $is_divi = defined('ET_BUILDER_VERSION')
+        || function_exists('et_setup_theme')
+        || wp_get_theme()->get_template() === 'Divi';
+    if (isset($_GET['et_blog']) || ($is_divi && is_paged() && !is_singular())) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only front-end check that skips OTTO
         return;
     }
 
@@ -1048,7 +1103,7 @@ function metasync_otto_handle_cache_compatibility() {
     # metasync_otto_disable_sg_page_cache(), which is invoked later
     # once OTTO confirms suggestions for the URL.
     $brizy_active = class_exists('Brizy_Editor') || defined('BRIZY_VERSION');
-    $wp_rocket_active = class_exists('WP_Rocket');
+    $wp_rocket_active = defined('WP_ROCKET_VERSION') || class_exists('WP_Rocket');
 
     # OPTIMIZED: Get configuration option using cached config
     $wp_rocket_compat_mode = Metasync_Otto_Config::get_wp_rocket_compat_mode();
@@ -1123,7 +1178,7 @@ function metasync_otto_handle_cache_compatibility() {
  */
 function metasync_otto_disable_sg_page_cache() {
     # Only relevant when SG Optimizer is active and WP Rocket is not present.
-    if (class_exists('WP_Rocket')) {
+    if (defined('WP_ROCKET_VERSION') || class_exists('WP_Rocket')) {
         return;
     }
     if (!is_plugin_active('sg-cachepress/sg-cachepress.php')) {
@@ -1850,22 +1905,6 @@ function metasync_process_otto_seo_data($route, $allow_defer = true, $deferral_c
                 return Metasync_Otto_Job_Status::OUTCOME_RETRYABLE;
             }
         }
-
-        # Mark this URL as crawled by OTTO for SSR
-        # Extract domain and path from route
-        $parsed_url = wp_parse_url($route);
-        $domain_with_scheme = ($parsed_url['scheme'] ?? 'https') . '://' . ($parsed_url['host'] ?? '');
-        $url_path = ($parsed_url['path'] ?? '/');
-
-        # Create crawl data structure
-        $crawl_data = array(
-            'domain' => $domain_with_scheme,
-            'urls' => array($url_path)
-        );
-
-        # Load Otto pixel class and save crawl data
-        $otto_pixel = new Metasync_otto_pixel($otto_uuid);
-        $otto_pixel->save_crawl_data($crawl_data);
 
         # Get WordPress post ID from URL
         $post_id = url_to_postid($route);

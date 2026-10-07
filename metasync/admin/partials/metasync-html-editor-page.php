@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) {
         <div class="metasync-editor-header-left">
             <a href="<?php echo esc_url(admin_url('edit.php?post_type=page')); ?>" class="metasync-back-button">
                 <span class="dashicons dashicons-arrow-left-alt2"></span>
-                <?php _e('Back to Pages', 'metasync'); ?>
+                <?php esc_html_e('Back to Pages', 'metasync'); ?>
             </a>
             <div class="metasync-page-title">
                 <strong><?php echo esc_html($post->post_title); ?></strong>
@@ -28,18 +28,18 @@ if (!defined('ABSPATH')) {
         <div class="metasync-editor-header-center">
             <div class="metasync-editor-status">
                 <span class="metasync-status-indicator"></span>
-                <span class="metasync-status-text"><?php _e('Ready', 'metasync'); ?></span>
+                <span class="metasync-status-text"><?php esc_html_e('Ready', 'metasync'); ?></span>
             </div>
         </div>
 
         <div class="metasync-editor-header-right">
             <button type="button" class="button metasync-preview-button" title="<?php esc_attr_e('Preview', 'metasync'); ?>">
                 <span class="dashicons dashicons-visibility"></span>
-                <?php _e('Preview', 'metasync'); ?>
+                <?php esc_html_e('Preview', 'metasync'); ?>
             </button>
             <button type="button" class="button button-primary metasync-save-button" title="<?php esc_attr_e('Save Changes', 'metasync'); ?>">
                 <span class="dashicons dashicons-saved"></span>
-                <?php _e('Save', 'metasync'); ?>
+                <?php esc_html_e('Save', 'metasync'); ?>
             </button>
         </div>
     </div>
@@ -102,7 +102,7 @@ if (!defined('ABSPATH')) {
             <div class="metasync-load-failure-actions">
                 <button type="button" class="button button-primary metasync-load-failure-reload"></button>
                 <button type="button" class="button metasync-load-failure-dismiss" style="display:none;"></button>
-                <a class="button" href="<?php echo esc_url(admin_url('edit.php?post_type=page')); ?>"><?php _e('Back to Pages', 'metasync'); ?></a>
+                <a class="button" href="<?php echo esc_url(admin_url('edit.php?post_type=page')); ?>"><?php esc_html_e('Back to Pages', 'metasync'); ?></a>
             </div>
         </div>
     </div>

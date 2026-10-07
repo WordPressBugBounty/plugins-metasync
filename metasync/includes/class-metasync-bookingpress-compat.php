@@ -24,9 +24,14 @@
  *   visitors keep the session; see the cookie guard below.
  *
  * This shim removes the global session start on public HTML requests so host
- * page caching can engage again. Admin, AJAX, cron, CLI and REST requests
- * are untouched, and any code that genuinely needs a session still starts
- * its own.
+ * page caching can engage again. Admin, AJAX, cron and CLI requests are
+ * untouched. REST requests are also affected: the shim runs on `init` at
+ * priority 0, before WordPress defines the REST_REQUEST constant (that happens
+ * during `parse_request`), so is_public_html_request() cannot distinguish a
+ * REST request at that point and treats it as a public HTML request. This is
+ * harmless in practice — REST responses are not host page-cached anyway, and
+ * BookingPress manages its own sessions inside its AJAX/REST handlers. Any
+ * code that genuinely needs a session still starts its own.
  *
  * @package    MetaSync
  * @subpackage MetaSync/includes
@@ -82,6 +87,10 @@ class Metasync_BookingPress_Compat
 	 * Only public page renders matter for host caching; every other request
 	 * context is left exactly as WordPress finds it.
 	 *
+	 * Note: REST_REQUEST is not defined until `parse_request`, so at the
+	 * `init` priority 0 where the shim runs it is always absent and a REST
+	 * request reads as a public HTML request here. See the class docblock.
+	 *
 	 * @return bool True for front-end HTML requests.
 	 */
 	private static function is_public_html_request()
@@ -115,12 +124,21 @@ class Metasync_BookingPress_Compat
 	{
 		$removed = false;
 
+		# BookingPress 1.6.2 registers the callback once at priority 1, but a
+		# future version could register it more than once (or at another
+		# priority). Loop until remove_action() reports no match left so every
+		# instance is cleared regardless of how many were registered.
 		if (!empty($GLOBALS['bookingpress_spam_protection']) && is_object($GLOBALS['bookingpress_spam_protection'])) {
-			$removed = remove_action(
-				'init',
-				array($GLOBALS['bookingpress_spam_protection'], 'bookingpress_start_session'),
-				1
-			);
+			do {
+				$did = remove_action(
+					'init',
+					array($GLOBALS['bookingpress_spam_protection'], 'bookingpress_start_session'),
+					1
+				);
+				if ($did) {
+					$removed = true;
+				}
+			} while ($did);
 		}
 
 		if ($removed) {
@@ -147,6 +165,9 @@ class Metasync_BookingPress_Compat
 			return false;
 		}
 
+		# Registry-scan fallback: sweep every priority and unset every matching
+		# callback rather than stopping after the first. Catches multiple
+		# registrations (future-proofing) and renamed globals/subclasses alike.
 		foreach ($callbacks as $priority => $entries) {
 			if (!is_array($entries)) {
 				continue;
@@ -159,11 +180,11 @@ class Metasync_BookingPress_Compat
 					&& $fn[1] === 'bookingpress_start_session'
 				) {
 					unset($callbacks[$priority][$callback_id]);
-					return true;
+					$removed = true;
 				}
 			}
 		}
 
-		return false;
+		return $removed;
 	}
 }

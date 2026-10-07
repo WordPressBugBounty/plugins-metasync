@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas SEO - OTTO AI SEO Automation for WordPress
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.7.1
+ * Version:           2.7.2
  * Requires PHP:      8.1
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
@@ -58,7 +58,7 @@ require_once __DIR__ . '/includes/class-metasync-seo-restore.php';
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.7.1';
+$metasync_version = '2.7.2';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -94,6 +94,16 @@ define('METASYNC_SENTRY_SAMPLE_RATE', 1.0);
  */
 define('METASYNC_GA4_MEASUREMENT_ID', 'G-SBLWW1EMTJ');
 define('METASYNC_GA4_API_SECRET', 'nMGs22mxQ3qVUy-aInqfZA');
+
+/**
+ * PostHog product analytics configuration.
+ * The write key is a public project key embedded by design (same precedent
+ * as the GA4 secret above); set METASYNC_POSTHOG_API_KEY in the environment
+ * to override it - including to an empty string, which disables PostHog.
+ */
+define('METASYNC_POSTHOG_HOST', 'https://posthog.internal.searchatlas.com');
+$metasync_posthog_key = getenv('METASYNC_POSTHOG_API_KEY');
+define('METASYNC_POSTHOG_API_KEY', false !== $metasync_posthog_key ? $metasync_posthog_key : 'phc_ntSayCJE7Ad9eBHRG6ygBaY4BJMa8rFjXcXESun9ftkh'); // gitleaks:allow -- public write-only PostHog project key
 
 /**
  * Define whether to show the plugin status in WordPress admin top navigation bar
@@ -254,7 +264,7 @@ function activate_metasync()
             sprintf(
                 '%s requires WordPress version %s or later. You are currently using version %s. Please update WordPress to activate this plugin.',
                 esc_html($plugin_name),
-                METASYNC_MIN_WP,
+                esc_html(METASYNC_MIN_WP),
                 esc_html($wp_version)
             ),
 
@@ -276,7 +286,7 @@ function activate_metasync()
             sprintf(
                 '%s requires PHP version %s or later. You are currently using version %s. Please update PHP to activate this plugin.',
                 esc_html($plugin_name),
-                METASYNC_MIN_PHP,
+                esc_html(METASYNC_MIN_PHP),
                 esc_html($php_version)
             ),
 
@@ -304,6 +314,10 @@ function activate_metasync()
 
 	// Migrate physical sitemap files on activation.
 	metasync_migrate_physical_sitemaps();
+
+	// Consent-gated analytics: the activation event only fires if the user
+	// previously opted in (re-activation) — a brand-new install is OFF.
+	Metasync_PostHog::get_instance()->track('plugin_activated', array());
 }
 
 // Log-sync removed - error monitoring now handled by Sentry
@@ -499,6 +513,11 @@ function check_metasync_updates()
 
         // Run version-specific migrations first
         MetaSync_DBMigration::run_version_migrations($current_version, $plugin_version);
+
+        // The developer endpoint-switching panel has been removed. Reset its
+        // persisted staging mode so upgrades cannot keep routing API requests
+        // to staging without a visible warning or a supported recovery path.
+        delete_option('metasync_dev_endpoint_mode');
 
         // Migration for v2.7.0+: Remove AI Agent, switch to plugin auth token, make MCP always-on
         if (version_compare($current_version, '2.7.0', '<')) {
@@ -748,7 +767,15 @@ function metasync_output_dyo_init_flag() {
 }
 add_action('wp_head', 'metasync_output_dyo_init_flag', 1);
 
-// Runtime feature initialisers (GA4, API backoff, review notice, JWT accessor, debug mode) extracted to keep this entry file lean.
+// Shared analytics helper is loaded in all request contexts so server-side feature
+// events can use the same consent gate as admin analytics.
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-posthog.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-metasync-analytics-consent-notice.php';
+
+/**
+ * Runtime feature initialisers (GA4, API backoff, review notice, JWT accessor,
+ * debug mode) extracted to keep this entry file lean.
+ */
 require_once plugin_dir_path( __FILE__ ) . 'includes/metasync-runtime-init.php';
 
 /**

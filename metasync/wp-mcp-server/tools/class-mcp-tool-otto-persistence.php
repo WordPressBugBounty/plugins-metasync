@@ -138,7 +138,7 @@ class MCP_Tool_Update_Otto_Persistence_Settings extends MCP_Tool_Base {
                 }
                 if (!is_bool($value) && !is_string($value) && !is_numeric($value)) {
                     throw new Exception(
-                        "Invalid value type for setting '{$key}': expected boolean, got " . gettype($value)
+                        "Invalid value type for setting '{$key}': expected boolean, got " . gettype($value) // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
                     );
                 }
                 $bool_value = $this->coerce_bool($value);
@@ -151,7 +151,7 @@ class MCP_Tool_Update_Otto_Persistence_Settings extends MCP_Tool_Base {
         if (!empty($params['setting_key'])) {
             $key = sanitize_key($params['setting_key']);
             if (!in_array($key, $valid_keys, true)) {
-                throw new Exception("Invalid setting_key '{$key}'. Must be one of: " . implode(', ', $valid_keys));
+                throw new Exception("Invalid setting_key '{$key}'. Must be one of: " . implode(', ', $valid_keys)); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
             }
             if (!array_key_exists('setting_value', $params)) {
                 throw new Exception("setting_value is required when setting_key is provided");

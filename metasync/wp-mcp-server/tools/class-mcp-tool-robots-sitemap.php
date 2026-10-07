@@ -48,7 +48,7 @@ class MCP_Tool_Get_Robots_Txt extends MCP_Tool_Base {
         $content = $robots_txt->read_robots_file();
 
         if (is_wp_error($content)) {
-            throw new Exception($content->get_error_message());
+            throw new Exception($content->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         return $this->success([
@@ -111,7 +111,7 @@ class MCP_Tool_Update_Robots_Txt extends MCP_Tool_Base {
         $result = $robots_txt->write_robots_file($content);
 
         if (is_wp_error($result)) {
-            throw new Exception($result->get_error_message());
+            throw new Exception($result->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         return $this->success([
@@ -240,7 +240,7 @@ class MCP_Tool_Regenerate_Sitemap extends MCP_Tool_Base {
         $result = $sitemap_generator->generate_sitemap();
 
         if (is_wp_error($result)) {
-            throw new Exception($result->get_error_message());
+            throw new Exception($result->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         if (false === $result) {
@@ -409,7 +409,7 @@ class MCP_Tool_Add_Robots_Rule extends MCP_Tool_Base {
         $result = $robots_txt->write_robots_file($new_content);
 
         if (is_wp_error($result)) {
-            throw new Exception($result->get_error_message());
+            throw new Exception($result->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         return $this->success([
@@ -466,7 +466,7 @@ class MCP_Tool_Remove_Robots_Rule extends MCP_Tool_Base {
         $content = $robots_txt->read_robots_file();
 
         if (is_wp_error($content)) {
-            throw new Exception($content->get_error_message());
+            throw new Exception($content->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         $lines = explode("\n", $content);
@@ -491,7 +491,7 @@ class MCP_Tool_Remove_Robots_Rule extends MCP_Tool_Base {
         $result = $robots_txt->write_robots_file($new_content);
 
         if (is_wp_error($result)) {
-            throw new Exception($result->get_error_message());
+            throw new Exception($result->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         return $this->success([

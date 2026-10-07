@@ -176,7 +176,7 @@ class MCP_Tool_DB_Describe extends MCP_Tool_Base {
             $table
         ));
         if (!$exists) {
-            throw new Exception("Table '{$table}' does not exist");
+            throw new Exception("Table '{$table}' does not exist"); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
     }
 }
@@ -321,14 +321,14 @@ class MCP_Tool_DB_Select extends MCP_Tool_Base {
         if (!in_array($first_keyword, $allowed_starts, true)) {
             throw new Exception(
                 "Query blocked: only SELECT, SHOW, DESCRIBE, and EXPLAIN are allowed. " .
-                "Got: '{$first_keyword}'"
+                "Got: '{$first_keyword}'" // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
             );
         }
 
         // 2. Block write-operation keywords at statement start (covers stacked queries)
         foreach ($this->blocked_first_keywords as $kw) {
             if (preg_match('/;\s*' . preg_quote($kw, '/') . '\s/i', $sql)) {
-                throw new Exception("Query blocked: stacked write statement detected ({$kw})");
+                throw new Exception("Query blocked: stacked write statement detected ({$kw})"); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
             }
         }
 
@@ -336,7 +336,7 @@ class MCP_Tool_DB_Select extends MCP_Tool_Base {
         $sql_upper = strtoupper($sql);
         foreach ($this->blocked_anywhere as $pattern) {
             if (strpos($sql_upper, $pattern) !== false) {
-                throw new Exception("Query blocked: forbidden pattern detected ({$pattern})");
+                throw new Exception("Query blocked: forbidden pattern detected ({$pattern})"); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
             }
         }
 
@@ -350,7 +350,7 @@ class MCP_Tool_DB_Select extends MCP_Tool_Base {
             $full_table = $wpdb->prefix . $table_suffix;
             if (stripos($sql, $full_table) !== false) {
                 throw new Exception(
-                    "Query blocked: access to {$full_table} is restricted"
+                    "Query blocked: access to {$full_table} is restricted" // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
                 );
             }
         }
@@ -375,7 +375,7 @@ class MCP_Tool_DB_Select extends MCP_Tool_Base {
             foreach ($this->sensitive_option_names as $sensitive_name) {
                 if (stripos($sql, $sensitive_name) !== false) {
                     throw new Exception(
-                        "Query blocked: query references a sensitive wp_options key ({$sensitive_name})"
+                        "Query blocked: query references a sensitive wp_options key ({$sensitive_name})" // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
                     );
                 }
             }
@@ -412,10 +412,10 @@ class MCP_Tool_DB_Select extends MCP_Tool_Base {
                 stripos($err, 'max_statement_time exceeded') !== false
             ) {
                 throw new Exception(
-                    "Query timeout: query exceeded the {$to['timeout']}s limit and was cancelled."
+                    "Query timeout: query exceeded the {$to['timeout']}s limit and was cancelled." // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
                 );
             }
-            throw new Exception('Database error: ' . $err);
+            throw new Exception('Database error: ' . $err); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         // Layer (b) of sensitive wp_options protection: drop result rows

@@ -221,7 +221,7 @@ class MCP_Tool_Upload_Featured_Image extends MCP_Tool_Base {
         $tmp = download_url($image_url);
 
         if (is_wp_error($tmp)) {
-            throw new Exception('Failed to download image: ' . $tmp->get_error_message());
+            throw new Exception('Failed to download image: ' . $tmp->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         // Prepare file array
@@ -235,7 +235,7 @@ class MCP_Tool_Upload_Featured_Image extends MCP_Tool_Base {
 
         if (is_wp_error($attachment_id)) {
             @wp_delete_file($tmp);
-            throw new Exception('Failed to upload image: ' . $attachment_id->get_error_message());
+            throw new Exception('Failed to upload image: ' . $attachment_id->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         // Set title if provided

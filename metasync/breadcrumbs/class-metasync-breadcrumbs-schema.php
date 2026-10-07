@@ -126,6 +126,7 @@ class Metasync_Breadcrumbs_Schema {
         }
 
         echo '<script type="application/ld+json" class="metasync-breadcrumb-schema">' . "\n";
+        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON-LD document; metasync_safe_json_ld_encode() produces the JSON payload for a <script> context
         echo $json;
         echo "\n" . '</script>' . "\n";
 

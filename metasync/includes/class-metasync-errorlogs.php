@@ -50,7 +50,7 @@ class ErrorLog {
 
         foreach ($logFileHandle as $id => $currentLine) {
             // Normal error log line starts with the date & time in []
-            if ('[' === @$currentLine[0]) {
+            if ('[' === ($currentLine[0] ?? '')) {
                 // if (10000 === \count($parsedLogs)) {
                 //     return $parsedLogs;
                 // }
@@ -129,22 +129,30 @@ class ErrorLog {
                 ];
             } // Stack trace beginning line
             else if ('Stack trace:' === $currentLine) {
+                $parsedLogsLastKey = array_key_last($parsedLogs);
+                if (null === $parsedLogsLastKey) {
+                    continue;
+                }
+
                 $stackTraceLineNumber = 0;
-
-                foreach ($logFileHandle as $line) {
-                    $currentLine = str_replace(PHP_EOL, '', $line);
-
-                    // If the current line is a stack trace line
-                    if ('#' === $currentLine[0]) {
-                        $parsedLogsLastKey = key($parsedLogs);
-                        $currentLine = str_replace('#' . $stackTraceLineNumber, '', $currentLine);
-                        $parsedLogs[$parsedLogsLastKey]['stackTrace'][] = trim($currentLine);
-
-                        $stackTraceLineNumber++;
-                    } // If the current line is the last stack trace ('thrown in...')
-                    else {
-                        break;
+                for ($trace_index = $id + 1, $trace_count = count($logFileHandle); $trace_index < $trace_count; $trace_index++) {
+                    $trace_line = trim($logFileHandle[$trace_index]);
+                    if ('' === $trace_line) {
+                        continue;
                     }
+                    if ('#' === $trace_line[0]) {
+                        $prefix = '#' . $stackTraceLineNumber;
+                        if (0 === strpos($trace_line, $prefix)) {
+                            $trace_line = substr($trace_line, strlen($prefix));
+                        }
+                        $parsedLogs[$parsedLogsLastKey]['stackTrace'][] = trim($trace_line);
+                        $stackTraceLineNumber++;
+                        continue;
+                    }
+                    if (0 === strpos($trace_line, 'thrown in ')) {
+                        $parsedLogs[$parsedLogsLastKey]['stackTrace'][] = $trace_line;
+                    }
+                    break;
                 }
             }
         }

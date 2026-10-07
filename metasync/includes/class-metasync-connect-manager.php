@@ -284,6 +284,13 @@ class Metasync_Connect_Manager
 
             $sa_connect_url = $dashboard_domain . '/sso/wordpress?' . http_build_query($connect_args);
 
+            // Consent-gated analytics: the denominator for searchatlas_connected.
+            $existing_key = Metasync::get_searchatlas_api_key();
+            Metasync_PostHog::feature('searchatlas_connect_started', array(
+                'is_reconnection' => is_string($existing_key) && $existing_key !== '',
+                'is_whitelabel' => (bool) Metasync::is_whitelabel_enabled(),
+            ));
+
             wp_send_json_success(array(
                 'connect_url' => $sa_connect_url,
                 'nonce_token' => $sa_connect_token,
@@ -460,6 +467,11 @@ class Metasync_Connect_Manager
                     // Honest state: surface the real server error (e.g. "Domain not
                     // found for customer") instead of the silent 60s timeout. The
                     // existing JS branches on status_code (404/500/…) to render it.
+                    // Once per connect attempt, even if the poll repeats.
+                    Metasync_PostHog::feature_once('searchatlas_connect_failed', array(
+                        'status_code' => $pull_status_code ?: 400,
+                        'source' => 'pull',
+                    ), md5($nonce_token), 15 * MINUTE_IN_SECONDS);
                     wp_send_json_success(array(
                         'updated' => true,
                         'status_code' => $pull_status_code ?: 400,
@@ -1077,15 +1089,13 @@ class Metasync_Connect_Manager
             $cleaned_tokens = $this->cleanup_searchatlas_nonce_tokens();
             $cleared_data['sa_connect_nonce_tokens'] = 'none (simplified token system)';
 
-            delete_option(Metasync::option_name . '_whitelabel_user');
-            $cleared_data['whitelabel_user'] = 'removed';
-
-            if (isset($options['whitelabel'])) {
-                $cleared_data['whitelabel_settings'] = 'removed';
-                unset($options['whitelabel']);
-
-                $this->write_options_without_stored_merge($options);
-            }
+            // White-label identity is preserved across the authentication
+            // reset: the reseller's branding, logos, domains, custom OTTO
+            // name, visibility/access controls, password and recovery
+            // settings, and the dedicated whitelabel_user option must survive
+            // the disconnect. Only authentication tokens and credentials are
+            // cleared above. Do not delete the whitelabel blob or the
+            // whitelabel_user option here.
 
             $this->clear_jwt_token_cache();
             $this->revoke_mcp_jwt_tokens();
@@ -1111,6 +1121,28 @@ class Metasync_Connect_Manager
             $cleared_data['last_known_connection_state'] = 'cleared';
 
             Metasync_Heartbeat_Manager::instance()->unschedule_heartbeat_cron();
+
+            // Consent-gated analytics: churn signal, the opposite of connected.
+            Metasync_PostHog::feature('searchatlas_disconnected', array(
+                'method' => 'reset_auth',
+                'was_connected' => isset($cleared_data['searchatlas_api_key']),
+            ));
+
+            // Re-synchronise the branded plugin file headers so the WordPress
+            // plugin list and the plugin UI stay branded after the
+            // authentication reset. Only attempted when white-label branding
+            // exists, and a failed sync is logged as a warning, not reported
+            // as a reset failure: the credentials have already been cleared,
+            // and hosts with read-only plugin files would otherwise never see
+            // a successful reset.
+            if (Metasync::is_whitelabel_enabled()) {
+                if (!class_exists('Metasync_Activator')) {
+                    require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-activator.php';
+                }
+                if (!Metasync_Activator::sync_plugin_file_headers()) {
+                    error_log('MetaSync: failed to re-synchronise branded plugin file headers after the authentication reset.');
+                }
+            }
 
             wp_send_json_success(array(
                 'message' => 'Authentication has been reset successfully. You can now connect a new account.',

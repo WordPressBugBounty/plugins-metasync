@@ -306,7 +306,7 @@ class Metasync_SEO_Conflict_Handler {
         // 2. The stored page title, in whatever order the site has asked for.
         //
         // This used to restate the order inline — sidebar key, then OTTO key —
-        // so the global "SEO Title & Description Priority" setting could not
+        // so the global "SEO Meta Priority" setting could not
         // reach the og:title this method feeds, and a title held on the
         // persisted or imported tier was missed entirely. The description side
         // already resolves through metasync_description_value(); this is the
@@ -473,11 +473,17 @@ class Metasync_SEO_Conflict_Handler {
     /**
      * Resolve the MetaSync-managed canonical URL for a post, if any.
      *
-     * Priority: OTTO persisted canonical (_metasync_canonical_url) → Canonical meta
-     * box value (meta_canonical). Restricted to singular views so term/archive
-     * queried-object ids are never misread as post ids. Mirrors the fallback in
-     * Metasync_Seo_Output::get_canonical_url() so both the no-SEO-plugin path and
-     * the third-party-plugin path honor the same value.
+     * Routes through the same Metasync_Seo_Precedence::FIELD_CANONICAL chain
+     * the emitter uses — the persisted or imported value
+     * (_metasync_canonical_url), then the Canonical meta box value the customer
+     * typed (meta_canonical), then OTTO's volatile staging key
+     * (_metasync_otto_canonical) — so a third-party SEO plugin's canonical
+     * filter emits the same canonical Metasync_Seo_Output would, including
+     * OTTO's when no manual value exists, instead of leaving the third-party
+     * tag pointing at the permalink. The staging tier sits below both manual
+     * keys because OTTO's SSR injection stands down when either is set; any
+     * other order would make the two paths disagree. Restricted to singular
+     * views so term/archive queried-object ids are never misread as post ids.
      *
      * @param int $post_id Current object id.
      * @return string Escaped canonical URL, or '' when none is set.
@@ -494,15 +500,28 @@ class Metasync_SEO_Conflict_Handler {
             return '';
         }
 
-        // Validate both sources: legacy rows corrupted to the literal "Array"
-        // (or stored as arrays) must never be emitted as a canonical.
-        $canonical = Metasync_Canonical_Sanitizer::sanitize(
-            get_post_meta($post_id, '_metasync_canonical_url', true)
-        );
-        if ($canonical === '') {
+        // Resolve the precedence chain. include_otto defaults to the per-post
+        // "Disable OTTO" toggle inside resolve(), so a stood-down suggestion is
+        // not served. Every tier is validated on the way out so legacy rows
+        // corrupted to the literal "Array" (or stored as arrays) never emit.
+        // A partial install without the resolver degrades to the direct reads
+        // of the two manual keys the chain replaced, same order.
+        if (self::precedence_available()) {
             $canonical = Metasync_Canonical_Sanitizer::sanitize(
-                get_post_meta($post_id, 'meta_canonical', true)
+                Metasync_Seo_Precedence::value(
+                    $post_id,
+                    Metasync_Seo_Precedence::FIELD_CANONICAL
+                )
             );
+        } else {
+            $canonical = Metasync_Canonical_Sanitizer::sanitize(
+                get_post_meta($post_id, '_metasync_canonical_url', true)
+            );
+            if ($canonical === '') {
+                $canonical = Metasync_Canonical_Sanitizer::sanitize(
+                    get_post_meta($post_id, 'meta_canonical', true)
+                );
+            }
         }
 
         return $canonical !== '' ? esc_url($canonical) : '';

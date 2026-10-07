@@ -106,7 +106,7 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
                     <div class="stat-icon"><span class="dashicons dashicons-list-view"></span></div>
                     <div class="stat-content">
                         <div class="stat-label">Sitemap Files</div>
-                        <div class="stat-value"><?php echo $total_sitemap_count; ?></div>
+                        <div class="stat-value"><?php echo (int) $total_sitemap_count; ?></div>
                     </div>
                 </div>
 
@@ -396,12 +396,12 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
             <h2>Sitemap Files</h2>
             <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">
                 <?php if ($total_sitemap_count > 0): ?>
-                Your sitemap has <?php echo $total_sitemap_count; ?> file<?php echo $total_sitemap_count > 1 ? 's' : ''; ?> — <?php echo $sitemap_count; ?> main (up to <?php echo number_format($sitemap_generator->get_urls_per_sitemap()); ?> URLs each)<?php
+                Your sitemap has <?php echo (int) $total_sitemap_count; ?> file<?php echo $total_sitemap_count > 1 ? 's' : ''; ?> — <?php echo (int) $sitemap_count; ?> main (up to <?php echo number_format($sitemap_generator->get_urls_per_sitemap()); ?> URLs each)<?php
                     if ($news_sm_exists || $video_sm_exists) {
                         $extras = [];
                         if ($news_sm_exists) $extras[] = 'news';
                         if ($video_sm_exists) $extras[] = 'video';
-                        echo ', plus ' . implode(' &amp; ', $extras);
+                        echo ', plus ' . esc_html(implode(' & ', $extras));
                     }
                     ?>.
                 <?php else: ?>
@@ -469,7 +469,7 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
                             <div class="sitemap-filename">news-sitemap.xml</div>
                             <div class="sitemap-url-range"><?php esc_html_e('Google News Sitemap', 'metasync'); ?></div>
                         </td>
-                        <td><?php echo $news_sm_exists ? $news_url_count : '<em style="color:var(--dashboard-text-secondary);">Not generated</em>'; ?></td>
+                        <td><?php echo $news_sm_exists ? (int) $news_url_count : '<em style="color:var(--dashboard-text-secondary);">Not generated</em>'; ?></td>
                         <td><?php echo ($news_sm_exists && $last_generated) ? esc_html(gmdate('M j, Y g:i A', strtotime($last_generated))) : '—'; ?></td>
                         <td>
                             <?php if ($news_sm_exists): ?>
@@ -497,7 +497,7 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
                             <div class="sitemap-filename">video-sitemap.xml</div>
                             <div class="sitemap-url-range"><?php esc_html_e('Video Sitemap', 'metasync'); ?></div>
                         </td>
-                        <td><?php echo $video_sm_exists ? $video_url_count : '<em style="color:var(--dashboard-text-secondary);">Not generated</em>'; ?></td>
+                        <td><?php echo $video_sm_exists ? (int) $video_url_count : '<em style="color:var(--dashboard-text-secondary);">Not generated</em>'; ?></td>
                         <td><?php echo ($video_sm_exists && $last_generated) ? esc_html(gmdate('M j, Y g:i A', strtotime($last_generated))) : '—'; ?></td>
                         <td>
                             <?php if ($video_sm_exists): ?>
@@ -643,7 +643,7 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
 
         <?php foreach ($news_conflicts as $notice) {
             $notice_type = (strpos($notice, 'can coexist') !== false) ? 'notice-info' : 'notice-warning';
-            echo '<div class="notice ' . $notice_type . ' inline" style="margin-bottom: 12px; padding: 12px 16px; border-radius: 8px; background: rgba(255, 152, 0, 0.1); border-left: 4px solid var(--dashboard-warning, #f59e0b); color: var(--dashboard-text-primary, #fff);"><p style="margin: 0;">&#9888; ' . esc_html($notice) . '</p></div>';
+            echo '<div class="notice ' . esc_attr($notice_type) . ' inline" style="margin-bottom: 12px; padding: 12px 16px; border-radius: 8px; background: rgba(255, 152, 0, 0.1); border-left: 4px solid var(--dashboard-warning, #f59e0b); color: var(--dashboard-text-primary, #fff);"><p style="margin: 0;">&#9888; ' . esc_html($notice) . '</p></div>';
         } ?>
 
         <?php if ($news_empty_warning): ?>
@@ -946,7 +946,7 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
 
         <?php foreach ($video_conflicts as $notice) {
             $notice_type = (strpos($notice, 'can coexist') !== false) ? 'notice-info' : 'notice-warning';
-            echo '<div class="notice ' . $notice_type . ' inline" style="margin-bottom: 12px; padding: 12px 16px; border-radius: 8px; background: rgba(255, 152, 0, 0.1); border-left: 4px solid var(--dashboard-warning, #f59e0b); color: var(--dashboard-text-primary, #fff);"><p style="margin: 0;">&#9888; ' . esc_html($notice) . '</p></div>';
+            echo '<div class="notice ' . esc_attr($notice_type) . ' inline" style="margin-bottom: 12px; padding: 12px 16px; border-radius: 8px; background: rgba(255, 152, 0, 0.1); border-left: 4px solid var(--dashboard-warning, #f59e0b); color: var(--dashboard-text-primary, #fff);"><p style="margin: 0;">&#9888; ' . esc_html($notice) . '</p></div>';
         } ?>
 
         <?php if ($video_nothumb_notice): ?>

@@ -209,8 +209,8 @@ class Metasync_SEO_Sidebar {
             $title = $conflict_handler->get_metasync_title();
             if (!empty($title)) {
                 $title_escaped = esc_attr($title);
-                echo '<meta property="og:title" content="' . $title_escaped . '" data-metasync-seo="custom" />' . "\n";
-                echo '<meta name="twitter:title" content="' . $title_escaped . '" data-metasync-seo="custom" />' . "\n";
+                echo '<meta property="og:title" content="' . $title_escaped . '" data-metasync-seo="custom" />' . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- value already escaped via esc_attr() above; the sniff cannot track custom escaped variables
+                echo '<meta name="twitter:title" content="' . $title_escaped . '" data-metasync-seo="custom" />' . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- value already escaped via esc_attr() above; the sniff cannot track custom escaped variables
             }
         }
 
@@ -244,7 +244,7 @@ class Metasync_SEO_Sidebar {
         }
 
         // Which stored value wins is decided in one place, so the global
-        // "SEO Title & Description Priority" setting reaches this emitter
+        // "SEO Meta Priority" setting reaches this emitter
         // without a second copy of the rule. Under the default this is still
         // the customer's description; under OTTO priority the chain hands back
         // OTTO's value and falls back to the custom one where OTTO has none.
@@ -299,7 +299,7 @@ class Metasync_SEO_Sidebar {
             }
             // Standard meta description
             if (!$defer_meta_description) {
-                echo '<meta name="description" content="' . $description_escaped . '"' . $marker . ' />' . "\n";
+                echo '<meta name="description" content="' . $description_escaped . '"' . $marker . ' />' . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- value already escaped via esc_attr() above; the sniff cannot track custom escaped variables
             }
 
             // og:description / twitter:description are Open Graph & social tags, so they
@@ -315,9 +315,9 @@ class Metasync_SEO_Sidebar {
             if (!$defer_og_description
                 && !Metasync_OpenGraph::is_social_output_disabled($post_id)) {
                 // Open Graph description
-                echo '<meta property="og:description" content="' . $description_escaped . '"' . $marker . ' />' . "\n";
+                echo '<meta property="og:description" content="' . $description_escaped . '"' . $marker . ' />' . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- value already escaped via esc_attr() above; the sniff cannot track custom escaped variables
                 // Twitter description
-                echo '<meta name="twitter:description" content="' . $description_escaped . '"' . $marker . ' />' . "\n";
+                echo '<meta name="twitter:description" content="' . $description_escaped . '"' . $marker . ' />' . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- value already escaped via esc_attr() above; the sniff cannot track custom escaped variables
             }
         }
     }
@@ -346,7 +346,7 @@ class Metasync_SEO_Sidebar {
         }
 
         // Which stored value wins is decided in one place, so the global
-        // "SEO Title & Description Priority" setting reaches this filter
+        // "SEO Meta Priority" setting reaches this filter
         // without a second copy of the rule. Under the default the customer's
         // title still wins; under OTTO priority the chain hands back OTTO's
         // value and falls back to the custom one where OTTO has none.
@@ -421,7 +421,7 @@ class Metasync_SEO_Sidebar {
      * Filter document title parts (for themes using wp_get_document_title)
      *
      * Which stored value wins is decided by Metasync_Seo_Precedence, so this
-     * filter follows the global "SEO Title & Description Priority" setting
+     * filter follows the global "SEO Meta Priority" setting
      * without restating the order.
      *
      * @param array $title_parts Title parts array
@@ -945,6 +945,15 @@ class Metasync_SEO_Sidebar {
                 'yoast'    => defined('WPSEO_VERSION'),
                 'rankmath' => defined('RANK_MATH_VERSION'),
                 'aioseo'   => defined('AIOSEO_VERSION') || class_exists('AIOSEO\\Plugin\\AIOSEO'),
+            ),
+            // Breadcrumb Title Override visibility. False only when MetaSync
+            // breadcrumbs are off AND no Yoast/Rank Math breadcrumb provider is
+            // active — in that state the override can never reach a trail.
+            // Stored overrides are never deleted, so this is display-only.
+            'breadcrumbs' => array(
+                'titleFieldEnabled' => class_exists('Metasync_Breadcrumbs')
+                    ? Metasync_Breadcrumbs::is_breadcrumb_title_meaningful()
+                    : true,
             ),
             'wpmlEntries' => $wpml_entries,
             // '1' when enabled, '' when disabled. wp_localize_script() casts

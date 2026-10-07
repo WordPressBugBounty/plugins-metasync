@@ -264,7 +264,7 @@ class MCP_Tool_Update_Post extends MCP_Tool_Base {
         $updated_id = wp_update_post($update_args, true);
 
         if (is_wp_error($updated_id)) {
-            throw new Exception("Failed to update post: " . $updated_id->get_error_message());
+            throw new Exception("Failed to update post: " . $updated_id->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
         // Get updated post

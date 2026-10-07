@@ -5,6 +5,15 @@ if (!defined('ABSPATH')) {
 	exit;
 }
 
+// Ensure the monitor class (which owns the shared format_uri_label() helper
+// used by column_uri()) is loaded. In production this file is always required
+// from Metasync_Error_Monitor::create_admin_plugin_interface() *after* the
+// monitor class is defined, but loading it here too keeps standalone/test
+// includes working without a hardcoded load order.
+if (!class_exists('Metasync_Error_Monitor')) {
+	require_once dirname(__FILE__) . '/class-metasync-404-monitor.php';
+}
+
 class Metasync_Error_Monitor_List_Table extends WP_List_Table
 {
 	/**
@@ -205,6 +214,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		}
 		$this->_pagination = "<div class='tablenav-pages{$page_class}'>$output</div>";
 
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- mirrors WP core WP_List_Table::pagination(); assembled above from esc_url()/esc_html()/number_format_i18n() output
 		echo $this->_pagination;
 
 		remove_filter('removable_query_args', array($this, 'preserve_tab_in_pagination'));
@@ -418,6 +428,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 				$class = "class='" . esc_attr(implode(' ', $class)) . "'";
 			}
 
+			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- mirrors WP core WP_List_Table::print_column_headers(); $scope is a literal, $id/$class escaped via esc_attr() and \$column_display_name via esc_html() just above
 			echo '<' . esc_attr($tag) . ' ' . $scope . ' ' . $id . ' ' . $class . '>' . $column_display_name . '</' . esc_attr($tag) . '>';
 		}
 	}
@@ -453,18 +464,19 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 		$request_data = metasync_sanitize_input_array($_REQUEST); // WPCS: Input var ok.
 		if (!isset($request_data['page'])) return;
 
-		// Extract the path from the full URI
-		$uri = $item['uri'];
-		if (strpos($uri, 'http') === 0) {
-			// If it's a full URL, extract just the path
-			$parsed_url = wp_parse_url($uri);
-			$uri = isset($parsed_url['path']) ? $parsed_url['path'] : $uri;
+		// Extract the path from the full URI (path only, no query) for the
+		// redirect link — preserving the original link behaviour.
+		$raw_uri = $item['uri'];
+		if (strpos($raw_uri, 'http') === 0) {
+			$parsed_url = wp_parse_url($raw_uri);
+			$raw_uri = isset($parsed_url['path']) ? $parsed_url['path'] : $raw_uri;
 		}
-		
-		// Ensure URI starts with /
-		if (!str_starts_with($uri, '/')) {
-			$uri = '/' . $uri;
+		if ($raw_uri !== '' && $raw_uri[0] !== '/') {
+			$raw_uri = '/' . $raw_uri;
 		}
+		// Display label via the shared helper (path + middle-truncation) so the
+		// list table and the chart cannot drift apart in formatting.
+		$uri = Metasync_Error_Monitor::format_uri_label($item['uri']);
 
 		// Build redirect row action.
 		// Always link to the redirections page (not the standalone 404-monitor page)
@@ -473,7 +485,7 @@ class Metasync_Error_Monitor_List_Table extends WP_List_Table
 			'page'		=> Metasync_Admin::$page_slug . '-redirections',
 			'tab'		=> 'redirections',
 			'action'	=> 'redirect',
-			'uri'		=> $uri,
+			'uri'		=> $raw_uri,
 		);
 		// Build delete row action.
 		$delete_query_args = array(
