@@ -1130,7 +1130,7 @@ class Metasync_Otto_Debug {
         // Step 3: Simulate HTML processing
         if (class_exists('Metasync_otto_html')) {
             try {
-                $otto_html = new Metasync_otto_html(false);
+                $otto_html = new Metasync_otto_html();
                 $emulation['steps']['html_processing'] = array(
                     'status' => 'success',
                     'message' => Metasync::get_whitelabel_otto_name() . ' HTML class available'

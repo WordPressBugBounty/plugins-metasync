@@ -42,11 +42,6 @@ class Metasync_Sync_History_Database
 	/**
 	 * Static method to ensure table exists - can be called without instantiating the class
 	 */
-	public static function ensure_table_exists()
-	{
-		$instance = new self();
-		$instance->maybe_create_table();
-	}
 
 	/**
 	 * Create the sync history table

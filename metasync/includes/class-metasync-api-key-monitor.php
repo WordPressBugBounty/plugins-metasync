@@ -343,53 +343,8 @@ class Metasync_API_Key_Monitor
     /**
      * Manual API key change notification (for programmatic triggers)
      */
-    public static function notify_api_key_change($key_type, $old_value, $new_value, $context = 'manual')
-    {
-        $instance = self::get_instance();
-        
-        // Build simulated change array
-        if ($key_type === 'plugin_auth_token') {
-            $changes = array(
-                'changes_detected' => true,
-                'plugin_auth_token' => array(
-                    'changed' => true,
-                    'old' => $old_value,
-                    'new' => $new_value,
-                    'action' => $instance->determine_change_action($old_value, $new_value)
-                ),
-                'searchatlas_api_key' => array('changed' => false)
-            );
-        } elseif ($key_type === 'searchatlas_api_key') {
-            $changes = array(
-                'changes_detected' => true,
-                'plugin_auth_token' => array('changed' => false),
-                'searchatlas_api_key' => array(
-                    'changed' => true,
-                    'old' => $old_value,
-                    'new' => $new_value,
-                    'action' => $instance->determine_change_action($old_value, $new_value)
-                )
-            );
-        } else {
-            return false;
-        }
-        
-        $instance->log_changes($changes, $context);
-        $instance->trigger_heartbeat_response($changes, $context);
-        
-        return true;
-    }
     
     /**
      * Get monitoring status for debugging
      */
-    public function get_monitoring_status()
-    {
-        return array(
-            'class_loaded' => true,
-            'hooks_active' => has_action('update_option_metasync_options', array($this, 'on_option_update')),
-            'monitoring_active' => $this->monitoring_active,
-            'instance_initialized' => self::$instance !== null
-        );
-    }
 }

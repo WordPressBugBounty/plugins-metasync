@@ -83,6 +83,12 @@ class Metasync_Redirection
                 // magic-quoted sources; heal at read time so they keep
                 // matching the unslashed request URI.
                 $source_key = wp_unslash((string) $source_key);
+                // Sources persisted percent-encoded (auto-created rules for
+                // unicode slugs, hand-entered encoded URLs) must be decoded on
+                // read: the matcher decodes the incoming request URI, so the
+                // exact index has to key them in the same decoded form or the
+                // lookup can never hit.
+                $source_key = $this->decode_stored_source($source_key);
                 $pattern_type = in_array($source_value, array('exact', 'contain', 'start', 'end', 'wildcard', 'regex'))
                     ? $source_value
                     : ($global_pattern_type ? $global_pattern_type : 'exact');
@@ -108,6 +114,25 @@ class Metasync_Redirection
                 $this->pattern_index[] = $row;
             }
         }
+    }
+
+    /**
+     * Decode a percent-encoded stored source for matching.
+     *
+     * handle_template_redirect() rawurldecode()s the request URI before
+     * matching, so a source persisted in percent-encoded form could never
+     * compare equal (decoded URI vs encoded source). Decode the stored side
+     * on read so both sides meet in the same form. rawurldecode() mirrors the
+     * request side exactly: '+' survives as-is and invalid sequences are left
+     * untouched, so literal values are never mangled. The stored destination
+     * is deliberately NOT decoded — it still drives the redirect output.
+     *
+     * @param string $source Stored source path or full URL.
+     * @return string Decoded source, ready for the shared normalization.
+     */
+    private function decode_stored_source($source)
+    {
+        return rawurldecode((string) $source);
     }
 
     function contains($haystack, $needle, $caseSensitive = false)
@@ -235,13 +260,6 @@ class Metasync_Redirection
         }
     }
 
-    public function get_current_page_url()
-    {
-        $server_data =  metasync_sanitize_input_array($_SERVER);
-        $link = '://' . $server_data['HTTP_HOST'] . $server_data['REQUEST_URI'];
-        $link = (is_ssl() ? 'https' : 'http') . $link;
-        return sanitize_url($link);
-    }
 
     public function source_url_redirection(object $row, string $uri, string $incoming_query = '')
     {
@@ -277,6 +295,11 @@ class Metasync_Redirection
             // Heal magic-quoted sources saved before the input-unslash fix so
             // pattern matching sees the literal value the user typed.
             $source_key = wp_unslash((string) $source_key);
+
+            // Percent-encoded stored sources must meet the runtime-decoded
+            // request URI in the same form or the comparison below can never
+            // succeed (decoded URI vs encoded source).
+            $source_key = $this->decode_stored_source($source_key);
 
             // Determine pattern type: use source value if it's a valid pattern, otherwise use global pattern_type
             $pattern_type = in_array($source_value, ['exact', 'contain', 'start', 'end', 'wildcard', 'regex'])
@@ -1017,6 +1040,22 @@ class Metasync_Redirection
         }
 
         $results = $this->check_redirect_health($redirect_id);
+        $summary = array(
+            'checked' => count($results),
+            'healthy' => 0,
+            'broken' => 0,
+        );
+        foreach ($results as $result) {
+            if (($result['status'] ?? '') === 'ok') {
+                $summary['healthy']++;
+            } else {
+                $summary['broken']++;
+            }
+        }
+        Metasync_PostHog::feature('redirect_health_check_completed', array_merge(
+            array('success' => true),
+            $summary
+        ));
         wp_send_json_success(array('results' => $results));
     }
 
@@ -1049,6 +1088,11 @@ class Metasync_Redirection
             // this health-check view matches with the same semantics as the
             // live front-end matcher.
             $source_key = wp_unslash((string) $source_key);
+
+            // Decode percent-encoded stored sources for the same reason as
+            // the live matcher: loop chains and health lookups resolve
+            // against runtime-decoded URIs.
+            $source_key = $this->decode_stored_source($source_key);
 
             // Resolve pattern type: per-source value (exact, contain, start, end, wildcard, regex) or row-level default
             $pattern_type = in_array($source_value, array('exact', 'contain', 'start', 'end', 'wildcard', 'regex'))

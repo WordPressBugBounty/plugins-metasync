@@ -98,21 +98,6 @@ class MCP_Tool_Registry {
      * @param string $name Tool name
      * @return bool
      */
-    public function unregister_tool($name) {
-        if (!isset($this->tools[$name])) {
-            return false;
-        }
-
-        unset($this->tools[$name]);
-
-        // Clear cache
-        delete_transient(self::CACHE_KEY);
-
-        // Fire action
-        do_action('metasync_mcp_tool_unregistered', $name);
-
-        return true;
-    }
 
     /**
      * Get a specific tool
@@ -129,9 +114,6 @@ class MCP_Tool_Registry {
      *
      * @return array Array of MCP_Tool_Base instances
      */
-    public function get_all_tools() {
-        return $this->tools;
-    }
 
     /**
      * Get tools list (for tools/list MCP method)
@@ -217,10 +199,6 @@ class MCP_Tool_Registry {
      *
      * @return void
      */
-    public function clear_all() {
-        $this->tools = [];
-        delete_transient(self::CACHE_KEY);
-    }
 
     /**
      * Log tool execution

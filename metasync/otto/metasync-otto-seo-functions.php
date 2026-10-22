@@ -834,7 +834,6 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
 
         # Check if meta descriptions are enabled in admin settings
         $metasync_options = get_option('metasync_options');
-       # $enable_metadesc = $metasync_options['general']['enable_metadesc'] ?? '';
 
         # Extract all SEO data
         $meta_title = metasync_extract_meta_title($seo_data);
@@ -842,13 +841,6 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
 
         # we are checking the metadesc only in main function
         # If meta descriptions are disabled, don't process meta tags (title and description)
-        # if ($enable_metadesc !== 'true' && $enable_metadesc !== true) {
-            # Don't process meta title and description - return early
-         #   return array(
-         #       'updated' => false,
-          #      'fields_updated' => array()
-          #  );
-       # }
         $meta_keywords = metasync_extract_meta_keywords($seo_data);
         $og_title = metasync_extract_og_title($seo_data);
         $og_description = metasync_extract_og_description($seo_data);
@@ -1620,13 +1612,6 @@ function metasync_update_comprehensive_category_seo_fields($category_id, $seo_da
         $meta_description = metasync_extract_meta_description($seo_data);
         
         # If meta descriptions are disabled, don't process meta tags (title and description)
-       # if ($enable_metadesc !== 'true' && $enable_metadesc !== true) {
-            # Don't process meta title and description - return early
-         #   return array(
-           #     'updated' => false,
-           #     'fields_updated' => array()
-          #  );
-       # }
         $meta_keywords = metasync_extract_meta_keywords($seo_data);
         $og_title = metasync_extract_og_title($seo_data);
         $og_description = metasync_extract_og_description($seo_data);
@@ -2225,50 +2210,7 @@ function metasync_update_comprehensive_taxonomy_seo_fields($term_id, $taxonomy, 
  * @param string $url Absolute or relative URL.
  * @return array|null ['term_id'=>int,'taxonomy'=>string] on a hit, null otherwise.
  */
-function metasync_resolve_url_to_term($url) {
-    if (empty($url) || !is_string($url)) {
-        return null;
-    }
 
-    # If WordPress can resolve the URL to a post, it isn't a term archive.
-    if (function_exists('url_to_postid')) {
-        $post_id = url_to_postid($url);
-        if ($post_id > 0) {
-            return null;
-        }
-    }
-
-    $path = wp_parse_url($url, PHP_URL_PATH);
-    if (empty($path)) {
-        return null;
-    }
-
-    $segments = array_values(array_filter(explode('/', trim($path, '/')), 'strlen'));
-    if (empty($segments)) {
-        return null;
-    }
-
-    $taxonomies = get_taxonomies(array('public' => true), 'names');
-    if (empty($taxonomies)) {
-        return null;
-    }
-
-    # Walk segments from most-specific (last) to least-specific (first).
-    for ($i = count($segments) - 1; $i >= 0; $i--) {
-        $slug = $segments[$i];
-        foreach ($taxonomies as $taxonomy_name) {
-            $term = get_term_by('slug', $slug, $taxonomy_name);
-            if ($term && !is_wp_error($term)) {
-                return array(
-                    'term_id'  => (int) $term->term_id,
-                    'taxonomy' => (string) $taxonomy_name,
-                );
-            }
-        }
-    }
-
-    return null;
-}
 
 /**
  * Update SEO meta fields for any WordPress taxonomy (generic function)
@@ -3706,6 +3648,13 @@ function metasync_output_otto_meta_description() {
 
     # Output meta description tag if we found one
     if (!empty($description)) {
+        # Record that MetaSync printed a description so the Hello Elementor
+        # theme tag can be suppressed. Guarded: this file can run without the
+        # precedence class on a partial update or a term archive, and an
+        # unguarded call here would fatal inside wp_head.
+        if (class_exists('Metasync_Seo_Precedence')) {
+            Metasync_Seo_Precedence::mark_description_output();
+        }
         # Output the meta tag with OTTO marker
         echo '<meta name="description" content="' . esc_attr($description) . '" data-metasync-otto="true" />' . "\n";
     }

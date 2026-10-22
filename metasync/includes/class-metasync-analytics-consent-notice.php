@@ -77,6 +77,12 @@ class Metasync_Analytics_Consent_Notice {
             return false;
         }
 
+        // An explicit decline is a durable choice. Snoozing leaves this option
+        // unset, so the notice may return after the snooze window.
+        if (get_option('metasync_analytics_consent_explicit', 'no') === 'yes') {
+            return false;
+        }
+
         return time() >= (int) get_option(self::SNOOZE_OPTION, 0);
     }
 

@@ -148,19 +148,7 @@ class Metasync_Admin
         return $dashboard_url;
     }
 
-    public const feature_sections = array(
-        'enable_404monitor'         => 'Enable 404 Monitor',
-        'enable_siteverification'   => 'Enable Site Verification',
-        'enable_localbusiness'      => 'Enable Local Business',
-        'enable_codesnippets'       => 'Enable Code Snippets',
-        'enable_googleconsole'      => 'Enable Google Console',
-        'enable_optimalsettings'    => 'Enable Optimal Settings',
-        'enable_globalsettings'     => 'Enable Global Settings',
-        'enable_commonmetastatus'   => 'Enable Common Meta Status',
-        'enable_socialmeta'         => 'Enable Social Meta',
-        'enable_redirections'       => 'Enable Redirections',
-        'enable_errorlogs'          => 'Enable Error Logs'
-    );
+
 
     private $database;
     private $db_redirection;
@@ -213,6 +201,7 @@ class Metasync_Admin
         add_action('admin_init', array($this, 'settings_page_init'));
         add_filter('all_plugins',  array($this,'metasync_plugin_white_label'));
         add_filter( 'plugin_row_meta',array($this,'metasync_view_detials_url'),10,3);
+        add_action('admin_enqueue_scripts', array($this, 'enqueue_whitelabel_update_icon_script'));
 
         // Display transient error/success messages for redirections
         add_action('admin_notices', array($this, 'display_redirection_messages'));
@@ -222,6 +211,9 @@ class Metasync_Admin
 
         // Display LLMs.txt cross-plugin conflict notice
         add_action('admin_notices', array($this, 'display_llms_txt_conflict_notice'));
+
+        // Invite administrators to share product feedback once per plugin release.
+        add_action('admin_notices', array($this, 'display_feature_feedback_notice'));
 
         // Add custom column for HTML-converted pages
         add_filter('manage_posts_columns', array($this, 'add_html_converted_column'));
@@ -300,7 +292,6 @@ class Metasync_Admin
         add_action( 'wp_ajax_metasync_save_object_cache_settings',  array($this, 'ajax_save_object_cache_settings') );
 
         // Add AJAX for saving edge cache / CDN settings
-        add_action( 'wp_ajax_metasync_save_edge_cache_settings', array('Metasync_Edge_Cache_Settings', 'ajax_save') );
         // Add AJAX handler for Plugin Auth Token refresh
         add_action('wp_ajax_metasync_refresh_plugin_auth_token', array($this, 'refresh_plugin_auth_token'));
         
@@ -308,7 +299,6 @@ class Metasync_Admin
         add_action('wp_ajax_metasync_get_plugin_auth_token', array($this, 'get_plugin_auth_token'));
         
         // Add AJAX handler for creating redirects from 404 suggestions
-        add_action('wp_ajax_metasync_create_redirect_from_404', array($this, 'ajax_create_redirect_from_404'));
 
         // Add AJAX handler for updating database structure
         add_action('wp_ajax_metasync_update_db_structure', array($this, 'ajax_update_db_structure'));
@@ -626,33 +616,6 @@ class Metasync_Admin
     #This function is to redirect in case client changes slug on fresh install
     #It is called by the add_option hook
     
-    public function redirect_slug_for_freshinstalls(){
-        #get the db menu slug
-        $plugin_menu_slug = Metasync::get_option('general')['white_label_plugin_menu_slug'] ?? '';
-        
-        #check that the slug is set or set it to the defaul class slug usually ('searchatlas')
-        $current_slug = empty($plugin_menu_slug) ? self::$page_slug : $plugin_menu_slug;
-        
-        #check if we have the cookie set and check if the slug has changed
-        if (isset($_COOKIE['metasync_previous_slug']) && $_COOKIE['metasync_previous_slug'] !== $current_slug) {
-            # the slug changed so we need to update the cookie
-            setcookie('metasync_previous_slug', $current_slug, [
-                'expires'  => time() + 3600,
-                'path'     => COOKIEPATH,
-                'domain'   => COOKIE_DOMAIN,
-                'secure'   => is_ssl(),
-                'httponly' => true,
-                'samesite' => 'Lax',
-            ]);
-            $_COOKIE['metasync_previous_slug'] = $current_slug;
-    
-            #Redirect url to the new slug
-            $redirect_url = admin_url('admin.php?page=' . $current_slug);
-            
-            wp_safe_redirect($redirect_url);
-            exit;
-        }
-    }
 
     public function metasync_plugin_updated_action($upgrader_object, $options){
         if ($options['action'] == 'update' && $options['type'] == 'plugin') {
@@ -885,6 +848,47 @@ class Metasync_Admin
         }
 
         return $all_plugins;
+    }
+
+    /**
+     * Show the whitelabel icon on /wp-admin/update-core.php (Dashboard → Updates)
+     * instead of the SearchAtlas icon returned by the update API.
+     *
+     * Swaps the icon in the rendered row rather than editing the update_plugins
+     * transient: WordPress.org hosted plugins must not modify update data.
+     *
+     * @param string $hook_suffix Current admin page hook suffix.
+     */
+    public function enqueue_whitelabel_update_icon_script($hook_suffix) {
+        if ($hook_suffix !== 'update-core.php' || !current_user_can('update_plugins')) {
+            return;
+        }
+
+        $general = Metasync::get_option('general');
+        if (!is_array($general)) {
+            return;
+        }
+
+        $icon_url = is_string($general['white_label_plugin_menu_icon'] ?? null)
+            ? esc_url_raw($general['white_label_plugin_menu_icon'])
+            : '';
+        if ($icon_url === '') {
+            return;
+        }
+
+        $this_plugin = plugin_basename(dirname(__DIR__) . '/metasync.php');
+
+        $script = sprintf(
+            'document.addEventListener("DOMContentLoaded",function(){' .
+            'var box=document.querySelector(\'#update-plugins-table input[name="checked[]"][value="\'+%1$s+\'"]\');' .
+            'var row=box?box.closest("tr"):null;' .
+            'var img=row?row.querySelector(".plugin-title img"):null;' .
+            'if(img){img.src=%2$s;img.removeAttribute("srcset");}});',
+            wp_json_encode($this_plugin),
+            wp_json_encode($icon_url)
+        );
+
+        wp_add_inline_script('updates', $script);
     }
 
     /**
@@ -2017,7 +2021,7 @@ class Metasync_Admin
         <div style="margin-bottom: 30px;">
             <h4 style="margin-top: 0; color: var(--dashboard-text-primary);">Object Cache Behaviour</h4>
             <p style="margin-bottom: 15px; color: var(--dashboard-text-secondary);">
-                Controls how the WordPress object cache (Redis/Memcached) is cleared when OTTO updates pages.
+                Controls how the WordPress object cache (Redis/Memcached) is cleared when <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> updates pages.
             </p>
 
             <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--dashboard-border); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
@@ -2920,12 +2924,28 @@ class Metasync_Admin
         $mime = get_post_mime_type($attachment_id);
 
         if (!$file || !file_exists($file)) {
+            Metasync_PostHog::feature('image_optimization_completed', array(
+                'mode' => 'single',
+                'success' => false,
+                'processed' => 1,
+                'optimized' => 0,
+                'skipped' => 1,
+                'failed' => 0,
+            ));
             wp_send_json_error(__('Optimization failed: file not found.', 'metasync'));
         }
 
         $max_bytes = 10 * 1024 * 1024;
         if (filesize($file) > $max_bytes) {
             $size_mb = round(filesize($file) / 1024 / 1024, 1);
+            Metasync_PostHog::feature('image_optimization_completed', array(
+                'mode' => 'single',
+                'success' => false,
+                'processed' => 1,
+                'optimized' => 0,
+                'skipped' => 1,
+                'failed' => 0,
+            ));
             wp_send_json_error(sprintf(
                 /* translators: %s: file size in megabytes. */
                 __('Optimization skipped: file size (%s MB) exceeds the 10 MB safety limit to prevent memory issues.', 'metasync'),
@@ -2934,10 +2954,27 @@ class Metasync_Admin
         }
 
         if (!in_array($mime, ['image/jpeg', 'image/png'], true)) {
+            Metasync_PostHog::feature('image_optimization_completed', array(
+                'mode' => 'single',
+                'success' => false,
+                'processed' => 1,
+                'optimized' => 0,
+                'skipped' => 1,
+                'failed' => 0,
+            ));
             wp_send_json_error(__('Optimization failed: unsupported image format.', 'metasync'));
         }
 
         $success = Metasync_Image_Converter::convert_attachment($attachment_id, $settings);
+
+        Metasync_PostHog::feature('image_optimization_completed', array(
+            'mode' => 'single',
+            'success' => (bool) $success,
+            'processed' => 1,
+            'optimized' => $success ? 1 : 0,
+            'skipped' => 0,
+            'failed' => $success ? 0 : 1,
+        ));
 
         if ($success) {
             require_once plugin_dir_path(dirname(__FILE__)) . 'media-optimization/class-media-library-list-table.php';
@@ -3087,6 +3124,15 @@ class Metasync_Admin
                 $failed++;
             }
         }
+
+        Metasync_PostHog::feature('image_optimization_completed', array(
+            'mode' => 'batch',
+            'success' => $failed === 0 && $denied === 0,
+            'processed' => count($ids),
+            'optimized' => $success,
+            'skipped' => $denied,
+            'failed' => $failed,
+        ));
 
         wp_send_json_success([
             'success' => $success,
@@ -3650,11 +3696,13 @@ class Metasync_Admin
             'publication_language' => '',
         ]);
         $video_settings = get_option('metasync_video_sitemap_settings', [
-            'enabled'       => false,
-            'post_types'    => ['post', 'page'],
-            'auto_detect'   => true,
-            'taxonomies'    => [],
-            'excluded_urls' => '',
+            'enabled'                => false,
+            'post_types'             => ['post', 'page'],
+            'auto_detect'            => true,
+            'taxonomies'             => [],
+            'excluded_urls'          => '',
+            'video_url_meta_keys'       => '',
+            'video_thumbnail_meta_keys' => '',
         ]);
 
         // Load view
@@ -3915,10 +3963,6 @@ class Metasync_Admin
         Metasync_Admin_Ajax::instance()->ajax_get_robots_backups();
     }
 
-    public function ajax_create_redirect_from_404()
-    {
-        Metasync_Admin_Ajax::instance()->ajax_create_redirect_from_404();
-    }
 
     /**
      * AJAX handler for testing host blocking with GET request
@@ -4753,7 +4797,7 @@ class Metasync_Admin
     /**
      * Render Bing Index (IndexNow) section
      *
-     * @since 2.6.0
+     * @since 2.5.19
      * @return void
      */
     public function render_bing_index_section() {
@@ -5362,7 +5406,7 @@ class Metasync_Admin
         $dismiss_url = wp_nonce_url(add_query_arg('metasync_dismiss_builder_notice', '1'), 'metasync_dismiss_builder');
 
         printf(
-            '<div class="notice notice-info is-dismissible" style="border-left-color: #0073aa;">
+            '<div class="notice notice-info" style="border-left-color: #0073aa;">
                 <p>
                     <strong>%s — Page Builder Detected</strong><br>
                     <strong>%s</strong> is active on this site. Content synced by Content Genius currently uses <strong>Gutenberg (WordPress Block Editor)</strong> format by default.
@@ -5378,6 +5422,64 @@ class Metasync_Admin
             esc_html($builder_label),
             esc_url($settings_url),
             esc_url($dismiss_url)
+        );
+    }
+
+    /**
+     * Display a one-time product feedback invitation for each plugin release.
+     */
+    public function display_feature_feedback_notice() {
+        if (!is_admin()
+            || !Metasync::current_user_has_plugin_access()
+            || !Metasync_Access_Control::user_can_access('hide_report_issue')
+        ) {
+            return;
+        }
+
+        $current_page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only page check for an admin notice
+        if ($current_page === '' || $current_page === self::$page_slug . '-report-issue' || strpos($current_page, self::$page_slug) !== 0) {
+            return;
+        }
+
+        if (function_exists('metasync_telemetry_is_disabled') && metasync_telemetry_is_disabled()) {
+            return;
+        }
+
+        $version = defined('METASYNC_VERSION') ? METASYNC_VERSION : $this->version;
+        $meta_key = 'metasync_feedback_notice_dismissed_version';
+        if ((string) get_user_meta(get_current_user_id(), $meta_key, true) === (string) $version) {
+            return;
+        }
+
+        if (isset($_GET['metasync_dismiss_feedback_notice'], $_GET['_wpnonce'])
+            && wp_verify_nonce(
+                sanitize_text_field(wp_unslash($_GET['_wpnonce'])),
+                'metasync_dismiss_feedback_notice'
+            )
+        ) {
+            update_user_meta(get_current_user_id(), $meta_key, $version);
+            return;
+        }
+
+        $feedback_url = admin_url('admin.php?page=' . self::$page_slug . '-report-issue');
+        $plugin_name = Metasync::get_effective_plugin_name();
+        $dismiss_url = wp_nonce_url(
+            add_query_arg('metasync_dismiss_feedback_notice', '1'),
+            'metasync_dismiss_feedback_notice'
+        );
+
+        printf(
+            '<div class="notice notice-info" style="border-left-color: #0073aa;">
+                <p><strong>%s</strong> %s <a href="%s"><strong>%s</strong></a></p>
+                <p><a href="%s" style="text-decoration: none;">%s</a></p>
+            </div>',
+            // translators: %s: the effective plugin name shown to the site administrator.
+            sprintf(esc_html__('%s — Help shape your SEO workflow', 'metasync'), esc_html($plugin_name)),
+            esc_html__('Have an idea, improvement, or workflow that would make your SEO plugin more useful?', 'metasync'),
+            esc_url($feedback_url),
+            esc_html__('Share your thoughts', 'metasync'),
+            esc_url($dismiss_url),
+            esc_html__('Dismiss this notice', 'metasync')
         );
     }
 
@@ -6129,27 +6231,6 @@ class Metasync_Admin
      * @param int $seconds Duration in seconds
      * @return string Human-readable duration
      */
-    private function format_duration_label($seconds)
-    {
-        $labels = array(
-            3600 => '1 hour',
-            14400 => '4 hours',
-            28800 => '8 hours',
-            86400 => '24 hours',
-            172800 => '48 hours',
-            604800 => '7 days',
-            1209600 => '14 days',
-            2592000 => '30 days'
-        );
-
-        if (isset($labels[$seconds])) {
-            return $labels[$seconds];
-        }
-
-        # Calculate hours if not a standard duration
-        $hours = round($seconds / 3600);
-        return $hours . ' hours';
-    }
 
     /**
      * AJAX handler for password recovery
@@ -6389,7 +6470,7 @@ class Metasync_Admin
     /**
      * AJAX handler for sending URLs to Google Instant Indexing API
      *
-     * @since 2.6.0
+     * @since 2.5.19
      * @return void Sends JSON response and exits
      */
     public function ajax_send_giapi()
@@ -6462,7 +6543,7 @@ class Metasync_Admin
     /**
      * AJAX handler for sending URLs to Bing via IndexNow API
      *
-     * @since 2.6.0
+     * @since 2.5.19
      * @return void Sends JSON response and exits
      */
     public function ajax_send_bing_indexnow()
@@ -6481,7 +6562,7 @@ class Metasync_Admin
     /**
      * Save Bing instant indexing settings from inline form (Indexation Control page)
      *
-     * @since 2.6.0
+     * @since 2.5.19
      * @return bool True on success, false on failure
      */
     private function save_bing_inline_settings_ajax() {
@@ -6491,7 +6572,7 @@ class Metasync_Admin
     /**
      * Add instant indexing action links to post/page rows
      *
-     * @since 2.6.0
+     * @since 2.5.19
      * @param array $actions Current actions
      * @param WP_Post $post Current post object
      * @return array Modified actions
@@ -6525,7 +6606,7 @@ class Metasync_Admin
     /**
      * Auto-submit post to instant indexing services when published
      *
-     * @since 2.6.0
+     * @since 2.5.19
      * @param int $post_id Post ID
      * @param WP_Post $post Post object
      * @param bool $update Whether this is an update

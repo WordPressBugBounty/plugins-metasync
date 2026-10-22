@@ -4,9 +4,9 @@ Tags: seo, ai seo, otto, otto seo, schema
 Requires at least: 6.3
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 2.7.2
+Stable tag: 2.7.3
 License: GPL v3
-License URI: https://www.gnu.org/licenses/gpl-2.0.txt
+License URI: https://www.gnu.org/licenses/gpl-3.0.txt
 
 AI-powered SEO & GEO for WordPress: OTTO auto-optimizes meta, schema & content, and helps you rank on Google and in AI search.
 
@@ -60,6 +60,9 @@ A built-in Model Context Protocol (MCP) server exposes 138 tools across 31 categ
 ### Search Atlas account & external service
 Search Atlas is a companion plugin for the Search Atlas platform, an external service. A Search Atlas account is required to use the AI optimization, OTTO, and content-publishing features. When connected, your site sends and receives data from Search Atlas servers to provide these features. Learn more in the Search Atlas Terms of Service (https://searchatlas.com/terms/) and Privacy Policy (https://searchatlas.com/privacy-policy/).
 
+### Usage analytics (optional, off by default)
+The plugin can send limited usage analytics to Search Atlas so we can see which features are used and find problems. It is off until a site administrator clicks "Allow" in the admin notice, and it can be turned off anytime in Settings. When on, events are sent to a PostHog analytics instance hosted by Search Atlas (posthog.internal.searchatlas.com). The data includes your site URL, plugin version, WordPress and PHP versions, the user's role, and feature usage, linked to an anonymous hashed ID. We do not collect passwords, API keys, post content, names, or email addresses. This data is covered by the Search Atlas Privacy Policy (https://searchatlas.com/privacy-policy/).
+
 == Installation ==
 1. In your WordPress admin, go to Plugins, then Add New, and search for Search Atlas SEO. Click Install Now, then Activate.
 2. You need a Search Atlas account. If you do not have one, start a free trial at searchatlas.com.
@@ -89,13 +92,44 @@ You can exclude individual URLs from OTTO processing in the plugin's OTTO settin
 Yes, along with a lot more - the plugin also includes media optimization, code snippets, code minification, cache busting, and much more.
 
 == Screenshots ==
-1. General Settings
+1. Dashboard
+2. Indexation Control
+3. Schema Markup
+4. SEO Health
+5. Redirections
+6. 404 Monitor
+7. XML Sitemap
+8. Robots.txt
+9. Compatibility
+10. Changes Log
+11. Custom Pages
+12. General Settings
 
 == Upgrade Notice ==
-= 2.6.22 =
-2.6.22 fixes OTTO breaking Divi-built pages and stops a partly finished update from taking your site's front end down. Update as soon as you can.
+= 2.7.2 =
+2.7.2 includes important OTTO fixes for canonical URLs, social descriptions, and deployment reliability. Update to ensure your site receives the latest SEO rendering and stability improvements.
 
 == Changelog ==
+= 2.7.3 =
+* New Feature: The Report Issue page now also accepts questions, feedback and feature requests with structured fields, image attachments, per-user rate limiting and clear fallback messaging when remote reporting is unavailable; eligible administrators see a one-time, dismissible feedback invitation after updating
+* New Feature: Approved product analytics events now cover more admin surfaces (SEO Health, SEO sidebar, instant indexing, custom pages, redirects, schema and settings saves), still sent only after the site owner consents and fully suppressed on opt-out
+* Fix: Publishing through the platform now reports truthful results â€” a post saved as published actually publishes and its live URL serves correctly, posts and pages owned by other plugins can no longer be modified through the sync API, the cache is purged after publish, and missing, unauthorized or failed operations return proper error codes instead of false success
+* Fix: Sitemaps are now rebuilt on the next request instead of inline during post and product saves, so large catalogs no longer stall the editor; the previous sitemap keeps serving during a rebuild, rebuilds that fail pause retries for five minutes, and a first-ever build under load returns a retryable response instead of an error page
+* Fix: Open Graph and Twitter tags can no longer vanish or duplicate â€” a single precedence owner now decides each tag across OTTO, third-party SEO plugins, the Open Graph metabox and the sidebar fields, and titles are always filled from the effective page title
+* Fix: Duplicate meta description tags on sites running the Hello Elementor theme are now emitted exactly once
+* Fix: The SEO sidebar no longer fatals in the block editor on custom post types that do not support custom fields
+* Fix: Sitemap entries no longer show an invalid year for posts with zero modified dates, and video sitemap entries survive provider thumbnail outages (Vimeo entries are preserved with a fallback image) with accurate skip notices
+* Fix: Redirects whose stored sources contain percent-encoded characters now fire when the decoded URL is requested, in both encoded and decoded form
+* Fix: Settings values containing percent signs no longer break settings screens or save incorrectly
+* Fix: Saving robots.txt without changes is now a true no-op â€” no redundant backups are created, line-ending differences are ignored, and reporting stays consistent
+* Fix: White-label branding no longer leaks the real product or OTTO names into public page source, the SEO Suite box, Open Graph metabox, Custom Pages, Setup Wizard, Compatibility notes, Settings descriptions, Site Health labels or the Updates screen icon
+* Fix: Duplicating a post with a duplicate-page plugin no longer copies stale OTTO and social metadata onto the new copy
+* Fix: Content utility fixes across breadcrumbs, link suggestions, HTML-to-Markdown conversion, the external SEO importer and the MCP tools â€” including authorization checks before cached link suggestions, correct import of Rank Math snippet preview directives, preserved robots directives on import, and truthful success reporting from the bulk and converter tools
+* Improvement: SEO Health scans are cached between pages, so large filtered scans stay fast, and edited posts are picked up on the next scan
+* Improvement: The SEO Health table shows a working Schema column with the Open Graph image and Alt Text columns removed, and clearer length filters
+* Improvement: The Most Frequent 404 Errors chart labels are fixed-width and aligned, with full URLs on hover
+* Improvement: Removed verified dead code and an internal QA hostname reference from the shipped source
+
 = 2.7.2 =
 * New Feature: Opt-in product analytics for the plugin admin, sent only after the site owner gives consent; existing installs are asked once through a dismissible notice that can be snoozed
 * New Feature: The Classic Editor SEO box now includes the Breadcrumb Title, Language Alternates and Primary Category fields

@@ -126,6 +126,7 @@ class Metasync_SEO_Sidebar {
         unset($post_types['attachment']);
         foreach ($post_types as $post_type) {
             add_action("rest_after_insert_{$post_type}", array($this, 'cleanup_empty_seo_meta'), 10, 3);
+            add_action("rest_after_insert_{$post_type}", array($this, 'track_sidebar_save'), 10, 3);
         }
     }
 
@@ -141,9 +142,40 @@ class Metasync_SEO_Sidebar {
     }
 
     /**
+     * Track a deliberate REST save when MetaSync SEO sidebar fields changed.
+     *
+     * @param WP_Post|int $post Inserted or updated post.
+     * @param WP_REST_Request $request REST request.
+     * @param bool $_creating Whether the post is being created.
+     * @return void
+     */
+    public function track_sidebar_save($post, $request, $_creating) {
+        $meta = $request->get_param('meta');
+        if (!is_array($meta)) {
+            return;
+        }
+        $fields = array(
+            self::META_SEO_TITLE => 'title',
+            self::META_DESCRIPTION => 'description',
+            self::META_ROBOTS_ADVANCED => 'robots',
+            self::META_HREFLANG => 'hreflang',
+            self::META_PRIMARY_CATEGORY => 'primary_category',
+        );
+        $properties = array('fields_changed' => 0, 'title' => 0, 'description' => 0, 'robots' => 0, 'hreflang' => 0, 'primary_category' => 0);
+        foreach ($fields as $meta_key => $property) {
+            if (array_key_exists($meta_key, $meta)) {
+                $properties[$property] = 1;
+                $properties['fields_changed']++;
+            }
+        }
+        if ($properties['fields_changed'] > 0) {
+            Metasync_PostHog::rollup('seo_sidebar_saved', $properties, 'day');
+        }
+    }
+
+    /**
      * Clean up empty SEO meta values after a REST save
      *
-     * The REST API cannot delete a meta key — clearing a sidebar field
      * persists an empty string, and that empty row would keep outranking
      * OTTO/imported suggestions forever. Mirror the classic metabox save
      * path instead: an empty value loses its row so the post falls back to
@@ -236,10 +268,25 @@ class Metasync_SEO_Sidebar {
         // description too — falling back to the page description when no
         // OG-specific value is set — so that plugin renders exactly one. Emitting
         // here as well is always a second tag, never a replacement.
+        //
+        // On a MetaSync-only site (no SEO plugin), Metasync_OpenGraph (wp_head
+        // prio 5) emits og:description / twitter:description from the OG metabox
+        // value whenever will_emit() is true. Without this guard the sidebar
+        // emitter (prio 2) also emits from the sidebar field, so a post with
+        // both a sidebar description and OG-metabox values gets two tags with
+        // different values — Defect C. The two emitters must be
+        // mutually exclusive per key: when the OpenGraph class will emit, the
+        // sidebar defers its og:/twitter: description to it.
         $defer_og_description = $conflict_handler->has_active_seo_plugin()
-            || $conflict_handler->third_party_owns_og_description();
+            || $conflict_handler->third_party_owns_og_description()
+            || $this->opengraph_will_emit();
 
         if ($defer_meta_description && $defer_og_description) {
+            // Nothing is printed here: the third-party plugin owns the
+            // description. Mark it anyway so Hello Elementor's theme tag is
+            // suppressed instead of landing next to the plugin's tag. The mark
+            // only suppresses the theme; it never changes what the plugin prints.
+            Metasync_Seo_Precedence::mark_description_output();
             return;
         }
 
@@ -299,6 +346,7 @@ class Metasync_SEO_Sidebar {
             }
             // Standard meta description
             if (!$defer_meta_description) {
+                Metasync_Seo_Precedence::mark_description_output();
                 echo '<meta name="description" content="' . $description_escaped . '"' . $marker . ' />' . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- value already escaped via esc_attr() above; the sniff cannot track custom escaped variables
             }
 
@@ -382,6 +430,40 @@ class Metasync_SEO_Sidebar {
         $handler = Metasync_SEO_Conflict_Handler::get_instance();
 
         return $handler->has_active_seo_plugin() && !$handler->otto_has_live_suggestions();
+    }
+
+    /**
+     * Whether Metasync_OpenGraph will emit its consolidated OG/Twitter block
+     * for the current request.
+     *
+     * When true, the OpenGraph class (wp_head prio 5) owns og:description /
+     * twitter:description, so the sidebar emitter (prio 2) must defer to it
+     * — otherwise both fire and the page carries two tags with different
+     * values (Defect C). The two emitters are mutually
+     * exclusive per key: exactly one writes each.
+     *
+     * Uses the shared predicate via the instance when available, falling back
+     * to the metasync_opengraph_will_emit filter (registered in init()) so the
+     * legacy emitter and this emitter share one answer.
+     *
+     * @return bool True when the OpenGraph class will emit for this request.
+     */
+    private function opengraph_will_emit() {
+        if (!class_exists('Metasync_OpenGraph')) {
+            return false;
+        }
+
+        $instance = Metasync_OpenGraph::get_instance();
+        if ($instance) {
+            return (bool) $instance->will_emit();
+        }
+
+        // No instance yet (the OG class has not been constructed in this
+        // request), so it cannot emit. init() registers will_emit() on this
+        // filter from an instance, so the filter only carries a real answer
+        // where get_instance() above would already have returned one; it stays
+        // as the hook for anything else that claims the OG block.
+        return (bool) apply_filters('metasync_opengraph_will_emit', false);
     }
 
     /**
@@ -1005,9 +1087,10 @@ class Metasync_SEO_Sidebar {
                 // Focus Keyword: read-only field surfacing the OTTO keyword
                 'focusKeywordLabel' => __('Focus Keyword', 'metasync'),
                 'focusKeywordHelp' => sprintf(
-                    /* translators: %s: OTTO name (whitelabel) */
-                    __('Managed by %s. Set in Search Atlas — read-only here.', 'metasync'),
-                    $otto_name
+                    /* translators: 1: OTTO name, 2: plugin name (both whitelabel-aware). */
+                    __('Managed by %1$s. Set in %2$s — read-only here.', 'metasync'),
+                    $otto_name,
+                    $plugin_name
                 ),
                 'breadcrumbPanelTitle' => __('Breadcrumbs', 'metasync'),
                 'breadcrumbTitleLabel' => __('Breadcrumb Title Override', 'metasync'),

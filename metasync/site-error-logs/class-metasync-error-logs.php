@@ -55,22 +55,10 @@ class Metasync_Error_Logs
 	/**
 	 * Show strong message.
 	 */
-	public function show_strong_message($message)
-	{
-	?>
-		<strong class="error-log-cannot-display"><?php echo esc_html($message) ?></strong><br>
-	<?php
-	}
 
 	/**
 	 * Show strong message.
 	 */
-	public function show_code_html($code)
-	{
-	?>
-		<code><?php echo esc_html($code); ?></code>
-	<?php
-	}
 
 	/**
 	 * Show error log preview with sitemap-style layout

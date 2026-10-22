@@ -6,7 +6,7 @@
  * so changes survive plugin uninstallation.
  * 
  * @package MetaSync
- * @since 2.6.0
+ * @since 2.5.14
  */
 
 if (!defined('ABSPATH')) {
@@ -407,30 +407,6 @@ class Metasync_Otto_Persistence_Handler {
      * @param array $seo_data Complete SEO data from OTTO
      * @return array Results for all persistence operations
      */
-    public static function process_persistence($post_id, $seo_data) {
-        $results = [
-            'image_alt_text' => null,
-            'link_corrections' => null,
-            'heading_changes' => null,
-        ];
-
-        # Process image alt text persistence
-        if (!empty($seo_data['body_substitutions']['images'])) {
-            $results['image_alt_text'] = self::persist_image_alt_text($seo_data['body_substitutions']['images']);
-        }
-
-        # Process link corrections persistence
-        if (!empty($seo_data['body_substitutions']['links'])) {
-            $results['link_corrections'] = self::persist_link_corrections($post_id, $seo_data['body_substitutions']['links']);
-        }
-
-        # Process heading changes persistence
-        if (!empty($seo_data['body_substitutions']['headings'])) {
-            $results['heading_changes'] = self::persist_heading_changes($post_id, $seo_data['body_substitutions']['headings']);
-        }
-
-        return $results;
-    }
 
     /**
      * Extract link corrections data from OTTO SEO data
@@ -438,20 +414,6 @@ class Metasync_Otto_Persistence_Handler {
      * @param array $seo_data The SEO data from OTTO API
      * @return array Array of old_url => new_url
      */
-    public static function extract_link_corrections($seo_data) {
-        if (empty($seo_data['body_substitutions']['links']) || !is_array($seo_data['body_substitutions']['links'])) {
-            return [];
-        }
-
-        $link_data = [];
-        foreach ($seo_data['body_substitutions']['links'] as $old_url => $new_url) {
-            if (!empty($old_url) && !empty($new_url)) {
-                $link_data[esc_url_raw($old_url)] = esc_url_raw($new_url);
-            }
-        }
-
-        return $link_data;
-    }
 }
 
 

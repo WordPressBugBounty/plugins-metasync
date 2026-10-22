@@ -46,11 +46,6 @@ class Metasync_Headless_Refresh_History
         return $wpdb->prefix . self::$table_name;
     }
 
-    public static function ensure_table_exists()
-    {
-        $instance = new self();
-        $instance->maybe_create_table();
-    }
 
     /**
      * Create the table when it is missing, throttled by TABLE_RETRY_OPTION.

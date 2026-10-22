@@ -111,11 +111,6 @@ class Metasync_Otto_Config {
      *
      * @return bool True if meta descriptions are enabled
      */
-    public static function is_meta_description_enabled() {
-        $options = self::get_options();
-        $enable_metadesc = $options['general']['enable_metadesc'] ?? '';
-        return $enable_metadesc === 'true' || $enable_metadesc === true;
-    }
 
     /**
      * Get a specific option value by path

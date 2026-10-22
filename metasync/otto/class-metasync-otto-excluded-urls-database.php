@@ -3,7 +3,7 @@
 /**
  * The database operations for OTTO excluded URLs.
  *
- * @since      2.6.0
+ * @since      2.5.10
  * @package    Metasync
  * @subpackage Metasync/otto
  * @author     Engineering Team <support@searchatlas.com>

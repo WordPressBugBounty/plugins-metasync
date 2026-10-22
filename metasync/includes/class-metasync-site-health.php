@@ -241,8 +241,8 @@ class Metasync_Site_Health
 
 			// OTTO API Rate Limit Health Check
 			$tests['direct']['metasync_otto_rate_limit'] = [
-				/* translators: %s: effective plugin name (whitelabel-aware). */
-				'label' => sprintf(__('%s OTTO API Rate Limit', 'metasync'), Metasync::get_effective_plugin_name()),
+				/* translators: 1: effective plugin name, 2: OTTO name. */
+				'label' => sprintf(__('%1$s %2$s API Rate Limit', 'metasync'), Metasync::get_effective_plugin_name(), Metasync::get_whitelabel_otto_name()),
 				'test' => [$this, 'otto_rate_limit_check']
 			];
 
@@ -842,23 +842,25 @@ class Metasync_Site_Health
 		if ($hits >= self::RATE_LIMIT_CRITICAL_THRESHOLD) {
 			$status = 'critical';
 			$label  = sprintf(
-				/* translators: 1: effective plugin name (whitelabel-aware), 2: number of rate limit hits. */
-				__('%1$s OTTO API is being rate limited frequently (%2$d times in 24h)', 'metasync'),
+				/* translators: 1: effective plugin name, 2: OTTO name (both whitelabel-aware), 3: number of rate limit hits. */
+				__('%1$s %2$s API is being rate limited frequently (%3$d times in 24h)', 'metasync'),
 				Metasync::get_effective_plugin_name(),
+				Metasync::get_whitelabel_otto_name(),
 				$hits
 			);
 		} elseif ($hits >= self::RATE_LIMIT_WARNING_THRESHOLD) {
 			$status = 'recommended';
 			$label  = sprintf(
-				/* translators: 1: effective plugin name (whitelabel-aware), 2: number of rate limit hits. */
-				__('%1$s OTTO API rate limit hit %2$d times in the last 24 hours', 'metasync'),
+				/* translators: 1: effective plugin name, 2: OTTO name (both whitelabel-aware), 3: number of rate limit hits. */
+				__('%1$s %2$s API rate limit hit %3$d times in the last 24 hours', 'metasync'),
 				Metasync::get_effective_plugin_name(),
+				Metasync::get_whitelabel_otto_name(),
 				$hits
 			);
 		} else {
 			$status = 'good';
-			/* translators: %s: effective plugin name (whitelabel-aware). */
-			$label  = sprintf(__('%s OTTO API rate limits are within normal range', 'metasync'), Metasync::get_effective_plugin_name());
+			/* translators: 1: effective plugin name, 2: OTTO name (both whitelabel-aware). */
+			$label  = sprintf(__('%1$s %2$s API rate limits are within normal range', 'metasync'), Metasync::get_effective_plugin_name(), Metasync::get_whitelabel_otto_name());
 		}
 
 		// Build description

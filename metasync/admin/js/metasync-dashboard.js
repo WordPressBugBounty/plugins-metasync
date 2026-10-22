@@ -263,12 +263,6 @@
 	/**
      * Add success animation to forms after submission
      */
-	function addSuccessAnimation($element) {
-		$element.addClass('metasync-sa-connect-success-animation');
-		setTimeout(() => {
-			$element.removeClass('metasync-sa-connect-success-animation');
-		}, 600);
-	}
 
 	/**
      * Enhanced tab navigation - SCOPED TO PLUGIN
@@ -318,10 +312,6 @@
 	/**
      * Dark mode toggle functionality (if needed)
      */
-	function addDarkModeToggle() {
-		// This can be expanded if manual dark mode toggle is needed
-		// Currently the dashboard is always dark themed
-	}
 
 	/**
      * Responsive navigation improvements

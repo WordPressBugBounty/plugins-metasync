@@ -515,14 +515,14 @@
 }
 
 /* ===== Column widths ===== */
-.wrap .wp-list-table .column-title { width: 18%; }
+/* Widths total ~95% so the fixed-layout table keeps no surplus for the
+ * browser to dump into the check column (2.2em). */
+.wrap .wp-list-table .column-title { width: 24%; }
 .wrap .wp-list-table .column-post_type { width: 8%; }
 .wrap .wp-list-table .column-status { width: 7%; }
-.wrap .wp-list-table .column-seo_title { width: 14%; }
-.wrap .wp-list-table .column-meta_description { width: 14%; }
+.wrap .wp-list-table .column-seo_title { width: 19%; }
+.wrap .wp-list-table .column-meta_description { width: 19%; }
 .wrap .wp-list-table .column-schema { width: 8%; }
-.wrap .wp-list-table .column-og_image { width: 8%; }
-.wrap .wp-list-table .column-alt_text_coverage { width: 10%; }
 .wrap .wp-list-table .column-last_modified { width: 10%; }
 
 /* ===== Headings ===== */

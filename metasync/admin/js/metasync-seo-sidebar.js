@@ -1900,7 +1900,8 @@
     const PluginSyncStatusPanel = () => {
         const syncTsRaw = useSelect(function(select) {
             var metaKey = config.metaKeys.pluginSyncTs || '_metasync_plugin_sync_ts';
-            return select('core/editor').getEditedPostAttribute('meta')[metaKey] || '';
+            var meta = select('core/editor').getEditedPostAttribute('meta') || {};
+            return meta[metaKey] || '';
         }, []);
 
         var activeSeoPlugins = config.activeSeoPlugins || {};

@@ -50,12 +50,6 @@
         return div.innerHTML;
     }
 
-    function sanitizeTrustedHtml(html) {
-        var parser = new DOMParser();
-        var doc = parser.parseFromString(html, 'text/html');
-        doc.querySelectorAll('script,iframe,object,embed,form,link[rel="import"]').forEach(function(el) { el.remove(); });
-        return doc.body.innerHTML;
-    }
 
     // ── Single Optimize ──
     document.addEventListener('click', function(e) {

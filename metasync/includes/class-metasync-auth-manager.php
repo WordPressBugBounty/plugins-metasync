@@ -209,31 +209,12 @@ class Metasync_Auth_Manager {
      *
      * @return bool True on success, false on failure
      */
-    public function revoke_persistent_access() {
-        $user_id = $this->get_user_id();
-        if (!$user_id) {
-            return false;
-        }
-
-        return delete_user_meta($user_id, $this->user_meta_key);
-    }
 
     /**
      * Revoke only transient access (keeps persistent if granted)
      *
      * @return bool True on success, false on failure
      */
-    public function revoke_transient_access() {
-        $user_id = $this->get_user_id();
-        if (!$user_id) {
-            return false;
-        }
-
-        delete_transient($this->get_transient_key());
-        delete_transient($this->get_activity_transient_key());
-
-        return true;
-    }
 
     /**
      * Update last activity timestamp
@@ -403,10 +384,6 @@ class Metasync_Auth_Manager {
      * @param string $context Authentication context
      * @return bool True on success, false on failure
      */
-    public static function grant_user_access($user_id, $context = 'default') {
-        $user_meta_key = 'metasync_' . sanitize_key($context) . '_access';
-        return update_user_meta($user_id, $user_meta_key, 'granted') !== false;
-    }
 
     /**
      * Static helper: Revoke persistent access from a user
@@ -415,10 +392,6 @@ class Metasync_Auth_Manager {
      * @param string $context Authentication context
      * @return bool True on success, false on failure
      */
-    public static function revoke_user_access($user_id, $context = 'default') {
-        $user_meta_key = 'metasync_' . sanitize_key($context) . '_access';
-        return delete_user_meta($user_id, $user_meta_key);
-    }
 
     /** Revoke persistent and transient grants for every user on this site. */
     public static function revoke_all_access($context = 'default') {

@@ -341,6 +341,16 @@ class Metasync_Bing_Instant_Index
 		header('Content-type: application/json');
 
 		$result = $this->submit_urls_chunked($send_url);
+		// Count against the URLs that were actually eligible (same-host,
+		// de-duplicated), not the raw pasted list the console submitted.
+		$valid_urls = $this->filter_indexnow_urls($send_url);
+		$submitted = isset($result['submitted']) ? (int) $result['submitted'] : (!empty($result['success']) ? count($valid_urls) : 0);
+		Metasync_PostHog::feature('indexation_submission_completed', array(
+			'provider' => 'bing_indexnow',
+			'success' => !empty($result['success']),
+			'submitted' => $submitted,
+			'failed' => max(0, count($valid_urls) - $submitted),
+		));
 		wp_send_json($result);
 		wp_die();
 	}
@@ -818,107 +828,16 @@ class Metasync_Bing_Instant_Index
 	 *
 	 * @return array Status information.
 	 */
-	public function verify_api_key_file()
-	{
-		$api_key = $this->get_setting('api_key');
-
-		if (empty($api_key)) {
-			return [
-				'success' => false,
-				'message' => 'No API key configured.',
-			];
-		}
-
-		$safe_key = sanitize_file_name($api_key);
-		$file_path = ABSPATH . $safe_key . '.txt';
-		$file_url = home_url('/' . $safe_key . '.txt');
-
-		// Physical file present — verify it is readable and its content matches.
-		if (file_exists($file_path)) {
-			if (!is_readable($file_path)) {
-				return [
-					'success' => false,
-					'message' => 'API key file exists but is not readable.',
-					'file_path' => $file_path,
-					'file_url' => $file_url,
-				];
-			}
-
-			$file_content = file_get_contents($file_path);
-			if (trim($file_content) !== $api_key) {
-				return [
-					'success' => false,
-					'message' => 'API key file content does not match configured API key.',
-					'file_path' => $file_path,
-					'file_url' => $file_url,
-					'expected' => $api_key,
-					'actual' => trim($file_content),
-				];
-			}
-
-			return [
-				'success' => true,
-				'message' => 'API key file is valid and accessible.',
-				'file_path' => $file_path,
-				'file_url' => $file_url,
-				'serving' => 'physical',
-			];
-		}
-
-		// No physical file: the key is served virtually via template_redirect as
-		// long as it is registered. The configured api_key is always part of the
-		// virtual key set, so this confirms the virtual route is active.
-		if (in_array($safe_key, self::get_virtual_keys(), true)) {
-			return [
-				'success' => true,
-				'message' => 'API key is served virtually (no physical file required).',
-				'file_path' => $file_path,
-				'file_url' => $file_url,
-				'serving' => 'virtual',
-			];
-		}
-
-		return [
-			'success' => false,
-			'message' => 'API key file does not exist.',
-			'file_path' => $file_path,
-			'file_url' => $file_url,
-		];
-	}
 
 	/**
 	 * Get submission statistics.
 	 *
 	 * @return array Statistics about recent submissions.
 	 */
-	public function get_submission_stats()
-	{
-		$recent_submissions = get_transient('metasync_bing_recent_submissions');
-
-		if (!is_array($recent_submissions)) {
-			return [
-				'total_urls' => 0,
-				'last_submission' => null,
-			];
-		}
-
-		$urls = array_keys($recent_submissions);
-		$timestamps = array_values($recent_submissions);
-
-		return [
-			'total_urls' => count($urls),
-			'last_submission' => !empty($timestamps) ? max($timestamps) : null,
-			'last_submission_formatted' => !empty($timestamps) ? human_time_diff(max($timestamps)) . ' ago' : 'Never',
-		];
-	}
 
 	/**
 	 * Generate a random API key for IndexNow.
 	 *
 	 * @return string Random API key (32 characters, hex).
 	 */
-	public static function generate_random_api_key()
-	{
-		return bin2hex(random_bytes(16));
-	}
 }

@@ -667,15 +667,6 @@ class Metasync_MCP_Server {
      *
      * @return array
      */
-    public function get_server_info() {
-        return [
-            'enabled' => true,
-            'endpoint' => rest_url(self::REST_NAMESPACE . self::REST_ROUTE),
-            'tools_count' => $this->tool_registry->get_tool_count(),
-            'version' => METASYNC_VERSION,
-            'has_auth_token' => !empty($this->get_api_key())
-        ];
-    }
 
     /**
      * Handle JWT authentication request

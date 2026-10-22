@@ -16,9 +16,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define constants for this module
-define('GOOGLE_INDEX_DIRECT_VERSION', '1.0.0');
 define('GOOGLE_INDEX_DIRECT_PATH', __DIR__);
-define('GOOGLE_INDEX_DIRECT_URL', plugin_dir_url(__FILE__));
 
 /**
  * Initialize Google Index API

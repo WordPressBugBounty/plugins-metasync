@@ -71,6 +71,9 @@ class MCP_Tool_Bulk_Update_Meta extends MCP_Tool_Base {
         }
 
         $meta_key = sanitize_text_field($params['meta_key']);
+        if ($meta_key === '') {
+            throw new Exception('meta_key cannot be empty');
+        }
         $meta_value = $params['meta_value']; // Don't sanitize yet, depends on key
 
         $results = [
@@ -101,8 +104,24 @@ class MCP_Tool_Bulk_Update_Meta extends MCP_Tool_Base {
                     continue;
                 }
 
-                // Update meta
-                update_post_meta($post_id, $meta_key, $meta_value);
+                // Update meta; WordPress returns false when the value is
+                // unchanged, which is still a successful idempotent request.
+                $current_meta_value = get_post_meta($post_id, $meta_key, true);
+                $same_meta = is_array($current_meta_value) || is_object($current_meta_value) || is_array($meta_value) || is_object($meta_value)
+                    ? serialize($current_meta_value) === serialize($meta_value)
+                    : (string) $current_meta_value === (string) $meta_value;
+                if ($same_meta) {
+                    $updated = true;
+                } else {
+                    $updated = update_post_meta($post_id, $meta_key, $meta_value);
+                }
+                if ($updated === false) {
+                    $results['failed'][] = [
+                        'post_id' => $post_id,
+                        'error' => 'Failed to update meta',
+                    ];
+                    continue;
+                }
 
                 $results['success'][] = [
                     'post_id' => $post_id,

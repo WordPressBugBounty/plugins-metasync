@@ -919,9 +919,6 @@
 	}
 
 	// Update the old function name for compatibility
-	function startConnectPolling(nonceToken) {
-		return startSearchAtlasPolling(nonceToken);
-	}
 
 	function stopSearchAtlasPolling() {
 		if (saConnectPollingInterval) {
@@ -931,9 +928,6 @@
 	}
 
 	// Legacy function for backward compatibility
-	function stopConnectPolling() {
-		return stopSearchAtlasPolling();
-	}
 
 	function showConnectSuccess(title, message, actions) {
 		showConnectStatus('success', title, message, actions);
@@ -1109,48 +1103,6 @@
 		}]);
 	}
 
-	function enhancedErrorRecovery(error, context) {
-		console.group('🔍 Connect Error Diagnostics');
-		console.log('Error Context:', context);
-		console.log('Error Details:', error);
-		console.log('Browser Info:', {
-			userAgent: navigator.userAgent,
-			cookieEnabled: navigator.cookieEnabled,
-			language: navigator.language,
-			platform: navigator.platform
-		});
-		console.log('Current Time:', new Date().toISOString());
-		console.groupEnd();
-		
-		// Provide contextual recovery suggestions
-		var recoverySuggestions = [];
-		
-		if (context === 'network') {
-			recoverySuggestions = [
-				'Check your internet connection',
-				'Disable VPN or proxy if enabled',
-				'Try refreshing the page',
-				'Clear browser cache and cookies'
-			];
-		} else if (context === 'popup') {
-			recoverySuggestions = [
-				'Allow popups for this website',
-				'Disable ad blockers temporarily',
-				'Try using a different browser',
-				'Check if firewall is blocking the request'
-			];
-		} else if (context === 'timeout') {
-			recoverySuggestions = [
-				'Complete authentication within 2 minutes',
-				'Check if the popup window needs attention',
-				'Ensure you have your ' + getPluginName() + ' login ready',
-				'Try the authentication process again',
-				'Contact support if timeouts persist'
-			];
-		}
-		
-		return recoverySuggestions;
-	}
 
 	// Add enhanced page visibility handling
 	function handlePageVisibilityChange() {

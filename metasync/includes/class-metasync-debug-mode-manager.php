@@ -311,13 +311,6 @@ class Metasync_Debug_Mode_Manager
      * @param bool $enable Whether to enable indefinite mode
      * @return bool Success status
      */
-    public function toggle_indefinite_mode($enable)
-    {
-        $settings = $this->get_settings();
-        $settings['indefinite'] = $enable;
-
-        return update_option(self::OPTION_KEY, $settings);
-    }
 
     /**
      * Check debug limits (called by cron)
@@ -870,6 +863,10 @@ class Metasync_Debug_Mode_Manager
     {
         $indefinite = $request->get_param('indefinite') === true;
         $result = $this->enable_debug_mode($indefinite);
+        Metasync_PostHog::feature('debug_mode_changed', array(
+            'action' => 'enable',
+            'success' => (bool) $result,
+        ));
 
         if ($result) {
             return new WP_REST_Response(array(
@@ -893,6 +890,10 @@ class Metasync_Debug_Mode_Manager
     public function rest_disable_debug()
     {
         $result = $this->disable_debug_mode('manual');
+        Metasync_PostHog::feature('debug_mode_changed', array(
+            'action' => 'disable',
+            'success' => (bool) $result,
+        ));
 
         if ($result) {
             return new WP_REST_Response(array(
@@ -916,6 +917,10 @@ class Metasync_Debug_Mode_Manager
     public function rest_extend_debug()
     {
         $result = $this->extend_debug_mode();
+        Metasync_PostHog::feature('debug_mode_changed', array(
+            'action' => 'extend',
+            'success' => (bool) $result,
+        ));
 
         if ($result) {
             return new WP_REST_Response(array(
@@ -976,13 +981,4 @@ class Metasync_Debug_Mode_Manager
      *
      * @return void
      */
-    public static function uninstall()
-    {
-        // Remove scheduled cron
-        wp_clear_scheduled_hook(self::CRON_HOOK);
-
-        // Remove options
-        delete_option(self::OPTION_KEY);
-        delete_transient(self::NOTICE_TRANSIENT);
-    }
 }

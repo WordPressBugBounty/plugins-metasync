@@ -86,6 +86,19 @@ class Metasync_Sitemap_Video
     private $skipped_no_thumbnail_videos = 0;
 
     /**
+     * How many posts had at least one video dropped for want of a thumbnail
+     * while still emitting at least one other video.
+     *
+     * The partial-omission counterpart to $skipped_no_thumbnail: the latter
+     * counts posts that emitted nothing, this counts posts that emitted
+     * something but still lost a video. Both feed the same ID sample so the
+     * admin screen can point at the affected posts in either shape.
+     *
+     * @var int
+     */
+    private $skipped_partial_no_thumbnail = 0;
+
+    /**
      * Memoized post-level thumbnail for the post currently being processed.
      *
      * Only ever holds one post, so memory stays flat across paged chunks. Null
@@ -143,10 +156,11 @@ class Metasync_Sitemap_Video
 
         // Reset the diagnostics counters so a second generate() call on the
         // same instance reports this run only.
-        $this->skipped_no_thumbnail        = 0;
-        $this->skipped_no_thumbnail_ids    = [];
-        $this->skipped_duplicate_thumbnail = 0;
-        $this->skipped_no_thumbnail_videos = 0;
+        $this->skipped_no_thumbnail         = 0;
+        $this->skipped_no_thumbnail_ids     = [];
+        $this->skipped_duplicate_thumbnail  = 0;
+        $this->skipped_no_thumbnail_videos  = 0;
+        $this->skipped_partial_no_thumbnail = 0;
 
         $post_types = !empty($this->settings['post_types']) ? (array) $this->settings['post_types'] : ['post', 'page'];
 
@@ -251,7 +265,8 @@ class Metasync_Sitemap_Video
                 $loc = $xml->createElement('loc', esc_url($permalink));
                 $url_element->appendChild($loc);
 
-                $has_valid_video = false;
+                $has_valid_video       = false;
+                $post_partial_skipped  = false;
 
                 foreach ($videos as $video) {
                     if ($total_video_entries >= $this->max_video_entries) {
@@ -266,6 +281,7 @@ class Metasync_Sitemap_Video
                             $this->skipped_duplicate_thumbnail++;
                         } else {
                             $this->skipped_no_thumbnail_videos++;
+                            $post_partial_skipped = true;
                         }
                         continue;
                     }
@@ -325,6 +341,21 @@ class Metasync_Sitemap_Video
 
                 if ($has_valid_video) {
                     $urlset->appendChild($url_element);
+
+                    // A post that emitted something but still lost a video to a
+                    // missing thumbnail is the common mixed-site shape: most
+                    // videos resolve, a few do not. The full-omission sample
+                    // below never recorded these, so the admin saw "N videos
+                    // were left out" with no way to find them. Record the post
+                    // ID here too, into the same capped sample, so the
+                    // "Affected posts" list reaches the partial case it was
+                    // built for.
+                    if ($post_partial_skipped) {
+                        $this->skipped_partial_no_thumbnail++;
+                        if (count($this->skipped_no_thumbnail_ids) < $this->max_skipped_samples) {
+                            $this->skipped_no_thumbnail_ids[] = (int) $post->ID;
+                        }
+                    }
                 } else {
                     // The post had at least one detected video but none of them
                     // could be emitted, which in practice always means no
@@ -474,17 +505,24 @@ class Metasync_Sitemap_Video
             $manual_title     = get_post_meta($post->ID, '_metasync_video_title', true);
             $manual_desc      = get_post_meta($post->ID, '_metasync_video_description', true);
 
+            // A manual thumbnail meta value is a per-POST image (one field for
+            // the whole post), so it stays subject to the single-use rule. A
+            // resolver fallback carries its own source (provider vs post-level).
+            $manual_source = 'post-level';
             if (empty($manual_thumbnail)) {
-                $manual_thumbnail = $this->resolve_thumbnail($manual_url, $post);
+                $resolved          = $this->resolve_thumbnail($manual_url, $post);
+                $manual_thumbnail = $resolved['url'];
+                $manual_source    = $resolved['source'];
             }
 
             $videos[] = [
-                'url'          => $manual_url,
-                'direct_media' => $this->is_direct_media_url($manual_url),
-                'thumbnail'    => $manual_thumbnail,
-                'title'        => !empty($manual_title) ? $manual_title : $post->post_title,
-                'description'  => !empty($manual_desc) ? $manual_desc : $this->get_post_description($post),
-                'duration'     => $duration,
+                'url'              => $manual_url,
+                'direct_media'     => $this->is_direct_media_url($manual_url),
+                'thumbnail'        => $manual_thumbnail,
+                '_thumbnail_source' => $manual_source,
+                'title'            => !empty($manual_title) ? $manual_title : $post->post_title,
+                'description'      => !empty($manual_desc) ? $manual_desc : $this->get_post_description($post),
+                'duration'         => $duration,
             ] + $this->provider_keys($manual_url);
         }
 
@@ -515,13 +553,14 @@ class Metasync_Sitemap_Video
             if (preg_match_all($pattern, $content, $matches)) {
                 foreach ($matches[1] as $video_id) {
                     $videos[] = [
-                        'url'         => 'https://www.youtube.com/watch?v=' . $video_id,
-                        'thumbnail'   => 'https://img.youtube.com/vi/' . $video_id . '/hqdefault.jpg',
-                        'title'       => $post->post_title,
-                        'description' => $this->get_post_description($post),
-                        'duration'    => $duration,
-                        '_provider'   => 'youtube',
-                        '_video_id'   => $video_id,
+                        'url'               => 'https://www.youtube.com/watch?v=' . $video_id,
+                        'thumbnail'         => 'https://img.youtube.com/vi/' . $video_id . '/hqdefault.jpg',
+                        '_thumbnail_source' => 'provider',
+                        'title'             => $post->post_title,
+                        'description'       => $this->get_post_description($post),
+                        'duration'          => $duration,
+                        '_provider'         => 'youtube',
+                        '_video_id'         => $video_id,
                     ];
                 }
             }
@@ -543,16 +582,18 @@ class Metasync_Sitemap_Video
                     // an hour, so without this one outage during generation
                     // silently empties a site's whole Vimeo section while its
                     // featured images sat available.
-                    $thumbnail = $this->resolve_thumbnail($vimeo_url, $post);
+                    $resolved  = $this->resolve_thumbnail($vimeo_url, $post);
+                    $thumbnail = $resolved['url'];
 
                     $videos[] = [
-                        'url'         => $vimeo_url,
-                        'thumbnail'   => $thumbnail,
-                        'title'       => $post->post_title,
-                        'description' => $this->get_post_description($post),
-                        'duration'    => $duration,
-                        '_provider'   => 'vimeo',
-                        '_video_id'   => $video_id,
+                        'url'               => $vimeo_url,
+                        'thumbnail'         => $thumbnail,
+                        '_thumbnail_source' => $resolved['source'],
+                        'title'             => $post->post_title,
+                        'description'       => $this->get_post_description($post),
+                        'duration'          => $duration,
+                        '_provider'         => 'vimeo',
+                        '_video_id'         => $video_id,
                     ];
                 }
             }
@@ -568,14 +609,15 @@ class Metasync_Sitemap_Video
                 $thumbnail = $this->get_self_hosted_thumbnail($post);
 
                 $videos[] = [
-                    'url'          => $video_src,
-                    'direct_media' => true,
-                    'thumbnail'    => $thumbnail,
-                    'title'        => $post->post_title,
-                    'description'  => $this->get_post_description($post),
-                    'duration'     => $duration,
-                    '_provider'    => 'self_hosted',
-                    '_video_id'    => md5($video_src),
+                    'url'               => $video_src,
+                    'direct_media'      => true,
+                    'thumbnail'         => $thumbnail,
+                    '_thumbnail_source' => 'post-level',
+                    'title'             => $post->post_title,
+                    'description'       => $this->get_post_description($post),
+                    'duration'          => $duration,
+                    '_provider'         => 'self_hosted',
+                    '_video_id'         => md5($video_src),
                 ];
             }
         }
@@ -589,14 +631,15 @@ class Metasync_Sitemap_Video
                 $thumbnail = $this->get_self_hosted_thumbnail($post);
 
                 $videos[] = [
-                    'url'          => $video_src,
-                    'direct_media' => true,
-                    'thumbnail'    => $thumbnail,
-                    'title'        => $post->post_title,
-                    'description'  => $this->get_post_description($post),
-                    'duration'     => $duration,
-                    '_provider'    => 'self_hosted',
-                    '_video_id'    => md5($video_src),
+                    'url'               => $video_src,
+                    'direct_media'      => true,
+                    'thumbnail'         => $thumbnail,
+                    '_thumbnail_source' => 'post-level',
+                    'title'             => $post->post_title,
+                    'description'       => $this->get_post_description($post),
+                    'duration'          => $duration,
+                    '_provider'         => 'self_hosted',
+                    '_video_id'         => md5($video_src),
                 ];
             }
         }
@@ -605,13 +648,14 @@ class Metasync_Sitemap_Video
         if (preg_match_all('/videopress\.com\/(?:v|embed)\/([a-zA-Z0-9]+)/i', $content, $matches)) {
             foreach ($matches[1] as $video_id) {
                 $videos[] = [
-                    'url'         => 'https://videopress.com/v/' . $video_id,
-                    'thumbnail'   => $this->get_self_hosted_thumbnail($post),
-                    'title'       => $post->post_title,
-                    'description' => $this->get_post_description($post),
-                    'duration'    => $duration,
-                    '_provider'   => 'videopress',
-                    '_video_id'   => $video_id,
+                    'url'               => 'https://videopress.com/v/' . $video_id,
+                    'thumbnail'         => $this->get_self_hosted_thumbnail($post),
+                    '_thumbnail_source' => 'post-level',
+                    'title'             => $post->post_title,
+                    'description'       => $this->get_post_description($post),
+                    'duration'          => $duration,
+                    '_provider'         => 'videopress',
+                    '_video_id'         => $video_id,
                 ];
             }
         }
@@ -630,13 +674,14 @@ class Metasync_Sitemap_Video
         if (preg_match_all(self::VHX_URL_PATTERN, $content, $matches)) {
             foreach ($matches[1] as $video_id) {
                 $videos[] = [
-                    'url'         => 'https://embed.vhx.tv/videos/' . $video_id,
-                    'thumbnail'   => $this->get_self_hosted_thumbnail($post),
-                    'title'       => $post->post_title,
-                    'description' => $this->get_post_description($post),
-                    'duration'    => $duration,
-                    '_provider'   => 'vhx',
-                    '_video_id'   => $video_id,
+                    'url'               => 'https://embed.vhx.tv/videos/' . $video_id,
+                    'thumbnail'         => $this->get_self_hosted_thumbnail($post),
+                    '_thumbnail_source' => 'post-level',
+                    'title'             => $post->post_title,
+                    'description'       => $this->get_post_description($post),
+                    'duration'          => $duration,
+                    '_provider'         => 'vhx',
+                    '_video_id'         => $video_id,
                 ];
             }
         }
@@ -686,16 +731,20 @@ class Metasync_Sitemap_Video
         }
 
         if ($raw_url !== '') {
+            // resolve_thumbnail() owns the whole source chain, including
+            // the configured thumbnail keys, so the precedence stays in
+            // one place for every caller. It also reports the source so the
+            // single-use rule can exempt a provider-derived value.
+            $resolved = $this->resolve_thumbnail($raw_url, $post);
+
             $videos[] = [
-                'url'          => $raw_url,
-                'direct_media' => $this->is_direct_media_url($raw_url),
-                // resolve_thumbnail() owns the whole source chain, including
-                // the configured thumbnail keys, so the precedence stays in
-                // one place for every caller.
-                'thumbnail'    => $this->resolve_thumbnail($raw_url, $post),
-                'title'        => $post->post_title,
-                'description'  => $this->get_post_description($post),
-                'duration'     => $duration,
+                'url'               => $raw_url,
+                'direct_media'      => $this->is_direct_media_url($raw_url),
+                'thumbnail'         => $resolved['url'],
+                '_thumbnail_source' => $resolved['source'],
+                'title'             => $post->post_title,
+                'description'       => $this->get_post_description($post),
+                'duration'          => $duration,
             ] + $this->provider_keys($raw_url);
         }
 
@@ -709,18 +758,30 @@ class Metasync_Sitemap_Video
      * `url`/`src`, or an attachment ID. Reading only reset($value) drops the
      * URL when the array is associative (the usual image-array format).
      *
+     * get_post_meta() returns every value as a STRING, so an ACF image/file
+     * field configured to return "Image ID" yields "456" — a numeric string.
+     * Testing is_string() before is_numeric() sent that down the URL branch,
+     * returned it verbatim, and left the caller's FILTER_VALIDATE_URL to
+     * reject it, so a documented configuration silently produced nothing.
+     * The numeric check must come first so an attachment-ID string resolves
+     * through wp_get_attachment_url() like a literal int does.
+     *
      * @param mixed $value Raw post-meta value.
      * @return string A trimmed URL, or an empty string when none is present.
      */
     private function extract_meta_url($value)
     {
-        if (is_string($value)) {
-            return trim($value);
-        }
-
+        // Numeric values (including numeric strings from get_post_meta()) are
+        // attachment IDs — resolve them before treating a value as a URL. A
+        // numeric string such as "456" is a valid ACF "Image ID" return, not a
+        // URL, and returning it verbatim lets FILTER_VALIDATE_URL reject it.
         if (is_numeric($value) && (int) $value > 0 && function_exists('wp_get_attachment_url')) {
             $attachment_url = wp_get_attachment_url((int) $value);
             return is_string($attachment_url) ? trim($attachment_url) : '';
+        }
+
+        if (is_string($value)) {
+            return trim($value);
         }
 
         if (!is_array($value)) {
@@ -865,18 +926,27 @@ class Metasync_Sitemap_Video
      * Open Graph image, a configured thumbnail field, the manual thumbnail
      * and the first content image are all per-POST, so on a post with several
      * videos only the first of them may consume that image. Provider-derived
-     * thumbnails (YouTube's id-based URL, Vimeo's oEmbed result) are
-     * per-VIDEO and are never restricted.
+     * thumbnails (YouTube's id-based URL, a successful Vimeo oEmbed result)
+     * are per-VIDEO and are never restricted.
      *
-     * Enforced directly on the thumbnail URL rather than on where the
-     * thumbnail came from. An earlier version tracked a per-entry "scope"
-     * (video-level vs post-level) and allowed a single post-level entry; that
-     * mislabelled several sources — a manual thumbnail belongs to the one
-     * manual video and can never be reused, and entries supplied through the
-     * videos filter carried no scope at all, so a filter written to the
-     * documented contract had every entry after the first discarded.
-     * Comparing the URLs tests the property Google actually cares about and
-     * is correct regardless of source.
+     * The exemption is source-gated, not URL-gated. An earlier version
+     * compared thumbnail URL strings only and relied on provider URLs being
+     * inherently unique to leave them alone; the docblock claimed provider
+     * thumbnails were "never restricted" but the implementation had no source
+     * check. Tracking an internal '_thumbnail_source' marker ('provider' vs
+     * 'post-level') lets the rule skip provider-derived entries outright
+     * while still restricting every per-POST image. The post-level fallback
+     * the Vimeo resolver takes when oEmbed fails or is rate-limited is a
+     * deliberate exception: resolve_thumbnail() tags it 'provider' so an
+     * outage does not make every Vimeo entry on a post contend for one
+     * shared image.
+     *
+     * A filter-supplied thumbnail (metasync_video_sitemap_thumbnail) is
+     * re-tagged 'post-level' by apply_thumbnail_filter(), so a filter that
+     * returns one image for every video still drops all but the first — the
+     * documented contract is preserved. Entries the videos filter supplies
+     * directly carry no source and default to 'post-level' for the same
+     * reason: the filter contract never promised a per-video exemption.
      *
      * Videos left without a thumbnail are dropped by generate() and counted,
      * so the admin screen can explain the omission rather than leaving it
@@ -897,6 +967,13 @@ class Metasync_Sitemap_Video
             $thumbnail = isset($video['thumbnail']) ? (string) $video['thumbnail'] : '';
 
             if ($thumbnail === '') {
+                continue;
+            }
+
+            // Provider-derived thumbnails are per-video by construction, so
+            // they neither consume a post-level slot nor contend with one.
+            $source = isset($video['_thumbnail_source']) ? $video['_thumbnail_source'] : '';
+            if ($source === 'provider') {
                 continue;
             }
 
@@ -1017,18 +1094,34 @@ class Metasync_Sitemap_Video
     }
 
     /**
-     * Resolve a thumbnail for a video URL.
+     * Resolve a thumbnail for a video URL and report where it came from.
      *
      * Provider-derived values first (unique per video by construction), then
      * the post-level chain.
      *
+     * The source matters: enforce_single_use_post_thumbnail() exempts
+     * provider-derived thumbnails from its single-use rule (Google's
+     * "no reused thumbnail" guidance targets a per-POST image standing in for
+     * several videos, not a per-VIDEO image the provider derived for one). A
+     * YouTube id-based URL is provider-derived by construction. Vimeo
+     * thumbnails returned by oEmbed are provider-derived too; when oEmbed is
+     * unavailable, the post-level fallback remains provider-scoped so an
+     * outage does not make every Vimeo entry contend for one shared image.
+     * Explicit post-level metadata and filter overrides remain restricted.
+     *
      * @param string  $video_url The video URL.
      * @param WP_Post $post      The post object.
-     * @return string Thumbnail URL, or '' when none could be resolved.
+     * @return array{url: string, source: string} 'url' is the thumbnail URL or
+     *         '' when none resolved; 'source' is 'provider' when the URL came
+     *         from a recognized provider path (including a Vimeo post-level
+     *         fallback), 'post-level' when it came from an explicit post-level
+     *         value, '' when no thumbnail at all.
      */
     private function resolve_thumbnail($video_url, $post)
     {
-        $thumbnail = '';
+        $thumbnail       = '';
+        $source          = '';
+        $provider_scoped = false;
 
         // YouTube (includes youtube-nocookie.com)
         if (preg_match('/youtube(?:-nocookie)?\.com\/watch\?v=([\w-]+)/i', $video_url, $m)
@@ -1036,18 +1129,30 @@ class Metasync_Sitemap_Video
             || preg_match('/youtube(?:-nocookie)?\.com\/embed\/([\w-]+)/i', $video_url, $m)
         ) {
             $thumbnail = 'https://img.youtube.com/vi/' . $m[1] . '/hqdefault.jpg';
+            $source    = 'provider';
+            $provider_scoped = true;
         } elseif (preg_match('/vimeo\.com\/(\d+)/i', $video_url, $m)
             || preg_match('/player\.vimeo\.com\/video\/(\d+)/i', $video_url, $m)
         ) {
             // Vimeo
-            $thumbnail = $this->get_vimeo_thumbnail($m[1], $video_url);
+            $thumbnail       = $this->get_vimeo_thumbnail($m[1], $video_url);
+            $provider_scoped = true;
+            // A non-empty oEmbed result is per-video. An empty result falls
+            // through to the post-level chain, but remains provider-scoped so
+            // an oEmbed outage does not drop all Vimeo entries as duplicates.
+            if ($thumbnail !== '') {
+                $source = 'provider';
+            }
         }
 
         if ($thumbnail === '') {
             $thumbnail = $this->get_post_level_thumbnail($post);
+            if ($thumbnail !== '') {
+                $source = $provider_scoped ? 'provider' : 'post-level';
+            }
         }
 
-        return $thumbnail;
+        return ['url' => $thumbnail, 'source' => $source];
     }
 
     /**
@@ -1093,6 +1198,14 @@ class Metasync_Sitemap_Video
 
             if (is_string($filtered) && $filtered !== $current) {
                 $videos[$index]['thumbnail'] = $filtered;
+                // A filter that overrides the thumbnail supplies an image the
+                // plugin did not derive, so it is treated as a post-level
+                // (per-post) value for the single-use rule: it stays subject
+                // to the duplicate check and is never exempted as provider-
+                // derived. This keeps the documented contract ("a value
+                // returned here is still compared against the other entries
+                // on the post") honest now that the rule is source-gated.
+                $videos[$index]['_thumbnail_source'] = 'post-level';
             }
         }
 
@@ -1244,10 +1357,13 @@ class Metasync_Sitemap_Video
     }
 
     /**
-     * Sample of post IDs counted by get_skipped_no_thumbnail_count().
+     * Sample of post IDs that had a video dropped for want of a thumbnail.
      *
-     * Capped, so this is a sample for surfacing in the admin UI rather than a
-     * complete list.
+     * Covers both full omissions (a post that emitted nothing at all) and
+     * partial omissions (a post that emitted some videos but still lost one),
+     * so the admin "Affected posts" list reaches the mixed-site shape it was
+     * built for. Capped at max_skipped_samples, so this is a sample for
+     * surfacing in the admin UI rather than a complete list.
      *
      * @return int[]
      */
@@ -1282,6 +1398,22 @@ class Metasync_Sitemap_Video
     public function get_skipped_no_thumbnail_video_count()
     {
         return $this->skipped_no_thumbnail_videos;
+    }
+
+    /**
+     * Number of posts in the last generate() run that emitted at least one
+     * video but still had another video dropped for want of a thumbnail.
+     *
+     * The partial-omission counterpart to get_skipped_no_thumbnail_count():
+     * the latter counts posts that emitted nothing, this counts posts that
+     * emitted something but still lost a video. Both feed the same ID sample
+     * returned by get_skipped_no_thumbnail_post_ids().
+     *
+     * @return int
+     */
+    public function get_skipped_partial_no_thumbnail_count()
+    {
+        return $this->skipped_partial_no_thumbnail;
     }
 
     /**

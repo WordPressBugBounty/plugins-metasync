@@ -55,7 +55,7 @@ add_action('init', 'metasync_init_api_backoff', 5);
 /**
  * Initialize Review Notice
  * Shows a dismissible notice asking users to rate the plugin after a usage period
- * @since 2.8.0
+ * @since 2.5.23
  */
 function metasync_init_review_notice() {
 	if (metasync_is_non_metasync_admin_ajax()) {
@@ -87,7 +87,7 @@ add_action('init', 'metasync_init_analytics_consent_notice');
  * Owns the shared GET/POST reachability probe, its post-activation + weekly crons,
  * and the warning notice. Initialised unconditionally (not gated on is_admin) because
  * the cron callbacks must be registered on WP-Cron requests, where is_admin() is false.
- * @since 2.8.x
+ * @since 2.6.23
  */
 function metasync_init_host_blocking_check() {
 	if (metasync_is_non_metasync_admin_ajax()) {

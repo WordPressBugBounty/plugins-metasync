@@ -227,48 +227,6 @@ class Metasync_API_Backoff_Notices {
      *
      * @param WP_Admin_Bar $wp_admin_bar WordPress admin bar object.
      */
-    public function add_admin_bar_status($wp_admin_bar) {
-        if (!current_user_can('manage_options')) {
-            return;
-        }
-
-        $active_backoffs = $this->backoff_manager->get_all_active_backoffs();
-
-        if (empty($active_backoffs)) {
-            return;
-        }
-
-        $count = count($active_backoffs);
-
-        $wp_admin_bar->add_node([
-            'id'    => 'metasync-backoff-status',
-            'title' => sprintf(
-                '<span style="color: #f0c36d;">⏸️ API Backoff (%d)</span>',
-                $count
-            ),
-            'href'  => admin_url('admin.php?page=' . Metasync_Admin::$page_slug),
-            'meta'  => [
-                'title' => sprintf(
-                    '%d API endpoint%s in backoff mode',
-                    $count,
-                    $count > 1 ? 's' : ''
-                ),
-            ],
-        ]);
-
-        // Add child nodes for each backoff
-        foreach ($active_backoffs as $backoff) {
-            $wp_admin_bar->add_node([
-                'parent' => 'metasync-backoff-status',
-                'id'     => 'metasync-backoff-' . $backoff['endpoint_hash'],
-                'title'  => sprintf(
-                    '%s - %s remaining',
-                    esc_html($backoff['endpoint']),
-                    Metasync_API_Backoff_Manager::format_time_remaining($backoff['time_remaining'])
-                ),
-            ]);
-        }
-    }
 
     /**
      * Get notice HTML for manual display
@@ -276,16 +234,4 @@ class Metasync_API_Backoff_Notices {
      * @param string $endpoint_hash Endpoint hash.
      * @return string Notice HTML.
      */
-    public function get_notice_html($endpoint_hash) {
-        $backoff = $this->backoff_manager->get_backoff_state($endpoint_hash);
-
-        if (!$backoff || $backoff['time_remaining'] <= 0) {
-            return '';
-        }
-
-        ob_start();
-        $backoff['endpoint_hash'] = $endpoint_hash;
-        $this->render_backoff_notice($backoff);
-        return ob_get_clean();
-    }
 }

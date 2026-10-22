@@ -312,6 +312,11 @@ class Metasync_Breadcrumbs {
      */
     public function resolve_breadcrumb_trail($post_id = 0) {
         $trail = array();
+        $post_id = absint($post_id);
+        $explicit_post = $post_id ? get_post($post_id) : null;
+        if ($post_id && !$explicit_post) {
+            return $trail;
+        }
 
         // Home item.
         $home_url   = !empty($this->settings['home_url']) ? $this->settings['home_url'] : home_url('/');
@@ -319,7 +324,7 @@ class Metasync_Breadcrumbs {
         $trail[]    = array('label' => $home_label, 'url' => $home_url);
 
         // --- Front page ---
-        if (is_front_page()) {
+        if (!$post_id && is_front_page()) {
             return $trail;
         }
 
@@ -332,13 +337,13 @@ class Metasync_Breadcrumbs {
         }
 
         // --- Single post / page / CPT ---
-        if (is_singular()) {
-            $current_post = $post_id ? get_post($post_id) : get_queried_object();
+        if ($post_id ? $explicit_post : is_singular()) {
+            $current_post = $post_id ? $explicit_post : get_queried_object();
             if (!$current_post) {
                 return $trail;
             }
 
-            if (is_page()) {
+            if ($post_id ? $current_post->post_type === 'page' : is_page()) {
                 // Build parent chain.
                 $ancestors = get_post_ancestors($current_post);
                 $ancestors = array_reverse($ancestors);
@@ -659,7 +664,8 @@ class Metasync_Breadcrumbs {
             return '';
         }
 
-        $trail = $this->resolve_breadcrumb_trail();
+        $post_id = !empty($args['post_id']) ? absint($args['post_id']) : 0;
+        $trail = $this->resolve_breadcrumb_trail($post_id);
         if (empty($trail)) {
             return '';
         }
@@ -685,16 +691,15 @@ class Metasync_Breadcrumbs {
         $prefix_text = $this->settings['prefix_text'];
         $show_current = $this->settings['show_current_page'];
 
+        if (!$show_current && count($trail) > 1) {
+            array_pop($trail);
+        }
+
         $items_html = array();
         $count      = count($trail);
 
         foreach ($trail as $index => $item) {
             $is_last = ($index === $count - 1);
-
-            // Skip last item if show_current_page is disabled.
-            if ($is_last && !$show_current && $count > 1) {
-                continue;
-            }
 
             // Check if this is not the last item (for separator rendering)
             $should_have_separator = !$is_last;

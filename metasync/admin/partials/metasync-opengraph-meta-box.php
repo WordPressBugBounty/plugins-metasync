@@ -18,14 +18,20 @@ if (!defined('ABSPATH')) {
 <div class="metasync-opengraph-meta-box">
 
     <?php if (!empty($otto_owns_og)) : ?>
-        <!-- OTTO also manages this page: values set here take priority; blanks fall back to OTTO -->
+        <!-- <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> also manages this page: values set here take priority; blanks fall back to <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> -->
         <div class="metasync-og-otto-notice notice notice-info inline" style="margin:0 0 15px;padding:10px 12px;border-left:4px solid #72aee6;background:#f0f6fc;">
             <p style="margin:0 0 6px;font-weight:600;">
                 <span class="dashicons dashicons-info" style="color:#72aee6;vertical-align:text-bottom;"></span>
-                <?php esc_html_e('This page is also managed by OTTO.', 'metasync'); ?>
+                <?php
+                /* translators: %s: white-label name of the OTTO assistant. */
+                printf(esc_html__('This page is also managed by %s.', 'metasync'), esc_html(Metasync::get_whitelabel_otto_name()));
+                ?>
             </p>
             <p style="margin:0;">
-                <?php esc_html_e('Any field you set here takes priority and overrides OTTO on the live site. Fields you leave blank fall back to OTTO\'s values, or a default when OTTO has none.', 'metasync'); ?>
+                <?php
+                /* translators: %1$s: white-label name of the OTTO assistant. */
+                printf(esc_html__('Any field you set here takes priority and overrides %1$s on the live site. Fields you leave blank fall back to %1$s\'s values, or a default when %1$s has none.', 'metasync'), esc_html(Metasync::get_whitelabel_otto_name()));
+                ?>
             </p>
         </div>
     <?php endif; ?>

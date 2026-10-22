@@ -100,15 +100,74 @@ $system_info = array(
                 <?php wp_nonce_field('metasync_report_issue', 'metasync_report_issue_nonce'); ?>
 
                 <div class="metasync-form-group">
-                    <label for="metasync_issue_message" class="metasync-form-label">
-                        <strong>Issue Description</strong>
+                    <label for="metasync_request_type" class="metasync-form-label">
+                        <strong>What would you like to share?</strong>
                         <span class="metasync-required-badge">Required</span>
                     </label>
-                    <textarea 
-                        id="metasync_issue_message" 
-                        name="issue_message" 
+                    <select id="metasync_request_type" name="request_type" class="metasync-form-select" aria-controls="metasync-feature-fields" aria-expanded="false">
+                        <option value="bug">Report a bug</option>
+                        <option value="question">Ask a question or share feedback</option>
+                        <option value="feature">Suggest a feature or improvement</option>
+                    </select>
+                </div>
+
+                <div id="metasync-feature-fields" style="display: none;" aria-live="polite">
+                    <div class="metasync-form-group">
+                        <label for="metasync_feature_title" class="metasync-form-label">
+                            <strong>Feature or improvement title</strong>
+                            <span class="metasync-required-badge">Required for suggestions</span>
+                        </label>
+                        <input
+                            type="text"
+                            id="metasync_feature_title"
+                            name="feature_title"
+                            class="metasync-form-input"
+                            maxlength="160"
+                            placeholder="For example: Scheduled SEO health reports"
+                        />
+                    </div>
+
+                    <div class="metasync-form-group">
+                        <label for="metasync_feature_problem" class="metasync-form-label">
+                            <strong>What problem would this solve?</strong>
+                            <span class="metasync-required-badge">Required for suggestions</span>
+                        </label>
+                        <textarea
+                            id="metasync_feature_problem"
+                            name="feature_problem"
+                            class="metasync-form-textarea"
+                            rows="4"
+                            maxlength="1000"
+                            placeholder="Tell us what you are trying to do and what is difficult today..."
+                        ></textarea>
+                    </div>
+
+                    <div class="metasync-form-group">
+                        <label for="metasync_feature_solution" class="metasync-form-label">
+                            <strong>What would you like MetaSync to do?</strong>
+                            <span class="metasync-required-badge">Required for suggestions</span>
+                        </label>
+                        <textarea
+                            id="metasync_feature_solution"
+                            name="feature_solution"
+                            class="metasync-form-textarea"
+                            rows="4"
+                            maxlength="1000"
+                            placeholder="Describe the improvement or ideal workflow..."
+                        ></textarea>
+                    </div>
+                </div>
+
+                <div class="metasync-form-group">
+                    <label for="metasync_issue_message" class="metasync-form-label">
+                        <strong>Details</strong>
+                        <span id="metasync-details-required-badge" class="metasync-required-badge">Required</span>
+                    </label>
+                    <textarea
+                        id="metasync_issue_message"
+                        name="issue_message"
                         class="metasync-form-textarea"
-                        placeholder="Please describe the issue in detail. Include any error messages, steps to reproduce, or relevant information..."
+                        placeholder="Please describe the issue, question, or additional context..."
                         rows="8"
                         maxlength="1000"
                         required
@@ -163,7 +222,7 @@ $system_info = array(
                     </button>
                 </div>
 
-                <div id="metasync-report-response-message" class="metasync-report-response"></div>
+                <div id="metasync-report-response-message" class="metasync-report-response" aria-live="polite" role="status"></div>
             </form>
         </div>
 

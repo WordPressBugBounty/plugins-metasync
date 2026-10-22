@@ -147,8 +147,7 @@ if (!defined('ABSPATH')) {
 	}
 
 	.metasync-chart-bar-label {
-		min-width: 200px;
-		max-width: 300px;
+		flex: 0 0 300px;
 		font-size: 13px;
 		color: var(--dashboard-text-secondary);
 		overflow: hidden;

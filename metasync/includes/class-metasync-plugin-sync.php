@@ -13,7 +13,7 @@
  *
  * @package    MetaSync
  * @subpackage MetaSync/includes
- * @since      2.8.25
+ * @since      2.6.5
  */
 
 if (!defined('ABSPATH')) {
@@ -797,7 +797,11 @@ class Metasync_Plugin_Sync {
 		// Written unconditionally so clearing the last directive clears the
 		// field. Like the other robots writes it carries no canonical value,
 		// so it does not make this a successful sync.
-		$this->write_post_field($post_id, '_yoast_wpseo_meta-robots-adv', implode(',', $adv));
+		if (!empty($adv)) {
+			$this->write_post_field($post_id, '_yoast_wpseo_meta-robots-adv', implode(',', $adv));
+		} else {
+			$this->write_post_field($post_id, '_yoast_wpseo_meta-robots-adv', '');
+		}
 
 		// OG
 		if (!empty($data['og_title'])) {

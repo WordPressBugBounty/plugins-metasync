@@ -78,73 +78,6 @@ class Metasync_Rest_Api
 		$this->metasync_option_data = Metasync::get_option('general');
 	}
 
-	/**
-	 * Encode non-ASCII characters in a UTF-8 string as numeric HTML entities.
-	 *
-	 * Uses mb_encode_numericentity when the mbstring extension is loaded;
-	 * otherwise walks the UTF-8 byte sequence manually so DOMDocument loading
-	 * still works on hosts without mbstring.
-	 *
-	 * @param string $str UTF-8 input.
-	 * @return string Same string with codepoints >= 0x80 replaced by &#NNN; entities.
-	 */
-	private function encode_numeric_entities($str)
-	{
-		if (function_exists('mb_encode_numericentity')) {
-			return mb_encode_numericentity($str, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-		}
-
-		if ($str === '' || $str === null) {
-			return '';
-		}
-
-		$out = '';
-		$len = strlen($str);
-		$i = 0;
-		while ($i < $len) {
-			$byte = ord($str[$i]);
-
-			if ($byte < 0x80) {
-				$out .= $str[$i];
-				$i++;
-				continue;
-			}
-
-			if (($byte & 0xE0) === 0xC0 && $i + 1 < $len) {
-				$b2 = ord($str[$i + 1]);
-				if (($b2 & 0xC0) === 0x80) {
-					$cp = (($byte & 0x1F) << 6) | ($b2 & 0x3F);
-					$out .= '&#' . $cp . ';';
-					$i += 2;
-					continue;
-				}
-			} elseif (($byte & 0xF0) === 0xE0 && $i + 2 < $len) {
-				$b2 = ord($str[$i + 1]);
-				$b3 = ord($str[$i + 2]);
-				if (($b2 & 0xC0) === 0x80 && ($b3 & 0xC0) === 0x80) {
-					$cp = (($byte & 0x0F) << 12) | (($b2 & 0x3F) << 6) | ($b3 & 0x3F);
-					$out .= '&#' . $cp . ';';
-					$i += 3;
-					continue;
-				}
-			} elseif (($byte & 0xF8) === 0xF0 && $i + 3 < $len) {
-				$b2 = ord($str[$i + 1]);
-				$b3 = ord($str[$i + 2]);
-				$b4 = ord($str[$i + 3]);
-				if (($b2 & 0xC0) === 0x80 && ($b3 & 0xC0) === 0x80 && ($b4 & 0xC0) === 0x80) {
-					$cp = (($byte & 0x07) << 18) | (($b2 & 0x3F) << 12) | (($b3 & 0x3F) << 6) | ($b4 & 0x3F);
-					$out .= '&#' . $cp . ';';
-					$i += 4;
-					continue;
-				}
-			}
-
-			$out .= $str[$i];
-			$i++;
-		}
-
-		return $out;
-	}
 
 	private function filter_post_attributes($posts)
 	{
@@ -546,22 +479,31 @@ class Metasync_Rest_Api
 				array(
 					'methods' => 'GET',
 					'callback' => function () {
-						$getPostID = url_to_postid(sanitize_url(wp_unslash($_GET['url']))); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- REST route authenticated by API key, not cookies
-						
-						if ($getPostID==0) {
-							$response = false;
-						}else{
-							$response = $this->filter_post_attributes([
-							get_post($getPostID)
-						]);
+						$requested_url = isset($_GET['url']) ? sanitize_url(wp_unslash($_GET['url'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- REST route authenticated by API key, not cookies
+						if ($requested_url === '') {
+							return new WP_Error(
+								'rest_invalid_param',
+								esc_html__('The url parameter is required.', 'metasync'),
+								array('status' => 400)
+							);
 						}
-						
-						if ($response == false) {
-							$response = ['post_id' => -1];
-						} else {
-							$response = $response[0];
+						$getPostID = url_to_postid($requested_url);
+						$response = array();
+						if ($getPostID) {
+							$response = $this->filter_post_attributes(array(get_post($getPostID)));
 						}
-						return rest_ensure_response($response);
+
+						if (!$getPostID || empty($response) || empty($response[0])) {
+							# A miss is a real 404, not a 200 with a -1 sentinel:
+							# the platform uses this endpoint to confirm posts are
+							# live, and "success but not found" misreports it.
+							return new WP_Error(
+								'rest_post_not_found',
+								esc_html__('No post found for the given URL.', 'metasync'),
+								array('status' => 404)
+							);
+						}
+						return rest_ensure_response($response[0]);
 					},
 					'permission_callback' => array($this, 'rest_authorization_middleware')
 				),
@@ -696,17 +638,23 @@ class Metasync_Rest_Api
 					'callback' => function ($request) {
 						$getPostID = $request->get_param('ID');
 						if (is_null($getPostID) || !is_numeric($getPostID)) {
-							wp_send_json_error(array('message' => 'ID is missing or invalid'), 400);
+							return new WP_Error('rest_invalid_param', esc_html__('ID is missing or invalid', 'metasync'), array('status' => 400));
 						}
-						$post = get_post($getPostID);
+						$post = get_post((int) $getPostID);
 						if ($post === null) {
-							wp_send_json_error(array('message' => 'Post not found'), 400);
-							
-						}else{
-							wp_send_json_success(array('message' => 'ID is valid'),200);
+							return new WP_Error('rest_post_not_found', esc_html__('Post not found', 'metasync'), array('status' => 404));
 						}
-
-							
+						# Return the real post data — especially post_status, so a
+						# draft or trashed post can never verify as "published".
+						return rest_ensure_response(array(
+							'success' => true,
+							'post_id' => (int) $post->ID,
+							'post_title' => $post->post_title,
+							'post_status' => $post->post_status,
+							'post_type' => $post->post_type,
+							'permalink' => get_permalink($post->ID),
+							'message' => 'ID is valid',
+						));
 						},
 						'permission_callback' => array($this, 'rest_authorization_middleware')
 					),
@@ -896,10 +844,10 @@ class Metasync_Rest_Api
 			'post_content' => $post_content,
 			'post_title' => $post->post_title,
 			'post_status' => $post->post_status,
-			'otto_ai_page' => false,
+			'otto_ai_page' => get_post_meta($post_id, '_metasync_otto_ai_page', true) === 'yes',
 			'comment_status' => $post->comment_status,
-			'permalink' => $post->post_name,
-			'is_landing_page' => false,
+			'permalink' => get_permalink($post_id),
+			'is_landing_page' => class_exists('Metasync_Template') ? get_page_template_slug($post_id) === Metasync_Template::TEMPLATE_NAME : false,
 			'post_categories' => $category_names,
 			'post_id' => $post_id,
 			'post_type' => $post->post_type,
@@ -1098,419 +1046,13 @@ class Metasync_Rest_Api
 		}
 	}
 
-	private function get_post_author_id($post)
-	{
-		$post_author = isset($post['post_author']) ? sanitize_text_field($post['post_author']) : 1;
-		wp_set_current_user($post_author);
-
-		$current_user = 1;
-		if (get_current_user_id()) {
-			return wp_get_current_user()->ID;
-		}
-
-		return $current_user;
-	}
-
-	private function get_random_user_id_by_roles(?array $roles = [])
-	{
-		$users = get_users(array('role__in' => $roles, 'fields' => 'ids'));
-		$post_author = 1;
-		if (!empty($users)) {
-			$key = array_rand($users);
-			$post_author = $users[$key];
-		}
-
-		return $post_author;
-	}
 
 
-	private function htmlToElementorBlock($node) {
-		$result = [];
 
-		if ($node->nodeType === XML_TEXT_NODE) {
-			// Text node
-			return $node->nodeValue;
-		} else{
-			// Element node
-			$result['id'] = uniqid(); // Generate unique ID for the element
-			$result['elType'] = 'widget'; // Assume all elements are widgets					
-			if (in_array(strtolower($node->nodeName), array('h1', 'h2', 'h3', 'h4', 'h5','h6'))) {
-				// Handle heading elements			
-				$result['settings']['title'] = $node->nodeValue;
-				$result['settings']['header_size'] = $node->nodeName;
-
-				# Check if the heading already has an ID
-				$existing_id = $node->getAttribute('id');
-
-				# If the ID exists, assign it as _element_id so Elementor renders it in HTML
-				if (!empty($existing_id)) {
-					$result['settings']['_element_id'] = $existing_id;
-				}
-				if(isset($this->metasync_option_data['enabled_elementor_plugin_css']) && isset($this->metasync_option_data['enabled_elementor_plugin_css_color']) && $this->metasync_option_data['enabled_elementor_plugin_css']!=="default"){
-					$result['settings']['title_color'] = $this->metasync_option_data['enabled_elementor_plugin_css_color']; // Set default title color
-				}
-				$result['settings']['typography_typography'] = 'custom';
-				$result['settings']['typography_font_family'] = 'Roboto';
-				$result['settings']['typography_font_weight'] = '600';
-				$result['widgetType'] = 'heading';
-			}elseif($node->nodeName==='iframe'){  // Correction in the name 
-				$result["settings"]= array('html'=> $node->ownerDocument->saveHTML($node));
-				$result['widgetType'] = 'html';
-			}elseif ($node->nodeName === 'img') {
-				// Handle image elements source, title and alternative text
-				$src_url = $node->getAttribute('src');
-				$alt_text = $node->getAttribute('alt');
-				$title_text = $node->getAttribute('title');
-				// upload the image to wordpress and the id of the image and url
-				$attachment_id = $this->common->upload_image_by_url($src_url,$alt_text,$title_text);
-				$new_src_url = wp_get_attachment_url($attachment_id);
-				// use the new image url to elementor
-				$result['settings']['image']['url'] = $new_src_url;
-				
-				$result['settings']['image']['id'] =$attachment_id; // Generate unique ID for the image
-				$result['settings']['image']['size'] = '';
-				$result['settings']['image']['alt'] = $alt_text; // Set default alt text
-				$result['settings']['image']['source'] = 'library';
-				// check if the title is empty or not
-				if($title_text !== ""){
-					$result['settings']['image']['title'] = $title_text;
-				}				
-				$result['widgetType'] = 'image';
-			} elseif ($node->nodeName === 'p') {
-				// Handle paragraph elements
-				$node->setAttribute('class', 'metasyncPara');
-				$result["settings"]= array('editor'=> $node->ownerDocument->saveHTML($node));
-				$result["elements"]= array(); 
-				$result['widgetType'] = 'text-editor';
-			} elseif($node->nodeName === 'table'|| $node->nodeName === 'ul' || $node->nodeName === 'ol') {
-				if($node->nodeName === 'table'){
-					$node->setAttribute('class', 'metasyncTable');
-				}				
-				$result["settings"]= array('editor'=> $node->ownerDocument->saveHTML($node));
-				$result["elements"]= array();        
-				$result['widgetType'] = 'text-editor';		
-			}elseif ($node->nodeName === 'blockquote') {
-				# Add a class 
-				$node->setAttribute('class', 'metasyncBlockquote');
-				# Set the HTML content inside the Elementor "text-editor" widget
-				$html = $node->ownerDocument->saveHTML($node);
-				# Insert blockquote into editor content
-				$result["settings"] = array('editor' => $html); 
-				# No child widgets or inner elements inside this block
-				$result["elements"] = array();
-				# Specify that this content should use the "text-editor" widget type
-				$result['widgetType'] = 'text-editor';
-			} 
-
-			if(isset($result['widgetType'])){
-				return $result;
-			}
-			
-		}
-	}
-	private function elementorBlockData($content){
-		$dom = new DOMDocument();
-		@$dom->loadHTML($this->encode_numeric_entities($content));
-
-		$outputArray = [];
-		foreach ( $dom->getElementsByTagName('*') as $rootElement) {	
-			if($rootElement->nodeName!=='html' && $rootElement->nodeName!=='body' &&
-			$rootElement->nodeName!=='tbody'&& $rootElement->nodeName!=='tfoot' && $rootElement->nodeName!=='tr' && $rootElement->nodeName!=='th' && $rootElement->nodeName!=='td'){
-			$htmlArray = $this->htmlToElementorBlock($rootElement);
-			# $outputArray[] = $htmlArray;
-			# Only add non-null values to the output array
-			# non-null changed to not-empty
-            if (!empty($htmlArray)) {
-                $outputArray[] = $htmlArray;
-            }
-			}		
-		}
-		return $outputArray;
-	}
-
-	private function gutenbergBlockData($content) {
-		// Validate and sanitize content before parsing
-		if (empty($content) || !is_string($content)) {
-			return [];
-		}
-
-		// Trim and ensure content is valid
-		$content = trim($content);
-		if (empty($content)) {
-			return [];
-		}
-
-		// Clean content: remove any leading/trailing whitespace and ensure it starts with a valid HTML tag
-		// If content starts with an entity or invalid character, wrap it
-		$content = preg_replace('/^[\s\x{200B}-\x{200D}\x{FEFF}]+/u', '', $content);
-		$content = preg_replace('/[\s\x{200B}-\x{200D}\x{FEFF}]+$/u', '', $content);
-
-		// Use modern Dom\HTMLDocument for PHP 8.4+ which natively supports HTML5
-		// Otherwise fall back to DOMDocument with error suppression
-		$dom = null;
-		if (class_exists('Dom\HTMLDocument')) {
-			// PHP 8.4+ with native HTML5 support
-			// Wrap content in HTML structure if it's not already a complete document
-			$wrapped_content = trim($content);
-			$isCompleteDocument = (stripos($wrapped_content, '<!DOCTYPE') === 0) || (stripos($wrapped_content, '<html') === 0);
-			
-			if (!$isCompleteDocument) {
-				// Ensure content is properly formatted before wrapping
-				$wrapped_content = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' . $wrapped_content . '</body></html>';
-			}
-			
-			try {
-				$dom = @Dom\HTMLDocument::createFromString($wrapped_content);
-				if ($dom === null) {
-					throw new Exception('Dom\HTMLDocument::createFromString returned null');
-				}
-			} catch (Throwable $e) {
-				// Fallback to DOMDocument if Dom\HTMLDocument fails
-				if (defined('WP_DEBUG_LOG') && WP_DEBUG_LOG) {
-					error_log('MetaSync: Dom\HTMLDocument error, falling back to DOMDocument: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
-				}
-				$dom = new DOMDocument();
-				libxml_use_internal_errors(true);
-				$encoded_content = $this->encode_numeric_entities($content);
-				@$dom->loadHTML($encoded_content);
-				libxml_clear_errors();
-				libxml_use_internal_errors(false);
-			}
-		} else {
-			// Fallback for older PHP versions
-			$dom = new DOMDocument();
-
-			// Suppress libxml errors for HTML5 tags that aren't recognized in older libxml
-			libxml_use_internal_errors(true);
-
-			// Ensure content is wrapped in a proper HTML structure
-			$htmlContent = $content;
-			if (!preg_match('/^\s*<(!DOCTYPE|html|body)/i', $content)) {
-				$htmlContent = '<!DOCTYPE html><html><body>' . $content . '</body></html>';
-			}
-
-			$dom->loadHTML($this->encode_numeric_entities($htmlContent));
-
-			// Clear any libxml errors and restore error handling
-			libxml_clear_errors();
-			libxml_use_internal_errors(false);
-		}
-
-		$outputArray = [];
-	
-		// Iterate through each element in the HTML
-		foreach ($dom->getElementsByTagName('*') as $rootElement) {
-			// If the element is not one of the specified HTML tags, convert it to a Gutenberg block
-			if (!in_array($rootElement->nodeName, ['html', 'body', 'tr', 'th', 'td'])) {
-				$htmlArray = $this->htmlToGutenbergBlock($rootElement);
-				if(!is_null($htmlArray)){
-					$outputArray[] = $htmlArray;
-				}				
-			}
-		}
-	
-		return $outputArray;
-	}
-	
-	private function htmlToGutenbergBlock($node) {
-		$nodeName = strtolower($node->nodeName);
-	
-		$result = [];
-
-		if ($node->nodeType === XML_TEXT_NODE) {
-			// Text node
-			return $node->nodeValue;
-		} else{
-			if (in_array($nodeName, array('h1', 'h2', 'h3', 'h4', 'h5','h6'))) {
-				$level = intval(substr($nodeName, 1));
-				return [
-					"blockName" => "core/heading",
-					"attrs" => [
-						"level" =>  $level
-					],
-					"innerBlocks" => [],
-					"innerHTML" => $node->ownerDocument->saveHTML($node),
-					"innerContent" => [
-						$node->ownerDocument->saveHTML($node)
-					]
-				];
-			} elseif ($nodeName === 'img') {			
-				$src_url = $node->getAttribute('src');
-				// get alt text from the image tag
-				$alt_text = $node->getAttribute('alt');
-				//get title text from the image tag
-				$title_text = $node->getAttribute('title');
-				// upload the image to wordpress and the id of the image and url
-				$attachment_id = $this->common->upload_image_by_url($src_url,$alt_text,$title_text);
-				// get new source url after upload
-				$new_src_url = wp_get_attachment_url($attachment_id);
-
-				
-				$alt_attr = $node->getAttribute('alt');
-				$node->setAttribute('alt', $alt_attr !== null ? $alt_attr : '');
-				$node->setAttribute('src', $src_url);
-				$node->setAttribute('class', "wp-image-".$attachment_id);
-				//format the inner content for the image tag
-				return [
-					"blockName" => "core/image",
-					"attrs" => [
-						"id" => $attachment_id ,
-						"sizeSlug" => "large",
-						"linkDestination" => "none"
-					],
-					"innerBlocks" => [],
-					"innerHTML" => '' ,
-					"innerContent" => [
-						sprintf('<figure class="wp-block-image size-large"><img src="%s" alt="%s" class="wp-image-%d" /></figure>', 
-						esc_url($new_src_url), 
-						esc_attr($node->getAttribute('alt')), 
-						$attachment_id
-            		),					
-					]
-				];
-			}elseif ($nodeName === 'iframe') {
-				return [
-					"blockName" => "core/html",
-					"attrs" => [],
-					"innerBlocks" => [],
-					"innerHTML" => $node->ownerDocument->saveHTML($node) ,
-					"innerContent" => [
-						$node->ownerDocument->saveHTML($node) 
-					]
-				];
-			}elseif ($nodeName === 'p') {
-				return [
-					"blockName" => "core/paragraph",
-					"attrs" => [],
-					"innerBlocks" => [],
-					"innerHTML" => $node->ownerDocument->saveHTML($node) ,
-					"innerContent" => [
-						$node->ownerDocument->saveHTML($node) 
-					]
-				];
-			} elseif ($nodeName === 'table') {
-				$tableHtml = $node->ownerDocument->saveHTML($node);
-				if($nodeName === 'table'){
-					$node->setAttribute('class', 'metasyncTable-block');
-				}	
-				return [
-					"blockName" => "core/table",
-					"attrs" => [],
-					"innerBlocks" => [],
-					"innerHTML" =>'<figure class="wp-block-table meta-block-tabel">'.$tableHtml.'</figure>',
-					"innerContent" => [
-						'<figure class="wp-block-table meta-block-tabel">'.$tableHtml.'</figure>'
-					]
-				];
-					
-			}elseif($nodeName === 'ol'||$nodeName === 'ul'){
-				//list-item
-				return [
-					"blockName" => "core/list",
-					"attrs" => [
-						'ordered'=> ($nodeName === 'ol'?true:false)
-					],
-					"innerBlocks" => [],
-					"innerHTML" => $node->ownerDocument->saveHTML($node) ,
-					"innerContent" => [
-						$node->ownerDocument->saveHTML($node) 
-					]
-				];
-			}elseif ($nodeName === 'blockquote') {
-				# Add the standard Gutenberg quote class to ensure proper styling
-				$node->setAttribute('class', 'wp-block-quote');
-				# Convert the full blockquote HTML
-				$quote_html = $node->ownerDocument->saveHTML($node);
-				# Return a properly structured Gutenberg "core/quote" block
-				return [
-					"blockName" => "core/quote", 
-					"attrs" => [],
-					"innerBlocks" => [],
-					"innerHTML" => $quote_html,
-					"innerContent" => [
-						$quote_html
-					]
-				];
-			}
-		}
-		
-	}
 
 	
-	private function htmlToDiviBlock($node) {
-		$result = [];
 
-		if ($node->nodeType === XML_TEXT_NODE) {
-			// Text node
-			return $node->nodeValue;
-		} else{
-			// Element node
-			$result['id'] = uniqid(); // Generate unique ID for the element
-			$result['elType'] = 'widget'; // Assume all elements are widgets					
-			if (in_array(strtolower($node->nodeName), array('h1', 'h2', 'h3', 'h4', 'h5','h6'))) {
-
-				# Fetch the existing ID from the heading element (if any)
-				$existing_id = $node->getAttribute('id');
-
-				# If ID exists, prepare it as a valid Divi module attribute; otherwise, leave it out
-				$extra_id_attr = !empty($existing_id) ? ' module_id="' . $existing_id . '"' : '';
-
-				# Handle heading elements embedding the ID only when it's available
-				$result =' [et_pb_heading title="'.$node->nodeValue.'" _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" title_level="'.$node->nodeName.'" hover_enabled="0" sticky_enabled="0"'. $extra_id_attr .'][/et_pb_heading]';
-			} elseif ($node->nodeName === 'img') {
-				// Handle image elements			
-				try{
-					$image_id = attachment_url_to_postid($node->getAttribute('src') );
-					$image_alt = get_post_meta($image_id, '_wp_attachment_image_alt', TRUE);
-					$result ='[et_pb_image src="'.$node->getAttribute('src') .'" url="'.$node->getAttribute('src'). '" _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" hover_enabled="0" global_colors_info="{}" sticky_enabled="0"][/et_pb_image]';
-				
-				}catch(Error $e){
-					$image_id = attachment_url_to_postid($node->getAttribute('src') );
-					$image_alt = get_post_meta($image_id, '_wp_attachment_image_alt', TRUE);
-					$result ='[et_pb_image src="'.$node->getAttribute('src') .'" url="'.$node->getAttribute('src'). '" _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" hover_enabled="0" global_colors_info="{}" sticky_enabled="0"][/et_pb_image]';
-
-					error_log(json_encode($e)); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
-				
-				}
-			}elseif($node->nodeName === 'iframe'){
-				$result= '[et_pb_code _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" global_colors_info="{}"]'.$node->ownerDocument->saveHTML($node).'[/et_pb_code]' ;	
-			}elseif ($node->nodeName === 'p') {
-				// Handle paragraph elements
-				$node->setAttribute('class', 'metasyncPara');
-				$result = '[et_pb_text _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" global_colors_info="{}"]'. $node->ownerDocument->saveHTML($node).'[/et_pb_text]';
-			} elseif ($node->nodeName === 'table'||$node->nodeName === 'ul'  || $node->nodeName === 'ol') {
-				if($node->nodeName === 'table'){
-					$node->setAttribute('class', 'metasyncTable');
-				}
-				$result= '[et_pb_code _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" global_colors_info="{}"]'.$node->ownerDocument->saveHTML($node).'[/et_pb_code]' ;	
-			}elseif ($node->nodeName === 'blockquote') {
-                # Add class 
-                $node->setAttribute('class', 'metasyncQuote');
-                # Convert the <blockquote> node and its contents (including tags like <em>) to HTML
-                $quote_html = $node->ownerDocument->saveHTML($node);
-				# Wrap the blockquote content inside a Divi Text Module since Divi has no native quote module
-                $result = '[et_pb_text _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" global_colors_info="{}"]'.$quote_html.'[/et_pb_text]';
-            }				
-			return $result;		
-		}
-	}
-	private function diviBlockData($content){
-		$dom = new DOMDocument();
-		@$dom->loadHTML($this->encode_numeric_entities($content));
-
-		$outputArray = '[et_pb_section fb_built="1" _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" global_colors_info="{}"][et_pb_row _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" global_colors_info="{}"][et_pb_column type="4_4" _builder_version="'.ET_BUILDER_VERSION.'" _module_preset="default" global_colors_info="{}"]';
-		foreach ( $dom->getElementsByTagName('*') as $rootElement) {	
-			if($rootElement->nodeName!=='html' && $rootElement->nodeName!=='body' &&
-			$rootElement->nodeName!=='tbody'&& $rootElement->nodeName!=='tfoot' && $rootElement->nodeName!=='tr' && $rootElement->nodeName!=='th' && $rootElement->nodeName!=='td'){
-			$htmlArray = $this->htmlToDiviBlock($rootElement);
-			if(gettype($htmlArray)!=='array'){
-				$outputArray .= $htmlArray;
-			}
-			}		
-		}
-		$outputArray .='[/et_pb_column][/et_pb_row][/et_pb_section]';
-		return $outputArray;
-	}
+	
 	/*
 		Added $landing_page_option variable and set default value false to check 
 		if metasync_upload_post_content is called for set_landing_page by following function that are below
@@ -1796,7 +1338,10 @@ class Metasync_Rest_Api
 			array(
 				'post_type'      => $post_type,
 				'title'          => $title,
-				'post_status'    => array('publish', 'draft', 'pending'),
+				# Retry dedupe must see every status a normalized create can
+				# produce — a private/future plugin post is still the same
+				# article a platform retry is trying to update.
+				'post_status'    => array('publish', 'draft', 'pending', 'private', 'future'),
 				'meta_key'       => 'metasync_post',
 				'meta_value'     => 'yes',
 				'posts_per_page' => 2,
@@ -1835,6 +1380,59 @@ class Metasync_Rest_Api
 		}
 
 		return $post_args;
+	}
+
+	/**
+	 * Normalize a requested post status to a WordPress-supported one.
+	 *
+	 * The platform can send "published" (past tense), which WordPress does not
+	 * register. Storing it verbatim leaves the post in a state the frontend
+	 * cannot serve (the URL 404s) while the API still reports it as published.
+	 * Map the known alias and return null for anything unknown so the caller
+	 * can report a real error instead of a phantom publish.
+	 *
+	 * @param string $status Requested status (already sanitized).
+	 * @return string|null Supported status, or null when unknown.
+	 */
+	private function normalize_post_status($status)
+	{
+		$status = strtolower(trim((string) $status));
+		if ($status === 'published') {
+			$status = 'publish';
+		}
+		$supported = array('publish', 'draft', 'pending', 'private', 'future');
+		return in_array($status, $supported, true) ? $status : null;
+	}
+
+	/**
+	 * Purge page and edge caches for a URL after a publish-path write.
+	 *
+	 * A freshly published URL is often still cached as a 404 or a stale body,
+	 * and the platform verifies the live page right after publishing, so the
+	 * first fetch must be fresh. Purge failures must never fail the publish
+	 * itself.
+	 *
+	 * @param string|false $permalink Live URL of the written post.
+	 */
+	private function purge_after_publish($permalink)
+	{
+		if (empty($permalink)) {
+			return;
+		}
+		try {
+			if (class_exists('Metasync_Cache_Purge')) {
+				Metasync_Cache_Purge::purge_single_url($permalink);
+			}
+		} catch (Throwable $e) {
+			error_log('MetaSync cache purge failed after publish: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
+		}
+		try {
+			if (class_exists('Metasync_Edge_Cache_Purge')) {
+				Metasync_Edge_Cache_Purge::purge(array($permalink));
+			}
+		} catch (Throwable $e) {
+			error_log('MetaSync edge cache purge failed after publish: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
+		}
 	}
 
 	public function create_item($request)
@@ -1928,13 +1526,28 @@ class Metasync_Rest_Api
 				$content = $this->metasync_upload_post_content($item,true,true);
 			}
 
+			# Validate the status up front: an unregistered status (e.g. the
+			# platform's "published") would be stored verbatim and the post
+			# would 404 on the frontend while this API reports success.
+			# An explicitly empty status means the same as an absent one.
+			$post_status_requested = !empty($item['post_status']) ? sanitize_text_field($item['post_status']) : 'publish';
+			$post_status_normalized = $this->normalize_post_status($post_status_requested);
+			if ($post_status_normalized === null) {
+				$respCreatePosts[$index] = array(
+					'error' => 'rest_post_invalid_status',
+					'message' => sprintf('Unsupported post_status "%s". Supported: publish, draft, pending, private, future.', $post_status_requested),
+					'post_title' => isset($item['post_title']) ? sanitize_text_field($item['post_title']) : '',
+				);
+				continue;
+			}
+
 			$new_post = array(
 				'post_author' => $post_author,
 				'post_title' => sanitize_text_field($item['post_title']),
-				'post_content' => $content['content'] ?  $content['content'] : $item['post_content'],
+				'post_content' => ($content['content'] ?? '') ?  $content['content'] : ($item['post_content'] ?? ''),
 				'post_excerpt' => isset($item['meta_description']) ? sanitize_text_field($item['meta_description']) : '',
 				'post_type' => isset($item['post_type']) ? sanitize_text_field($item['post_type']) : 'post',
-				'post_status' => isset($item['post_status']) ? sanitize_text_field($item['post_status']) : 'publish',
+				'post_status' => $post_status_normalized,
 				'comment_status' => isset($item['comment_status']) ? sanitize_text_field($item['comment_status']) : 'open',
 				'post_parent' =>  isset($item['post_parent']) ?$item['post_parent'] : 0
 			);
@@ -1945,48 +1558,60 @@ class Metasync_Rest_Api
 
 			// adding custom permalink
 			if (isset($item['permalink']) && !empty($item['permalink'])) {
-				$new_post['post_name'] = sanitize_text_field($item['permalink']);
+				$new_post['post_name'] = sanitize_title($item['permalink']);
 			}
 
 			if (isset($item['post_date']) && !empty($item['post_date'])) {
-				$is_valid_date = gmdate('Y-m-d', strtotime($item['post_date'])) === $item['post_date'];
-				if (!$is_valid_date) {
-					return new WP_Error(
-						'rest_post_invalid_date',
-						esc_html__('Post date is not valid', 'metasync'),
-						array('status' => 400)
+				$raw_date = is_string($item['post_date']) ? $item['post_date'] : '';
+				# Keep the accepted formats tight (Y-m-d, optionally with a
+				# time part): strtotime alone would silently reinterpret
+				# ambiguous strings like 03/04/2026.
+				$is_valid_date = (bool) preg_match('/^\d{4}-\d{2}-\d{2}($|[T ]\d{2}:\d{2}(:\d{2})?)/', $raw_date);
+				$post_date_ts = $is_valid_date ? strtotime($raw_date) : false;
+				if ($post_date_ts === false) {
+					$respCreatePosts[$index] = array(
+						'error' => 'rest_post_invalid_date',
+						'message' => 'Post date is not valid',
+						'post_id' => null,
+						'post_title' => $new_post['post_title'],
 					);
+					continue;
 				}
 
-				// $date_limit_str = strtotime(date('Y-m-d') . '-2 month');
-				// $post_date_str = strtotime($item['post_date']);
-				// if ($date_limit_str >= $post_date_str) {
-				// 	$newDate = date('Y-m-d', strtotime('-2 month'));
-				// 	return new WP_Error(
-				// 		'rest_post_greater_date',
-				// 		esc_html__("Post date should be greater then " . $newDate),
-				// 		array('status' => 400)
-				// 	);
-				// }
-
-				// if ($post_date_str > strtotime(date('Y-m-d'))) {
-				// 	return new WP_Error(
-				// 		'rest_post_less_date',
-				// 		esc_html__("Post date should be less then Today"),
-				// 		array('status' => 400)
-				// 	);
-				// }
-
-				// $new_post['post_date'] = sanitize_text_field($item['post_date'] . date(' h:i:s'));
+				// Apply the requested date. Previously the date was validated
+				// and then silently discarded, so every backdated or scheduled
+				// publish ended up stamped "today". WordPress expects
+				// post_date in site-local time and post_date_gmt in UTC.
+				$post_date_local = new DateTime('@' . $post_date_ts);
+				$post_date_local->setTimezone(wp_timezone());
+				$new_post['post_date'] = $post_date_local->format('Y-m-d H:i:s');
+				$new_post['post_date_gmt'] = gmdate('Y-m-d H:i:s', $post_date_ts);
 			}
 
 			// Adding condition to check if the post is already exist
-			$post_status_new = isset($item['post_status']) ? sanitize_text_field($item['post_status']) : 'publish';
-			$post_permalink = $item['permalink'] = isset($item['permalink']) ? $item['permalink'] : sanitize_title($new_post['post_title']);
+			$item['permalink'] = isset($item['permalink']) ? sanitize_title($item['permalink']) : sanitize_title($new_post['post_title']);
 
 			# $getPostID_byURL = @get_page_by_path($item['permalink'], OBJECT, $new_post['post_type'])->ID;
 			# Fix to avoid PHP error if the get_page_by_path returns null
 			$getPostID_byURL = @get_page_by_path($item['permalink'], OBJECT, $new_post['post_type']);
+			# An explicit Content Genius type switch can target the same
+			# plugin-owned slug while changing Page <-> Post. Look across both
+			# supported built-in types before deciding to create a duplicate.
+			if (!$getPostID_byURL && in_array($new_post['post_type'], array('post', 'page'), true)) {
+				$getPostID_byURL = @get_page_by_path($item['permalink'], OBJECT, array('post', 'page'));
+			}
+			$matched_by_path = false;
+			if ($getPostID_byURL) {
+				# A slug match is only ours to update when the plugin created the
+				# post. A customer's own post on the same slug must never be
+				# overwritten — drop the match and let WordPress uniquify a fresh
+				# slug below instead.
+				if (get_post_meta($getPostID_byURL->ID, 'metasync_post', true) !== 'yes') {
+					$getPostID_byURL = null;
+				} else {
+					$matched_by_path = true;
+				}
+			}
 			$getPostID_byURL = $getPostID_byURL ? $getPostID_byURL->ID : null;
 			$matched_by_title = false;
 			if ($getPostID_byURL == NULL) {
@@ -1997,8 +1622,12 @@ class Metasync_Rest_Api
 				}
 			}
 
-			// Allow HTML code for landing page
-			if (isset($item['is_landing_page']) && $item['is_landing_page'] == true) {
+			// Allow HTML code for landing page — scoped to THIS item's write.
+			# kses_remove_filters() is request-global: without the matching
+			# restore below, one landing-page item would disable content
+			# filtering for every later item in the same batch.
+			$is_landing_page_item = isset($item['is_landing_page']) && $item['is_landing_page'] == true;
+			if ($is_landing_page_item) {
 				kses_remove_filters();
 			}
 
@@ -2011,33 +1640,110 @@ class Metasync_Rest_Api
 			}
 
 			if ($getPostID_byURL === NULL) {
-				$post_id = wp_insert_post($new_post);
-				$permalink = get_permalink($post_id);
-				
-				# If the post was successfully created (no WP error)
-				if (!is_wp_error($post_id)) {
+				$post_id = wp_insert_post($new_post, true);
 
-					# Add a custom meta field
-					update_post_meta($post_id, 'metasync_post', 'yes');
+				# A failed insert must never be reported as a publish. Before
+				# this check, a 0/WP_Error fell through and the response carried
+				# a phantom post_id/permalink with HTTP 200.
+				if (is_wp_error($post_id)) {
+					$respCreatePosts[$index] = array(
+						'error' => 'rest_post_create_fail',
+						# Generic message to the client; the raw detail (which
+						# can include database error text) goes to the log only.
+						'message' => 'The post could not be created.',
+						'post_id' => null,
+						'post_title' => $new_post['post_title'],
+					);
+					metasync_log_sync_history(array(
+						'title' => 'Post Create Failed (' . mb_substr($new_post['post_title'], 0, 30) . ')',
+						'source' => 'Content Genius',
+						'status' => 'failed',
+						'content_type' => ucfirst($new_post['post_type']),
+						'url' => '',
+						'meta_data' => wp_json_encode(array(
+							'post_title' => $new_post['post_title'],
+							'post_type' => $new_post['post_type'],
+							'action' => 'create',
+							'error' => $post_id->get_error_message(),
+						)),
+					));
+					if ($is_landing_page_item) {
+						kses_init_filters();
+					}
+					continue;
 				}
 
+				# Add a custom meta field
+				update_post_meta($post_id, 'metasync_post', 'yes');
+				if ($isOttoAiPage) {
+					update_post_meta($post_id, '_metasync_otto_ai_page', 'yes');
+				}
+
+				# Report what was actually saved, not what was requested.
+				$new_post['post_status'] = get_post_status($post_id);
+				$permalink = get_permalink($post_id);
+
+				# When WordPress uniquified the requested slug (another post
+				# owns it), tell the platform the live URL differs from the one
+				# it asked for.
+				if (strcasecmp((string) get_post_field('post_name', $post_id), (string) $item['permalink']) !== 0) {
+					$new_post['slug_adjusted'] = true;
+				}
 			} else {
 				$post_id = $getPostID_byURL;
 				$update_post = $new_post;
 				$update_post['ID'] = $post_id;
+				# A title match is a guess about identity: never take a live
+				# post offline or move its URL. A path match identified OUR OWN
+				# post by its exact slug, so the platform may legitimately
+				# correct its status or URL there.
 				if ($matched_by_title) {
 					$update_post = $this->protect_title_matched_post($update_post, get_post_status($post_id));
 				}
-				wp_update_post($update_post);
+				$updated = wp_update_post($update_post, true);
+				if (is_wp_error($updated)) {
+					$respCreatePosts[$index] = array(
+						'error' => 'rest_post_update_fail',
+						'message' => 'The post could not be updated.',
+						'post_id' => (int) $post_id,
+						'post_title' => $new_post['post_title'],
+					);
+					metasync_log_sync_history(array(
+						'title' => 'Post Update Failed (' . mb_substr($new_post['post_title'], 0, 30) . ')',
+						'source' => 'Content Genius',
+						'status' => 'failed',
+						'content_type' => ucfirst($new_post['post_type']),
+						'url' => '',
+						'meta_data' => wp_json_encode(array(
+							'post_id' => (int) $post_id,
+							'post_title' => $new_post['post_title'],
+							'action' => 'update',
+							'error' => $updated->get_error_message(),
+						)),
+					));
+					if ($is_landing_page_item) {
+						kses_init_filters();
+					}
+					continue;
+				}
 				// Report what was actually saved, not what was requested.
 				$new_post['post_status'] = get_post_status($post_id);
 				$permalink = get_permalink($post_id);
+
+				# Same honesty as the insert path: if WP had to uniquify the
+				# requested slug, or protection kept the old slug on a live
+				# post, flag that the live URL differs from the request.
+				if (!empty($item['permalink']) && strcasecmp((string) get_post_field('post_name', $post_id), (string) $item['permalink']) !== 0) {
+					$new_post['slug_adjusted'] = true;
+				}
 			}
 
-			if (isset($item['is_landing_page']) && $item['is_landing_page'] == true) {
-				kses_remove_filters();
+			# Restore kses filtering as soon as this item's write is done so
+			# later items in the same batch are filtered normally.
+			if ($is_landing_page_item) {
+				kses_init_filters();
 			}
-			
+
 			$post_meta = array();
 			if(isset($content['elementor_meta_data'])){
 				$post_meta = array_merge($post_meta,$content['elementor_meta_data']);
@@ -2138,6 +1844,10 @@ class Metasync_Rest_Api
 			unset($new_post['post_name']);
 			$new_post['post_id'] = $post_id;
 			$new_post['permalink'] = $permalink;
+
+			# Serve the fresh URL to the platform's verifier: purge the page
+			# and edge caches so a cached 404/stale body cannot fail it.
+			$this->purge_after_publish($permalink);
 			$new_post['hero_image_url'] = wp_get_attachment_url($attachment_id);
 			$new_post['hero_image_alt_text'] = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
 
@@ -2191,6 +1901,23 @@ class Metasync_Rest_Api
 			ksort($respCreatePosts[$index]);
 		}
 
+		# A batch where EVERY item failed must not answer 200: clients that
+		# only check the status code would read it as "published".
+		$successful_items = 0;
+		foreach ($respCreatePosts as $resp_item) {
+			if (!isset($resp_item['error'])) {
+				$successful_items++;
+			}
+		}
+		if (!empty($respCreatePosts) && $successful_items === 0) {
+			$first_error = reset($respCreatePosts);
+			return new WP_Error(
+				isset($first_error['error']) ? $first_error['error'] : 'rest_post_create_fail',
+				isset($first_error['message']) ? $first_error['message'] : 'No post could be created.',
+				array('status' => 400)
+			);
+		}
+
 		if ($array_response == false)
 			return rest_ensure_response($respCreatePosts);
 		return $respCreatePosts;
@@ -2219,7 +1946,17 @@ class Metasync_Rest_Api
 			return $createPages;
 		}
 
-		$post_id = $createPages[0]['post_id'];
+		$post_id = $createPages[0]['post_id'] ?? null;
+		# create_item can now return an error entry instead of a post — never
+		# write a null/garbage ID into the homepage option.
+		if (!is_numeric($post_id) || (int) $post_id <= 0) {
+			return new WP_Error(
+				'rest_landing_page_create_fail',
+				esc_html__('The landing page could not be created.', 'metasync'),
+				array('status' => 500)
+			);
+		}
+		$post_id = (int) $post_id;
 		update_option('page_on_front', $post_id);
 		update_option('show_on_front', 'page');	
 
@@ -2228,28 +1965,88 @@ class Metasync_Rest_Api
 		return rest_ensure_response($createPages);
 	}
 
-	public function delete_item()
+	public function delete_item($request = null)
 	{
 		$get_data = metasync_sanitize_input_array($_GET); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- REST route authenticated by API key, not cookies
-		if (!isset($get_data['ID']))
-			return false;
+		$post_id = isset($get_data['ID']) ? sanitize_text_field($get_data['ID']) : null;
 
-		$post_id = sanitize_text_field($get_data['ID']) ?? null;
-		$post = get_post($post_id);
-		if ($post) {
-			wp_delete_post($post_id);
-			// HTTP 204 requires no body for response, so no message is set.
+		# REST clients naturally send the ID in the JSON body; honour both
+		# the legacy query param and the body (previously a body-only call
+		# silently did nothing and still returned 200).
+		if (empty($post_id) && $request instanceof \WP_REST_Request) {
+			$body_id = $request->get_param('ID');
+			if (!empty($body_id)) {
+				$post_id = sanitize_text_field($body_id);
+			}
+		}
+
+		if (empty($post_id)) {
 			return new WP_Error(
-				'rest_post_delete_success',
-				'',
-				array('status' => 204)
+				'rest_post_delete_missing_id',
+				esc_html__('The ID parameter is required.', 'metasync'),
+				array('status' => 400)
 			);
 		}
-		return new WP_Error(
-			'rest_post_delete_fail',
-			esc_html__('No post found in the database with requested ID.', 'metasync'),
-			array('status' => 400)
-		);
+
+		if (!is_numeric($post_id)) {
+			return new WP_Error(
+				'rest_post_delete_invalid_id',
+				esc_html__('The ID parameter must be numeric.', 'metasync'),
+				array('status' => 400)
+			);
+		}
+
+		$post = get_post((int) $post_id);
+		if (!$post) {
+			return new WP_Error(
+				'rest_post_delete_not_found',
+				esc_html__('No post found in the database with requested ID.', 'metasync'),
+				array('status' => 404)
+			);
+		}
+
+		# The sync API only manages plugin-created content: keep the blast
+		# radius of a leaked key to plugin-synced posts.
+		if (get_post_meta($post->ID, 'metasync_post', true) !== 'yes') {
+			return new WP_Error(
+				'rest_post_delete_forbidden',
+				esc_html__('This post was not created through the plugin and cannot be deleted via the sync API.', 'metasync'),
+				array('status' => 403)
+			);
+		}
+
+		$permalink = get_permalink($post->ID);
+		$post_title = $post->post_title;
+
+		$deleted = wp_delete_post($post->ID);
+		if (!$deleted) {
+			return new WP_Error(
+				'rest_post_delete_fail',
+				esc_html__('The post could not be deleted.', 'metasync'),
+				array('status' => 500)
+			);
+		}
+
+		# Deleted URLs must stop being served from cache, and deletes belong in
+		# the sync history like creates and updates do.
+		$this->purge_after_publish($permalink);
+		metasync_log_sync_history(array(
+			'title' => 'Post Deleted (' . mb_substr($post_title, 0, 30) . ')',
+			'source' => 'Content Genius',
+			'status' => 'deleted',
+			'content_type' => ucfirst($post->post_type),
+			'url' => $permalink ?: '',
+			'meta_data' => wp_json_encode(array(
+				'post_id' => (int) $post->ID,
+				'post_title' => $post_title,
+				'post_type' => $post->post_type,
+				'action' => 'deleted',
+			)),
+		));
+
+		// A true 204 with no body: success was previously modelled as an
+		// empty WP_Error envelope, which serialises as an error object.
+		return new WP_REST_Response(null, 204);
 	}
 
 	public function get_items($request)
@@ -2341,17 +2138,6 @@ class Metasync_Rest_Api
 		);
 
 		foreach ($data_array as $id => $item) {
-			// array_push($response['blocks'], 
-				// array(
-				// 	"key" => "$id",
-				// "text" => $item['value'],
-				// 	"type" => "unstyled",
-				// 	"depth" => 0,
-				// 	"inlineStyleRanges" => [],
-				// 	"entityRanges" => [],
-				// 	"data" => []
-				// )
-			// );
 			$this->convertFromHTMLToContentBlocks($id, $item['value'], $response['blocks']);
 		}
 		return $response;
@@ -2514,7 +2300,7 @@ class Metasync_Rest_Api
 		}
 		// Update Post and Page content
 		
-		$tryUpdatePost = wp_update_post($post_params);
+		$tryUpdatePost = wp_update_post($post_params, true);
 		// Update Elementor post content
 		// $this->elementor_update_content($object_id, $post_params['post_content']);
 		// Update Post and Page meta data
@@ -2523,7 +2309,7 @@ class Metasync_Rest_Api
 			'post_meta' => array()
 		);
 
-		if ($tryUpdatePost !== 0 && $tryUpdatePost !== false)
+		if (!is_wp_error($tryUpdatePost))
 			$resp_meta['post_content'] = true;
 
 		foreach ($update_params as $key => $value) {
@@ -2583,22 +2369,75 @@ class Metasync_Rest_Api
 					}
 				}
 			}
-			if(!$array_response){				
-				$post_data = get_post($post['post_id']);						
-				if ($post_data->post_type !== $post['post_type']) {	
-					if ($post_data) {					
-						$post_data->post_type = 'post';
-						wp_update_post($post_data);
-					}						
-				}
-			}
 			$post_data = get_post($post_id);
 			if (!$post_data) {
-				return new WP_Error(
-					'rest_post_update_fail',
-					esc_html__('No post found in the database with requested ID.', 'metasync'),
-					array('status' => 400)
+				# Per-item error so one unresolvable item cannot abort the whole
+				# batch after earlier items were already mutated.
+				$data[] = array(
+					'error' => 'rest_post_update_fail',
+					'message' => 'No post found in the database with the requested ID or URL.',
+					'post_id' => $post_id > 0 ? (int) $post_id : null,
+					'post_title' => isset($post['post_title']) ? sanitize_text_field($post['post_title']) : '',
 				);
+				continue;
+			}
+
+			# This namespace exists for platform-synced content only: a post
+			# the plugin did not create must never be mutated through it, even
+			# when addressed by exact ID or URL.
+			if (get_post_meta($post_id, 'metasync_post', true) !== 'yes') {
+				$data[] = array(
+					'error' => 'rest_post_not_managed',
+					'message' => 'This post was not created through the plugin and cannot be updated via the sync API.',
+					'post_id' => (int) $post_id,
+				);
+				continue;
+			}
+
+			# An explicit Content Genius post_type selection is allowed to
+			# convert a plugin-owned Page to Post (or Post to Page). An omitted
+			# type must never trigger the old accidental coercion.
+			if (isset($post['post_type']) && !empty($post['post_type'])) {
+				$requested_post_type = sanitize_text_field($post['post_type']);
+				if (!in_array($requested_post_type, array('post', 'page'), true)) {
+					$data[] = array(
+						'error' => 'rest_post_invalid_type',
+						'message' => 'Only post and page post types are supported by the sync API.',
+						'post_id' => (int) $post_id,
+					);
+					continue;
+				}
+				if ($post_data->post_type !== $requested_post_type) {
+					$type_update = wp_update_post(array(
+						'ID' => (int) $post_id,
+						'post_type' => $requested_post_type,
+				), true);
+					if (is_wp_error($type_update)) {
+						$data[] = array(
+							'error' => 'rest_post_type_update_fail',
+							'message' => 'The post type could not be changed.',
+							'post_id' => (int) $post_id,
+						);
+						continue;
+					}
+					$post_data = get_post($post_id);
+				}
+			}
+
+			# Validate the status before any remaining mutation: an invalid status
+			# must not leave the post half-updated when the item is rejected.
+			$normalized_status = null;
+			if (isset($post['post_status']) && !empty($post['post_status'])) {
+				$post_status_requested = sanitize_text_field($post['post_status']);
+				$normalized_status = $this->normalize_post_status($post_status_requested);
+				if ($normalized_status === null) {
+					$data[] = array(
+						'error' => 'rest_post_invalid_status',
+						'message' => sprintf('Unsupported post_status "%s". Supported: publish, draft, pending, private, future.', $post_status_requested),
+						'post_id' => (int) $post_id,
+					);
+					continue;
+				}
 			}
 
 			$post_author = isset($post['post_author']) && !empty($post['post_author']) ?
@@ -2613,12 +2452,12 @@ class Metasync_Rest_Api
 				$update_params['post_parent'] = (int) $post['post_parent'];
 			}
 			if (isset($post['meta_description']) && !empty($post['meta_description'])) {
-				$get_desc_meta = get_post_meta($post['post_id'], 'meta_description', true);
+				$get_desc_meta = get_post_meta($post_id, 'meta_description', true);
 				$update_params['meta_description'] = $post['meta_description'] ?
 					sanitize_text_field($post['meta_description']) : $get_desc_meta;
 			}
 			if (isset($post['meta_robots']) && !empty($post['meta_robots'])) {
-				$get_robots_meta = get_post_meta($post['post_id'], 'meta_robots', true);
+				$get_robots_meta = get_post_meta($post_id, 'meta_robots', true);
 				$update_params['meta_robots'] = $post['meta_robots'] ?
 					sanitize_text_field($post['meta_robots']) : $get_robots_meta;
 			}
@@ -2636,8 +2475,8 @@ class Metasync_Rest_Api
 			$permalink = '';
 			if (isset($post['post_content']) && !empty($post['post_content']) && !$isOttoAiPage) {
 
-				# Above we are updating the post_type so we have to get latest value that has been change on the server
-				$post_fresh_data = get_post($post['post_id']);
+				# Above we are updating the post so we have to get latest value that could have changed on the server
+				$post_fresh_data = get_post($post_id);
 
 				/**
 				 * Check if current theme is Flatsome using SAVED theme info (not wp_get_theme())
@@ -2717,11 +2556,11 @@ class Metasync_Rest_Api
 
 			}
 
-			if (isset($post['post_status']) && !empty($post['post_status'])) {
-				$update_params['post_status'] = $post['post_status'] ? sanitize_text_field($post['post_status']) : 'publish';
+			if ($normalized_status !== null) {
+				$update_params['post_status'] = $normalized_status;
 			}
-			if (isset($post['permalink']) || !empty($post['permalink'])) {
-				$update_params['post_name'] = sanitize_text_field($post['permalink']);
+			if (!empty($post['permalink'])) {
+				$update_params['post_name'] = sanitize_title($post['permalink']);
 			}
 			if (isset($post['post_parent']) ) {				
 				$update_params['post_parent'] = isset($post['post_parent']) ? sanitize_text_field($post['post_parent']) : 0;
@@ -2825,13 +2664,17 @@ class Metasync_Rest_Api
 			$update_params['post_updated'] = $resp_update;
 
 			
-			// check if the content is added or not 
-			if(empty($post['is_landing_page']) ){
-				 
+			// check if the content is added or not
+			# Only save content when this request actually carried some. A
+			# content-less update (title/meta/status only) used to write null
+			# here and wipe the stored post while reporting success.
+			$post_content_payload = isset($post['post_content']) && !empty($post['post_content']) ? $post['post_content'] : null;
+			if (empty($post['is_landing_page']) && (!empty($content['content']) || null !== $post_content_payload)) {
+
 				# update the content
 				$postContent = array(
 					'ID' =>  $post_id,
-					'post_content' => ($content['content'] ?  $content['content'] : $post['post_content']),
+					'post_content' => (($content['content'] ?? '') ?  $content['content'] : $post_content_payload),
 				);
 				 wp_update_post($postContent );
 				 #rename the variable to avoide confusion
@@ -2852,11 +2695,18 @@ class Metasync_Rest_Api
 
 				}
             }
+			# Serve the fresh URL to the platform's verifier: purge the page
+			# and edge caches so a cached stale body cannot fail it.
+			$this->purge_after_publish($permalink);
+
 			# Log sync history for Content Genius post update
 			if ($post_id > 0 && !empty($update_params)) {
 				$post_title = $update_params['post_title'] ?? $post_data->post_title ?? 'Untitled';
 				$title_preview = mb_strlen($post_title) > 30 ? mb_substr($post_title, 0, 30) . '...' : $post_title;
-				$post_status = $update_params['post_status'] ?? $post_data->post_status ?? 'draft';
+				# Log the saved state, not the requested one: an update that
+				# failed mid-way or was normalized must not be audited as
+				# "published".
+				$post_status = get_post_field('post_status', $post_id) ?: 'unknown';
 				$post_type = $post_data->post_type ?? 'post';
 
 				# Use appropriate title based on post type
@@ -2868,7 +2718,7 @@ class Metasync_Rest_Api
 					'source' => 'Content Genius',
 					'status' => $sync_status,
 					'content_type' => ucfirst($post_type),
-					'url' => $permalink ?? get_permalink($post_id),
+					'url' => $permalink ?: get_permalink($post_id),
 					'meta_data' => json_encode([
 						'post_id' => $post_id,
 						'post_title' => $post_title,
@@ -2901,6 +2751,22 @@ class Metasync_Rest_Api
 
 			ksort($update_params);
 			$data[] = $update_params;
+		}
+
+		# A batch where EVERY item failed must not answer 200.
+		$successful_updates = 0;
+		foreach ($data as $data_item) {
+			if (!isset($data_item['error'])) {
+				$successful_updates++;
+			}
+		}
+		if (!empty($data) && $successful_updates === 0) {
+			$first_error = reset($data);
+			return new WP_Error(
+				isset($first_error['error']) ? $first_error['error'] : 'rest_post_update_fail',
+				isset($first_error['message']) ? $first_error['message'] : 'No post could be updated.',
+				array('status' => 400)
+			);
 		}
 
 		return rest_ensure_response($data);
@@ -2954,7 +2820,11 @@ class Metasync_Rest_Api
 			$createPages = $createPages->data;
 		}
 		foreach ($createPages as $item) {
-			array_push($post_ids, $item['post_id']);
+			# Skip per-item error entries — they carry no post to template.
+			if (!isset($item['post_id']) || !is_numeric($item['post_id']) || (int) $item['post_id'] <= 0) {
+				continue;
+			}
+			array_push($post_ids, (int) $item['post_id']);
 		}
 
 		$payloadIndex = 0;
@@ -3022,14 +2892,16 @@ class Metasync_Rest_Api
 				array('status' => 400)
 			);
 		}
-		if ($post_data->post_type !== 'page') {				
-			// Verify if the post exists
-			if ($post_data) {
+		if ($post_data->post_type !== 'page') {
+			// Only convert posts the plugin owns — the sync API must not
+			// change the type of customer-created content (which the update
+			// path below would then refuse to touch anyway).
+			if (get_post_meta($post_data->ID, 'metasync_post', true) === 'yes') {
 				// Update the post type
-				$post_data->post_type = 'page';		
+				$post_data->post_type = 'page';
 				// Save the changes
 				wp_update_post($post_data);
-			}				
+			}
 		}
 
 		$updatePages = $this->update_items($payload); // updating page
@@ -3040,7 +2912,11 @@ class Metasync_Rest_Api
 
 		$post_ids = array();
 		foreach ($updatePages->data as $item) {
-			array_push($post_ids, $item['post_id']);
+			# Skip per-item error entries — they carry no post to template.
+			if (!isset($item['post_id']) || !is_numeric($item['post_id']) || (int) $item['post_id'] <= 0) {
+				continue;
+			}
+			array_push($post_ids, (int) $item['post_id']);
 		}
 
 		$payloadIndex = 0;
@@ -3294,10 +3170,11 @@ class Metasync_Rest_Api
 		}
 	}
 
-	public function delete_page()
+	public function delete_page($request = null)
 	{
-		$deletePage = $this->delete_item(); // deleting page
-		return rest_ensure_response($deletePage);
+		# delete_item() already returns a full REST response (204/400/404/500);
+		# wrapping it in rest_ensure_response again mangles WP_Error envelopes.
+		return $this->delete_item($request); // deleting page
 	}
 
 	/**
@@ -3666,134 +3543,16 @@ class Metasync_Rest_Api
     /**
      * Check if token is an enhanced SALT-based token
      */
-    private function is_enhanced_token($token)
-    {
-        // Enhanced tokens are exactly 64 characters (SHA256 hash)
-        // and include SALT-based entropy
-        if (strlen($token) !== 64 || !ctype_xdigit($token)) {
-            return false;
-        }
-        
-        // Check if token data indicates enhanced version
-        $nonce_data = get_option('metasync_sa_connect_nonce_' . $token);
-        if ($nonce_data) {
-            $data = json_decode($nonce_data, true);
-            return isset($data['enhanced']) && $data['enhanced'] === true;
-        }
-        
-        return false;
-    }
 
     /**
      * Validate enhanced SALT-based Search Atlas connect token
      */
-    private function validate_enhanced_searchatlas_token($token)
-    {
-        $nonce_data = get_option('metasync_sa_connect_nonce_' . $token);
-        
-        if (!$nonce_data) {
-            return false;
-        }
-
-        $nonce_data = json_decode($nonce_data, true);
-        
-        if (!is_array($nonce_data)) {
-            return false;
-        }
-
-        // Check if token has expired
-        if (isset($nonce_data['expires']) && $nonce_data['expires'] < time()) {
-            delete_option('metasync_sa_connect_nonce_' . $token);
-            return false;
-        }
-
-        // Check if token has already been used
-        if (isset($nonce_data['used']) && $nonce_data['used']) {
-            return false;
-        }
-
-        // Additional validation for enhanced tokens
-        if (isset($nonce_data['enhanced']) && $nonce_data['enhanced']) {
-            // Perform additional security checks for enhanced tokens
-            if (!$this->validate_enhanced_token_security($token, $nonce_data)) {
-                return false;
-            }
-        }
-
-        return $nonce_data;
-    }
 
     /**
      * Validate legacy Search Atlas connect token (backward compatibility)
      */
-    private function validate_legacy_searchatlas_token($token)
-    {
-        $nonce_data = get_option('metasync_sa_connect_nonce_' . $token);
-        
-        if (!$nonce_data) {
-            return false;
-        }
 
-        $nonce_data = json_decode($nonce_data, true);
 
-        // Check if token has expired
-        if (isset($nonce_data['expires']) && $nonce_data['expires'] < time()) {
-            delete_option('metasync_sa_connect_nonce_' . $token);
-            return false;
-        }
-
-        // Check if token has already been used
-        if (isset($nonce_data['used']) && $nonce_data['used']) {
-            return false;
-        }
-
-        return $nonce_data;
-    }
-
-    /**
-     * Additional security validation for enhanced tokens
-     */
-    private function validate_enhanced_token_security($token, $nonce_data)
-    {
-        // Rate limiting check (optional)
-        if ($this->is_token_rate_limited($token)) {
-            return false;
-        }
-
-        // Time-based validation (ensure token is not too old for creation time)
-        if (isset($nonce_data['created'])) {
-            $creation_time = $nonce_data['created'];
-            $current_time = time();
-            
-            // Token shouldn't be older than 35 minutes (5 min buffer)
-            if (($current_time - $creation_time) > 2100) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Simple rate limiting for token validation attempts
-     */
-    private function is_token_rate_limited($token)
-    {
-        $rate_limit_key = 'sa_connect_rate_limit_' . substr($token, 0, 8);
-        $attempts = get_transient($rate_limit_key);
-        
-        if ($attempts === false) {
-            set_transient($rate_limit_key, 1, 300); // 5 minutes
-            return false;
-        }
-        
-        if ($attempts >= 10) { // Max 10 attempts per 5 minutes
-            return true;
-        }
-        
-        set_transient($rate_limit_key, $attempts + 1, 300);
-        return false;
-    }
 
 
 	/**
@@ -4100,16 +3859,6 @@ class Metasync_Rest_Api
 	 * @param array $additional_data Additional error context
 	 * @return WP_Error Formatted error response
 	 */
-	private function create_sso_error_response($error_code, $message, $status_code = 400, $additional_data = array())
-	{
-		$error_data = array_merge(array(
-			'status' => $status_code,
-			'timestamp' => current_time('mysql', true),
-			'endpoint' => 'searchatlas/connect/callback'
-		), $additional_data);
-		
-		return new WP_Error($error_code, $message, $error_data);
-	}
 
     /**
      * Mark Search Atlas connect nonce as used and store the API key and Otto UUID

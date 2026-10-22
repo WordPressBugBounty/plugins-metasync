@@ -50,7 +50,7 @@ class Metasync_Custom_Pages_Admin
                         <li>Marketing pages built with external tools</li>
                         <li>Standalone HTML pages with embedded CSS/JS</li>
                         <li>A/B testing pages with unique layouts</li>
-                        <li><strong>Works with <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> and all other MetaSync features!</strong></li>
+                        <li><strong>Works with <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> and all other <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> features!</strong></li>
                     </ul>
                     <p style="margin-top: 15px; padding: 10px; background: rgba(59, 130, 246, 0.1); border-left: 4px solid var(--dashboard-accent, #3b82f6); font-size: 13px; color: var(--dashboard-text-secondary);">
                         💡 <strong>Note:</strong> Pages created here won't interfere with your regular pages or page builders like Elementor, Divi, etc.

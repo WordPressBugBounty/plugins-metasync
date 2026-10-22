@@ -578,36 +578,6 @@ class Metasync_Admin_Ajax
         ));
     }
 
-    public function ajax_create_redirect_from_404()
-    {
-        if (empty($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'metasync_404_redirect')) {
-            wp_die('Security check failed');
-        }
-
-        if (!Metasync::current_user_has_plugin_access()) {
-            wp_die('Insufficient permissions');
-        }
-
-        $uri = sanitize_text_field(wp_unslash($_POST['uri']));
-        $redirect_url = sanitize_url(wp_unslash($_POST['redirect_url']));
-
-        if (empty($uri) || empty($redirect_url)) {
-            wp_send_json_error('Missing required parameters');
-        }
-
-        require_once plugin_dir_path(dirname(__FILE__)) . '404-monitor/class-metasync-404-monitor-database.php';
-        require_once plugin_dir_path(dirname(__FILE__)) . '404-monitor/class-metasync-404-monitor.php';
-        $db_404 = new Metasync_Error_Monitor_Database();
-        $monitor_404 = new Metasync_Error_Monitor($db_404);
-        
-        $result = $monitor_404->create_redirection_from_404($uri, $redirect_url, 'Created from 404 suggestion');
-        
-        if ($result) {
-            wp_send_json_success('Redirect created successfully');
-        } else {
-            wp_send_json_error('Failed to create redirect');
-        }
-    }
 
     /**
      * Manual "Host Blocking Test" — GET leg.
@@ -748,6 +718,42 @@ class Metasync_Admin_Ajax
         );
     }
 
+    /**
+     * Build the report body sent to Sentry for a request type.
+     *
+     * @param string $request_type    Report type.
+     * @param string $feature_title   Feature title.
+     * @param string $feature_problem Problem addressed by the suggestion.
+     * @param string $feature_solution Desired improvement.
+     * @param string $issue_message   Additional report details.
+     * @return string
+     */
+    public static function build_issue_report_message($request_type, $feature_title, $feature_problem, $feature_solution, $issue_message)
+    {
+        if ($request_type !== 'feature') {
+            return $issue_message;
+        }
+
+        return sprintf(
+            "Feature request: %s\n\nProblem:\n%s\n\nDesired improvement:\n%s\n\nAdditional details:\n%s",
+            $feature_title,
+            $feature_problem,
+            $feature_solution,
+            $issue_message
+        );
+    }
+
+    /**
+     * Return a user-facing report length in characters where possible.
+     *
+     * @param string $value Report field value.
+     * @return int
+     */
+    public static function issue_report_string_length($value)
+    {
+        return function_exists('mb_strlen') ? mb_strlen($value, 'UTF-8') : strlen($value);
+    }
+
     public function ajax_submit_issue_report()
     {
         try {
@@ -764,25 +770,57 @@ class Metasync_Admin_Ajax
             }
 
             # Get and validate form data
+            $request_type = isset($_POST['request_type']) ? sanitize_key(wp_unslash($_POST['request_type'])) : 'bug';
+            $feature_title = isset($_POST['feature_title']) ? sanitize_text_field(wp_unslash($_POST['feature_title'])) : '';
+            $feature_problem = isset($_POST['feature_problem']) ? sanitize_textarea_field(wp_unslash($_POST['feature_problem'])) : '';
+            $feature_solution = isset($_POST['feature_solution']) ? sanitize_textarea_field(wp_unslash($_POST['feature_solution'])) : '';
             $issue_message = isset($_POST['issue_message']) ? sanitize_textarea_field(wp_unslash($_POST['issue_message'])) : '';
             $issue_severity = isset($_POST['issue_severity']) ? sanitize_text_field(wp_unslash($_POST['issue_severity'])) : 'warning';
             $include_user_info = isset($_POST['include_user_info']) && sanitize_text_field(wp_unslash($_POST['include_user_info'])) === 'true';
 
-            # Validate severity level
+            # Validate request type and feature-specific fields.
+            $valid_request_types = array('bug', 'question', 'feature');
+            if (!in_array($request_type, $valid_request_types, true)) {
+                $request_type = 'bug';
+            }
+            if ($request_type !== 'feature') {
+                $feature_title = '';
+                $feature_problem = '';
+                $feature_solution = '';
+            }
+            if ($request_type === 'feature') {
+                if ($feature_title === '' || self::issue_report_string_length($feature_title) > 160) {
+                    wp_send_json_error(array('message' => 'Please provide a feature title of 160 characters or fewer.'));
+                }
+                if (self::issue_report_string_length($feature_problem) < 10 || self::issue_report_string_length($feature_problem) > 1000) {
+                    wp_send_json_error(array('message' => 'Please describe the problem in 10 to 1000 characters.'));
+                }
+                if (self::issue_report_string_length($feature_solution) < 10 || self::issue_report_string_length($feature_solution) > 1000) {
+                    wp_send_json_error(array('message' => 'Please describe the desired improvement in 10 to 1000 characters.'));
+                }
+            }
             $valid_severity_levels = array('info', 'warning', 'error', 'fatal');
             if (!in_array($issue_severity, $valid_severity_levels, true)) {
                 $issue_severity = 'warning';
             }
 
             # Validate message length
-            if (empty($issue_message) || strlen($issue_message) < 10) {
+            if (($request_type !== 'feature' && empty($issue_message)) || ($request_type !== 'feature' && self::issue_report_string_length($issue_message) < 10)) {
                 wp_send_json_error(array('message' => 'Please provide a more detailed description (at least 10 characters).'));
                 return;
             }
-            if (strlen($issue_message) > 1000) {
+            if (self::issue_report_string_length($issue_message) > 1000) {
                 wp_send_json_error(array('message' => 'Message is too long. Please limit to 1000 characters.'));
                 return;
             }
+
+            // Limit report volume per user so the feedback endpoint cannot flood Sentry.
+            $report_rate_key = 'metasync_issue_report_rate_' . get_current_user_id();
+            $report_count = (int) get_transient($report_rate_key);
+            if ($report_count >= 10) {
+                wp_send_json_error(array('message' => 'You have submitted the maximum number of reports for this hour. Please try again later.'), 429);
+            }
+            set_transient($report_rate_key, $report_count + 1, HOUR_IN_SECONDS);
 
             # Handle file upload if present
             $attachment = null;
@@ -874,17 +912,42 @@ class Metasync_Admin_Ajax
 
             # Send to Sentry using User Feedback API
             $sent_to_sentry = false;
-            
-            # Check if Sentry feedback function exists
+            $request_type_labels = array(
+                'bug'      => 'Bug report',
+                'question' => 'Question or feedback',
+                'feature'  => 'Feature request or improvement',
+            );
+            $request_type_label = $request_type_labels[$request_type];
+            $feedback_message = self::build_issue_report_message(
+                $request_type,
+                $feature_title,
+                $feature_problem,
+                $feature_solution,
+                $issue_message
+            );
+
+            $sentry_failure_reason = 'capture_failed';
+            if (function_exists('metasync_telemetry_is_disabled') && metasync_telemetry_is_disabled()) {
+                $sentry_failure_reason = 'telemetry_disabled';
+            }
             if (!function_exists('metasync_sentry_capture_feedback')) {
+                $sentry_failure_reason = 'integration_unavailable';
                 # Log warning if function doesn't exist
                 if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('MetaSync: Sentry feedback function not available for report submission.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
+                    error_log(sprintf( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
+                        'MetaSync: Sentry feedback integration unavailable. Type: %s',
+                        $request_type
+                    ));
                 }
             } else {
                 $feedback_data = array(
-                    'message' => $issue_message,
+                    'message' => $feedback_message,
                     'severity' => $issue_severity,
+                    'report_type' => $request_type,
+                    'report_type_label' => $request_type_label,
+                    'feature_title' => $feature_title,
+                    'feature_problem' => $feature_problem,
+                    'feature_solution' => $feature_solution,
                     'is_whitelabel' => $whitelabel_context['is_whitelabel'],
                     'whitelabel_brand_name' => $whitelabel_context['whitelabel_brand_name'],
                     'whitelabel_support_email' => $whitelabel_context['whitelabel_support_email'],
@@ -913,9 +976,11 @@ class Metasync_Admin_Ajax
                 # Fallback: Log locally if Sentry fails or is unavailable
                 if (defined('WP_DEBUG') && WP_DEBUG) {
                     error_log(sprintf( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-gated, no secrets
-                        'MetaSync Client Report (Fallback): UUID: %s | Severity: %s',
+                        'MetaSync Client Report (Fallback): UUID: %s | Type: %s | Severity: %s | Reason: %s',
                         $project_uuid,
-                        $issue_severity
+                        $request_type,
+                        $issue_severity,
+                        $sentry_failure_reason
                     ));
                 }
                 

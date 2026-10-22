@@ -50,6 +50,8 @@ class Metasync_PostHog {
         add_action('metasync_mcp_tool_executed', array($this, 'track_mcp_tool'), 10, 4);
         add_action('metasync_content_genius_sync', array($this, 'track_content_genius_sync'), 10, 3);
         add_filter('rest_request_after_callbacks', array($this, 'track_rest_request'), 10, 3);
+        add_action('update_option_metasync_options', array($this, 'track_settings_save'), 10, 3);
+        add_action('update_option_metasync_code_minification', array($this, 'track_minification_save'), 10, 3);
         add_action('init', array($this, 'run_version_check'), 2);
     }
 
@@ -82,6 +84,92 @@ class Metasync_PostHog {
         if (get_option(self::OPT_IN_OPTION) === 'yes' && get_option(self::EXPLICIT_CONSENT_OPTION) !== 'yes') {
             update_option(self::OPT_IN_OPTION, 'no');
         }
+    }
+
+    /**
+     * Track deliberate settings saves without observing page views or renders.
+     *
+     * @param mixed $old_value Previous option value.
+     * @param mixed $new_value New option value.
+     * @param string $option Option name.
+     * @return void
+     */
+    public function track_settings_save($old_value, $new_value, $option = '') {
+        if (!is_admin() || !is_array($old_value) || !is_array($new_value)) {
+            return;
+        }
+        $action = isset($_REQUEST['action']) ? sanitize_key(wp_unslash($_REQUEST['action'])) : '';
+        $option_page = isset($_REQUEST['option_page']) ? sanitize_key(wp_unslash($_REQUEST['option_page'])) : '';
+        // The settings pages (Local Business, Breadcrumbs, Code Snippets) POST
+        // to options.php with the shared option group (Metasync_Admin::option_group),
+        // while the General tab saves through AJAX with action=meta_sync_save_settings.
+        if ($action !== 'meta_sync_save_settings' && $option_page !== 'metasync_group') {
+            return;
+        }
+
+        $sections = array(
+            'localseo' => array('local_business_settings_saved', 'success'),
+            'breadcrumbs' => array('breadcrumbs_settings_saved', 'success'),
+            'codesnippets' => array('code_snippet_changed', 'action'),
+        );
+        foreach ($sections as $section => $config) {
+            $before = isset($old_value[$section]) && is_array($old_value[$section]) ? $old_value[$section] : array();
+            $after = isset($new_value[$section]) && is_array($new_value[$section]) ? $new_value[$section] : array();
+            if ($before === $after) {
+                continue;
+            }
+            $fields_changed = $this->count_changed_fields($before, $after);
+            // A strict !== on the arrays can differ on key order or scalar
+            // types alone; with no field actually changed the event would
+            // be pure noise, so skip it ("per changed save").
+            if ($fields_changed < 1) {
+                continue;
+            }
+            $properties = array('fields_changed' => $fields_changed);
+            if ($config[1] === 'success') {
+                $properties['success'] = true;
+            } else {
+                $properties['action'] = 'updated';
+                $properties['success'] = true;
+            }
+            self::feature($config[0], $properties);
+        }
+    }
+
+    /**
+     * Track deliberate code manipulation settings saves.
+     *
+     * @param mixed $old_value Previous settings.
+     * @param mixed $new_value New settings.
+     * @param string $option Option name.
+     * @return void
+     */
+    public function track_minification_save($old_value, $new_value, $option = '') {
+        if (!is_admin() || !is_array($old_value) || !is_array($new_value) || $old_value === $new_value) {
+            return;
+        }
+        $fields_changed = $this->count_changed_fields($old_value, $new_value);
+        if ($fields_changed < 1) {
+            // Same reason as track_settings_save(): ordering/type drift is
+            // not a change worth reporting.
+            return;
+        }
+        self::feature('code_manipulation_settings_saved', array(
+            'success' => true,
+            'fields_changed' => $fields_changed,
+        ));
+    }
+
+    /** @param array $before Previous fields. @param array $after New fields. @return int */
+    private function count_changed_fields(array $before, array $after) {
+        $keys = array_unique(array_merge(array_keys($before), array_keys($after)));
+        $changed = 0;
+        foreach ($keys as $key) {
+            if (serialize($before[$key] ?? null) !== serialize($after[$key] ?? null)) {
+                $changed++;
+            }
+        }
+        return $changed;
     }
 
     /**

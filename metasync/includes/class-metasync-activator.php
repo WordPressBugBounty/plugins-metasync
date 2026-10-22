@@ -74,7 +74,6 @@ class Metasync_Activator
 	 * Canonical list of MetaSync custom WP-Cron hooks.
 	 * Shared with Metasync_Deactivator so deactivation cleans up every scheduled hook.
 	 *
-	 * @since 2.5.x
 	 * @var string[]
 	 */
 	public static $cron_hooks = [
@@ -167,7 +166,7 @@ class Metasync_Activator
 	 * POST /api/wp-plugin-announce/ with url + plugin_version; optional X-Plugin-Token for deduplication.
 	 * Callable from activation and from init (rate-limited) when no API key yet.
 	 *
-	 * @since 2.5.x
+	 * @since 2.5.19
 	 */
 	public static function send_announce_ping()
 	{
@@ -341,10 +340,6 @@ class Metasync_Activator
 	 *
 	 * @return array<string, string>
 	 */
-	public static function get_last_import_invalid_fields()
-	{
-		return self::$last_import_invalid_fields;
-	}
 
 	/**
 	 * Admin notice for a White Label JSON import that keeps failing.

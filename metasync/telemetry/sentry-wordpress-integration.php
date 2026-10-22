@@ -20,8 +20,6 @@ class MetaSync_Sentry_WordPress {
     private $options;
     private $environment;
     private $release;
-    private $public_key;
-    private $secret_key;
     private $project_id;
     private $host;
     private $scheme;
@@ -38,15 +36,11 @@ class MetaSync_Sentry_WordPress {
         if (strpos($dsn, 'proxy://') === 0) {
             // New proxy format: proxy://project_id
             $this->project_id = str_replace('proxy://', '', $dsn);
-            $this->public_key = null; // Not needed for proxy
-            $this->secret_key = null; // Not needed for proxy
             $this->host = null; // Proxy handles this
             $this->scheme = 'proxy';
         } else {
             // Legacy DSN format for backward compatibility
             $parsed = wp_parse_url($this->dsn);
-            $this->public_key = is_array($parsed) && isset($parsed['user']) ? $parsed['user'] : null;
-            $this->secret_key = is_array($parsed) && isset($parsed['pass']) ? $parsed['pass'] : null;
             $this->project_id = is_array($parsed) && isset($parsed['path']) ? trim($parsed['path'], '/') : null;
             $this->host = is_array($parsed) && isset($parsed['host']) ? $parsed['host'] : null;
             $this->scheme = is_array($parsed) && isset($parsed['scheme']) ? $parsed['scheme'] : 'https';
@@ -684,23 +678,6 @@ class MetaSync_Sentry_WordPress {
     /**
      * Generate Sentry authentication header (legacy - now used for reference only)
      */
-    private function getSentryAuthHeader() {
-        $timestamp = time();
-        $auth_parts = [
-            'Sentry sentry_version=7',
-            'sentry_client=metasync-wordpress/' . $this->release,
-            'sentry_timestamp=' . $timestamp,
-            'sentry_key=' . $this->public_key
-        ];
-        
-        // Note: Modern Sentry DSNs only use public key, no secret key
-        // The secret key is only used for server-side authentication
-        if ($this->secret_key) {
-            $auth_parts[] = 'sentry_secret=' . $this->secret_key;
-        }
-        
-        return implode(', ', $auth_parts);
-    }
     
     /**
      * Generate unique event ID

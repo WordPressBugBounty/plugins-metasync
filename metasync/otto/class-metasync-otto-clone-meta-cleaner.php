@@ -134,13 +134,10 @@ class Metasync_Otto_Clone_Meta_Cleaner {
      * `_dp_original` meta written by Duplicate Post or the
      * `_yoast_wpseo_duplicate_source` meta written by Yoast Duplicate Post.
      *
-     * Also handles "Duplicate Page" by mndpsingh287, which fires NO custom
-     * action hook AND sets no marker meta — it just calls wp_insert_post()
-     * and then copies meta in a loop afterwards. The only reliable signal
-     * is its admin URL action `dt_duplicate_post_as_draft`. Since the
-     * meta-copy loop runs AFTER wp_insert_post() returns, we defer the
-     * cleanup to `shutdown` (which still fires after wp_redirect+exit), by
-     * which point the plugin's meta-copy loop has completed.
+     * Also handles "Duplicate Page" by mndpsingh287 and NinjaTeam's "WP Duplicate
+     * Page" plugin. These plugins copy meta after `wp_insert_post()` returns, so
+     * cleanup is deferred to `shutdown` (which still fires after wp_redirect+exit),
+     * by which point their meta-copy loops have completed.
      *
      * Skipped for normal updates so regular post saves are unaffected.
      *
@@ -169,7 +166,7 @@ class Metasync_Otto_Clone_Meta_Cleaner {
         $action = isset($_GET['action']) // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action check on a new post insert
             ? sanitize_text_field(wp_unslash($_GET['action'])) // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only action check on a new post insert
             : '';
-        if ($action === 'dt_duplicate_post_as_draft') {
+        if (in_array($action, ['dt_duplicate_post_as_draft', 'njt_duplicate_page_save_as_new_post', 'wp_duplicate_page_bulk_action'], true)) {
             $cleaner = $this;
             add_action('shutdown', function () use ($cleaner, $post_id) {
                 $cleaner->strip_clone_meta($post_id);

@@ -26,11 +26,6 @@ Class Metasync_otto_html{
     # the file path to save to
     private $html_file;
 
-    # uuid of site
-    private $site_uuid;
-
-    # the otto endpoint url
-    private $otto_end_point;
 
     # PERFORMANCE OPTIMIZATION: Defer DOM reload until final save
     # Reduces 6-10 serialize/deserialize cycles to just 1
@@ -741,17 +736,7 @@ Class Metasync_otto_html{
     }
 
     #
-    function __construct($otto_uuid){
-
-        # set the site uuid using the provided string
-        $this->site_uuid = $otto_uuid;
-
-        # Use endpoint manager if available, otherwise fallback to production
-        if (class_exists('Metasync_Endpoint_Manager')) {
-            $this->otto_end_point = Metasync_Endpoint_Manager::get_endpoint('OTTO_URL_DETAILS');
-        } else {
-            $this->otto_end_point = 'https://sa.searchatlas.com/api/v2/otto-url-details';
-        }
+    function __construct(){
 
         # laod the simple html dom parser with UTF-8 charset to handle special characters
         $this->dom = new HtmlDocument(null, true, true, 'UTF-8', false);
@@ -762,55 +747,7 @@ Class Metasync_otto_html{
      * @param route : The route to check
      * @param path : The path of the html file to save
      */
-    function process_route($route, $file_path){
 
-        # Construct the full endpoint URL with query parameters
-        $url_with_params = add_query_arg(
-            [
-                'url'  => $route,
-                'uuid' => $this->site_uuid,
-            ],
-            $this->otto_end_point
-        );
-
-        # PERFORMANCE FIX: Add timeout to prevent blocking
-        $args = array(
-            'timeout' => 5, // 5 second max timeout (allow time for redirects)
-            'redirection' => 5, // CRITICAL FIX: Allow redirects (API returns 301)
-            'user-agent' => 'MetaSync-OTTO-SSR/2.0',
-            'sslverify' => true
-        );
-
-        # Perform the GET request with timeout
-        $response = wp_remote_get($url_with_params, $args);
-
-        # Check for errors
-        if (is_wp_error($response)) {
-            error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ': API call failed - ' . $response->get_error_message()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- unreachable in production
-            return false;
-        }
-
-        # get the response body
-        $body = wp_remote_retrieve_body($response);
-
-        # Get the response code
-        $response_code = wp_remote_retrieve_response_code($response);
-
-        # if no change data skip
-        if (empty($body) || $response_code !== 200){
-            error_log('MetaSync ' . Metasync::get_whitelabel_otto_name() . ': API returned empty or non-200. Code: ' . $response_code); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- unreachable in production
-            return false;
-        }
-
-        # set the html file path
-        $this->html_file = $file_path;
-
-        # load change data
-        $change_data = json_decode($body, true);
-        
-        # Process with the fetched data
-        return $this->process_route_with_data($route, $change_data, $file_path);
-    }
     
     /**
      * Process route with pre-fetched suggestions data
@@ -2971,20 +2908,49 @@ Class Metasync_otto_html{
         # When a third-party SEO plugin is active the conflict handler may have suppressed
         # that plugin's og:title / twitter:title so MetaSync can supply the replacement
         # (Metasync_SEO_Sidebar::output_seo_meta_description). Gap-filling those two tags
-        # here would inject the meta-box post-title default over that replacement, so skip
-        # them in that case. User-customized overrides are unaffected — they were already
-        # applied above.
+        # with the raw post-title default would inject the post title over that replacement,
+        # so skip them in that case. User-customized overrides are unaffected — they were
+        # already applied above.
+        #
+        # Defect B: when OTTO has rewritten the document title (a live title-only
+        # suggestion with no og:title), the third-party plugin's og:title may have been
+        # suppressed without a replacement, leaving the page with no social card title at
+        # all. In that case gap-fill og:title / twitter:title from the effective document
+        # title rather than the raw post title — suppressing a tag must always be paired
+        # with emitting a replacement.
         $seo_plugin_active = class_exists('Metasync_SEO_Conflict_Handler')
             && Metasync_SEO_Conflict_Handler::get_instance()->has_active_seo_plugin();
+
+        # The effective title OTTO rewrote the document title to — the source for a replacement
+        # og:title / twitter:title when no custom social title exists and the third-party
+        # plugin's tag was suppressed. Staging meta is staleable, so only use it when OTTO
+        # has live suggestions for this request URL. Read the title from the document after
+        # all title filters have run; the staging value can be older than the rendered title.
+        $otto_effective_title = '';
+        if ($seo_plugin_active) {
+            $handler = Metasync_SEO_Conflict_Handler::get_instance();
+            if ($handler->otto_has_live_suggestions()
+                && preg_match('/<title[^>]*>(.*?)<\/title>/is', $html, $title_match)
+            ) {
+                $otto_effective_title = trim(wp_strip_all_tags(html_entity_decode($title_match[1], ENT_QUOTES, 'UTF-8')));
+            }
+        }
 
         $additions = '';
         foreach ($tags as $t) {
             list($attr, $key, $val, $is_url, $is_override) = $t;
+            if (!$is_override && $seo_plugin_active && ($key === 'og:title' || $key === 'twitter:title')) {
+                if ($otto_effective_title !== '' && ($val === $defaults['title'] || $val === '')) {
+                    # Suppression of a third-party title must be paired with the
+                    # effective document title, including when the raw title is blank.
+                    $val = $otto_effective_title;
+                } else {
+                    # Never gap-fill a third-party title with a raw/default title.
+                    continue;
+                }
+            }
             if ($val === '' || $val === null) {
                 continue;
-            }
-            if (!$is_override && $seo_plugin_active && ($key === 'og:title' || $key === 'twitter:title')) {
-                continue; # never gap-fill the post title over a third-party plugin's own title
             }
             if (!$is_override && preg_match('/<meta\s[^>]*' . $attr . '\s*=\s*(["\'])' . preg_quote($key, '/') . '\1/i', $head)) {
                 continue; # OTTO (or another source) already provides it and the user did not override
@@ -3786,7 +3752,7 @@ Class Metasync_otto_html{
      * @param string $html The raw HTML captured from output buffer
      * @param array $replacement_data OTTO suggestions/replacement data
      * @return HtmlDocument|false Modified DOM or false on failure
-     * @since 2.6.0
+     * @since 2.5.14
      */
     function process_html_directly($html, $replacement_data) {
         try {
@@ -4266,7 +4232,7 @@ Class Metasync_otto_html{
      * 
      * @param bool $remove_title Remove title-related tags
      * @param array|bool $remove_description_tags Array of specific description tag selectors to remove, or false/empty array for none
-     * @since 2.6.0
+     * @since 2.5.14
      */
     private function remove_conflicting_seo_tags($remove_title = false, $remove_description_tags = []) {
         if (!$this->dom) {

@@ -19,11 +19,6 @@ if (!defined('ABSPATH')) {
 class Metasync_Custom_Pages
 {
     /**
-     * Post type for custom HTML pages (using regular WordPress pages)
-     */
-    const POST_TYPE = 'page';
-    
-    /**
      * Meta key for storing raw HTML content
      */
     const META_HTML_CONTENT = '_metasync_raw_html_content';
@@ -718,9 +713,5 @@ class Metasync_Custom_Pages
     /**
      * Get custom page URL
      */
-    public static function get_page_url($post_id)
-    {
-        return get_permalink($post_id);
-    }
 }
 

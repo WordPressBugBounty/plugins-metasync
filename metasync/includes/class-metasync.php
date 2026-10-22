@@ -1848,10 +1848,6 @@ class Metasync
 	 * @since     1.0.0
 	 * @return    Metasync_Loader    Orchestrates the hooks of the plugin.
 	 */
-	public function get_loader()
-	{
-		return $this->loader;
-	}
 
 	/**
 	 * Retrieve the version number of the plugin.

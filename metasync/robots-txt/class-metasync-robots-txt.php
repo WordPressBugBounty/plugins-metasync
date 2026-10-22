@@ -23,6 +23,18 @@ class Metasync_Robots_Txt
     private static $instance = null;
 
     /**
+     * What the most recent write_robots_file() call did.
+     *
+     * @var array{written: bool, unchanged: bool, backup_attempted: bool, backup_created: bool}
+     */
+    private $last_write_outcome = array(
+        'written'          => false,
+        'unchanged'        => false,
+        'backup_attempted' => false,
+        'backup_created'   => false,
+    );
+
+    /**
      * Database instance
      *
      * @var Metasync_Robots_Txt_Database
@@ -181,6 +193,21 @@ class Metasync_Robots_Txt
     }
 
     /**
+     * Outcome of the most recent write_robots_file() call.
+     *
+     * 'unchanged' means the content already matched the physical file, so nothing
+     * was written. 'backup_attempted' means there was previous content to back up;
+     * 'backup_created' is true only when a new backup row was actually inserted
+     * (false when the previous content was already the newest backup).
+     *
+     * @return array{written: bool, unchanged: bool, backup_attempted: bool, backup_created: bool}
+     */
+    public function get_last_write_outcome()
+    {
+        return $this->last_write_outcome;
+    }
+
+    /**
      * Write robots.txt file
      *
      * @param string $content Content to write
@@ -188,10 +215,39 @@ class Metasync_Robots_Txt
      */
     public function write_robots_file($content)
     {
-        // Create backup before saving
+        $this->last_write_outcome = array(
+            'written'          => false,
+            'unchanged'        => false,
+            'backup_attempted' => false,
+            'backup_created'   => false,
+        );
+
+        // Read current content before saving
         $current_content = $this->read_robots_file();
+
+        // If a readable physical file already holds this content (ignoring
+        // line-ending and leading/trailing whitespace differences), return
+        // success without rewriting the file or creating a duplicate backup.
+        // Only the physical file counts: with virtual content alone the write
+        // below must still run so it can materialise the real file.
+        if (
+            is_readable($this->robots_file_path)
+            && !is_wp_error($current_content)
+            && Metasync_Robots_Txt_Database::normalize_for_compare($current_content) === Metasync_Robots_Txt_Database::normalize_for_compare($content)
+        ) {
+            // A leftover virtual copy is stale once the physical file is authoritative.
+            if ($this->database->is_virtual_mode()) {
+                $this->database->clear_virtual_content();
+            }
+            $this->last_write_outcome['unchanged'] = true;
+            return true;
+        }
+
+        // Create backup before saving
         if (!is_wp_error($current_content) && !empty(trim($current_content))) {
+            $this->last_write_outcome['backup_attempted'] = true;
             $this->database->create_backup($current_content);
+            $this->last_write_outcome['backup_created'] = $this->database->last_backup_was_inserted();
         }
 
         // Try WP_Filesystem first
@@ -210,6 +266,7 @@ class Metasync_Robots_Txt
                 if ($result) {
                     // Clear virtual mode if file was successfully written
                     $this->database->clear_virtual_content();
+                    $this->last_write_outcome['written'] = true;
                     return true;
                 }
             }
@@ -225,6 +282,7 @@ class Metasync_Robots_Txt
             @chmod($this->robots_file_path, 0644); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_chmod -- direct POSIX permission change; WP_Filesystem would prompt for FTP credentials on non-direct hosts
             // Clear virtual mode if file was successfully written
             $this->database->clear_virtual_content();
+            $this->last_write_outcome['written'] = true;
             return true;
         }
 
@@ -233,6 +291,7 @@ class Metasync_Robots_Txt
         if ($virtual_stored) {
             $this->database->set_virtual_mode(true);
             // Return success but indicate it's virtual
+            $this->last_write_outcome['written'] = true;
             return true;
         }
 
@@ -446,21 +505,6 @@ class Metasync_Robots_Txt
      *
      * @return string|bool File permissions or false
      */
-    public function get_file_permissions()
-    {
-        if (!function_exists('WP_Filesystem')) {
-            require_once ABSPATH . 'wp-admin/includes/file.php';
-        }
-
-        WP_Filesystem();
-        global $wp_filesystem;
-
-        if (!$wp_filesystem || !$wp_filesystem->exists($this->robots_file_path)) {
-            return false;
-        }
-
-        return substr(sprintf('%o', fileperms($this->robots_file_path)), -4);
-    }
 
     /**
      * Check if file is writable
@@ -812,20 +856,6 @@ class Metasync_Robots_Txt
      *
      * @return string|false The sitemap URL or false if not found
      */
-    public function get_sitemap_url_from_robots()
-    {
-        $content = $this->read_robots_file();
-        
-        if (is_wp_error($content)) {
-            return false;
-        }
-
-        if (preg_match('/^Sitemap:\s*(.+)$/im', $content, $matches)) {
-            return trim($matches[1]);
-        }
-
-        return false;
-    }
 
     /**
      * Render the admin page

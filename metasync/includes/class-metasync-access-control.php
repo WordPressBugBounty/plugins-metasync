@@ -163,33 +163,6 @@ class Metasync_Access_Control {
      * @param array $config Configuration array
      * @return bool True on success, false on failure
      */
-    public static function save_feature_config($feature_key, $config) {
-        $options = get_option('metasync_options', array());
-
-        if (!isset($options['whitelabel'])) {
-            $options['whitelabel'] = array();
-        }
-
-        if (!isset($options['whitelabel']['access_control'])) {
-            $options['whitelabel']['access_control'] = array();
-        }
-
-        // Sanitize configuration
-        $sanitized_config = array(
-            'enabled' => !empty($config['enabled']),
-            'type' => in_array($config['type'], array('all', 'role', 'user', 'none')) ? $config['type'] : 'all',
-            'allowed_roles' => isset($config['allowed_roles']) && is_array($config['allowed_roles'])
-                ? array_map('sanitize_text_field', $config['allowed_roles'])
-                : array(),
-            'allowed_users' => isset($config['allowed_users']) && is_array($config['allowed_users'])
-                ? array_map('intval', $config['allowed_users'])
-                : array()
-        );
-
-        $options['whitelabel']['access_control'][$feature_key] = $sanitized_config;
-
-        return update_option('metasync_options', $options);
-    }
 
     /**
      * Get all WordPress user roles that can access the plugin
@@ -303,21 +276,6 @@ class Metasync_Access_Control {
      * @param array $form_data Form data from whitelabel settings
      * @return bool True on success
      */
-    public static function process_bulk_update($form_data) {
-        if (!isset($form_data['access_control']) || !is_array($form_data['access_control'])) {
-            return false;
-        }
-
-        $options = get_option('metasync_options', array());
-
-        if (!isset($options['whitelabel'])) {
-            $options['whitelabel'] = array();
-        }
-
-        $options['whitelabel']['access_control'] = self::sanitize_access_control($form_data['access_control']);
-
-        return update_option('metasync_options', $options);
-    }
 
     /**
      * Clear all access control settings

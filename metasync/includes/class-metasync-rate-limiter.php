@@ -136,34 +136,6 @@ class Metasync_Rate_Limiter
      * @param int $window_seconds  Time window in seconds
      * @return bool|WP_Error True if under limit, WP_Error if exceeded
      */
-    public function check_ip_rate_limit($max_attempts, $window_seconds)
-    {
-        $ip_address = $this->get_client_ip();
-
-        if (empty($ip_address)) {
-            return true;
-        }
-
-        # Hash IP for privacy
-        $ip_hash = hash('sha256', $ip_address);
-
-        $result = $this->check_rate_limit($ip_hash, $max_attempts, $window_seconds, 'ip_');
-
-        if (is_wp_error($result)) {
-            # Replace error code for IP-specific error
-            return new WP_Error(
-                'ip_rate_limit_exceeded',
-                sprintf(
-                    'Too many attempts from your IP address. Please try again in %d minute%s.',
-                    ceil($result->get_error_data()['retry_after'] / 60),
-                    ceil($result->get_error_data()['retry_after'] / 60) > 1 ? 's' : ''
-                ),
-                $result->get_error_data()
-            );
-        }
-
-        return $result;
-    }
 
     /**
      * Check token-based rate limit
@@ -173,13 +145,6 @@ class Metasync_Rate_Limiter
      * @param int    $window_seconds Time window in seconds
      * @return bool|WP_Error True if under limit, WP_Error if exceeded
      */
-    public function check_token_rate_limit($token, $max_attempts, $window_seconds)
-    {
-        # Hash token for storage efficiency and privacy
-        $token_hash = hash('sha256', $token);
-
-        return $this->check_rate_limit($token_hash, $max_attempts, $window_seconds, 'token_');
-    }
 
     /**
      * Get client IP address
@@ -188,34 +153,6 @@ class Metasync_Rate_Limiter
      *
      * @return string Client IP address
      */
-    private function get_client_ip()
-    {
-        $ip_keys = array(
-            'HTTP_CF_CONNECTING_IP',     # Cloudflare
-            'HTTP_X_REAL_IP',            # Nginx proxy
-            'HTTP_X_FORWARDED_FOR',      # Standard proxy header
-            'REMOTE_ADDR',               # Direct connection
-        );
-
-        foreach ($ip_keys as $key) {
-            if (!empty($_SERVER[$key])) {
-                $ip = $_SERVER[$key];
-
-                # X-Forwarded-For may contain multiple IPs, get the first one
-                if ($key === 'HTTP_X_FORWARDED_FOR') {
-                    $ips = explode(',', $ip);
-                    $ip = trim($ips[0]);
-                }
-
-                # Validate IP format
-                if (filter_var($ip, FILTER_VALIDATE_IP)) {
-                    return $ip;
-                }
-            }
-        }
-
-        return '';
-    }
 
     /**
      * Reset rate limit for a specific key
@@ -226,11 +163,6 @@ class Metasync_Rate_Limiter
      * @param string $prefix Optional prefix
      * @return bool Success
      */
-    public function reset_rate_limit($key, $prefix = '')
-    {
-        delete_transient($this->get_transient_key($prefix . $key));
-        return true;
-    }
 
     /**
      * Get rate limit status for a key (for debugging/admin UI)
@@ -239,23 +171,4 @@ class Metasync_Rate_Limiter
      * @param string $prefix Optional prefix
      * @return array|null Rate limit status or null if not found
      */
-    public function get_rate_limit_status($key, $prefix = '')
-    {
-        $data = get_transient($this->get_transient_key($prefix . $key));
-
-        if ($data === false || !is_array($data)) {
-            return null;
-        }
-
-        $now = time();
-
-        return array(
-            'attempts'          => $data['attempts'],
-            'expires_at'        => $data['expires_at'],
-            'remaining_seconds' => max(0, $data['expires_at'] - $now),
-            'is_expired'        => $data['expires_at'] < $now,
-            'first_attempt_at'  => $data['first_attempt_at'],
-            'last_attempt_at'   => isset($data['last_attempt_at']) ? $data['last_attempt_at'] : null,
-        );
-    }
 }

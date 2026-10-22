@@ -914,24 +914,6 @@ class Metasync_Seo_Output
 	* if they were created with the "metasync" system.
 	* Passes default values for $title and $id to avoid errors.
 	*/
-	public function hide_title_on_otto_pages($title = '', $id = null){
-
-		# Return title immediately if $id or $title is not provided
-		if (empty($id) || empty($title)) {
-			return $title;
-		}
-
-		# Check if it's a single post or page
-		if ((is_single() || is_page()) && in_the_loop() && is_main_query()) {
-
-			# Check if the post was created with the "metasync" system
-			$metasync_post = get_post_meta($id, 'metasync_post', true);
-			if ($metasync_post === 'yes') {
-				return '';
-			}
-		}
-		return $title;
-	}
 
 	/**
 	 * Drop serving/appearance directives when the page is set to noindex.
@@ -1763,13 +1745,13 @@ class Metasync_Seo_Output
 		// Add our robots tag or comment based on settings
 		if ($this->should_noindex_archive()) {
 			// Case 1: User wants to disallow indexing - add noindex tag
-			echo '<!-- MetaSync Indexation Control: Noindex Applied (Overriding other plugins) -->' . "\n";
+			echo '<!-- ' . esc_html(Metasync::get_effective_plugin_name()) . ' Indexation Control: Noindex Applied (Overriding other plugins) -->' . "\n";
 			echo '<meta name="robots" content="noindex, follow">' . "\n";
 		} else {
 			// Case 2: User wants to allow indexing AND override is enabled
 			// Just remove other plugins' tags, don't add our own
 			// Default behavior without robots tag is to allow indexing
-			echo '<!-- MetaSync Indexation Control: Index Allowed (Override enabled - Other noindex tags removed) -->' . "\n";
+			echo '<!-- ' . esc_html(Metasync::get_effective_plugin_name()) . ' Indexation Control: Index Allowed (Override enabled - Other noindex tags removed) -->' . "\n";
 		}
 	}
 

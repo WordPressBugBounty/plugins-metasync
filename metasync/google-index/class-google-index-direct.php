@@ -210,19 +210,6 @@ class Google_Index_Direct
      * @param string $action Action to perform
      * @return array Results for each post
      */
-    public function index_multiple_posts($post_ids, $post_type = 'post', $action = 'update')
-    {
-        $results = [];
-        
-        foreach ($post_ids as $post_id) {
-            $results[$post_id] = $this->index_post($post_id, $post_type, $action);
-            
-            // Add small delay between requests to avoid rate limiting
-            usleep(500000); // 0.5 second delay
-        }
-        
-        return $results;
-    }
     
     /**
      * Index a URL directly

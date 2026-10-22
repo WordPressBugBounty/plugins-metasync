@@ -7,7 +7,7 @@
  *
  * @package    Metasync
  * @subpackage Metasync/admin
- * @since      2.8.0
+ * @since      2.5.27
  */
 
 if (!defined('ABSPATH')) {
@@ -140,20 +140,22 @@ class Metasync_Link_Suggestions {
             $limit = 10;
         }
 
-        // Check transient cache
-        $cache_key = 'metasync_link_suggestions_' . $post_id;
-        $cached    = get_transient($cache_key);
-        if ($cached !== false) {
-            return new WP_REST_Response($cached, 200);
-        }
-
-        // Verify the user can read this specific post (prevents IDOR)
+        // Verify the user can read this specific post (prevents IDOR) before
+        // consulting the cache, so a cached response cannot bypass authorization.
         if (!current_user_can('read_post', $post_id)) {
             return new WP_REST_Response(array(
                 'suggestions'          => array(),
                 'yoast_premium_active' => class_exists('WPSEO_Premium'),
                 'rankmath_active'      => defined('RANK_MATH_VERSION'),
             ), 200);
+        }
+
+        // Check transient cache. The limit is part of the key because the
+        // response is sliced before it is cached.
+        $cache_key = 'metasync_link_suggestions_' . $post_id . '_' . $limit;
+        $cached    = get_transient($cache_key);
+        if ($cached !== false) {
+            return new WP_REST_Response($cached, 200);
         }
 
         $post = get_post($post_id);
@@ -396,5 +398,8 @@ class Metasync_Link_Suggestions {
         }
 
         delete_transient('metasync_link_suggestions_' . $post_id);
+        for ($limit = 1; $limit <= 10; $limit++) {
+            delete_transient('metasync_link_suggestions_' . $post_id . '_' . $limit);
+        }
     }
 }

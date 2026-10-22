@@ -240,7 +240,7 @@ class MCP_Tool_Update_Post extends MCP_Tool_Base {
         }
 
         if (isset($params['content'])) {
-            $update_args['post_content'] = wp_kses_post($params['content']);
+            $update_args['post_content'] = wp_slash(wp_kses_post($params['content']));
         }
 
         if (isset($params['excerpt'])) {

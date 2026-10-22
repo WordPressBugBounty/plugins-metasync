@@ -417,21 +417,6 @@ class Metasync_Otto_Bot_Statistics_Database {
      * @param int    $limit    Max rows
      * @return array
      */
-    public function get_logs_by_type($bot_type, $limit = 100) {
-        global $wpdb;
-
-        return $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for OTTO bot analytics (admin/cron aggregation views)
-            $wpdb->prepare(
-                "SELECT * FROM {$wpdb->prefix}metasync_otto_bot_logs
-                 WHERE bot_type = %s
-                 ORDER BY last_seen_at DESC, hit_count DESC
-                 LIMIT %d",
-                $bot_type,
-                $limit
-            ),
-            ARRAY_A
-        ) ?: array();
-    }
 
     /**
      * Get logs within a date range (based on last_seen_at)
@@ -441,22 +426,6 @@ class Metasync_Otto_Bot_Statistics_Database {
      * @param int    $limit      Max rows
      * @return array
      */
-    public function get_logs_by_date_range($start_date, $end_date, $limit = 1000) {
-        global $wpdb;
-
-        return $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for OTTO bot analytics (admin/cron aggregation views)
-            $wpdb->prepare(
-                "SELECT * FROM {$wpdb->prefix}metasync_otto_bot_logs
-                 WHERE last_seen_at BETWEEN %s AND %s
-                 ORDER BY last_seen_at DESC, hit_count DESC
-                 LIMIT %d",
-                $start_date,
-                $end_date,
-                $limit
-            ),
-            ARRAY_A
-        ) ?: array();
-    }
 
     /**
      * Delete a specific log entry
@@ -464,15 +433,6 @@ class Metasync_Otto_Bot_Statistics_Database {
      * @param int $log_id Row ID
      * @return bool
      */
-    public function delete_log($log_id) {
-        global $wpdb;
-
-        return $wpdb->delete( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for OTTO bot analytics (admin/cron aggregation views)
-            $wpdb->prefix . self::$logs_table_name,
-            array('id' => (int)$log_id),
-            array('%d')
-        ) !== false;
-    }
 
     // ------------------------------------------------------------------
     //  Internal helpers
@@ -577,11 +537,4 @@ class Metasync_Otto_Bot_Statistics_Database {
      *
      * @return void
      */
-    public static function drop_tables() {
-        global $wpdb;
-        $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}metasync_otto_bot_stats"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- uninstall cleanup — intentional table removal when the plugin is deleted
-        $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}metasync_otto_bot_logs"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- uninstall cleanup — intentional table removal when the plugin is deleted
-
-        delete_option('metasync_otto_bot_stats_db_version');
-    }
 }

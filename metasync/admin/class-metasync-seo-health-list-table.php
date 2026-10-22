@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) {
  * Displays all posts/pages with their SEO completeness indicators.
  * Uses CSS classes (not inline styles) for dark-theme compatibility.
  *
- * @since      3.0.0
+ * @since      2.6.1
  * @package    Metasync
  * @subpackage Metasync/admin
  */
@@ -18,6 +18,21 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 {
 	/** Nonce action for bulk actions. */
 	const NONCE_ACTION = 'metasync_seo_health_bulk';
+
+	/** Optimal SEO title length range; outside it the cell highlights and the length filters match. */
+	const SEO_TITLE_MIN = 30;
+	const SEO_TITLE_MAX = 60;
+
+	/** Optimal meta description length range; outside it the cell highlights and the length filters match. */
+	const META_DESCRIPTION_MIN = 120;
+	const META_DESCRIPTION_MAX = 160;
+
+	/**
+	 * Filters whose PHP predicates read post meta only. The ID scan skips
+	 * post-object priming for these — meta alone decides the match, so the
+	 * per-ID single-post queries the priming avoids would never run anyway.
+	 */
+	const META_ONLY_FILTERS = array('missing_schema');
 
 	public function __construct()
 	{
@@ -38,8 +53,6 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 			'seo_title'          => _x('SEO Title', 'Column label', 'metasync'),
 			'meta_description'   => _x('Meta Description', 'Column label', 'metasync'),
 			'schema'             => _x('Schema', 'Column label', 'metasync'),
-			'og_image'           => _x('OG Image', 'Column label', 'metasync'),
-			'alt_text_coverage'  => _x('Alt Text', 'Column label', 'metasync'),
 			'last_modified'      => _x('Last Modified', 'Column label', 'metasync'),
 		);
 	}
@@ -80,24 +93,15 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 				return esc_html(ucfirst($item->post_status));
 
 			case 'seo_title':
-				return $this->render_seo_meta_column($item->ID, 'title', 30, 60);
+				return $this->render_seo_meta_column($item->ID, 'title', self::SEO_TITLE_MIN, self::SEO_TITLE_MAX);
 
 			case 'meta_description':
-				return $this->render_seo_meta_column($item->ID, 'description', 120, 160);
+				return $this->render_seo_meta_column($item->ID, 'description', self::META_DESCRIPTION_MIN, self::META_DESCRIPTION_MAX);
 
 			case 'schema':
 				return Metasync_SEO_Health::has_schema($item->ID)
 					? '<span class="seo-status-set optimal">&#10003; Yes</span>'
 					: '<span class="seo-status-none">&mdash; None</span>';
-
-			case 'og_image':
-				return Metasync_SEO_Health::has_og_image($item->ID)
-					? '<span class="seo-status-set optimal">&#10003; Set</span>'
-					: '<span class="seo-status-missing">&#9888; Missing</span>';
-
-			case 'alt_text_coverage':
-				return $this->render_alt_text_column($item);
-
 			case 'last_modified':
 				return esc_html(get_the_modified_date('Y-m-d', $item));
 
@@ -127,43 +131,16 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 		$quality = ($length >= $min_optimal && $length <= $max_optimal) ? 'optimal' : 'suboptimal';
 
 		return sprintf(
-			'<span class="seo-status-set %s">&#10003; %d chars</span>',
+			'<span class="seo-status-set %s" title="%s">&#10003; %d chars</span>',
 			$quality,
+			esc_attr($result['value']),
 			$length
-		);
-	}
-
-	/**
-	 * Render alt text coverage column.
-	 */
-	private function render_alt_text_column($item)
-	{
-		$alt = Metasync_SEO_Health::calculate_alt_text_coverage($item->post_content);
-
-		if ($alt['total'] === 0) {
-			return '<span class="seo-status-none">No images</span>';
-		}
-
-		$quality = 'seo-status-missing';
-		if ($alt['percentage'] === 100) {
-			$quality = 'seo-status-set optimal';
-		} elseif ($alt['percentage'] >= 50) {
-			$quality = 'seo-status-set suboptimal';
-		}
-
-		return sprintf(
-			'<span class="%s">%d%% (%d/%d)</span>',
-			$quality,
-			$alt['percentage'],
-			$alt['with_alt'],
-			$alt['total']
 		);
 	}
 
 	protected function get_bulk_actions()
 	{
 		return array(
-			'push_to_platform'     => _x('Push to platform for optimization', 'List table bulk action', 'metasync'),
 			/* translators: %s: effective plugin name (whitelabel-aware). */
 			'clear_metasync_cache' => sprintf(_x('Clear %s cache for selected', 'List table bulk action', 'metasync'), Metasync::get_effective_plugin_name()),
 		);
@@ -194,12 +171,6 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 					}
 				}
 			}
-		}
-
-		if ('push_to_platform' === $this->current_action()) {
-			// TODO: Implement Search Atlas API integration to queue posts for optimization.
-			// The action hook is in place — needs a listener once the backend API endpoint exists.
-			do_action('metasync_push_posts_to_platform', $post_ids);
 		}
 	}
 
@@ -263,11 +234,13 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 	private function get_missing_options()
 	{
 		return array(
-			'missing_title'       => __('Missing SEO Title', 'metasync'),
-			'missing_description' => __('Missing Description', 'metasync'),
-			'missing_schema'      => __('Missing Schema', 'metasync'),
-			'missing_og_image'    => __('Missing OG Image', 'metasync'),
-			'missing_alt_text'    => __('Missing Alt Text', 'metasync'),
+			'missing_title'         => __('Missing SEO Title', 'metasync'),
+			'missing_description'   => __('Missing Description', 'metasync'),
+			'missing_schema'        => __('Missing Schema', 'metasync'),
+			'seo_title_too_short'   => __('SEO Title Too Short', 'metasync'),
+			'seo_title_too_long'    => __('SEO Title Too Long', 'metasync'),
+			'description_too_short' => __('Description Too Short', 'metasync'),
+			'description_too_long'  => __('Description Too Long', 'metasync'),
 		);
 	}
 
@@ -327,11 +300,10 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 		$args['metasync_exclude_custom_pages'] = true;
 		add_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10, 2);
 
-		// Missing filters (title, description, schema, og_image) use correlated
-		// anti-existence conditions instead of per-key postmeta joins.
-		// This avoids multiplying rows on large stores, especially when found_posts is calculated.
-		$query = null;
 		if ($this->uses_optimized_missing_meta_filter($missing_filter)) {
+			// Missing title/description stay a single paginated query with a
+			// correlated anti-existence condition — pure key presence needs no
+			// PHP evaluation.
 			$args['posts_per_page'] = $per_page;
 			$args['paged'] = $current_page;
 			$args['metasync_seo_health_missing_filter'] = $missing_filter;
@@ -346,26 +318,56 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 
 			$this->items = $query->posts;
 			$total_items = $query->found_posts;
-		}
-
-		if (!($query instanceof WP_Query)) {
+		} elseif ($this->uses_php_post_filter($missing_filter)) {
 			try {
-				if ($missing_filter === 'missing_alt_text') {
-					// Alt text requires post_content inspection and post-query filtering.
-					$args['posts_per_page'] = -1;
-					$query = new WP_Query($args);
-					$all_filtered = $this->filter_missing_alt_text($query->posts);
-					$total_items = count($all_filtered);
-					$this->items = array_slice($all_filtered, ($current_page - 1) * $per_page, $per_page);
-				} else {
-					// No missing filter (or unrecognized filter) - standard paginated query.
-					$args['posts_per_page'] = $per_page;
-					$args['paged'] = $current_page;
+				// Schema presence and length checks must run the exact code the
+				// row renderer runs, so they filter in PHP after the query. Scan
+				// IDs in bounded chunks so a large store never loads every post
+				// object at once, cache the matching IDs so pagination and
+				// re-visits don't rescan, then fetch only the current page window.
+				$ids_cache_key = Metasync_SEO_Health::matching_ids_transient_key(
+					$missing_filter,
+					$args['post_type'],
+					$args['post_status'],
+					isset($args['s']) ? $args['s'] : ''
+				);
+				$matching_ids = get_transient($ids_cache_key);
 
-					$query = new WP_Query($args);
-					$this->items = $query->posts;
-					$total_items = $query->found_posts;
+				if (!is_array($matching_ids)) {
+					$matching_ids = $this->scan_matching_ids($args, $missing_filter);
+					set_transient($ids_cache_key, $matching_ids, Metasync_SEO_Health::IDS_CACHE_TTL);
 				}
+			} finally {
+				remove_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10);
+			}
+
+			$total_items = count($matching_ids);
+			$this->items = empty($matching_ids)
+				? array()
+				: get_posts(array(
+					'post_type'              => $args['post_type'],
+					'post_status'            => $args['post_status'],
+					'post__in'               => $matching_ids,
+					'posts_per_page'         => $per_page,
+					'paged'                  => $current_page,
+					// The ID tiebreaker keeps pagination stable when the sort
+					// key ties: with no_found_rows MySQL may pick a
+					// priority-queue sort whose tie order is undocumented,
+					// which skips and duplicates rows across pages.
+					'orderby'                => $args['orderby'] . ' ID',
+					'order'                  => $args['order'],
+					'no_found_rows'          => true,
+					'update_post_meta_cache' => true,
+				));
+		} else {
+			try {
+				// No missing filter (or a stale/unrecognized value) — standard paginated query.
+				$args['posts_per_page'] = $per_page;
+				$args['paged'] = $current_page;
+
+				$query = new WP_Query($args);
+				$this->items = $query->posts;
+				$total_items = $query->found_posts;
 			} finally {
 				remove_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10);
 			}
@@ -386,7 +388,102 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 	 */
 	private function uses_optimized_missing_meta_filter($filter)
 	{
-		return in_array($filter, array('missing_title', 'missing_description', 'missing_schema', 'missing_og_image'), true);
+		return in_array($filter, array('missing_title', 'missing_description'), true);
+	}
+
+	/**
+	 * Whether a filter needs the shared PHP predicates the row renderer uses
+	 * (schema presence, resolved-value lengths) and so must filter after the
+	 * query instead of inside it.
+	 *
+	 * @param string $filter The missing_filter value.
+	 * @return bool
+	 */
+	private function uses_php_post_filter($filter)
+	{
+		return in_array($filter, array(
+			'missing_schema',
+			'seo_title_too_short',
+			'seo_title_too_long',
+			'description_too_short',
+			'description_too_long',
+		), true);
+	}
+
+	/**
+	 * Scan the filtered population in ascending-ID chunks and return every ID
+	 * that matches the PHP predicate for the given filter.
+	 *
+	 * This scan is the expensive half of the PHP-filter path — one query per
+	 * chunk plus priming — so it runs once per filter+population and the caller
+	 * caches the result. Each chunk's primed data is evicted again once its
+	 * predicates have run, keeping the scan's object-cache footprint at one
+	 * chunk no matter how large the store is.
+	 *
+	 * @param array  $args   Population args (post types, statuses, search).
+	 * @param string $filter The missing_filter value.
+	 * @return int[] Matching post IDs in ascending ID order.
+	 */
+	private function scan_matching_ids(array $args, $filter)
+	{
+		$chunk_size = 500;
+		$scan_args = $args;
+		unset($scan_args['orderby'], $scan_args['order']);
+		$scan_args['posts_per_page'] = $chunk_size;
+		$scan_args['orderby'] = 'ID';
+		$scan_args['order'] = 'ASC';
+		$scan_args['fields'] = 'ids';
+		$scan_args['no_found_rows'] = true;
+		$scan_args['update_post_meta_cache'] = false;
+		$scan_args['update_post_term_cache'] = false;
+
+		$matching_ids = array();
+		$last_id = 0;
+		add_filter('posts_where', array('Metasync_SEO_Inventory_Builder', 'filter_where_id_gt'), 10, 2);
+
+		try {
+			while (true) {
+				if ($last_id > 0) {
+					$scan_args['where_id_gt'] = $last_id;
+				}
+
+				$query = new WP_Query($scan_args);
+				$chunk_ids = $query->posts;
+
+				if (empty($chunk_ids)) {
+					break;
+				}
+
+				update_meta_cache('post', $chunk_ids);
+
+				// Prime post objects for the length predicates — they resolve
+				// permalinks, which would otherwise cost one single-post query
+				// per ID in the chunk. Meta-only filters skip the priming.
+				if (!in_array($filter, self::META_ONLY_FILTERS, true)) {
+					_prime_post_caches($chunk_ids, false, false);
+				}
+
+				foreach ($chunk_ids as $post_id) {
+					if ($this->post_matches_filter((int) $post_id, $filter)) {
+						$matching_ids[] = (int) $post_id;
+					}
+					$last_id = (int) $post_id;
+				}
+
+				// Drop the chunk's posts and meta again — only the matching
+				// IDs are allowed to leave the scan.
+				wp_cache_delete_multiple($chunk_ids, 'posts');
+				wp_cache_delete_multiple($chunk_ids, 'post_meta');
+
+				if (count($chunk_ids) < $chunk_size) {
+					break;
+				}
+			}
+		} finally {
+			remove_filter('posts_where', array('Metasync_SEO_Inventory_Builder', 'filter_where_id_gt'), 10);
+		}
+
+		return $matching_ids;
 	}
 
 	/**
@@ -420,40 +517,6 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 	private static function build_missing_meta_filter_where($filter)
 	{
 		global $wpdb;
-
-		if ($filter === 'missing_schema') {
-			return $wpdb->prepare(
-				" AND NOT EXISTS (\n"
-					. "\tSELECT 1\n"
-					. "\tFROM {$wpdb->postmeta} AS metasync_seo_health_meta\n"
-					. "\tWHERE metasync_seo_health_meta.post_id = {$wpdb->posts}.ID\n"
-					. "\t\tAND metasync_seo_health_meta.meta_key = %s\n"
-					. "\t\tAND metasync_seo_health_meta.meta_value NOT IN ('', '[]')\n"
-					. ")",
-				'metasync_schema_markup'
-			);
-		}
-
-		if ($filter === 'missing_og_image') {
-			return $wpdb->prepare(
-				" AND NOT EXISTS (\n"
-					. "\tSELECT 1\n"
-					. "\tFROM {$wpdb->postmeta} AS metasync_seo_health_og\n"
-					. "\tWHERE metasync_seo_health_og.post_id = {$wpdb->posts}.ID\n"
-					. "\t\tAND metasync_seo_health_og.meta_key = %s\n"
-					. "\t\tAND metasync_seo_health_og.meta_value <> ''\n"
-					. ")\n"
-					. "AND NOT EXISTS (\n"
-					. "\tSELECT 1\n"
-					. "\tFROM {$wpdb->postmeta} AS metasync_seo_health_thumb\n"
-					. "\tWHERE metasync_seo_health_thumb.post_id = {$wpdb->posts}.ID\n"
-					. "\t\tAND metasync_seo_health_thumb.meta_key = %s\n"
-					. "\t\tAND metasync_seo_health_thumb.meta_value <> ''\n"
-					. ")",
-				'_metasync_og_image',
-				'_thumbnail_id'
-			);
-		}
 
 		$keys = self::get_missing_meta_keys($filter);
 		if (empty($keys)) {
@@ -492,24 +555,39 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 	}
 
 	/**
-	 * Filter posts that have images missing alt text.
+	 * Whether a post matches a filter that needs the shared PHP predicates.
 	 *
-	 * @param array $posts Array of WP_Post objects.
-	 * @return array Filtered posts with missing alt text.
+	 * The length ranges are the class constants that also drive the table's
+	 * orange (suboptimal) highlighting, so a filter always returns exactly the
+	 * rows highlighted for that field.
+	 *
+	 * @param int    $post_id Post ID.
+	 * @param string $filter  The missing_filter value.
+	 * @return bool
 	 */
-	private function filter_missing_alt_text($posts)
+	private function post_matches_filter($post_id, $filter)
 	{
-		$filtered = array();
-		foreach ($posts as $post) {
-			if (preg_match_all('/<img[^>]*>/i', $post->post_content, $matches)) {
-				foreach ($matches[0] as $img_tag) {
-					if (!preg_match('/alt\s*=\s*["\']([^"\']+)["\']/i', $img_tag)) {
-						$filtered[] = $post;
-						break;
-					}
-				}
-			}
+		switch ($filter) {
+			case 'missing_schema':
+				return !Metasync_SEO_Health::has_schema($post_id);
+
+			case 'seo_title_too_short':
+				$title = Metasync_SEO_Health::get_seo_meta_with_fallback($post_id, 'title')['value'];
+				return $title !== '' && mb_strlen($title) < self::SEO_TITLE_MIN;
+
+			case 'seo_title_too_long':
+				$title = Metasync_SEO_Health::get_seo_meta_with_fallback($post_id, 'title')['value'];
+				return mb_strlen($title) > self::SEO_TITLE_MAX;
+
+			case 'description_too_short':
+				$description = Metasync_SEO_Health::get_seo_meta_with_fallback($post_id, 'description')['value'];
+				return $description !== '' && mb_strlen($description) < self::META_DESCRIPTION_MIN;
+
+			case 'description_too_long':
+				$description = Metasync_SEO_Health::get_seo_meta_with_fallback($post_id, 'description')['value'];
+				return mb_strlen($description) > self::META_DESCRIPTION_MAX;
 		}
-		return $filtered;
+
+		return false;
 	}
 }

@@ -91,7 +91,46 @@ class Metasync_Robots_Txt_Database
     }
 
     /**
+     * Whether the most recent create_backup() call inserted a new row.
+     *
+     * create_backup() returns an id both for a fresh row and for an existing
+     * newest backup it deduplicated against; the flag tells callers which one happened.
+     *
+     * @var bool
+     */
+    private $last_backup_inserted = false;
+
+    /**
+     * Normalise robots.txt content for equality checks.
+     *
+     * Browsers submit textarea values with CRLF while the plugin, MCP tools and
+     * sitemap helpers write LF, so line endings must not count as a change.
+     * Leading/trailing whitespace is ignored as well.
+     *
+     * @param string $content Raw content
+     * @return string Content with LF line endings and no surrounding whitespace
+     */
+    public static function normalize_for_compare($content)
+    {
+        return trim(str_replace(array("\r\n", "\r"), "\n", (string) $content));
+    }
+
+    /**
+     * Whether the last create_backup() call inserted a new row.
+     *
+     * @return bool
+     */
+    public function last_backup_was_inserted()
+    {
+        return $this->last_backup_inserted;
+    }
+
+    /**
      * Create a backup
+     *
+     * Skips the insert when the content matches the newest stored backup
+     * (ignoring line-ending and surrounding-whitespace differences) and
+     * returns that backup's id instead.
      *
      * @param string $content Content to backup
      * @return int|bool Backup ID on success, false on failure
@@ -99,6 +138,15 @@ class Metasync_Robots_Txt_Database
     public function create_backup($content)
     {
         global $wpdb;
+
+        $this->last_backup_inserted = false;
+
+        // Check if the content matches the newest stored backup
+        $newest = $wpdb->get_row("SELECT id, content FROM {$this->table_name} ORDER BY created_at DESC, id DESC LIMIT 1", ARRAY_A); // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- custom-table repository for robots.txt backups; table name is $wpdb->prefix plus a constant
+
+        if ($newest && isset($newest['content']) && self::normalize_for_compare($newest['content']) === self::normalize_for_compare($content)) {
+            return (int) $newest['id'];
+        }
 
         $result = $wpdb->insert( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- custom-table repository for robots.txt backups (admin save/restore paths)
             $this->table_name,
@@ -113,6 +161,8 @@ class Metasync_Robots_Txt_Database
         if (false === $result) {
             return false;
         }
+
+        $this->last_backup_inserted = true;
 
         // Keep only last 50 backups
         $this->cleanup_old_backups(self::MAX_BACKUPS);
@@ -255,11 +305,6 @@ class Metasync_Robots_Txt_Database
     /**
      * Drop table (for uninstall)
      */
-    public function drop_table()
-    {
-        global $wpdb;
-        $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}metasync_robots_txt_backups"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- uninstall cleanup — intentional table removal when the plugin is deleted
-    }
 
     /**
      * Store virtual robots.txt content (when physical file cannot be created)

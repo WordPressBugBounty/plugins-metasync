@@ -672,7 +672,7 @@ class Metasync_OpenGraph {
             return false;
         }
 
-        # OTTO active with persisted OG data owns the page (legacy emitter suppresses too)
+        # OTTO active with live OG staging data owns the page (legacy emitter suppresses too)
         if ($this->otto_owns_og($post->ID)) {
             return false;
         }
@@ -688,22 +688,99 @@ class Metasync_OpenGraph {
     /**
      * Whether OTTO owns this page's Open Graph / Twitter output.
      *
-     * When OTTO is enabled and has persisted OG data for the post, OTTO's
+     * When OTTO is enabled and has live OG data for the post, OTTO's
      * dynamically-injected tags (and the buffer-level dedup) take precedence, so
      * the per-post OG meta box values are not emitted on the frontend. Shared by
      * the frontend emitter (to suppress duplicate output) and the admin meta box
      * (to warn the user their values won't apply on an OTTO-managed page).
      *
-     * @param int $post_id
+     * A liveness check is required: non-empty `_metasync_otto_og_*` staging meta
+     * is volatile — it persists after OTTO stops holding data for the URL (a 404
+     * crawl-notify never reaches the clearing code). Without the check, a
+     * MetaSync-native site silently loses every social card tag because the OG
+     * emitter bails on stale staging meta while OTTO's render path is idle. The
+     * title path already guards this condition with
+     * Metasync_SEO_Conflict_Handler::otto_has_live_suggestions(); the OG path
+     * now mirrors it.
+     *
+     * @param int  $post_id
+     * @param bool $request_aware Whether to require live request data. Frontend
+     *                            output must be request-aware; admin warnings must
+     *                            remain based on persisted OTTO ownership.
      * @return bool
      */
-    private function otto_owns_og($post_id) {
+    private function otto_owns_og($post_id, $request_aware = true) {
+        if (self::class_provides('Metasync_Otto_Frontend_Toolbar', 'is_otto_disabled')
+            && Metasync_Otto_Frontend_Toolbar::is_otto_disabled((int) $post_id)
+        ) {
+            return false;
+        }
         if (!class_exists('Metasync_Otto_Config') || !Metasync_Otto_Config::is_otto_enabled()) {
             return false;
         }
         $otto_og_title = get_post_meta($post_id, '_metasync_otto_og_title', true);
         $otto_og_desc  = get_post_meta($post_id, '_metasync_otto_og_description', true);
-        return !empty($otto_og_title) || !empty($otto_og_desc);
+        if (empty($otto_og_title) && empty($otto_og_desc)) {
+            return false;
+        }
+        # Frontend output must only defer to OTTO when the current request has
+        # live suggestions. The admin warning still uses persisted ownership so
+        # editors know their saved social values may be superseded on deployment.
+        if ($request_aware && class_exists('Metasync_SEO_Conflict_Handler')) {
+            $handler = Metasync_SEO_Conflict_Handler::get_instance();
+            if (!$handler->otto_has_live_suggestions()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Whether the precedence resolver may read OTTO's social staging tier.
+     *
+     * A per-post Disable OTTO choice always answers no. Otherwise, global
+     * OTTO-off states retain the resolver's existing behavior for stored
+     * values. When OTTO is enabled, however, stale OG staging data must not
+     * outrank the live post/default fallback after OTTO goes idle.
+     *
+     * @param int $post_id
+     * @return bool
+     */
+    private function include_otto_og_values($post_id) {
+        // Checked before every early return: the result is passed to the
+        // resolver as an explicit include_otto, which skips the resolver's own
+        // per-post check. Answering true here would put OTTO's description and
+        // twitter tiers on the card of a post that opted out of OTTO.
+        if (self::class_provides('Metasync_Otto_Frontend_Toolbar', 'is_otto_disabled')
+            && Metasync_Otto_Frontend_Toolbar::is_otto_disabled((int) $post_id)
+        ) {
+            return false;
+        }
+
+        if (!class_exists('Metasync_Otto_Config') || !Metasync_Otto_Config::is_otto_enabled()) {
+            return true;
+        }
+
+        $otto_og_title = get_post_meta($post_id, '_metasync_otto_og_title', true);
+        $otto_og_desc  = get_post_meta($post_id, '_metasync_otto_og_description', true);
+        if (empty($otto_og_title) && empty($otto_og_desc)) {
+            return true;
+        }
+
+        return $this->otto_owns_og($post_id);
+    }
+
+    /**
+     * Version-skew guard: a partial upgrade can leave one plugin file newer
+     * than another, so probe the toolbar through parameters that cannot be
+     * narrowed to a single static-analysis snapshot.
+     *
+     * @param string $class
+     * @param string $method
+     * @return bool
+     */
+    private static function class_provides($class, $method) {
+        return class_exists($class) && method_exists($class, $method);
     }
 
     /**
@@ -846,8 +923,9 @@ class Metasync_OpenGraph {
             $twitter_image = $og_image;
         }
 
-        # Whether OTTO is managing this page's OG output (values below won't apply on the frontend)
-        $otto_owns_og = $this->otto_owns_og($post->ID);
+        # Whether OTTO is managing this page's OG output (saved staging data means
+        # the admin warning remains visible even when no frontend request is live)
+        $otto_owns_og = $this->otto_owns_og($post->ID, false);
 
         # Include the meta box template
         include plugin_dir_path(__FILE__) . '../admin/partials/metasync-opengraph-meta-box.php';
@@ -1209,10 +1287,12 @@ class Metasync_OpenGraph {
             return;
         }
 
-        # When OTTO owns this page's OG (enabled + persisted OG data), skip legacy
-        # OG output. For cases where OTTO's pixel injects OG tags dynamically
-        # (without persisting to _metasync_otto_og_* meta), the buffer-level dedup
-        # in Otto_html_class::deduplicate_og_twitter_tags() handles cleanup.
+        # When OTTO owns this page's OG (enabled + live OG staging data), skip
+        # MetaSync's own OG output. For cases where OTTO's pixel injects OG tags
+        # dynamically (without persisting to _metasync_otto_og_* meta), the
+        # buffer-level dedup in Otto_html_class::deduplicate_og_twitter_tags()
+        # handles cleanup. The check reads the volatile staging keys, not
+        # persisted OG data.
         if ($this->otto_owns_og($post->ID)) {
             return;
         }
@@ -1232,12 +1312,40 @@ class Metasync_OpenGraph {
         # fallback (or OTTO's tier) rather than outranking it. The literal
         # fallbacks below the chain (post title, excerpt, featured image) stay
         # here: they are derived at render time, not stored.
-        $og_title = Metasync_Seo_Precedence::value($post->ID, Metasync_Seo_Precedence::FIELD_OG_TITLE)
-            ?: self::social_post_title($post);
-        $og_description = Metasync_Seo_Precedence::value($post->ID, Metasync_Seo_Precedence::FIELD_OG_DESCRIPTION)
-            ?: $this->get_post_excerpt($post);
-        $og_image = Metasync_Seo_Precedence::value($post->ID, Metasync_Seo_Precedence::FIELD_OG_IMAGE)
-            ?: $this->get_featured_image_url($post->ID);
+        $include_otto = $this->include_otto_og_values($post->ID);
+        $og_title = Metasync_Seo_Precedence::value(
+            $post->ID,
+            Metasync_Seo_Precedence::FIELD_OG_TITLE,
+            Metasync_Seo_Precedence::TYPE_POST,
+            ['include_otto' => $include_otto]
+        ) ?: self::social_post_title($post);
+        $og_description = Metasync_Seo_Precedence::value(
+            $post->ID,
+            Metasync_Seo_Precedence::FIELD_OG_DESCRIPTION,
+            Metasync_Seo_Precedence::TYPE_POST,
+            ['include_otto' => $include_otto]
+        );
+        if ('' === $og_description) {
+            # No OG-specific value: the page description the SEO sidebar manages
+            # is the curated tier below it — above the raw excerpt — so a post
+            # with only a sidebar description keeps that value on its social
+            # card. The sidebar's own og:/twitter: echo is deferred while this
+            # class emits, so without this fallback the curated description
+            # would reach neither emitter.
+            $og_description = Metasync_Seo_Precedence::value(
+                $post->ID,
+                Metasync_Seo_Precedence::FIELD_DESCRIPTION,
+                Metasync_Seo_Precedence::TYPE_POST,
+                ['include_otto' => $include_otto]
+            );
+        }
+        $og_description = $og_description ?: $this->get_post_excerpt($post);
+        $og_image = Metasync_Seo_Precedence::value(
+            $post->ID,
+            Metasync_Seo_Precedence::FIELD_OG_IMAGE,
+            Metasync_Seo_Precedence::TYPE_POST,
+            ['include_otto' => $include_otto]
+        ) ?: $this->get_featured_image_url($post->ID);
         $canonical_override = '';
         if (class_exists('Metasync_Headless_Config') && Metasync_Headless_Config::is_active()) {
             # The two manual keys of the canonical chain, in the same order the
@@ -1288,12 +1396,24 @@ class Metasync_OpenGraph {
             $twitter_site = '@' . $twitter_username;
         }
         $twitter_creator = !empty($twitter_username) ? '@' . $twitter_username : '';
-        $twitter_title = Metasync_Seo_Precedence::value($post->ID, Metasync_Seo_Precedence::FIELD_TWITTER_TITLE)
-            ?: $og_title;
-        $twitter_description = Metasync_Seo_Precedence::value($post->ID, Metasync_Seo_Precedence::FIELD_TWITTER_DESCRIPTION)
-            ?: $og_description;
-        $twitter_image = Metasync_Seo_Precedence::value($post->ID, Metasync_Seo_Precedence::FIELD_TWITTER_IMAGE)
-            ?: $og_image;
+        $twitter_title = Metasync_Seo_Precedence::value(
+            $post->ID,
+            Metasync_Seo_Precedence::FIELD_TWITTER_TITLE,
+            Metasync_Seo_Precedence::TYPE_POST,
+            ['include_otto' => $include_otto]
+        ) ?: $og_title;
+        $twitter_description = Metasync_Seo_Precedence::value(
+            $post->ID,
+            Metasync_Seo_Precedence::FIELD_TWITTER_DESCRIPTION,
+            Metasync_Seo_Precedence::TYPE_POST,
+            ['include_otto' => $include_otto]
+        ) ?: $og_description;
+        $twitter_image = Metasync_Seo_Precedence::value(
+            $post->ID,
+            Metasync_Seo_Precedence::FIELD_TWITTER_IMAGE,
+            Metasync_Seo_Precedence::TYPE_POST,
+            ['include_otto' => $include_otto]
+        ) ?: $og_image;
         $twitter_image_alt = get_post_meta($post->ID, '_metasync_twitter_image_alt', true);
 
         # Resolve OG image attachment ID once for reuse (twitter:image:alt fallback + og:image dimensions)
@@ -1333,7 +1453,7 @@ class Metasync_OpenGraph {
         $twitter_player_height = get_post_meta($post->ID, '_metasync_twitter_player_height', true);
 
         # Output Open Graph tags
-        echo "\n<!-- MetaSync Open Graph Tags -->\n";
+        echo "\n<!-- " . esc_html(Metasync::get_effective_plugin_name()) . " Open Graph Tags -->\n";
         echo '<meta property="og:locale" content="' . esc_attr(get_locale()) . '">' . "\n";
         if ($og_title) {
             echo '<meta property="og:title" content="' . esc_attr($og_title) . '">' . "\n";
@@ -1374,7 +1494,7 @@ class Metasync_OpenGraph {
         }
 
         # Output Twitter Card tags
-        echo "<!-- MetaSync Twitter Card Tags -->\n";
+        echo "<!-- " . esc_html(Metasync::get_effective_plugin_name()) . " Twitter Card Tags -->\n";
         if ($twitter_card) {
             echo '<meta name="twitter:card" content="' . esc_attr($twitter_card) . '">' . "\n";
         }
@@ -1435,7 +1555,7 @@ class Metasync_OpenGraph {
             }
         }
         
-        echo "<!-- End MetaSync Social Media Tags -->\n\n";
+        echo "<!-- End " . esc_html(Metasync::get_effective_plugin_name()) . " Social Media Tags -->\n\n";
     }
 
     /**
@@ -1533,7 +1653,7 @@ class Metasync_OpenGraph {
         $article_section_enabled    = ($settings['article_section']    ?? 'true') !== 'false';
         $article_tags_enabled       = ($settings['article_tags']       ?? 'true') !== 'false';
 
-        echo "<!-- MetaSync Article Tags -->\n";
+        echo "<!-- " . esc_html(Metasync::get_effective_plugin_name()) . " Article Tags -->\n";
 
         # article:published_time / article:modified_time
         if ($article_timestamps_enabled) {
@@ -1598,7 +1718,7 @@ class Metasync_OpenGraph {
             }
         }
 
-        echo "<!-- End MetaSync Article Tags -->\n";
+        echo "<!-- End " . esc_html(Metasync::get_effective_plugin_name()) . " Article Tags -->\n";
     }
 
     /**
@@ -2082,27 +2202,6 @@ class Metasync_OpenGraph {
     /**
      * Check if a specific SEO plugin is handling Open Graph for current post
      */
-    private function seo_plugin_has_og_data($post_id) {
-        # Check if Yoast SEO has Open Graph data
-        if (is_plugin_active('wordpress-seo/wp-seo.php')) {
-            $yoast_title = get_post_meta($post_id, '_yoast_wpseo_title', true);
-            $yoast_desc = get_post_meta($post_id, '_yoast_wpseo_metadesc', true);
-            if (!empty($yoast_title) || !empty($yoast_desc)) {
-                return true;
-            }
-        }
-
-        # Check if RankMath has Open Graph data
-        if (is_plugin_active('seo-by-rank-math/rank-math.php')) {
-            $rm_title = get_post_meta($post_id, 'rank_math_title', true);
-            $rm_desc = get_post_meta($post_id, 'rank_math_description', true);
-            if (!empty($rm_title) || !empty($rm_desc)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
 
     /**
      * Get the canonical URL for a post

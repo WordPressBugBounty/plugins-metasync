@@ -25,7 +25,7 @@ Class Metasync_otto_pixel{
         $this->otto_uuid = $otto_uuid;
 
         # load the html class
-        $this->o_html = new Metasync_otto_html($otto_uuid);
+        $this->o_html = new Metasync_otto_html();
 
     }
 
@@ -148,15 +148,6 @@ Class Metasync_otto_pixel{
             # stop otto
             return;
         }
-
-        /*
-        #uncomment to test on local hosts
-        if(!empty($_GET['otto_test'])){
-
-            # @dev
-            $route = 'https://staging-perm.wp65.qa.internal.searchatlas.com/';
-        }
-        */
 
         # OPTION 1 IMPLEMENTATION: Check transient cache instead of notification data
         # This makes the system self-healing - works even if notifications fail

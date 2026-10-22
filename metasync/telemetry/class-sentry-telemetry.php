@@ -353,73 +353,7 @@ class Metasync_Sentry_Telemetry {
         return $wpdb->get_var('SELECT VERSION()'); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- diagnostic metadata — SELECT VERSION() has no cached WordPress API
     }
 
-    /**
-     * Capture WordPress hook execution
-     * 
-     * @param string $hook Hook name
-     * @param array $args Hook arguments
-     * @param float $execution_time Execution time
-     * @return array Telemetry data
-     */
-    public function capture_hook_execution($hook, $args, $execution_time) {
-        $context = array(
-            'event_type' => 'hook_execution',
-            'hook_name' => $hook,
-            'args_count' => count($args),
-            'execution_time' => $execution_time
-        );
 
-        return $this->capture_message("Hook executed: {$hook}", 'debug', $context);
-    }
 
-    /**
-     * Capture database query performance
-     * 
-     * @param string $query SQL query
-     * @param float $execution_time Execution time
-     * @param array $context Additional context
-     * @return array Telemetry data
-     */
-    public function capture_db_query($query, $execution_time, $context = array()) {
-        $query_context = array_merge($context, array(
-            'event_type' => 'database_query',
-            'query' => $this->sanitize_query($query),
-            'execution_time' => $execution_time,
-            'query_type' => $this->get_query_type($query)
-        ));
 
-        return $this->capture_message("Database query executed", 'debug', $query_context);
-    }
-
-    /**
-     * Sanitize SQL query for logging
-     * 
-     * @param string $query SQL query
-     * @return string Sanitized query
-     */
-    private function sanitize_query($query) {
-        // Remove sensitive data and truncate long queries
-        $query = preg_replace('/\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b/', 'XXXX-XXXX-XXXX-XXXX', $query);
-        $query = preg_replace('/\b[\w\.-]+@[\w\.-]+\.\w+\b/', '[email]', $query);
-        
-        if (strlen($query) > 500) {
-            $query = substr($query, 0, 497) . '...';
-        }
-        
-        return $query;
-    }
-
-    /**
-     * Get query type from SQL
-     * 
-     * @param string $query SQL query
-     * @return string Query type
-     */
-    private function get_query_type($query) {
-        $query = strtoupper(trim($query));
-        if (preg_match('/^(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/', $query, $matches)) {
-            return strtolower($matches[1]);
-        }
-        return 'unknown';
-    }
 }

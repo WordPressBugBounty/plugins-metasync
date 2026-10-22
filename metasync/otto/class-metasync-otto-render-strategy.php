@@ -10,7 +10,7 @@
  * - Response headers indicating method used
  * - Detection of caching plugins and managed hosts
  * 
- * @since 2.6.0
+ * @since 2.5.14
  */
 
 if (!defined('ABSPATH')) {
@@ -1492,23 +1492,10 @@ class Metasync_Otto_Render_Strategy {
      * 
      * @return bool
      */
-    public static function is_buffer_active() {
-        return self::$buffer_active;
-    }
 
     /**
      * Cancel buffer processing (for fallback to HTTP)
      */
-    public static function cancel_buffer() {
-        if (self::$buffer_active) {
-            # End our buffer without processing
-            if (ob_get_level() > self::$buffer_start_level) {
-                ob_end_flush();
-            }
-            self::$buffer_active = false;
-            self::$current_method = self::METHOD_HTTP;
-        }
-    }
 
     /**
      * Get diagnostic information about current environment

@@ -7,7 +7,7 @@
  *
  * @package    MetaSync
  * @subpackage MCP_Server/Tools
- * @since      2.8.0
+ * @since      2.5.19
  */
 
 if (!defined('ABSPATH')) {
@@ -81,6 +81,28 @@ class MCP_Tool_Audit_Alt_Text extends MCP_Tool_Base {
             'update_post_term_cache' => false,
         ];
 
+        // Apply the requested alt-text status in SQL, before LIMIT/OFFSET.
+        // The PHP check below remains defensive for malformed legacy values.
+        if ($status === 'missing') {
+            $query_args['meta_query'] = [
+                'relation' => 'OR',
+                ['key' => '_wp_attachment_image_alt', 'compare' => 'NOT EXISTS'],
+                ['key' => '_wp_attachment_image_alt', 'value' => '', 'compare' => '='],
+            ];
+        } elseif ($status === 'short') {
+            $query_args['meta_query'] = [[
+                'key' => '_wp_attachment_image_alt',
+                'value' => '^.{1,9}$',
+                'compare' => 'REGEXP',
+            ]];
+        } elseif ($status === 'long') {
+            $query_args['meta_query'] = [[
+                'key' => '_wp_attachment_image_alt',
+                'value' => '^.{126,}$',
+                'compare' => 'REGEXP',
+            ]];
+        }
+
         $query = new WP_Query($query_args);
         $images = [];
         $counts = [
@@ -92,6 +114,9 @@ class MCP_Tool_Audit_Alt_Text extends MCP_Tool_Base {
 
         foreach ($query->posts as $attachment) {
             $alt_text = get_post_meta($attachment->ID, '_wp_attachment_image_alt', true);
+            if (!is_string($alt_text)) {
+                $alt_text = '';
+            }
             $alt_length = mb_strlen($alt_text);
 
             // Determine status
@@ -115,7 +140,8 @@ class MCP_Tool_Audit_Alt_Text extends MCP_Tool_Base {
             }
 
             $metadata = wp_get_attachment_metadata($attachment->ID);
-            $file_size = filesize(get_attached_file($attachment->ID));
+            $file_path = get_attached_file($attachment->ID);
+            $file_size = ($file_path && is_readable($file_path)) ? filesize($file_path) : null;
 
             $images[] = [
                 'attachment_id' => $attachment->ID,
@@ -162,7 +188,7 @@ class MCP_Tool_Audit_Alt_Text extends MCP_Tool_Base {
             'counts' => $counts,
             'filter' => $status,
             'images' => $images,
-            'recommendations' => $this->get_recommendations($counts, $total_images),
+            'recommendations' => $this->get_recommendations($counts, $images_analyzed),
         ]);
     }
 
@@ -172,9 +198,10 @@ class MCP_Tool_Audit_Alt_Text extends MCP_Tool_Base {
     private function get_recommendations($counts, $total) {
         $recommendations = [];
 
-        $missing_pct = ($counts['missing'] / max($total, 1)) * 100;
-        $short_pct = ($counts['short'] / max($total, 1)) * 100;
-        $long_pct = ($counts['long'] / max($total, 1)) * 100;
+        $denominator = max((int) $total, 1);
+        $missing_pct = ($counts['missing'] / $denominator) * 100;
+        $short_pct = ($counts['short'] / $denominator) * 100;
+        $long_pct = ($counts['long'] / $denominator) * 100;
 
         if ($missing_pct > 10) {
             $recommendations[] = [
@@ -280,7 +307,11 @@ class MCP_Tool_Bulk_Update_Alt_Text extends MCP_Tool_Base {
                     throw new Exception('Missing required fields: attachment_id, alt_text');
                 }
 
+                if (!is_string($update['alt_text'])) {
+                    throw new Exception('alt_text must be a string');
+                }
                 $attachment_id = intval($update['attachment_id']);
+                $this->check_post_permission($attachment_id);
                 $alt_text = sanitize_text_field($update['alt_text']);
 
                 // Verify attachment exists
@@ -296,8 +327,17 @@ class MCP_Tool_Bulk_Update_Alt_Text extends MCP_Tool_Base {
                 // Get old alt text
                 $old_alt_text = get_post_meta($attachment_id, '_wp_attachment_image_alt', true);
 
-                // Update alt text
-                update_post_meta($attachment_id, '_wp_attachment_image_alt', $alt_text);
+                // Empty alt text is a valid accessibility value, represented by
+                // removing the meta row rather than storing a stale string.
+                $updated = $alt_text === (string) $old_alt_text
+                    ? true
+                    : ($alt_text === ''
+                        ? (($old_alt_text === '' || $old_alt_text === false || $old_alt_text === null)
+                            || delete_post_meta($attachment_id, '_wp_attachment_image_alt'))
+                        : update_post_meta($attachment_id, '_wp_attachment_image_alt', $alt_text));
+                if ($updated === false) {
+                    throw new Exception('Failed to update alt text');
+                }
 
                 $results['success'][] = [
                     'attachment_id' => $attachment_id,
@@ -391,6 +431,9 @@ class MCP_Tool_Generate_Alt_Text extends MCP_Tool_Base {
 
         // Suggestion 2: Based on filename
         $filename_cleaned = $this->clean_filename($filename);
+        if ($filename_cleaned === '' || preg_match('/^\d+$/', str_replace(' ', '', $filename_cleaned))) {
+            $filename_cleaned = '';
+        }
         if (!empty($filename_cleaned)) {
             $suggestions[] = [
                 'source' => 'filename',

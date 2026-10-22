@@ -5,7 +5,7 @@
  *
  * @package     Search Atlas SEO
  * @copyright   Copyright (C) 2021-2025, Search Atlas Group - support@searchatlas.com
- * @since       2.6.0
+ * @since       2.5.23
  */
 
 if (!defined('ABSPATH')) {

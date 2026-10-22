@@ -86,6 +86,38 @@ class MCP_Tool_SEO_Health_Report extends MCP_Tool_Base {
             'order'          => 'DESC',
         ];
 
+        if (!empty($missing_filter)) {
+            $meta_key = null;
+            switch ($missing_filter) {
+                case 'missing_title':
+                    $meta_key = '_metasync_metatitle';
+                    break;
+                case 'missing_description':
+                    $meta_key = '_metasync_metadesc';
+                    break;
+                case 'missing_schema':
+                    $meta_key = 'metasync_schema_markup';
+                    break;
+                case 'missing_og_image':
+                    $meta_key = '_metasync_og_image';
+                    break;
+            }
+            if ($meta_key !== null) {
+                $args['meta_query'] = [
+                    'relation' => 'OR',
+                    ['key' => $meta_key, 'compare' => 'NOT EXISTS'],
+                    ['key' => $meta_key, 'value' => '', 'compare' => '='],
+                ];
+            }
+        }
+
+        if (!empty($missing_filter)) {
+            // Missing-field predicates include precedence fallbacks and HTML
+            // inspection, so filter the complete SQL result before paginating.
+            $args['posts_per_page'] = -1;
+            unset($args['paged']);
+        }
+
         // Exclude custom/LPS pages — their SEO is self-managed, so agents must
         // not see them flagged as missing SEO.
         $args['metasync_exclude_custom_pages'] = true;
@@ -98,9 +130,12 @@ class MCP_Tool_SEO_Health_Report extends MCP_Tool_Base {
         }
         $posts = $query->posts;
 
-        // Apply missing filter
         if (!empty($missing_filter)) {
             $posts = $this->apply_missing_filter($posts, $missing_filter);
+            $total = count($posts);
+            $posts = array_slice($posts, ($page - 1) * $per_page, $per_page);
+        } else {
+            $total = $query->found_posts;
         }
 
         $posts_data = [];
@@ -136,7 +171,7 @@ class MCP_Tool_SEO_Health_Report extends MCP_Tool_Base {
         }
 
         return $this->success([
-            'total'    => $query->found_posts,
+            'total'    => $total,
             'page'     => $page,
             'per_page' => $per_page,
             'posts'    => $posts_data,

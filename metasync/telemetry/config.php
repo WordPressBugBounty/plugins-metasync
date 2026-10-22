@@ -61,17 +61,6 @@ class Metasync_Telemetry_Config {
      * Maximum query execution time to consider "slow" (seconds)
      */
     const SLOW_QUERY_THRESHOLD = 1.0;
-    
-    /**
-     * Maximum number of slow queries to log per request
-     */
-    const MAX_SLOW_QUERIES_LOGGED = 5;
-    
-    /**
-     * Maximum SQL query length for logging (characters)
-     */
-    const MAX_QUERY_LOG_LENGTH = 500;
-    
     /**
      * Queue flush interval (cron)
      * Changed from hourly to every 2 hours to reduce database load
@@ -237,25 +226,6 @@ class Metasync_Telemetry_Config {
      *
      * @return array Error level mapping
      */
-    public static function get_error_level_map() {
-        return array(
-            E_ERROR => 'error',
-            E_WARNING => 'warning',
-            E_PARSE => 'error',
-            E_NOTICE => 'info',
-            E_CORE_ERROR => 'error',
-            E_CORE_WARNING => 'warning',
-            E_COMPILE_ERROR => 'error',
-            E_COMPILE_WARNING => 'warning',
-            E_USER_ERROR => 'error',
-            E_USER_WARNING => 'warning',
-            E_USER_NOTICE => 'info',
-            E_STRICT => 'info',
-            E_RECOVERABLE_ERROR => 'error',
-            E_DEPRECATED => 'warning',
-            E_USER_DEPRECATED => 'warning'
-        );
-    }
     
     /**
      * Get allowed log levels
@@ -272,42 +242,18 @@ class Metasync_Telemetry_Config {
      * @param string $level Log level to validate
      * @return string Valid log level
      */
-    public static function validate_log_level($level) {
-        $allowed_levels = self::get_allowed_log_levels();
-        return in_array($level, $allowed_levels) ? $level : 'info';
-    }
     
     /**
      * Get JWT configuration
      *
      * @return array JWT configuration
      */
-    public static function get_jwt_config() {
-        return array(
-            'algorithm' => 'HS256',
-            'expiration_time' => self::JWT_EXPIRATION_TIME,
-            'issuer' => home_url(),
-            'audience' => 'dash-api-telemetry'
-        );
-    }
     
     /**
      * Get request headers for API calls
      *
      * @return array Default headers
      */
-    public static function get_default_headers() {
-        $plugin_info = self::get_plugin_info();
-        
-        return array(
-            'Content-Type' => 'application/json',
-            'User-Agent' => 'MetaSyncTelemetry/' . $plugin_info['version'],
-            'X-Plugin-Version' => $plugin_info['version'],
-            'X-Site-Hash' => self::get_site_hash(),
-            'X-WordPress-Version' => get_bloginfo('version'),
-            'X-PHP-Version' => PHP_VERSION
-        );
-    }
     
     /**
      * Sanitize configuration value
@@ -316,35 +262,10 @@ class Metasync_Telemetry_Config {
      * @param mixed $value Value to sanitize
      * @return mixed Sanitized value
      */
-    public static function sanitize_config_value($key, $value) {
-        switch ($key) {
-            case 'enabled':
-                return (bool) $value;
-            case 'api_endpoint':
-                return esc_url_raw($value);
-            case 'jwt_expiration':
-            case 'max_retries':
-            case 'max_queue_size':
-            case 'request_timeout':
-                return absint($value);
-            case 'slow_query_threshold':
-                return floatval($value);
-            case 'environment':
-                $allowed = array('development', 'staging', 'production');
-                return in_array($value, $allowed) ? $value : 'production';
-            default:
-                return sanitize_text_field($value);
-        }
-    }
     
     /**
      * Reset telemetry configuration to defaults
      *
      * @return bool Success status
      */
-    public static function reset_to_defaults() {
-        delete_option(self::TELEMETRY_SETTINGS_OPTION_NAME);
-        delete_option(self::JWT_SECRET_OPTION_NAME);
-        return true;
-    }
 }

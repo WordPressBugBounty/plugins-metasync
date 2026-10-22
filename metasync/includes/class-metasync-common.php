@@ -91,19 +91,6 @@ class Metasync_Common
 		}
 	}
 
-	public function allowedDownloadSources($url)
-	{
-		return false;
-		$allowed_sources = array(
-			"https://storage.googleapis.com",
-			"https://drive.google.com"
-		);
-		foreach ($allowed_sources as $source) {
-			if (stripos($url, $source) !== false)
-				return true;
-		}
-		return false;
-	}
 
 	public function get_media_id_from_url($url) {
 		global $wpdb;
@@ -285,14 +272,4 @@ class Metasync_Common
 	/**
      * Check if Gutenberg is enabled or Elementor is active
     */
-    public static function check_default_page_editor() {
-        $instance = new self();
-        if ($instance->is_gutenberg_enabled()) {
-            return 'gutenberg';
-        } elseif ($instance->is_elementor_active()) {
-            return 'elementor';
-        } else {
-            return 'neither';
-        }
-    }
 }

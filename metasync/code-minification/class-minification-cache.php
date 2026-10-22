@@ -242,12 +242,6 @@ class Metasync_Minification_Cache {
     /**
      * Unschedule the daily cache cleanup cron job.
      */
-    public static function unschedule_cleanup(): void {
-        $timestamp = wp_next_scheduled(self::CRON_HOOK);
-        if ($timestamp) {
-            wp_unschedule_event($timestamp, self::CRON_HOOK);
-        }
-    }
 
     /**
      * Cron callback: purge expired files.

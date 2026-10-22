@@ -16,7 +16,7 @@
  * Manually entered values are never gated.
  *
  * @package MetaSync
- * @since 2.6.0
+ * @since 2.5.14
  */
 
 if (!defined('ABSPATH')) {
@@ -454,18 +454,12 @@ class Metasync_Otto_Persistence_Settings {
      * 
      * @return array
      */
-    public static function get_available_keys() {
-        return array_keys(self::$default_settings);
-    }
 
     /**
      * Delete all persistence settings (used on plugin uninstall)
      * 
      * @return bool
      */
-    public static function delete_settings() {
-        return delete_option(self::OPTION_NAME);
-    }
 }
 
 

@@ -319,6 +319,12 @@ class Metasync_Custom_Pages_API
 		wp_cache_delete($page_id, 'posts');
 		wp_cache_delete($page_id, 'post_meta');
 
+		Metasync_PostHog::feature('custom_page_action_completed', array(
+			'action' => 'created',
+			'success' => true,
+			'count' => 1,
+		));
+
 		// Return success response
 		return rest_ensure_response(array(
 			'success' => true,
@@ -411,6 +417,12 @@ class Metasync_Custom_Pages_API
 		// Clear cache
 		wp_cache_delete($page_id, 'posts');
 		wp_cache_delete($page_id, 'post_meta');
+
+		Metasync_PostHog::feature('custom_page_action_completed', array(
+			'action' => 'updated',
+			'success' => true,
+			'count' => 1,
+		));
 
 		// Return success response
 		return rest_ensure_response(array(
@@ -664,6 +676,12 @@ class Metasync_Custom_Pages_API
 			// status (404/400/500) to the HTTP status code.
 			return $result;
 		}
+
+		Metasync_PostHog::feature('custom_page_action_completed', array(
+			'action' => 'deleted',
+			'success' => true,
+			'count' => 1,
+		));
 
 		return rest_ensure_response(array(
 			'success' => true,

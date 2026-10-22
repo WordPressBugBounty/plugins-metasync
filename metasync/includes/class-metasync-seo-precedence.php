@@ -39,8 +39,25 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// Guarded: this file is also required by standalone harnesses that run without WordPress loaded.
+if (function_exists('add_filter')) {
+    add_filter('hello_elementor_description_meta_tag', ['Metasync_Seo_Precedence', 'filter_hello_elementor_description_meta_tag']);
+}
+
 final class Metasync_Seo_Precedence
 {
+    private static $description_output = false;
+
+    public static function mark_description_output(): void
+    {
+        self::$description_output = true;
+    }
+
+    public static function filter_hello_elementor_description_meta_tag($enabled)
+    {
+        return self::$description_output ? false : $enabled;
+    }
+
     const TYPE_POST = 'post';
     const TYPE_TERM = 'term';
 

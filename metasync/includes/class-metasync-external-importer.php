@@ -794,231 +794,18 @@ class Metasync_External_Importer
      * @param array  $options Import options
      * @return array Result array with success, imported, skipped, total, etc.
      */
-    public function import_primary_category($plugin, $options = [])
-    {
-        $defaults = [
-            'overwrite_existing' => false,
-            'batch_size' => 50,
-            'offset' => 0,
-        ];
-        $options = array_merge($defaults, $options);
-
-        if (!in_array($plugin, ['yoast', 'rankmath', 'aioseo'])) {
-            return [
-                'success' => false,
-                'message' => 'Invalid plugin specified.',
-            ];
-        }
-
-        switch ($plugin) {
-            case 'yoast':
-                return $this->import_yoast_primary_category($options);
-            case 'rankmath':
-                return $this->import_rankmath_primary_category($options);
-            case 'aioseo':
-                return $this->import_aioseo_primary_category($options);
-        }
-
-        return [
-            'success' => false,
-            'message' => 'Unknown error occurred.',
-        ];
-    }
 
     /**
      * Import primary category from Yoast SEO
      */
-    private function import_yoast_primary_category($options)
-    {
-        global $wpdb;
-
-        $batch_size = intval($options['batch_size']);
-        $offset = intval($options['offset']);
-        $overwrite = (bool) $options['overwrite_existing'];
-
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-        $total_posts = (int) $wpdb->get_var("
-            SELECT COUNT(DISTINCT post_id)
-            FROM {$wpdb->postmeta}
-            WHERE meta_key = '_yoast_wpseo_primary_category'
-            AND meta_value != ''
-            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-        ");
-
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-        $posts = $wpdb->get_results($wpdb->prepare("
-            SELECT DISTINCT post_id
-            FROM {$wpdb->postmeta}
-            WHERE meta_key = '_yoast_wpseo_primary_category'
-            AND meta_value != ''
-            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-            ORDER BY post_id ASC
-            LIMIT %d OFFSET %d
-        ", $batch_size, $offset));
-
-        $imported_count = 0;
-        $skipped_count = 0;
-
-        foreach ($posts as $post_obj) {
-            $post_id = $post_obj->post_id;
-            $term_id = absint(get_post_meta($post_id, '_yoast_wpseo_primary_category', true));
-
-            if ($term_id <= 0 || !get_term($term_id, 'category')) {
-                $skipped_count++;
-                continue;
-            }
-
-            $existing = (int) get_post_meta($post_id, '_metasync_primary_category', true);
-            if ($existing > 0 && !$overwrite) {
-                $skipped_count++;
-                continue;
-            }
-
-            update_post_meta($post_id, '_metasync_primary_category', $term_id);
-            $imported_count++;
-        }
-
-        $processed = $offset + count($posts);
-        $has_more = $processed < $total_posts;
-
-        return [
-            'success' => true,
-            'imported' => $imported_count,
-            'skipped' => $skipped_count,
-            'total' => $total_posts,
-            'has_more' => $has_more,
-        ];
-    }
 
     /**
      * Import primary category from Rank Math
      */
-    private function import_rankmath_primary_category($options)
-    {
-        global $wpdb;
-
-        $batch_size = intval($options['batch_size']);
-        $offset = intval($options['offset']);
-        $overwrite = (bool) $options['overwrite_existing'];
-
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-        $total_posts = (int) $wpdb->get_var("
-            SELECT COUNT(DISTINCT post_id)
-            FROM {$wpdb->postmeta}
-            WHERE meta_key = 'rank_math_primary_category'
-            AND meta_value != ''
-            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-        ");
-
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-        $posts = $wpdb->get_results($wpdb->prepare("
-            SELECT DISTINCT post_id
-            FROM {$wpdb->postmeta}
-            WHERE meta_key = 'rank_math_primary_category'
-            AND meta_value != ''
-            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-            ORDER BY post_id ASC
-            LIMIT %d OFFSET %d
-        ", $batch_size, $offset));
-
-        $imported_count = 0;
-        $skipped_count = 0;
-
-        foreach ($posts as $post_obj) {
-            $post_id = $post_obj->post_id;
-            $term_id = absint(get_post_meta($post_id, 'rank_math_primary_category', true));
-
-            if ($term_id <= 0 || !get_term($term_id, 'category')) {
-                $skipped_count++;
-                continue;
-            }
-
-            $existing = (int) get_post_meta($post_id, '_metasync_primary_category', true);
-            if ($existing > 0 && !$overwrite) {
-                $skipped_count++;
-                continue;
-            }
-
-            update_post_meta($post_id, '_metasync_primary_category', $term_id);
-            $imported_count++;
-        }
-
-        $processed = $offset + count($posts);
-        $has_more = $processed < $total_posts;
-
-        return [
-            'success' => true,
-            'imported' => $imported_count,
-            'skipped' => $skipped_count,
-            'total' => $total_posts,
-            'has_more' => $has_more,
-        ];
-    }
 
     /**
      * Import primary category from AIOSEO
      */
-    private function import_aioseo_primary_category($options)
-    {
-        global $wpdb;
-
-        $batch_size = intval($options['batch_size']);
-        $offset = intval($options['offset']);
-        $overwrite = (bool) $options['overwrite_existing'];
-
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-        $total_posts = (int) $wpdb->get_var("
-            SELECT COUNT(DISTINCT post_id)
-            FROM {$wpdb->postmeta}
-            WHERE meta_key = '_aioseo_primary_category'
-            AND meta_value != ''
-            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-        ");
-
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-        $posts = $wpdb->get_results($wpdb->prepare("
-            SELECT DISTINCT post_id
-            FROM {$wpdb->postmeta}
-            WHERE meta_key = '_aioseo_primary_category'
-            AND meta_value != ''
-            AND post_id IN (SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish')
-            ORDER BY post_id ASC
-            LIMIT %d OFFSET %d
-        ", $batch_size, $offset));
-
-        $imported_count = 0;
-        $skipped_count = 0;
-
-        foreach ($posts as $post_obj) {
-            $post_id = $post_obj->post_id;
-            $term_id = absint(get_post_meta($post_id, '_aioseo_primary_category', true));
-
-            if ($term_id <= 0 || !get_term($term_id, 'category')) {
-                $skipped_count++;
-                continue;
-            }
-
-            $existing = (int) get_post_meta($post_id, '_metasync_primary_category', true);
-            if ($existing > 0 && !$overwrite) {
-                $skipped_count++;
-                continue;
-            }
-
-            update_post_meta($post_id, '_metasync_primary_category', $term_id);
-            $imported_count++;
-        }
-
-        $processed = $offset + count($posts);
-        $has_more = $processed < $total_posts;
-
-        return [
-            'success' => true,
-            'imported' => $imported_count,
-            'skipped' => $skipped_count,
-            'total' => $total_posts,
-            'has_more' => $has_more,
-        ];
-    }
 
     /**
      * Import Redirections
@@ -1202,25 +989,32 @@ class Metasync_External_Importer
             $metasync_robots = get_post_meta($post_id, 'metasync_common_robots', true);
             if (!is_array($metasync_robots)) {
                 $metasync_robots = [];
+            } else {
+                $normalized_robots = [];
+                foreach ($metasync_robots as $robot_key => $robot_value) {
+                    if (is_string($robot_key)) {
+                        $normalized_robots[$robot_key] = $robot_value;
+                    }
+                }
+                $metasync_robots = $normalized_robots;
             }
 
-            // Import noindex
+            $original_metasync_robots = $metasync_robots;
             $yoast_noindex = get_post_meta($post_id, '_yoast_wpseo_meta-robots-noindex', true);
-            if ($yoast_noindex === '1' && !isset($metasync_robots['noindex'])) {
+            if ($yoast_noindex === '1') {
                 $metasync_robots['noindex'] = 'noindex';
-                $has_changes = true;
-            } elseif ($yoast_noindex === '2' && isset($metasync_robots['noindex'])) {
+            } elseif ($yoast_noindex === '2') {
                 // '2' means 'index' in Yoast. Index is the implicit default, so
                 // clear any stored noindex rather than recording a redundant flag.
                 unset($metasync_robots['noindex']);
-                $has_changes = true;
             }
 
             // Import nofollow
             $yoast_nofollow = get_post_meta($post_id, '_yoast_wpseo_meta-robots-nofollow', true);
-            if ($yoast_nofollow === '1' && !isset($metasync_robots['nofollow'])) {
+            if ($yoast_nofollow === '1') {
                 $metasync_robots['nofollow'] = 'nofollow';
-                $has_changes = true;
+            } elseif ($yoast_nofollow === '2') {
+                unset($metasync_robots['nofollow']);
             }
 
             // Import advanced robots (noarchive, nosnippet, noimageindex)
@@ -1237,16 +1031,27 @@ class Metasync_External_Importer
                 $adv_directives = explode(',', $yoast_adv);
                 foreach ($adv_directives as $directive) {
                     $directive = trim($directive);
-                    if (in_array($directive, ['noarchive', 'nosnippet', 'noimageindex']) && !isset($metasync_robots[$directive])) {
+                    if (in_array($directive, ['noarchive', 'nosnippet', 'noimageindex'], true)) {
                         $metasync_robots[$directive] = $directive;
-                        $has_changes = true;
                     }
                 }
             }
 
-            // Also write to _metasync_robots_advanced JSON
+            // Also write to _metasync_robots_advanced JSON, preserving
+            // unrelated curated directives and replacing only Yoast-owned keys.
             $robots_advanced = [];
+            $existing_advanced = get_post_meta($post_id, '_metasync_robots_advanced', true);
+            if (is_string($existing_advanced)) {
+                $existing_advanced = json_decode($existing_advanced, true);
+            }
+            if (is_array($existing_advanced)) {
+                $robots_advanced = $existing_advanced;
+            }
+            $original_advanced = $robots_advanced;
             if (!empty($yoast_adv)) {
+                foreach (['nofollow', 'noarchive', 'nosnippet', 'noimageindex'] as $owned) {
+                    unset($robots_advanced[$owned]);
+                }
                 $adv_directives = array_map('trim', explode(',', $yoast_adv));
                 foreach (['noarchive', 'nosnippet', 'noimageindex'] as $dir) {
                     if (in_array($dir, $adv_directives, true)) {
@@ -1257,9 +1062,16 @@ class Metasync_External_Importer
             // nofollow from Yoast
             if ($yoast_nofollow === '1') {
                 $robots_advanced['nofollow'] = true;
+            } elseif ($yoast_nofollow === '2') {
+                unset($robots_advanced['nofollow']);
             }
-            if (!empty($robots_advanced)) {
-                update_post_meta($post_id, '_metasync_robots_advanced', wp_json_encode($robots_advanced));
+            if ($robots_advanced !== $original_advanced) {
+                $has_changes = true;
+                if (!empty($robots_advanced)) {
+                    update_post_meta($post_id, '_metasync_robots_advanced', wp_json_encode($robots_advanced));
+                } else {
+                    delete_post_meta($post_id, '_metasync_robots_advanced');
+                }
             }
 
             // Import canonical URL
@@ -1278,9 +1090,14 @@ class Metasync_External_Importer
             }
 
             // Save Metasync robots meta if changes were made
+            if ($metasync_robots !== $original_metasync_robots) {
+                $has_changes = true;
+            }
             if ($has_changes) {
                 if (!empty($metasync_robots)) {
                     update_post_meta($post_id, 'metasync_common_robots', $metasync_robots);
+                } else {
+                    delete_post_meta($post_id, 'metasync_common_robots');
                 }
                 $imported_count++;
             }
@@ -1345,17 +1162,32 @@ class Metasync_External_Importer
             $metasync_robots = get_post_meta($post_id, 'metasync_common_robots', true);
             if (!is_array($metasync_robots)) {
                 $metasync_robots = [];
+            } else {
+                $normalized_robots = [];
+                foreach ($metasync_robots as $robot_key => $robot_value) {
+                    if (is_string($robot_key)) {
+                        $normalized_robots[$robot_key] = $robot_value;
+                    }
+                }
+                $metasync_robots = $normalized_robots;
             }
 
-            // Import robots array
+            $original_metasync_robots = $metasync_robots;
+            // Import robots array. Replace Rank Math-owned directives only when
+            // Rank Math has an explicit array; a missing value is a no-op.
             $rm_robots = get_post_meta($post_id, 'rank_math_robots', true);
             if (is_array($rm_robots)) {
+                foreach (['index', 'noindex', 'nofollow', 'noarchive', 'nosnippet', 'noimageindex'] as $owned) {
+                    unset($metasync_robots[$owned]);
+                }
                 // Rank Math stores as array like ['noindex', 'nofollow']
                 foreach ($rm_robots as $directive) {
-                    $directive = strtolower(trim($directive));
-                    if (in_array($directive, ['index', 'noindex', 'nofollow', 'noarchive', 'nosnippet', 'noimageindex']) && !isset($metasync_robots[$directive])) {
+                    if (!is_scalar($directive)) {
+                        continue;
+                    }
+                    $directive = strtolower(trim((string) $directive));
+                    if (in_array($directive, ['index', 'noindex', 'nofollow', 'noarchive', 'nosnippet', 'noimageindex'], true)) {
                         $metasync_robots[$directive] = $directive;
-                        $has_changes = true;
                     }
                 }
             }
@@ -1363,17 +1195,45 @@ class Metasync_External_Importer
             // Import advanced robots
             $rm_adv_robots = get_post_meta($post_id, 'rank_math_advanced_robots', true);
             if (is_array($rm_adv_robots)) {
+                foreach (['noarchive', 'nosnippet', 'noimageindex', 'max-snippet', 'max-video-preview', 'max-image-preview'] as $owned) {
+                    unset($metasync_robots[$owned]);
+                }
                 foreach ($rm_adv_robots as $directive) {
-                    $directive = strtolower(trim($directive));
-                    if (in_array($directive, ['noarchive', 'nosnippet', 'noimageindex', 'max-snippet', 'max-video-preview', 'max-image-preview']) && !isset($metasync_robots[$directive])) {
+                    if (!is_scalar($directive)) {
+                        continue;
+                    }
+                    $directive = strtolower(trim((string) $directive));
+                    if (in_array($directive, ['noarchive', 'nosnippet', 'noimageindex', 'max-snippet', 'max-video-preview', 'max-image-preview'], true)) {
                         $metasync_robots[$directive] = $directive;
-                        $has_changes = true;
                     }
                 }
             }
 
+            if ($metasync_robots !== $original_metasync_robots) {
+                $has_changes = true;
+            }
+
             // Parse max-* values and write _metasync_robots_advanced JSON
             $robots_advanced = [];
+            $existing_advanced = get_post_meta($post_id, '_metasync_robots_advanced', true);
+            $had_existing_advanced = $existing_advanced !== '' && $existing_advanced !== false && $existing_advanced !== null;
+            if (is_string($existing_advanced)) {
+                $existing_advanced = json_decode($existing_advanced, true);
+            }
+            if (is_array($existing_advanced)) {
+                $robots_advanced = $existing_advanced;
+            }
+            $original_advanced = $robots_advanced;
+            if (is_array($rm_robots)) {
+                foreach (['nofollow', 'noarchive', 'nosnippet', 'noimageindex'] as $owned) {
+                    unset($robots_advanced[$owned]);
+                }
+            }
+            if (is_array($rm_adv_robots)) {
+                foreach (['max_snippet', 'max_image_preview', 'max_video_preview'] as $owned) {
+                    unset($robots_advanced[$owned]);
+                }
+            }
             // Boolean directives from rank_math_robots
             if (is_array($rm_robots)) {
                 foreach (['nofollow', 'noarchive', 'nosnippet', 'noimageindex'] as $dir) {
@@ -1385,20 +1245,34 @@ class Metasync_External_Importer
             // max-* directives from rank_math_advanced_robots
             if (is_array($rm_adv_robots)) {
                 foreach ($rm_adv_robots as $key => $value) {
-                    // Values are formatted like "max-snippet:-1"
-                    if (strpos($key, 'max-snippet') !== false && strpos($value, ':') !== false) {
-                        $robots_advanced['max_snippet'] = (int) explode(':', $value)[1];
+                    $key_name = strtolower(trim((string) $key));
+                    if (in_array($key_name, ['max-snippet', 'max-image-preview', 'max-video-preview'], true)
+                        && is_scalar($value)) {
+                        $name = $key_name;
+                        $value_parts = explode(':', (string) $value, 2);
+                        $parsed_value = isset($value_parts[1]) ? trim($value_parts[1]) : trim((string) $value);
+                    } else {
+                        $directive = is_scalar($value) ? (string) $value : '';
+                        $parts = explode(':', $directive, 2);
+                        $name = strtolower(trim($parts[0]));
+                        $parsed_value = isset($parts[1]) ? trim($parts[1]) : '';
                     }
-                    if (strpos($key, 'max-image-preview') !== false && strpos($value, ':') !== false) {
-                        $robots_advanced['max_image_preview'] = explode(':', $value)[1];
-                    }
-                    if (strpos($key, 'max-video-preview') !== false && strpos($value, ':') !== false) {
-                        $robots_advanced['max_video_preview'] = (int) explode(':', $value)[1];
+                    if ($name === 'max-snippet' && $parsed_value !== '') {
+                        $robots_advanced['max_snippet'] = (int) $parsed_value;
+                    } elseif ($name === 'max-image-preview' && $parsed_value !== '') {
+                        $robots_advanced['max_image_preview'] = $parsed_value;
+                    } elseif ($name === 'max-video-preview' && $parsed_value !== '') {
+                        $robots_advanced['max_video_preview'] = (int) $parsed_value;
                     }
                 }
             }
-            if (!empty($robots_advanced)) {
-                update_post_meta($post_id, '_metasync_robots_advanced', wp_json_encode($robots_advanced));
+            if ($robots_advanced !== $original_advanced) {
+                $has_changes = true;
+                if (!empty($robots_advanced)) {
+                    update_post_meta($post_id, '_metasync_robots_advanced', wp_json_encode($robots_advanced));
+                } elseif ($had_existing_advanced) {
+                    delete_post_meta($post_id, '_metasync_robots_advanced');
+                }
             }
 
             // Import canonical URL
@@ -1417,9 +1291,14 @@ class Metasync_External_Importer
             }
 
             // Save Metasync robots meta if changes were made
+            if ($metasync_robots !== $original_metasync_robots) {
+                $has_changes = true;
+            }
             if ($has_changes) {
                 if (!empty($metasync_robots)) {
                     update_post_meta($post_id, 'metasync_common_robots', $metasync_robots);
+                } else {
+                    delete_post_meta($post_id, 'metasync_common_robots');
                 }
                 $imported_count++;
             }
@@ -1495,61 +1374,87 @@ class Metasync_External_Importer
             $metasync_robots = get_post_meta($post_id, 'metasync_common_robots', true);
             if (!is_array($metasync_robots)) {
                 $metasync_robots = [];
+            } else {
+                $normalized_robots = [];
+                foreach ($metasync_robots as $robot_key => $robot_value) {
+                    if (is_string($robot_key)) {
+                        $normalized_robots[$robot_key] = $robot_value;
+                    }
+                }
+                $metasync_robots = $normalized_robots;
             }
 
-            // Only import if not using default (robots_default = 0)
-            if ($aioseo_data->robots_default == 0) {
+            $original_metasync_robots = $metasync_robots;
+
+            // A non-default AIOSEO row explicitly owns these directives. A
+            // default row is silent, so existing MetaSync values stay intact.
+            if ((int) $aioseo_data->robots_default === 0) {
+                foreach (['noindex', 'nofollow', 'noarchive', 'nosnippet', 'noimageindex'] as $owned) {
+                    unset($metasync_robots[$owned]);
+                }
                 // Import noindex
-                if ($aioseo_data->robots_noindex == 1 && !isset($metasync_robots['noindex'])) {
+                if ($aioseo_data->robots_noindex == 1) {
                     $metasync_robots['noindex'] = 'noindex';
-                    $has_changes = true;
                 }
 
                 // Import nofollow
-                if ($aioseo_data->robots_nofollow == 1 && !isset($metasync_robots['nofollow'])) {
+                if ($aioseo_data->robots_nofollow == 1) {
                     $metasync_robots['nofollow'] = 'nofollow';
-                    $has_changes = true;
                 }
 
                 // Import noarchive
-                if ($aioseo_data->robots_noarchive == 1 && !isset($metasync_robots['noarchive'])) {
+                if ($aioseo_data->robots_noarchive == 1) {
                     $metasync_robots['noarchive'] = 'noarchive';
-                    $has_changes = true;
                 }
 
                 // Import nosnippet
-                if ($aioseo_data->robots_nosnippet == 1 && !isset($metasync_robots['nosnippet'])) {
+                if ($aioseo_data->robots_nosnippet == 1) {
                     $metasync_robots['nosnippet'] = 'nosnippet';
-                    $has_changes = true;
                 }
 
                 // Import noimageindex
-                if ($aioseo_data->robots_noimageindex == 1 && !isset($metasync_robots['noimageindex'])) {
+                if ($aioseo_data->robots_noimageindex == 1) {
                     $metasync_robots['noimageindex'] = 'noimageindex';
-                    $has_changes = true;
                 }
             }
 
-            // Write _metasync_robots_advanced JSON
+            // Write _metasync_robots_advanced JSON, replacing only directives
+            // owned by AIOSEO while preserving unrelated curated settings.
             $robots_advanced = [];
-            if ($aioseo_data->robots_default == 0) {
+            $existing_advanced = get_post_meta($post_id, '_metasync_robots_advanced', true);
+            if (is_string($existing_advanced)) {
+                $existing_advanced = json_decode($existing_advanced, true);
+            }
+            if (is_array($existing_advanced)) {
+                $robots_advanced = $existing_advanced;
+            }
+            $original_advanced = $robots_advanced;
+            if ((int) $aioseo_data->robots_default === 0) {
+                foreach (['nofollow', 'noarchive', 'nosnippet', 'noimageindex', 'max_snippet', 'max_image_preview', 'max_video_preview'] as $owned) {
+                    unset($robots_advanced[$owned]);
+                }
                 if ($aioseo_data->robots_nofollow == 1) $robots_advanced['nofollow'] = true;
                 if ($aioseo_data->robots_noarchive == 1) $robots_advanced['noarchive'] = true;
                 if ($aioseo_data->robots_nosnippet == 1) $robots_advanced['nosnippet'] = true;
                 if ($aioseo_data->robots_noimageindex == 1) $robots_advanced['noimageindex'] = true;
+
+                if (isset($aioseo_data->robots_max_snippet) && is_numeric($aioseo_data->robots_max_snippet)) {
+                    $robots_advanced['max_snippet'] = (int) $aioseo_data->robots_max_snippet;
+                }
+                if (!empty($aioseo_data->robots_max_imagepreview)) {
+                    $robots_advanced['max_image_preview'] = $aioseo_data->robots_max_imagepreview;
+                }
+                if (isset($aioseo_data->robots_max_videopreview) && is_numeric($aioseo_data->robots_max_videopreview)) {
+                    $robots_advanced['max_video_preview'] = (int) $aioseo_data->robots_max_videopreview;
+                }
             }
-            if (isset($aioseo_data->robots_max_snippet) && is_numeric($aioseo_data->robots_max_snippet)) {
-                $robots_advanced['max_snippet'] = (int) $aioseo_data->robots_max_snippet;
-            }
-            if (!empty($aioseo_data->robots_max_imagepreview)) {
-                $robots_advanced['max_image_preview'] = $aioseo_data->robots_max_imagepreview;
-            }
-            if (isset($aioseo_data->robots_max_videopreview) && is_numeric($aioseo_data->robots_max_videopreview)) {
-                $robots_advanced['max_video_preview'] = (int) $aioseo_data->robots_max_videopreview;
-            }
-            if (!empty($robots_advanced)) {
-                update_post_meta($post_id, '_metasync_robots_advanced', wp_json_encode($robots_advanced));
+            if ($robots_advanced !== $original_advanced) {
                 $has_changes = true;
+                if (!empty($robots_advanced)) {
+                    update_post_meta($post_id, '_metasync_robots_advanced', wp_json_encode($robots_advanced));
+                } else {
+                    delete_post_meta($post_id, '_metasync_robots_advanced');
+                }
             }
 
             // Import canonical URL
@@ -1567,9 +1472,14 @@ class Metasync_External_Importer
             }
 
             // Save Metasync robots meta if changes were made
+            if ($metasync_robots !== $original_metasync_robots) {
+                $has_changes = true;
+            }
             if ($has_changes) {
                 if (!empty($metasync_robots)) {
                     update_post_meta($post_id, 'metasync_common_robots', $metasync_robots);
+                } else {
+                    delete_post_meta($post_id, 'metasync_common_robots');
                 }
                 $imported_count++;
             }
@@ -4340,36 +4250,6 @@ class Metasync_External_Importer
      * @param array  $options Batch options (overwrite_existing, batch_size, offset).
      * @return array ['success'=>bool,'imported'=>int,'skipped'=>int,'total'=>int,'message'=>string]
      */
-    public function import_term_seo_metadata($plugin, $options = [])
-    {
-        $defaults = [
-            'overwrite_existing' => false,
-            'batch_size'         => 100,
-            'offset'             => 0,
-        ];
-        $options = array_merge($defaults, $options);
-
-        if (!in_array($plugin, ['yoast', 'rankmath', 'aioseo'], true)) {
-            return [
-                'success' => false,
-                'message' => 'Invalid plugin specified.',
-            ];
-        }
-
-        switch ($plugin) {
-            case 'yoast':
-                return $this->import_yoast_term_meta($options);
-            case 'rankmath':
-                return $this->import_rankmath_term_meta($options);
-            case 'aioseo':
-                return $this->import_aioseo_term_meta($options);
-        }
-
-        return [
-            'success' => false,
-            'message' => 'Unknown error occurred.',
-        ];
-    }
 
     /**
      * Import Yoast term meta into MetaSync term meta.
@@ -4377,127 +4257,6 @@ class Metasync_External_Importer
      * @param array $options
      * @return array
      */
-    private function import_yoast_term_meta($options)
-    {
-        $batch_size = intval($options['batch_size']);
-        $offset     = intval($options['offset']);
-        $overwrite  = (bool) $options['overwrite_existing'];
-
-        // Yoast stores taxonomy term SEO data in the `wpseo_taxonomy_meta`
-        // option (wp_options), NOT in wp_termmeta.  We must read from there.
-        if (!class_exists('WPSEO_Taxonomy_Meta')) {
-            return [
-                'success' => false,
-                'message' => 'Yoast SEO is not active or WPSEO_Taxonomy_Meta class not available.',
-            ];
-        }
-
-        $taxonomies = array_values(get_taxonomies(['public' => true], 'names'));
-
-        $terms = get_terms([
-            'taxonomy'   => $taxonomies,
-            'hide_empty' => false,
-            'number'     => $batch_size,
-            'offset'     => $offset,
-        ]);
-
-        if (is_wp_error($terms)) {
-            return [
-                'success' => false,
-                'message' => $terms->get_error_message(),
-            ];
-        }
-
-        // Title and description are handled separately below: they go to the
-        // imported keys so they lose to OTTO, and they need their tokens
-        // resolved. The rest keep their own keys.
-        $field_map = [
-            'wpseo_opengraph-title'       => '_metasync_og_title',
-            'wpseo_opengraph-description' => '_metasync_og_description',
-            'wpseo_canonical'             => '_metasync_canonical_url',
-        ];
-
-        $imported_map = [
-            'wpseo_title' => Metasync_Seo_Precedence::KEY_IMPORTED_TITLE,
-            'wpseo_desc'  => Metasync_Seo_Precedence::KEY_IMPORTED_DESC,
-        ];
-
-        $imported = 0;
-        $skipped  = 0;
-
-        foreach ($terms as $term) {
-            $term_updated = false;
-
-            // Read from Yoast's wpseo_taxonomy_meta option via its API.
-            $yoast_meta = WPSEO_Taxonomy_Meta::get_term_meta($term->term_id, $term->taxonomy);
-            if (!is_array($yoast_meta)) {
-                $yoast_meta = [];
-            }
-
-            foreach ($imported_map as $src_key => $dest_key) {
-                $term_updated = $this->store_imported_term_value(
-                    $term,
-                    isset($yoast_meta[$src_key]) ? (string) $yoast_meta[$src_key] : '',
-                    'yoast',
-                    $dest_key,
-                    $overwrite
-                ) || $term_updated;
-            }
-
-            foreach ($field_map as $src_key => $dest_key) {
-                $src_value = isset($yoast_meta[$src_key]) ? $yoast_meta[$src_key] : '';
-                if ($src_value === '' || $src_value === null) {
-                    continue;
-                }
-
-                $existing = get_term_meta($term->term_id, $dest_key, true);
-                if (!empty($existing) && !$overwrite) {
-                    continue;
-                }
-
-                // Validate canonical: never import a corrupted value.
-                if ($dest_key === '_metasync_canonical_url') {
-                    $src_value = Metasync_Canonical_Sanitizer::sanitize_for_save($src_value);
-                    if ($src_value === '') {
-                        continue;
-                    }
-                } else {
-                    $src_value = $this->resolve_term_placeholders($src_value, $term, 'yoast');
-                    if (trim($src_value) === '') {
-                        continue;
-                    }
-                }
-
-                update_term_meta($term->term_id, $dest_key, $src_value);
-                $term_updated = true;
-            }
-
-            $noindex = isset($yoast_meta['wpseo_noindex']) ? $yoast_meta['wpseo_noindex'] : '';
-            if ($noindex === 'noindex') {
-                $existing = get_term_meta($term->term_id, '_metasync_robots_index', true);
-                if (empty($existing) || $overwrite) {
-                    update_term_meta($term->term_id, '_metasync_robots_index', 'noindex');
-                    $term_updated = true;
-                }
-            }
-
-            if ($term_updated) {
-                $imported++;
-            } else {
-                $skipped++;
-            }
-        }
-
-        $processed = $offset + count($terms);
-
-        return [
-            'success'  => true,
-            'imported' => $imported,
-            'skipped'  => $skipped,
-            'total'    => $processed,
-            'message'  => "Processed {$processed} terms: {$imported} imported, {$skipped} skipped.",
-        ];
-    }
 
     /**
      * Import Rank Math term meta into MetaSync term meta.
@@ -4505,112 +4264,6 @@ class Metasync_External_Importer
      * @param array $options
      * @return array
      */
-    private function import_rankmath_term_meta($options)
-    {
-        $batch_size = intval($options['batch_size']);
-        $offset     = intval($options['offset']);
-        $overwrite  = (bool) $options['overwrite_existing'];
-
-        $taxonomies = array_values(get_taxonomies(['public' => true], 'names'));
-
-        $terms = get_terms([
-            'taxonomy'   => $taxonomies,
-            'hide_empty' => false,
-            'number'     => $batch_size,
-            'offset'     => $offset,
-        ]);
-
-        if (is_wp_error($terms)) {
-            return [
-                'success' => false,
-                'message' => $terms->get_error_message(),
-            ];
-        }
-
-        // See import_yoast_term_meta(): title and description are routed to the
-        // imported keys and token-resolved; the rest keep their own keys.
-        $field_map = [
-            'rank_math_facebook_title'       => '_metasync_og_title',
-            'rank_math_facebook_description' => '_metasync_og_description',
-            'rank_math_canonical_url'        => '_metasync_canonical_url',
-        ];
-
-        $imported_map = [
-            'rank_math_title'       => Metasync_Seo_Precedence::KEY_IMPORTED_TITLE,
-            'rank_math_description' => Metasync_Seo_Precedence::KEY_IMPORTED_DESC,
-        ];
-
-        $imported = 0;
-        $skipped  = 0;
-
-        foreach ($terms as $term) {
-            $term_updated = false;
-
-            foreach ($imported_map as $src_key => $dest_key) {
-                $term_updated = $this->store_imported_term_value(
-                    $term,
-                    (string) get_term_meta($term->term_id, $src_key, true),
-                    'rankmath',
-                    $dest_key,
-                    $overwrite
-                ) || $term_updated;
-            }
-
-            foreach ($field_map as $src_key => $dest_key) {
-                $src_value = get_term_meta($term->term_id, $src_key, true);
-                if ($src_value === '' || $src_value === null) {
-                    continue;
-                }
-
-                $existing = get_term_meta($term->term_id, $dest_key, true);
-                if (!empty($existing) && !$overwrite) {
-                    continue;
-                }
-
-                // Validate canonical: never import a corrupted value.
-                if ($dest_key === '_metasync_canonical_url') {
-                    $src_value = Metasync_Canonical_Sanitizer::sanitize_for_save($src_value);
-                    if ($src_value === '') {
-                        continue;
-                    }
-                } else {
-                    $src_value = $this->resolve_term_placeholders($src_value, $term, 'rankmath');
-                    if (trim($src_value) === '') {
-                        continue;
-                    }
-                }
-
-                update_term_meta($term->term_id, $dest_key, $src_value);
-                $term_updated = true;
-            }
-
-            $robots_raw = get_term_meta($term->term_id, 'rank_math_robots', true);
-            $robots = maybe_unserialize($robots_raw);
-            if (is_array($robots) && in_array('noindex', $robots, true)) {
-                $existing = get_term_meta($term->term_id, '_metasync_robots_index', true);
-                if (empty($existing) || $overwrite) {
-                    update_term_meta($term->term_id, '_metasync_robots_index', 'noindex');
-                    $term_updated = true;
-                }
-            }
-
-            if ($term_updated) {
-                $imported++;
-            } else {
-                $skipped++;
-            }
-        }
-
-        $processed = $offset + count($terms);
-
-        return [
-            'success'  => true,
-            'imported' => $imported,
-            'skipped'  => $skipped,
-            'total'    => $processed,
-            'message'  => "Processed {$processed} terms: {$imported} imported, {$skipped} skipped.",
-        ];
-    }
 
     /**
      * Import AIOSEO term meta (from the wp_aioseo_terms custom table) into
@@ -4619,126 +4272,4 @@ class Metasync_External_Importer
      * @param array $options
      * @return array
      */
-    private function import_aioseo_term_meta($options)
-    {
-        global $wpdb;
-
-        $batch_size = intval($options['batch_size']);
-        $offset     = intval($options['offset']);
-        $overwrite  = (bool) $options['overwrite_existing'];
-
-        $table = $wpdb->prefix . 'aioseo_terms';
-
-        $table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-        if ($table_exists !== $table) {
-            return [
-                'success' => false,
-                'message' => 'AIOSEO terms table not found.',
-            ];
-        }
-
-        $rows = $wpdb->get_results($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- one-shot import tool — bulk reads from third-party SEO plugin storage; no bulk WordPress API exists
-            "SELECT term_id, title, description, og_title, og_description, canonical_url, robots_noindex
-             FROM {$wpdb->prefix}aioseo_terms
-             ORDER BY term_id ASC
-             LIMIT %d OFFSET %d",
-            $batch_size,
-            $offset
-        ));
-
-        $imported = 0;
-        $skipped  = 0;
-
-        foreach ($rows as $row) {
-            $term_id = (int) $row->term_id;
-            if ($term_id <= 0) {
-                continue;
-            }
-
-            // The resolver needs the term's own name and description, and a row
-            // can outlive the term it points at.
-            $term = get_term($term_id);
-            if (!$term || is_wp_error($term)) {
-                $skipped++;
-                continue;
-            }
-
-            $term_updated = false;
-
-            // See import_yoast_term_meta(): title and description are routed to
-            // the imported keys and token-resolved; the rest keep their own keys.
-            $field_map = [
-                'og_title'      => '_metasync_og_title',
-                'og_description' => '_metasync_og_description',
-                'canonical_url' => '_metasync_canonical_url',
-            ];
-
-            $imported_map = [
-                'title'       => Metasync_Seo_Precedence::KEY_IMPORTED_TITLE,
-                'description' => Metasync_Seo_Precedence::KEY_IMPORTED_DESC,
-            ];
-
-            foreach ($imported_map as $column => $dest_key) {
-                $term_updated = $this->store_imported_term_value(
-                    $term,
-                    isset($row->$column) ? (string) $row->$column : '',
-                    'aioseo',
-                    $dest_key,
-                    $overwrite
-                ) || $term_updated;
-            }
-
-            foreach ($field_map as $column => $dest_key) {
-                $value = isset($row->$column) ? $row->$column : '';
-                if ($value === '' || $value === null) {
-                    continue;
-                }
-
-                $existing = get_term_meta($term_id, $dest_key, true);
-                if (!empty($existing) && !$overwrite) {
-                    continue;
-                }
-
-                // Validate canonical: never import a corrupted value.
-                if ($dest_key === '_metasync_canonical_url') {
-                    $value = Metasync_Canonical_Sanitizer::sanitize_for_save($value);
-                    if ($value === '') {
-                        continue;
-                    }
-                } else {
-                    $value = $this->resolve_term_placeholders($value, $term, 'aioseo');
-                    if (trim($value) === '' || $this->has_unresolved_placeholders($value, 'aioseo')) {
-                        continue;
-                    }
-                }
-
-                update_term_meta($term_id, $dest_key, $value);
-                $term_updated = true;
-            }
-
-            if (!empty($row->robots_noindex) && (int) $row->robots_noindex === 1) {
-                $existing = get_term_meta($term_id, '_metasync_robots_index', true);
-                if (empty($existing) || $overwrite) {
-                    update_term_meta($term_id, '_metasync_robots_index', 'noindex');
-                    $term_updated = true;
-                }
-            }
-
-            if ($term_updated) {
-                $imported++;
-            } else {
-                $skipped++;
-            }
-        }
-
-        $processed = $offset + count($rows);
-
-        return [
-            'success'  => true,
-            'imported' => $imported,
-            'skipped'  => $skipped,
-            'total'    => $processed,
-            'message'  => "Processed {$processed} terms: {$imported} imported, {$skipped} skipped.",
-        ];
-    }
 }

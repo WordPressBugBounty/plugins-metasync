@@ -68,6 +68,14 @@ class MCP_Tool_Convert_HTML_To_Builder extends MCP_Tool_Base
 	public function execute($params)
 	{
 		$this->validate_params($params);
+		if (strlen($params['html_content']) > 1048576) {
+			throw new InvalidArgumentException('html_content must not exceed 1 MB');
+		}
+
+		$this->require_capability('edit_pages');
+		if (!empty($params['upload_images'])) {
+			$this->require_capability('upload_files');
+		}
 
 		// Load converter
 		require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'custom-pages/class-metasync-html-to-builder-converter.php';
@@ -172,6 +180,14 @@ class MCP_Tool_Create_Builder_Page_From_HTML extends MCP_Tool_Base
 	public function execute($params)
 	{
 		$this->validate_params($params);
+		if (strlen($params['html_content']) > 1048576) {
+			throw new InvalidArgumentException('html_content must not exceed 1 MB');
+		}
+
+		$this->require_capability('edit_pages');
+		if (!empty($params['upload_images'])) {
+			$this->require_capability('upload_files');
+		}
 
 		// Load converter
 		require_once plugin_dir_path(dirname(dirname(__FILE__))) . 'custom-pages/class-metasync-html-to-builder-converter.php';
@@ -199,7 +215,7 @@ class MCP_Tool_Create_Builder_Page_From_HTML extends MCP_Tool_Base
 		// Create page
 		$post_data = [
 			'post_title' => sanitize_text_field($params['title']),
-			'post_content' => $result['content'],
+			'post_content' => wp_slash($result['content']),
 			'post_status' => isset($params['status']) ? $params['status'] : 'draft',
 			'post_type' => 'page',
 		];
@@ -325,6 +341,9 @@ class MCP_Tool_Convert_Custom_Page_To_Builder extends MCP_Tool_Base
 		$this->validate_params($params);
 
 		$page_id = intval($params['page_id']);
+		$this->check_post_permission($page_id);
+		$this->require_capability('edit_pages');
+		$this->require_capability('upload_files');
 
 		// Check if page exists
 		$page = get_post($page_id);
@@ -337,11 +356,22 @@ class MCP_Tool_Convert_Custom_Page_To_Builder extends MCP_Tool_Base
 
 		// Get raw HTML content
 		$raw_html = get_post_meta($page_id, '_metasync_raw_html_content', true);
+		if (strlen((string) $raw_html) > 1048576) {
+			return [
+				'success' => false,
+				'error' => 'Stored HTML content exceeds 1 MB'
+			];
+		}
 		if (empty($raw_html)) {
 			return [
 				'success' => false,
 				'error' => 'No raw HTML content found for this page'
 			];
+		}
+
+		$this->require_capability('edit_pages');
+		if (!empty($params['upload_images'])) {
+			$this->require_capability('upload_files');
 		}
 
 		// Load converter
@@ -368,10 +398,16 @@ class MCP_Tool_Convert_Custom_Page_To_Builder extends MCP_Tool_Base
 		}
 
 		// Update page content
-		wp_update_post([
+		$update_result = wp_update_post([
 			'ID' => $page_id,
-			'post_content' => $result['content']
-		]);
+			'post_content' => wp_slash($result['content'])
+		], true);
+		if (is_wp_error($update_result)) {
+			return [
+				'success' => false,
+				'error' => 'Failed to update page: ' . $update_result->get_error_message()
+			];
+		}
 
 		// Apply builder meta data
 		if (!empty($result['meta_data'])) {

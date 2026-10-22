@@ -70,18 +70,6 @@ class Metasync_Setup_Wizard
 	 * @since    1.0.0
 	 * @return   boolean
 	 */
-	public function should_auto_launch_wizard()
-	{
-		// Check if wizard has been completed
-		$wizard_completed = get_option('metasync_wizard_completed', false);
-
-		if ($wizard_completed && !empty($wizard_completed['completed'])) {
-			return false;
-		}
-
-		// Check if first activation flag is set
-		return get_option('metasync_show_wizard', false);
-	}
 
 	/**
 	 * Render the setup wizard page
@@ -120,41 +108,6 @@ class Metasync_Setup_Wizard
 	 * @since    1.0.0
 	 * @return   array
 	 */
-	private function get_wizard_steps()
-	{
-		return array(
-			1 => array(
-				'id' => 'welcome',
-				'title' => 'Welcome',
-				'description' => 'Welcome to MetaSync'
-			),
-			2 => array(
-				'id' => 'connection',
-				'title' => 'Connect',
-				'description' => 'Connect to platform'
-			),
-			3 => array(
-				'id' => 'import',
-				'title' => 'Import',
-				'description' => 'Import from other plugins'
-			),
-			4 => array(
-				'id' => 'seo_settings',
-				'title' => 'SEO Settings',
-				'description' => 'Configure indexation'
-			),
-			5 => array(
-				'id' => 'schema',
-				'title' => 'Schema',
-				'description' => 'Schema preferences'
-			),
-			6 => array(
-				'id' => 'complete',
-				'title' => 'Complete',
-				'description' => 'Setup complete'
-			)
-		);
-	}
 
 	/**
 	 * Render Step 1: Welcome Screen
@@ -206,6 +159,7 @@ class Metasync_Setup_Wizard
 	public function render_step_connection()
 	{
 		$plugin_name = Metasync::get_effective_plugin_name();
+		$otto_name = Metasync::get_whitelabel_otto_name();
 		$general_settings = Metasync::get_option('general');
 		$is_connected = !empty($general_settings['searchatlas_api_key']);
 		$analytics_enabled = get_option('metasync_analytics_opt_in', 'no') === 'yes';
@@ -221,7 +175,7 @@ class Metasync_Setup_Wizard
 					<div class="wizard-connection-box">
 						<p><strong>Why connect?</strong></p>
 						<ul>
-							<li>Access OTTO AI-powered SEO assistant</li>
+							<li>Access <?php echo esc_html($otto_name); ?> AI-powered SEO assistant</li>
 							<li>Get real-time search ranking data</li>
 							<li>Receive automated optimization suggestions</li>
 						</ul>

@@ -3900,6 +3900,11 @@ class Metasync_Schema_Markup
 
         // If there are validation errors, return them instead of generating preview
         if (!empty($all_validation_errors)) {
+            Metasync_PostHog::feature('schema_preview_used', array(
+                'success' => false,
+                'schema_type' => $this->analytics_schema_type($schema_data),
+                'validation_errors' => true,
+            ));
             wp_send_json_error([
                 'message' => 'Validation errors detected',
                 'validation_errors' => $all_validation_errors
@@ -3916,6 +3921,11 @@ class Metasync_Schema_Markup
         }
 
         if (empty($all_json_ld)) {
+            Metasync_PostHog::feature('schema_preview_used', array(
+                'success' => false,
+                'schema_type' => $this->analytics_schema_type($schema_data),
+                'validation_errors' => false,
+            ));
             wp_send_json_error(['message' => 'Could not generate schema markup']);
         }
 
@@ -3927,16 +3937,53 @@ class Metasync_Schema_Markup
 
         $formatted_json = metasync_safe_json_ld_encode($final_json_ld, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
         if (!is_string($formatted_json) || $formatted_json === '') {
+            Metasync_PostHog::feature('schema_preview_used', array(
+                'success' => false,
+                'schema_type' => $this->analytics_schema_type($schema_data),
+                'validation_errors' => false,
+            ));
             wp_send_json_error(['message' => 'Could not encode schema markup']);
         }
 
         // Wrap in script tags for preview
         $formatted_json_with_tags = '<script type="application/ld+json" class="metasync-schema">' . "\n" . $formatted_json . "\n" . '</script>';
 
+        Metasync_PostHog::feature('schema_preview_used', array(
+            'success' => true,
+            'schema_type' => $this->analytics_schema_type($schema_data),
+            'validation_errors' => false,
+        ));
         wp_send_json_success([
             'json' => $formatted_json_with_tags,
             'types' => array_column($schema_data['types'], 'type')
         ]);
+    }
+
+    /**
+     * Normalise the previewed schema type for analytics.
+     *
+     * The type string comes from the request, so it is collapsed onto the
+     * canonical spellings of the supported types; anything else becomes
+     * 'other' (and a missing type 'unknown') so no free text can reach the
+     * event properties.
+     *
+     * @param array $schema_data Schema data built for the preview.
+     * @return string Allowlisted schema type name.
+     */
+    private function analytics_schema_type(array $schema_data)
+    {
+        $type = isset($schema_data['types'][0]['type']) && is_string($schema_data['types'][0]['type'])
+            ? sanitize_key($schema_data['types'][0]['type'])
+            : '';
+        if ($type === '') {
+            return 'unknown';
+        }
+        foreach (self::$supported_content_types as $supported) {
+            if (sanitize_key($supported) === $type) {
+                return $supported;
+            }
+        }
+        return 'other';
     }
 
     /**

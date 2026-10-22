@@ -10,7 +10,7 @@
  *
  * @package    Metasync
  * @subpackage Metasync/includes
- * @since      2.8.0
+ * @since      2.5.23
  */
 
 if (!defined('ABSPATH')) {
@@ -173,25 +173,6 @@ class Metasync_Edge_Cache_Purge {
      *
      * @param array $post_ids WordPress post IDs.
      */
-    public function purge_by_post_ids(array $post_ids) {
-        if (empty($post_ids)) {
-            return;
-        }
-
-        $settings = $this->get_settings();
-
-        if (!empty($settings['cloudflare_enabled']) && $this->has_credentials('cloudflare')) {
-            $this->purge_cloudflare($post_ids, array(), $settings);
-        }
-
-        if (!empty($settings['fastly_enabled']) && $this->has_credentials('fastly')) {
-            $this->purge_fastly($post_ids, $settings);
-        }
-
-        if (!empty($settings['akamai_enabled']) && $this->has_credentials('akamai')) {
-            $this->purge_akamai($post_ids, $settings);
-        }
-    }
 
     // ──────────────────────────────────────────────────────────────
     //  CDN Provider Implementations

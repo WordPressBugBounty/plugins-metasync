@@ -100,13 +100,6 @@ class MCP_Tool_Update_Robots_Txt extends MCP_Tool_Base {
 
         $robots_txt = Metasync_Robots_Txt::get_instance();
 
-        // The plugin's write path stores a backup only when it can read a
-        // non-empty previous robots.txt. Mirror that exact condition here —
-        // evaluated before the write replaces the content — so the response
-        // reports backup_created truthfully instead of always claiming one.
-        $current_content = $robots_txt->read_robots_file();
-        $backup_created = !is_wp_error($current_content) && !empty(trim($current_content));
-
         // Write using plugin's method (backs up previous content when one applies)
         $result = $robots_txt->write_robots_file($content);
 
@@ -114,14 +107,25 @@ class MCP_Tool_Update_Robots_Txt extends MCP_Tool_Base {
             throw new Exception($result->get_error_message()); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- JSON-RPC error payload, JSON-encoded on output, never rendered as HTML; escaping here would corrupt message bytes
         }
 
+        // Report what the writer actually did instead of predicting it.
+        $outcome = $robots_txt->get_last_write_outcome();
+
+        if ($outcome['unchanged']) {
+            $message = 'Robots.txt content unchanged (no backup created)';
+        } elseif ($outcome['backup_created']) {
+            $message = 'Robots.txt updated successfully (backup created)';
+        } elseif ($outcome['backup_attempted']) {
+            $message = 'Robots.txt updated successfully (previous content already in backup history)';
+        } else {
+            $message = 'Robots.txt updated successfully (no previous content to back up)';
+        }
+
         return $this->success([
             'file_path' => ABSPATH . 'robots.txt',
-            'bytes_written' => strlen($content),
+            'bytes_written' => $outcome['written'] ? strlen($content) : 0,
             'url' => site_url('robots.txt'),
-            'backup_created' => $backup_created
-        ], $backup_created
-            ? 'Robots.txt updated successfully (backup created)'
-            : 'Robots.txt updated successfully (no previous content to back up)');
+            'backup_created' => $outcome['backup_created']
+        ], $message);
     }
 }
 

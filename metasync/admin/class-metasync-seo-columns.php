@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
  * syncs a page (see otto/metasync-otto-seo-functions.php), so the list screen needs
  * no network calls.
  *
- * @since      3.0.0
+ * @since      2.6.21
  * @package    Metasync
  * @subpackage Metasync/admin
  */

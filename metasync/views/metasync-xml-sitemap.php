@@ -854,9 +854,26 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
         $video_skipped_videos = isset($video_diagnostics['skipped_no_thumbnail_videos'])
             ? (int) $video_diagnostics['skipped_no_thumbnail_videos']
             : $video_skipped_no_thumb;
+        $video_skipped_partial = isset($video_diagnostics['skipped_partial_no_thumbnail'])
+            ? (int) $video_diagnostics['skipped_partial_no_thumbnail']
+            : 0;
         $video_skipped_dupe = isset($video_diagnostics['skipped_duplicate_thumbnail'])
             ? (int) $video_diagnostics['skipped_duplicate_thumbnail']
             : 0;
+        # When the diagnostics were captured. Surfaced in the notices so an
+        # admin who has since fixed the thumbnails can tell a stale "12
+        # skipped" from a current one without regenerating first.
+        $video_generated_at = isset($video_diagnostics['generated_at'])
+            ? $video_diagnostics['generated_at']
+            : '';
+        $video_generated_at_display = '';
+        if (!empty($video_generated_at)) {
+            $video_generated_at_display = sprintf(
+                /* translators: %s: timestamp of the last video sitemap generation. */
+                __('as of the last generation on %s', 'metasync'),
+                $video_generated_at
+            );
+        }
 
         # Common gate: the feature is on, nothing else owns the video sitemap,
         # and something has actually been generated to report on.
@@ -978,7 +995,7 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
                     $skipped_title = get_the_title($skipped_id);
                     if ($skipped_title === '') {
                         /* translators: %d: post ID. */
-                        $skipped_title = sprintf(esc_html__('Post %d', 'metasync'), $skipped_id);
+                        $skipped_title = sprintf(__('Post %d', 'metasync'), $skipped_id);
                     }
                     // Null for a post deleted since the last generation, an
                     // unregistered post type, or a user without edit_post.
@@ -992,16 +1009,28 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
                     $video_skipped_links[] = '<a href="' . esc_url($skipped_link) . '" target="_blank" style="color: var(--dashboard-accent, #3b82f6);">' . esc_html($skipped_title) . '</a>';
                 }
                 echo wp_kses_post(implode(', ', $video_skipped_links));
-                if ($video_skipped_videos > count($video_skipped_links)) {
+                # The "and N more" tail counts affected POSTS beyond the
+                # displayed sample, not affected videos. Comparing the per-
+                # video count against the per-post ID list let one post with
+                # three thumbnail-less videos render "A and 2 more" — naming
+                # two posts that do not exist. The total affected-post count
+                # is the full-omission posts plus the partial-omission posts.
+                $video_skipped_total_posts = $video_skipped_no_thumb + $video_skipped_partial;
+                if ($video_skipped_total_posts > count($video_skipped_links)) {
                     echo ' ' . esc_html(
                         sprintf(
                             /* translators: %s: number of additional posts. */
                             __('and %s more.', 'metasync'),
-                            number_format_i18n($video_skipped_videos - count($video_skipped_links))
+                            number_format_i18n($video_skipped_total_posts - count($video_skipped_links))
                         )
                     );
                 }
                 ?>
+            </p>
+            <?php endif; ?>
+            <?php if (!empty($video_generated_at_display)): ?>
+            <p style="margin: 8px 0 0; font-style: italic; color: var(--dashboard-text-secondary, #6b7280);">
+                <?php echo esc_html($video_generated_at_display); ?>
             </p>
             <?php endif; ?>
         </div>
@@ -1012,6 +1041,11 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
             <p style="margin: 0;">
                 &#9888; <?php esc_html_e('The last generated video sitemap contains 0 URLs, because no videos were found in the selected post types. Check that the right content types are ticked under Post Types below. Note that players injected by a theme or page builder are not visible in post content — if that is your setup, point the plugin at the custom field holding the video with the Video URL Meta Keys setting below.', 'metasync'); ?>
             </p>
+            <?php if (!empty($video_generated_at_display)): ?>
+            <p style="margin: 8px 0 0; font-style: italic; color: var(--dashboard-text-secondary, #6b7280);">
+                <?php echo esc_html($video_generated_at_display); ?>
+            </p>
+            <?php endif; ?>
         </div>
         <?php endif; ?>
 
@@ -1033,6 +1067,11 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
                 );
                 ?>
             </p>
+            <?php if (!empty($video_generated_at_display)): ?>
+            <p style="margin: 8px 0 0; font-style: italic; color: var(--dashboard-text-secondary, #6b7280);">
+                <?php echo esc_html($video_generated_at_display); ?>
+            </p>
+            <?php endif; ?>
         </div>
         <?php endif; ?>
 

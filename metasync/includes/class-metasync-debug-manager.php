@@ -130,7 +130,6 @@ class Metasync_Debug_Manager
         }
        
     
-        $log_enabled = get_option('metasync_log_enabled', 'yes');
         $wp_debug_enabled = get_option('wp_debug_enabled', 'false');
         $wp_debug_log_enabled = get_option('wp_debug_log_enabled', 'false');
         $wp_debug_display_enabled = get_option('wp_debug_display_enabled', 'false');

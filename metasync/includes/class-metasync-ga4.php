@@ -8,7 +8,7 @@
  * @package     Search Atlas SEO
  * @copyright   Copyright (C) 2021-2026, Search Atlas Group - support@searchatlas.com
  * @link        https://searchatlas.com/
- * @since       2.6.0
+ * @since       2.6.3
  */
 
 // If this file is called directly, abort.
@@ -215,30 +215,6 @@ window.metasyncGA4Track = function(eventName, params) {
      * Track OTTO page optimization (server-side)
      * @param array $data Notification data from OTTO
      */
-    public function track_otto_optimization($data) {
-        if (!$this->is_configured() || !$this->is_opted_in()) {
-            return;
-        }
-
-        $urls = isset($data['urls']) ? $data['urls'] : array();
-
-        foreach ($urls as $url) {
-            $post_id = url_to_postid((isset($data['domain']) ? $data['domain'] : '') . $url);
-            $content_type = 'unknown';
-
-            if ($post_id > 0) {
-                $post = get_post($post_id);
-                if ($post) {
-                    $content_type = $post->post_type;
-                }
-            }
-
-            $this->send_mp_event('otto_page_optimized', array(
-                'content_type' => $content_type,
-                'url'          => $url,
-            ));
-        }
-    }
 
     /**
      * Track 1-Click Activation (server-side)

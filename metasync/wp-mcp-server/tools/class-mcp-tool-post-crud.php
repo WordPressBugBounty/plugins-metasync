@@ -83,7 +83,7 @@ class MCP_Tool_Create_Post extends MCP_Tool_Base {
 
         $post_data = [
             'post_title' => sanitize_text_field($params['title']),
-            'post_content' => wp_kses_post($params['content']),
+            'post_content' => wp_slash(wp_kses_post($params['content'])),
             'post_status' => isset($params['status']) ? sanitize_text_field($params['status']) : 'draft',
             'post_type' => isset($params['post_type']) ? sanitize_text_field($params['post_type']) : 'post',
         ];

@@ -89,7 +89,7 @@ class Metasync_Html_To_Markdown
                 if (preg_match('#\balt=["\']([^"\']*)["\']#i', $attrs, $a)) {
                     $alt = $a[1];
                 }
-                if (preg_match('#\bsrc=["\']([^"\']+)["\']#i', $attrs, $s)) {
+                if (preg_match('#(?<![-\w])src=["\']([^"\']+)["\']#i', $attrs, $s)) {
                     $src = $s[1];
                 }
                 if ($src === '') {
@@ -118,7 +118,7 @@ class Metasync_Html_To_Markdown
         $html = preg_replace_callback(
             '#<pre\b[^>]*>\s*<code\b[^>]*>(.*?)</code>\s*</pre>#is',
             function ($m) {
-                $code = html_entity_decode($m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $code = $m[1];
                 return "\n\n```\n" . trim($code) . "\n```\n\n";
             },
             $html
@@ -126,7 +126,7 @@ class Metasync_Html_To_Markdown
         $html = preg_replace_callback(
             '#<pre\b[^>]*>(.*?)</pre>#is',
             function ($m) {
-                $code = html_entity_decode(wp_strip_all_tags($m[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $code = wp_strip_all_tags($m[1]);
                 return "\n\n```\n" . trim($code) . "\n```\n\n";
             },
             $html
@@ -136,7 +136,7 @@ class Metasync_Html_To_Markdown
         $html = preg_replace_callback(
             '#<code\b[^>]*>(.*?)</code>#is',
             function ($m) {
-                $code = html_entity_decode(wp_strip_all_tags($m[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $code = wp_strip_all_tags($m[1]);
                 return '`' . $code . '`';
             },
             $html
@@ -207,8 +207,8 @@ class Metasync_Html_To_Markdown
      */
     public static function convert_post($post_id, $options = [])
     {
-        $post = get_post(absint($post_id));
-        if (!$post) {
+        $target_post = get_post(absint($post_id));
+        if (!$target_post) {
             return '';
         }
 
@@ -217,9 +217,20 @@ class Metasync_Html_To_Markdown
             'include_featured_image' => true,
         ]);
 
-        $raw_content = $post->post_content;
-        $filtered = apply_filters('the_content', $raw_content);
-        $filtered = do_shortcode($filtered);
+        $raw_content = $target_post->post_content;
+        global $post, $id, $authordata, $currentday, $page, $pages, $multipage, $more;
+        $previous_globals = compact('post', 'id', 'authordata', 'currentday', 'page', 'pages', 'multipage', 'more');
+        $post = $target_post;
+        try {
+            setup_postdata($post);
+            $filtered = apply_filters('the_content', $raw_content);
+            $filtered = do_shortcode($filtered);
+        } finally {
+            wp_reset_postdata();
+            foreach ($previous_globals as $name => $value) {
+                ${$name} = $value;
+            }
+        }
 
         $markdown = self::convert($filtered);
 
@@ -227,17 +238,17 @@ class Metasync_Html_To_Markdown
 
         if (!empty($options['include_frontmatter'])) {
             $author_name = '';
-            if (!empty($post->post_author)) {
-                $author = get_userdata($post->post_author);
+            if (!empty($target_post->post_author)) {
+                $author = get_userdata($target_post->post_author);
                 if ($author && !empty($author->display_name)) {
                     $author_name = $author->display_name;
                 }
             }
 
             $frontmatter  = "---\n";
-            $frontmatter .= 'title: ' . self::yaml_escape($post->post_title) . "\n";
-            $frontmatter .= 'slug: ' . self::yaml_escape($post->post_name) . "\n";
-            $frontmatter .= 'date: ' . self::yaml_escape($post->post_date) . "\n";
+            $frontmatter .= 'title: ' . self::yaml_escape($target_post->post_title) . "\n";
+            $frontmatter .= 'slug: ' . self::yaml_escape($target_post->post_name) . "\n";
+            $frontmatter .= 'date: ' . self::yaml_escape($target_post->post_date) . "\n";
             if ($author_name !== '') {
                 $frontmatter .= 'author: ' . self::yaml_escape($author_name) . "\n";
             }
@@ -255,7 +266,7 @@ class Metasync_Html_To_Markdown
                         $alt = '';
                     }
                     if ($alt === '') {
-                        $alt = $post->post_title;
+                        $alt = $target_post->post_title;
                     }
                     $prefix .= '![' . $alt . '](' . $src . ")\n\n";
                 }
@@ -319,7 +330,6 @@ class Metasync_Html_To_Markdown
             if (preg_match_all('#<(th|td)\b[^>]*>(.*?)</\1>#is', $row_html, $cell_match, PREG_SET_ORDER)) {
                 foreach ($cell_match as $cm) {
                     $cell_text = trim(self::strip_tags_preserve($cm[2]));
-                    $cell_text = html_entity_decode($cell_text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
                     $cell_text = str_replace(['|', "\n", "\r"], ['\\|', ' ', ' '], $cell_text);
                     $cells[] = $cell_text;
                     if (strtolower($cm[1]) === 'th') {

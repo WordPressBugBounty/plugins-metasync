@@ -8,6 +8,20 @@ jQuery(document).ready(function($) {
     const CHAR_LIMIT = 1000;
     const $messageField = $('#metasync_issue_message');
     const $charCounter = $('#metasync_char_counter');
+    const $requestType = $('#metasync_request_type');
+    const $featureFields = $('#metasync-feature-fields');
+
+    function updateRequestTypeFields() {
+        const isFeatureRequest = $requestType.val() === 'feature';
+        $featureFields.toggle(isFeatureRequest);
+        $requestType.attr('aria-expanded', isFeatureRequest ? 'true' : 'false');
+        $featureFields.find('input, textarea').prop('required', isFeatureRequest);
+        $messageField.prop('required', !isFeatureRequest);
+        $('#metasync-details-required-badge').text(isFeatureRequest ? 'Optional' : 'Required');
+        if (!isFeatureRequest) {
+            $featureFields.find('input, textarea').val('');
+        }
+    }
 
     // Update character counter and show feedback
     function updateCharCounter() {
@@ -22,7 +36,9 @@ jQuery(document).ready(function($) {
     }
 
     $messageField.on('input keyup paste', updateCharCounter);
+    $requestType.on('change', updateRequestTypeFields);
     updateCharCounter(); // Initial state
+    updateRequestTypeFields();
 
     $('#metasync-report-issue-form').on('submit', function(e) {
         e.preventDefault();
@@ -36,7 +52,8 @@ jQuery(document).ready(function($) {
 
         // Validate message length
         const message = $messageField.val() ? $messageField.val().trim() : '';
-        if (message.length < 10) {
+        const isFeatureRequest = $requestType.val() === 'feature';
+        if (!isFeatureRequest && message.length < 10) {
             $responseMsg
                 .removeClass('success')
                 .addClass('error')
@@ -80,6 +97,10 @@ jQuery(document).ready(function($) {
         const formData = new FormData();
         formData.append('action', 'metasync_submit_issue_report');
         formData.append('nonce', $form.find('#metasync_report_issue_nonce').val());
+        formData.append('request_type', $requestType.val());
+        formData.append('feature_title', $('#metasync_feature_title').val() || '');
+        formData.append('feature_problem', $('#metasync_feature_problem').val() || '');
+        formData.append('feature_solution', $('#metasync_feature_solution').val() || '');
         formData.append('issue_message', message);
         formData.append('issue_severity', $('#metasync_issue_severity').val());
         formData.append('include_user_info', $('#metasync_include_user_info').is(':checked'));
@@ -119,6 +140,7 @@ jQuery(document).ready(function($) {
                     // Reset form
                     $form[0].reset();
                     updateCharCounter();
+                    updateRequestTypeFields();
 
                     // Scroll to success message
                     if ($responseMsg.offset()) {

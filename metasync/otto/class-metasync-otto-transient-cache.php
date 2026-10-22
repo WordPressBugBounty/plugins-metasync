@@ -420,16 +420,6 @@ class Metasync_Otto_Transient_Cache {
      * @param string $url The page URL
      * @return bool Success
      */
-    public function invalidate($url) {
-        # PERFORMANCE OPTIMIZATION: Generate all cache keys once
-        $keys = $this->get_cache_keys($url);
-
-        delete_transient($keys['transient']);
-        delete_transient($keys['stale']);
-        delete_transient($keys['lock']);
-
-        return true;
-    }
 
     /**
      * Warm cache for a URL (pre-fetch and cache)
@@ -839,20 +829,6 @@ class Metasync_Otto_Transient_Cache {
     * @param string $url The page URL to purge from NitroPack cache
     * @return bool True if purge was attempted, false if NitroPack not available
     */
-    private function purge_nitropack_cache($url) {
-        # Check if NitroPack functions are available
-        if (!function_exists('nitropack_sdk_purge')) {
-            return false;
-        }
-        
-        try {
-            # Purge NitroPack's cache (both local and remote) for this URL
-            # Using nitropack_sdk_purge() ensures remote API cache is also cleared
-            return nitropack_sdk_purge($url, NULL, 'MetaSync OTTO API call - fresh suggestions fetched');
-        } catch (\Exception $e) {
-            return false;
-        }
-    }
 
     /**
      * Check if API response has payload (suggestions)
@@ -1223,10 +1199,6 @@ class Metasync_Otto_Transient_Cache {
      * @param string $url The page URL
      * @return string Lock key
      */
-    private function get_lock_key($url) {
-        $keys = $this->get_cache_keys($url);
-        return $keys['lock'];
-    }
 
     /**
      * Get stale cache key for URL

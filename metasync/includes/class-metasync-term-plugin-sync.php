@@ -9,7 +9,7 @@
  *
  * @package    MetaSync
  * @subpackage MetaSync/includes
- * @since      2.8.24
+ * @since      2.6.3
  */
 
 if (!defined('ABSPATH')) {

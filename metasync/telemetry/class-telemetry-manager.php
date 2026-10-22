@@ -320,9 +320,6 @@ class Metasync_Telemetry_Manager {
     /**
      * Flush telemetry queue - REMOVED (now using Sentry directly)
      */
-    public function flush_telemetry_queue() {
-        // No longer needed - Sentry handles sending directly
-    }
 
     /**
      * Send exception telemetry to Sentry
@@ -434,28 +431,12 @@ class Metasync_Telemetry_Manager {
      *
      * @param array $context Additional context
      */
-    public function send_activation($context = array()) {
-        if (!$this->telemetry_enabled) return;
-
-        if ($this->sentry_integration && $this->telemetry_collector) {
-            $telemetry_data = $this->telemetry_collector->capture_activation($context);
-            $this->sentry_integration->captureMessage('Plugin activated', 'info', $context);
-        }
-    }
 
     /**
      * Send deactivation telemetry to Sentry
      *
      * @param array $context Additional context
      */
-    public function send_deactivation($context = array()) {
-        if (!$this->telemetry_enabled) return;
-
-        if ($this->sentry_integration && $this->telemetry_collector) {
-            $telemetry_data = $this->telemetry_collector->capture_deactivation($context);
-            $this->sentry_integration->captureMessage('Plugin deactivated', 'info', $context);
-        }
-    }
 
     /**
      * Send performance telemetry to Sentry
@@ -482,13 +463,6 @@ class Metasync_Telemetry_Manager {
      *
      * @return array Test results
      */
-    public function test_telemetry_connection() {
-        if (!$this->telemetry_enabled) {
-            return array('success' => false, 'error' => 'Telemetry not enabled or not initialized');
-        }
-
-        return $this->test_sentry_connection();
-    }
 
     /**
      * Get telemetry statistics

@@ -121,10 +121,6 @@ class Metasync_Endpoint_Manager {
 	 *
 	 * @return array Associative array of endpoint keys and URLs.
 	 */
-	public static function get_all_endpoints() {
-		$mode = self::get_mode();
-		return self::$endpoints[ $mode ];
-	}
 
 	/**
 	 * Check if staging mode is currently active.
@@ -140,7 +136,4 @@ class Metasync_Endpoint_Manager {
 	 *
 	 * @return array Array of available modes.
 	 */
-	public static function get_available_modes() {
-		return array( self::MODE_PRODUCTION, self::MODE_STAGING );
-	}
 }

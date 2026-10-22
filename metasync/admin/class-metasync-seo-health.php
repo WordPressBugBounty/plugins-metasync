@@ -9,7 +9,7 @@ if (!defined('ABSPATH')) {
  *
  * Provides a bird's-eye view of all posts/pages and their SEO completeness.
  *
- * @since      3.0.0
+ * @since      2.6.1
  * @package    Metasync
  * @subpackage Metasync/admin
  */
@@ -172,7 +172,21 @@ class Metasync_SEO_Health
 	 * Transient key for summary stats.
 	 * Versioned by a hash of the meta key constants — auto-invalidates when fallback chain changes.
 	 */
-	const STATS_TRANSIENT_KEY = 'metasync_seo_health_stats';
+	const STATS_TRANSIENT_KEY = 'metasync_seo_health_stats_v2';
+
+	/**
+	 * Transient prefix for the matching-ID lists the list table scans for its
+	 * PHP-side filters. Full keys add a generation token and the exact filter
+	 * arguments, so deleting the generation retires every list at once without
+	 * having to enumerate keys that cannot be enumerated.
+	 */
+	const IDS_TRANSIENT_KEY = 'metasync_seo_health_ids_v1';
+
+	/** Generation token for the matching-ID lists; deleting it invalidates all of them at once. */
+	const IDS_CACHE_GENERATION_KEY = 'metasync_seo_health_ids_generation';
+
+	/** Matching-ID lists are short-lived: a filter re-scans at most this often. */
+	const IDS_CACHE_TTL = 300;
 
 	/**
 	 * Get the versioned transient key.
@@ -184,6 +198,52 @@ class Metasync_SEO_Health
 	{
 		$fingerprint = md5(serialize(self::title_meta_keys()) . serialize(self::desc_meta_keys()));
 		return self::STATS_TRANSIENT_KEY . '_' . substr($fingerprint, 0, 8);
+	}
+
+	/**
+	 * Current generation token for the matching-ID caches.
+	 *
+	 * The token lives in its own transient with a long TTL: one delete of that
+	 * single transient changes every derived list key at once, and the stale
+	 * entries simply age out through their own (short) TTL.
+	 *
+	 * @return string Random 16-hex-character token.
+	 */
+	private static function get_ids_cache_generation()
+	{
+		$generation = get_transient(self::IDS_CACHE_GENERATION_KEY);
+		if (!is_string($generation) || $generation === '') {
+			$generation = bin2hex(random_bytes(8));
+			set_transient(self::IDS_CACHE_GENERATION_KEY, $generation, 86400);
+		}
+		return $generation;
+	}
+
+	/**
+	 * Transient key for one matching-ID list the list table scanned.
+	 *
+	 * Keyed by generation + filter + the exact population the scan covered
+	 * (post types, statuses, search term), so a cached list is only reused for
+	 * an identical query shape. Sort order is deliberately not part of the key:
+	 * the page window applies it afterwards.
+	 *
+	 * @param string       $filter        The missing_filter value.
+	 * @param string|array $post_types    Post types the scan covered.
+	 * @param string|array $post_statuses Statuses the scan covered.
+	 * @param string       $search        Search term, '' when none.
+	 * @return string
+	 */
+	public static function matching_ids_transient_key($filter, $post_types, $post_statuses, $search)
+	{
+		$fingerprint = md5(serialize(array(
+			self::get_ids_cache_generation(),
+			(string) $filter,
+			(array) $post_types,
+			(array) $post_statuses,
+			(string) $search,
+		)));
+
+		return self::IDS_TRANSIENT_KEY . '_' . substr($fingerprint, 0, 12);
 	}
 
 	/**
@@ -241,6 +301,18 @@ class Metasync_SEO_Health
 		if (!current_user_can('manage_options')) {
 			wp_die(esc_html__('You do not have permission to export.', 'metasync'));
 		}
+
+		$stats = $this->get_summary_stats();
+		// The SEO Health page has no separate "run check" action — the export
+		// download is the deliberate action here — so report what the export
+		// actually was: the real coverage snapshot, not a derived issue count.
+		Metasync_PostHog::feature('seo_health_export_downloaded', array(
+			'success' => true,
+			'total_posts' => (int) ($stats['total_posts'] ?? 0),
+			'pct_seo_title' => (int) ($stats['pct_seo_title'] ?? 0),
+			'pct_meta_description' => (int) ($stats['pct_meta_description'] ?? 0),
+			'pct_schema' => (int) ($stats['pct_schema'] ?? 0),
+		));
 
 		$this->export_csv();
 	}
@@ -368,23 +440,19 @@ class Metasync_SEO_Health
 	}
 
 	/**
-	 * Check if a post has an OG image (MetaSync or featured image fallback).
+	 * Return whether schema is saved for a post from a source that can render it.
 	 *
-	 * @param int $post_id Post ID.
-	 * @return bool
-	 */
-	public static function has_og_image($post_id)
-	{
-		$og_image = get_post_meta($post_id, '_metasync_og_image', true);
-		if (!empty($og_image)) {
-			return true;
-		}
-		return !empty(get_post_meta($post_id, '_thumbnail_id', true));
-	}
-
-	/**
-	 * Check if a post has meaningful schema markup.
-	 * Treats empty arrays/objects as "no schema".
+	 * Counts the meta box only when it is enabled and holds types (saving the
+	 * box with schema unchecked preserves types under enabled=false, which
+	 * renders nothing and must read as "None"), OTTO JSON-LD when the payload
+	 * is more than an empty structure (live key or the copy persisted inside
+	 * the schema array), and Rank Math's saved schema only while Rank Math is
+	 * active — a deactivated plugin's leftover meta controls nothing. Yoast is
+	 * never counted: it emits a schema graph for every page automatically.
+	 *
+	 * This reports saved state, not guaranteed output: per-post schema
+	 * validation errors, a disabled Schema feature flag, or the per-post
+	 * OTTO-off toggle can still suppress rendering while this reads true.
 	 *
 	 * @param int $post_id Post ID.
 	 * @return bool
@@ -392,47 +460,50 @@ class Metasync_SEO_Health
 	public static function has_schema($post_id)
 	{
 		$schema = get_post_meta($post_id, 'metasync_schema_markup', true);
-		if (empty($schema)) {
-			return false;
-		}
 		if (is_string($schema)) {
-			$decoded = json_decode($schema, true);
-			return is_array($decoded) && !empty($decoded);
+			$schema = json_decode($schema, true);
 		}
 		if (is_array($schema)) {
-			return !empty($schema);
-		}
-		return false;
-	}
-
-	/**
-	 * Calculate alt text coverage for images in post content.
-	 *
-	 * @param string $content Post content HTML.
-	 * @return array Array with 'total', 'with_alt', and 'percentage' keys.
-	 */
-	public static function calculate_alt_text_coverage($content)
-	{
-		$result = array('total' => 0, 'with_alt' => 0, 'percentage' => null);
-
-		if (!preg_match_all('/<img[^>]*>/i', $content, $matches)) {
-			return $result;
+			if (!empty($schema['enabled']) && !empty($schema['types'])) {
+				return true;
+			}
+			if (isset($schema['otto_jsonld']['data'])
+				&& self::has_meaningful_jsonld($schema['otto_jsonld']['data'])) {
+				return true;
+			}
 		}
 
-		$result['total'] = count($matches[0]);
-		foreach ($matches[0] as $img_tag) {
-			if (preg_match('/alt\s*=\s*["\']([^"\']+)["\']/i', $img_tag, $alt_match)) {
-				if (!empty(trim($alt_match[1]))) {
-					$result['with_alt']++;
+		if (self::has_meaningful_jsonld(get_post_meta($post_id, '_metasync_otto_structured_data', true))) {
+			return true;
+		}
+
+		if (self::is_plugin_active_any(array('seo-by-rank-math/rank-math.php', 'seo-by-rankmath/rank-math.php'))) {
+			foreach (get_post_meta($post_id) as $key => $values) {
+				if (strpos($key, 'rank_math_schema_') === 0 && !empty($values[0])) {
+					return true;
 				}
 			}
 		}
 
-		$result['percentage'] = $result['total'] > 0
-			? round(($result['with_alt'] / $result['total']) * 100)
-			: 100;
+		return false;
+	}
 
-		return $result;
+	/**
+	 * Whether a stored JSON-LD payload carries actual markup.
+	 *
+	 * Writers clear OTTO data by storing an empty string and may leave behind
+	 * bare `[]`/`{}` structures; none of those render anything, so they must
+	 * not report as schema.
+	 *
+	 * @param mixed $value Raw stored value (JSON string or already-unserialized array).
+	 * @return bool
+	 */
+	private static function has_meaningful_jsonld($value)
+	{
+		if (is_string($value)) {
+			$value = json_decode($value, true);
+		}
+		return is_array($value) && !empty($value);
 	}
 
 	/**
@@ -462,7 +533,6 @@ class Metasync_SEO_Health
 				array('value' => $stats['pct_seo_title'], 'label' => __('SEO Title Set', 'metasync'), 'type' => 'percent'),
 				array('value' => $stats['pct_meta_description'], 'label' => __('Meta Description Set', 'metasync'), 'type' => 'percent'),
 				array('value' => $stats['pct_schema'], 'label' => __('Schema Markup', 'metasync'), 'type' => 'percent'),
-				array('value' => $stats['pct_og_image'], 'label' => __('OG Image Set', 'metasync'), 'type' => 'percent'),
 			);
 			foreach ($stat_cards as $card):
 				$display = ($card['type'] === 'percent') ? $card['value'] . '%' : $card['value'];
@@ -524,7 +594,6 @@ class Metasync_SEO_Health
 		$with_title = 0;
 		$with_desc = 0;
 		$with_schema = 0;
-		$with_og_image = 0;
 
 		add_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10, 2);
 		add_filter('posts_where', array('Metasync_SEO_Inventory_Builder', 'filter_where_id_gt'), 10, 2);
@@ -555,8 +624,10 @@ class Metasync_SEO_Health
 					break;
 				}
 
-				// Prime meta cache for this chunk of IDs
+				// Prime posts and meta in bulk — the resolvers below otherwise
+				// cost one single-post query per ID through permalink resolution.
 				update_meta_cache('post', $post_ids);
+				_prime_post_caches($post_ids, false, false);
 
 				foreach ($post_ids as $post_id) {
 					$total++;
@@ -573,12 +644,13 @@ class Metasync_SEO_Health
 						$with_schema++;
 					}
 
-					if (self::has_og_image($post_id)) {
-						$with_og_image++;
-					}
-
 					$last_id = (int) $post_id;
 				}
+
+				// Drop the chunk's posts and meta again — a full stats rebuild
+				// must not leave the whole store sitting in the object cache.
+				wp_cache_delete_multiple($post_ids, 'posts');
+				wp_cache_delete_multiple($post_ids, 'post_meta');
 
 				if (count($post_ids) < $batch_size) {
 					break;
@@ -595,7 +667,6 @@ class Metasync_SEO_Health
 				'pct_seo_title'        => 0,
 				'pct_meta_description' => 0,
 				'pct_schema'           => 0,
-				'pct_og_image'         => 0,
 			);
 			set_transient(self::get_stats_transient_key(), $stats, 3600);
 			return $stats;
@@ -606,7 +677,6 @@ class Metasync_SEO_Health
 			'pct_seo_title'        => (int) round(($with_title / $total) * 100),
 			'pct_meta_description' => (int) round(($with_desc / $total) * 100),
 			'pct_schema'           => (int) round(($with_schema / $total) * 100),
-			'pct_og_image'         => (int) round(($with_og_image / $total) * 100),
 		);
 
 		set_transient(self::get_stats_transient_key(), $stats, 3600);
@@ -623,7 +693,7 @@ class Metasync_SEO_Health
 	}
 
 	/**
-	 * Delete the summary stats transient.
+	 * Delete the summary stats transient and rotate the matching-ID caches.
 	 *
 	 * Public and static so writers that update SEO meta outside of save_post
 	 * (OTTO crawl-notify job, MCP tools) can keep the dashboard aggregates in
@@ -632,6 +702,9 @@ class Metasync_SEO_Health
 	public static function invalidate_stats()
 	{
 		delete_transient(self::get_stats_transient_key());
+		// Rotating the generation retires every matching-ID list at once —
+		// the stale lists age out via their own TTL.
+		delete_transient(self::IDS_CACHE_GENERATION_KEY);
 	}
 
 	/**
@@ -654,8 +727,7 @@ class Metasync_SEO_Health
 			'Post ID', 'Title', 'Post Type', 'Status',
 			'SEO Title',
 			'Meta Description',
-			'Has Schema', 'Has OG Image',
-			'Alt Text Coverage %', 'Last Modified',
+			'Has Schema', 'Last Modified',
 		));
 
 		$args = array(
@@ -707,7 +779,6 @@ class Metasync_SEO_Health
 				foreach ($posts as $post) {
 					$title_result = self::get_seo_meta_with_fallback($post->ID, 'title');
 					$desc_result = self::get_seo_meta_with_fallback($post->ID, 'description');
-					$alt = self::calculate_alt_text_coverage($post->post_content);
 
 					fputcsv($output, array(
 						$post->ID,
@@ -717,8 +788,6 @@ class Metasync_SEO_Health
 						$title_result['value'],
 						$desc_result['value'],
 						self::has_schema($post->ID) ? 'Yes' : 'No',
-						self::has_og_image($post->ID) ? 'Yes' : 'No',
-						$alt['percentage'] !== null ? $alt['percentage'] : 'N/A',
 						get_the_modified_date('Y-m-d', $post),
 					));
 

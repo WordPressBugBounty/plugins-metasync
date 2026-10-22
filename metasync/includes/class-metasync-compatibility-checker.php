@@ -1162,7 +1162,7 @@ class Metasync_Compatibility_Checker
                 'plugin_files' => [ 'wp-rocket/wp-rocket.php' ],
                 'supported'    => true,
                 'version'      => '3.16',
-                'note'         => 'Automatic cache purge on OTTO update.',
+                'note'         => sprintf('Automatic cache purge on %s update.', Metasync::get_whitelabel_otto_name()),
             ],
             'litespeed-cache' => [
                 'name'         => 'LiteSpeed Cache',
@@ -1257,7 +1257,7 @@ class Metasync_Compatibility_Checker
                 'plugin_files' => [ 'fastly/fastly.php' ],
                 'supported'    => true,
                 'version'      => '',
-                'note'         => 'Edge cache purge triggered on OTTO update.',
+                'note'         => sprintf('Edge cache purge triggered on %s update.', Metasync::get_whitelabel_otto_name()),
             ],
             'bunnycdn' => [
                 'name'         => 'Bunny CDN',
@@ -1270,7 +1270,7 @@ class Metasync_Compatibility_Checker
                 'plugin_files' => [ 'kinsta-mu-plugins/kinsta-mu-plugins.php' ],
                 'supported'    => true,
                 'version'      => '',
-                'note'         => 'Kinsta Varnish/Nginx cache purged per-URL on OTTO update.',
+                'note'         => sprintf('Kinsta Varnish/Nginx cache purged per-URL on %s update.', Metasync::get_whitelabel_otto_name()),
             ],
             'flywheel' => [
                 'name'         => 'Flywheel / Local',

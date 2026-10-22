@@ -128,7 +128,7 @@ class Metasync_Seo_Suite
         }
 
         if (empty($wp_meta_boxes[$post_type]['normal']['high']['metasync_seo_suite'])) {
-            $plugin_name = class_exists('Metasync') ? Metasync::get_effective_plugin_name() : 'MetaSync';
+            $plugin_name = class_exists('Metasync') ? Metasync::get_effective_plugin_name() : 'Search Atlas';
             add_meta_box(
                 'metasync_seo_suite',
                 sprintf('SEO Suite by %s', $plugin_name),
@@ -228,6 +228,9 @@ class Metasync_Seo_Suite
     {
         $P = $this->present;
         $id = $post->ID;
+
+        $plugin_name = class_exists('Metasync') ? Metasync::get_effective_plugin_name() : 'Search Atlas';
+        $otto_name   = class_exists('Metasync') ? Metasync::get_whitelabel_otto_name() : 'OTTO';
 
         $managed = $this->is_managed_page($id);
 
@@ -497,9 +500,9 @@ class Metasync_Seo_Suite
                 <?php if ($has_seo): ?>
                 <div class="<?php echo esc_attr($pcls()); ?>" data-p="seo">
                   <h2 class="p-title">&#128269; Search Appearance</h2>
-                  <p class="p-sub">Set the SEO Title and Meta Description. Leave blank to use the OTTO suggestion.</p>
+                  <p class="p-sub">Set the SEO Title and Meta Description. Leave blank to use the <?php echo esc_html($otto_name); ?> suggestion.</p>
                   <?php if ($show_imported_note): ?>
-                  <p class="p-sub">The greyed-out value below was imported from another SEO plugin. It is used only until OTTO has a suggestion for this page.</p>
+                  <p class="p-sub">The greyed-out value below was imported from another SEO plugin. It is used only until <?php echo esc_html($otto_name); ?> has a suggestion for this page.</p>
                   <?php endif; ?>
                   <div class="field">
                     <div class="lbl"><span>SEO Title</span><span class="cc"><span class="tC">0</span>/60</span></div>
@@ -518,9 +521,9 @@ class Metasync_Seo_Suite
                   <?php endif; ?>
                   <?php if ($otto_kw !== ''): ?>
                   <div class="field">
-                    <div class="lbl"><span>Focus Keyword</span><span class="ro-badge">Managed by OTTO</span></div>
+                    <div class="lbl"><span>Focus Keyword</span><span class="ro-badge">Managed by <?php echo esc_html($otto_name); ?></span></div>
                     <div class="mss-ro"><span class="lock">&#128274;</span> <?php echo esc_html($otto_kw); ?></div>
-                    <div class="hint">Set in Search Atlas &mdash; shown here for reference. Read-only.</div>
+                    <div class="hint">Set in <?php echo esc_html($plugin_name); ?> &mdash; shown here for reference. Read-only.</div>
                   </div>
                   <?php endif; ?>
                   <div class="sec">Preview</div>
@@ -811,7 +814,7 @@ class Metasync_Seo_Suite
               <div class="mss-lps-card">
                 <div class="mss-lps-icon">&#128274;</div>
                 <h3>SEO managed by WebStudio</h3>
-                <p>This page's content is served as pre-built HTML before WordPress renders its <code>&lt;head&gt;</code>, so these SEO Suite settings won't apply. SEO for this page is managed by <b>WebStudio</b> (or OTTO, if enabled) to keep everything in sync.</p>
+                <p>This page's content is served as pre-built HTML before WordPress renders its <code>&lt;head&gt;</code>, so these SEO Suite settings won't apply. SEO for this page is managed by <b>WebStudio</b> (or <?php echo esc_html($otto_name); ?>, if enabled) to keep everything in sync.</p>
                 <div class="mss-lps-hint">Editing is disabled here to avoid conflicting values.</div>
               </div>
             </div>

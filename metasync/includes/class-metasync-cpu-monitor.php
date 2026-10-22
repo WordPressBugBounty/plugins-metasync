@@ -299,7 +299,4 @@ class Metasync_CPU_Monitor {
 	/**
 	 * Reset CPU statistics to default values
 	 */
-	public static function reset_stats() {
-		delete_option( self::STATS_OPTION_KEY );
-	}
 }

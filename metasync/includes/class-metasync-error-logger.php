@@ -380,9 +380,6 @@ class Metasync_Error_Logger {
      * 
      * @return array Error codes array
      */
-    public static function get_all_error_codes() {
-            return self::$error_codes;
-        }
     }
 
 
