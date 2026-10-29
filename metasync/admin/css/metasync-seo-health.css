@@ -78,12 +78,19 @@
 /* ===== WP_List_Table dark-theme overrides ===== */
 
 /* Table container */
+/* The list table itself cannot reliably scroll as a table element; put the
+   horizontal overflow on its block-level form wrapper instead. */
+.metasync-layout-main > form {
+	overflow-x: auto !important;
+	overflow-y: hidden !important;
+}
+
 .wrap .wp-list-table {
 	background: var(--dashboard-card-bg) !important;
 	border: 1px solid var(--dashboard-border) !important;
 	border-radius: 12px !important;
-	overflow: hidden !important;
 	box-shadow: var(--dashboard-shadow) !important;
+	min-width: 960px;
 }
 
 .wrap .wp-list-table th {
@@ -510,20 +517,24 @@
 	color: var(--dashboard-warning);
 }
 
-.seo-status-none {
-	color: var(--dashboard-text-secondary);
-}
-
 /* ===== Column widths ===== */
 /* Widths total ~95% so the fixed-layout table keeps no surplus for the
- * browser to dump into the check column (2.2em). */
-.wrap .wp-list-table .column-title { width: 24%; }
+ * browser to dump into the check column (2.2em). Status gets enough room
+ * for its longest value ("Published" + sort arrows) so it never wraps
+ * mid-word; the title column absorbs the difference. */
+.wrap .wp-list-table .column-title { width: 22%; }
 .wrap .wp-list-table .column-post_type { width: 8%; }
-.wrap .wp-list-table .column-status { width: 7%; }
+.wrap .wp-list-table .column-status { width: 9%; }
 .wrap .wp-list-table .column-seo_title { width: 19%; }
 .wrap .wp-list-table .column-meta_description { width: 19%; }
 .wrap .wp-list-table .column-schema { width: 8%; }
 .wrap .wp-list-table .column-last_modified { width: 10%; }
+
+/* Never break status values mid-word ("Publish" -> "Publis/h") */
+.wrap .wp-list-table td.column-status,
+.wrap .wp-list-table th.column-status {
+	white-space: nowrap !important;
+}
 
 /* ===== Headings ===== */
 h1, h2, h3 {

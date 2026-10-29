@@ -940,6 +940,12 @@
 	}
 
 	function showConnectStatus(type, title, message, actions) {
+		if (metaSync.is_whitelabel && actions) {
+			actions = actions.filter(function (action) {
+				return action.text !== '💬 Contact Support';
+			});
+		}
+
 		var $statusContainer = $('#sa-connect-status-message');
 		var $button = $('#connect-searchatlas-btn');
 		

@@ -101,7 +101,7 @@ class Metasync_SEO_Health_List_Table extends WP_List_Table
 			case 'schema':
 				return Metasync_SEO_Health::has_schema($item->ID)
 					? '<span class="seo-status-set optimal">&#10003; Yes</span>'
-					: '<span class="seo-status-none">&mdash; None</span>';
+					: '<span class="seo-status-missing">&#9888; Missing</span>';
 			case 'last_modified':
 				return esc_html(get_the_modified_date('Y-m-d', $item));
 

@@ -21,6 +21,9 @@ class Metasync_Heartbeat_Manager
     /** @var array Failure class of the last heartbeat test, for analytics. */
     private $last_failure = array();
 
+    /** @var string Why the last fetch_public_hash() call failed: 'not_found' or ''. */
+    private $last_public_hash_failure = '';
+
     /**
      * Get singleton instance.
      *
@@ -129,6 +132,7 @@ class Metasync_Heartbeat_Manager
         $base_retry_delay = 1;
         $max_retries = max(1, (int) $max_retries);
         $api_timeout = max(1, (int) $api_timeout);
+        $this->last_public_hash_failure = '';
 
         if (!$this->validate_fetch_hash_inputs($otto_pixel_uuid, $jwt_token)) {
             $this->log_fetch_hash_error('error', 'Invalid input parameters provided', [
@@ -264,6 +268,20 @@ class Metasync_Heartbeat_Manager
         ]);
 
         return false;
+    }
+
+    /**
+     * Why the most recent fetch_public_hash() call returned false.
+     *
+     * Lets the dashboard tell a deleted OTTO project ('not_found', from an API
+     * 404) apart from a temporary failure (''), so it can show a reconnect
+     * prompt instead of a Retry button that can never succeed.
+     *
+     * @return string 'not_found' or ''.
+     */
+    public function get_last_public_hash_failure()
+    {
+        return $this->last_public_hash_failure;
     }
 
     // ------------------------------------------------------------------
@@ -402,6 +420,7 @@ class Metasync_Heartbeat_Manager
                 return false;
 
             case 404:
+                $this->last_public_hash_failure = 'not_found';
                 $this->log_fetch_hash_error('error', 'OTTO project not found', [
                     'status_code' => $status_code,
                     'attempt' => $attempt

@@ -1,8 +1,8 @@
 {
     "name": "searchatlas/metasync",
-    "description": "Search Atlas SEO - Premier SEO Plugin for WordPress",
+    "description": "Search Atlas SEO - OTTO AI SEO Automation for WordPress",
     "type": "wordpress-plugin",
-    "license": "GPL-2.0-or-later",
+    "license": "GPL-3.0-only",
     "authors": [
         {
             "name": "Search Atlas",

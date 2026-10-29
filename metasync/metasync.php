@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas SEO - OTTO AI SEO Automation for WordPress
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.7.4
+ * Version:           2.7.5
  * Requires PHP:      8.1
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
@@ -58,7 +58,7 @@ require_once __DIR__ . '/includes/class-metasync-seo-restore.php';
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.7.4';
+$metasync_version = '2.7.5';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 

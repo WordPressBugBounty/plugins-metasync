@@ -1527,7 +1527,9 @@ class Metasync_Settings_Fields {
         printf('• The process typically takes 15-30 seconds to complete<br/>');
         printf('• Your API key will be stored securely and shown masked below<br/>');
         printf('• If you encounter issues, try disabling ad blockers temporarily<br/>');
-        printf('• Contact <a href="mailto:%s">%s</a> if you need assistance', esc_attr(Metasync::SUPPORT_EMAIL), esc_html(Metasync::SUPPORT_EMAIL));
+        if (!Metasync::is_whitelabel_enabled()) {
+            printf('• Contact <a href="mailto:%s">%s</a> if you need assistance', esc_attr(Metasync::SUPPORT_EMAIL), esc_html(Metasync::SUPPORT_EMAIL));
+        }
         printf('</div>');
         printf('</details>');
         printf('</div>');

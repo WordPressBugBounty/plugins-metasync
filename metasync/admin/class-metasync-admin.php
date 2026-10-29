@@ -120,24 +120,19 @@ class Metasync_Admin
     }
 
     /**
-     * Get dashboard URL with authentication tokens and tracking parameters
-     * Returns the complete URL for accessing the Search Atlas dashboard
+     * Get the Search Atlas dashboard URL with tracking parameters.
+     *
+     * Never carries a login token: a token in the URL signs the visitor in
+     * as the account owner, exposing the whole account to anyone who can see
+     * this link. Users sign in to the dashboard themselves.
      */
     public function get_dashboard_url()
     {
         // Get the effective dashboard domain (whitelabel or production)
         $dashboard_url = self::get_effective_dashboard_domain();
-        
-        // Get current options for token inclusion
-        $general_options = Metasync::get_option('general');
-        
-        // Add JWT token if available for seamless login
-        if (isset($general_options['linkgraph_token']) && !empty($general_options['linkgraph_token'])) {
-            $dashboard_url .= '/?jwtToken=' . urlencode($general_options['linkgraph_token']);
-        }
-        
+
         // Add source tracking parameter
-        $dashboard_url .= (strpos($dashboard_url, '?') !== false ? '&' : '?') . 'source=wordpress-plugin';
+        $dashboard_url = rtrim($dashboard_url, '/') . '/?source=wordpress-plugin';
         
         // Add whitelabel identification if in whitelabel mode
         $whitelabel_company_name = Metasync::get_whitelabel_company_name();
@@ -1421,6 +1416,7 @@ class Metasync_Admin
                 'heartbeat_state' => $heartbeat_state,
                 'dashboard_domain' => self::get_effective_dashboard_domain(),
                 'support_email' => Metasync::SUPPORT_EMAIL,
+                'is_whitelabel' => Metasync::is_whitelabel_enabled(),
                 'documentation_domain' => Metasync::DOCUMENTATION_DOMAIN,
                 'debug_enabled' => WP_DEBUG || (defined('METASYNC_DEBUG') && constant('METASYNC_DEBUG')),
                 'searchatlas_api_key' => !empty($searchatlas_api_key),

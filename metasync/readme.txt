@@ -4,7 +4,7 @@ Tags: seo, ai seo, otto, otto seo, schema
 Requires at least: 6.3
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 2.7.4
+Stable tag: 2.7.5
 License: GPL v3
 License URI: https://www.gnu.org/licenses/gpl-3.0.txt
 
@@ -31,7 +31,7 @@ Push blog posts, landing pages, and content updates straight from the Search Atl
 - Bulk status and content operations to manage many posts at once
 
 ### A complete on-page SEO toolkit
-- 13 schema / structured-data types (Article, FAQ, Product, Recipe, Event, LocalBusiness, HowTo, VideoObject, and more) with JSON-LD output
+- 15 schema / structured-data types (Article, FAQ, Product, Recipe, Event, LocalBusiness, HowTo, VideoObject, and more) with JSON-LD output
 - XML sitemaps, including dedicated news and video sitemaps
 - Virtual robots.txt editor — manage rules with no file editing
 - Redirection manager — 5 match types (exact, wildcard, regex, contains, start/end) and 5 status codes (301/302/307/410/451), with automatic redirects on slug changes
@@ -51,17 +51,20 @@ A built-in Model Context Protocol (MCP) server exposes 138 tools across 31 categ
 - Edge/CDN cache purging for Cloudflare, Fastly, Akamai, and Sucuri
 
 ### Works with your stack
-- Page builders: Gutenberg, Elementor, Divi, Oxygen, and Beaver Builder
+- Page builders: Gutenberg, Elementor, Divi, Oxygen, and Bricks
 - WooCommerce breadcrumbs and shop pages
 - Coexistence and migration with Yoast SEO, Rank Math, and All in One SEO
 - Google Search Console and GA4 integration
 - Agency-ready white-label settings to show or hide features per client
 
 ### Search Atlas account & external service
-Search Atlas is a companion plugin for the Search Atlas platform, an external service. A Search Atlas account is required to use the AI optimization, OTTO, and content-publishing features. When connected, your site sends and receives data from Search Atlas servers to provide these features. Learn more in the Search Atlas Terms of Service (https://searchatlas.com/terms/) and Privacy Policy (https://searchatlas.com/privacy-policy/).
+Search Atlas is a companion plugin for the Search Atlas platform, an external service. A Search Atlas account is required to use the AI optimization, OTTO, and content-publishing features. When connected, your site sends and receives data from Search Atlas servers to provide these features. Learn more in the Search Atlas [Terms of Service](https://searchatlas.com/terms/) and [Privacy Policy](https://searchatlas.com/privacy-policy/).
 
 ### Usage analytics (optional, off by default)
-The plugin can send limited usage analytics to Search Atlas so we can see which features are used and find problems. It is off until a site administrator clicks "Allow" in the admin notice, and it can be turned off anytime in Settings. When on, events are sent to a PostHog analytics instance hosted by Search Atlas (posthog.internal.searchatlas.com). The data includes your site URL, plugin version, WordPress and PHP versions, the user's role, and feature usage, linked to a hashed site ID. We do not collect passwords, API keys, post content, names, or email addresses. This data is covered by the Search Atlas Privacy Policy (https://searchatlas.com/privacy-policy/).
+The plugin can send limited usage analytics to Search Atlas so we can see which features are used and find problems. It is off until a site administrator clicks "Allow" in the admin notice, and it can be turned off anytime in Settings. When on, events are sent to a PostHog analytics instance hosted by Search Atlas (posthog.internal.searchatlas.com). The data includes your site URL, plugin version, WordPress and PHP versions, the user's role, and feature usage, linked to a hashed site ID. We do not collect passwords, API keys, post content, names, or email addresses. This data is covered by the Search Atlas [Privacy Policy](https://searchatlas.com/privacy-policy/).
+
+### Error and performance reports (always on)
+To help us find and fix bugs, the plugin automatically sends error and performance reports to Search Atlas. When the plugin hits a PHP error, or runs slowly, it sends the error message, performance timings, the plugin, WordPress and PHP versions, and the site address to a Sentry error-tracking service hosted by Search Atlas (wordpress.telemetry.infra.searchatlas.com and dash-api-telemetry.searchatlas.com). These reports are not optional and are separate from the usage analytics above. We do not collect passwords, API keys, post content, names, or email addresses. This data is covered by the Search Atlas [Privacy Policy](https://searchatlas.com/privacy-policy/).
 
 == Installation ==
 1. In your WordPress admin, go to Plugins, then Add New, and search for Search Atlas SEO. Click Install Now, then Activate.
@@ -89,7 +92,7 @@ Yes. The plugin detects Yoast SEO, Rank Math, and All in One SEO, avoids duplica
 You can exclude individual URLs from OTTO processing in the plugin's OTTO settings, so those pages render as they normally would without OTTO's changes.
 
 = Can I manage 404 errors and redirects with this plugin? =
-Yes, along with a lot more - the plugin also includes media optimization, code snippets, code minification, cache busting, and much more.
+Yes. The 404 Monitor logs every not-found URL with hit counts and suggests redirects, and the Redirections manager supports 5 match types (exact, wildcard, regex, contains, start/end) with 301, 302, 307, 410 and 451 status codes. You can create a redirect straight from a logged 404, and slug changes are redirected automatically. Both screens are in the Search Atlas menu in your admin.
 
 == Screenshots ==
 1. Dashboard
@@ -106,10 +109,18 @@ Yes, along with a lot more - the plugin also includes media optimization, code s
 12. General Settings
 
 == Upgrade Notice ==
-= 2.7.2 =
-2.7.2 includes important OTTO fixes for canonical URLs, social descriptions, and deployment reliability. Update to ensure your site receives the latest SEO rendering and stability improvements.
+= 2.7.4 =
+2.7.4 protects the plugin authorization token, reports lost connections only after repeated failures, and makes REST publishing, imports and OTTO link handling more reliable. Update for the latest security and stability improvements.
 
 == Changelog ==
+= 2.7.5 =
+* Security: The OTTO dashboard now loads only the public, read-only view and never embeds an authenticated session; if the view is unavailable, a clear status message with a way to retry or reconnect is shown instead
+* Fix: The Search Atlas support contact is hidden in white-label mode, including connection-error dialogs and authentication tips
+* Fix: The SEO Health table no longer breaks "Publish" mid-word or clips the last column header
+* Fix: Empty Schema cells in the SEO Health table now read "Missing", matching the other columns
+* Fix: Preview and Save button icons in the visual HTML editor are now vertically aligned with their labels
+* Improvement: Package metadata cleanup — composer.json now declares the GPL-3.0-only license and the current plugin description
+
 = 2.7.4 =
 * Fix: The plugin authorization token is now masked in the settings UI and protected on write — re-spelled or token-only MCP settings writes can no longer leak or wipe it, and the token survives partial options saves
 * Fix: The OTTO dashboard no longer blocks page render while token lookups run — deferred loading is hardened and the plugin no longer falls back to a JWT when the public hash cache expires

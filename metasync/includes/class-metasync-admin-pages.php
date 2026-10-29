@@ -110,7 +110,7 @@ class Metasync_Admin_Pages
                 // URL is known without a network call. If the hash is missing,
                 // use the async path so this render never falls back to placing
                 // the JWT in the iframe URL merely because its cache is warm.
-                $iframe_url = self::build_dashboard_iframe_url($otto_pixel_uuid, $jwt_token, $public_hash);
+                $iframe_url = self::build_dashboard_iframe_url($otto_pixel_uuid, $public_hash);
                 $this->render_dashboard_iframe($iframe_url, $is_whitelabel_domain);
                 ?>
             <?php else: ?>
@@ -191,27 +191,27 @@ class Metasync_Admin_Pages
      * Build the OTTO dashboard iframe URL from already-resolved credentials.
      *
      * Shared by the warm-path page render and the AJAX resolver so both build
-     * byte-identical URLs (public view when a hash is known, tasks fallback
-     * otherwise). No network access happens here.
+     * byte-identical URLs. Only the project's public view is ever embedded.
+     * There is deliberately no logged-in fallback: the JWT is a full session
+     * for the account owner, so putting it in the iframe URL exposed the whole
+     * Search Atlas account (every project, API keys, team, billing) to anyone
+     * who can open this page, including sites whose project was deleted.
+     * No network access happens here.
      *
-     * @param string $otto_pixel_uuid OTTO pixel UUID (may be empty).
-     * @param string $jwt_token       Valid JWT token.
-     * @param string|false $public_hash Cached public hash, or false.
-     * @return string Absolute iframe URL.
+     * @param string       $otto_pixel_uuid OTTO pixel UUID.
+     * @param string|false $public_hash     Public share hash for the project.
+     * @return string Absolute iframe URL, or '' when there is no public hash.
      */
-    public static function build_dashboard_iframe_url($otto_pixel_uuid, $jwt_token, $public_hash = false)
+    public static function build_dashboard_iframe_url($otto_pixel_uuid, $public_hash)
     {
+        if (!$public_hash) {
+            return '';
+        }
+
         $dashboard_domain = Metasync_Admin::get_effective_dashboard_domain();
 
-        if ($public_hash) {
-            $iframe_url = $dashboard_domain . '/seo-automation-v3/public?uuid=' . urlencode($otto_pixel_uuid)
-                        . '&category=onpage_optimizations&subGroup=page_title&public_hash=' . urlencode($public_hash);
-        } else {
-            $iframe_url = $dashboard_domain . '/seo-automation-v3/tasks?uuid=' . urlencode($otto_pixel_uuid) . '&category=All&Embed=True';
-            if ($jwt_token) {
-                $iframe_url .= '&jwtToken=' . urlencode($jwt_token) . '&impersonate=1';
-            }
-        }
+        $iframe_url = $dashboard_domain . '/seo-automation-v3/public?uuid=' . urlencode($otto_pixel_uuid)
+                    . '&category=onpage_optimizations&subGroup=page_title&public_hash=' . urlencode($public_hash);
 
         $iframe_url .= '&source=wordpress-plugin-iframe';
 
@@ -260,6 +260,13 @@ class Metasync_Admin_Pages
                         We couldn't reach <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> right now. Check your connection and try again.
                     </p>
                     <button type="button" id="metasync-dashboard-retry" class="button button-primary">Retry</button>
+                </div>
+                <div id="metasync-dashboard-not-found" class="dashboard-card" hidden>
+                    <h2><?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> project not found</h2>
+                    <p style="color: var(--dashboard-text-secondary, #666); margin-bottom: 20px;">
+                        This site's <?php echo esc_html(Metasync::get_whitelabel_otto_name()); ?> project is missing or no longer exists in <?php echo esc_html(Metasync::get_effective_plugin_name()); ?>. Connect the site to a project to see its dashboard here.
+                    </p>
+                    <a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug)); ?>" class="button button-primary">Go to Settings &amp; Connect</a>
                 </div>
             </div>
             <?php
@@ -335,6 +342,10 @@ class Metasync_Admin_Pages
      * Runs the token lookups that used to block the page render: JWT first,
      * then the public hash with a reduced retry budget (2 attempts, 5s) so a
      * failing endpoint ends in the retry panel rather than a long hang.
+     * Without a public hash there is nothing safe to embed, so the request
+     * fails: project_not_found (404) when the project is gone, which the page
+     * shows as a reconnect prompt, otherwise public_view_unavailable (502),
+     * which shows the Retry panel. 403 is reserved for the expired-nonce reload.
      * Registered on wp_ajax_metasync_dashboard_iframe_url.
      */
     public function ajax_dashboard_iframe_url()
@@ -348,19 +359,28 @@ class Metasync_Admin_Pages
         $general_options = Metasync::get_option('general');
         $otto_pixel_uuid = isset($general_options['otto_pixel_uuid']) ? $general_options['otto_pixel_uuid'] : '';
 
+        if (!$otto_pixel_uuid) {
+            wp_send_json_error(array('message' => 'project_not_found'), 404);
+        }
+
         $jwt_token = Metasync_Connect_Manager::instance()->get_fresh_jwt_token();
 
         if (!$jwt_token) {
             wp_send_json_error(array('message' => 'jwt_unavailable'), 502);
         }
 
-        $public_hash = false;
-        if ($otto_pixel_uuid) {
-            $public_hash = Metasync_Heartbeat_Manager::instance()->fetch_public_hash($otto_pixel_uuid, $jwt_token, 2, 5);
+        $heartbeat = Metasync_Heartbeat_Manager::instance();
+        $public_hash = $heartbeat->fetch_public_hash($otto_pixel_uuid, $jwt_token, 2, 5);
+
+        if (!$public_hash) {
+            if ($heartbeat->get_last_public_hash_failure() === 'not_found') {
+                wp_send_json_error(array('message' => 'project_not_found'), 404);
+            }
+            wp_send_json_error(array('message' => 'public_view_unavailable'), 502);
         }
 
         wp_send_json_success(array(
-            'iframe_url' => self::build_dashboard_iframe_url($otto_pixel_uuid, $jwt_token, $public_hash),
+            'iframe_url' => self::build_dashboard_iframe_url($otto_pixel_uuid, $public_hash),
         ));
     }
 
@@ -382,6 +402,7 @@ class Metasync_Admin_Pages
                 var iframe = document.getElementById('metasync-dashboard-iframe');
                 var skeleton = wrap.querySelector('.metasync-dashboard-skeleton');
                 var errorPanel = document.getElementById('metasync-dashboard-error');
+                var notFoundPanel = document.getElementById('metasync-dashboard-not-found');
                 var retryButton = document.getElementById('metasync-dashboard-retry');
                 var iframeLoadTimer = null;
                 var iframeLoadTimeout = 30000;
@@ -395,6 +416,17 @@ class Metasync_Admin_Pages
                         skeleton.hidden = true;
                     }
                     if (errorPanel) {
+                        errorPanel.hidden = false;
+                    }
+                }
+
+                function showNotFound() {
+                    if (skeleton) {
+                        skeleton.hidden = true;
+                    }
+                    if (notFoundPanel) {
+                        notFoundPanel.hidden = false;
+                    } else if (errorPanel) {
                         errorPanel.hidden = false;
                     }
                 }
@@ -427,6 +459,10 @@ class Metasync_Admin_Pages
                             return { ok: response.ok, json: json };
                         });
                     }).then(function (result) {
+                        if (result.json && result.json.data
+                                && result.json.data.message === 'project_not_found') {
+                            throw new Error('dashboard project not found');
+                        }
                         if (!result.ok || !result.json || !result.json.success
                                 || !result.json.data || !result.json.data.iframe_url) {
                             throw new Error('resolver rejected the request');
@@ -450,7 +486,9 @@ class Metasync_Admin_Pages
                         iframe.src = url;
                         iframeLoadTimer = setTimeout(showError, iframeLoadTimeout);
                     }).catch(function (error) {
-                        if (error.message !== 'dashboard resolver authorization expired') {
+                        if (error.message === 'dashboard project not found') {
+                            showNotFound();
+                        } else if (error.message !== 'dashboard resolver authorization expired') {
                             showError();
                         }
                     });
