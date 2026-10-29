@@ -115,14 +115,20 @@ class Metasync_Heartbeat_Manager
      *
      * @param string $otto_pixel_uuid The OTTO pixel UUID to fetch hash for.
      * @param string $jwt_token       The JWT authentication token.
+     * @param int    $max_retries     Retry budget; default 3 for foreground paths.
+     *                                Background callers (dashboard iframe URL AJAX)
+     *                                pass a smaller budget so a failing endpoint
+     *                                bounds the user-visible wait instead of
+     *                                approaching the 48s worst case.
+     * @param int    $api_timeout     Per-attempt HTTP timeout in seconds.
      * @return string|false           The public hash on success, false on failure.
      */
-    public function fetch_public_hash($otto_pixel_uuid, $jwt_token)
+    public function fetch_public_hash($otto_pixel_uuid, $jwt_token, $max_retries = 3, $api_timeout = 15)
     {
         $cache_duration = 3600;
-        $api_timeout = 15;
-        $max_retries = 3;
         $base_retry_delay = 1;
+        $max_retries = max(1, (int) $max_retries);
+        $api_timeout = max(1, (int) $api_timeout);
 
         if (!$this->validate_fetch_hash_inputs($otto_pixel_uuid, $jwt_token)) {
             $this->log_fetch_hash_error('error', 'Invalid input parameters provided', [
@@ -317,7 +323,18 @@ class Metasync_Heartbeat_Manager
         return 'metasync_public_hash_' . hash('sha256', $uuid . get_current_blog_id());
     }
 
-    private function get_cached_public_hash($uuid)
+    /**
+     * Read the cached public hash without any network activity.
+     *
+     * Public so the dashboard page render can take the fast warm path
+     * (dashboard load-time work): render the iframe URL server-side only
+     * when the hash is
+     * already cached, and defer to the AJAX resolver otherwise.
+     *
+     * @param string $uuid OTTO pixel UUID.
+     * @return string|false Cached hash, or false on a miss.
+     */
+    public function get_cached_public_hash($uuid)
     {
         $cache_key = self::public_hash_cache_key($uuid);
         return get_transient($cache_key);
@@ -707,7 +724,7 @@ class Metasync_Heartbeat_Manager
     //  Heartbeat API connectivity test
     // ------------------------------------------------------------------
 
-    private function test_heartbeat_api_connection($general_settings)
+    protected function test_heartbeat_api_connection($general_settings)
     {
         $searchatlas_api_key = Metasync::get_searchatlas_api_key();
         if ($searchatlas_api_key === false) {
@@ -724,8 +741,14 @@ class Metasync_Heartbeat_Manager
         $request_duration = round((microtime(true) - $start_time) * 1000, 2);
         $this->last_failure = array();
 
-        if (is_wp_error($response)) {
-            $this->last_failure = array('error_class' => 'transport', 'status_code' => 0);
+		if ( is_wp_error( $response ) ) {
+			$this->last_failure = array_merge(
+				array(
+					'error_class' => 'transport',
+					'status_code' => 0,
+				),
+				$sync_request->get_last_sync_error()
+			);
             $this->log_heartbeat('error', 'Heartbeat test via SyncCustomerParams failed', array(
                 'error_code' => $response->get_error_code(),
                 'error_message' => $response->get_error_message(),
@@ -738,12 +761,37 @@ class Metasync_Heartbeat_Manager
         $status_code = wp_remote_retrieve_response_code($response);
         $body = wp_remote_retrieve_body($response);
 
-        if ($status_code !== 200) {
-            // SyncCustomerParams() returns null for transport errors and non-200
-            // replies alike, so only a real response carries a status to report.
-            $this->last_failure = is_array($response)
-                ? array('error_class' => 'http', 'status_code' => (int) $status_code)
-                : array('error_class' => 'no_response', 'status_code' => 0);
+		if ( $status_code !== 200 ) {
+			// SyncCustomerParams() returns null for transport errors and non-200
+			// replies alike, so only a real response carries a status to report.
+			// get_last_sync_error() still has the transport or HTTP detail.
+			$sync_error = $sync_request->get_last_sync_error();
+			if ( is_array( $response ) ) {
+				$this->last_failure = array_merge(
+					array(
+						'error_class' => 'http',
+						'status_code' => (int) $status_code,
+					),
+					$sync_error
+				);
+			} elseif ( $sync_error !== array() ) {
+				$this->last_failure = array_merge(
+					array(
+						'error_class'   => 'no_response',
+						'status_code'   => 0,
+						'error_code'    => '',
+						'error_message' => '',
+					),
+					$sync_error
+				);
+			} else {
+				$this->last_failure = array(
+					'error_class'   => 'no_response',
+					'status_code'   => 0,
+					'error_code'    => '',
+					'error_message' => '',
+				);
+			}
             $this->log_heartbeat('error', 'Heartbeat test returned non-200 status', array(
                 'status_code' => $status_code,
                 'response_body' => $this->smart_truncate($body, 300),
@@ -961,6 +1009,7 @@ class Metasync_Heartbeat_Manager
             set_transient('metasync_heartbeat_status_cache', $cache_data, 300);
 
             $this->set_last_known_connection_state(false);
+            delete_option('metasync_heartbeat_consecutive_failures');
 
             return false;
         }
@@ -976,6 +1025,19 @@ class Metasync_Heartbeat_Manager
                 return false;
             }
         }
+
+		// One failed POST is a blip, not a lost connection. Keep the cached and
+		// last-known CONNECTED state until a second consecutive check also fails,
+		// matching the api-backoff early return above.
+		if ( ! $is_connected ) {
+			$consecutive_failures = (int) get_option( 'metasync_heartbeat_consecutive_failures', 0 ) + 1;
+			update_option( 'metasync_heartbeat_consecutive_failures', $consecutive_failures, false );
+			if ( $consecutive_failures < 2 ) {
+				return false;
+			}
+		} else {
+			delete_option( 'metasync_heartbeat_consecutive_failures' );
+		}
 
         $cache_data = array(
             'status' => $is_connected,
@@ -1007,10 +1069,17 @@ class Metasync_Heartbeat_Manager
         if (empty($was_connected) || $is_connected) {
             return;
         }
-        Metasync_PostHog::feature_once('connection_lost', array(
-            'error_class' => $this->last_failure['error_class'] ?? 'unknown',
-            'status_code' => $this->last_failure['status_code'] ?? 0,
-        ), 'heartbeat', DAY_IN_SECONDS);
+		Metasync_PostHog::feature_once(
+			'connection_lost',
+			array(
+				'error_class'   => $this->last_failure['error_class'] ?? 'unknown',
+				'status_code'   => $this->last_failure['status_code'] ?? 0,
+				'error_code'    => mb_substr( (string) ( $this->last_failure['error_code'] ?? '' ), 0, 100, 'UTF-8' ),
+				'error_message' => mb_substr( (string) ( $this->last_failure['error_message'] ?? '' ), 0, 100, 'UTF-8' ),
+			),
+			'heartbeat',
+			DAY_IN_SECONDS
+		);
     }
 
     /**
@@ -1357,6 +1426,13 @@ class Metasync_Heartbeat_Manager
         );
 
         set_transient('metasync_heartbeat_status_cache', $cache_data, 300);
+
+        // A successful sync (manual "Sync Now", the 60s admin AJAX tick, REST)
+        // is proof of connectivity even when the 2-hour cron check is not the
+        // caller, so it breaks the consecutive-failure chain too.
+        if ($is_connected) {
+            delete_option('metasync_heartbeat_consecutive_failures');
+        }
 
         return $is_connected;
     }

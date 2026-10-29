@@ -18,6 +18,30 @@ if (!defined('ABSPATH')) {
 
 class Metasync_Sync_Requests
 {
+	/**
+	 * Detail of the most recent SyncCustomerParams() failure.
+	 *
+	 * Keys: error_class (transport|http), status_code (int), error_code (string),
+	 * error_message (string, at most 100 chars). Empty when the last call did
+	 * not fail at the transport or HTTP layer.
+	 *
+	 * @var array{error_class?: string, status_code?: int, error_code?: string, error_message?: string}
+	 */
+	private $last_sync_error = array();
+
+	/**
+	 * Failure detail recorded by the most recent SyncCustomerParams() call.
+	 *
+	 * Empty when that call did not fail with a transport error or a non-200
+	 * status. Callers that treat a null return as "no response" can read this
+	 * to tell a transport error from an HTTP error without a return-contract
+	 * change.
+	 *
+	 * @return array{error_class?: string, status_code?: int, error_code?: string, error_message?: string}
+	 */
+	public function get_last_sync_error() {
+		return $this->last_sync_error;
+	}
     /**
      * Safe wrapper around wp_remote_retrieve_response_code() for
      * SyncCustomerParams() return values.
@@ -51,7 +75,9 @@ class Metasync_Sync_Requests
      */
     public function SyncCustomerParams($token = null, $context = '')
     {
-        $categories_sync_limit = 1000;
+		$this->last_sync_error = array();
+
+		$categories_sync_limit = 1000;
         $users_sync_limit = 1000;
 
         # get the metasync options array
@@ -208,6 +234,12 @@ class Metasync_Sync_Requests
         if (is_wp_error($response)) {
             error_log('MetaSync: Heartbeat sync failed: ' . $response->get_error_message()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
             $this->saveHeartBeatError('heartbeat', 'Connection error: ' . $response->get_error_message(), array(1), 0);
+			$this->last_sync_error = array(
+				'error_class'   => 'transport',
+				'status_code'   => 0,
+				'error_code'    => (string) $response->get_error_code(),
+				'error_message' => mb_substr( sanitize_text_field( (string) $response->get_error_message() ), 0, 100, 'UTF-8' ),
+			);
             return;
         }
 
@@ -216,9 +248,21 @@ class Metasync_Sync_Requests
 
         if ( 200 != $response_code && ! empty( $response_message ) ) {
             $this->saveHeartBeatError('heartbeat', $response_code . ": " . $response_message, array(1), 0);
+			$this->last_sync_error = array(
+				'error_class'   => 'http',
+				'status_code'   => (int) $response_code,
+				'error_code'    => (string) $response_code,
+				'error_message' => mb_substr( sanitize_text_field( (string) $response_message ), 0, 100, 'UTF-8' ),
+			);
             return; //new WP_Error( $response_code, $response_message );
         } elseif ( 200 != $response_code ) {
             $this->saveHeartBeatError('heartbeat', $response_code . ': Unknown error occurred', array(1), 0);
+			$this->last_sync_error = array(
+				'error_class'   => 'http',
+				'status_code'   => (int) $response_code,
+				'error_code'    => (string) $response_code,
+				'error_message' => 'Unknown error occurred',
+			);
             return; //new WP_Error( $response_code, 'Unknown error occurred' );
         } else {
             # Track only the fields this sync owns so we can re-read the

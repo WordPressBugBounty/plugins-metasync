@@ -462,9 +462,16 @@ class MCP_Tool_Generate_Alt_Text extends MCP_Tool_Base {
 
         // Suggestion 5: Based on context
         if (!empty($context)) {
+            // clean_filename() drops a purely numeric stem (1234567.jpg → ''),
+            // which would leave the sentence with no subject. Keep the original
+            // basename, extension included, so the label stays readable.
+            $context_subject = $filename_cleaned;
+            if ($context_subject === '' || preg_match('/^\d+$/', str_replace(' ', '', $context_subject))) {
+                $context_subject = $filename;
+            }
             $suggestions[] = [
                 'source' => 'context',
-                'text' => $this->generate_contextual_alt($filename_cleaned, $context),
+                'text' => $this->generate_contextual_alt($context_subject, $context),
                 'confidence' => 'medium',
             ];
         }
@@ -529,6 +536,14 @@ class MCP_Tool_Generate_Alt_Text extends MCP_Tool_Base {
      * Generate contextual alt text
      */
     private function generate_contextual_alt($filename, $context) {
+        $suffix = wp_trim_words($context, 8);
+
+        // A blank subject must not produce a leading space or a dangling
+        // "related to" / "for" fragment. Return the context on its own.
+        if (trim((string) $filename) === '') {
+            return trim((string) $suffix);
+        }
+
         $context_words = explode(' ', strtolower($context));
         $filename_words = explode(' ', strtolower($filename));
 
@@ -536,10 +551,10 @@ class MCP_Tool_Generate_Alt_Text extends MCP_Tool_Base {
         $common = array_intersect($context_words, $filename_words);
 
         if (!empty($common)) {
-            return $filename . ' for ' . wp_trim_words($context, 8);
+            return $filename . ' for ' . $suffix;
         }
 
-        return $filename . ' related to ' . wp_trim_words($context, 8);
+        return $filename . ' related to ' . $suffix;
     }
 
     /**

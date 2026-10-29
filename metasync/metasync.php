@@ -7,7 +7,7 @@
  * that starts the plugin.
  *
  * @package     Search Atlas SEO
- * @copyright   Copyright (C) 2021-2025, Search Atlas Group - support@searchatlas.com
+ * @copyright   Copyright (C) 2021-2026, Search Atlas Group - support@searchatlas.com
  * @link		https://searchatlas.com/
  * @since		1.0.0
  *
@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas SEO - OTTO AI SEO Automation for WordPress
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.7.3
+ * Version:           2.7.4
  * Requires PHP:      8.1
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
@@ -58,7 +58,7 @@ require_once __DIR__ . '/includes/class-metasync-seo-restore.php';
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.7.3';
+$metasync_version = '2.7.4';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -346,6 +346,22 @@ function deactivate_metasync()
 
 	// Clear OTTO JS detection cache so re-activation gets a fresh check
 	delete_transient('metasync_otto_js_detected');
+
+	// Consent-gated churn signal, fired last so tracking can never block the
+	// cleanup above. Uninstall tracking lives in uninstall.php; deactivation
+	// (temporary churn, debugging) was previously invisible.
+	$activated_at = (int) get_option('metasync_activated_at', 0);
+	$general = Metasync::get_option('general');
+	$stored_key = is_array($general) ? ($general['searchatlas_api_key'] ?? '') : '';
+	Metasync_PostHog::get_instance()->track('plugin_deactivated', array(
+		// -1 = activation timestamp never recorded (pre-2.7 install).
+		'days_since_activation' => $activated_at > 0 ? max(0, (int) floor((time() - $activated_at) / DAY_IN_SECONDS)) : -1,
+		'was_connected' => (bool) get_option('metasync_last_known_connection_state', false),
+		// Raw stored presence only: get_searchatlas_api_key() would run the
+		// legacy plaintext->encrypted migration (an option write) here, and
+		// reports false for a stored-but-undecryptable key (rotated salts).
+		'had_api_key' => $stored_key !== '',
+	));
 }
 
 register_activation_hook(__FILE__, 'activate_metasync');

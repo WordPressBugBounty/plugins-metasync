@@ -1405,6 +1405,55 @@ class Metasync_Rest_Api
 	}
 
 	/**
+	 * Whether a post type may be published through the sync API.
+	 *
+	 * Unregistered names (e.g. "coord_bogus") would otherwise be stored
+	 * verbatim, creating a phantom row that 404s on its permalink while
+	 * the API reports success. Internal types (attachment, revision,
+	 * nav_menu_item, and any non-public CPT) are not publishable content
+	 * either. Public CPTs stay allowed. The decision uses the public flag,
+	 * not whether the type is exposed on the REST API — plus a blocklist,
+	 * because core registers attachment as public (its single views are
+	 * publicly reachable), so the flag alone would let it through.
+	 *
+	 * @param string $type Requested post type (already sanitized).
+	 * @return bool
+	 */
+	private function is_publishable_post_type($type)
+	{
+		if ($type === '') {
+			return false;
+		}
+		# attachment and friends are internal storage types: never publishable,
+		# whatever their public flag says. wp_update_post also coerces a post
+		# converted to attachment down to "inherit", taking it off the site.
+		$internal = array(
+			'attachment',
+			'revision',
+			'nav_menu_item',
+			'custom_css',
+			'customize_changeset',
+			'oembed_cache',
+			'user_request',
+			'wp_block',
+			'wp_global_styles',
+			'wp_navigation',
+			'wp_template',
+			'wp_template_part',
+			'wp_font_family',
+			'wp_font_face',
+		);
+		if (in_array($type, $internal, true)) {
+			return false;
+		}
+		if (!post_type_exists($type)) {
+			return false;
+		}
+		$object = get_post_type_object($type);
+		return is_object($object) && !empty($object->public);
+	}
+
+	/**
 	 * Purge page and edge caches for a URL after a publish-path write.
 	 *
 	 * A freshly published URL is often still cached as a 404 or a stale body,
@@ -1450,6 +1499,20 @@ class Metasync_Rest_Api
 		// Looping for payload for posts
 		$respCreatePosts = array();
 		foreach ($request_data as $index => $item) {
+			# Reject unregistered and non-public types before ANY per-item work:
+			# the author switch, content conversion and media sideloading below
+			# must not run for an item that will never be written. An omitted or
+			# empty type means "post", matching the insert payload further down.
+			$requested_post_type = !empty($item['post_type']) ? sanitize_text_field($item['post_type']) : 'post';
+			if (!$this->is_publishable_post_type($requested_post_type)) {
+				$respCreatePosts[$index] = array(
+					'error' => 'rest_post_invalid_post_type',
+					'message' => sprintf('Unsupported post_type "%s". Only public post types can be published through the sync API.', $requested_post_type),
+					'post_title' => isset($item['post_title']) ? sanitize_text_field($item['post_title']) : '',
+				);
+				continue;
+			}
+
 			$post_author = isset($item['post_author']) ? sanitize_text_field($item['post_author']) : '1';
 			wp_set_current_user($post_author);
 			$current_user = wp_get_current_user();
@@ -1546,7 +1609,7 @@ class Metasync_Rest_Api
 				'post_title' => sanitize_text_field($item['post_title']),
 				'post_content' => ($content['content'] ?? '') ?  $content['content'] : ($item['post_content'] ?? ''),
 				'post_excerpt' => isset($item['meta_description']) ? sanitize_text_field($item['meta_description']) : '',
-				'post_type' => isset($item['post_type']) ? sanitize_text_field($item['post_type']) : 'post',
+				'post_type' => $requested_post_type,
 				'post_status' => $post_status_normalized,
 				'comment_status' => isset($item['comment_status']) ? sanitize_text_field($item['comment_status']) : 'open',
 				'post_parent' =>  isset($item['post_parent']) ?$item['post_parent'] : 0
@@ -2399,10 +2462,10 @@ class Metasync_Rest_Api
 			# type must never trigger the old accidental coercion.
 			if (isset($post['post_type']) && !empty($post['post_type'])) {
 				$requested_post_type = sanitize_text_field($post['post_type']);
-				if (!in_array($requested_post_type, array('post', 'page'), true)) {
+				if (!$this->is_publishable_post_type($requested_post_type)) {
 					$data[] = array(
-						'error' => 'rest_post_invalid_type',
-						'message' => 'Only post and page post types are supported by the sync API.',
+						'error' => 'rest_post_invalid_post_type',
+						'message' => sprintf('Unsupported post_type "%s". Only public post types can be published through the sync API.', $requested_post_type),
 						'post_id' => (int) $post_id,
 					);
 					continue;

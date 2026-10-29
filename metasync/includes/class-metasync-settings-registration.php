@@ -44,8 +44,53 @@ class Metasync_Settings_Registration
 
     private function __construct() {
         add_filter('pre_update_option_metasync_options', array($this, 'protect_recovery_password_update'), 10, 3);
+        add_filter('pre_update_option_metasync_options', array($this, 'preserve_auth_token_on_partial_update'), 10, 3);
         add_action('updated_option_metasync_options', array($this, 'release_settings_recovery_lock'), PHP_INT_MAX, 0);
         add_action('wp_ajax_metasync_save_headless_settings', array($this, 'ajax_save_headless_settings'));
+    }
+
+    /**
+     * Carry the stored plugin auth token through partial options writes.
+     *
+     * The token under general.apikey is generated and rotated only by trusted
+     * flows (connect, refresh, settings reset). Any internal writer that saves
+     * the aggregate options array without the apikey key — a merge bug, not an
+     * intentional clear — previously wiped the token, which then silently
+     * regenerated on the next admin request and invalidated every integration
+     * holding the old value. Writers that set the key explicitly (refresh,
+     * reset, ensure-before-connect) are unaffected; the settings-form guard in
+     * sanitize_option() runs before this filter and already strips masked or
+     * forged values, so by the time a write reaches here an apikey present in
+     * $new_value is a trusted write.
+     *
+     * @param mixed $new_value The options array about to be stored (filters
+     *                          can receive anything, guards below narrow it).
+     * @param mixed $old_value The previously stored options array.
+     * @param string $option   The option name.
+     * @return mixed The options array with the stored token carried forward.
+     */
+    public function preserve_auth_token_on_partial_update($new_value, $old_value, $option)
+    {
+        if (!is_array($new_value) || !is_array($old_value)) {
+            return $new_value;
+        }
+        if (isset($new_value['general']) || array_key_exists('general', $new_value)) {
+            if (!is_array($new_value['general'])) {
+                return $new_value;
+            }
+            if (array_key_exists('apikey', $new_value['general'])) {
+                return $new_value;
+            }
+        }
+        $stored_token = $old_value['general']['apikey'] ?? null;
+        if (!is_string($stored_token) || $stored_token === '') {
+            return $new_value;
+        }
+        if (!isset($new_value['general'])) {
+            $new_value['general'] = [];
+        }
+        $new_value['general']['apikey'] = $stored_token;
+        return $new_value;
     }
 
     private function acquire_settings_recovery_lock()
@@ -682,7 +727,8 @@ class Metasync_Settings_Registration
             'Plugin Auth Token', // Title
             array(Metasync_Settings_Fields::instance(), 'metasync_settings_genkey_callback'), // Callback
             $page_slug . '_general', // Page
-            $SECTION_METASYNC // Section
+            $SECTION_METASYNC, // Section
+            array('label_for' => 'apikey') // Args — give the readonly input an accessible name
         );
 
         /**
@@ -2847,6 +2893,19 @@ class Metasync_Settings_Registration
         // through write_options_without_stored_merge(), never through here.
         $result = self::protect_otto_pixel_uuid($result, $stored_option);
 
+        // The auth token is generated and rotated by trusted flows. Settings
+        // forms only display a mask and must never overwrite it with that mask.
+        if (isset($_POST['metasync_options']['general'])
+            && is_array($_POST['metasync_options']['general'])
+            && array_key_exists('apikey', $_POST['metasync_options']['general'])) {
+            $stored = $stored_option['general']['apikey'] ?? null;
+            if ($stored !== null) {
+                $result['general']['apikey'] = $stored;
+            } else {
+                unset($result['general']['apikey']);
+            }
+        }
+
         if ($whitelabel_reset) {
             $result['whitelabel'] = $new_input['whitelabel'];
         }
@@ -2902,7 +2961,7 @@ class Metasync_Settings_Registration
         }
 
         $text_fields = [
-            'searchatlas_api_key', 'apikey',
+            'searchatlas_api_key',
             'white_label_plugin_name', 'white_label_plugin_description',
             'white_label_plugin_author', 'white_label_plugin_menu_slug',
             'white_label_plugin_menu_icon', 'enabled_plugin_css',

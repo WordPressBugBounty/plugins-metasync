@@ -1540,13 +1540,13 @@ Class Metasync_otto_html{
     # do body replacements
     function do_body_replacements($replacement_data){
 
-        # start body top html replacements
-        $this->do_body_top_html($replacement_data);
-    
-        # start the body bottom html replacements
-        $this->do_body_bottom_html($replacement_data);
-
-        # do the body substitutions
+        # Link, heading and image substitutions edit live DOM nodes. Body-top and
+        # body-bottom insertion each replace the whole <body> with one string,
+        # and the deferred reload means that string is what gets serialized.
+        # Running either insertion first froze the body before the substitutions
+        # ran, so every later node edit — including every link swap — was
+        # silently discarded. Substitutions go first; the insertion strings are
+        # built from the body they already changed.
         $this->do_body_substitutions($replacement_data);
 
         # Check if the feature is enabled in general settings (Post/Page Editor Settings)
@@ -1560,6 +1560,12 @@ Class Metasync_otto_html{
         if (!empty($seo_controls['add_nofollow_to_external_links']) && $seo_controls['add_nofollow_to_external_links'] === 'true') {
             $this->add_nofollow_to_external_links();
         }
+
+        # start body top html replacements
+        $this->do_body_top_html($replacement_data);
+
+        # start the body bottom html replacements
+        $this->do_body_bottom_html($replacement_data);
     }
 
     # body substitutions data
@@ -1950,17 +1956,41 @@ Class Metasync_otto_html{
     # link replacements
     function do_link_body_substitutions($swap_data){
 
+        if(!is_array($swap_data)){
+            return;
+        }
+
         # find all links in the body
         $links = $this->dom->find('a');
 
-        # loop all links check if we have them in swap data 
+        # loop all links check if we have them in swap data
         foreach ($links as $key => $link) {
             
+            $href = $link->href;
+
             # check if link matches
-            if(!empty($swap_data[$link->href])){
-                
-                # replace the link
-                $link->href = $swap_data[$link->href];
+            if(!is_string($href) || !array_key_exists($href, $swap_data)){
+                continue;
+            }
+
+            # a null or empty target means "remove this link": drop the anchor, keep its text
+            if($swap_data[$href] === null || $swap_data[$href] === ''){
+                # Use the serialized anchor so entity-encoded text and child markup
+                # remain valid when the opening and closing tags are removed.
+                $outer = $link->outertext;
+                $opening_end = strpos($outer, '>');
+                $closing_start = strrpos(strtolower($outer), '</a');
+                if($opening_end !== false && $closing_start !== false && $closing_start > $opening_end){
+                    $link->outertext = substr($outer, $opening_end + 1, $closing_start - $opening_end - 1);
+                } else {
+                    $link->outertext = htmlspecialchars($link->innertext, ENT_QUOTES, 'UTF-8');
+                }
+                continue;
+            }
+
+            # replace the link
+            if(is_string($swap_data[$href])){
+                $link->href = $swap_data[$href];
             }
 
         }
@@ -2134,6 +2164,9 @@ Class Metasync_otto_html{
 
         # OPTIMIZED: Use cached body element
         $body = $this->get_cached_element('body');
+        if (!is_object($body)) {
+            return;
+        }
 
         # get the tag attributes
         $attributes_string = $this->get_tag_attributes($body);

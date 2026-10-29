@@ -952,7 +952,6 @@ define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</
 
                 Metasync::log_api_key_event('settings_reset', 'plugin_auth_token', array(
                     'options_cleared_count' => $cleared_count,
-                    'new_token_prefix' => substr($new_plugin_auth_token, 0, 8) . '...',
                     'triggered_by' => 'settings_reset_action'
                 ), 'info');
 

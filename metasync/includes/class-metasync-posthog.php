@@ -32,6 +32,20 @@ class Metasync_PostHog {
     // Must not share ROLLUP_PREFIX: flush_rollups() scans that prefix.
     private const ROLLUP_LOCK_PREFIX = 'metasync_ph_lock_rollup_';
     private const ROLLUP_LOCK_STALE_AFTER = 30;
+    // Per-tool map cap in the daily MCP summary payload (top N by call count).
+    // MUST stay <= FLAT_MAP_LIMIT: sanitize_properties() drops whole maps
+    // above that cap, so raising this past it silently deletes the tools map
+    // from every summary (pinned by a unit test).
+    private const MCP_TOOL_NAME_LIMIT = 20;
+    // Hard cap for flat counter maps accepted by sanitize_properties().
+    private const FLAT_MAP_LIMIT = 25;
+    // Property keys never sent, at every level. Checked AFTER sanitize_key().
+    private const DENYLIST_KEYS = array('site_url', 'api_key', 'password', 'email', 'name', 'content', 'url', 'token', 'uuid');
+    // Lifecycle events fire right before the request ends (deactivation
+    // redirects and exits immediately after), so they are sent synchronously —
+    // a non-blocking socket can be torn down before the write completes on
+    // FPM/Litespeed hosts, losing exactly the churn signal we want.
+    private const LIFECYCLE_EVENTS = array('plugin_activated', 'plugin_deactivated', 'plugin_uninstalled');
     private static $instance = null;
 
     public static function get_instance() {
@@ -234,11 +248,12 @@ class Metasync_PostHog {
             'batch' => $batch,
         );
 
+        $is_lifecycle = in_array($event, self::LIFECYCLE_EVENTS, true);
         wp_remote_post($this->get_host() . self::BATCH_PATH, array(
             'body' => wp_json_encode($payload),
             'headers' => array('Content-Type' => 'application/json'),
-            'timeout' => 2,
-            'blocking' => false,
+            'timeout' => $is_lifecycle ? 1 : 2,
+            'blocking' => $is_lifecycle,
             'data_format' => 'body',
         ));
 
@@ -497,9 +512,16 @@ class Metasync_PostHog {
         $counts = get_option('metasync_ph_mcp_count_' . $day, array());
         // Send first: deleting before a failed/no-op send would lose the counts.
         if (is_array($counts) && $counts !== array()) {
+            arsort($counts);
+            // Tool names are sanitize_key'd at write time (track_mcp_tool), so
+            // the map is already analysis-safe; bound it so a hyper-active
+            // agent session cannot blow up the property payload.
+            $tools = array_slice($counts, 0, self::MCP_TOOL_NAME_LIMIT, true);
             $this->track('mcp_daily_summary', array(
                 'tools_used' => count($counts),
                 'total_calls' => array_sum($counts),
+                'tools' => $tools,
+                'tools_truncated' => count($counts) > count($tools),
             ));
         }
         delete_option('metasync_ph_mcp_count_' . $day);
@@ -794,13 +816,35 @@ class Metasync_PostHog {
         $safe = array();
         foreach ($properties as $key => $value) {
             $key = sanitize_key($key);
-            if ($key === '' || in_array($key, array('site_url', 'api_key', 'password', 'email', 'name', 'content', 'url', 'token', 'uuid'), true)) {
+            if ($key === '' || in_array($key, self::DENYLIST_KEYS, true)) {
                 continue;
             }
             if (is_bool($value) || is_int($value) || is_float($value)) {
                 $safe[$key] = $value;
             } elseif (is_string($value) && strlen($value) <= 100) {
                 $safe[$key] = sanitize_text_field($value);
+            } elseif (is_array($value)) {
+                // Flat counter maps only (e.g. per-tool MCP call counts): one
+                // level deep, bounded, NUMERIC values by design — strings are
+                // rejected so the branch can never smuggle free text, and
+                // digit-only keys are skipped (they would JSON-encode as an
+                // array, not a map). Nested arrays are dropped.
+                if (count($value) > self::FLAT_MAP_LIMIT) {
+                    continue;
+                }
+                $safe_value = array();
+                foreach ($value as $sub_key => $sub_value) {
+                    $sub_key = sanitize_key($sub_key);
+                    if ($sub_key === '' || ctype_digit($sub_key) || in_array($sub_key, self::DENYLIST_KEYS, true)) {
+                        continue;
+                    }
+                    if (is_bool($sub_value) || is_int($sub_value) || is_float($sub_value)) {
+                        $safe_value[$sub_key] = $sub_value;
+                    }
+                }
+                if ($safe_value !== array()) {
+                    $safe[$key] = $safe_value;
+                }
             }
         }
         return $safe;

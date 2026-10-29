@@ -153,7 +153,7 @@ class Metasync_Error_Logger {
         $full_context = array_merge([
             'error_code' => $error_code,
             'severity' => $severity
-        ], $context);
+        ], self::redact_secrets($context));
         
         // Format timestamp — current_time() keeps the log line on the same
         // WordPress-local clock as the error summary below, instead of the
@@ -182,6 +182,44 @@ class Metasync_Error_Logger {
         return $log_written;
     }
     
+    /**
+     * Strip secret values from log context before it reaches the log file,
+     * the error summary, or the metasync_error_logged action.
+     *
+     * DB failure diagnostics carry the raw failing query ($wpdb->last_query),
+     * which embeds the full serialized options array — including the plugin
+     * auth token. Redact any serialized auth-token-shaped value, plus any
+     * occurrence of the currently stored token. Booleans/counts like
+     * has_auth_token are safe and useful, so they are left alone.
+     *
+     * @param array $context Raw context
+     * @return array Redacted context
+     */
+    private static function redact_secrets($context) {
+        $stored_token = '';
+        if (function_exists('get_option')) {
+            $options = get_option('metasync_options', []);
+            $stored_token = (string) ($options['general']['apikey'] ?? '');
+        }
+
+        foreach ($context as $key => $value) {
+            if (!is_string($value)) {
+                continue;
+            }
+            $redacted = preg_replace(
+                '/((?:apikey|searchatlas_api_key|plugin_auth_token)";s:\d+:)"[^"]*"/i',
+                '$1"[REDACTED]"',
+                $value
+            );
+            if ('' !== $stored_token && false !== strpos($redacted, $stored_token)) {
+                $redacted = str_replace($stored_token, '[REDACTED]', $redacted);
+            }
+            $context[$key] = $redacted;
+        }
+
+        return $context;
+    }
+
     /**
      * Write log line to dedicated error log file
      * 

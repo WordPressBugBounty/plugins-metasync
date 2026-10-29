@@ -48,7 +48,12 @@ class Metasync_Otto_Transient_Cache {
     private const NO_SUGGESTIONS_TTL = 5 * MINUTE_IN_SECONDS;
     
     /**
-     * Lock timeout (5 seconds)
+     * Lock timeout (5 seconds minimum).
+     *
+     * The lock must outlive the fetch it protects. The page-load timeout is
+     * filterable up to 10 seconds, so the effective value includes a small
+     * storage/release margin to prevent a second worker from taking over while
+     * the first worker is still waiting on the API.
      */
     private const LOCK_TIMEOUT = 5;
 
@@ -112,7 +117,13 @@ class Metasync_Otto_Transient_Cache {
      * API timeout (2 seconds)
      */
     private const API_TIMEOUT = 2;
-    
+
+    /**
+     * Bounds for the filterable page-load timeout (seconds)
+     */
+    private const MIN_API_TIMEOUT = 1;
+    private const MAX_API_TIMEOUT = 10;
+
     /**
      * OTTO UUID
      */
@@ -162,7 +173,8 @@ class Metasync_Otto_Transient_Cache {
 
     /**
      * API fetch timeout for the current operation.
-     * Page-load requests use the short API_TIMEOUT (2s).
+     *
+     * Page-load requests use the filterable timeout (2s by default).
      * warm_cache() uses a longer timeout since it runs in a webhook handler.
      */
     private $fetch_timeout = self::API_TIMEOUT;
@@ -172,6 +184,7 @@ class Metasync_Otto_Transient_Cache {
      */
     public function __construct($otto_uuid) {
         $this->otto_uuid = $otto_uuid;
+        $this->fetch_timeout = self::get_api_timeout();
 
         # Use endpoint manager if available, otherwise fallback to production
         if (class_exists('Metasync_Endpoint_Manager')) {
@@ -182,10 +195,36 @@ class Metasync_Otto_Transient_Cache {
     }
     
     /**
+     * Page-load API timeout in seconds.
+     *
+     * Sites whose OTTO responses regularly take longer than the 2s default can
+     * raise it with the `metasync_otto_api_timeout` filter. Clamped to 1–10s so a
+     * bad value can neither disable the request nor tie up a PHP worker.
+     *
+     * @return int
+     */
+    public static function get_api_timeout() {
+        $timeout = function_exists('apply_filters')
+            ? (int) apply_filters('metasync_otto_api_timeout', self::API_TIMEOUT)
+            : self::API_TIMEOUT;
+
+        return max(self::MIN_API_TIMEOUT, min(self::MAX_API_TIMEOUT, $timeout));
+    }
+
+    /**
      * Cache status tracker (for header)
      */
     private static $cache_status = [];
     
+    /**
+     * Return the URL lock lifetime for the current fetch timeout.
+     *
+     * @return int
+     */
+    private function get_url_lock_timeout() {
+        return max(self::LOCK_TIMEOUT, $this->fetch_timeout + 2);
+    }
+
     /**
      * Get OTTO suggestions for a URL (with transient caching)
      * 
@@ -240,7 +279,7 @@ class Metasync_Otto_Transient_Cache {
         # If another worker already holds the lock, wait briefly for them to populate
         # the cache, then either return their result or bail out — DO NOT fall through
         # to fetch_from_api() (that was the original bug: duplicate concurrent API calls).
-        if (!$this->acquire_lock_atomic($keys['lock'], self::LOCK_TIMEOUT)) {
+        if (!$this->acquire_lock_atomic($keys['lock'], $this->get_url_lock_timeout())) {
             usleep(500000); // 0.5 seconds
             $cached = get_transient($keys['transient']);
             if ($cached !== false) {
@@ -712,7 +751,7 @@ class Metasync_Otto_Transient_Cache {
         # Attempts/backoff: one transport attempt; failure re-arms the 60-second cool-off.
         # Blocked callers return immediately; inline retries would hold PHP workers.
         $probe_key = self::BREAKER_PROBE_PREFIX . md5($this->get_breaker_key());
-        if ($this->acquire_lock_atomic($probe_key, self::BREAKER_PROBE_LOCK_TIMEOUT)) {
+        if ($this->acquire_lock_atomic($probe_key, max(self::BREAKER_PROBE_LOCK_TIMEOUT, $this->fetch_timeout + 2))) {
             return false;
         }
 

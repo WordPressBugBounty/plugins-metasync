@@ -294,6 +294,8 @@ class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
                 } else {
                     $data[$key] = str_repeat('•', 8) . substr($decrypted, -4);
                 }
+            } elseif ($key === 'apikey') {
+                $data[$key] = !empty($value) ? str_repeat('•', 8) . substr((string) $value, -4) : '';
             }
         }
         return $data;
@@ -403,6 +405,29 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
         // Resolve any aliased or misnamed keys to their canonical nested paths
         $settings = $this->resolve_setting_aliases($params['settings']);
 
+        // The plugin auth token is read-only through MCP. Reads return a masked
+        // display value, so never allow that display value to replace the
+        // secret. Match every key spelling sanitize_key() would collapse to
+        // "apikey" ("APIKEY", "apiKey", a differently-cased "general"
+        // section, ...); a re-spelled key would otherwise survive this strip
+        // and, once sanitization lowercases it, overwrite the stored token.
+        $settings = $this->strip_auth_token_spellings($settings);
+
+        // A payload that carried nothing but the auth token (in any spelling)
+        // has nothing writable left once the token is stripped. In replace
+        // mode it would otherwise swap the whole options blob for nothing but
+        // the carried-forward read-only keys — wiping every other plugin
+        // setting while still reporting success. Reject it, the same contract
+        // as the read-only UUID below, so the caller learns the token cannot
+        // be set here.
+        if (empty($settings)) {
+            throw new Exception(
+                'No writable settings were provided: the plugin auth token is '
+                . 'read-only and cannot be set through this tool. Include other '
+                . 'settings to update.'
+            );
+        }
+
         // otto_pixel_uuid is read-only. It is assigned only by the
         // trusted Search Atlas / heartbeat synchronization flows; a username or
         // any other arbitrary text stored here breaks OTTO SSR authentication.
@@ -421,6 +446,7 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
 
         // Get current options
         $current_options = get_option(Metasync::option_name, []);
+        $settings = $this->restore_masked_searchatlas_api_key($settings, $current_options);
 
         if ($merge) {
             // Deep merge to preserve nested sub-arrays (e.g. general, seo_controls)
@@ -458,6 +484,17 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
             );
         }
 
+        // Replace mode can omit the stored authentication token, but omission
+        // must not clear it. MCP cannot rotate this token.
+        $stored_auth_token = isset($current_options['general']) && is_array($current_options['general'])
+            ? ($current_options['general']['apikey'] ?? null) : null;
+        if ($stored_auth_token !== null) {
+            if (!isset($new_options['general']) || !is_array($new_options['general'])) {
+                $new_options['general'] = [];
+            }
+            $new_options['general']['apikey'] = $stored_auth_token;
+        }
+
         // Replace mode can omit the read-only UUID, but omission must not
         // disconnect the site. Always carry the stored value forward.
         $stored_uuid_present = isset($current_options['general'])
@@ -472,6 +509,20 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
 
         // Sanitize sensitive fields
         $new_options = $this->sanitize_settings($new_options);
+        // sanitize_key() lowercases every key, so any spelling of the auth
+        // token key that still reached this point lands on general.apikey only
+        // now. Re-apply the stored token post-sanitize — the same guarantee
+        // the UUID gets below — so the stored secret is the only value that
+        // can survive at that path. On a site with no stored token, drop the
+        // path instead: MCP cannot plant one either.
+        if ($stored_auth_token !== null) {
+            if (!isset($new_options['general']) || !is_array($new_options['general'])) {
+                $new_options['general'] = [];
+            }
+            $new_options['general']['apikey'] = $stored_auth_token;
+        } elseif (isset($new_options['general']) && is_array($new_options['general'])) {
+            unset($new_options['general']['apikey']);
+        }
         if ($stored_uuid_present) {
             $new_options['general']['otto_pixel_uuid'] = $current_options['general']['otto_pixel_uuid'];
         }
@@ -618,6 +669,103 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
     }
 
     /**
+     * Preserve the stored Search Atlas key when a caller writes back a masked
+     * value returned by the settings read tool.
+     *
+     * The read tool intentionally returns eight bullets plus the real key's
+     * last four characters. That display value is not a new API key and must
+     * never be encrypted and persisted as one. Restore the original stored
+     * value before merge/replace processing; callers can still submit a real
+     * new key when they intentionally provide a non-masked value.
+     */
+    private function restore_masked_searchatlas_api_key(array $settings, array $current_options) {
+        $stored = null;
+        $stored_location = null;
+        if (isset($current_options['general']) && is_array($current_options['general'])
+            && array_key_exists('searchatlas_api_key', $current_options['general'])) {
+            $stored = $current_options['general']['searchatlas_api_key'];
+            $stored_location = 'general';
+        } elseif (array_key_exists('searchatlas_api_key', $current_options)) {
+            $stored = $current_options['searchatlas_api_key'];
+            $stored_location = 'flat';
+        }
+        if (!is_string($stored) || $stored === '') {
+            return $settings;
+        }
+
+        $decrypted = Metasync::decrypt_api_key($stored);
+        $masked = is_string($decrypted) && $decrypted !== ''
+            ? str_repeat('•', 8) . substr($decrypted, -4) : null;
+        // The read tool returns an empty string only when the stored value
+        // cannot be decrypted. Round-tripping that read must preserve the
+        // ciphertext — but an empty write against a *working* key is an
+        // intentional clear and must go through unchanged.
+        $empty_restores_stored = $decrypted === false;
+        $is_masked_value = static function ($value) use ($masked, $empty_restores_stored) {
+            if (!is_string($value)) {
+                return ($value === null || $value === false) && $empty_restores_stored;
+            }
+            $value = trim($value);
+            if ($value === '') {
+                return $empty_restores_stored;
+            }
+            if ($masked !== null && $value === $masked) {
+                return true;
+            }
+            return (bool) preg_match('/^[•*]{7,}[A-Za-z0-9]{0,4}$/u', $value);
+        };
+
+        $masked_key_seen = false;
+        $canonical_general = [];
+        foreach ($settings as $key => $value) {
+            if (sanitize_key((string) $key) !== 'general' || !is_array($value)) {
+                continue;
+            }
+            unset($settings[$key]);
+            foreach ($value as $inner_key => $inner_value) {
+                if (sanitize_key((string) $inner_key) === 'searchatlas_api_key') {
+                    if ($is_masked_value($inner_value)) {
+                        $masked_key_seen = true;
+                    } else {
+                        $canonical_general[$inner_key] = $inner_value;
+                    }
+                } else {
+                    $canonical_general[$inner_key] = $inner_value;
+                }
+            }
+        }
+        if ($masked_key_seen) {
+            if ($stored_location === 'general') {
+                $canonical_general['searchatlas_api_key'] = $stored;
+                $settings['general'] = $canonical_general;
+            } else {
+                $settings['searchatlas_api_key'] = $stored;
+                if (!empty($canonical_general)) {
+                    $settings['general'] = $canonical_general;
+                }
+            }
+        } elseif (!empty($canonical_general)) {
+            $settings['general'] = $canonical_general;
+        }
+
+        foreach ($settings as $key => $value) {
+            if (sanitize_key((string) $key) === 'searchatlas_api_key' && $is_masked_value($value)) {
+                unset($settings[$key]);
+                if ($stored_location === 'general') {
+                    if (!isset($settings['general']) || !is_array($settings['general'])) {
+                        $settings['general'] = [];
+                    }
+                    $settings['general']['searchatlas_api_key'] = $stored;
+                } else {
+                    $settings['searchatlas_api_key'] = $stored;
+                }
+            }
+        }
+
+        return $settings;
+    }
+
+    /**
      * Recursively merge two arrays, preserving nested sub-arrays.
      */
     private function array_merge_deep($base, $override) {
@@ -629,6 +777,37 @@ class MCP_Tool_Update_Plugin_Settings extends MCP_Tool_Base {
             }
         }
         return $base;
+    }
+
+    /**
+     * Remove every spelling of the plugin auth token key from a settings
+     * payload, together with a general section left empty by the removal.
+     *
+     * sanitize_key() lowercases keys and strips punctuation later in the
+     * pipeline, so "APIKEY", "apiKey", "api key", "api.key" or a "General "
+     * section normalize to the canonical key only after this point — where
+     * they would overwrite the stored token. Match with sanitize_key() so
+     * the strip sees exactly what the save pipeline will produce.
+     */
+    private function strip_auth_token_spellings(array $settings) {
+        foreach ($settings as $key => $value) {
+            $normalized = sanitize_key((string) $key);
+            if ($normalized === 'apikey') {
+                unset($settings[$key]);
+                continue;
+            }
+            if ($normalized === 'general' && is_array($value)) {
+                foreach ($value as $inner_key => $inner_value) {
+                    if (sanitize_key((string) $inner_key) === 'apikey') {
+                        unset($settings[$key][$inner_key]);
+                    }
+                }
+                if (empty($settings[$key])) {
+                    unset($settings[$key]);
+                }
+            }
+        }
+        return $settings;
     }
 
     /**
@@ -912,7 +1091,7 @@ class MCP_Tool_Get_MCP_Settings extends MCP_Tool_Base {
                 'header' => 'X-API-Key',
                 'token_set' => !empty($plugin_auth_token),
                 'token_length' => !empty($plugin_auth_token) ? strlen($plugin_auth_token) : 0,
-                'token_preview' => !empty($plugin_auth_token) ? substr($plugin_auth_token, 0, 8) . '...' : ''
+                'token_preview' => !empty($plugin_auth_token) ? str_repeat('•', 8) . substr($plugin_auth_token, -4) : ''
             ],
             'endpoints' => [
                 'rest_endpoint' => rest_url('metasync/v1/mcp'),

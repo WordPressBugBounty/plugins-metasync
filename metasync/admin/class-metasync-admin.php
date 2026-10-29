@@ -1453,14 +1453,17 @@ class Metasync_Admin
                             nonce: '" . wp_create_nonce('metasync_refresh_plugin_auth_token') . "'
                         })
                         .done(function(response) {
-                            if (response.success && response.data && response.data.new_token) {
-                                // Update the field value immediately
-                                $('#apikey').val(response.data.new_token);
+                            if (response.success && response.data && response.data.masked_token) {
+                                // Update the masked display immediately
+                                $('#apikey').val(response.data.masked_token);
 
-                                // Visual feedback with green border
-                                $('#apikey').css('border', '2px solid #28a745').animate({borderColor: '#ddd'}, 2000);
-
-                                alert('✅ Plugin Auth Token refreshed successfully!\\n\\nNew token: ' + response.data.new_token.substring(0, 8) + '...');
+                                // Visual feedback with green border, then revert.
+                                // .animate({borderColor}) is a no-op without
+                                // jQuery Color, so the revert is a timeout.
+                                $('#apikey').css('border', '2px solid #28a745');
+                                setTimeout(function() {
+                                    $('#apikey').css('border', '');
+                                }, 2000);
                             } else {
                                 alert('❌ Error refreshing token: ' + (response.data ? response.data.message : 'Unknown error'));
                             }
@@ -1677,11 +1680,6 @@ class Metasync_Admin
     public function test_enhanced_searchatlas_tokens()
     {
         return Metasync_Connect_Manager::instance()->test_enhanced_searchatlas_tokens();
-    }
-
-    public function test_searchatlas_ajax_endpoint()
-    {
-        Metasync_Connect_Manager::instance()->test_searchatlas_ajax_endpoint();
     }
 
     /**
@@ -2510,9 +2508,18 @@ class Metasync_Admin
         return Metasync_Heartbeat_Manager::instance()->is_heartbeat_connected($general_settings);
     }
 
-    public function fetch_public_hash($otto_pixel_uuid, $jwt_token)
+    public function fetch_public_hash($otto_pixel_uuid, $jwt_token, $max_retries = 3, $api_timeout = 15)
     {
-        return Metasync_Heartbeat_Manager::instance()->fetch_public_hash($otto_pixel_uuid, $jwt_token);
+        return Metasync_Heartbeat_Manager::instance()->fetch_public_hash($otto_pixel_uuid, $jwt_token, $max_retries, $api_timeout);
+    }
+
+    /**
+     * AJAX handler: resolve the OTTO dashboard iframe URL for the cold-path
+     * deferred loader. Heavy lifting lives in Metasync_Admin_Pages.
+     */
+    public function dashboard_iframe_url()
+    {
+        Metasync_Admin_Pages::get_instance($this)->ajax_dashboard_iframe_url();
     }
 
     public function schedule_heartbeat_cron()

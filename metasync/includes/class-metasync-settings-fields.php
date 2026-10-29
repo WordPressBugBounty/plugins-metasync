@@ -1369,19 +1369,23 @@ class Metasync_Settings_Fields {
         $current_token = Metasync::get_option('general')['apikey'] ?? '';
         
         if (!empty($current_token)) {
-            $display_value = $current_token;
+            $display_value = str_repeat('•', 8) . (strlen($current_token) >= 4 ? substr($current_token, -4) : '');
             $status_message = 'Plugin Auth Token is active and ready for authentication.';
             $refresh_help = 'Click refresh to generate a new token and update the heartbeat API.';
         } else {
-            $display_value = 'Auto-generated when connecting to ' . Metasync::get_effective_plugin_name();
+            $display_value = '';
             $status_message = 'Plugin Auth Token will be automatically generated when you click "Connect to ' . Metasync::get_effective_plugin_name() . '".';
             $refresh_help = 'You can also manually generate a token by clicking refresh.';
         }
-        
+
+        // The hint text goes in placeholder (not value) so it can never be
+        // clipped, posts nothing (no name attr), and vanishes the moment a
+        // real masked token is written into the field by .val().
         printf('<div class="metasync-auth-token-row">');
         printf(
-            '<input type="text" id="apikey" name="%s[general][apikey]" value="%s" size="40" class="regular-text" readonly="readonly" />', esc_attr(Metasync_Admin::option_key),
-            esc_attr($display_value)
+            '<input type="text" id="apikey" class="regular-text metasync-auth-token-display" value="%s" placeholder="%s" readonly="readonly" aria-readonly="true" aria-label="Plugin Auth Token" autocomplete="off" spellcheck="false" />',
+            esc_attr($display_value),
+            esc_attr('Auto-generated when connecting to ' . Metasync::get_effective_plugin_name())
         );
         printf('<button type="button" id="refresh-plugin-auth-token" class="button button-secondary metasync-refresh-token-btn"><span class="dashicons dashicons-controls-repeat"></span> Refresh Token</button>');
         printf('</div>');

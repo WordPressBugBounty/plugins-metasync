@@ -119,7 +119,6 @@ class Metasync_Connect_Manager
 
             if ($save_result) {
                 Metasync::log_api_key_event('auto_generated_for_sa_connect', 'plugin_auth_token', array(
-                    'new_token_prefix' => substr($new_plugin_auth_token, 0, 8) . '...',
                     'triggered_by' => 'sa_connect_button',
                     'reason' => 'Plugin Auth Token was missing before Search Atlas connect authentication'
                 ), 'info');
@@ -156,7 +155,7 @@ class Metasync_Connect_Manager
             return;
         }
 
-        if (!Metasync::current_user_has_plugin_access()) {
+        if (!current_user_can('manage_options') || !Metasync::current_user_has_plugin_access()) {
             wp_send_json_error(array('message' => 'Insufficient permissions'));
             return;
         }
@@ -174,14 +173,13 @@ class Metasync_Connect_Manager
 
             if ($save_result) {
                 Metasync::log_api_key_event('token_refresh', 'plugin_auth_token', array(
-                    'new_token_prefix' => substr($new_plugin_auth_token, 0, 8) . '...',
                     'triggered_by' => 'manual_refresh_button'
                 ), 'info');
 
                 do_action('metasync_trigger_immediate_heartbeat', 'Plugin Auth Token refresh - new token generated');
 
                 wp_send_json_success(array(
-                    'new_token' => $new_plugin_auth_token,
+                    'masked_token' => str_repeat('•', 8) . substr($new_plugin_auth_token, -4),
                     'message' => 'Plugin Auth Token refreshed successfully'
                 ));
             } else {
@@ -204,7 +202,7 @@ class Metasync_Connect_Manager
             return;
         }
 
-        if (!Metasync::current_user_has_plugin_access()) {
+        if (!current_user_can('manage_options') || !Metasync::current_user_has_plugin_access()) {
             wp_send_json_error(array('message' => 'Insufficient permissions'));
             return;
         }
@@ -215,7 +213,7 @@ class Metasync_Connect_Manager
 
             if (!empty($current_plugin_auth_token)) {
                 wp_send_json_success(array(
-                    'plugin_auth_token' => $current_plugin_auth_token,
+                    'masked_token' => str_repeat('•', 8) . substr($current_plugin_auth_token, -4),
                     'message' => 'Plugin Auth Token retrieved successfully'
                 ));
             } else {
@@ -1184,38 +1182,6 @@ class Metasync_Connect_Manager
         }
 
         return true;
-    }
-
-    /**
-     * Test Search Atlas connect AJAX endpoint (development/debugging)
-     */
-    public function test_searchatlas_ajax_endpoint()
-    {
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(array(
-                'message' => 'Insufficient permissions for AJAX test',
-                'required_capability' => 'manage_options'
-            ));
-            return;
-        }
-
-        $nonce_valid = false;
-        if (isset($_POST['nonce'])) {
-            $nonce_valid = wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'metasync_sa_connect_nonce');
-        }
-
-        wp_send_json_success(array(
-            'message' => 'AJAX endpoint is working correctly',
-            'timestamp' => current_time('mysql', true),
-            'user_id' => get_current_user_id(),
-            'endpoint' => 'test_searchatlas_ajax_endpoint',
-            'nonce_valid' => $nonce_valid,
-            'debug_info' => array(
-                'post_action' => isset($_POST['action']) ? sanitize_text_field(wp_unslash($_POST['action'])) : 'NOT SET',
-                'has_nonce' => isset($_POST['nonce']),
-                'user_can_manage_options' => current_user_can('manage_options')
-            )
-        ));
     }
 
     /**

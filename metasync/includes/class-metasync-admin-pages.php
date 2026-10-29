@@ -46,8 +46,7 @@ class Metasync_Admin_Pages
     {
         $general_options = Metasync::get_option('general');
         $otto_pixel_uuid = isset($general_options['otto_pixel_uuid']) ? $general_options['otto_pixel_uuid'] : '';
-        $api_key = isset($general_options['searchatlas_api_key']) ? $general_options['searchatlas_api_key'] : '';
-        
+
         $hide_dashboard = $general_options['hide_dashboard_framework'] ?? false;
         
         if ($hide_dashboard) {
@@ -89,63 +88,37 @@ class Metasync_Admin_Pages
             return;
         }
         
-        $jwt_token = $this->admin->get_fresh_jwt_token();
-        
-        if ($jwt_token) {
-            $jwt_parts = explode('.', $jwt_token);
-            $jwt_header_info = count($jwt_parts) >= 2 ? 'Valid format (' . count($jwt_parts) . ' parts)' : 'Invalid format';
-        } else {
-        }
-        
+        // Never block this page render on token lookups. Only cached
+        // credentials are used here; when they are missing the frame shell is
+        // rendered immediately and the browser resolves the iframe URL via
+        // ajax_dashboard_iframe_url() while a skeleton is shown.
+        $jwt_token = Metasync_Connect_Manager::get_cached_jwt_token();
+
         $public_hash = false;
         if ($jwt_token && $otto_pixel_uuid) {
-            $public_hash = $this->admin->fetch_public_hash($otto_pixel_uuid, $jwt_token);
-            
-            if ($public_hash) {
-            } else {
-            }
-        } else {
-            $missing_params = [];
-            if (empty($jwt_token)) $missing_params[] = 'JWT_TOKEN';
-            if (empty($otto_pixel_uuid)) $missing_params[] = 'OTTO_UUID';
+            $public_hash = Metasync_Heartbeat_Manager::instance()->get_cached_public_hash($otto_pixel_uuid);
         }
-        
-        $dashboard_domain = Metasync_Admin::get_effective_dashboard_domain();
-        
-        if ($public_hash) {
-            $iframe_url = $dashboard_domain . '/seo-automation-v3/public?uuid=' . urlencode($otto_pixel_uuid) 
-                        . '&category=onpage_optimizations&subGroup=page_title&public_hash=' . urlencode($public_hash);
-        } else {
-            $iframe_url = $dashboard_domain . '/seo-automation-v3/tasks?uuid=' . urlencode($otto_pixel_uuid) . '&category=All&Embed=True';
-            if ($jwt_token) {
-                $iframe_url .= '&jwtToken=' . urlencode($jwt_token) . '&impersonate=1';
-            } else {
-            }
-        }
-        
-        $iframe_url .= '&source=wordpress-plugin-iframe';
-        
-        $whitelabel_company_name = Metasync::get_whitelabel_company_name();
-        if ($whitelabel_company_name) {
-            $iframe_url .= '&whitelabel=' . urlencode($whitelabel_company_name);
-        }
-        
+
         $whitelabel_settings = Metasync::get_whitelabel_settings();
         $is_whitelabel_domain = !empty($whitelabel_settings['domain']);
-        
+
         $this->admin->render_layout_open('Dashboard', 'dashboard', 'Overview of your SEO performance and plugin status.');
         ?>
-            <iframe id="metasync-dashboard-iframe"
-                    src="<?php echo esc_url($iframe_url); ?>"
-                    width="100%"
-                    frameborder="0"
-                    <?php if (!$is_whitelabel_domain): ?>
-                    allow="cookies"
-                    referrerpolicy="strict-origin-when-cross-origin"
-                    <?php endif; ?>
-                    style="border: none; margin: 0; padding: 0; min-height: 800px; border-radius: 12px;"
-                    onload="adjustIframeHeight(this)">
-            </iframe>
+            <?php if ($jwt_token && $public_hash): ?>
+                <?php
+                // Warm path: both credentials are cached, so the public iframe
+                // URL is known without a network call. If the hash is missing,
+                // use the async path so this render never falls back to placing
+                // the JWT in the iframe URL merely because its cache is warm.
+                $iframe_url = self::build_dashboard_iframe_url($otto_pixel_uuid, $jwt_token, $public_hash);
+                $this->render_dashboard_iframe($iframe_url, $is_whitelabel_domain);
+                ?>
+            <?php else: ?>
+                <?php
+                // Cold path: paint now, resolve credentials in the background.
+                $this->render_dashboard_iframe('', $is_whitelabel_domain, true);
+                ?>
+            <?php endif; ?>
 
             <script>
             function adjustIframeHeight(iframe) {
@@ -208,8 +181,289 @@ class Metasync_Admin_Pages
                 }
             }, 3000);
             </script>
+
+            <?php $this->render_dashboard_async_loader(); ?>
         <?php
         $this->admin->render_layout_close(false);
+    }
+
+    /**
+     * Build the OTTO dashboard iframe URL from already-resolved credentials.
+     *
+     * Shared by the warm-path page render and the AJAX resolver so both build
+     * byte-identical URLs (public view when a hash is known, tasks fallback
+     * otherwise). No network access happens here.
+     *
+     * @param string $otto_pixel_uuid OTTO pixel UUID (may be empty).
+     * @param string $jwt_token       Valid JWT token.
+     * @param string|false $public_hash Cached public hash, or false.
+     * @return string Absolute iframe URL.
+     */
+    public static function build_dashboard_iframe_url($otto_pixel_uuid, $jwt_token, $public_hash = false)
+    {
+        $dashboard_domain = Metasync_Admin::get_effective_dashboard_domain();
+
+        if ($public_hash) {
+            $iframe_url = $dashboard_domain . '/seo-automation-v3/public?uuid=' . urlencode($otto_pixel_uuid)
+                        . '&category=onpage_optimizations&subGroup=page_title&public_hash=' . urlencode($public_hash);
+        } else {
+            $iframe_url = $dashboard_domain . '/seo-automation-v3/tasks?uuid=' . urlencode($otto_pixel_uuid) . '&category=All&Embed=True';
+            if ($jwt_token) {
+                $iframe_url .= '&jwtToken=' . urlencode($jwt_token) . '&impersonate=1';
+            }
+        }
+
+        $iframe_url .= '&source=wordpress-plugin-iframe';
+
+        $whitelabel_company_name = Metasync::get_whitelabel_company_name();
+        if ($whitelabel_company_name) {
+            $iframe_url .= '&whitelabel=' . urlencode($whitelabel_company_name);
+        }
+
+        return $iframe_url;
+    }
+
+    /**
+     * Output the dashboard iframe, optionally wrapped for asynchronous loading.
+     *
+     * Synchronous ($async = false): identical markup to the legacy render.
+     * Asynchronous ($async = true): a src-less iframe is hidden behind a
+     * skeleton; render_dashboard_async_loader() fills in the src once the
+     * AJAX resolver returns.
+     *
+     * @param string $iframe_url          Resolved URL, or '' for async mode.
+     * @param bool   $is_whitelabel_domain Whitelabel domain configured.
+     * @param bool   $async               Render the deferred-loading shell.
+     */
+    private function render_dashboard_iframe($iframe_url, $is_whitelabel_domain, $async = false)
+    {
+        if ($async) {
+            ?>
+            <div id="metasync-dashboard-frame"
+                 data-ajax-url="<?php echo esc_url(admin_url('admin-ajax.php')); ?>"
+                 data-nonce="<?php echo esc_attr(wp_create_nonce('metasync_nonce')); ?>">
+                <div class="metasync-dashboard-skeleton" aria-live="polite" role="status">
+                    <div class="metasync-dashboard-skeleton-head">
+                        <span class="metasync-dashboard-spinner"></span>
+                        <span>Preparing your dashboard&hellip;</span>
+                    </div>
+                    <div class="metasync-dashboard-skeleton-body">
+                        <div class="metasync-dashboard-skeleton-block" style="width: 65%;"></div>
+                        <div class="metasync-dashboard-skeleton-block" style="width: 92%;"></div>
+                        <div class="metasync-dashboard-skeleton-block" style="width: 78%;"></div>
+                        <div class="metasync-dashboard-skeleton-block" style="width: 85%;"></div>
+                    </div>
+                </div>
+                <div id="metasync-dashboard-error" class="dashboard-card" hidden>
+                    <h2>Dashboard unavailable</h2>
+                    <p style="color: var(--dashboard-text-secondary, #666); margin-bottom: 20px;">
+                        We couldn't reach <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> right now. Check your connection and try again.
+                    </p>
+                    <button type="button" id="metasync-dashboard-retry" class="button button-primary">Retry</button>
+                </div>
+            </div>
+            <?php
+        }
+
+        $style = 'border: none; margin: 0; padding: 0; min-height: 800px; border-radius: 12px;';
+        if ($async) {
+            // Invisible until the loader assigns a src and the frame fires load.
+            $style .= ' display: none;';
+        }
+        ?>
+            <iframe id="metasync-dashboard-iframe"
+                    <?php if (!$async): ?>
+                    src="<?php echo esc_url($iframe_url); ?>"
+                    <?php endif; ?>
+                    width="100%"
+                    frameborder="0"
+                    <?php if (!$is_whitelabel_domain): ?>
+                    allow="cookies"
+                    referrerpolicy="strict-origin-when-cross-origin"
+                    <?php endif; ?>
+                    style="<?php echo esc_attr($style); ?>"
+                    onload="adjustIframeHeight(this)">
+            </iframe>
+
+            <?php if ($async): ?>
+            <style>
+            .metasync-dashboard-skeleton {
+                min-height: 800px;
+                border-radius: 12px;
+                border: 1px solid var(--dashboard-border, #e2e8f0);
+                background: var(--dashboard-card-bg, #fff);
+                padding: 24px;
+            }
+            .metasync-dashboard-skeleton-head {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                color: var(--dashboard-text-secondary, #666);
+                font-size: 14px;
+                margin-bottom: 24px;
+            }
+            .metasync-dashboard-spinner {
+                width: 22px;
+                height: 22px;
+                border-radius: 50%;
+                border: 3px solid var(--dashboard-border, #e2e8f0);
+                border-top-color: #2271b1;
+                animation: metasync-spin 0.8s linear infinite;
+                flex: none;
+            }
+            .metasync-dashboard-skeleton-body .metasync-dashboard-skeleton-block {
+                height: 72px;
+                border-radius: 8px;
+                margin-bottom: 16px;
+                background: linear-gradient(90deg,
+                    var(--dashboard-border, #e2e8f0) 25%,
+                    rgba(226, 232, 240, 0.45) 50%,
+                    var(--dashboard-border, #e2e8f0) 75%);
+                background-size: 200% 100%;
+                animation: metasync-shimmer 1.4s ease infinite;
+            }
+            @keyframes metasync-spin { to { transform: rotate(360deg); } }
+            @keyframes metasync-shimmer { to { background-position: -200% 0; } }
+            </style>
+            <?php endif; ?>
+        <?php
+    }
+
+    /**
+     * AJAX resolver for the cold-path dashboard iframe URL.
+     *
+     * Runs the token lookups that used to block the page render: JWT first,
+     * then the public hash with a reduced retry budget (2 attempts, 5s) so a
+     * failing endpoint ends in the retry panel rather than a long hang.
+     * Registered on wp_ajax_metasync_dashboard_iframe_url.
+     */
+    public function ajax_dashboard_iframe_url()
+    {
+        check_ajax_referer('metasync_nonce', 'nonce');
+
+        if (!Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(array('message' => 'forbidden'), 403);
+        }
+
+        $general_options = Metasync::get_option('general');
+        $otto_pixel_uuid = isset($general_options['otto_pixel_uuid']) ? $general_options['otto_pixel_uuid'] : '';
+
+        $jwt_token = Metasync_Connect_Manager::instance()->get_fresh_jwt_token();
+
+        if (!$jwt_token) {
+            wp_send_json_error(array('message' => 'jwt_unavailable'), 502);
+        }
+
+        $public_hash = false;
+        if ($otto_pixel_uuid) {
+            $public_hash = Metasync_Heartbeat_Manager::instance()->fetch_public_hash($otto_pixel_uuid, $jwt_token, 2, 5);
+        }
+
+        wp_send_json_success(array(
+            'iframe_url' => self::build_dashboard_iframe_url($otto_pixel_uuid, $jwt_token, $public_hash),
+        ));
+    }
+
+    /**
+     * Output the deferred loader for the async dashboard shell.
+     *
+     * No-op on the warm path (no #metasync-dashboard-frame element exists).
+     */
+    private function render_dashboard_async_loader()
+    {
+        ?>
+            <script>
+            (function () {
+                var wrap = document.getElementById('metasync-dashboard-frame');
+                if (!wrap) {
+                    return;
+                }
+
+                var iframe = document.getElementById('metasync-dashboard-iframe');
+                var skeleton = wrap.querySelector('.metasync-dashboard-skeleton');
+                var errorPanel = document.getElementById('metasync-dashboard-error');
+                var retryButton = document.getElementById('metasync-dashboard-retry');
+                var iframeLoadTimer = null;
+                var iframeLoadTimeout = 30000;
+
+                function showError() {
+                    if (iframeLoadTimer) {
+                        clearTimeout(iframeLoadTimer);
+                        iframeLoadTimer = null;
+                    }
+                    if (skeleton) {
+                        skeleton.hidden = true;
+                    }
+                    if (errorPanel) {
+                        errorPanel.hidden = false;
+                    }
+                }
+
+                function load() {
+                    if (errorPanel) {
+                        errorPanel.hidden = true;
+                    }
+                    if (skeleton) {
+                        skeleton.hidden = false;
+                    }
+
+                    var body = new FormData();
+                    body.append('action', 'metasync_dashboard_iframe_url');
+                    body.append('nonce', wrap.getAttribute('data-nonce'));
+
+                    fetch(wrap.getAttribute('data-ajax-url'), {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        body: body
+                    }).then(function (response) {
+                        if (response.status === 403) {
+                            // A page-open nonce can expire in a long-lived tab.
+                            // Reload so WordPress issues a fresh nonce instead
+                            // of making the Retry button fail indefinitely.
+                            window.location.reload();
+                            throw new Error('dashboard resolver authorization expired');
+                        }
+                        return response.json().then(function (json) {
+                            return { ok: response.ok, json: json };
+                        });
+                    }).then(function (result) {
+                        if (!result.ok || !result.json || !result.json.success
+                                || !result.json.data || !result.json.data.iframe_url) {
+                            throw new Error('resolver rejected the request');
+                        }
+                        return result.json.data.iframe_url;
+                    }).then(function (url) {
+                        iframe.addEventListener('load', function () {
+                            if (iframeLoadTimer) {
+                                clearTimeout(iframeLoadTimer);
+                                iframeLoadTimer = null;
+                            }
+                            if (skeleton) {
+                                skeleton.hidden = true;
+                            }
+                            iframe.style.display = '';
+                            if (typeof adjustIframeHeight === 'function') {
+                                adjustIframeHeight(iframe);
+                            }
+                        }, { once: true });
+                        iframe.onerror = showError;
+                        iframe.src = url;
+                        iframeLoadTimer = setTimeout(showError, iframeLoadTimeout);
+                    }).catch(function (error) {
+                        if (error.message !== 'dashboard resolver authorization expired') {
+                            showError();
+                        }
+                    });
+                }
+
+                if (retryButton) {
+                    retryButton.addEventListener('click', load);
+                }
+
+                load();
+            })();
+            </script>
+        <?php
     }
 
     // ------------------------------------------------------------------

@@ -1571,8 +1571,46 @@
     gap: 10px;
 }
 
-.metasync-auth-token-row input.regular-text {
-    flex: 0 0 auto;
+/* Theme-aware like the Search Atlas API key display above it: colors come
+ * from the dashboard --dashboard-* vars, which flip with the admin color
+ * scheme / theme switcher (dark default, light under [data-theme=light]).
+ * (0,3,1) also outranks metasync-dashboard.css's
+ * `.metasync-dashboard-wrap input[type="text"]` (0,2,1). */
+.metasync-auth-token-row input.regular-text.metasync-auth-token-display {
+    box-sizing: border-box;
+    flex: 1 1 260px;
+    min-width: 220px;
+    height: 42px;
+    margin: 0;
+    padding: 0 14px;
+    border: 1px solid var(--dashboard-border, #374151);
+    border-radius: 6px;
+    background: var(--dashboard-input-bg, #22272e);
+    color: var(--dashboard-text-primary, #ffffff);
+    font-family: Consolas, Monaco, monospace;
+    font-size: 15px;
+    letter-spacing: 4px;
+    line-height: 40px;
+    text-align: left;
+    /* Readonly value: show the no-entry cursor on hover instead of the
+     * text I-beam, so it reads as non-editable (text stays selectable). */
+    cursor: not-allowed;
+}
+
+.metasync-auth-token-row input.regular-text.metasync-auth-token-display::placeholder {
+    color: var(--dashboard-text-secondary, #9ca3af);
+    font-size: 13px;
+    letter-spacing: normal;
+}
+
+.metasync-auth-token-row input.regular-text.metasync-auth-token-display:focus {
+    border-color: var(--dashboard-accent, #3b82f6);
+    box-shadow: 0 0 0 1px var(--dashboard-accent, #3b82f6);
+    outline: none;
+}
+
+.metasync-auth-token-row input.regular-text.metasync-auth-token-display::selection {
+    background: rgba(59, 130, 246, 0.35);
 }
 
 .metasync-auth-token-row .metasync-refresh-token-btn {
@@ -1605,6 +1643,13 @@
     .metasync-auth-token-row {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    /* The 260px flex-basis becomes HEIGHT once the row is a column —
+     * collapse it back to a normal full-width field. */
+    .metasync-auth-token-row input.regular-text.metasync-auth-token-display {
+        flex: 0 0 auto;
+        width: 100%;
     }
 
     .metasync-auth-token-row .metasync-refresh-token-btn {

@@ -346,15 +346,27 @@ class Metasync_Admin_Ajax
             $options['general']['bing_verification'] = sanitize_text_field($data['verification']['bing']);
         }
 
-        if (isset($data['seo_settings'])) {
+        if (isset($data['seo_settings']) && is_array($data['seo_settings'])) {
             if (!isset($options['seo_controls'])) {
                 $options['seo_controls'] = array();
             }
-            
-            $options['seo_controls']['index_date_archives'] = $data['seo_settings']['date_archives'] ? 'false' : 'true';
-            $options['seo_controls']['index_author_archives'] = $data['seo_settings']['author_archives'] ? 'false' : 'true';
-            $options['seo_controls']['index_category_archives'] = $data['seo_settings']['category_archives'] ? 'false' : 'true';
-            $options['seo_controls']['index_tag_archives'] = $data['seo_settings']['tag_archives'] ? 'false' : 'true';
+
+            // The wizard sends JavaScript booleans, which jQuery serializes as the
+            // strings "true" and "false". A plain truthiness check treats both as true.
+            $archive_fields = array(
+                'date_archives' => 'index_date_archives',
+                'author_archives' => 'index_author_archives',
+                'category_archives' => 'index_category_archives',
+                'tag_archives' => 'index_tag_archives',
+            );
+            foreach ($archive_fields as $posted_field => $stored_field) {
+                if (!array_key_exists($posted_field, $data['seo_settings'])) {
+                    continue;
+                }
+                // The stored key is historically inverted: "true" means disallow/noindex.
+                $checked = $this->wizard_boolean_value($data['seo_settings'][$posted_field]);
+                $options['seo_controls'][$stored_field] = $checked ? 'false' : 'true';
+            }
         }
 
         if (isset($data['schema'])) {
@@ -365,14 +377,25 @@ class Metasync_Admin_Ajax
             $options['general']['default_schema_type'] = sanitize_text_field($data['schema']['default_type']);
         }
 
-        if (isset($data['analytics']) && is_array($data['analytics'])) {
-            update_option('metasync_analytics_opt_in', !empty($data['analytics']['enabled']) ? 'yes' : 'no');
+        if (isset($data['analytics']) && is_array($data['analytics']) && array_key_exists('enabled', $data['analytics'])) {
+            update_option('metasync_analytics_opt_in', $this->wizard_boolean_value($data['analytics']['enabled']) ? 'yes' : 'no');
             update_option('metasync_analytics_consent_explicit', 'yes');
         }
 
         update_option('metasync_options', $options);
 
         wp_send_json_success(array('message' => 'Progress saved'));
+    }
+
+    /**
+     * Parse a wizard checkbox value from either a PHP boolean or jQuery's serialized string.
+     *
+     * @param mixed $value Posted checkbox value.
+     * @return bool
+     */
+    private function wizard_boolean_value($value)
+    {
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN);
     }
 
     public function ajax_complete_wizard()

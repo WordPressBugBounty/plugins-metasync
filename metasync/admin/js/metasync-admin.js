@@ -390,11 +390,6 @@
 			});
 	}
 
-	function metasyncGenerateAPIKey() {
-		return Math.random().toString(36).substring(2, 15) +
-			Math.random().toString(36).substring(2, 15);
-	}
-
 	function metasyncLGLogin(user, pass) {
 		jQuery.post(ajaxurl, {
 			action: 'metasync_lglogin',
@@ -750,9 +745,8 @@
 									nonce: metaSync.sa_connect_nonce || ''
 								},
 								success: function (tokenResponse) {
-									if (tokenResponse.success && tokenResponse.data.plugin_auth_token) {
-										$('#apikey').val(tokenResponse.data.plugin_auth_token);
-										console.log('🔑 Plugin Auth Token field updated after connect success');
+									if (tokenResponse.success && tokenResponse.data.masked_token) {
+										$('#apikey').val(tokenResponse.data.masked_token);
 									}
 								},
 								error: function () {
@@ -1143,44 +1137,7 @@
 		if (urlParams.get('error_summary_error') === '1') {
 			showSyncError('❌ Clear Failed', 'Unable to clear the error summary. Please try again.');
 		}
-		
-		// Check global variables are available
-		
-		// Test AJAX connectivity using our specific endpoint
-		if (typeof ajaxurl !== 'undefined' && ajaxurl) {
-			$.ajax({
-				url: ajaxurl,
-				type: 'POST',
-				data: {
-					action: 'metasync_test_ajax_endpoint',
-					nonce: metaSync.sa_connect_nonce
-				},
-				timeout: 10000,
-				success: function (response) {
-					if (!response.success) {
-						console.warn('🐛 DEBUG: AJAX endpoint reached but returned success=false:', response.data);
-					}
-				},
-				error: function (xhr, status, error) {
-					console.error('🐛 DEBUG: AJAX test failed:', {
-						xhr: xhr,
-						status: status,
-						error: error,
-						responseText: xhr.responseText,
-						ajaxurl: ajaxurl
-					});
-					
-					// Try alternative AJAX test
-					$.post(ajaxurl, {
-						action: 'wp_ajax_nopriv_heartbeat'
-					}).done(function (response2) {
-					}).fail(function (xhr2) {
-						console.error('🐛 DEBUG: Alternative AJAX also failed:', xhr2);
-					});
-				}
-			});
-		}
-		
+
 		// Check if SSO button exists and is functional
 		var $connectButton = $('#connect-searchatlas-btn');
 		
@@ -1799,9 +1756,6 @@
 		$('body').on('click', '#wp_metasync_sync', function (e) {
 			e.preventDefault();
 			metasync_syncPostsAndPages();
-		});
-		$('body').on('click', '#metasync_settings_genkey_btn', function () {
-			$('#apikey').val(metasyncGenerateAPIKey());
 		});
 		$('body').on('click', '#lgloginbtn', function () {
 			// Hide any existing error messages first

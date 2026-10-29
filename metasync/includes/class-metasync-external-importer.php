@@ -823,6 +823,10 @@ class Metasync_External_Importer
      */
     public function import_sitemap($plugin)
     {
+        if (!in_array($plugin, ['yoast', 'rankmath', 'aioseo'], true)) {
+            return ['success' => false, 'message' => 'Invalid plugin specified.'];
+        }
+
         $imported = false;
         $message = '';
 
@@ -857,7 +861,8 @@ class Metasync_External_Importer
         }
 
         if (!$imported) {
-            return ['success' => false, 'message' => 'No sitemap settings found or plugin not active.'];
+            // Nothing in the source plugin is a successful no-op, not a failure.
+            return ['success' => true, 'imported' => 0, 'message' => 'Nothing to import: no sitemap settings found in the source plugin.'];
         }
 
         return ['success' => true, 'message' => $message];
@@ -868,6 +873,10 @@ class Metasync_External_Importer
      */
     public function import_robots($plugin)
     {
+        if (!in_array($plugin, ['yoast', 'rankmath', 'aioseo'], true)) {
+            return ['success' => false, 'message' => 'Invalid plugin specified.'];
+        }
+
         $content = '';
         
         switch ($plugin) {
@@ -900,7 +909,8 @@ class Metasync_External_Importer
         }
 
         if (empty($content)) {
-             return ['success' => false, 'message' => 'No robots.txt content found.'];
+            // Nothing in the source plugin is a successful no-op, not a failure.
+            return ['success' => true, 'imported' => 0, 'message' => 'Nothing to import: no robots.txt content found.'];
         }
 
         // Save to Metasync Robots.txt

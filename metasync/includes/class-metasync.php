@@ -283,8 +283,9 @@ class Metasync
 		// Search Atlas Connect development/testing endpoints
 		$this->loader->add_action('wp_ajax_metasync_test_enhanced_tokens', $plugin_admin, 'test_enhanced_searchatlas_tokens');
 		$this->loader->add_action('wp_ajax_metasync_test_whitelabel_domain', $plugin_admin, 'test_whitelabel_domain');
-		$this->loader->add_action('wp_ajax_metasync_test_ajax_endpoint', $plugin_admin, 'test_searchatlas_ajax_endpoint');
 
+		// Dashboard iframe URL resolver — cold-path credential lookup off the page render
+		$this->loader->add_action('wp_ajax_metasync_dashboard_iframe_url', $plugin_admin, 'dashboard_iframe_url');
 
 		$post_meta_setting = new Metasync_Post_Meta_Settings();
 		$this->loader->add_action('admin_init', $post_meta_setting, 'add_post_meta_data', 2);
