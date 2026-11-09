@@ -7,7 +7,7 @@ if (!defined('ABSPATH')) {
  * Redirections admin page logic extracted from Metasync_Admin.
  *
  * Handles the tabbed redirections / 404-monitor UI, form processing,
- * validation, and related database checks.
+ * and validation. Schema creation belongs to activation/upgrade migrations.
  *
  * @package    Metasync
  * @subpackage Metasync/includes
@@ -19,8 +19,7 @@ class Metasync_Redirections_Admin
     /**
      * Which tab of the combined Redirections screen is being viewed.
      *
-     * Set ONLY by render_tab_content(), i.e. only when both the redirections
-     * and 404-monitor tables are rendered onto one page. Stays null on the
+     * Set ONLY by render_tab_content() for the selected table. Stays null on the
      * standalone 404 Monitor page (page=...-404-monitor), where that table is
      * the only one present. The list tables read it to decide whether to offer
      * bulk actions - see get_bulk_actions() in either table for why.
@@ -62,11 +61,9 @@ class Metasync_Redirections_Admin
     {
         $this->handle_redirection_form_processing();
 
-        $this->check_database_structure();
-
-        $this->ensure_404_monitor_table();
-
-        $current_tab = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : 'redirections'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab selection
+        $current_tab = isset($_GET['tab']) && is_string($_GET['tab']) && $_GET['tab'] === '404-monitor'
+            ? '404-monitor'
+            : 'redirections'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- allow-listed read-only tab selection
 
         $this->add_tabbed_interface_assets();
         $this->admin->render_layout_open('Redirections', 'redirections', 'Manage URL redirects and monitor 404 errors on your site.');
@@ -574,70 +571,6 @@ class Metasync_Redirections_Admin
             display: block;
         }
         </style>
-        
-        <script>
-        jQuery(document).ready(function($) {
-            function switchToTab(targetTab) {
-                $('.metasync-tab-nav a').removeClass('active');
-                $('.metasync-tab-nav a[data-tab="' + targetTab + '"]').addClass('active');
-                
-                $('.metasync-tab-content').removeClass('active');
-                $('#' + targetTab + '-content').addClass('active');
-            }
-            
-            function initializeTabs() {
-                var urlParams = new URLSearchParams(window.location.search);
-                var currentTab = urlParams.get('tab');
-
-                if (currentTab && (currentTab === 'redirections' || currentTab === '404-monitor')) {
-                    switchToTab(currentTab);
-                } else {
-                    switchToTab('redirections');
-                    currentTab = 'redirections';
-                }
-
-                var needsCleanup = false;
-                if (currentTab === '404-monitor') {
-                    if (urlParams.has('paged') || urlParams.has('paged_redir')) {
-                        urlParams.delete('paged');
-                        urlParams.delete('paged_redir');
-                        needsCleanup = true;
-                    }
-                } else if (currentTab === 'redirections') {
-                    if (urlParams.has('paged') || urlParams.has('paged_404')) {
-                        urlParams.delete('paged');
-                        urlParams.delete('paged_404');
-                        needsCleanup = true;
-                    }
-                }
-
-                if (needsCleanup) {
-                    var newUrl = window.location.pathname + '?' + urlParams.toString();
-                    window.history.replaceState({}, '', newUrl);
-                }
-            }
-
-            initializeTabs();
-
-            setTimeout(initializeTabs, 100);
-            
-            $('.metasync-tab-nav a').on('click', function(e) {
-                e.preventDefault();
-
-                var targetTab = $(this).data('tab');
-                switchToTab(targetTab);
-
-                var url = new URL(window.location);
-                url.searchParams.set('tab', targetTab);
-
-                url.searchParams.delete('paged');
-                url.searchParams.delete('paged_404');
-                url.searchParams.delete('paged_redir');
-
-                window.history.pushState({}, '', url);
-            });
-        });
-        </script>
         <?php
     }
 
@@ -669,16 +602,13 @@ class Metasync_Redirections_Admin
 
     private function render_tab_content($current_tab)
     {
-        // Both tables are rendered onto this one page (CSS hides the inactive
-        // tab), so record which tab is actually being viewed. The list tables
-        // use this to keep the hidden tab from emitting a duplicate set of
-        // bulk-action controls - see get_bulk_actions() in either table.
-        self::$combined_screen_active_tab = ($current_tab === '404-monitor')
-            ? '404-monitor'
-            : 'redirections';
-
-        $this->render_redirections_tab($current_tab);
-        $this->render_404_monitor_tab($current_tab);
+        // Preserve the list-table compatibility flag, but query only the selected list.
+        self::$combined_screen_active_tab = $current_tab;
+        if ($current_tab === '404-monitor') {
+            $this->render_404_monitor_tab($current_tab);
+        } else {
+            $this->render_redirections_tab($current_tab);
+        }
     }
 
     private function render_redirections_tab($current_tab = null)
@@ -727,69 +657,5 @@ class Metasync_Redirections_Admin
             ?>
         </div>
         <?php
-    }
-
-    private function ensure_404_monitor_table()
-    {
-        global $wpdb;
-        require_once plugin_dir_path(dirname(__FILE__)) . '404-monitor/class-metasync-404-monitor-database.php';
-        
-        $table_name = $wpdb->prefix . Metasync_Error_Monitor_Database::$table_name;
-        
-        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name)) != $table_name) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- admin repair action — re-runs the migration check on demand from the UI
-            require_once plugin_dir_path(dirname(__FILE__)) . 'database/class-db-migrations.php';
-            MetaSync_DBMigration::run_migrations();
-        }
-    }
-
-    private function check_database_structure()
-    {
-        global $wpdb;
-        $table_name = $wpdb->prefix . 'metasync_redirections';
-        
-        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name)) != $table_name) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- admin repair action — re-runs the migration check on demand from the UI
-            return;
-        }
-        
-        $columns = $wpdb->get_col("DESCRIBE {$wpdb->prefix}metasync_redirections"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- admin repair action — re-runs the migration check on demand from the UI
-        $required_columns = ['pattern_type', 'regex_pattern', 'description', 'created_at', 'updated_at', 'last_accessed_at'];
-        
-        $missing_columns = array_diff($required_columns, $columns);
-        
-        if (!empty($missing_columns)) {
-            add_action('admin_notices', function() use ($missing_columns) {
-                echo '<div class="notice notice-warning is-dismissible">';
-                echo '<p><strong>MetaSync:</strong> Database structure needs updating. Missing columns: ' . esc_html(implode(', ', $missing_columns)) . '</p>';
-                echo '<p><button type="button" class="button button-secondary" onclick="updateDatabaseStructure()">Update Database Structure</button></p>';
-                echo '</div>';
-                
-                echo '<script>
-                function updateDatabaseStructure() {
-                    if (confirm("This will update your database structure. Continue?")) {
-                        const formData = new FormData();
-                        formData.append("action", "metasync_update_db_structure");
-                        formData.append("nonce", "' . esc_attr(wp_create_nonce('metasync_update_db_nonce')) . '");
-                        
-                        fetch(ajaxurl, {
-                            method: "POST",
-                            body: formData
-                        })
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.success) {
-                                alert("Database structure updated successfully!");
-                                location.reload();
-                            } else {
-                                alert("Error updating database: " + (data.data || "Unknown error"));
-                            }
-                        })
-                        .catch(error => {
-                            alert("Error updating database: " + error.message);
-                        });
-                    }
-                }
-                </script>';
-            });
-        }
     }
 }

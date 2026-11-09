@@ -190,7 +190,7 @@ class Metasync_Otto_Transient_Cache {
         if (class_exists('Metasync_Endpoint_Manager')) {
             $this->api_endpoint = Metasync_Endpoint_Manager::get_endpoint('OTTO_URL_DETAILS');
         } else {
-            $this->api_endpoint = 'https://sa.searchatlas.com/api/v2/otto-url-details';
+            $this->api_endpoint = 'https://sa.searchatlas.com/api/v2/otto-url-details/';
         }
     }
     
@@ -477,6 +477,21 @@ class Metasync_Otto_Transient_Cache {
         $keys = $this->get_cache_keys($url);
         delete_transient($keys['transient']);
         delete_transient($keys['lock']);
+
+        # Transient keys include the scheme. Behind a TLS proxy that hides the
+        # scheme, pages render with the other scheme's transient; drop it too
+        # so the re-rendered page uses the new suggestions.
+        $other_scheme_url = preg_replace_callback(
+            '#^(https?)://#i',
+            function ($m) {
+                return (strtolower($m[1]) === 'https') ? 'http://' : 'https://';
+            },
+            (string) $url,
+            1
+        );
+        if (is_string($other_scheme_url) && $other_scheme_url !== $url) {
+            delete_transient($this->get_cache_keys($other_scheme_url)['transient']);
+        }
 
         # Use a longer timeout for this pre-warm request (webhook context, not page load).
         $saved_timeout = $this->fetch_timeout;

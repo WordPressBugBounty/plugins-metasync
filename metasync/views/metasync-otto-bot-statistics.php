@@ -139,8 +139,8 @@ $breakdown_labels = array(
                 <p style="margin: 0;">No bot requests detected yet. Bot detection will automatically log requests when bots visit your site.</p>
             </div>
         <?php else: ?>
-            <div style="overflow-x: auto;">
-                <table class="wp-list-table widefat striped" style="width: 100%; border-collapse: collapse; min-width: 1150px;">
+            <div class="metasync-scroll-wrap" style="overflow-x: auto;">
+                <table class="wp-list-table widefat striped metasync-scroll-table" style="width: 100%; border-collapse: collapse; min-width: 1150px;">
                     <thead>
                         <tr>
                             <th style="padding: 12px; text-align: left; background: var(--dashboard-card-bg); color: var(--dashboard-text-primary); min-width: 70px; white-space: nowrap;">Hits</th>

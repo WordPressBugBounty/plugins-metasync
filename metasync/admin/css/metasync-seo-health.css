@@ -499,7 +499,110 @@
 	color: var(--dashboard-text-secondary) !important;
 }
 
-/* ===== SEO status indicators ===== */
+/* Phase 2: keep the table wider than the viewport without widening the page. */
+.metasync-seo-health-list-wrap {
+	width: 100%;
+	min-width: 0;
+	overflow-x: auto;
+	overflow-y: hidden;
+	-webkit-overflow-scrolling: touch;
+}
+
+.metasync-seo-health-list-wrap .wp-list-table {
+	min-width: 900px;
+	margin-bottom: 0;
+}
+
+/* WP_List_Table's default floats and nowrap rules can make the tablenav wider
+   than the content column. Let it use a second line instead of exporting that
+   width to the document. */
+.metasync-seo-health-list-wrap .tablenav {
+	width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
+	flex-wrap: wrap !important;
+	overflow: visible !important;
+	/* Pin to the visible edge while the 900px table is swiped sideways so the
+	   bulk-actions/pagination bar never scrolls out of view. */
+	position: sticky;
+	left: 0;
+}
+
+.metasync-seo-health-list-wrap .tablenav .alignleft {
+	min-width: 0;
+	max-width: 100%;
+	flex: 1 1 auto;
+	flex-wrap: wrap;
+}
+
+.metasync-seo-health-list-wrap .tablenav .alignright {
+	max-width: 100%;
+	flex: 0 1 auto;
+}
+
+@media (max-width: 782px) {
+	.metasync-health-toolbar {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.metasync-health-toolbar .search-box,
+	.metasync-health-toolbar .search-box input[type="search"] {
+		width: 100%;
+		max-width: none;
+	}
+
+	/* Core stacks .wp-list-table rows into expandable cards at this width;
+	   a forced 900px min-width would make the stacked cards scroll sideways.
+	   Let them fill the column instead. */
+	.metasync-seo-health-list-wrap .wp-list-table {
+		min-width: 0;
+	}
+
+	.metasync-seo-health-list-wrap .tablenav {
+		align-items: stretch !important;
+		flex-direction: column;
+		gap: 10px !important;
+	}
+
+	.metasync-seo-health-list-wrap .tablenav .alignleft,
+	.metasync-seo-health-list-wrap .tablenav .alignright,
+	.metasync-seo-health-list-wrap .tablenav .actions,
+	.metasync-seo-health-list-wrap .tablenav .tablenav-pages {
+		width: 100%;
+		max-width: 100%;
+		margin-left: 0 !important;
+		flex-wrap: wrap;
+	}
+
+	.metasync-seo-health-list-wrap .tablenav .actions > select,
+	.metasync-seo-health-list-wrap .tablenav .search-box,
+	.metasync-seo-health-list-wrap .tablenav .search-box input {
+		max-width: 100%;
+		min-width: 0;
+	}
+
+	/* This selector deliberately outranks the earlier .wrap .tablenav rules
+	   (including their !important declarations) without affecting other lists. */
+	.wrap .metasync-seo-health-list-wrap .tablenav,
+	.wrap .metasync-seo-health-list-wrap .tablenav .actions,
+	.wrap .metasync-seo-health-list-wrap .tablenav .alignleft {
+		flex-wrap: wrap !important;
+	}
+
+	.wrap .metasync-seo-health-list-wrap .tablenav {
+		overflow-x: hidden !important;
+		overflow-y: visible !important;
+	}
+
+	.wrap .metasync-seo-health-list-wrap .tablenav .actions,
+	.wrap .metasync-seo-health-list-wrap .tablenav .alignleft {
+		width: 100%;
+		max-width: 100%;
+		min-width: 0;
+	}
+}
+
 .seo-status-missing {
 	color: var(--dashboard-error);
 	font-weight: 500;

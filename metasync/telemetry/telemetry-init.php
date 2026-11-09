@@ -75,12 +75,15 @@ function init_metasync_telemetry() {
     }
 
     try {
-        // Clean up old database options if they exist
-        delete_option('metasync_sentry_dsn');
-        delete_option('metasync_sentry_project_id'); 
-        delete_option('metasync_sentry_environment');
-        delete_option('metasync_sentry_release');
-        delete_option('metasync_sentry_sample_rate');
+        // Clean up old database options once, not on every request
+        if (!get_option('metasync_sentry_legacy_options_cleaned')) {
+            delete_option('metasync_sentry_dsn');
+            delete_option('metasync_sentry_project_id');
+            delete_option('metasync_sentry_environment');
+            delete_option('metasync_sentry_release');
+            delete_option('metasync_sentry_sample_rate');
+            update_option('metasync_sentry_legacy_options_cleaned', true, true);
+        }
         
         // Telemetry configuration is now handled by constants defined in metasync.php
         // METASYNC_SENTRY_PROJECT_ID, METASYNC_SENTRY_ENVIRONMENT, etc.

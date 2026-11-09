@@ -79,6 +79,13 @@ class Metasync_Settings_Registration
                 return $new_value;
             }
             if (array_key_exists('apikey', $new_value['general'])) {
+                // Safety net: any writer that supplies a plaintext Plugin Auth
+                // Token (legacy code path, import, third-party update_option)
+                // gets it encrypted at rest. Already-encrypted values pass through.
+                $incoming = $new_value['general']['apikey'];
+                if (is_string($incoming) && $incoming !== '' && !Metasync::is_encrypted_secret($incoming)) {
+                    $new_value['general']['apikey'] = Metasync::encrypt_secret($incoming);
+                }
                 return $new_value;
             }
         }
@@ -740,7 +747,7 @@ class Metasync_Settings_Registration
         # field to accept the otto pixel
         # Read-only: the UUID is populated only by the trusted Search
         # Atlas / heartbeat flows. The input stays in the DOM (readonly, like
-        # the apikey/linkgraph_token fields) so metasync-admin.js can keep
+        # the apikey field) so metasync-admin.js can keep
         # targeting it by name to reflect connect/disconnect state, and the
         # server rejects any submitted value regardless.
         add_settings_field(
@@ -1102,7 +1109,7 @@ class Metasync_Settings_Registration
                     '<input type="checkbox" id="disable_common_robots_metabox" name="%s[general][disable_common_robots_metabox]" value="1" %s />', esc_attr($option_key),
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Common Robots meta box and stop %1$s emitting index/follow robots directives on the front end. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', esc_html(Metasync::get_effective_plugin_name('MetaSync')));
+                printf('<span class="description"> Hide the Common Robots meta box and stop %1$s emitting index/follow robots directives on the front end. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', esc_html(Metasync::get_effective_plugin_name()));
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1117,7 +1124,7 @@ class Metasync_Settings_Registration
                     '<input type="checkbox" id="disable_advance_robots_metabox" name="%s[general][disable_advance_robots_metabox]" value="1" %s />', esc_attr($option_key),
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Advance Robots meta box and stop %1$s emitting max-snippet, max-image-preview and max-video-preview directives. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', esc_html(Metasync::get_effective_plugin_name('MetaSync')));
+                printf('<span class="description"> Hide the Advance Robots meta box and stop %1$s emitting max-snippet, max-image-preview and max-video-preview directives. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', esc_html(Metasync::get_effective_plugin_name()));
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1147,7 +1154,7 @@ class Metasync_Settings_Registration
                     '<input type="checkbox" id="disable_canonical_metabox" name="%s[general][disable_canonical_metabox]" value="1" %s />', esc_attr($option_key),
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Canonical meta box and stop %1$s emitting or overriding the canonical URL. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', esc_html(Metasync::get_effective_plugin_name('MetaSync')));
+                printf('<span class="description"> Hide the Canonical meta box and stop %1$s emitting or overriding the canonical URL. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', esc_html(Metasync::get_effective_plugin_name()));
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1162,7 +1169,7 @@ class Metasync_Settings_Registration
                     '<input type="checkbox" id="disable_social_opengraph_metabox" name="%s[general][disable_social_opengraph_metabox]" value="1" %s />', esc_attr($option_key),
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Social Media &amp; Open Graph meta box and stop %1$s emitting Open Graph and Twitter tags. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', esc_html(Metasync::get_effective_plugin_name('MetaSync')));
+                printf('<span class="description"> Hide the Social Media &amp; Open Graph meta box and stop %1$s emitting Open Graph and Twitter tags. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', esc_html(Metasync::get_effective_plugin_name()));
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1177,7 +1184,7 @@ class Metasync_Settings_Registration
                     '<input type="checkbox" id="disable_schema_markup_metabox" name="%s[general][disable_schema_markup_metabox]" value="1" %s />', esc_attr($option_key),
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Schema Markup meta box and stop %1$s emitting any JSON-LD, including site-wide Local SEO markup. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', esc_html(Metasync::get_effective_plugin_name('MetaSync')));
+                printf('<span class="description"> Hide the Schema Markup meta box and stop %1$s emitting any JSON-LD, including site-wide Local SEO markup. While disabled, %1$s does not manage or override this data — another SEO plugin, or none, is free to handle it. Saved values are kept.</span>', esc_html(Metasync::get_effective_plugin_name()));
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1192,7 +1199,7 @@ class Metasync_Settings_Registration
                     '<input type="checkbox" id="disable_language_alternates_metabox" name="%s[general][disable_language_alternates_metabox]" value="1" %s />', esc_attr($option_key),
                     $disabled ? 'checked' : ''
                 );
-                printf('<span class="description"> Hide the Language Alternates (hreflang) panel in the block editor and stop %1$s emitting any %2$slink rel=&quot;alternate&quot; hreflang%3$s tags on the front end, including the auto-detected WPML entries. While disabled, %1$s does not manage or override this data — another SEO plugin, or WPML itself, is free to handle it. Saved values are kept and restored if you re-enable this.</span>', esc_html(Metasync::get_effective_plugin_name('MetaSync')), '&lt;', '&gt;');
+                printf('<span class="description"> Hide the Language Alternates (hreflang) panel in the block editor and stop %1$s emitting any %2$slink rel=&quot;alternate&quot; hreflang%3$s tags on the front end, including the auto-detected WPML entries. While disabled, %1$s does not manage or override this data — another SEO plugin, or WPML itself, is free to handle it. Saved values are kept and restored if you re-enable this.</span>', esc_html(Metasync::get_effective_plugin_name()), '&lt;', '&gt;');
             },
             $page_slug . '_general',
             $SECTION_METASYNC
@@ -1670,9 +1677,9 @@ class Metasync_Settings_Registration
                     $external = !empty($link['external']);
                     printf(
                         '<tr>
-                            <td><input type="text" name="%s[whitelabel][quick_links][%d][label]" value="%s" placeholder="Link label" style="width:100%%" /></td>
-                            <td><input type="url"  name="%s[whitelabel][quick_links][%d][url]"   value="%s" placeholder="https://…"  style="width:100%%" /></td>
-                            <td style="text-align:center"><input type="checkbox" name="%s[whitelabel][quick_links][%d][external]" value="1" %s /></td>
+                            <td data-label="Label"><input type="text" name="%s[whitelabel][quick_links][%d][label]" value="%s" placeholder="Link label" style="width:100%%" /></td>
+                            <td data-label="URL"><input type="url"  name="%s[whitelabel][quick_links][%d][url]"   value="%s" placeholder="https://…"  style="width:100%%" /></td>
+                            <td data-label="Open in new tab" style="text-align:center"><input type="checkbox" name="%s[whitelabel][quick_links][%d][external]" value="1" %s /></td>
                         </tr>',
                         esc_attr($option_key), esc_attr($i), esc_attr($label),
                         esc_attr($option_key), esc_attr($i), esc_attr($url),
@@ -1776,7 +1783,7 @@ class Metasync_Settings_Registration
             'metasync_schema_website',
             'WebSite Schema (Homepage Only)',
             function() {
-                echo '<p>This WebSite schema is injected on the homepage only. Enables the Google Sitelinks Searchbox.</p>';
+                echo '<p>This WebSite schema is injected on the homepage only.</p>';
             },
             $schema_page
         );
@@ -1807,7 +1814,7 @@ class Metasync_Settings_Registration
 
         add_settings_field(
             'schema_website_searchbox',
-            'Enable Sitelinks Searchbox' . Metasync::get_tooltip_icon_html('schema_website_searchbox_tooltip', 'Adds a search action to your homepage schema so Google can show a search box directly under your site in results. Only affects how your site can appear in Google, not your actual site search.'),
+            'Add SearchAction' . Metasync::get_tooltip_icon_html('schema_website_searchbox_tooltip', 'Adds a SearchAction to your homepage WebSite schema describing your site search URL pattern (for example /?s={search_term_string}). It does not change your actual site search.'),
             function() use ($option_key) {
                 $schema = Metasync::get_option('schema') ?? [];
                 $value = $schema['website_searchbox'] ?? false;
@@ -1815,7 +1822,7 @@ class Metasync_Settings_Registration
                     '<input type="checkbox" name="%s[schema][website_searchbox]" value="1" %s />', esc_attr($option_key),
                     checked($value, true, false)
                 );
-                echo '<span class="description">Adds SearchAction to WebSite schema for Google Sitelinks Searchbox.</span>';
+                echo '<span class="description">Adds a SearchAction to the WebSite schema.</span>';
             },
             $schema_page,
             'metasync_schema_website'
@@ -2920,6 +2927,45 @@ class Metasync_Settings_Registration
     }
 
     /**
+     * Whether the saved options differ in a way that needs a customer sync.
+     *
+     * Scalars are compared as strings, because a form post sends "1" where the
+     * stored value may be true. Keys the plugin rewrites on its own (sync and
+     * heartbeat bookkeeping) are ignored, so they never count as a change.
+     *
+     * @param array $before Options as saved before this request.
+     * @param array $after  Options as saved now.
+     * @return bool
+     */
+    private static function synced_options_changed($before, $after)
+    {
+        // The stored API key is ciphertext with a random IV, so the same key gives a
+        // different value on every save. Key changes are caught by $api_key_changed.
+        $volatile = array(
+            'searchatlas_api_key',
+            'send_auth_token_timestamp',
+            'last_manual_sync',
+            'heartbeat_state',
+            'heartbeat_state_changed_at',
+        );
+        $normalize = static function ($value) use (&$normalize, $volatile) {
+            if (!is_array($value)) {
+                return is_scalar($value) ? (string) $value : '';
+            }
+            $out = array();
+            foreach ($value as $key => $item) {
+                if (in_array($key, $volatile, true)) {
+                    continue;
+                }
+                $out[$key] = $normalize($item);
+            }
+            ksort($out);
+            return $out;
+        };
+
+        return $normalize((array) $before) !== $normalize((array) $after);
+    }
+    /**
      * AJAX handler for saving general/whitelabel/advanced settings.
      *
      * Moved from Metasync_Admin – the admin class now delegates here.
@@ -2987,6 +3033,9 @@ class Metasync_Settings_Registration
         if (!is_array($metasync_options)) {
             $metasync_options = array();
         }
+        // Snapshot of the saved options before this request changes anything,
+        // used below to skip the customer sync when nothing synced changed.
+        $options_before_save = $metasync_options;
         if (!isset($metasync_options['general']) || !is_array($metasync_options['general'])) {
             $metasync_options['general'] = array();
         }
@@ -3489,8 +3538,12 @@ class Metasync_Settings_Registration
 
             Metasync_Heartbeat_Manager::instance()->maybe_schedule_heartbeat_cron();
             do_action('metasync_trigger_immediate_heartbeat', 'Manual API key update - validated via ping');
+        } elseif ( ! $api_key_changed && ! self::synced_options_changed( $options_before_save, Metasync::get_option() ) ) {
+            // Nothing the platform syncs changed (key and every saved value are
+            // identical), so skip the blocking customer sync and leave the
+            // last-sync timestamp alone. A real sync only happens when a value changed.
         } else {
-            // Key unchanged or removed — run sync as before
+            // Key changed or removed, or a saved value changed — run the sync
             $sync_request = new Metasync_Sync_Requests();
             $response = $sync_request->SyncCustomerParams();
             $responseCode = Metasync_Sync_Requests::get_response_code($response);
@@ -3613,7 +3666,37 @@ class Metasync_Settings_Registration
             }
 
             if (isset($whitelabel_data['access_control'])) {
-                $metasync_options['whitelabel']['access_control'] = Metasync_Access_Control::sanitize_access_control($whitelabel_data['access_control']);
+                // Import path: do not record a settings error (this is not
+                // options.php). An incomplete Restricted selection keeps the
+                // previous feature config inside the sanitizer; surface that
+                // rejection here so the import response is visible. Valid
+                // features in the same payload are still updated.
+                $submitted_access_control = is_array($whitelabel_data['access_control'])
+                    ? $whitelabel_data['access_control']
+                    : array();
+                $sanitized_access_control = Metasync_Access_Control::sanitize_access_control($submitted_access_control, false);
+                foreach ($submitted_access_control as $feature_key => $submitted_feature) {
+                    if (!is_array($submitted_feature) || empty($submitted_feature['enabled'])) {
+                        continue;
+                    }
+                    $submitted_type = isset($submitted_feature['type']) ? $submitted_feature['type'] : '';
+                    $roles = isset($submitted_feature['allowed_roles']) && is_array($submitted_feature['allowed_roles'])
+                        ? array_filter($submitted_feature['allowed_roles'], static function ($role) {
+                            return strlen((string) $role) > 0;
+                        })
+                        : array();
+                    $users = isset($submitted_feature['allowed_users']) && is_array($submitted_feature['allowed_users'])
+                        ? array_filter(array_map('intval', $submitted_feature['allowed_users']))
+                        : array();
+                    $incomplete = !in_array($submitted_type, array('all', 'role', 'user', 'none'), true)
+                        || ($submitted_type === 'role' && empty($roles))
+                        || ($submitted_type === 'user' && empty($users));
+                    if ($incomplete) {
+                        $whitelabel_errors['access_control'] = 'The restricted selection was incomplete. The previous access control was kept.';
+                        break;
+                    }
+                }
+                $metasync_options['whitelabel']['access_control'] = $sanitized_access_control;
             }
 
             if (!empty($metasync_options['whitelabel']['hide_settings']) && empty($metasync_options['whitelabel']['settings_password'])) {

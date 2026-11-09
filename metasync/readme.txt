@@ -4,7 +4,7 @@ Tags: seo, ai seo, otto, otto seo, schema
 Requires at least: 6.3
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 2.7.5
+Stable tag: 2.7.6
 License: GPL v3
 License URI: https://www.gnu.org/licenses/gpl-3.0.txt
 
@@ -64,7 +64,7 @@ Search Atlas is a companion plugin for the Search Atlas platform, an external se
 The plugin can send limited usage analytics to Search Atlas so we can see which features are used and find problems. It is off until a site administrator clicks "Allow" in the admin notice, and it can be turned off anytime in Settings. When on, events are sent to a PostHog analytics instance hosted by Search Atlas (posthog.internal.searchatlas.com). The data includes your site URL, plugin version, WordPress and PHP versions, the user's role, and feature usage, linked to a hashed site ID. We do not collect passwords, API keys, post content, names, or email addresses. This data is covered by the Search Atlas [Privacy Policy](https://searchatlas.com/privacy-policy/).
 
 ### Error and performance reports (always on)
-To help us find and fix bugs, the plugin automatically sends error and performance reports to Search Atlas. When the plugin hits a PHP error, or runs slowly, it sends the error message, performance timings, the plugin, WordPress and PHP versions, and the site address to a Sentry error-tracking service hosted by Search Atlas (wordpress.telemetry.infra.searchatlas.com and dash-api-telemetry.searchatlas.com). These reports are not optional and are separate from the usage analytics above. We do not collect passwords, API keys, post content, names, or email addresses. This data is covered by the Search Atlas [Privacy Policy](https://searchatlas.com/privacy-policy/).
+To help us find and fix bugs, the plugin automatically sends error and performance reports to Search Atlas. When the plugin hits a PHP error, or runs slowly, it sends the error message, performance timings, the plugin, WordPress and PHP versions, and the site address to a Sentry error-tracking service hosted by Search Atlas (wordpress.telemetry.infra.searchatlas.com). These reports are not optional and are separate from the usage analytics above. We do not collect passwords, API keys, post content, names, or email addresses. This data is covered by the Search Atlas [Privacy Policy](https://searchatlas.com/privacy-policy/).
 
 == Installation ==
 1. In your WordPress admin, go to Plugins, then Add New, and search for Search Atlas SEO. Click Install Now, then Activate.
@@ -96,23 +96,49 @@ Yes. The 404 Monitor logs every not-found URL with hit counts and suggests redir
 
 == Screenshots ==
 1. Dashboard
-2. Indexation Control
-3. Schema Markup
-4. SEO Health
+2. Robots.txt Editor
+3. Connection & Authentication
+4. 404 Monitor
 5. Redirections
-6. 404 Monitor
-7. XML Sitemap
-8. Robots.txt
+6. SEO Health
+7. Code Minification
+8. Media Optimization
 9. Compatibility
-10. Changes Log
-11. Custom Pages
-12. General Settings
+10. Bot Statistics
+11. Import External Data
+12. White Label Branding
 
 == Upgrade Notice ==
 = 2.7.4 =
 2.7.4 protects the plugin authorization token, reports lost connections only after repeated failures, and makes REST publishing, imports and OTTO link handling more reliable. Update for the latest security and stability improvements.
 
 == Changelog ==
+= 2.7.6 =
+* Security: The Plugin Auth Token is now encrypted at rest with the same AES-256-GCM mechanism as the Search Atlas API key, reading legacy plaintext values transparently during migration
+* Security: A dead legacy credential relay is removed and any token it had stored is purged
+* Fix: Saving a page or deploying OTTO purges only the affected pages instead of the entire site cache
+* Fix: The OTTO url-details endpoint now includes its trailing slash, removing a 301 redirect round trip on every OTTO cache miss
+* Fix: OTTO no longer rewrites the Avada Live Builder editor
+* Fix: OTTO footer HTML can no longer be inserted twice on the same page
+* Fix: Delaying JavaScript execution preserves module, nonce, integrity and other script attributes
+* Fix: Content sync updates no longer strip embeds and style blocks from posts
+* Fix: Every Search Atlas connect attempt now reports one final outcome, including timeouts and abandoned attempts
+* Fix: The wizard checkbox for Enable Automatic Schema Markup no longer renders as ticked when it was saved unticked
+* Fix: Access control no longer accepts a "Restricted" setting with no roles or users selected
+* Fix: White-label name and other white-label settings survive plugin updates
+* Fix: White-label mode no longer times out authentication when the callback name contains valid email-style characters
+* Fix: Sitemap directives for old domains no longer accumulate in the robots.txt UI, and the preview modal closes with Escape
+* Fix: Settings help text no longer exposes an internal meta key, and the white-label plugin name is used consistently
+* Fix: Missing search engine settings no longer trigger PHP warnings in SEO output, and legacy error-reporting cleanup runs once instead of on every request
+* Fix: Opted-in delete-all-data uninstall now drops the real legacy Zapier subscriptions table and the headless refresh history, with correct multisite cleanup
+* Improvement: Admin screens are now responsive on mobile
+* Improvement: Admin screens shift less after first paint and do less redundant work per page load, with admin scripts moved to the footer
+* Improvement: Non-admin requests skip admin-only plugin objects and hooks, reducing frontend overhead
+* Improvement: The MCP SEO health scan is bounded and cached instead of loading every post into memory
+* Improvement: Saving settings without changes no longer triggers a customer sync
+* Improvement: Post formats are excluded from the taxonomy sitemap by default, matching Yoast SEO, Rank Math, and All in One SEO
+* Improvement: Schema markup copy no longer offers the retired Google Sitelinks Searchbox and reads more clearly
+
 = 2.7.5 =
 * Security: The OTTO dashboard now loads only the public, read-only view and never embeds an authenticated session; if the view is unavailable, a clear status message with a way to retry or reconnect is shown instead
 * Fix: The Search Atlas support contact is hidden in white-label mode, including connection-error dialogs and authentication tips

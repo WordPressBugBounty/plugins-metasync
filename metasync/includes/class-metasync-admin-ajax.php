@@ -248,8 +248,7 @@ class Metasync_Admin_Ajax
         $sync_request = new Metasync_Sync_Requests();
 
         # use the existing apikey for backward compatibility
-        $general_options = Metasync::get_option('general') ?? [];
-        $token = $general_options['apikey'] ?? null;
+        $token = Metasync::get_plugin_auth_token();
 
         # declare the call context explicitly so only the Settings
         # "Sync Now" button consumes/stamps the 5-minute manual cooldown.
@@ -369,11 +368,13 @@ class Metasync_Admin_Ajax
             }
         }
 
-        if (isset($data['schema'])) {
+        if (isset($data['schema']) && is_array($data['schema'])) {
             if (!isset($options['general'])) {
                 $options['general'] = array();
             }
-            $options['general']['enable_schema_markup'] = $data['schema']['enabled'];
+            if (array_key_exists('enabled', $data['schema'])) {
+                $options['general']['enable_schema_markup'] = $this->wizard_boolean_value($data['schema']['enabled']);
+            }
             $options['general']['default_schema_type'] = sanitize_text_field($data['schema']['default_type']);
         }
 

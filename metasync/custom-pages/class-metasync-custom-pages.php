@@ -101,8 +101,16 @@ class Metasync_Custom_Pages
         // Add admin scripts and styles
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_assets'));
 
-        // Clear cache on save
+        // Clear this custom page's cache on save (custom HTML pages only)
         add_action('save_post', array($this, 'clear_page_cache'), 20, 2);
+
+        // Slug, parent or trash change: also purge the old URL
+        add_action('post_updated', array($this, 'purge_old_url_on_update'), 10, 3);
+
+        // REST and MCP updates can change the HTML without firing save_post
+        add_action('added_post_meta', array($this, 'purge_cache_on_html_meta'), 10, 3);
+        add_action('updated_post_meta', array($this, 'purge_cache_on_html_meta'), 10, 3);
+        add_action('deleted_post_meta', array($this, 'purge_cache_on_html_meta'), 10, 3);
 
         // Add custom column to pages list to identify HTML pages
         add_filter('manage_pages_columns', array($this, 'add_custom_html_column'));
@@ -619,33 +627,105 @@ class Metasync_Custom_Pages
     }
 
     /**
-     * Clear page cache when saving
+     * Purge a custom HTML page's own URL when it is saved.
+     *
+     * Only MetaSync custom HTML pages are handled. Ordinary pages are left to
+     * the cache plugin's own save handling. The whole site is never purged.
+     *
+     * @param int          $post_id Post ID.
+     * @param WP_Post|null $post    Post object (hooks can pass anything).
+     * @return void
      */
     public function clear_page_cache($post_id, $post)
     {
-        if ('page' !== $post->post_type) {
+        if (!($post instanceof WP_Post) || 'page' !== $post->post_type) {
             return;
         }
+        if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id) || 'auto-draft' === $post->post_status) {
+            return;
+        }
+        if (!self::is_custom_html_page($post_id)) {
+            return;
+        }
+        self::purge_page_url($post_id, (string) get_permalink($post));
+    }
 
-        // Clear WordPress object cache
+    /**
+     * When a custom HTML page's URL changes (slug, parent or trash), also
+     * purge the URL it was served at before.
+     *
+     * @param int          $post_id     Post ID.
+     * @param WP_Post|null $post_after  Post after the update.
+     * @param WP_Post|null $post_before Post before the update.
+     * @return void
+     */
+    public function purge_old_url_on_update($post_id, $post_after, $post_before)
+    {
+        if (!($post_after instanceof WP_Post) || !($post_before instanceof WP_Post) || 'page' !== $post_after->post_type) {
+            return;
+        }
+        if (!self::is_custom_html_page($post_id)) {
+            return;
+        }
+        $old_url = (string) get_permalink($post_before);
+        if ($old_url !== '' && $old_url !== (string) get_permalink($post_after)) {
+            self::purge_page_url($post_id, $old_url);
+        }
+    }
+
+    /**
+     * Purge a page's URL when its custom HTML changes through a direct meta
+     * write. REST and MCP updates do this without firing save_post.
+     *
+     * @param int|array $meta_id   Meta ID(s). Unused.
+     * @param int       $object_id Post ID.
+     * @param string    $meta_key  Meta key.
+     * @return void
+     */
+    public function purge_cache_on_html_meta($meta_id, $object_id, $meta_key)
+    {
+        if (!in_array($meta_key, array(self::META_HTML_CONTENT, self::META_HTML_ENABLED), true)) {
+            return;
+        }
+        $post = get_post($object_id);
+        if (!($post instanceof WP_Post) || 'page' !== $post->post_type || 'auto-draft' === $post->post_status) {
+            return;
+        }
+        self::purge_page_url((int) $object_id, (string) get_permalink($post));
+    }
+
+    /**
+     * Whether a page is a MetaSync custom HTML page.
+     *
+     * @param int $post_id Post ID.
+     * @return bool
+     */
+    private static function is_custom_html_page($post_id)
+    {
+        return get_post_meta($post_id, self::META_IS_CUSTOM_HTML_PAGE, true) === '1'
+            || get_post_meta($post_id, self::META_HTML_ENABLED, true) === '1';
+    }
+
+    /**
+     * Purge one URL of a page.
+     *
+     * Not deduplicated: a REST or MCP update can save the post and then write
+     * the HTML meta, and the purge after the meta write is the one that
+     * matters. A save costs at most a few single-URL purges.
+     *
+     * @param int    $post_id Post ID.
+     * @param string $url     URL to purge.
+     * @return void
+     */
+    private static function purge_page_url($post_id, $url)
+    {
         wp_cache_delete($post_id, 'posts');
         wp_cache_delete($post_id, 'post_meta');
 
-        // Try to clear popular caching plugins
-        if (function_exists('wp_cache_clear_cache')) {
-            wp_cache_clear_cache();
+        if ($url === '') {
+            return;
         }
-
-        if (function_exists('w3tc_flush_post')) {
-            w3tc_flush_post($post_id);
-        }
-
-        if (function_exists('wp_super_cache_post_delete')) {
-            wp_super_cache_post_delete($post_id);
-        }
-
-        // Clear cache plugins
-        Metasync_Cache_Purge::purge_all('custom_page_update');
+        Metasync_Cache_Purge::purge_single_url($url);
     }
 
     /**

@@ -837,6 +837,36 @@ class MetaSync_DBMigration
 
 
 	/**
+	 * Delete the legacy LinkGraph login token and customer ID from the stored settings.
+	 *
+	 * The old "Fetch Token" login (a username/password relay to /api/token/) was the
+	 * only thing that ever filled general.linkgraph_token and
+	 * general.linkgraph_customer_id. That login is gone and nothing reads either
+	 * value any more, but sites that used it still hold a live Search Atlas token in
+	 * the settings row, which the MCP settings tool returns in cleartext and which
+	 * survives a disconnect. Idempotent: a second run finds nothing to remove.
+	 *
+	 * @return void
+	 */
+	public static function purge_legacy_linkgraph_credentials()
+	{
+		$options = get_option('metasync_options');
+
+		if (!is_array($options) || !is_array($options['general'] ?? null)) {
+			return;
+		}
+
+		if (!array_key_exists('linkgraph_token', $options['general'])
+			&& !array_key_exists('linkgraph_customer_id', $options['general'])) {
+			return;
+		}
+
+		unset($options['general']['linkgraph_token'], $options['general']['linkgraph_customer_id']);
+		update_option('metasync_options', $options);
+	}
+
+
+	/**
 	 * Remove insecure wp-config.php backup copies left in the web root by prior versions.
 	 *
 	 * Older versions wrote a full copy of wp-config.php (containing DB credentials and

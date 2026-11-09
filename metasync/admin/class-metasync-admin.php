@@ -962,12 +962,14 @@ class Metasync_Admin
         if ($is_metasync_page) {
             wp_enqueue_media();
 
+            // Consumers bind on DOM ready or user interaction; localization and
+            // attached inline scripts stay on this handle in the footer.
             wp_enqueue_script(
                 $this->plugin_name,
                 plugin_dir_url(__FILE__) . 'js/metasync-admin.js',
                 array('jquery'),
                 $this->version,
-                false
+                true
             );
 
             // Enqueue dashboard-style JavaScript for enhanced interactions
@@ -1044,17 +1046,6 @@ class Metasync_Admin
             wp_enqueue_script(
                 $this->plugin_name . '-settings',
                 plugin_dir_url(__FILE__) . 'js/metasync-settings.js',
-                array('jquery'),
-                $this->version,
-                true
-            );
-        }
-
-        // Tab switcher (redirections / 404-monitor page)
-        if ($current_page === self::$page_slug . '-redirections') {
-            wp_enqueue_script(
-                $this->plugin_name . '-tab-switcher',
-                plugin_dir_url(__FILE__) . 'js/metasync-tab-switcher.js',
                 array('jquery'),
                 $this->version,
                 true
@@ -1412,7 +1403,6 @@ class Metasync_Admin
                 'reset_auth_nonce' => wp_create_nonce('metasync_reset_auth_nonce'),
                 'burst_ping_nonce' => wp_create_nonce('metasync_burst_ping'),
                 'clear_otto_cache_nonce' => wp_create_nonce('metasync_clear_otto_cache'),
-                'lglogin_nonce' => wp_create_nonce('metasync_lglogin'),
                 'heartbeat_state' => $heartbeat_state,
                 'dashboard_domain' => self::get_effective_dashboard_domain(),
                 'support_email' => Metasync::SUPPORT_EMAIL,
@@ -1440,7 +1430,7 @@ class Metasync_Admin
                     var button = $(this);
                     var originalText = button.text();
 
-                    if (confirm('Are you sure you want to refresh the Plugin Auth Token? This will generate a new token and update the heartbeat API.')) {
+                    if (confirm('Are you sure you want to refresh the Plugin Auth Token? This will generate a new token, update the heartbeat API, and stop the current token from working immediately.')) {
                         // Disable button and show loading
                         button.prop('disabled', true).text('🔄 Refreshing...');
 
@@ -1651,6 +1641,11 @@ class Metasync_Admin
     public function check_searchatlas_connect_status()
     {
         Metasync_Connect_Manager::instance()->check_searchatlas_connect_status();
+    }
+
+    public function record_connect_outcome()
+    {
+        Metasync_Connect_Manager::instance()->record_connect_outcome();
     }
 
     private function create_searchatlas_nonce_token()
@@ -2772,14 +2767,6 @@ class Metasync_Admin
             # Log any API request errors for debugging
             error_log('Metasync API Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
         }
-    }
-
-    /**
-     * Dashboard page callback
-     */
-    public function create_admin_dashboard_page()
-    {
-        Metasync_Admin_Pages::get_instance($this)->create_admin_dashboard_page();
     }
 
     /**
@@ -4950,15 +4937,6 @@ class Metasync_Admin
     {
         Metasync_Settings_Fields::instance()->metasync_settings_genkey_callback();
     }
-
-    /**
-     * Get the settings option array and print one of its values
-     */
-    public function linkgraph_token_callback()
-    {
-        Metasync_Settings_Fields::instance()->linkgraph_token_callback();
-    }
-
 
     private function time_elapsed_string($datetime, $full = false)
     {

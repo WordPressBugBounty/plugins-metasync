@@ -37,34 +37,42 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Add form validation
-    var form = document.querySelector('form[action="options.php"]');
+    // The whitelabel form appends the active tab to options.php, so match the
+    // action prefix rather than requiring an exact attribute value.
+    var form = document.querySelector('form[action^="options.php"]');
     if (form) {
         form.addEventListener('submit', function(e) {
-            // Validate that at least one role or user is selected when type is role/user
+            // Validate that a restricted feature has a type and that role/user
+            // restrictions include at least one selection.
             var accessControls = document.querySelectorAll('.metasync-access-control-row');
             var hasError = false;
 
             accessControls.forEach(function(row) {
                 var enabledEl = row.querySelector('[name*="[enabled]"]');
                 if (!enabledEl) return;
-                var featureKey = enabledEl.name.match(/\[(.*?)\]/)[1];
+                var featureLabel = row.querySelector('th label').textContent.trim();
                 var enabled = enabledEl.checked;
 
                 if (enabled) {
                     var typeEl = row.querySelector('[name*="[type]"]:checked');
-                    if (!typeEl) return;
+                    if (!typeEl) {
+                        alert('Please choose an access restriction for: ' + featureLabel);
+                        hasError = true;
+                        return;
+                    }
                     var type = typeEl.value;
 
                     if (type === 'role') {
                         var rolesChecked = row.querySelectorAll('[name*="[allowed_roles]"]:checked');
                         if (rolesChecked.length === 0) {
-                            alert('Please select at least one role for: ' + row.querySelector('th label').textContent);
+                            alert('Please select at least one role for: ' + featureLabel);
                             hasError = true;
                         }
                     } else if (type === 'user') {
-                        var usersSelected = row.querySelector('[name*="[allowed_users]"]').selectedOptions;
+                        var usersSelect = row.querySelector('[name*="[allowed_users]"]');
+                        var usersSelected = usersSelect ? usersSelect.selectedOptions : [];
                         if (usersSelected.length === 0) {
-                            alert('Please select at least one user for: ' + row.querySelector('th label').textContent);
+                            alert('Please select at least one user for: ' + featureLabel);
                             hasError = true;
                         }
                     }

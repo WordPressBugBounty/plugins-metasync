@@ -295,7 +295,9 @@ class MCP_Tool_Get_Plugin_Settings extends MCP_Tool_Base {
                     $data[$key] = str_repeat('•', 8) . substr($decrypted, -4);
                 }
             } elseif ($key === 'apikey') {
-                $data[$key] = !empty($value) ? str_repeat('•', 8) . substr((string) $value, -4) : '';
+                // The stored value is ciphertext; mask the decrypted token so the
+                // last 4 characters match what the admin sees everywhere else.
+                $data[$key] = !empty($value) ? Metasync::mask_plugin_auth_token() : '';
             }
         }
         return $data;
@@ -1081,8 +1083,7 @@ class MCP_Tool_Get_MCP_Settings extends MCP_Tool_Base {
         $this->validate_params($params);
         $this->require_capability('manage_options');
 
-        $options = get_option('metasync_options', []);
-        $plugin_auth_token = isset($options['general']['apikey']) ? $options['general']['apikey'] : '';
+        $plugin_auth_token = Metasync::get_plugin_auth_token();
 
         return $this->success([
             'mcp_enabled' => true, // MCP is always enabled
@@ -1091,7 +1092,7 @@ class MCP_Tool_Get_MCP_Settings extends MCP_Tool_Base {
                 'header' => 'X-API-Key',
                 'token_set' => !empty($plugin_auth_token),
                 'token_length' => !empty($plugin_auth_token) ? strlen($plugin_auth_token) : 0,
-                'token_preview' => !empty($plugin_auth_token) ? str_repeat('•', 8) . substr($plugin_auth_token, -4) : ''
+                'token_preview' => Metasync::mask_plugin_auth_token($plugin_auth_token)
             ],
             'endpoints' => [
                 'rest_endpoint' => rest_url('metasync/v1/mcp'),

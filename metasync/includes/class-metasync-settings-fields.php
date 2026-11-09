@@ -56,7 +56,7 @@ class Metasync_Settings_Fields {
         $sections = array(
             'analytics' => array(
                 'title' => 'Usage Data & Product Improvement',
-                'description' => sprintf('Choose whether to share limited usage data to help improve %s', Metasync::get_effective_plugin_name('MetaSync')),
+                'description' => sprintf('Choose whether to share limited usage data to help improve %s', Metasync::get_effective_plugin_name()),
                 'icon' => 'chart-bar',
                 'priority' => 70,
                 'default_open' => false,
@@ -292,6 +292,32 @@ class Metasync_Settings_Fields {
         return $config;
     }
 
+    /**
+     * Restore this section while parsing, before its callback can emit content.
+     * No dependency on jQuery or the footer bundle; PHP defaults survive errors.
+     */
+    private function render_accordion_initializer() {
+        ?>
+        <script>
+        (function () {
+            var content = document.currentScript.parentElement;
+            var section = content.parentElement;
+            var key = section.getAttribute('data-section');
+            try {
+                var state = JSON.parse(localStorage.getItem('metasync_accordion_state'));
+                if (state && typeof state === 'object' && !Array.isArray(state) &&
+                    Object.prototype.hasOwnProperty.call(state, key) && typeof state[key] === 'boolean') {
+                    section.querySelector('.metasync-accordion-header').setAttribute('aria-expanded', state[key] ? 'true' : 'false');
+                    content.setAttribute('data-state', state[key] ? 'open' : 'closed');
+                }
+            } catch (e) {
+                // Unavailable or malformed storage leaves the server defaults intact.
+            }
+        }());
+        </script>
+        <?php
+    }
+
     public function render_advanced_accordion() {
         $sections_config = $this->get_advanced_accordion_config();
 
@@ -323,6 +349,7 @@ class Metasync_Settings_Fields {
             echo '</div>';
 
             echo '<div class="metasync-accordion-content" id="' . esc_attr($section_id) . '" data-state="' . esc_attr($content_state) . '">';
+            $this->render_accordion_initializer();
 
             if (isset($section_data['render_callback']) && is_callable($section_data['render_callback'])) {
                 call_user_func($section_data['render_callback']);
@@ -1138,18 +1165,18 @@ class Metasync_Settings_Fields {
             'seo_priority' => sprintf('Choose which value appears first on a page when both your custom SEO value (title, description or focus keyword, edited on the post/page screen) and an approved %s suggestion are available. This changes what visitors see; it does not delete or overwrite saved values.', $otto_name),
             'otto_wp_rocket_compat' => sprintf('WP Rocket Compatibility Mode: Controls how %s interacts with WP Rocket. "Auto" (recommended) allows both to work together by avoiding DONOTCACHEPAGE constant unless necessary for Brizy pages or SG Optimizer conflicts. This ensures WP Rocket\'s JavaScript delay and optimization features continue working.', $otto_name),
             'otto_sg_optimizer_compat' => sprintf('SiteGround Optimizer Compatibility Mode: Controls how %s renders on SiteGround hosting. "Auto" (recommended) uses the internal HTTP fetch, which protects themes that defer inline CSS to the footer (e.g. Divi). "Buffer Mode" renders in-process with no internal fetch — faster on sites whose pages can never be host-cached, for example when a plugin starts a PHP session on every request (BookingPress sessions are removed automatically, so this does not apply to them).', $otto_name),
-            'bookingpress_session_compat' => 'BookingPress Session Compatibility: Controls whether MetaSync removes the PHP session BookingPress starts on every public page, so hosts such as SiteGround can page-cache the site again.',
+            'bookingpress_session_compat' => sprintf('BookingPress Session Compatibility: Controls whether %s removes the PHP session BookingPress starts on every public page, so hosts such as SiteGround can page-cache the site again.', $plugin_name),
             'otto_disable_for_bots' => sprintf('Enable bot detection to automatically skip %s processing for search engine crawlers, SEO tools, and other bots. This reduces unnecessary API calls and improves performance.', $otto_name),
             'otto_bot_whitelist' => sprintf('Enter bot names or user-agent patterns (one per line) that should always be processed by %s, even when "Disable for Bots" is enabled. For example: Googlebot, Bingbot. This allows you to ensure specific search engines always see your optimized content.', $otto_name),
             'otto_bot_blacklist' => sprintf('Enter bot names or user-agent patterns (one per line) that should always be blocked from %s processing, regardless of other settings. For example: BadBot, MaliciousCrawler. Use this to exclude problematic crawlers or unwanted traffic sources.', $otto_name),
             'otto_bot_statistics_link' => 'View detailed bot detection statistics including total hits, API calls saved, breakdown by bot type, and unique bot entries with hit counts.',
-            'disable_common_robots_metabox' => sprintf('Hide the Common Robots meta box and stop %1$s emitting index/noindex and follow/nofollow directives on the front end. %1$s also stops overriding WordPress core or another SEO plugin\'s robots tag. Saved values are kept and restored if you re-enable this.', Metasync::get_effective_plugin_name('MetaSync')),
-            'disable_advance_robots_metabox' => sprintf('Hide the Advanced Robots meta box and stop %1$s emitting max-snippet, max-image-preview and max-video-preview directives, including the site-wide advanced defaults. Saved values are kept and restored if you re-enable this.', Metasync::get_effective_plugin_name('MetaSync')),
+            'disable_common_robots_metabox' => sprintf('Hide the Common Robots meta box and stop %1$s emitting index/noindex and follow/nofollow directives on the front end. %1$s also stops overriding WordPress core or another SEO plugin\'s robots tag. Saved values are kept and restored if you re-enable this.', $plugin_name),
+            'disable_advance_robots_metabox' => sprintf('Hide the Advanced Robots meta box and stop %1$s emitting max-snippet, max-image-preview and max-video-preview directives, including the site-wide advanced defaults. Saved values are kept and restored if you re-enable this.', $plugin_name),
             'disable_redirection_metabox' => 'Hide the Redirection meta box and stop redirects configured through it from running. Rules added by hand on the Redirections screen keep working. Saved redirects are kept and resume if you re-enable this.',
-            'disable_canonical_metabox' => sprintf('Hide the Canonical meta box and stop %1$s emitting or overriding the canonical URL on every render path. WordPress core and third-party canonicals are left in place. Saved values are kept and restored if you re-enable this.', Metasync::get_effective_plugin_name('MetaSync')),
-            'disable_social_opengraph_metabox' => sprintf('Hide the Social Media & Open Graph meta box and stop %1$s emitting any Open Graph, Twitter or article tags. Tags from another SEO plugin are left in place. Saved values are kept and restored if you re-enable this.', Metasync::get_effective_plugin_name('MetaSync')),
-            'disable_schema_markup_metabox' => sprintf('Hide the Schema Markup meta box and stop %1$s emitting any JSON-LD, including the site-wide Local SEO markup and OTTO structured data. Breadcrumb markup has its own setting. Saved values are kept and restored if you re-enable this.', Metasync::get_effective_plugin_name('MetaSync')),
-            'disable_language_alternates_metabox' => sprintf('Hide the Language Alternates (hreflang) panel in the block editor and stop %1$s emitting any hreflang tags on the front end, including the auto-detected WPML entries. While disabled, %1$s does not manage or override this data — another SEO plugin, or WPML itself, is free to handle it. Saved values are kept and restored if you re-enable this.', Metasync::get_effective_plugin_name('MetaSync')),
+            'disable_canonical_metabox' => sprintf('Hide the Canonical meta box and stop %1$s emitting or overriding the canonical URL on every render path. WordPress core and third-party canonicals are left in place. Saved values are kept and restored if you re-enable this.', $plugin_name),
+            'disable_social_opengraph_metabox' => sprintf('Hide the Social Media & Open Graph meta box and stop %1$s emitting any Open Graph, Twitter or article tags. Tags from another SEO plugin are left in place. Saved values are kept and restored if you re-enable this.', $plugin_name),
+            'disable_schema_markup_metabox' => sprintf('Hide the Schema Markup meta box and stop %1$s emitting any JSON-LD, including the site-wide Local SEO markup and OTTO structured data. Breadcrumb markup has its own setting. Saved values are kept and restored if you re-enable this.', $plugin_name),
+            'disable_language_alternates_metabox' => sprintf('Hide the Language Alternates (hreflang) panel in the block editor and stop %1$s emitting any hreflang tags on the front end, including the auto-detected WPML entries. While disabled, %1$s does not manage or override this data — another SEO plugin, or WPML itself, is free to handle it. Saved values are kept and restored if you re-enable this.', $plugin_name),
             'disable_seo_metabox' => 'Hide the SEO Title & Meta Description meta box from post and page edit screens. This removes the Classic editor SEO fields (the Gutenberg sidebar is unaffected).',
             'open_external_links' => sprintf('Automatically add target="_blank" attribute to external links appearing in your posts, pages, and other post types when rendered by %s.', $otto_name),
             'content_genius_sync_roles' => 'Select which WordPress user roles should be synchronized with Content Genius. This determines which users will have their profiles and permissions synced for content collaboration.',
@@ -1244,6 +1271,7 @@ class Metasync_Settings_Fields {
             echo '</div>';
 
             echo '<div class="metasync-accordion-content" id="' . esc_attr($section_id) . '" data-state="' . esc_attr($content_state) . '">';
+            $this->render_accordion_initializer();
 
             if (isset($section_data['render_callback']) && is_callable($section_data['render_callback'])) {
                 call_user_func($section_data['render_callback']);
@@ -1366,12 +1394,13 @@ class Metasync_Settings_Fields {
 
     public function metasync_settings_genkey_callback()
     {
-        $current_token = Metasync::get_option('general')['apikey'] ?? '';
+        // Plaintext token (decrypted) — only ever used to build the masked display.
+        $current_token = Metasync::get_plugin_auth_token();
         
         if (!empty($current_token)) {
             $display_value = str_repeat('•', 8) . (strlen($current_token) >= 4 ? substr($current_token, -4) : '');
             $status_message = 'Plugin Auth Token is active and ready for authentication.';
-            $refresh_help = 'Click refresh to generate a new token and update the heartbeat API.';
+            $refresh_help = 'Click refresh to generate a new token for the heartbeat API — this invalidates the current token, which stops working immediately.';
         } else {
             $display_value = '';
             $status_message = 'Plugin Auth Token will be automatically generated when you click "Connect to ' . Metasync::get_effective_plugin_name() . '".';
@@ -1391,27 +1420,6 @@ class Metasync_Settings_Fields {
         printf('</div>');
         printf('<p class="description">%s %s</p>', esc_html($status_message), esc_html($refresh_help));
     }
-
-    public function linkgraph_token_callback()
-    {
-        printf(
-            '<input type="text" id="linkgraph_token" name="%s[general][linkgraph_token]" value="%s" size="25" readonly="readonly" />', esc_attr(Metasync_Admin::option_key),
-            isset(Metasync::get_option('general')['linkgraph_token']) ? esc_attr(Metasync::get_option('general')['linkgraph_token']) : ''
-        );
-
-        printf(
-            '<input type="text" id="linkgraph_customer_id" name="%s[general][linkgraph_customer_id]" value="%s" size="25" readonly="readonly" />', esc_attr(Metasync_Admin::option_key),
-            isset(Metasync::get_option('general')['linkgraph_customer_id']) ? esc_attr(Metasync::get_option('general')['linkgraph_customer_id']) : ''
-        );
-
-    ?>
-        <button type="button" class="button button-primary" id="lgloginbtn">Fetch Token</button>
-        <input type="text" id="lgusername" class="input lguser hidden" placeholder="username" />
-        <input type="text" id="lgpassword" class="input lguser hidden" placeholder="password" />
-        <p id="lgerror" class="notice notice-error hidden" style="display: none;"></p>
-    <?php
-    }
-
 
     public function time_elapsed_string($datetime, $full = false)
     {
@@ -1840,7 +1848,7 @@ class Metasync_Settings_Fields {
                         }
                         ?>
                     </select>
-                    <input type="text" name="<?php echo esc_attr(Metasync_Admin::option_key . '[localseo][times][]') ?>" value="<?php echo esc_attr($day_time) ?>">
+                    <input type="text" name="<?php echo esc_attr(Metasync_Admin::option_key . '[localseo][times][]') ?>" value="<?php echo esc_attr($day_time) ?>" placeholder="09:00-17:00">
                     <button id="timeDelete">Delete</button>
                 </li>
             <?php } ?>
@@ -1853,7 +1861,7 @@ class Metasync_Settings_Fields {
                         }
                         ?>
                     </select>
-                    <input type="text" name="<?php echo esc_attr(Metasync_Admin::option_key . '[localseo][times][]') ?>" value="">
+                    <input type="text" name="<?php echo esc_attr(Metasync_Admin::option_key . '[localseo][times][]') ?>" value="" placeholder="09:00-17:00">
                     <button id="timeDelete">Delete</button>
                 </li>
             <?php } ?>
@@ -1889,7 +1897,7 @@ class Metasync_Settings_Fields {
                         }
                         ?>
                     </select>
-                    <input type="text" name="<?php echo esc_attr(Metasync_Admin::option_key . '[localseo][phonenumber][]') ?>" value="<?php echo esc_attr($phone_number) ?>">
+                    <input type="text" name="<?php echo esc_attr(Metasync_Admin::option_key . '[localseo][phonenumber][]') ?>" value="<?php echo esc_attr($phone_number) ?>" placeholder="+1-555-123-4567">
                     <button id="number-delete">Delete</button>
                 </li>
             <?php } ?>
@@ -1902,7 +1910,7 @@ class Metasync_Settings_Fields {
                         }
                         ?>
                     </select>
-                    <input type="text" name="<?php echo esc_attr(Metasync_Admin::option_key . '[localseo][phonenumber][]') ?>" value="">
+                    <input type="text" name="<?php echo esc_attr(Metasync_Admin::option_key . '[localseo][phonenumber][]') ?>" value="" placeholder="+1-555-123-4567">
                     <button id="number-delete">Delete</button>
                 </li>
             <?php } ?>
@@ -2178,7 +2186,7 @@ class Metasync_Settings_Fields {
             '<input type="checkbox" name="%s[common_meta_settings][article_author]" value="true" %s />', esc_attr(Metasync_Admin::option_key),
             $val === 'true' ? 'checked' : ''
         );
-        printf('<span class="description"> Output article:author using the post author website URL or archive URL (overridable per-post via _metasync_og_article_author meta).</span>');
+        printf('<span class="description"> Output article:author using the post author\'s website URL or archive URL.</span>');
     }
 
     public function article_section_callback()
@@ -2250,7 +2258,7 @@ class Metasync_Settings_Fields {
     {
         $twitter_username = Metasync::get_option('social_meta')['twitter_username'] ?? '';
         printf('<input type="text" name="%s[social_meta][twitter_username]" value="%s" size="50" />', esc_attr(Metasync_Admin::option_key), esc_attr($twitter_username));
-        printf(' <br> <span class="description"> Twitter username of the author to add <code>twitter:creator</code> tag to post. eg: <code>MetaSync</code> </span>');
+        printf(' <br> <span class="description"> Twitter username of the author to add <code>twitter:creator</code> tag to post. eg: <code>searchatlas</code> </span>');
     }
 
     public static function get_business_types()
@@ -2492,7 +2500,7 @@ class Metasync_Settings_Fields {
                     <?php Metasync::render_tooltip_icon('breadcrumbs_disable_schema', 'Leave off. Only check this if another SEO plugin (Yoast, Rank Math, etc.) already sends breadcrumb data to Google, so you don\'t send it twice.'); ?>
                 </label>
                 <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--dashboard-text-secondary);">
-                    When checked, MetaSync will not output the <code style="background: rgba(0,0,0,0.1); padding: 2px 4px; border-radius: 3px;">BreadcrumbList</code> JSON-LD in <code style="background: rgba(0,0,0,0.1); padding: 2px 4px; border-radius: 3px;">&lt;head&gt;</code>. Use this if another SEO plugin already handles breadcrumb schema.
+                    When checked, <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> will not output the <code style="background: rgba(0,0,0,0.1); padding: 2px 4px; border-radius: 3px;">BreadcrumbList</code> JSON-LD in <code style="background: rgba(0,0,0,0.1); padding: 2px 4px; border-radius: 3px;">&lt;head&gt;</code>. Use this if another SEO plugin already handles breadcrumb schema.
                 </p>
             </div>
 

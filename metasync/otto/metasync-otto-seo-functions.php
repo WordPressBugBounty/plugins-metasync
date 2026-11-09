@@ -180,7 +180,7 @@ function metasync_fetch_otto_seo_data($route, $uuid, &$failure = null, $timeout 
     $route = esc_url_raw($route);
 
     # Get OTTO API endpoint (use endpoint manager if available)
-    $api_endpoint = 'https://sa.searchatlas.com/api/v2/otto-url-details'; # default
+    $api_endpoint = 'https://sa.searchatlas.com/api/v2/otto-url-details/'; # default
     if (class_exists('Metasync_Endpoint_Manager')) {
         $api_endpoint = Metasync_Endpoint_Manager::get_endpoint('OTTO_URL_DETAILS');
     }
@@ -1121,9 +1121,20 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             $current_image_alt = $all_meta['_metasync_otto_image_alt_data'][0] ?? '';
             $image_alt_json = json_encode($image_alt_data);
             if ($image_alt_json !== $current_image_alt) {
-                update_post_meta($post_id, '_metasync_otto_image_alt_data', $image_alt_json);
-                $fields_updated['image_alt_data'] = $image_alt_data;
-                $any_updated = true;
+                # wp_slash() keeps the stored form equal to the compared form.
+                # json_encode() escapes "/" and '"' ("https:\/\/…"), while
+                # update_metadata() wp_unslash()es its input before storing, so
+                # writing the raw JSON stored an unescaped copy that could never
+                # equal the compared string again — every sync then reported a
+                # phantom image_alt_data change, which the caller turned into a
+                # clean_post_cache() call that WP Rocket purges the page cache
+                # on. The write is also gated on its return value now, so a
+                # no-op write can never flag an update again.
+                $alt_written = update_post_meta($post_id, '_metasync_otto_image_alt_data', wp_slash($image_alt_json));
+                if (false !== $alt_written) {
+                    $fields_updated['image_alt_data'] = $image_alt_data;
+                    $any_updated = true;
+                }
             }
 
             # PERSISTENCE: If enabled, also update the Media Library directly
@@ -1142,9 +1153,12 @@ function metasync_update_comprehensive_seo_fields($post_id, $seo_data) {
             $current_headings = $all_meta['_metasync_otto_headings_data'][0] ?? '';
             $headings_json = json_encode($headings_data);
             if ($headings_json !== $current_headings) {
-                update_post_meta($post_id, '_metasync_otto_headings_data', $headings_json);
-                $fields_updated['headings_data'] = $headings_data;
-                $any_updated = true;
+                # Same form-alignment + return-value fix as the image alt branch.
+                $headings_written = update_post_meta($post_id, '_metasync_otto_headings_data', wp_slash($headings_json));
+                if (false !== $headings_written) {
+                    $fields_updated['headings_data'] = $headings_data;
+                    $any_updated = true;
+                }
             }
         }
 
@@ -1684,9 +1698,13 @@ function metasync_update_comprehensive_category_seo_fields($category_id, $seo_da
             $current_image_alt = get_term_meta($category_id, '_metasync_otto_image_alt_data', true);
             $image_alt_json = json_encode($image_alt_data);
             if ($image_alt_json !== $current_image_alt) {
-                update_term_meta($category_id, '_metasync_otto_image_alt_data', $image_alt_json);
-                $fields_updated['image_alt_data'] = $image_alt_data;
-                $any_updated = true;
+                # Same form-alignment + return-value fix as the post image alt
+                # branch (update_metadata() unslashes term meta too).
+                $alt_written = update_term_meta($category_id, '_metasync_otto_image_alt_data', wp_slash($image_alt_json));
+                if (false !== $alt_written) {
+                    $fields_updated['image_alt_data'] = $image_alt_data;
+                    $any_updated = true;
+                }
             }
         }
 
@@ -1695,9 +1713,12 @@ function metasync_update_comprehensive_category_seo_fields($category_id, $seo_da
             $current_headings = get_term_meta($category_id, '_metasync_otto_headings_data', true);
             $headings_json = json_encode($headings_data);
             if ($headings_json !== $current_headings) {
-                update_term_meta($category_id, '_metasync_otto_headings_data', $headings_json);
-                $fields_updated['headings_data'] = $headings_data;
-                $any_updated = true;
+                # Same form-alignment + return-value fix as the post image alt branch.
+                $headings_written = update_term_meta($category_id, '_metasync_otto_headings_data', wp_slash($headings_json));
+                if (false !== $headings_written) {
+                    $fields_updated['headings_data'] = $headings_data;
+                    $any_updated = true;
+                }
             }
         }
 
@@ -1705,9 +1726,15 @@ function metasync_update_comprehensive_category_seo_fields($category_id, $seo_da
         if ($structured_data !== null) {
             $current_structured = get_term_meta($category_id, '_metasync_otto_structured_data', true);
             if ($structured_data !== $current_structured) {
-                update_term_meta($category_id, '_metasync_otto_structured_data', $structured_data);
-                $fields_updated['structured_data'] = $structured_data;
-                $any_updated = true;
+                # Same form-alignment + return-value fix as the post image alt
+                # branch: structured data is a JSON string whose escaped form
+                # (\/ and \") would otherwise never equal the unslashed stored
+                # copy, flagging a phantom update on every sync.
+                $structured_written = update_term_meta($category_id, '_metasync_otto_structured_data', wp_slash($structured_data));
+                if (false !== $structured_written) {
+                    $fields_updated['structured_data'] = $structured_data;
+                    $any_updated = true;
+                }
             }
         }
 
@@ -2130,9 +2157,13 @@ function metasync_update_comprehensive_taxonomy_seo_fields($term_id, $taxonomy, 
             $current_image_alt = get_term_meta($term_id, '_metasync_otto_image_alt_data', true);
             $image_alt_json = json_encode($image_alt_data);
             if ($image_alt_json !== $current_image_alt) {
-                update_term_meta($term_id, '_metasync_otto_image_alt_data', $image_alt_json);
-                $fields_updated['image_alt_data'] = $image_alt_data;
-                $any_updated = true;
+                # Same form-alignment + return-value fix as the post image alt
+                # branch (update_metadata() unslashes term meta too).
+                $alt_written = update_term_meta($term_id, '_metasync_otto_image_alt_data', wp_slash($image_alt_json));
+                if (false !== $alt_written) {
+                    $fields_updated['image_alt_data'] = $image_alt_data;
+                    $any_updated = true;
+                }
             }
         }
 
@@ -2141,9 +2172,12 @@ function metasync_update_comprehensive_taxonomy_seo_fields($term_id, $taxonomy, 
             $current_headings = get_term_meta($term_id, '_metasync_otto_headings_data', true);
             $headings_json = json_encode($headings_data);
             if ($headings_json !== $current_headings) {
-                update_term_meta($term_id, '_metasync_otto_headings_data', $headings_json);
-                $fields_updated['headings_data'] = $headings_data;
-                $any_updated = true;
+                # Same form-alignment + return-value fix as the post image alt branch.
+                $headings_written = update_term_meta($term_id, '_metasync_otto_headings_data', wp_slash($headings_json));
+                if (false !== $headings_written) {
+                    $fields_updated['headings_data'] = $headings_data;
+                    $any_updated = true;
+                }
             }
         }
 
@@ -2151,9 +2185,14 @@ function metasync_update_comprehensive_taxonomy_seo_fields($term_id, $taxonomy, 
         $current_structured = get_term_meta($term_id, '_metasync_otto_structured_data', true);
         if ($structured_data !== null) {
             if ($structured_data !== $current_structured) {
-                update_term_meta($term_id, '_metasync_otto_structured_data', $structured_data);
-                $fields_updated['structured_data'] = $structured_data;
-                $any_updated = true;
+                # Same form-alignment + return-value fix as the post image alt
+                # branch (escaped JSON vs unslashed stored copy would otherwise
+                # flag a phantom update on every sync).
+                $structured_written = update_term_meta($term_id, '_metasync_otto_structured_data', wp_slash($structured_data));
+                if (false !== $structured_written) {
+                    $fields_updated['structured_data'] = $structured_data;
+                    $any_updated = true;
+                }
             }
         } else {
             if (!empty($current_structured)) {
@@ -2245,9 +2284,12 @@ function metasync_update_taxonomy_seo_meta_fields($term_id, $taxonomy, $meta_tit
             $persist_description = Metasync_Otto_Persistence_Settings::should_persist('meta_description');
         }
 
-        # If persistence is not enabled, return early (changes only applied client-side)
+        # If persistence is not enabled, return early (changes only applied
+        # client-side). Return false, not true — the caller treats a truthy
+        # return as "something was updated" and would purge the term's cache
+        # every sync while nothing was written.
         if (!$persist_title && !$persist_description) {
-            return true;
+            return false;
         }
 
         # Compare against previously stored values
@@ -2310,7 +2352,10 @@ function metasync_update_taxonomy_seo_meta_fields($term_id, $taxonomy, $meta_tit
             update_term_meta($term_id, '_metasync_otto_last_update', current_time('timestamp'));
         }
 
-        return true;
+        # Return whether anything was written, not an unconditional true: the
+        # caller treats a truthy return as "something was updated" and purges
+        # the term's cache — with unchanged values that was a phantom update.
+        return $updated;
 
     } catch (Exception $e) {
         return false;
@@ -2340,9 +2385,12 @@ function metasync_update_category_seo_meta_fields($category_id, $meta_title, $me
         $persist_description = Metasync_Otto_Persistence_Settings::should_persist('meta_description');
     }
 
-    # If persistence is not enabled, return early (changes only applied client-side)
+    # If persistence is not enabled, return early (changes only applied client-side).
+    # Return false, not true: the caller treats a truthy return as "something
+    # was updated" and purges the term's cache — with persistence off nothing
+    # was written, so reporting otherwise flagged a phantom update every sync.
     if (!$persist_title && !$persist_description) {
-        return true;
+        return false;
     }
 
     $updated = false;
@@ -2406,7 +2454,10 @@ function metasync_update_category_seo_meta_fields($category_id, $meta_title, $me
             update_term_meta($category_id, '_metasync_otto_last_update', current_time('timestamp'));
         }
 
-        return true;
+        # Return whether anything was written, not an unconditional true: the
+        # caller treats a truthy return as "something was updated" and purges
+        # the term's cache — with unchanged values that was a phantom update.
+        return $updated;
 
     } catch (Exception $e) {
         return false;

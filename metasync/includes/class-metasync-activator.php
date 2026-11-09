@@ -183,8 +183,7 @@ class Metasync_Activator
 			'plugin_version' => defined('METASYNC_VERSION') ? METASYNC_VERSION : 'unknown',
 		]);
 
-		$options = get_option('metasync_options', []);
-		$plugin_auth_token = $options['general']['apikey'] ?? '';
+		$plugin_auth_token = Metasync::get_plugin_auth_token();
 		$headers = [
 			'Content-Type' => 'application/json',
 		];
@@ -206,20 +205,10 @@ class Metasync_Activator
 	 */
 	private static function ensure_plugin_auth_token()
 	{
-		$options = get_option('metasync_options', []);
-
-		if (empty($options['general']['apikey'])) {
-			// Generate unique Plugin Auth Token (alphanumeric only)
-			$plugin_auth_token = wp_generate_password(32, false, false);
-
-			// Initialize options structure if needed
-			if (!isset($options['general'])) {
-				$options['general'] = [];
-			}
-
-			// Store Plugin Auth Token
-			$options['general']['apikey'] = $plugin_auth_token;
-			update_option('metasync_options', $options);
+		// Empty also covers a stored token that can no longer be decrypted.
+		if (Metasync::get_plugin_auth_token() === '') {
+			// Generate unique Plugin Auth Token (alphanumeric only) and store it encrypted.
+			Metasync::store_plugin_auth_token(wp_generate_password(32, false, false));
 		}
 	}
 
@@ -289,8 +278,10 @@ class Metasync_Activator
 		$stored_mtime = get_option('metasync_whitelabel_file_mtime', 0);
 		$stored_hash = get_option('metasync_whitelabel_file_hash', '');
 
-		// Check if file has changed (either modification time or content)
-		if ($file_mtime > $stored_mtime || $file_hash !== $stored_hash) {
+		// A fresh plugin extraction changes the mtime even when the bundled
+		// settings content is identical. Only the content hash identifies a new
+		// bundle; mtime-only changes must not overwrite administrator settings.
+		if ($file_hash !== $stored_hash) {
 			// A failing import must not retry on every admin request.
 			// Back off per failing file hash; a successful import or a changed
 			// file clears the state and retries immediately.

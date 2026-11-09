@@ -243,13 +243,22 @@ class Metasync
 
 		$plugin_admin = new Metasync_Admin($this->get_plugin_name(), $this->get_version(), $this->database, $this->db_redirection, $this->db_heartbeat_errors); // , $this->data_error_log_list
 
-		// Initialize HTML Visual Editor
-		$html_visual_editor = new Metasync_HTML_Visual_Editor($this->get_plugin_name(), $this->get_version());
-		$html_visual_editor->init();
+		// WP-1040: admin-screen-only objects are built only when is_admin() is true.
+		// is_admin() is true for wp-admin pages AND admin-ajax.php / admin-post.php,
+		// and false for the front end, REST and cron. Everything REST, MCP, cron or
+		// the front end relies on stays outside these blocks (see the sitemap note
+		// below on why REST requests cannot be detected here).
+		$is_admin_request = is_admin();
 
-		// Initialize OTTO Debug class for developers
-		if (class_exists('Metasync_Otto_Debug')) {
-			$otto_debug = new Metasync_Otto_Debug($this->get_plugin_name(), $this->get_version());
+		if ($is_admin_request) {
+			// Initialize HTML Visual Editor
+			$html_visual_editor = new Metasync_HTML_Visual_Editor($this->get_plugin_name(), $this->get_version());
+			$html_visual_editor->init();
+
+			// Initialize OTTO Debug class for developers
+			if (class_exists('Metasync_Otto_Debug')) {
+				$otto_debug = new Metasync_Otto_Debug($this->get_plugin_name(), $this->get_version());
+			}
 		}
 
 		// Initialize SEO Sidebar for Gutenberg Block Editor
@@ -262,42 +271,55 @@ class Metasync
 			new Metasync_Link_Suggestions();
 		}
 
-		$this->loader->add_action('admin_enqueue_scripts', $plugin_admin, 'enqueue_styles');
-		$this->loader->add_action('admin_enqueue_scripts', $plugin_admin, 'enqueue_scripts');
+		if ($is_admin_request) {
+			$this->loader->add_action('admin_enqueue_scripts', $plugin_admin, 'enqueue_styles');
+			$this->loader->add_action('admin_enqueue_scripts', $plugin_admin, 'enqueue_scripts');
 
-		# Redirection import AJAX handler
-		$redirection_handler = new Metasync_Redirection($this->db_redirection);
-		$this->loader->add_action('wp_ajax_metasync_import_redirections', $redirection_handler, 'handle_import_ajax');
-		$this->loader->add_action('wp_ajax_metasync_check_redirects_health', $redirection_handler, 'handle_health_check_ajax');
+			# Redirection import AJAX handler
+			$redirection_handler = new Metasync_Redirection($this->db_redirection);
+			$this->loader->add_action('wp_ajax_metasync_import_redirections', $redirection_handler, 'handle_import_ajax');
+			$this->loader->add_action('wp_ajax_metasync_check_redirects_health', $redirection_handler, 'handle_health_check_ajax');
+		}
 
 		// HeartBeat API Receive Respond and Settings.
 		$this->loader->add_action('heartbeat_settings', $plugin_admin, 'metasync_heartbeat_settings');
 		$this->loader->add_action('heartbeat_received', $plugin_admin, 'metasync_received_data', 10, 2);
-		$this->loader->add_action('wp_ajax_metasync_send_customer_params', $plugin_admin, 'lgSendCustomerParams');
-		
-		// Search Atlas Connect endpoints - authenticates with Search Atlas platform to retrieve SA API key and Otto UUID
-		$this->loader->add_action('wp_ajax_metasync_generate_connect_url', $plugin_admin, 'generate_searchatlas_connect_url');
-		$this->loader->add_action('wp_ajax_metasync_check_connect_status', $plugin_admin, 'check_searchatlas_connect_status');
-		$this->loader->add_action('wp_ajax_metasync_reset_authentication', $plugin_admin, 'reset_searchatlas_authentication');
+		if ($is_admin_request) {
+			$this->loader->add_action('wp_ajax_metasync_send_customer_params', $plugin_admin, 'lgSendCustomerParams');
 
-		// Search Atlas Connect development/testing endpoints
-		$this->loader->add_action('wp_ajax_metasync_test_enhanced_tokens', $plugin_admin, 'test_enhanced_searchatlas_tokens');
-		$this->loader->add_action('wp_ajax_metasync_test_whitelabel_domain', $plugin_admin, 'test_whitelabel_domain');
+			// Search Atlas Connect endpoints - authenticates with Search Atlas platform to retrieve SA API key and Otto UUID
+			$this->loader->add_action('wp_ajax_metasync_generate_connect_url', $plugin_admin, 'generate_searchatlas_connect_url');
+			$this->loader->add_action('wp_ajax_metasync_check_connect_status', $plugin_admin, 'check_searchatlas_connect_status');
+			$this->loader->add_action('wp_ajax_metasync_record_connect_outcome', $plugin_admin, 'record_connect_outcome');
 
-		// Dashboard iframe URL resolver — cold-path credential lookup off the page render
-		$this->loader->add_action('wp_ajax_metasync_dashboard_iframe_url', $plugin_admin, 'dashboard_iframe_url');
+			// Search Atlas Connect endpoints - authenticates with Search Atlas platform to retrieve SA API key and Otto UUID
+			$this->loader->add_action('wp_ajax_metasync_generate_connect_url', $plugin_admin, 'generate_searchatlas_connect_url');
+			$this->loader->add_action('wp_ajax_metasync_check_connect_status', $plugin_admin, 'check_searchatlas_connect_status');
+			$this->loader->add_action('wp_ajax_metasync_reset_authentication', $plugin_admin, 'reset_searchatlas_authentication');
+
+			// Search Atlas Connect development/testing endpoints
+			$this->loader->add_action('wp_ajax_metasync_test_enhanced_tokens', $plugin_admin, 'test_enhanced_searchatlas_tokens');
+			$this->loader->add_action('wp_ajax_metasync_test_whitelabel_domain', $plugin_admin, 'test_whitelabel_domain');
+
+			// Dashboard iframe URL resolver — cold-path credential lookup off the page render
+			$this->loader->add_action('wp_ajax_metasync_dashboard_iframe_url', $plugin_admin, 'dashboard_iframe_url');
+		}
 
 		$post_meta_setting = new Metasync_Post_Meta_Settings();
-		$this->loader->add_action('admin_init', $post_meta_setting, 'add_post_meta_data', 2);
-		$this->loader->add_action('admin_init', $post_meta_setting, 'show_top_admin_bar', 9);
+		if ($is_admin_request) {
+			$this->loader->add_action('admin_init', $post_meta_setting, 'add_post_meta_data', 2);
+			$this->loader->add_action('admin_init', $post_meta_setting, 'show_top_admin_bar', 9);
+		}
 
 		// Unified "SEO Suite" meta box — consolidates the separate Classic-editor
 		// meta boxes above into one tabbed box (presentation-only; save handlers
 		// unchanged). Classic editor only; the block editor keeps its SEO sidebar.
 		// Self-registers its hooks in the constructor. Opt out via the
 		// `metasync_enable_seo_suite` filter.
-		require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-seo-suite.php';
-		new Metasync_Seo_Suite();
+		if ($is_admin_request) {
+			require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-metasync-seo-suite.php';
+			new Metasync_Seo_Suite();
+		}
 
 		// Classic-editor save path for the three fields that exist only as
 		// Gutenberg sidebar (REST) meta otherwise: breadcrumb title, language
@@ -317,21 +339,32 @@ class Metasync
 		) {
 			$this->loader->add_action('admin_init', Metasync_SEO_Health::get_instance(), 'handle_csv_export', 1);
 		}
+		// SEO Health cache rotation on direct meta writes: MCP tools, the REST
+		// sync and the OTTO crawl-notify job write SEO meta without firing
+		// save_post, which is the only invalidation the health caches had.
+		// Registered with add_action() directly (the loader's add_action takes
+		// component + method, not a callable) as an array callable so the
+		// class only autoloads when the hook fires.
+		add_action('added_post_meta', array('Metasync_SEO_Health', 'handle_seo_meta_update'), 10, 3);
+		add_action('updated_post_meta', array('Metasync_SEO_Health', 'handle_seo_meta_update'), 10, 3);
+
 		$this->loader->add_action('wp', $post_meta_setting, 'show_top_admin_bar', 9);
 
 		// SEO meta columns on the posts/pages list tables (WP-624).
 		// Registered for both the `posts` and `pages` variants of each hook so the
 		// columns reach every supported post type; the callbacks bail on unsupported
 		// ones. Hidden by default — users opt in from Screen Options.
-		$seo_columns = Metasync_SEO_Columns::get_instance();
-		$this->loader->add_filter('manage_posts_columns', $seo_columns, 'add_columns', 10, 2);
-		$this->loader->add_filter('manage_pages_columns', $seo_columns, 'add_columns', 10, 1);
-		$this->loader->add_action('manage_posts_custom_column', $seo_columns, 'render_column', 10, 2);
-		$this->loader->add_action('manage_pages_custom_column', $seo_columns, 'render_column', 10, 2);
-		$this->loader->add_filter('default_hidden_columns', $seo_columns, 'default_hidden_columns', 10, 2);
-		$this->loader->add_filter('hidden_columns', $seo_columns, 'hidden_columns', 10, 3);
-		$this->loader->add_action('admin_head', $seo_columns, 'print_styles');
-		$this->loader->add_action('admin_notices', $seo_columns, 'companion_plugin_notice');
+		if ($is_admin_request) {
+			$seo_columns = Metasync_SEO_Columns::get_instance();
+			$this->loader->add_filter('manage_posts_columns', $seo_columns, 'add_columns', 10, 2);
+			$this->loader->add_filter('manage_pages_columns', $seo_columns, 'add_columns', 10, 1);
+			$this->loader->add_action('manage_posts_custom_column', $seo_columns, 'render_column', 10, 2);
+			$this->loader->add_action('manage_pages_custom_column', $seo_columns, 'render_column', 10, 2);
+			$this->loader->add_filter('default_hidden_columns', $seo_columns, 'default_hidden_columns', 10, 2);
+			$this->loader->add_filter('hidden_columns', $seo_columns, 'hidden_columns', 10, 3);
+			$this->loader->add_action('admin_head', $seo_columns, 'print_styles');
+			$this->loader->add_action('admin_notices', $seo_columns, 'companion_plugin_notice');
+		}
 
 		// Initialize XML Sitemap auto-update hooks if enabled
 		// Note: Must not be gated by is_admin() because Gutenberg saves posts
@@ -510,7 +543,6 @@ class Metasync
 		// plugin API key; every other route keeps the site's restriction.
 		$this->loader->add_filter('rest_authentication_errors', $rest_api, 'allow_metasync_rest_authentication', 99, 1);
 		$this->loader->add_action('init', $plugin_public, 'metasync_plugin_init', 5);
-		$this->loader->add_action('wp_ajax_metasync_lglogin', $rest_api, 'linkgraph_login');
 
 		// Robots meta filter (Metasync_Seo_Output)
 		$this->loader->add_filter('wp_robots', $seo_output, 'metasync_wp_robots_meta');
@@ -1305,6 +1337,128 @@ class Metasync
 		}
 
 		return $plaintext;
+	}
+
+	/**
+	 * Request-scoped memo for get_plugin_auth_token(): the stored value the memo
+	 * was computed from, and the plaintext it decrypted to. Keyed by the stored
+	 * value so a write in the same request can never serve a stale token.
+	 *
+	 * @var string|null
+	 */
+	private static $memo_token_source = null;
+
+	/** @var string */
+	private static $memo_token_plain = '';
+
+	/**
+	 * Get the plaintext Plugin Auth Token (metasync_options['general']['apikey']).
+	 *
+	 * This is the SOLE reader of the token. The stored value is encrypted at rest
+	 * (`enc_v1:` AES-256-GCM, same scheme as the whitelabel password), so every
+	 * consumer that authenticates a caller, signs something, sends the token to
+	 * the Search Atlas platform, or derives a mask from it MUST go through here
+	 * instead of reading the raw option.
+	 *
+	 * - Legacy plaintext found in storage is encrypted in place (one-time
+	 *   migration on read) and the plaintext is still returned for this call.
+	 * - When OpenSSL is unavailable the plaintext stays stored (availability over
+	 *   hard-fail) and is returned as-is.
+	 * - When an encrypted value cannot be decrypted (salts changed / corrupt) this
+	 *   returns '' — i.e. "no usable token". An empty token never authenticates;
+	 *   ensure_plugin_auth_token_exists() regenerates a fresh one on next connect.
+	 *
+	 * @return string Plaintext token, or '' when unset or unreadable.
+	 */
+	public static function get_plugin_auth_token()
+	{
+		$general = self::get_option('general');
+		$stored  = is_array($general) ? ($general['apikey'] ?? '') : '';
+
+		if (!is_string($stored) || $stored === '') {
+			return '';
+		}
+
+		if (self::$memo_token_source === $stored) {
+			return self::$memo_token_plain;
+		}
+
+		if (!self::is_encrypted_secret($stored)) {
+			// One-time migration of a legacy plaintext token.
+			$plain     = $stored;
+			$encrypted = self::encrypt_secret($stored);
+			$source    = $stored;
+			if (self::is_encrypted_secret($encrypted)) {
+				$options = self::get_option();
+				if (!is_array($options)) {
+					$options = [];
+				}
+				$options['general']['apikey'] = $encrypted;
+				// Only memoize the ciphertext when the write really landed; on a
+				// silent failure the plaintext stays stored and the memo keeps
+				// keying on it, so we do not retry the write on every call.
+				if (self::set_option($options)) {
+					$source = $encrypted;
+				}
+			}
+			self::$memo_token_source = $source;
+			self::$memo_token_plain  = $plain;
+			return $plain;
+		}
+
+		$plain = self::decrypt_secret($stored);
+		if ($plain === false) {
+			error_log('MetaSync: the Plugin Auth Token cannot be decrypted (WordPress salts changed or value corrupt). Treating it as unset until a new token is generated.'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
+			$plain = '';
+		}
+
+		self::$memo_token_source = $stored;
+		self::$memo_token_plain  = $plain;
+		return $plain;
+	}
+
+	/**
+	 * Store a plaintext Plugin Auth Token encrypted at rest.
+	 *
+	 * The single write path for generate / refresh / reset flows. Reads the
+	 * current options, replaces only general.apikey, and saves.
+	 *
+	 * @param string $plain Plaintext token (must be non-empty).
+	 * @return bool True when the option was saved.
+	 */
+	public static function store_plugin_auth_token($plain)
+	{
+		$plain = (string) $plain;
+		if ($plain === '') {
+			return false;
+		}
+
+		$options = self::get_option();
+		if (!is_array($options)) {
+			$options = [];
+		}
+		if (!isset($options['general']) || !is_array($options['general'])) {
+			$options['general'] = [];
+		}
+		$options['general']['apikey'] = self::encrypt_secret($plain);
+
+		return (bool) self::set_option($options);
+	}
+
+	/**
+	 * Build the masked display form of the Plugin Auth Token (8 bullets + last 4
+	 * characters of the PLAINTEXT). Returns '' when there is no usable token.
+	 *
+	 * @param string|null $plain Plaintext token; defaults to the stored one.
+	 * @return string
+	 */
+	public static function mask_plugin_auth_token($plain = null)
+	{
+		$plain = $plain === null ? self::get_plugin_auth_token() : (string) $plain;
+		if ($plain === '') {
+			return '';
+		}
+		return str_repeat('•', 8) . substr($plain, -4);
 	}
 
 	/**

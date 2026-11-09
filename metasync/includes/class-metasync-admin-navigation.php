@@ -1714,6 +1714,24 @@ class Metasync_Admin_Navigation
             </div>
         </div>
 
+        <!-- Mobile navigation control; the same server-rendered navigation is used in the drawer. -->
+        <div class="metasync-mobile-nav">
+            <button type="button" class="metasync-mobile-nav-toggle" aria-expanded="false" aria-controls="metasync-mobile-nav-drawer">
+                <span class="dashicons dashicons-menu" aria-hidden="true"></span>
+                <span><?php esc_html_e('Menu', 'metasync'); ?></span>
+            </button>
+            <div class="metasync-mobile-nav-backdrop" hidden></div>
+            <div id="metasync-mobile-nav-drawer" class="metasync-mobile-nav-drawer" hidden tabindex="-1" role="dialog" aria-modal="true" aria-label="<?php esc_attr_e('Plugin navigation', 'metasync'); ?>">
+                <div class="metasync-mobile-nav-header">
+                    <strong><?php esc_html_e('Plugin navigation', 'metasync'); ?></strong>
+                    <button type="button" class="metasync-mobile-nav-close" aria-label="<?php esc_attr_e('Close navigation', 'metasync'); ?>">
+                        <span class="dashicons dashicons-no-alt" aria-hidden="true"></span>
+                    </button>
+                </div>
+                <?php $this->render_sidenav($current_page); ?>
+            </div>
+        </div>
+
         <!-- 3-column layout -->
         <div class="metasync-layout">
 
@@ -1846,7 +1864,7 @@ class Metasync_Admin_Navigation
                     $url       = admin_url('admin.php?page=' . $page_slug . $item['slug_suffix']);
                 ?>
                     <li class="<?php echo $is_active ? 'metasync-sidenav-active' : ''; ?>">
-                        <a href="<?php echo esc_url($url); ?>">
+                        <a href="<?php echo esc_url($url); ?>"<?php echo $is_active ? ' aria-current="page"' : ''; ?>>
                             <span class="metasync-sidenav-icon"><span class="dashicons dashicons-<?php echo esc_attr($icon); ?>"></span></span>
                             <?php echo esc_html($item['title']); ?>
                         </a>
@@ -1866,20 +1884,20 @@ class Metasync_Admin_Navigation
                     $url       = admin_url('admin.php?page=' . $page_slug . $item['slug_suffix']);
                 ?>
                     <li class="<?php echo $is_active ? 'metasync-sidenav-active' : ''; ?>">
-                        <a href="<?php echo esc_url($url); ?>">
+                        <a href="<?php echo esc_url($url); ?>"<?php echo $is_active ? ' aria-current="page"' : ''; ?>>
                             <span class="metasync-sidenav-icon"><span class="dashicons dashicons-<?php echo esc_attr($icon); ?>"></span></span>
                             <?php echo esc_html($item['title']); ?>
                         </a>
                     </li>
                     <?php if ($key === 'general'): ?>
                     <li class="<?php echo $current_page === 'advanced_settings' ? 'metasync-sidenav-active' : ''; ?>" style="padding-left: 8px;">
-                        <a href="<?php echo esc_url(admin_url('admin.php?page=' . $page_slug . '&tab=advanced')); ?>">
+                        <a href="<?php echo esc_url(admin_url('admin.php?page=' . $page_slug . '&tab=advanced')); ?>"<?php echo $current_page === 'advanced_settings' ? ' aria-current="page"' : ''; ?>>
                             <span class="metasync-sidenav-icon"><span class="dashicons dashicons-admin-generic"></span></span>
                             Advanced Settings
                         </a>
                     </li>
                     <li class="<?php echo $current_page === 'whitelabel' ? 'metasync-sidenav-active' : ''; ?>" style="padding-left: 8px;">
-                        <a href="<?php echo esc_url(admin_url('admin.php?page=' . $page_slug . '&tab=whitelabel')); ?>">
+                        <a href="<?php echo esc_url(admin_url('admin.php?page=' . $page_slug . '&tab=whitelabel')); ?>"<?php echo $current_page === 'whitelabel' ? ' aria-current="page"' : ''; ?>>
                             <span class="metasync-sidenav-icon"><span class="dashicons dashicons-tag"></span></span>
                             Whitelabel
                         </a>
@@ -1894,7 +1912,7 @@ class Metasync_Admin_Navigation
             <div class="metasync-sidenav-group">
                 <ul>
                     <li class="<?php echo $current_page === 'report_issue' ? 'metasync-sidenav-active' : ''; ?>">
-                        <a href="<?php echo esc_url(admin_url('admin.php?page=' . $page_slug . $menu_items['report_issue']['slug_suffix'])); ?>">
+                        <a href="<?php echo esc_url(admin_url('admin.php?page=' . $page_slug . $menu_items['report_issue']['slug_suffix'])); ?>"<?php echo $current_page === 'report_issue' ? ' aria-current="page"' : ''; ?>>
                             <span class="metasync-sidenav-icon"><span class="dashicons dashicons-sos"></span></span>
                             Report Issue
                         </a>

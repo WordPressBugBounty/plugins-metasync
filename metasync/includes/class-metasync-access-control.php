@@ -227,40 +227,77 @@ class Metasync_Access_Control {
     }
 
     /**
-     * Sanitize access control settings from form submission
+     * Sanitize access control settings from form submission.
+     *
+     * An enabled "Restricted" save with no type, or a role/user type with
+     * nobody selected, is rejected: the feature's previously stored config is
+     * kept so the label and the effective access stay in agreement. A valid
+     * save (disabled, type none, role with at least one role, user with at
+     * least one user, or an explicit type all) is stored as submitted.
      *
      * @param array $form_data Form data from whitelabel settings (just the access_control array)
+     * @param bool  $record_settings_errors When true, a rejected feature records add_settings_error().
+     *                                      The import path passes false and reports the failure itself.
      * @return array Sanitized access control configuration
      */
-    public static function sanitize_access_control($form_data) {
+    public static function sanitize_access_control($form_data, $record_settings_errors = true) {
         if (!is_array($form_data)) {
             return array();
         }
 
         $sanitized_access_control = array();
+        $allowed_types = array('all', 'role', 'user', 'none');
 
         // Process ALL features, not just ones in form_data
         // This ensures disabled features are properly saved with enabled=false
         foreach (self::$features as $feature_key => $feature_name) {
             $config = isset($form_data[$feature_key]) ? $form_data[$feature_key] : array();
 
+            $submitted_type = isset($config['type']) ? $config['type'] : '';
+            $type_is_allowed = in_array($submitted_type, $allowed_types, true);
+
             $sanitized_config = array(
                 'enabled' => !empty($config['enabled']),
-                'type' => isset($config['type']) && in_array($config['type'], array('all', 'role', 'user', 'none'))
-                    ? $config['type']
-                    : 'all',
+                'type' => $type_is_allowed ? $submitted_type : 'all',
                 'allowed_roles' => array(),
                 'allowed_users' => array()
             );
 
             // Process allowed roles
             if ($sanitized_config['type'] === 'role' && isset($config['allowed_roles']) && is_array($config['allowed_roles'])) {
-                $sanitized_config['allowed_roles'] = array_map('sanitize_text_field', $config['allowed_roles']);
+                $sanitized_config['allowed_roles'] = array_values(array_filter(array_map('sanitize_text_field', $config['allowed_roles']), static function ($role) {
+                    return strlen((string) $role) > 0;
+                }));
             }
 
             // Process allowed users
             if ($sanitized_config['type'] === 'user' && isset($config['allowed_users']) && is_array($config['allowed_users'])) {
-                $sanitized_config['allowed_users'] = array_map('intval', $config['allowed_users']);
+                $sanitized_config['allowed_users'] = array_values(array_filter(array_map('intval', $config['allowed_users'])));
+            }
+
+            // Enabled + missing/unknown type, or role/user with an empty
+            // selection, would store "everyone allowed" (or deny everyone)
+            // while the UI still says Restricted. Keep the previous config.
+            $selection_incomplete = $sanitized_config['enabled'] && (
+                !$type_is_allowed
+                || ($sanitized_config['type'] === 'role' && empty($sanitized_config['allowed_roles']))
+                || ($sanitized_config['type'] === 'user' && empty($sanitized_config['allowed_users']))
+            );
+
+            if ($selection_incomplete) {
+                $sanitized_config = self::get_feature_config($feature_key);
+                if ($record_settings_errors) {
+                    add_settings_error(
+                        'metasync_messages',
+                        'metasync_access_control_' . $feature_key,
+                        sprintf(
+                            /* translators: %s: feature display name, e.g. Dashboard. */
+                            __('%s access control was not saved. Choose Hide from Everyone, at least one role, or at least one user. The previous access control was kept.', 'metasync'),
+                            $feature_name
+                        ),
+                        'error'
+                    );
+                }
             }
 
             $sanitized_access_control[$feature_key] = $sanitized_config;

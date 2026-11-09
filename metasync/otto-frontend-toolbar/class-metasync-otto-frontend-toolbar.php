@@ -353,7 +353,7 @@ class Metasync_Otto_Frontend_Toolbar {
 		# Use endpoint manager to get the correct API URL
 		$api_url = class_exists('Metasync_Endpoint_Manager')
 			? Metasync_Endpoint_Manager::get_endpoint('OTTO_URL_DETAILS')
-			: 'https://sa.searchatlas.com/api/v2/otto-url-details';
+			: 'https://sa.searchatlas.com/api/v2/otto-url-details/';
 
 		# Ensure trailing slash
 		$api_url = rtrim($api_url, '/') . '/';

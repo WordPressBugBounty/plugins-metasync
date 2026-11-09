@@ -220,23 +220,30 @@ class Metasync_SEO_Health
 	}
 
 	/**
-	 * Transient key for one matching-ID list the list table scanned.
+	 * Transient key for one matching-ID list a list table scanned.
 	 *
-	 * Keyed by generation + filter + the exact population the scan covered
-	 * (post types, statuses, search term), so a cached list is only reused for
-	 * an identical query shape. Sort order is deliberately not part of the key:
-	 * the page window applies it afterwards.
+	 * Keyed by generation + consumer + filter + the exact population the scan
+	 * covered (post types, statuses, search term), so a cached list is only
+	 * reused for an identical query shape. Sort order is deliberately not part
+	 * of the key: the page window applies it afterwards.
+	 *
+	 * The $consumer discriminates producers with different predicates over the
+	 * same population: the admin list table and the MCP get_seo_health_report
+	 * tool disagree on what "missing schema" means (structured has_schema()
+	 * vs raw meta presence), so their lists must never share a key.
 	 *
 	 * @param string       $filter        The missing_filter value.
 	 * @param string|array $post_types    Post types the scan covered.
 	 * @param string|array $post_statuses Statuses the scan covered.
 	 * @param string       $search        Search term, '' when none.
+	 * @param string       $consumer      Cache producer, 'admin' (default) or 'mcp'.
 	 * @return string
 	 */
-	public static function matching_ids_transient_key($filter, $post_types, $post_statuses, $search)
+	public static function matching_ids_transient_key($filter, $post_types, $post_statuses, $search, $consumer = 'admin')
 	{
 		$fingerprint = md5(serialize(array(
 			self::get_ids_cache_generation(),
+			(string) $consumer,
 			(string) $filter,
 			(array) $post_types,
 			(array) $post_statuses,
@@ -286,6 +293,50 @@ class Metasync_SEO_Health
 	private function __construct()
 	{
 		add_action('save_post', array($this, 'invalidate_cache'));
+	}
+
+	/**
+	 * Rotate the caches when a meta key the health report reads changes.
+	 *
+	 * save_post covers content edits, but MCP tools, the REST sync and the
+	 * OTTO crawl-notify job write post meta directly and never fire save_post.
+	 * Without this, a fixed post stays listed as "missing" until the 300s
+	 * matching-ID TTL ages out.
+	 *
+	 * Static and registered from the plugin bootstrap (class-metasync.php) as
+	 * an array callable: the class is only composer-autoloaded when the action
+	 * actually fires, so hooking the constructor here would miss every request
+	 * that never instantiates the singleton (MCP, REST, cron).
+	 *
+	 * @param int    $meta_id   Meta row id (unused).
+	 * @param int    $object_id Object the meta belongs to (unused).
+	 * @param string $meta_key  Meta key being written.
+	 */
+	public static function handle_seo_meta_update($meta_id, $object_id, $meta_key)
+	{
+		if (in_array((string) $meta_key, self::meta_keys_affecting_seo_health(), true)) {
+			self::invalidate_stats();
+		}
+	}
+
+	/**
+	 * Meta keys whose values feed the health report and its matching-ID caches:
+	 * every key in the title/description precedence chains (MetaSync plus
+	 * third-party SEO plugins), schema presence, and the OG-image fallback.
+	 *
+	 * @return string[]
+	 */
+	private static function meta_keys_affecting_seo_health()
+	{
+		// title/desc key lists are assoc arrays of meta_key => source label;
+		// the keys are the meta keys.
+		$keys = array_merge(
+			array_keys(self::title_meta_keys()),
+			array_keys(self::desc_meta_keys()),
+			array('metasync_schema_markup', '_metasync_og_image', '_thumbnail_id')
+		);
+
+		return array_values(array_unique($keys));
 	}
 
 	/**
@@ -564,7 +615,9 @@ class Metasync_SEO_Health
 				<?php $list_table->search_box(__('Search Posts', 'metasync'), 'seo-health-search'); ?>
 			</div>
 
-			<?php $list_table->display(); ?>
+			<div class="metasync-seo-health-list-wrap">
+				<?php $list_table->display(); ?>
+			</div>
 		</form>
 
 		<?php

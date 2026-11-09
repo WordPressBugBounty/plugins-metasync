@@ -162,8 +162,7 @@ class Metasync_Custom_Pages_API
 		}
 
 		// Get stored API key from settings
-		$settings = Metasync::get_option('general');
-		$stored_api_key = $settings['apikey'] ?? null;
+		$stored_api_key = Metasync::get_plugin_auth_token();
 
 		if (empty($stored_api_key)) {
 			return new WP_Error(

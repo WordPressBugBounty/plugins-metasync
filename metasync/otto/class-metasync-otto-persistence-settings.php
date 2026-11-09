@@ -199,8 +199,7 @@ class Metasync_Otto_Persistence_Settings {
             );
         }
 
-        $options = get_option('metasync_options', []);
-        $stored_api_key = isset($options['general']['apikey']) ? $options['general']['apikey'] : null;
+        $stored_api_key = Metasync::get_plugin_auth_token();
 
         if (empty($stored_api_key)) {
             return new WP_Error(

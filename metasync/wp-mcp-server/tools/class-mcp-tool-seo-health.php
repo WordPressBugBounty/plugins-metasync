@@ -87,54 +87,49 @@ class MCP_Tool_SEO_Health_Report extends MCP_Tool_Base {
         ];
 
         if (!empty($missing_filter)) {
-            $meta_key = null;
-            switch ($missing_filter) {
-                case 'missing_title':
-                    $meta_key = '_metasync_metatitle';
-                    break;
-                case 'missing_description':
-                    $meta_key = '_metasync_metadesc';
-                    break;
-                case 'missing_schema':
-                    $meta_key = 'metasync_schema_markup';
-                    break;
-                case 'missing_og_image':
-                    $meta_key = '_metasync_og_image';
-                    break;
-            }
-            if ($meta_key !== null) {
-                $args['meta_query'] = [
-                    'relation' => 'OR',
-                    ['key' => $meta_key, 'compare' => 'NOT EXISTS'],
-                    ['key' => $meta_key, 'value' => '', 'compare' => '='],
-                ];
-            }
-        }
-
-        if (!empty($missing_filter)) {
             // Missing-field predicates include precedence fallbacks and HTML
-            // inspection, so filter the complete SQL result before paginating.
-            $args['posts_per_page'] = -1;
-            unset($args['paged']);
-        }
+            // inspection, so candidates are scanned in bounded ID-keyset
+            // chunks, matched in PHP, and the matching IDs cached so pages and
+            // re-visits don't rescan. The list is keyed per consumer ('mcp'):
+            // the admin list table caches under the same namespace but with
+            // different predicates (structured has_schema() vs raw meta), so
+            // the lists must never share a key.
+            $use_id_cache = $this->class_provides('Metasync_SEO_Health', 'matching_ids_transient_key');
+            $cache_key = $use_id_cache
+                ? Metasync_SEO_Health::matching_ids_transient_key($missing_filter, $args['post_type'], $args['post_status'], '', 'mcp')
+                : '';
+            $matching_ids = $use_id_cache ? get_transient($cache_key) : false;
 
-        // Exclude custom/LPS pages — their SEO is self-managed, so agents must
-        // not see them flagged as missing SEO.
-        $args['metasync_exclude_custom_pages'] = true;
-        add_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10, 2);
+            if (!is_array($matching_ids)) {
+                $matching_ids = $this->scan_matching_ids($args, $missing_filter);
+                if ($use_id_cache) {
+                    $ttl = defined('Metasync_SEO_Health::IDS_CACHE_TTL') ? constant('Metasync_SEO_Health::IDS_CACHE_TTL') : 300;
+                    set_transient($cache_key, $matching_ids, $ttl);
+                }
+            }
 
-        try {
-            $query = new WP_Query($args);
-        } finally {
-            remove_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10);
-        }
-        $posts = $query->posts;
-
-        if (!empty($missing_filter)) {
-            $posts = $this->apply_missing_filter($posts, $missing_filter);
-            $total = count($posts);
-            $posts = array_slice($posts, ($page - 1) * $per_page, $per_page);
+            $total = count($matching_ids);
+            $page_ids = array_slice($matching_ids, ($page - 1) * $per_page, $per_page);
+            $posts = empty($page_ids) ? [] : get_posts([
+                'post__in' => $page_ids,
+                'orderby' => 'post__in',
+                'posts_per_page' => count($page_ids),
+                'post_type' => $args['post_type'],
+                'post_status' => $args['post_status'],
+                'no_found_rows' => true,
+            ]);
         } else {
+            // Exclude custom/LPS pages — their SEO is self-managed, so agents must
+            // not see them flagged as missing SEO.
+            $args['metasync_exclude_custom_pages'] = true;
+            add_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10, 2);
+
+            try {
+                $query = new WP_Query($args);
+            } finally {
+                remove_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10);
+            }
+            $posts = $query->posts;
             $total = $query->found_posts;
         }
 
@@ -206,6 +201,92 @@ class MCP_Tool_SEO_Health_Report extends MCP_Tool_Base {
      */
     private function class_provides($class, $method) {
         return class_exists($class) && method_exists($class, $method);
+    }
+
+    /**
+     * Scan candidate posts in bounded ID-keyset chunks and retain matching IDs,
+     * newest first (the ordering the unfiltered report and the pre-cache
+     * implementation both return). Each chunk fetches IDs only; the object and
+     * meta caches primed for the PHP predicate are evicted again per chunk so
+     * a large store never accumulates every post in memory.
+     *
+     * @param array  $args   Query population.
+     * @param string $filter Missing SEO filter.
+     * @return int[] Matching post IDs, post_date DESC.
+     */
+    private function scan_matching_ids($args, $filter) {
+        $chunk_size = 500;
+        $scan_args = $args;
+        unset($scan_args['paged'], $scan_args['meta_query']);
+        $scan_args['posts_per_page'] = $chunk_size;
+        $scan_args['fields'] = 'ids';
+        $scan_args['orderby'] = 'ID';
+        $scan_args['order'] = 'ASC';
+        $scan_args['no_found_rows'] = true;
+        $scan_args['update_post_meta_cache'] = false;
+        $scan_args['update_post_term_cache'] = false;
+        $scan_args['metasync_exclude_custom_pages'] = true;
+        $matching_ids = [];
+        $matching_dates = [];
+        $last_id = 0;
+        add_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10, 2);
+        add_filter('posts_where', ['Metasync_SEO_Inventory_Builder', 'filter_where_id_gt'], 10, 2);
+        try {
+            while (true) {
+                if ($last_id > 0) {
+                    $scan_args['where_id_gt'] = $last_id;
+                }
+                $query = new WP_Query($scan_args);
+                $ids = $query->posts;
+                if (!$ids) {
+                    break;
+                }
+                update_meta_cache('post', $ids);
+                _prime_post_caches($ids, false, false);
+                $objects = [];
+                foreach ($ids as $id) {
+                    $post = get_post($id);
+                    if ($post) {
+                        $objects[] = $post;
+                    }
+                }
+                foreach ($this->apply_missing_filter($objects, $filter) as $post) {
+                    $matching_ids[] = (int) $post->ID;
+                    $matching_dates[] = (string) $post->post_date;
+                }
+                // Advance the cursor on the chunk itself, not on get_post()
+                // success: a post deleted mid-scan must not stall the cursor
+                // (re-reading a chunk would duplicate its matches).
+                $last_id = max($last_id, (int) max(array_map('intval', $ids)));
+                wp_cache_delete_multiple($ids, 'posts');
+                wp_cache_delete_multiple($ids, 'post_meta');
+                if (count($ids) < $chunk_size) {
+                    break;
+                }
+            }
+        } finally {
+            remove_filter('posts_where', 'metasync_filter_exclude_custom_pages_where', 10);
+            remove_filter('posts_where', ['Metasync_SEO_Inventory_Builder', 'filter_where_id_gt'], 10);
+        }
+        return self::sort_ids_by_date_desc($matching_ids, $matching_dates);
+    }
+
+    /**
+     * Order matching IDs newest-first, restoring the date-DESC ordering the
+     * unfiltered branch has always used. Dates are 'Y-m-d H:i:s' strings,
+     * which sort lexically the same as chronologically.
+     *
+     * @param int[]    $ids   Post IDs.
+     * @param string[] $dates Matching post_date values, parallel to $ids.
+     * @return int[]
+     */
+    public static function sort_ids_by_date_desc(array $ids, array $dates) {
+        if (count($ids) < 2) {
+            return array_map('intval', $ids);
+        }
+        array_multisort($dates, SORT_DESC, SORT_STRING, $ids);
+
+        return array_map('intval', $ids);
     }
 
     private function calculate_alt_text_coverage($content) {

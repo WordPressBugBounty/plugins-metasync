@@ -369,7 +369,7 @@ class Metasync_Setup_Wizard
 	public function render_step_schema()
 	{
 		$general_settings = Metasync::get_option('general');
-		$schema_enabled = !empty($general_settings['enable_schema_markup']);
+		$schema_enabled = filter_var($general_settings['enable_schema_markup'] ?? false, FILTER_VALIDATE_BOOLEAN);
 		?>
 		<div class="wizard-step wizard-step-schema" data-step="5">
 			<div class="wizard-step-header">

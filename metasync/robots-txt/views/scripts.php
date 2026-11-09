@@ -144,6 +144,13 @@ jQuery(document).ready(function($) {
         closeModal();
     });
 
+    // Close the backup Preview modal with Escape, matching metasync-connect.js.
+    $(document).on('keydown', function(e) {
+        if (e.key === 'Escape' && $('#robots-validation-modal').is(':visible')) {
+            closeModal();
+        }
+    });
+
     // Prevent closing when clicking modal content
     $('.metasync-modal-content').on('click', function(e) {
         e.stopPropagation();

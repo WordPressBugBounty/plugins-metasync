@@ -97,8 +97,7 @@ class MCP_Tool_Trigger_Otto_Optimization extends MCP_Tool_Base {
 
         // Rate-limit: 10 calls per 60s per API key (fall back to IP)
         if (class_exists('Metasync_Rate_Limiter')) {
-            $options = get_option('metasync_options', []);
-            $api_key = isset($options['general']['apikey']) ? (string) $options['general']['apikey'] : '';
+            $api_key = Metasync::get_plugin_auth_token();
             $rate_source = $api_key !== '' ? $api_key : (isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : 'anon');
             $rate_key    = hash('sha256', $rate_source);
             $rl_result   = Metasync_Rate_Limiter::get_instance()->check_rate_limit($rate_key, 10, 60, 'otto_trigger_');

@@ -201,7 +201,7 @@ class Metasync_Sync_Requests
 
         $payload = [
             'url' => get_home_url(),
-            'api_key' => $general_options['apikey'],
+            'api_key' => Metasync::get_plugin_auth_token(),
             'categories' => $new_categories,
             'users' => $new_users,
             'version'=>constant('METASYNC_VERSION'),

@@ -77,7 +77,7 @@ class Metasync_Admin_Pages
                 <div class="dashboard-card">
                     <h2>Authentication Required</h2>
                     <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">
-                        You need to authenticate with <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> to access the dashboard.
+                        You need to connect with <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> to access the dashboard.
                     </p>
                     <a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug)); ?>" class="button button-primary">
                         Go to Settings &amp; Connect
@@ -1657,27 +1657,6 @@ class Metasync_Admin_Pages
     //  Simple page renderers
     // ------------------------------------------------------------------
 
-    public function create_admin_dashboard_page()
-    {
-        ?>
-        <?php $this->admin->render_layout_open('Dashboard', 'dashboard', ''); ?>
-            
-            <div class="dashboard-card">
-                <h2><?php echo esc_html($this->admin->get_effective_menu_title()); ?> Dashboard</h2>
-                <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Access your <?php echo esc_html(Metasync::get_effective_plugin_name()); ?> dashboard to view analytics, manage SEO settings, and monitor your site performance.</p>
-                <?php
-        if (!isset(Metasync::get_option('general')['linkgraph_token']) || Metasync::get_option('general')['linkgraph_token'] == '') {
-                    echo '<p style="color: #d54e21; margin-bottom: 15px;">Authentication required: Please authenticate with your ' . esc_html(Metasync::get_effective_plugin_name()) . ' account and save your auth token in general settings.</p>';
-                    echo '<a href="' . esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug)) . '" class="button button-secondary">Go to Settings</a>';
-                } else {
-                    echo '<a href="' . esc_url($this->admin->get_dashboard_url()) . '" target="_blank" class="button button-primary">Open Dashboard</a>';
-                }
-                ?>
-            </div>
-        <?php $this->admin->render_layout_close(); ?>
-    <?php
-    }
-
     public function create_admin_robots_txt_page()
     {
         // The form below rewrites the site's physical robots.txt — restrict
@@ -1883,12 +1862,12 @@ echo $breadcrumbs-&gt;render_breadcrumb_html();</pre><span class="metasync-copy-
     public function create_admin_schema_markup_page()
     {
         $page_slug = Metasync_Admin::$page_slug . '_schema-markup';
-        $this->admin->render_layout_open('Schema Markup', 'schema_markup', 'Configure global schema markup settings for your site. Organization and WebSite schemas are injected site-wide.');
+        $this->admin->render_layout_open('Schema Markup', 'schema_markup', 'Configure global schema markup settings for your site. The Organization schema is injected on every page; the WebSite schema is injected on the homepage only.');
         ?>
             <form method="post" action="options.php">
                 <div class="dashboard-card">
                     <h2>Schema Markup Settings</h2>
-                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure the site-wide Organization and WebSite structured data injected into every page.</p>
+                    <p style="color: var(--dashboard-text-secondary); margin-bottom: 20px;">Configure the Organization structured data injected on every page, and the WebSite structured data injected on the homepage only.</p>
                     <?php
                     settings_fields(Metasync_Admin::option_group);
                     do_settings_sections($page_slug);

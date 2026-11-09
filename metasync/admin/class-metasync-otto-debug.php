@@ -422,7 +422,7 @@ class Metasync_Otto_Debug {
         # Use endpoint manager to get the correct API URL
         $api_url = class_exists('Metasync_Endpoint_Manager')
             ? Metasync_Endpoint_Manager::get_endpoint('OTTO_URL_DETAILS')
-            : 'https://sa.searchatlas.com/api/v2/otto-url-details';
+            : 'https://sa.searchatlas.com/api/v2/otto-url-details/';
         $test_url = add_query_arg(array(
             'url' => get_site_url(),
             'uuid' => $otto_uuid
@@ -602,7 +602,7 @@ class Metasync_Otto_Debug {
         # Use endpoint manager to get the correct API URL
         $api_endpoint = class_exists('Metasync_Endpoint_Manager')
             ? Metasync_Endpoint_Manager::get_endpoint('OTTO_URL_DETAILS')
-            : 'https://sa.searchatlas.com/api/v2/otto-url-details';
+            : 'https://sa.searchatlas.com/api/v2/otto-url-details/';
 
         $api_url = add_query_arg(array(
             'url' => get_site_url(),
@@ -735,7 +735,7 @@ class Metasync_Otto_Debug {
         # Use endpoint manager to get the correct API URL
         $api_endpoint = class_exists('Metasync_Endpoint_Manager')
             ? Metasync_Endpoint_Manager::get_endpoint('OTTO_URL_DETAILS')
-            : 'https://sa.searchatlas.com/api/v2/otto-url-details';
+            : 'https://sa.searchatlas.com/api/v2/otto-url-details/';
 
         $api_url = add_query_arg(array(
             'url' => $test_url,

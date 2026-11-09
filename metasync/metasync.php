@@ -15,7 +15,7 @@
  * Plugin Name:       Search Atlas SEO - OTTO AI SEO Automation for WordPress
  * Plugin URI:        https://searchatlas.com/
  * Description:       Search Atlas SEO is an intuitive WordPress Plugin that transforms the most complicated, most labor-intensive SEO tasks into streamlined, straightforward processes. With a few clicks, the meta-bulk update feature automates the re-optimization of meta tags using AI to increase clicks. Stay up-to-date with the freshest Google Search data for your entire site or targeted URLs within the Meta Sync plug-in page.
- * Version:           2.7.5
+ * Version:           2.7.6
  * Requires PHP:      8.1
  * Author:            Search Atlas
  * Author URI:        https://searchatlas.com
@@ -58,7 +58,7 @@ require_once __DIR__ . '/includes/class-metasync-seo-restore.php';
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-$metasync_version = '2.7.5';
+$metasync_version = '2.7.6';
 define('METASYNC_VERSION', preg_match('/^\d+\.\d+/', $metasync_version) ? $metasync_version : '9.9.9');
 /**
  * Define the current required php version 
@@ -548,10 +548,8 @@ function check_metasync_updates()
             delete_option('metasync_ai_agent_enabled');
 
             // Ensure plugin auth token exists
-            $options = get_option('metasync_options', []);
-            if (empty($options['general']['apikey'])) {
-                $options['general']['apikey'] = wp_generate_password(32, false, false);
-                update_option('metasync_options', $options);
+            if (Metasync::get_plugin_auth_token() === '') {
+                Metasync::store_plugin_auth_token(wp_generate_password(32, false, false));
             }
         }
 
@@ -594,6 +592,16 @@ function check_metasync_updates()
             && add_option('metasync_local_seo_logo_repair_done', 'running', '', false)) {
             MetaSync_DBMigration::repair_corrupted_local_seo_logo();
             update_option('metasync_local_seo_logo_repair_done', 'done', false);
+        }
+
+        // One-time removal of the legacy LinkGraph token / customer ID from
+        // the stored settings. The login that populated them is gone; this
+        // clears the leftover credential. Claimed via add_option() before the
+        // work, like the cleanups above; the purge itself is idempotent.
+        if (false === get_option('metasync_linkgraph_credentials_purge_done')
+            && add_option('metasync_linkgraph_credentials_purge_done', 'running', '', false)) {
+            MetaSync_DBMigration::purge_legacy_linkgraph_credentials();
+            update_option('metasync_linkgraph_credentials_purge_done', 'done', false);
         }
 
         // Migrate physical sitemap files on version update.

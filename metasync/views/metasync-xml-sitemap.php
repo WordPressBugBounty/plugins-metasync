@@ -287,7 +287,7 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
                                 <?php endforeach; ?>
                                 <p class="metasync-no-results"><?php esc_html_e('No taxonomies match your search.', 'metasync'); ?></p>
                             </div>
-                            <p class="description"><?php esc_html_e('Select which taxonomy archive pages to include. All are included by default.', 'metasync'); ?></p>
+                            <p class="description"><?php esc_html_e('Select which taxonomy archive pages to include. Listed taxonomies are included by default.', 'metasync'); ?></p>
                         </td>
                     </tr>
                     <tr>
@@ -409,6 +409,7 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
                 <?php endif; ?>
             </p>
 
+            <div class="metasync-admin-table-scroll">
             <table class="metasync-sitemap-table">
                 <thead>
                     <tr>
@@ -520,6 +521,7 @@ require_once dirname(__DIR__) . '/includes/sitemap-taxonomy-picker.php';
                     <?php endif; ?>
                 </tbody>
             </table>
+            </div>
         </div>
 
         <!-- Sitemap Index Preview Card -->

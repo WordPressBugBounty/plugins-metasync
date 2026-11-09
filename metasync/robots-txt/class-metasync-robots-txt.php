@@ -147,6 +147,108 @@ class Metasync_Robots_Txt
     }
 
     /**
+     * Whether two sitemap hosts are the same site.
+     *
+     * Comparison is case-insensitive and ignores a single leading www so a
+     * scheme or www change does not look like a domain migration.
+     *
+     * @param string $left
+     * @param string $right
+     * @return bool
+     */
+    private static function sitemap_hosts_match($left, $right)
+    {
+        $normalize = static function ($host) {
+            $host = strtolower((string) $host);
+            if (0 === strpos($host, 'www.')) {
+                $host = substr($host, 4);
+            }
+            return $host;
+        };
+
+        return $normalize($left) === $normalize($right);
+    }
+
+    /**
+     * Drop MetaSync Sitemap lines whose host is not the current site host.
+     *
+     * After a domain, scheme, or www change, robots.txt otherwise keeps pointing
+     * crawlers at the previous host. Only MetaSync's own filenames are removed
+     * (sitemap_index.xml, sitemapN.xml, news-sitemap.xml, video-sitemap.xml).
+     * A bare sitemap.xml is left in place: that name is used by other SEO
+     * plugins, including on a different host. Foreign paths, hand-added lines,
+     * and MetaSync lines on the current host are kept. Scheme and a www prefix
+     * are not part of the host comparison, so http vs https and www vs bare stay.
+     *
+     * @param string $content robots.txt content.
+     * @return string Original content when nothing was removed.
+     */
+    private function strip_stale_host_sitemap_lines($content)
+    {
+        if ('' === $content) {
+            return $content;
+        }
+
+        $home = wp_parse_url(home_url('/'));
+        $current_host = is_array($home) && !empty($home['host']) ? $home['host'] : '';
+        if ('' === $current_host) {
+            return $content;
+        }
+
+        $lines = preg_split("/\r\n|\n|\r/", $content);
+        if (!is_array($lines)) {
+            return $content;
+        }
+
+        $removed = false;
+        $kept = array();
+        foreach ($lines as $line) {
+            if (!preg_match('/^[ \t]*Sitemap:[ \t]*(\S+)/i', $line, $matches)) {
+                $kept[] = $line;
+                continue;
+            }
+
+            $url = $matches[1];
+            $parts = wp_parse_url($url);
+            $host = is_array($parts) && !empty($parts['host']) ? $parts['host'] : '';
+            // Same host, including www vs bare and case differences. Also keep
+            // lines we cannot parse a host from rather than dropping them.
+            if ('' === $host || self::sitemap_hosts_match($host, $current_host)) {
+                $kept[] = $line;
+                continue;
+            }
+
+            $path = is_array($parts) && isset($parts['path']) ? $parts['path'] : '';
+            $path = preg_replace('/[?#].*$/', '', $path);
+            $basename = strtolower(basename((string) $path));
+            // sitemap.xml is a common third-party filename (Yoast and others).
+            // Only drop MetaSync's own index, numbered, news, and video files
+            // when they still point at a previous host.
+            $is_metasync_file = (
+                'sitemap_index.xml' === $basename
+                || 'news-sitemap.xml' === $basename
+                || 'video-sitemap.xml' === $basename
+                || (bool) preg_match('/^sitemap\d+\.xml$/', $basename)
+            );
+
+            if (!$is_metasync_file) {
+                $kept[] = $line;
+                continue;
+            }
+
+            $removed = true;
+        }
+
+        if (!$removed) {
+            return $content;
+        }
+
+        $filtered = implode("\n", $kept);
+        $filtered = preg_replace("/\n{3,}/", "\n\n", $filtered);
+        return rtrim($filtered) . "\n";
+    }
+
+    /**
      * Read robots.txt file
      *
      * @return string|WP_Error File contents or error
@@ -561,30 +663,44 @@ class Metasync_Robots_Txt
         // Normalize the sitemap URL
         $sitemap_url = esc_url_raw($sitemap_url);
         $sitemap_line = "Sitemap: {$sitemap_url}";
+        $pre_filter_content = $current_content;
 
-        // Check if the sitemap URL is already correct
+        // Check if the sitemap URL is already correct and nothing else needs
+        // rewriting. A missing file is still created, matching the previous
+        // exact-match branch. Stale-host cleanup runs after this return.
         if (preg_match('/^Sitemap:\s*' . preg_quote($sitemap_url, '/') . '\s*$/im', $current_content)) {
-            // If file doesn't exist, we still need to create it even if content matches
-            if (!$file_exists) {
-                $result = $this->write_robots_file($current_content);
-                if (is_wp_error($result)) {
+            $filtered_for_presence = $this->strip_stale_host_sitemap_lines($current_content);
+            $presence_unchanged = Metasync_Robots_Txt_Database::normalize_for_compare($filtered_for_presence)
+                === Metasync_Robots_Txt_Database::normalize_for_compare($pre_filter_content);
+
+            if ($presence_unchanged) {
+                if (!$file_exists) {
+                    $result = $this->write_robots_file($current_content);
+                    if (is_wp_error($result)) {
+                        return [
+                            'success' => false,
+                            'action' => 'error',
+                            'message' => $result->get_error_message()
+                        ];
+                    }
                     return [
-                        'success' => false,
-                        'action' => 'error',
-                        'message' => $result->get_error_message()
+                        'success' => true,
+                        'action' => 'created',
+                        'message' => esc_html__('robots.txt file has been created with sitemap URL.', 'metasync')
                     ];
                 }
                 return [
                     'success' => true,
-                    'action' => 'created',
-                    'message' => esc_html__('robots.txt file has been created with sitemap URL.', 'metasync')
+                    'action' => 'unchanged',
+                    'message' => esc_html__('Sitemap URL already exists in robots.txt.', 'metasync')
                 ];
             }
-            return [
-                'success' => true,
-                'action' => 'unchanged',
-                'message' => esc_html__('Sitemap URL already exists in robots.txt.', 'metasync')
-            ];
+
+            // Stale hosts were removed. Continue with the filtered content so
+            // the current index line is rewritten once, not duplicated.
+            $current_content = $filtered_for_presence;
+        } else {
+            $current_content = $this->strip_stale_host_sitemap_lines($current_content);
         }
 
         // Manage only MetaSync's own sitemap index line. Every other Sitemap
@@ -599,6 +715,39 @@ class Metasync_Robots_Txt
         if (null === $without_own) {
             // Regex failure: fall back to appending without removing anything.
             $without_own = $current_content;
+        } else {
+            // A current-host index line whose scheme or case differs from
+            // home_url() survives the pattern above. Drop it too so the
+            // canonical line appended below is the only index URL. Only the
+            // exact home path (and port) counts: a subsite or custom path on
+            // the same host (e.g. /shop/sitemap_index.xml) and a
+            // different-port index line belong to someone else and are kept.
+            $home = wp_parse_url(home_url('/'));
+            $current_host = is_array($home) && !empty($home['host']) ? $home['host'] : '';
+            $home_path = is_array($home) && !empty($home['path']) ? $home['path'] : '/';
+            $own_index_path = strtolower('/' . ltrim($home_path, '/') . 'sitemap_index.xml');
+            $home_port = is_array($home) && !empty($home['port']) ? (int) $home['port'] : 0;
+            $lines = '' === $current_host ? false : preg_split("/\r\n|\n|\r/", $without_own);
+            if (is_array($lines)) {
+                $kept = array();
+                foreach ($lines as $line) {
+                    if (preg_match('/^[ \t]*Sitemap:[ \t]*(\S+)/i', $line, $matches)) {
+                        $parts = wp_parse_url($matches[1]);
+                        $host = is_array($parts) && !empty($parts['host']) ? $parts['host'] : '';
+                        $path = is_array($parts) && isset($parts['path']) ? $parts['path'] : '';
+                        $path = strtolower((string) preg_replace('/[?#].*$/', '', $path));
+                        $port = is_array($parts) && !empty($parts['port']) ? (int) $parts['port'] : 0;
+                        if ('' !== $host
+                            && self::sitemap_hosts_match($host, $current_host)
+                            && $port === $home_port
+                            && $own_index_path === $path) {
+                            continue;
+                        }
+                    }
+                    $kept[] = $line;
+                }
+                $without_own = implode("\n", $kept);
+            }
         }
 
         $action = ($without_own !== $current_content) ? 'updated' : 'added';
@@ -668,13 +817,37 @@ class Metasync_Robots_Txt
         }
 
         $sitemap_url = esc_url_raw($sitemap_url);
+        $original_content = $content;
+        $content = $this->strip_stale_host_sitemap_lines($content);
+        $content_unchanged = Metasync_Robots_Txt_Database::normalize_for_compare($content)
+            === Metasync_Robots_Txt_Database::normalize_for_compare($original_content);
 
         // Check if the specific sitemap line already exists
         if (preg_match('/^Sitemap:\s*' . preg_quote($sitemap_url, '/') . '\s*$/im', $content)) {
+            if ($content_unchanged) {
+                return [
+                    'success' => true,
+                    'action'  => 'unchanged',
+                    'message' => esc_html__('Sitemap URL already exists in robots.txt.', 'metasync'),
+                ];
+            }
+
+            // URL is already present, but previous-host MetaSync lines were
+            // removed. Write the filtered content without appending a duplicate.
+            $result = $this->write_robots_file($content);
+
+            if (is_wp_error($result)) {
+                return [
+                    'success' => false,
+                    'action'  => 'error',
+                    'message' => $result->get_error_message(),
+                ];
+            }
+
             return [
                 'success' => true,
-                'action'  => 'unchanged',
-                'message' => esc_html__('Sitemap URL already exists in robots.txt.', 'metasync'),
+                'action'  => 'updated',
+                'message' => esc_html__('Sitemap URL has been updated in robots.txt.', 'metasync'),
             ];
         }
 

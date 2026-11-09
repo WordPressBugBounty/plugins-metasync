@@ -417,7 +417,9 @@ class Metasync_Seo_Output
 			'og:type' => 'article',
 			'og:title' => $post->post_title . ' - ' . get_bloginfo('name'),
 			'og:description' => $og_description,
-			'og:url' => $this->get_canonical_url($post),
+			// Do not resolve a social URL when its owning feature emits no tags.
+			'og:url' => Metasync_Feature_Flags::is_enabled(Metasync_Feature_Flags::SOCIAL_OG)
+				? $this->get_canonical_url($post) : '',
 			'og:site_name' => get_bloginfo('name'),
 			'og:updated_time' => $post->post_modified,
 			'og:image' => $image ? $image[0] : '',
@@ -456,7 +458,7 @@ class Metasync_Seo_Output
 
 		if ($getSearchEngineOptions !== null) { // check if searchengine verification options are set
 			foreach ($keysSearchEngines as $optionKey => $metaKey) {
-				$this->print_metatag($metaKey, $getSearchEngineOptions[$optionKey]);
+				$this->print_metatag($metaKey, $getSearchEngineOptions[$optionKey] ?? '');
 			}
 		}
 

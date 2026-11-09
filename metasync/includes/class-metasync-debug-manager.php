@@ -567,8 +567,8 @@ class Metasync_Debug_Manager
                         return strtotime($b['last_seen']) - strtotime($a['last_seen']);
                     });
                     ?>
-                    <div style="overflow-x: auto; margin-bottom: 20px;">
-                        <table class="wp-list-table widefat fixed striped" style="background: var(--dashboard-card-bg); border: 1px solid var(--dashboard-border);">
+                    <div class="metasync-scroll-wrap" style="overflow-x: auto; margin-bottom: 20px;">
+                        <table class="wp-list-table widefat fixed striped metasync-scroll-table" style="background: var(--dashboard-card-bg); border: 1px solid var(--dashboard-border);">
                             <thead>
                                 <tr style="background: var(--dashboard-card-bg);">
                                     <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--dashboard-border); color: var(--dashboard-text-primary); font-weight: 600;">Error Category</th>
@@ -944,7 +944,7 @@ define('WP_DEBUG_DISPLAY', false);</pre><span class="metasync-copy-badge">Copy</
                 
                 $fresh_options = [
                     'general' => [
-                        'apikey' => $new_plugin_auth_token
+                        'apikey' => Metasync::encrypt_secret($new_plugin_auth_token)
                     ]
                 ];
                 

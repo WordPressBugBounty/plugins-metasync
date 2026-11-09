@@ -873,7 +873,9 @@ if (!defined('ABSPATH')) {
 		</div>
 		
 		<!-- Now we can render the completed list table -->
-		<?php $Metasync404Monitor->display() ?>
+		<div class="metasync-admin-table-scroll">
+			<?php $Metasync404Monitor->display(); ?>
+		</div>
 	</form>
 	</div>
 </div>

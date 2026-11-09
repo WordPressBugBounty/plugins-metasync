@@ -85,8 +85,7 @@ class Metasync_Connect_Manager
      */
     public function generate_searchatlas_wp_connect_token($regenerate = false)
     {
-        $general_options = Metasync::get_option('general') ?? [];
-        $plugin_auth_token = $general_options['apikey'] ?? '';
+        $plugin_auth_token = Metasync::get_plugin_auth_token();
 
         if (empty($plugin_auth_token)) {
             error_log('MetaSync ERROR: Plugin Auth Token missing from options - should have been generated during activation'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- unreachable in production
@@ -102,20 +101,13 @@ class Metasync_Connect_Manager
      */
     public function ensure_plugin_auth_token_exists()
     {
-        $options = Metasync::get_option();
-        $current_plugin_auth_token = $options['general']['apikey'] ?? '';
-
-        if (empty($current_plugin_auth_token)) {
+        // Empty also covers a stored token that can no longer be decrypted
+        // (salts changed): a fresh one is generated and stored encrypted.
+        if (Metasync::get_plugin_auth_token() === '') {
 
             $new_plugin_auth_token = wp_generate_password(32, false, false);
 
-            if (!isset($options['general'])) {
-                $options['general'] = [];
-            }
-
-            $options['general']['apikey'] = $new_plugin_auth_token;
-
-            $save_result = Metasync::set_option($options);
+            $save_result = Metasync::store_plugin_auth_token($new_plugin_auth_token);
 
             if ($save_result) {
                 Metasync::log_api_key_event('auto_generated_for_sa_connect', 'plugin_auth_token', array(
@@ -163,13 +155,7 @@ class Metasync_Connect_Manager
         try {
             $new_plugin_auth_token = wp_generate_password(32, false, false);
 
-            $options = Metasync::get_option();
-            if (!isset($options['general'])) {
-                $options['general'] = [];
-            }
-            $options['general']['apikey'] = $new_plugin_auth_token;
-
-            $save_result = Metasync::set_option($options);
+            $save_result = Metasync::store_plugin_auth_token($new_plugin_auth_token);
 
             if ($save_result) {
                 Metasync::log_api_key_event('token_refresh', 'plugin_auth_token', array(
@@ -179,7 +165,7 @@ class Metasync_Connect_Manager
                 do_action('metasync_trigger_immediate_heartbeat', 'Plugin Auth Token refresh - new token generated');
 
                 wp_send_json_success(array(
-                    'masked_token' => str_repeat('•', 8) . substr($new_plugin_auth_token, -4),
+                    'masked_token' => Metasync::mask_plugin_auth_token($new_plugin_auth_token),
                     'message' => 'Plugin Auth Token refreshed successfully'
                 ));
             } else {
@@ -208,12 +194,11 @@ class Metasync_Connect_Manager
         }
 
         try {
-            $options = Metasync::get_option();
-            $current_plugin_auth_token = $options['general']['apikey'] ?? '';
+            $current_plugin_auth_token = Metasync::get_plugin_auth_token();
 
             if (!empty($current_plugin_auth_token)) {
                 wp_send_json_success(array(
-                    'masked_token' => str_repeat('•', 8) . substr($current_plugin_auth_token, -4),
+                    'masked_token' => Metasync::mask_plugin_auth_token($current_plugin_auth_token),
                     'message' => 'Plugin Auth Token retrieved successfully'
                 ));
             } else {
@@ -462,14 +447,31 @@ class Metasync_Connect_Manager
                     // persisted; we fall through to updated:false so polling
                     // continues and the push callback / heartbeat self-heal remain.
                 } elseif ($pull['status'] === 'error') {
+                    // Funnel step: the first time each distinct pull status is
+                    // seen for this connect attempt. Deduped per (nonce,
+                    // status) and independent of the terminal contract below.
+                    Metasync_PostHog::feature_once(
+                        'searchatlas_connect_pull_status',
+                        array('status_code' => $pull_status_code ?: 400, 'source' => 'pull'),
+                        md5($nonce_token . '|status|' . ($pull_status_code ?: 400)),
+                        15 * MINUTE_IN_SECONDS
+                    );
+
                     // Honest state: surface the real server error (e.g. "Domain not
                     // found for customer") instead of the silent 60s timeout. The
                     // existing JS branches on status_code (404/500/…) to render it.
-                    // Once per connect attempt, even if the poll repeats.
-                    Metasync_PostHog::feature_once('searchatlas_connect_failed', array(
-                        'status_code' => $pull_status_code ?: 400,
-                        'source' => 'pull',
-                    ), md5($nonce_token), 15 * MINUTE_IN_SECONDS);
+                    // Once per connect attempt, even if the poll repeats. Skip when
+                    // a timeout or abandon already closed this nonce so a start has
+                    // exactly one terminal outcome.
+                    $outcome_key = 'metasync_connect_outcome_' . md5($nonce_token);
+                    if (!get_transient($outcome_key)) {
+                        set_transient($outcome_key, 'failure', 15 * MINUTE_IN_SECONDS);
+                        Metasync_PostHog::feature_once('searchatlas_connect_failed', array(
+                            'status_code' => $pull_status_code ?: 400,
+                            'source' => 'pull',
+                            'reason' => ($pull_status_code === 404 ? '404 pull' : 'pull_error_' . ($pull_status_code ?: 400)),
+                        ), md5($nonce_token), 15 * MINUTE_IN_SECONDS);
+                    }
                     wp_send_json_success(array(
                         'updated' => true,
                         'status_code' => $pull_status_code ?: 400,
@@ -482,6 +484,111 @@ class Metasync_Connect_Manager
         }
 
         wp_send_json_success(array('updated' => false));
+    }
+
+    /**
+     * Record a client-side terminal connect outcome.
+     *
+     * AJAX action: wp_ajax_metasync_record_connect_outcome
+     *
+     * Polling timeout, page leave, and a popup closed without a result never
+     * reach the pull-error or heartbeat success paths, so those attempts used
+     * to emit no outcome. One terminal per live connect nonce for 15 minutes.
+     */
+    public function record_connect_outcome()
+    {
+        if (!current_user_can('manage_options') || !Metasync::current_user_has_plugin_access()) {
+            wp_send_json_error(array('message' => 'Insufficient permissions. Administrator access required.'));
+            return;
+        }
+
+        if (!isset($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'metasync_sa_connect_nonce')) {
+            wp_send_json_error(array('message' => 'Invalid nonce'));
+            return;
+        }
+
+        $nonce_token = isset($_POST['nonce_token']) ? sanitize_text_field(wp_unslash($_POST['nonce_token'])) : '';
+        $outcome = isset($_POST['outcome']) ? sanitize_text_field(wp_unslash($_POST['outcome'])) : '';
+        $reason = isset($_POST['reason']) ? sanitize_text_field(wp_unslash($_POST['reason'])) : '';
+
+        $allowed = array(
+            'timeout' => 'searchatlas_connect_timeout',
+            'abandon' => 'searchatlas_connect_abandoned',
+            'failure' => 'searchatlas_connect_failed',
+        );
+
+        // Non-terminal funnel steps. They never consume the one-terminal
+        // contract and are deduped per (nonce, step) so a repeating poll or
+        // a re-fired handler cannot spam the funnel.
+        $steps = array(
+            'popup_opened' => 'Connect popup opened after the URL was generated',
+            'popup_blocked' => 'Connect popup was blocked by the browser',
+            'open_in_tab' => 'Connect URL opened in a new tab (popup-blocked fallback)',
+            'poll_started' => 'Client polling for the connect result started',
+            'popup_closed' => 'User closed the connect popup before a result',
+            'same_tab_redirect' => 'Mobile connect: URL opened in the same tab (no popup, no polling)',
+        );
+
+        if ($outcome === 'step') {
+            if (!isset($steps[$reason])) {
+                wp_send_json_error(array('message' => 'Invalid step'));
+                return;
+            }
+
+            // Only a live connect nonce can contribute funnel steps.
+            if ($nonce_token === '' || !get_transient('metasync_sa_connect_active_' . $nonce_token)) {
+                wp_send_json_error(array('message' => 'Connect attempt is not active'));
+                return;
+            }
+
+            Metasync_PostHog::feature_once(
+                'searchatlas_connect_' . $reason,
+                array(),
+                md5($nonce_token . '|step|' . $reason),
+                15 * MINUTE_IN_SECONDS
+            );
+
+            wp_send_json_success(array('recorded' => true, 'step' => $reason));
+            return;
+        }
+
+        if (!isset($allowed[$outcome])) {
+            wp_send_json_error(array('message' => 'Invalid outcome'));
+            return;
+        }
+
+        // Only a nonce created by create_searchatlas_nonce_token() (15 min) can
+        // close a start. A stale or forged token must not invent an outcome.
+        if ($nonce_token === '' || !get_transient('metasync_sa_connect_active_' . $nonce_token)) {
+            wp_send_json_error(array('message' => 'Connect attempt is not active'));
+            return;
+        }
+
+        $reason = substr($reason, 0, 64);
+        if ($reason === '') {
+            $defaults = array(
+                'timeout' => 'authentication_timeout',
+                'abandon' => 'page_left',
+                'failure' => 'client_failure',
+            );
+            $reason = $defaults[$outcome];
+        }
+
+        $outcome_key = 'metasync_connect_outcome_' . md5($nonce_token);
+        if (get_transient($outcome_key)) {
+            wp_send_json_success(array('recorded' => false));
+            return;
+        }
+
+        set_transient($outcome_key, $outcome, 15 * MINUTE_IN_SECONDS);
+        Metasync_PostHog::feature_once(
+            $allowed[$outcome],
+            array('reason' => $reason),
+            md5($nonce_token),
+            15 * MINUTE_IN_SECONDS
+        );
+
+        wp_send_json_success(array('recorded' => true, 'outcome' => $outcome));
     }
 
     /**
@@ -570,8 +677,7 @@ class Metasync_Connect_Manager
      */
     public function create_searchatlas_nonce_token()
     {
-        $general_options = Metasync::get_option('general') ?? [];
-        $plugin_auth_token = $general_options['apikey'] ?? '';
+        $plugin_auth_token = Metasync::get_plugin_auth_token();
 
         if (empty($plugin_auth_token)) {
             error_log('MetaSync ERROR: Plugin Auth Token missing from options'); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
@@ -1171,10 +1277,8 @@ class Metasync_Connect_Manager
             return false;
         }
 
-        $general_options = Metasync::get_option('general') ?? [];
-        $test_token = $general_options['apikey'] ?? null;
-
-        $apikey = $general_options['apikey'] ?? '';
+        $test_token = Metasync::get_plugin_auth_token();
+        $apikey = $test_token;
 
         $encrypted_token = $this->create_encrypted_searchatlas_token(['test' => 'data', 'user_id' => get_current_user_id()]);
         if ($encrypted_token) {

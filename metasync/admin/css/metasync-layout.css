@@ -16,6 +16,9 @@
     gap: 24px;
     align-items: start;
     margin-top: 16px;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
 }
 
 /* No promo sidebar — main column fills remaining space */
@@ -162,6 +165,8 @@
 
 .metasync-layout-main {
     min-width: 0; /* prevent grid blowout */
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 /* Override the dashboard form-grid (metasync-dashboard.css) inside the
@@ -539,4 +544,2904 @@
     line-height: 1;
     color: var(--dashboard-text-secondary);
     /* rendered as unicode text chars — monochrome by design */
+}
+
+/* Mobile navigation is hidden unless the shared shell reaches the compact breakpoint. */
+.metasync-mobile-nav {
+    display: none;
+}
+
+@media (max-width: 900px) {
+    .metasync-mobile-nav {
+        display: block;
+        margin: 0 0 16px;
+    }
+
+    /* The dashboard wrapper gives each direct child its own stacking context.
+       Raise this container on mobile so its fixed drawer can cover the layout
+       and WordPress admin content; hidden children cannot cover anything. */
+    .metasync-dashboard-wrap > .metasync-mobile-nav {
+        z-index: 100002;
+    }
+
+    .metasync-mobile-nav-toggle,
+    .metasync-mobile-nav-close {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 44px;
+        border: 1px solid var(--dashboard-border);
+        border-radius: 8px;
+        background: var(--dashboard-card-bg);
+        color: var(--dashboard-text-primary);
+        cursor: pointer;
+        font: inherit;
+    }
+
+    .metasync-mobile-nav-toggle {
+        width: 100%;
+        padding: 10px 16px;
+        font-weight: 600;
+    }
+
+    .metasync-mobile-nav-toggle:hover,
+    .metasync-mobile-nav-toggle:focus-visible,
+    .metasync-mobile-nav-close:hover,
+    .metasync-mobile-nav-close:focus-visible {
+        border-color: var(--dashboard-accent);
+    }
+
+    .metasync-mobile-nav-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 100000;
+        background: rgba(0, 0, 0, 0.55);
+    }
+
+    .metasync-mobile-nav-drawer {
+        position: fixed;
+        z-index: 100001;
+        inset: 0 auto 0 0;
+        width: min(320px, calc(100vw - 32px));
+        max-width: 100%;
+        padding: 16px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        background: var(--dashboard-bg);
+        box-shadow: 4px 0 18px rgba(0, 0, 0, 0.3);
+        box-sizing: border-box;
+    }
+
+    .metasync-mobile-nav-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+        color: var(--dashboard-text-primary);
+    }
+
+    .metasync-mobile-nav-close {
+        width: 44px;
+        padding: 8px;
+        flex-shrink: 0;
+    }
+
+    .metasync-mobile-nav-drawer .metasync-sidenav {
+        padding: 0;
+    }
+
+    .metasync-mobile-nav-drawer .metasync-sidenav li a {
+        min-height: 44px;
+        box-sizing: border-box;
+    }
+
+    /* Shared shell rules; screen-specific tables remain in Phase 2. */
+    .metasync-dashboard-wrap {
+        width: 100%;
+        max-width: 100%;
+        margin: 0;
+        padding: 16px;
+        box-sizing: border-box;
+    }
+
+    .metasync-header-compact,
+    .metasync-page-header,
+    .metasync-dashboard-wrap .notice,
+    .metasync-dashboard-wrap .error,
+    .metasync-dashboard-wrap .updated {
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+
+    .metasync-header-compact {
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .metasync-header-compact-right {
+        flex-wrap: wrap;
+        min-width: 0;
+    }
+
+    .metasync-dashboard-wrap .notice,
+    .metasync-dashboard-wrap .error,
+    .metasync-dashboard-wrap .updated {
+        overflow-wrap: anywhere;
+    }
+
+    .metasync-dashboard-wrap .notice .button,
+    .metasync-dashboard-wrap .error .button,
+    .metasync-dashboard-wrap .updated .button,
+    .metasync-dashboard-wrap .metasync-header-actions,
+    .metasync-dashboard-wrap .metasync-sa-connect-buttons,
+    .metasync-dashboard-wrap .metasync-editor-actions,
+    .metasync-dashboard-wrap .notification-actions,
+    .metasync-dashboard-wrap .actions,
+    .metasync-dashboard-wrap .alignleft.actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .metasync-dashboard-wrap .notice .button,
+    .metasync-dashboard-wrap .error .button,
+    .metasync-dashboard-wrap .updated .button {
+        margin: 0;
+    }
+
+    .metasync-dashboard-wrap .form-table {
+        display: block;
+        border-spacing: 0;
+    }
+
+    .metasync-dashboard-wrap .form-table tbody,
+    .metasync-dashboard-wrap .form-table tr,
+    .metasync-dashboard-wrap .form-table th,
+    .metasync-dashboard-wrap .form-table td {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .metasync-dashboard-wrap .form-table tr {
+        margin-bottom: 12px;
+    }
+
+    /* th + td form a single joined card: shared side radii, no inner gap.
+       (The ≤782px block below only retunes paddings.) */
+    .metasync-dashboard-wrap .form-table th,
+    .metasync-dashboard-wrap .form-table td {
+        border: 1px solid var(--dashboard-border);
+        border-radius: 12px;
+        margin: 0;
+    }
+
+    .metasync-dashboard-wrap .form-table th {
+        border-bottom-left-radius: 0;
+        border-bottom-right-radius: 0;
+        border-bottom: 0;
+    }
+
+    .metasync-dashboard-wrap .form-table td {
+        border-top-left-radius: 0;
+        border-top-right-radius: 0;
+    }
+}
+
+
+/* Phase 2: wide data views scroll inside the data region, never the admin page. */
+.metasync-admin-table-scroll {
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+.metasync-admin-table-scroll > .wp-list-table,
+.metasync-admin-table-scroll > table {
+    min-width: 720px;
+}
+
+/* The tablenav (bulk actions + pagination) lives inside the scroll container;
+   pin it to the visible edge so swiping the table sideways never swipes the
+   controls out of view. Only relevant while the table actually scrolls
+   (its width is forced by the min-width rules above/below). */
+.metasync-admin-table-scroll .tablenav {
+    min-width: 0;
+    max-width: 100%;
+    position: sticky;
+    left: 0;
+}
+
+.metasync-sitemap-files-card {
+    min-width: 0;
+    overflow: hidden;
+}
+
+.metasync-sitemap-files-card .metasync-admin-table-scroll {
+    margin-inline: 0;
+}
+
+/* Long URLs and user-agent strings must not establish a minimum width on cards.
+   Keep this behavior to compact layouts so desktop table wrapping is unchanged. */
+@media (max-width: 782px) {
+    .metasync-dashboard-wrap .wp-list-table td,
+    .metasync-dashboard-wrap .wp-list-table th,
+    .metasync-dashboard-wrap .metasync-sitemap-table td,
+    .metasync-dashboard-wrap .metasync-sitemap-table th {
+        overflow-wrap: anywhere;
+    }
+}
+
+/* Robots editor/header: the header actions can occupy a second line and the
+   textarea remains constrained by the card rather than its content. */
+.metasync-robots-txt-page,
+.metasync-robots-txt-page .metasync-card,
+.metasync-robots-txt-page .metasync-card-header,
+.metasync-robots-txt-page .metasync-editor-container {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.metasync-robots-txt-page .metasync-card-header {
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.metasync-robots-txt-page .metasync-card-header h2 {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.metasync-robots-txt-page .metasync-robots-info {
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+}
+
+.metasync-robots-txt-page .metasync-robots-status {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+.metasync-robots-txt-page #robots-txt-editor {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.metasync-robots-txt-page .metasync-help-item,
+.metasync-robots-txt-page .metasync-help-item code {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 782px) {
+    /* Core's own responsive list-table CSS takes over at this width: rows
+       become stacked flex cards with secondary columns behind a toggle
+       (single_row() emits data-colname + toggle-row for every WP_List_Table).
+       A forced min-width would make those stacked cards scroll sideways for
+       no reason, so let .wp-list-table fill the container and rely on the
+       overflow-wrap rules above for long URLs. Custom tables (e.g. the
+       sitemap files table) are not stacked by core and keep the scroll. */
+    .metasync-admin-table-scroll > .wp-list-table {
+        min-width: 0;
+    }
+
+    .metasync-admin-table-scroll > table:not(.wp-list-table) {
+        min-width: 680px;
+    }
+
+    .metasync-robots-txt-page {
+        padding: 0 !important;
+    }
+
+    .metasync-robots-txt-page .metasync-card-header,
+    .metasync-robots-txt-page .metasync-robots-info {
+        align-items: stretch;
+    }
+
+    .metasync-robots-txt-page .metasync-robots-info {
+        width: 100%;
+    }
+
+    .metasync-robots-txt-page .metasync-robots-info .button {
+        margin-right: 0 !important;
+        max-width: 100%;
+        white-space: normal;
+        height: auto;
+        min-height: 40px;
+    }
+
+    .metasync-robots-txt-page .metasync-editor-container,
+    .metasync-robots-txt-page .metasync-editor-actions {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+}
+
+
+
+
+/* Mobile polish: keep the plugin shell on one predictable spacing grid. */
+@media (max-width: 782px) {
+    .metasync-dashboard-wrap {
+        padding: 12px;
+    }
+
+    .metasync-mobile-nav {
+        margin-bottom: 12px;
+    }
+
+    .metasync-mobile-nav-toggle {
+        justify-content: flex-start;
+        padding-inline: 14px;
+        text-align: left;
+    }
+
+    .metasync-mobile-nav-drawer {
+        width: min(304px, calc(100vw - 20px));
+        padding: 14px;
+    }
+
+    .metasync-mobile-nav-header {
+        min-height: 44px;
+        margin-bottom: 8px;
+    }
+
+    .metasync-layout,
+    .metasync-layout:not(:has(.metasync-layout-promo)) {
+        grid-template-columns: 1fr;
+        gap: 16px;
+        margin-top: 0;
+    }
+
+    .metasync-header-compact {
+        padding: 12px;
+        border-radius: 10px;
+        margin-bottom: 16px;
+    }
+
+    .metasync-header-compact-right {
+        width: 100%;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .metasync-page-header {
+        margin-bottom: 16px;
+    }
+
+    .metasync-page-header h1 {
+        font-size: 1.25rem;
+        line-height: 1.25;
+    }
+
+    .metasync-page-header p {
+        font-size: 13px;
+        line-height: 1.45;
+        margin-top: 6px;
+    }
+
+    .metasync-layout-promo {
+        gap: 12px;
+    }
+
+    .metasync-promo-card {
+        padding: 16px;
+        border-radius: 10px;
+    }
+
+    .metasync-dashboard-wrap .notice,
+    .metasync-dashboard-wrap .error,
+    .metasync-dashboard-wrap .updated {
+        margin: 12px 0 !important;
+        padding: 12px 12px 12px 14px;
+    }
+
+    .metasync-dashboard-wrap .notice p,
+    .metasync-dashboard-wrap .error p,
+    .metasync-dashboard-wrap .updated p {
+        line-height: 1.5;
+        margin: 0 0 10px;
+    }
+
+    .metasync-dashboard-wrap .notice .button,
+    .metasync-dashboard-wrap .error .button,
+    .metasync-dashboard-wrap .updated .button,
+    .metasync-dashboard-wrap .metasync-header-actions .button,
+    .metasync-dashboard-wrap .actions .button {
+        min-height: 40px;
+        box-sizing: border-box;
+    }
+
+    .metasync-dashboard-wrap input[type="text"],
+    .metasync-dashboard-wrap input[type="email"],
+    .metasync-dashboard-wrap input[type="url"],
+    .metasync-dashboard-wrap input[type="password"],
+    .metasync-dashboard-wrap input[type="number"],
+    .metasync-dashboard-wrap input[type="search"],
+    .metasync-dashboard-wrap select,
+    .metasync-dashboard-wrap textarea {
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* Joined-card borders/seam come from the ≤900px block; only retune the
+       compact paddings and outer corner radius here (keep the shared inner
+       corners square via explicit values, not the shorthand). */
+    .metasync-dashboard-wrap .form-table th {
+        padding: 10px 12px 6px;
+        border-radius: 8px 8px 0 0;
+    }
+
+    .metasync-dashboard-wrap .form-table td {
+        padding: 6px 12px 10px;
+        border-radius: 0 0 8px 8px;
+    }
+}
+
+/* Narrow-screen component polish: keep inline desktop dimensions inside the
+   plugin shell without changing the desktop layout. */
+@media (max-width: 782px) {
+    .metasync-dashboard-wrap .metasync-sitemap-actions-grid {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 12px;
+    }
+
+    .metasync-dashboard-wrap .metasync-sitemap-action-form,
+    .metasync-dashboard-wrap .metasync-sitemap-button-large {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+    }
+
+    .metasync-dashboard-wrap .metasync-api-key-masked {
+        display: flex !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        box-sizing: border-box;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        letter-spacing: 2px !important;
+        font-size: 12px !important;
+    }
+
+    .metasync-dashboard-wrap .metasync-chart-bar {
+        min-width: 0;
+        gap: 8px;
+    }
+
+    .metasync-dashboard-wrap .metasync-chart-bar-label {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-chart-bar-fill {
+        flex: 0 1 28%;
+        min-width: 32px;
+        margin: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-chart-bar-value {
+        flex: 0 0 32px;
+        width: 32px;
+        font-size: 12px;
+    }
+}
+
+/* ── Mobile quality pass ────────────────────────────────────────────── */
+
+/* At the compact breakpoint the 1400px rules above still pin main/promo to
+   grid column 2, which creates a phantom first track plus a 24px gap and
+   pushes every screen off-centre. Put everything back in the single column. */
+@media (max-width: 900px) {
+    .metasync-layout-nav,
+    .metasync-layout-main,
+    .metasync-layout-promo {
+        grid-column: 1;
+        grid-row: auto;
+    }
+
+    /* Cancel #wpcontent's left padding so the dark shell is flush with the
+       viewport and the left/right gutters are equal. */
+    div.metasync-dashboard-wrap {
+        margin: 0 0 0 -20px;
+        width: auto;
+        max-width: none;
+    }
+}
+
+@media (max-width: 782px) {
+    div.metasync-dashboard-wrap {
+        margin-left: -10px;
+    }
+
+    /* Core reserves room for the dismiss "x"; the shorthand padding above
+       removed it and let the icon sit on top of the text. */
+    .metasync-dashboard-wrap .notice.is-dismissible,
+    .metasync-dashboard-wrap .notice.dashboard-notice-enhanced {
+        padding-right: 40px;
+    }
+
+    /* One-click connect card: buttons keep their natural size instead of
+       inheriting the 140px flex-basis, which acts as a height in a column. */
+    .metasync-dashboard-wrap .metasync-sa-connect-buttons {
+        flex-direction: row;
+        align-items: center;
+        width: auto;
+    }
+
+    .metasync-dashboard-wrap .metasync-sa-connect-buttons > * {
+        flex: 0 0 auto;
+        max-width: 100%;
+    }
+
+    .metasync-dashboard-wrap #connect-searchatlas-btn,
+    .metasync-dashboard-wrap .metasync-sa-reset-btn {
+        width: auto;
+        min-height: 44px;
+        padding: 10px 18px;
+        font-size: 14px;
+        margin-left: 0 !important;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-consent {
+        margin: 12px 0 14px !important;
+    }
+}
+
+/* Nested settings panels: card > accordion > field card was four borders deep
+   and left ~220px of text width at 390px. Flatten the form-table cell cards
+   that sit inside an accordion and tighten the remaining gutters. */
+@media (max-width: 782px) {
+    .metasync-dashboard-wrap .dashboard-card.compact-layout {
+        padding: 12px;
+    }
+
+    .metasync-dashboard-wrap .metasync-accordion-content[data-state="open"] {
+        padding: 0 12px 14px;
+    }
+
+    .metasync-dashboard-wrap .metasync-accordion-content .form-table {
+        border-spacing: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-accordion-content .form-table tr {
+        margin-bottom: 14px;
+    }
+
+    .metasync-dashboard-wrap .metasync-accordion-content .form-table th,
+    .metasync-dashboard-wrap .metasync-accordion-content .form-table td {
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        padding: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-accordion-content .form-table th {
+        padding-bottom: 8px;
+    }
+
+    .metasync-dashboard-wrap .metasync-sa-connect-container {
+        padding: 14px;
+        margin: 4px 0 0;
+    }
+
+    /* Inline desktop colours (light box, #666 text) are unreadable on the
+       dark theme; retone them with tokens at this width only. */
+    .metasync-dashboard-wrap .metasync-mcp-consent {
+        background: rgba(14, 165, 233, 0.1) !important;
+        padding: 12px !important;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-consent p {
+        color: var(--dashboard-text-secondary) !important;
+        font-size: 13px !important;
+        line-height: 1.55 !important;
+    }
+
+    .metasync-dashboard-wrap .metasync-mcp-consent strong {
+        color: var(--dashboard-text-primary);
+    }
+
+    .metasync-dashboard-wrap .metasync-sa-connect-container details summary,
+    .metasync-dashboard-wrap .metasync-sa-connect-container details > div {
+        color: var(--dashboard-text-secondary) !important;
+    }
+
+    .metasync-dashboard-wrap .metasync-sa-connect-container details summary {
+        padding: 6px 0;
+    }
+}
+
+/* List-table controls (bulk actions, filters, search, pagination). The
+   per-screen desktop rules leave these as nowrap rows, which squeezes each
+   <select> to ~42px so its label is invisible. Stack them as wrapping rows
+   with usable controls. `body` raises specificity over the views' inline
+   <style> blocks without !important. */
+@media (max-width: 782px) {
+    body .metasync-dashboard-wrap .tablenav {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        height: auto;
+        padding: 12px;
+        box-sizing: border-box;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .actions,
+    body .metasync-dashboard-wrap .tablenav .alignleft,
+    body .metasync-dashboard-wrap .tablenav .alignright {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        float: none;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        margin: 0;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .actions select {
+        flex: 1 1 140px;
+        width: auto;
+        min-width: 0;
+        max-width: 100%;
+        min-height: 40px;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .actions .button,
+    body .metasync-dashboard-wrap .tablenav .actions input[type="submit"] {
+        flex: 0 0 auto;
+        min-height: 40px;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .metasync-search-box,
+    body .metasync-dashboard-wrap .tablenav p.search-box {
+        display: flex;
+        gap: 8px;
+        width: 100%;
+        max-width: 100%;
+        margin: 0;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .metasync-search-box input[type="search"],
+    body .metasync-dashboard-wrap .tablenav .metasync-search-box input[type="text"],
+    body .metasync-dashboard-wrap .tablenav p.search-box input[type="search"] {
+        flex: 1 1 auto;
+        width: auto;
+        min-width: 0;
+        min-height: 40px;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .metasync-search-box .button,
+    body .metasync-dashboard-wrap .tablenav p.search-box .button {
+        flex: 0 0 auto;
+        min-height: 40px;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .tablenav-pages {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        float: none;
+        width: 100%;
+        max-width: 100%;
+        margin: 0;
+        height: auto;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .tablenav-pages .pagination-links {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .metasync-per-page {
+        margin-left: 0 !important;
+    }
+
+    /* Summary stat tiles: two-up instead of four full-width slabs. */
+    .metasync-dashboard-wrap .metasync-stats-grid,
+    .metasync-dashboard-wrap .metasync-seo-health-summary {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    .metasync-dashboard-wrap .metasync-stat-card,
+    .metasync-dashboard-wrap .metasync-health-stat-card {
+        min-width: 0;
+        padding: 14px 10px;
+        margin: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-stat-card .metasync-stat-number {
+        font-size: 1.75rem;
+        line-height: 1.1;
+    }
+
+    .metasync-dashboard-wrap .metasync-stat-card .metasync-stat-label {
+        font-size: 11px;
+        line-height: 1.3;
+        overflow-wrap: anywhere;
+    }
+
+    /* Redirections: primary action on its own row, the two secondary actions
+       side by side; the legacy inner .wrap margins no longer shrink the column. */
+    .metasync-dashboard-wrap .metasync-tab-content > .wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 0;
+        width: 100%;
+    }
+
+    .metasync-dashboard-wrap .metasync-tab-content > .wrap > * {
+        flex: 0 0 100%;
+        min-width: 0;
+        margin-top: 0;
+        margin-bottom: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-tab-content > .wrap > .page-title-action,
+    .metasync-dashboard-wrap .metasync-tab-content > .wrap > .metasync-redirect-actions > .page-title-action {
+        flex: 1 1 calc(50% - 4px);
+        justify-content: center;
+        box-sizing: border-box;
+        height: auto;
+        min-height: 44px;
+        margin: 0;
+        top: 0;
+        line-height: 1.3;
+        text-align: center;
+    }
+
+    .metasync-dashboard-wrap .metasync-tab-content > .wrap > .page-title-action:first-child,
+    .metasync-dashboard-wrap .metasync-tab-content > .wrap > .metasync-redirect-actions > .page-title-action:first-child {
+        flex-basis: 100%;
+    }
+
+    .metasync-dashboard-wrap .metasync-health-toolbar > .button {
+        align-self: flex-start;
+        min-height: 40px;
+        height: auto;
+    }
+}
+
+/* Mobile quality pass 2: list-table control wrapping, toggle cards, spacing. */
+@media (max-width: 782px) {
+    body .metasync-dashboard-wrap .tablenav,
+    body .metasync-dashboard-wrap .tablenav .actions,
+    body .metasync-dashboard-wrap .tablenav .alignleft,
+    body .metasync-dashboard-wrap .tablenav .alignright {
+        flex-wrap: wrap !important;
+    }
+
+    body .metasync-dashboard-wrap .tablenav {
+        margin: 12px 0;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .displaying-num {
+        margin: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-tabs {
+        margin-bottom: 12px;
+    }
+
+    .metasync-dashboard-wrap .metasync-tab-content {
+        padding-top: 0;
+        margin-top: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-tab-content > .wrap > * {
+        box-sizing: border-box;
+    }
+
+    /* Setting toggle cards (inline-styled): let label + hint wrap inside the card. */
+    .metasync-dashboard-wrap .metasync-tab-content > .wrap > div > form {
+        flex-wrap: wrap;
+        gap: 6px 12px !important;
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .metasync-dashboard-wrap .metasync-tab-content > .wrap > div > form > span {
+        flex: 1 1 200px;
+        min-width: 0;
+        line-height: 1.45;
+    }
+
+    /* SEO Health toolbar: Export CSV is a normal-height button and the search
+       field and its button share one row. */
+    body .metasync-dashboard-wrap .metasync-health-toolbar > .button {
+        display: inline-flex;
+        align-items: center;
+        align-self: flex-start;
+        height: auto;
+        min-height: 40px;
+        padding: 8px 16px;
+        line-height: 1.3;
+    }
+
+    body .metasync-dashboard-wrap .metasync-health-toolbar .search-box {
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 8px;
+        height: auto;
+    }
+
+    body .metasync-dashboard-wrap .metasync-health-toolbar .search-box input[type="search"] {
+        flex: 1 1 auto;
+        width: auto;
+        min-width: 0;
+    }
+
+    body .metasync-dashboard-wrap .metasync-health-toolbar .search-box input[type="submit"] {
+        flex: 0 0 auto;
+        width: auto;
+        min-height: 40px;
+    }
+}
+
+@media (max-width: 782px) {
+    body .metasync-dashboard-wrap .tablenav .tablenav-pages {
+        justify-content: flex-start !important;
+    }
+
+    /* The inline 15px margins stack on top of the flex gap in this row. */
+    .metasync-dashboard-wrap .metasync-tab-content > .wrap > div:not(.metasync-redirect-actions) {
+        margin: 0 !important;
+    }
+}
+
+/* Robots.txt and XML Sitemap: remove the second card level, size buttons and
+   tabs for touch, and use the full column. */
+@media (max-width: 782px) {
+    /* The view's inline `padding: 20px !important` otherwise offsets the card
+       by 20px on the left only. */
+    body .metasync-dashboard-wrap .metasync-robots-txt-page {
+        padding: 0 !important;
+    }
+
+    .metasync-dashboard-wrap .metasync-robots-txt-page .metasync-card-header {
+        padding: 16px;
+    }
+
+    .metasync-dashboard-wrap .metasync-robots-txt-page .metasync-robots-info {
+        align-items: center;
+        gap: 8px;
+    }
+
+    .metasync-dashboard-wrap .metasync-robots-txt-page .metasync-robots-info .metasync-robots-status {
+        flex: 0 1 auto;
+        margin-right: auto;
+    }
+
+    .metasync-dashboard-wrap .metasync-robots-txt-page .metasync-robots-info .button,
+    .metasync-dashboard-wrap .metasync-robots-txt-page .metasync-editor-actions .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: auto;
+        min-height: 40px;
+        padding: 8px 16px;
+        line-height: 1.3;
+        margin: 0 !important;
+        box-sizing: border-box;
+    }
+
+    .metasync-dashboard-wrap .metasync-robots-txt-page .metasync-editor-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .metasync-dashboard-wrap .metasync-robots-txt-page .metasync-editor-actions .button {
+        flex: 1 1 calc(50% - 4px);
+        width: auto;
+    }
+
+    .metasync-dashboard-wrap .metasync-robots-txt-page .metasync-editor-actions #save-robots-btn {
+        flex-basis: 100%;
+    }
+
+    .metasync-dashboard-wrap .metasync-sitemap-outer {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+    }
+
+    .metasync-dashboard-wrap .metasync-sitemap-status-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    .metasync-dashboard-wrap .metasync-sitemap-stat:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
+    }
+
+    .metasync-dashboard-wrap .metasync-sitemap-stat {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+        padding: 12px;
+        min-width: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-sitemap-tabs .metasync-tab-nav a {
+        white-space: nowrap;
+        padding-inline: 12px;
+    }
+}
+
+/* Buttons inside the plugin shell: core's mobile .button leaves 60px+ tall,
+   right-floated slabs on several screens. Normalise height and float only
+   (horizontal padding stays so pagination controls keep their size). */
+@media (max-width: 782px) {
+    .metasync-dashboard-wrap a.button,
+    .metasync-dashboard-wrap button.button,
+    .metasync-dashboard-wrap input.button {
+        float: none;
+        height: auto;
+        min-height: 40px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        line-height: 1.3;
+        box-sizing: border-box;
+    }
+
+    /* A list's own tablenav inside a card needs no second box. */
+    .metasync-dashboard-wrap .dashboard-card .tablenav {
+        margin: 0 0 12px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+    }
+
+    .metasync-dashboard-wrap .dashboard-card form[style*="padding: 16px"] {
+        padding: 12px !important;
+    }
+
+    .metasync-dashboard-wrap .metasync-chart-title {
+        font-size: 1rem;
+        line-height: 1.3;
+    }
+
+    .metasync-dashboard-wrap .metasync-chart-bar-fill {
+        flex: 0 0 84px;
+    }
+}
+
+@media (max-width: 782px) {
+    /* Row actions are hover-revealed off-screen on desktop. Touch users have no
+       hover, and the hidden block still reserved ~32px of empty row height, so
+       show them inline under the primary cell. */
+    .metasync-dashboard-wrap .wp-list-table .row-actions {
+        position: static;
+        left: auto;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 14px;
+        height: auto;
+        padding: 6px 0 0;
+    }
+
+    .metasync-dashboard-wrap .wp-list-table .row-actions > span {
+        margin: 0;
+        padding: 0;
+    }
+
+    .metasync-dashboard-wrap .dashboard-card > div[style*="justify-content: flex-end"] {
+        justify-content: flex-start !important;
+    }
+
+    .metasync-dashboard-wrap .metasync-sitemap-preview-header {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 10px 12px;
+    }
+
+    .metasync-dashboard-wrap .metasync-sitemap-preview-header .metasync-preview-label {
+        flex: 1 1 100%;
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+}
+
+@media (max-width: 782px) {
+    .metasync-dashboard-wrap .metasync-tab-content > .wrap > .page-title-action,
+    .metasync-dashboard-wrap .metasync-tab-content > .wrap > .metasync-redirect-actions > .page-title-action {
+        white-space: normal;
+    }
+
+    .metasync-dashboard-wrap .metasync-tab-content > .wrap > .page-title-action span,
+    .metasync-dashboard-wrap .metasync-tab-content > .wrap > .metasync-redirect-actions > .page-title-action span {
+        width: auto;
+        height: auto;
+        line-height: 1;
+    }
+}
+
+@media (max-width: 380px) {
+    .metasync-dashboard-wrap .metasync-tab-content > .wrap > .page-title-action,
+    .metasync-dashboard-wrap .metasync-tab-content > .wrap > .metasync-redirect-actions > .page-title-action {
+        flex-basis: 100%;
+    }
+}
+
+@media (max-width: 782px) {
+    /* Inline `min-width: 300px` on the page-builder select overflows 320px. */
+    .metasync-dashboard-wrap select[style*="min-width"] {
+        min-width: 0 !important;
+        width: 100%;
+    }
+
+    /* Three tabs no longer fit at 320px; scroll the tab strip, not the page. */
+    .metasync-dashboard-wrap .metasync-sitemap-tabs .metasync-tab-nav {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
+/* ── Mobile polish v3 ───────────────────────────────────────────────────
+   Final, consolidated pass. Everything here is inside a max-width media query
+   (or is a light-theme colour fix) so desktop geometry is unchanged. */
+
+/* Light theme: several screens draw the select chevron in white/pale grey,
+   which disappears on a white control. Redraw it dark. */
+[data-theme="light"] .metasync-dashboard-wrap .tablenav select,
+[data-theme="light"] .metasync-dashboard-wrap .sync-filter-select,
+[data-theme="light"] .metasync-dashboard-wrap .metasync-per-page-select,
+[data-theme="light"] .metasync-dashboard-wrap #add-redirection-form select,
+[data-theme="light"] .metasync-dashboard-wrap .metasync-type-select-wrap select {
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231a1f26' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3E") !important;
+}
+
+@media (max-width: 782px) {
+    /* ── Settings forms ─────────────────────────────────────────────── */
+
+    /* Inline `width: 200px` on a <th> beats the stacked width:100% rule and
+       leaves the label as a small floating chip. */
+    .metasync-dashboard-wrap .form-table th[style*="width"] {
+        width: 100% !important;
+    }
+
+    /* A form-table inside another form-table cell (Google Index API, Post
+       Types) stacks four levels of padding and borders; compact the inner one
+       and drop the view's own inline 20px padding wrapper. */
+    .metasync-dashboard-wrap .form-table td > div[style*="padding: 20px"]:not(.dashboard-card) {
+        padding: 0 !important;
+    }
+
+    .metasync-dashboard-wrap .form-table td > .dashboard-card[style*="padding"] {
+        padding: 14px !important;
+    }
+
+    .metasync-dashboard-wrap .form-table td .form-table {
+        margin: 0;
+    }
+
+    .metasync-dashboard-wrap .form-table td .form-table th {
+        padding: 10px 12px 4px;
+    }
+
+    .metasync-dashboard-wrap .form-table td .form-table td {
+        padding: 4px 12px 12px;
+    }
+
+    .metasync-dashboard-wrap .form-table td details[style*="padding-top"] {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+    }
+
+    .metasync-dashboard-wrap .form-table td details > summary {
+        min-height: 36px;
+        display: flex;
+        align-items: center;
+    }
+
+    .metasync-dashboard-wrap textarea.large-text,
+    .metasync-dashboard-wrap .form-table textarea {
+        padding: 10px 12px;
+        width: 100%;
+    }
+
+    /* Checkbox groups: one tappable row per option instead of an inline run
+       that wraps mid-label. */
+    .metasync-dashboard-wrap .form-table td label.pr {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        min-height: 36px;
+        padding: 4px 0;
+        box-sizing: border-box;
+    }
+
+    /* Native file input: keep the button and file name inside the card. */
+    .metasync-dashboard-wrap input[type="file"] {
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* ── List-table controls ────────────────────────────────────────── */
+
+    body .metasync-dashboard-wrap .tablenav br.clear {
+        display: none;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .tablenav-pages {
+        gap: 8px 10px;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .displaying-num {
+        margin: 0;
+    }
+
+    /* Date and number filters (404 Monitor): a two-column grid, From | To then
+       Min Hits | Filter, all the same height. The views set these with
+       !important. */
+    body .metasync-dashboard-wrap .tablenav .actions:has(input[type="date"]) {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .actions input[type="date"],
+    body .metasync-dashboard-wrap .tablenav .actions input[type="number"] {
+        width: 100% !important;
+        min-width: 0 !important;
+        height: 40px !important;
+        margin: 0 !important;
+        box-sizing: border-box !important;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .actions:has(input[type="date"]) input[type="submit"] {
+        width: 100%;
+    }
+
+    /* ── Stacked list-table rows ────────────────────────────────────── */
+
+    /* Core paints the checkbox cell with a different colour than the rest of
+       the row, which shows as a dark strip down the left edge. */
+    body .metasync-dashboard-wrap .wp-list-table tbody tr:nth-child(odd) {
+        background: var(--dashboard-card-bg) !important;
+    }
+
+    body .metasync-dashboard-wrap .wp-list-table tbody tr:nth-child(even) {
+        background: color-mix(in srgb, var(--dashboard-text-primary) 4%, var(--dashboard-card-bg)) !important;
+    }
+
+    /* The views stripe the <td>s only (and hover them) with several
+       !important rules, so the checkbox cell and the primary <th> end up in
+       different colours. Paint the row, keep the cells transparent. The
+       :not() pairs only raise specificity above those view rules. */
+    body .metasync-dashboard-wrap .wp-list-table tbody tr:nth-child(n):not(.x1):not(.x2) > td:not(.x1):not(.x2),
+    body .metasync-dashboard-wrap .wp-list-table tbody tr:nth-child(n):not(.x1):not(.x2) > th:not(.x1):not(.x2) {
+        background: transparent !important;
+    }
+
+    /* The expand control is the only way to reach the other columns; make it
+       look like one. */
+    .metasync-dashboard-wrap .wp-list-table .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--dashboard-border);
+        border-radius: 8px;
+        background: var(--dashboard-card-hover);
+        width: 40px;
+        height: 40px;
+        padding: 0;
+    }
+
+    .metasync-dashboard-wrap .wp-list-table .toggle-row::before {
+        position: static;
+        display: block;
+        width: 20px;
+        height: 20px;
+        margin: 0;
+        color: var(--dashboard-text-primary);
+    }
+
+    /* Row action links: contrast against both themes. */
+    .metasync-dashboard-wrap .wp-list-table .row-actions a {
+        color: #8ab4ff;
+        font-weight: 500;
+    }
+
+    .metasync-dashboard-wrap .wp-list-table .row-actions .delete a,
+    .metasync-dashboard-wrap .wp-list-table .row-actions .trash a {
+        color: #ff8f8f;
+    }
+
+    [data-theme="light"] .metasync-dashboard-wrap .wp-list-table .row-actions a {
+        color: #1d4ed8;
+    }
+
+    [data-theme="light"] .metasync-dashboard-wrap .wp-list-table .row-actions .delete a,
+    [data-theme="light"] .metasync-dashboard-wrap .wp-list-table .row-actions .trash a {
+        color: #b32d2e;
+    }
+}
+
+@media (max-width: 782px) {
+    /* ── Tables that core does not stack ────────────────────────────── */
+
+    /* The Advanced Settings error summary has no primary column, so core's
+       stacked cards do not apply and its headers wrap into a second row with
+       striped cells going white. Keep it a real table that scrolls inside its
+       own wrapper. */
+    .metasync-dashboard-wrap .wp-list-table.metasync-scroll-table {
+        display: table;
+        width: 100%;
+        min-width: 720px;
+        table-layout: auto !important;
+    }
+
+    .metasync-dashboard-wrap .wp-list-table.metasync-scroll-table th,
+    .metasync-dashboard-wrap .wp-list-table.metasync-scroll-table td,
+    .metasync-dashboard-wrap .wp-list-table.metasync-scroll-table code {
+        white-space: nowrap;
+        overflow-wrap: normal;
+        word-break: normal;
+    }
+
+    .metasync-dashboard-wrap .wp-list-table.metasync-scroll-table thead {
+        display: table-header-group;
+    }
+
+    .metasync-dashboard-wrap .wp-list-table.metasync-scroll-table tbody {
+        display: table-row-group;
+    }
+
+    .metasync-dashboard-wrap .wp-list-table.metasync-scroll-table tr {
+        display: table-row;
+    }
+
+    .metasync-dashboard-wrap .wp-list-table.metasync-scroll-table th,
+    .metasync-dashboard-wrap .wp-list-table.metasync-scroll-table td {
+        display: table-cell !important;
+        width: auto;
+        vertical-align: middle;
+        overflow-wrap: normal;
+    }
+
+    /* ── Whitelabel quick links ─────────────────────────────────────── */
+
+    .metasync-dashboard-wrap .metasync-quick-links-table {
+        display: block;
+        border: 0;
+        max-width: 100% !important;
+    }
+
+    .metasync-dashboard-wrap .metasync-quick-links-table thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+    }
+
+    .metasync-dashboard-wrap .metasync-quick-links-table tbody,
+    .metasync-dashboard-wrap .metasync-quick-links-table tr {
+        display: block;
+        width: 100%;
+    }
+
+    .metasync-dashboard-wrap .metasync-quick-links-table tr {
+        box-sizing: border-box;
+        margin: 0 0 10px;
+        padding: 12px;
+        border: 1px solid var(--dashboard-border);
+        border-radius: 8px;
+    }
+
+    .metasync-dashboard-wrap .metasync-quick-links-table td {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0 0 10px;
+        border: 0;
+        border-radius: 0;
+        text-align: left !important;
+    }
+
+    .metasync-dashboard-wrap .metasync-quick-links-table td::before {
+        content: attr(data-label);
+        display: block;
+        margin-bottom: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--dashboard-text-secondary);
+    }
+
+    .metasync-dashboard-wrap .metasync-quick-links-table td:last-child {
+        display: flex;
+        flex-direction: row-reverse;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 10px;
+        padding-bottom: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-quick-links-table td:last-child::before {
+        margin: 0;
+    }
+
+    /* ── Local business: opening hours + phone numbers ──────────────── */
+
+    .metasync-dashboard-wrap #daysTime,
+    .metasync-dashboard-wrap #phone-numbers {
+        margin: 0 0 10px;
+        padding: 0;
+        list-style: none;
+    }
+
+    .metasync-dashboard-wrap #daysTime li,
+    .metasync-dashboard-wrap #phone-numbers li {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+        margin: 0 0 10px;
+        padding: 12px;
+        border: 1px solid var(--dashboard-border);
+        border-radius: 8px;
+    }
+
+    .metasync-dashboard-wrap #daysTime li select,
+    .metasync-dashboard-wrap #daysTime li input,
+    .metasync-dashboard-wrap #phone-numbers li select,
+    .metasync-dashboard-wrap #phone-numbers li input {
+        width: 100%;
+        max-width: 100%;
+        margin: 0;
+        box-sizing: border-box;
+    }
+
+    .metasync-dashboard-wrap #daysTime li button,
+    .metasync-dashboard-wrap #phone-numbers li button {
+        justify-self: start;
+        min-height: 40px;
+        padding: 8px 16px;
+        border: 1px solid var(--dashboard-border);
+        border-radius: 6px;
+        background: transparent;
+        color: var(--dashboard-error);
+        font-weight: 500;
+        cursor: pointer;
+    }
+
+    .metasync-dashboard-wrap #addNewTime,
+    .metasync-dashboard-wrap input.button-secondary[type="button"][id^="addNew"] {
+        width: auto;
+        min-height: 40px;
+        padding: 8px 16px;
+        margin: 0 0 8px;
+    }
+
+    /* ── Code samples and long tokens ───────────────────────────────── */
+
+    .metasync-dashboard-wrap pre {
+        max-width: 100%;
+        box-sizing: border-box;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        overflow-x: auto;
+    }
+
+    .metasync-dashboard-wrap code {
+        overflow-wrap: anywhere;
+    }
+}
+
+@media (max-width: 782px) {
+    /* ── Inline fixed widths from the views ─────────────────────────── */
+
+    /* Inline auto-fit grids with a 200-450px minimum overflow any card that
+       is narrower than the minimum (a 320px phone has ~250px of card). Cap the
+       track minimum at the container width. */
+    .metasync-dashboard-wrap [style*="minmax(200px"] {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)) !important;
+    }
+
+    .metasync-dashboard-wrap [style*="minmax(210px"] {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)) !important;
+    }
+
+    .metasync-dashboard-wrap [style*="minmax(220px"] {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)) !important;
+    }
+
+    .metasync-dashboard-wrap [style*="minmax(240px"] {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)) !important;
+    }
+
+    .metasync-dashboard-wrap [style*="minmax(250px"] {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)) !important;
+    }
+
+    .metasync-dashboard-wrap [style*="minmax(280px"] {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)) !important;
+    }
+
+    .metasync-dashboard-wrap [style*="minmax(300px"] {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)) !important;
+    }
+
+    .metasync-dashboard-wrap [style*="minmax(320px"] {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)) !important;
+    }
+
+    .metasync-dashboard-wrap [style*="minmax(450px"] {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 450px), 1fr)) !important;
+    }
+
+    /* Buttons with an inline min-width must be able to shrink to the card. */
+    .metasync-dashboard-wrap button[style*="min-width"],
+    .metasync-dashboard-wrap a[style*="min-width"],
+    .metasync-dashboard-wrap input[style*="min-width"] {
+        min-width: 0 !important;
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* Inline flex rows (button groups, label + input) wrap instead of running
+       off the card; rows that opt into nowrap keep their behaviour. */
+    .metasync-dashboard-wrap div[style*="display: flex"]:not([style*="nowrap"]):not([style*="flex-direction: column"]),
+    .metasync-dashboard-wrap div[style*="display:flex"]:not([style*="nowrap"]):not([style*="flex-direction:column"]) {
+        flex-wrap: wrap;
+    }
+
+    /* ── Touch targets ──────────────────────────────────────────────── */
+
+    /* The 18px help icon keeps its size; an invisible pseudo-element grows the
+       hit area to ~42px. */
+    .metasync-dashboard-wrap .metasync-tooltip-trigger {
+        position: relative;
+    }
+
+    .metasync-dashboard-wrap .metasync-tooltip-trigger::after {
+        content: "";
+        position: absolute;
+        inset: -12px;
+    }
+
+    .metasync-header-compact .metasync-theme-toggle {
+        min-height: 36px;
+        padding-inline: 12px;
+    }
+
+    /* Stacked rows: the 40px expand control used to overlap the next row's
+       when a row was shorter than the control. */
+    .metasync-dashboard-wrap .wp-list-table tbody .column-primary {
+        min-height: 56px;
+        box-sizing: border-box;
+    }
+}
+
+@media (max-width: 782px) {
+    /* Secondary / primary buttons that do not carry core's `.button` class pick
+       up the 2.7 line-height from core's mobile rules and grow to ~60px. */
+    .metasync-dashboard-wrap .button-secondary,
+    .metasync-dashboard-wrap .button-primary {
+        line-height: 1.3;
+        min-height: 40px;
+        height: auto;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        box-sizing: border-box;
+    }
+}
+
+@media (max-width: 782px) {
+    /* A view-level panel drawn inside a card (same background, 20px padding)
+       costs 36px of width on each side for nothing; flatten it. Sub-sections
+       that carry their own border keep it but with a tighter padding. */
+    .metasync-dashboard-wrap .dashboard-card > div[style*="background: var(--dashboard-card-bg)"][style*="padding: 20px"] {
+        padding: 0 !important;
+        background: transparent !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+    }
+
+    .metasync-dashboard-wrap .dashboard-card div[style*="padding: 20px"][style*="border: 1px solid var(--dashboard-border)"] {
+        padding: 14px !important;
+    }
+}
+
+@media (max-width: 782px) {
+    .metasync-dashboard-wrap input[type="color"] {
+        min-height: 36px;
+        min-width: 48px;
+    }
+}
+
+/* ── Mobile polish v3, part 2: page shells and per-screen fixes ─────── */
+@media (max-width: 782px) {
+    /* Gutters. Some views carry their own `.metasync-dashboard-wrap { padding:
+       20px }` and page wrappers with 20px padding, which leave those screens
+       with wider, unequal gutters than the rest. */
+    body div.metasync-dashboard-wrap {
+        padding: 12px;
+    }
+
+    .metasync-layout-main > .metasync-media-optimization-page,
+    .metasync-layout-main > .metasync-code-minification-page {
+        padding: 0 !important;
+    }
+
+    /* Card headers with a switch (Media Optimization, Code Minification): the
+       switch stays its size and the text block shrinks instead of running
+       underneath it. */
+    .metasync-dashboard-wrap .metasync-card-header {
+        padding: 16px;
+        gap: 12px;
+    }
+
+    .metasync-dashboard-wrap .metasync-card-header > :first-child {
+        flex: 1 1 0;
+        min-width: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-card-header .metasync-toggle {
+        flex: 0 0 auto;
+    }
+
+    /* Add Redirection: the view pins every row label to a 150px chip. */
+    body .metasync-dashboard-wrap #add-redirection-form .form-table th {
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 12px 14px !important;
+        text-align: left !important;
+        box-sizing: border-box !important;
+    }
+
+    body .metasync-dashboard-wrap #add-redirection-form .form-table tbody tr {
+        margin-bottom: 16px !important;
+        padding-bottom: 0 !important;
+    }
+
+    /* Import External Data: three tabs share the row; icons drop out so the
+       labels are never cut. */
+    .metasync-dashboard-wrap .metasync-import-nav {
+        display: flex;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .metasync-dashboard-wrap .metasync-import-nav .metasync-nav-item {
+        flex: 1 0 auto;
+        justify-content: center;
+        padding: 12px 14px;
+        white-space: nowrap;
+    }
+
+    .metasync-dashboard-wrap .metasync-import-nav .metasync-nav-item .dashicons {
+        display: none;
+    }
+
+    /* Setup wizard titles collide when they wrap. */
+    .metasync-wizard-wrap h1,
+    .metasync-wizard-wrap h2,
+    .metasync-wizard-wrap h3 {
+        line-height: 1.25;
+    }
+}
+
+@media (max-width: 782px) {
+    /* Form action rows (Code Minification, Media Optimization) are nowrap
+       flex rows; two buttons exceed a 296px card at 320px. */
+    .metasync-dashboard-wrap .metasync-form-actions {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .metasync-dashboard-wrap .metasync-form-actions > .button,
+    .metasync-dashboard-wrap .metasync-form-actions > button {
+        max-width: 100%;
+    }
+
+    /* List tables render the row expander twice (core's plus the column's own),
+       stacked on the same spot: two focusable "Show more details" buttons per
+       row for assistive tech. Keep one. */
+    .metasync-dashboard-wrap .wp-list-table .toggle-row ~ .toggle-row {
+        display: none;
+    }
+}
+
+@media (max-width: 782px) {
+    /* Radios: core's mobile `:checked::before` dot is sized for a 25px control
+       and the plugin forces 18px, which leaves a thin white bar inside the
+       selected radio. Draw the dot explicitly. */
+    .metasync-dashboard-wrap input[type="radio"] {
+        -webkit-appearance: none;
+        appearance: none;
+        display: inline-grid;
+        place-content: center;
+        flex: 0 0 auto;
+        width: 20px;
+        height: 20px;
+        min-width: 20px;
+        margin: 0 8px 0 0;
+        padding: 0;
+        border: 2px solid var(--dashboard-border);
+        border-radius: 50%;
+        background: var(--dashboard-input-bg);
+        box-sizing: border-box;
+    }
+
+    .metasync-dashboard-wrap input[type="radio"]::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        margin: 0;
+        border-radius: 50%;
+        background: #ffffff;
+        transform: scale(0);
+    }
+
+    .metasync-dashboard-wrap input[type="radio"]:checked {
+        border-color: var(--dashboard-accent);
+        background: var(--dashboard-accent);
+    }
+
+    .metasync-dashboard-wrap input[type="radio"]:checked::before {
+        transform: scale(1);
+    }
+
+    .metasync-dashboard-wrap input[type="radio"]:focus-visible {
+        outline: 2px solid var(--dashboard-accent);
+        outline-offset: 2px;
+    }
+}
+
+@media (max-width: 782px) {
+    /* Setup wizard: the header runs edge to edge while the stepper, content and
+       navigation cards carry 20px side margins, so the page has two different
+       insets. Use one. */
+    body .metasync-wizard-wrap > div {
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+    }
+
+    .metasync-wizard-wrap .wizard-progress {
+        padding: 16px;
+    }
+}
+
+/* Tablet band (783-900px): the compact shell is active but WordPress has not
+   switched to its stacked list tables yet, so the single-row filter bars
+   (404 Monitor, Redirections, SEO Health) must be allowed to wrap. */
+@media (min-width: 783px) and (max-width: 900px) {
+    body .metasync-dashboard-wrap .tablenav {
+        flex-wrap: wrap;
+        height: auto;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .actions,
+    body .metasync-dashboard-wrap .tablenav .alignleft,
+    body .metasync-dashboard-wrap .tablenav .alignright {
+        flex-wrap: wrap;
+        max-width: 100%;
+        min-width: 0;
+    }
+
+    body .metasync-dashboard-wrap .tablenav p.search-box,
+    body .metasync-dashboard-wrap .tablenav .metasync-search-box {
+        flex-wrap: wrap;
+        max-width: 100%;
+    }
+
+    /* Filters and search share one nowrap row in the views; at this width the
+       two halves squeeze each other (Filter under the search box, "Min Hits"
+       cut). Give each half its own line. */
+    body .metasync-dashboard-wrap .tablenav > .alignleft,
+    body .metasync-dashboard-wrap .tablenav > .alignright {
+        flex: 1 1 100%;
+        float: none;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .actions input[type="number"] {
+        min-width: 110px !important;
+    }
+
+    body .metasync-dashboard-wrap .tablenav input[type="search"] {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    /* Short enumerated values must not break mid-word in a narrow column. */
+    .metasync-dashboard-wrap .wp-list-table td.column-status,
+    .metasync-dashboard-wrap .wp-list-table td.column-post_type,
+    .metasync-dashboard-wrap .wp-list-table th.column-status,
+    .metasync-dashboard-wrap .wp-list-table th.column-post_type {
+        white-space: nowrap;
+        overflow-wrap: normal;
+        word-break: normal;
+    }
+}
+
+@media (max-width: 900px) {
+    .metasync-header-compact .metasync-theme-toggle {
+        min-height: 36px;
+        padding-inline: 12px;
+    }
+}
+
+@media (max-width: 900px) {
+    /* Touch-sized secondary buttons on tablets as well. */
+    .metasync-dashboard-wrap .button-small,
+    .metasync-dashboard-wrap #timeDelete,
+    .metasync-dashboard-wrap #number-delete,
+    .metasync-dashboard-wrap .copy-btn {
+        min-height: 32px;
+    }
+}
+
+/* ── Mobile polish v3, part 3: review round ─────────────────────────── */
+
+/* Light theme: hard-coded dark colours in a few views (colour only). */
+[data-theme="light"] .metasync-form-select {
+    color: var(--dashboard-text-primary) !important;
+}
+
+[data-theme="light"] .metasync-form-select option {
+    color: var(--dashboard-text-primary);
+    background: var(--dashboard-card-bg);
+}
+
+[data-theme="light"] .metasync-form-input,
+[data-theme="light"] .metasync-form-textarea,
+[data-theme="light"] .metasync-form-select {
+    background-color: var(--dashboard-input-bg);
+}
+
+@media (max-width: 782px) {
+    /* Light theme: Media Optimization panels are painted with translucent
+       black, which turns into flat grey blocks on a white card. */
+    [data-theme="light"] .metasync-field--card,
+    [data-theme="light"] .metasync-checkbox-label,
+    [data-theme="light"] .metasync-capability-item,
+    [data-theme="light"] .metasync-feature-status-item,
+    [data-theme="light"] .metasync-media-optimization-page .metasync-warnings-list li {
+        background: color-mix(in srgb, var(--dashboard-text-primary) 4%, var(--dashboard-card-bg));
+    }
+
+    [data-theme="light"] .metasync-field .metasync-text-input,
+    [data-theme="light"] .metasync-number-group input[type="number"] {
+        background: var(--dashboard-input-bg);
+        color: var(--dashboard-text-primary);
+    }
+
+    [data-theme="light"] .metasync-badge-success { color: #047857; }
+    [data-theme="light"] .metasync-badge-warning { color: #b45309; }
+    [data-theme="light"] .metasync-badge-error { color: #b91c1c; }
+
+    /* ── Selects without a chevron ──────────────────────────────────── */
+
+    /* Several screens strip the native arrow (appearance: none) and never draw
+       a replacement, so the dropdown reads as a text box. Draw one. Selects
+       that already carry their own arrow keep it (their selectors are more
+       specific). */
+    .metasync-dashboard-wrap select:not([multiple]):not([size]) {
+        -webkit-appearance: none;
+        appearance: none;
+        padding-right: 32px;
+        background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23d1d5db' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 10px center;
+        background-size: 14px;
+    }
+
+    [data-theme="light"] .metasync-dashboard-wrap select:not([multiple]):not([size]),
+    [data-theme="light"] .metasync-dashboard-wrap .tablenav select,
+    [data-theme="light"] .metasync-dashboard-wrap .sync-filter-select,
+    [data-theme="light"] .metasync-dashboard-wrap .metasync-per-page-select,
+    [data-theme="light"] .metasync-dashboard-wrap #add-redirection-form select,
+    [data-theme="light"] .metasync-dashboard-wrap .metasync-type-select-wrap select {
+        background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231a1f26' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3E") !important;
+        background-repeat: no-repeat !important;
+        background-position: right 10px center !important;
+        background-size: 14px !important;
+    }
+
+    /* ── Scroll affordance ──────────────────────────────────────────── */
+
+    /* Wide tables scroll inside their own box. A soft edge shadow on the
+       side(s) that still have content tells the user to swipe. */
+    .metasync-dashboard-wrap .metasync-admin-table-scroll,
+    .metasync-dashboard-wrap .metasync-scroll-wrap {
+        background-color: var(--dashboard-card-bg);
+        background-image:
+            linear-gradient(to right, var(--dashboard-card-bg) 30%, transparent),
+            linear-gradient(to left, var(--dashboard-card-bg) 30%, transparent),
+            radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, 0.35), transparent),
+            radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.35), transparent);
+        background-position: 0 0, 100% 0, 0 0, 100% 0;
+        background-size: 36px 100%, 36px 100%, 12px 100%, 12px 100%;
+        background-repeat: no-repeat;
+        background-attachment: local, local, scroll, scroll;
+    }
+
+    /* ── Tabs that no longer fit at 320px ───────────────────────────── */
+
+    .metasync-dashboard-wrap .metasync-import-nav,
+    .metasync-dashboard-wrap .metasync-sitemap-tabs .metasync-tab-nav {
+        flex-wrap: wrap;
+        overflow-x: visible;
+    }
+
+    .metasync-dashboard-wrap .metasync-sitemap-tabs .metasync-tab-nav a {
+        flex: 1 1 auto;
+        text-align: center;
+    }
+
+    /* ── Headings, notices, buttons ─────────────────────────────────── */
+
+    .metasync-dashboard-wrap .notice > p > strong:first-child {
+        display: block;
+        margin-bottom: 2px;
+    }
+
+    .metasync-dashboard-wrap .button,
+    .metasync-dashboard-wrap .button-primary,
+    .metasync-dashboard-wrap .button-secondary,
+    .metasync-dashboard-wrap .metasync-btn-primary {
+        max-width: 100%;
+        box-sizing: border-box;
+        white-space: normal;
+    }
+
+    .metasync-dashboard-wrap .metasync-backup-actions {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .metasync-dashboard-wrap .source_url_delete {
+        min-height: 40px;
+        padding: 8px 16px;
+    }
+
+    body .metasync-dashboard-wrap #add-redirection-form p.submit,
+    body .metasync-dashboard-wrap #add-redirection-form .submit {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    /* ── Changes Log rows ───────────────────────────────────────────── */
+
+    /* Icon and text side by side, the status pill under the meta line: about
+       half the height of the stacked icon / title / meta / pill layout. */
+    .metasync-dashboard-wrap .sync-log-item {
+        display: grid;
+        grid-template-columns: 36px minmax(0, 1fr);
+        grid-template-areas:
+            "icon content"
+            "icon status";
+        gap: 4px 12px;
+        align-items: start;
+        padding: 14px 16px;
+    }
+
+    .metasync-dashboard-wrap .sync-log-icon {
+        grid-area: icon;
+        margin: 0;
+    }
+
+    .metasync-dashboard-wrap .sync-icon-circle {
+        width: 36px;
+        height: 36px;
+    }
+
+    .metasync-dashboard-wrap .sync-log-content {
+        grid-area: content;
+    }
+
+    .metasync-dashboard-wrap .sync-log-status {
+        grid-area: status;
+        margin: 0;
+        align-self: start;
+        justify-self: start;
+    }
+
+    /* ── Setup wizard ───────────────────────────────────────────────── */
+
+    .metasync-wizard-wrap .wizard-progress-steps {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px 6px;
+    }
+
+    .metasync-wizard-wrap .wizard-steps-container {
+        padding: 0 0 24px;
+    }
+
+    .metasync-wizard-wrap .wizard-step {
+        padding: 28px 16px;
+    }
+
+    .metasync-wizard-wrap .wizard-header {
+        gap: 12px;
+    }
+
+    .metasync-wizard-wrap .wizard-exit-link {
+        margin-top: 4px;
+    }
+
+    /* ── One level less of nesting on settings forms ────────────────── */
+
+    /* The outer card around a stack of field cards adds a border and 12px of
+       padding per side; the field cards already carry their own. */
+    .metasync-dashboard-wrap .dashboard-card.compact-layout {
+        padding: 4px 0;
+        background: transparent;
+        border-color: transparent;
+        box-shadow: none;
+    }
+}
+
+@media (max-width: 380px) {
+    /* 404 Monitor filters: one control per row so dates are not truncated. */
+    body .metasync-dashboard-wrap .tablenav .actions:has(input[type="date"]) {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .metasync-dashboard-wrap .metasync-form-actions > .button,
+    .metasync-dashboard-wrap .metasync-form-actions > button {
+        flex: 1 1 140px;
+    }
+
+    .metasync-dashboard-wrap .metasync-import-nav .metasync-nav-item,
+    .metasync-dashboard-wrap .metasync-sitemap-tabs .metasync-tab-nav a {
+        font-size: 13px;
+        padding-inline: 10px;
+    }
+}
+
+/* Tablet band, part 2: the views pin these bars with !important (fixed
+   height, nowrap), so the wrapping rules above need to be !important too. */
+@media (min-width: 783px) and (max-width: 900px) {
+    body .metasync-dashboard-wrap .tablenav {
+        flex-wrap: wrap !important;
+        height: auto !important;
+        row-gap: 10px;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .actions,
+    body .metasync-dashboard-wrap .tablenav .alignleft,
+    body .metasync-dashboard-wrap .tablenav .alignright {
+        flex-wrap: wrap !important;
+        height: auto !important;
+        row-gap: 8px;
+    }
+
+    body .metasync-dashboard-wrap .tablenav p.search-box {
+        float: none !important;
+        height: auto !important;
+        max-width: 100%;
+    }
+}
+
+/* ── Mobile polish v3, part 4: second review round ──────────────────── */
+
+@media (max-width: 900px) {
+    /* The import views set `.metasync-dashboard-wrap { max-width: 100% !important }`,
+       which caps the shell at the 380px content box and leaves a 22px right
+       gutter against a 12px left one. */
+    body div.metasync-dashboard-wrap {
+        max-width: none !important;
+    }
+}
+
+/* Light theme: Robots.txt, Report Issue and Add Redirection carry dark-only
+   colours (translucent black panels, white text on selects). */
+[data-theme="light"] #robots-txt-editor {
+    background: var(--dashboard-input-bg);
+    color: var(--dashboard-text-primary);
+}
+
+[data-theme="light"] .metasync-help-item,
+[data-theme="light"] .metasync-backup-item,
+[data-theme="light"] .metasync-modal-footer {
+    background: color-mix(in srgb, var(--dashboard-text-primary) 4%, var(--dashboard-card-bg));
+}
+
+[data-theme="light"] .metasync-help-item code,
+[data-theme="light"] .metasync-preview-code {
+    background: color-mix(in srgb, var(--dashboard-text-primary) 8%, var(--dashboard-card-bg));
+    color: var(--dashboard-text-primary);
+}
+
+[data-theme="light"] .metasync-restore-backup {
+    color: #047857;
+}
+
+[data-theme="light"] .metasync-form-file-input {
+    background: var(--dashboard-input-bg);
+    color: var(--dashboard-text-primary);
+}
+
+[data-theme="light"] .metasync-report-issue-container code {
+    background: color-mix(in srgb, var(--dashboard-text-primary) 8%, var(--dashboard-card-bg));
+    color: #1d4ed8;
+}
+
+[data-theme="light"] .metasync-dashboard-wrap #add-redirection-form select {
+    background-color: var(--dashboard-input-bg);
+    color: var(--dashboard-text-primary);
+}
+
+[data-theme="light"] .metasync-dashboard-wrap [style*="color: #f59e0b"],
+[data-theme="light"] .metasync-dashboard-wrap [style*="color:#f59e0b"] {
+    color: #b45309 !important;
+}
+
+@media (max-width: 782px) {
+    /* Import External Data: tabs in two equal columns. */
+    .metasync-dashboard-wrap .metasync-import-nav .metasync-nav-item {
+        flex: 1 1 calc(50% - 1px);
+        min-width: 0;
+    }
+
+    /* Row actions are the only way to edit or delete a row: give each link a
+       real touch target instead of a 13px text line. */
+    .metasync-dashboard-wrap .wp-list-table .row-actions {
+        gap: 0 4px;
+    }
+
+    .metasync-dashboard-wrap .wp-list-table .row-actions a {
+        display: inline-flex;
+        align-items: center;
+        min-height: 36px;
+        padding: 0 10px 0 0;
+    }
+
+    /* Pagination: "N items" and the per-page select share the first row, the
+       page controls take the second. Same layout on every screen. */
+    body .metasync-dashboard-wrap .tablenav .tablenav-pages {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .tablenav-pages .displaying-num {
+        order: 1;
+        margin: 0;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .tablenav-pages .metasync-per-page {
+        order: 2;
+        margin-left: auto !important;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .tablenav-pages .pagination-links {
+        order: 3;
+        flex: 1 1 100%;
+        justify-content: center;
+    }
+
+    /* Rows that push a title and a button to opposite ends (Bot Statistics
+       "Reset All Statistics") need a gap once the button wraps under. */
+    .metasync-dashboard-wrap div[style*="justify-content: space-between"] {
+        gap: 12px;
+    }
+
+    /* 404 Monitor / Redirections list forms: 16px of form padding inside a
+       card already padded by the shell squeezes the URI column. */
+    body .metasync-dashboard-wrap .dashboard-card form[style*="padding: 16px"] {
+        padding: 8px !important;
+    }
+
+    /* Changes Log: pin the external-link icon to the title's right edge so it
+       cannot wrap onto a line of its own. */
+    .metasync-dashboard-wrap .sync-log-title {
+        position: relative;
+        padding-right: 30px;
+    }
+
+    .metasync-dashboard-wrap .sync-log-title > a {
+        position: absolute;
+        top: -6px;
+        right: -6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        margin: 0 !important;
+    }
+
+    /* Add Redirection: tighter field cards and placeholders that fit. */
+    body .metasync-dashboard-wrap #add-redirection-form .form-table td {
+        padding: 10px !important;
+    }
+
+    body .metasync-dashboard-wrap #add-redirection-form input::placeholder,
+    body .metasync-dashboard-wrap #add-redirection-form textarea::placeholder {
+        font-size: 13px;
+    }
+
+    body .metasync-dashboard-wrap #add-redirection-form .submit .button,
+    body .metasync-dashboard-wrap #add-redirection-form .submit button {
+        margin: 0 !important;
+    }
+
+    /* Report Issue and similar: the Export CSV style ghost buttons read as
+       disabled. */
+    .metasync-dashboard-wrap .metasync-health-toolbar > .button {
+        color: var(--dashboard-text-primary);
+        border: 1px solid var(--dashboard-border);
+    }
+
+    /* Setup wizard: inactive steps and the exit link were barely legible. */
+    .metasync-wizard-wrap .wizard-progress-step:not(.active):not(.completed) .step-label {
+        color: var(--dashboard-text-secondary, #6b7280);
+        font-size: 0.6875rem;
+    }
+
+    .metasync-wizard-wrap .wizard-progress-step:not(.active):not(.completed) .step-number {
+        color: var(--dashboard-text-primary);
+    }
+
+    .metasync-wizard-wrap .wizard-exit-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        padding: 8px 18px;
+        background: transparent !important;
+        color: var(--dashboard-text-primary) !important;
+        border: 1px solid var(--dashboard-border);
+    }
+
+    /* Breadcrumb separator choices are single glyphs next to an 18px radio:
+       make each a comfortable touch target. */
+    .metasync-dashboard-wrap label:has(> input[type="radio"][name*="separator"]) {
+        min-height: 40px;
+        padding: 6px 12px;
+        border: 1px solid var(--dashboard-border);
+        border-radius: 8px;
+    }
+
+    /* Sitemap tab strip: real flex row that wraps. */
+    .metasync-dashboard-wrap .metasync-sitemap-tabs .metasync-tab-nav {
+        display: flex;
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 380px) {
+    /* Accordion rows: a smaller icon tile and gap leave the title and
+       description a readable column. */
+    .metasync-accordion-header {
+        padding: 14px 12px;
+    }
+
+    .metasync-accordion-title {
+        gap: 10px;
+    }
+
+    .metasync-accordion-icon {
+        width: 32px;
+        height: 32px;
+    }
+
+    .metasync-dashboard-wrap .metasync-sitemap-button-large,
+    .metasync-dashboard-wrap .metasync-sitemap-action-form .button {
+        font-size: 13px;
+        padding-inline: 12px;
+        justify-content: center;
+        text-align: center;
+    }
+}
+
+/* ── Mobile polish v3, part 5: third review round ───────────────────── */
+
+@media (max-width: 782px) {
+    /* Setup wizard: inactive steps were rendered at 50% opacity on top of an
+       already pale tile, which made the labels and numbers unreadable. */
+    .metasync-wizard-wrap .wizard-progress-step:not(.active) {
+        opacity: 0.92;
+    }
+
+    .metasync-wizard-wrap .wizard-progress-step:not(.active):not(.completed) .step-number {
+        background: rgba(102, 126, 234, 0.22);
+    }
+
+    /* Import cards: the availability badge never wraps; the title yields. */
+    .metasync-dashboard-wrap .metasync-plugin-badge {
+        white-space: nowrap;
+        flex: 0 0 auto;
+    }
+
+    /* Stacked list rows: align the row expander with the first text line
+       instead of the vertical middle of a taller row. */
+    .metasync-dashboard-wrap .wp-list-table .toggle-row {
+        top: 8px;
+    }
+
+    /* "Export CSV" and similar ghost buttons read as disabled. */
+    body .metasync-dashboard-wrap .metasync-health-toolbar > .button {
+        color: var(--dashboard-text-primary) !important;
+        border: 1px solid var(--dashboard-border) !important;
+    }
+
+    /* Code samples: break only when a token cannot fit, so operators such as
+       `->` are not split across lines. */
+    .metasync-dashboard-wrap pre,
+    .metasync-dashboard-wrap code {
+        overflow-wrap: break-word;
+    }
+
+    /* Breadcrumb separator glyphs were about 6px tall. */
+    .metasync-dashboard-wrap label:has(> input[type="radio"][name*="separator"]) {
+        font-size: 18px;
+        line-height: 1;
+    }
+
+    /* Light theme: warning text drawn with the amber token is about 2:1 on
+       white. Darken the token for this theme inside the plugin shell. */
+    [data-theme="light"] .metasync-dashboard-wrap {
+        --dashboard-warning: #b45309;
+    }
+}
+
+@media (max-width: 380px) {
+    /* Two action buttons do not fit side by side at 320px; stack them at full
+       width instead of letting each label wrap beside a floating icon. */
+    .metasync-dashboard-wrap .metasync-form-actions > .button,
+    .metasync-dashboard-wrap .metasync-form-actions > button {
+        flex: 1 1 100%;
+    }
+}
+
+@media (max-width: 782px) {
+    /* The views give .tablenav-pages an 8px left margin, which pushed the
+       per-page select past the card edge. */
+    body .metasync-dashboard-wrap .tablenav .tablenav-pages {
+        margin: 0 !important;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* Stacked tables repeat the select-all header row in the footer, which
+       sat flush against the bulk-actions bar. The header row is enough. */
+    .metasync-dashboard-wrap .wp-list-table tfoot {
+        display: none;
+    }
+}
+
+/* Setup wizard, desktop: the shared shell rule (`width: calc(100% + 20px);
+   margin: 0 0 0 -20px`) overrides the wizard's own centred card
+   (`max-width: 1200px; margin: 40px auto`) and pushes it 20px past the
+   viewport. Restore the wizard's own box. */
+@media (min-width: 901px) {
+    .metasync-dashboard-wrap.metasync-wizard-wrap {
+        width: auto;
+        max-width: 1200px;
+        margin: 40px auto;
+    }
+}
+
+/* ── Mobile polish v3, part 6: fourth review round ──────────────────── */
+
+@media (max-width: 782px) {
+    /* The bottom list bar was centring its children, which left the page
+       controls 4px off the bar's edge and pushed the per-page select past it. */
+    body .metasync-dashboard-wrap .tablenav {
+        align-items: stretch !important;
+    }
+
+    body .metasync-dashboard-wrap .tablenav .tablenav-pages {
+        width: auto;
+        align-self: stretch;
+    }
+
+    /* Inline `color: #666` helper text is unreadable on the dark card. */
+    .metasync-dashboard-wrap [style*="color: #666"],
+    .metasync-dashboard-wrap [style*="color:#666"] {
+        color: var(--dashboard-text-secondary) !important;
+    }
+
+    /* Core's mobile checkbox tick is drawn for a 25px box; the plugin shrinks
+       the box to 16-18px, so the tick pokes out of it. Use a 22px box and a
+       tick drawn to match. */
+    .metasync-dashboard-wrap input[type="checkbox"] {
+        width: 22px !important;
+        height: 22px !important;
+        min-width: 22px;
+        flex: 0 0 auto;
+    }
+
+    .metasync-dashboard-wrap input[type="checkbox"]:checked::before {
+        width: 26px;
+        height: 26px;
+        margin: -2px 0 0 -4px;
+    }
+
+    /* Unchecked radios were drawn with the card-border colour, which is
+       invisible on the light theme. */
+    .metasync-dashboard-wrap input[type="radio"]:not(:checked) {
+        border-color: color-mix(in srgb, var(--dashboard-text-primary) 45%, transparent);
+    }
+
+    /* Dashicons inside gradient buttons were left at core's blue and vanished
+       against the purple, green and red backgrounds. */
+    .metasync-dashboard-wrap .button .dashicons,
+    .metasync-dashboard-wrap .button-primary .dashicons,
+    .metasync-dashboard-wrap .button-secondary .dashicons,
+    .metasync-dashboard-wrap .metasync-btn-primary .dashicons {
+        color: currentColor;
+    }
+
+    /* Notice dismiss: a 14px glyph needs a real touch target. */
+    .metasync-dashboard-wrap .notice-dismiss {
+        width: 40px;
+        height: 40px;
+        top: 0;
+        right: 0;
+    }
+
+    /* Empty-state call to action: full width so its label never wraps beside
+       a floating icon. */
+    .metasync-dashboard-wrap [style*="dashed"] .button,
+    .metasync-dashboard-wrap [style*="dashed"] a.button-primary {
+        width: 100%;
+        justify-content: center;
+        text-align: center;
+        box-sizing: border-box;
+    }
+
+    /* Backup rows: three actions in one row. */
+    .metasync-dashboard-wrap .metasync-backup-actions .button {
+        flex: 1 1 auto;
+        min-width: 0;
+        padding-inline: 10px;
+        justify-content: center;
+    }
+
+    /* Setup wizard: the shell is flush on phones, so the card needs neither a
+       side border nor a rounded corner that gets clipped by the viewport. */
+    .metasync-dashboard-wrap.metasync-wizard-wrap {
+        border-left: 0;
+        border-right: 0;
+        border-radius: 0;
+    }
+}
+
+@media (max-width: 1100px) {
+    .metasync-wizard-wrap h1,
+    .metasync-wizard-wrap h2,
+    .metasync-wizard-wrap h3 {
+        line-height: 1.25;
+    }
+}
+
+@media (max-width: 380px) {
+    /* Three sitemap tabs share the row and may wrap their own labels. */
+    .metasync-dashboard-wrap .metasync-sitemap-tabs .metasync-tab-nav a {
+        flex: 1 1 0;
+        white-space: normal;
+        line-height: 1.2;
+        padding-inline: 6px;
+        font-size: 12px;
+    }
+}
+
+/* Tablet band: columns that hold short enumerated values must not break
+   mid-word, and the Local Business row buttons keep their phone styling. */
+@media (min-width: 783px) and (max-width: 900px) {
+    .metasync-dashboard-wrap .wp-list-table td.column-type,
+    .metasync-dashboard-wrap .wp-list-table td.column-redirect_type,
+    .metasync-dashboard-wrap .wp-list-table td.column-pattern,
+    .metasync-dashboard-wrap .wp-list-table td.column-hits,
+    .metasync-dashboard-wrap .wp-list-table td.column-last_accessed,
+    .metasync-dashboard-wrap .wp-list-table td.column-date_time {
+        white-space: nowrap;
+        overflow-wrap: normal;
+        word-break: normal;
+    }
+
+    .metasync-dashboard-wrap #timeDelete,
+    .metasync-dashboard-wrap #number-delete {
+        min-height: 36px;
+        padding: 6px 14px;
+        border: 1px solid var(--dashboard-border);
+        border-radius: 6px;
+        background: transparent;
+        color: var(--dashboard-error);
+        cursor: pointer;
+    }
+
+    .metasync-dashboard-wrap #addNewTime,
+    .metasync-dashboard-wrap #addNewNumber {
+        height: auto;
+        min-height: 36px;
+        line-height: 1.3;
+        padding: 6px 16px;
+    }
+
+    .metasync-dashboard-wrap .button-small {
+        height: auto !important;
+        min-height: 32px !important;
+    }
+}
+
+/* ── Mobile polish v3, part 7: fifth review round ───────────────────── */
+
+@media (max-width: 782px) {
+    /* Core pins the "N items" counter to the top-right of the bar at this
+       width; with the plugin's wrapped bar it landed on top of Apply. */
+    body .metasync-dashboard-wrap .tablenav .tablenav-pages .displaying-num {
+        position: static !important;
+        top: auto !important;
+        left: auto !important;
+        right: auto !important;
+    }
+
+    /* The right-hand half of the 404 / SEO Health filter bar carried an 8px
+       left margin that pushed the search button past the card edge. */
+    body .metasync-dashboard-wrap .tablenav .alignright,
+    body .metasync-dashboard-wrap .tablenav .alignleft {
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+    }
+
+    body .metasync-dashboard-wrap .tablenav p.search-box {
+        margin: 0 !important;
+        max-width: 100%;
+    }
+
+    /* Empty-state call to action (Custom Pages). */
+    .metasync-dashboard-wrap .metasync-empty-state .button {
+        display: flex;
+        width: 100%;
+        justify-content: center;
+        text-align: center;
+        box-sizing: border-box;
+        white-space: normal;
+        line-height: 1.3;
+    }
+
+    /* Placeholders longer than a 280px field are cut mid-word. */
+    .metasync-dashboard-wrap input::placeholder,
+    .metasync-dashboard-wrap textarea::placeholder {
+        font-size: 13px;
+    }
+
+    .metasync-dashboard-wrap input[type="text"]::placeholder,
+    .metasync-dashboard-wrap input[type="url"]::placeholder {
+        text-overflow: ellipsis;
+    }
+}
+
+@media (min-width: 783px) and (max-width: 900px) {
+    body .metasync-dashboard-wrap .tablenav .tablenav-pages .displaying-num {
+        position: static !important;
+    }
+
+    /* Redirections columns by their real keys (http_code, pattern_type, ...). */
+    .metasync-dashboard-wrap .wp-list-table td.column-http_code,
+    .metasync-dashboard-wrap .wp-list-table td.column-pattern_type,
+    .metasync-dashboard-wrap .wp-list-table td.column-hits_count,
+    .metasync-dashboard-wrap .wp-list-table td.column-last_accessed_at,
+    .metasync-dashboard-wrap .wp-list-table th.column-last_accessed_at,
+    .metasync-dashboard-wrap .wp-list-table th.column-http_code {
+        white-space: nowrap;
+        overflow-wrap: normal;
+        word-break: normal;
+    }
+
+    /* Settings fields keep their 25em width inside a wider card, leaving half
+       the card empty. */
+    .metasync-dashboard-wrap .form-table input.regular-text,
+    .metasync-dashboard-wrap .form-table select,
+    .metasync-dashboard-wrap .form-table textarea.large-text,
+    .metasync-dashboard-wrap .form-table input[type="text"],
+    .metasync-dashboard-wrap .form-table input[type="url"] {
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+}
+
+@media (max-width: 782px) {
+    /* The bottom list bar inside a table wrapper sat flush with the table
+       edges; the per-page select and Apply touched the card. */
+    .metasync-dashboard-wrap .metasync-admin-table-scroll .tablenav.bottom {
+        padding: 10px 6px 0;
+        box-sizing: border-box;
+    }
+}
+
+/* Tablet band (783-900px), final pass. */
+@media (min-width: 783px) and (max-width: 900px) {
+    /* Seven-column list tables are too tight at this width: keep real columns
+       and let the table scroll inside its own wrapper instead of colliding. */
+    .metasync-dashboard-wrap .metasync-admin-table-scroll > .wp-list-table,
+    .metasync-dashboard-wrap .metasync-seo-health-list-wrap > .wp-list-table {
+        min-width: 780px;
+        table-layout: auto;
+    }
+
+    /* Add Redirection: the source row wraps instead of squeezing its input
+       into a sliver beside the match select and Remove button. */
+    body .metasync-dashboard-wrap #source_urls li {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    body .metasync-dashboard-wrap #source_urls li input[type="text"] {
+        flex: 1 1 240px;
+        min-width: 0;
+    }
+
+    /* Local Business rows: same stacked cards as on phones. */
+    .metasync-dashboard-wrap #daysTime,
+    .metasync-dashboard-wrap #phone-numbers {
+        margin: 0 0 10px;
+        padding: 0;
+        list-style: none;
+    }
+
+    .metasync-dashboard-wrap #daysTime li,
+    .metasync-dashboard-wrap #phone-numbers li {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+        margin: 0 0 10px;
+        padding: 12px;
+        border: 1px solid var(--dashboard-border);
+        border-radius: 8px;
+    }
+
+    .metasync-dashboard-wrap #daysTime li select,
+    .metasync-dashboard-wrap #daysTime li input,
+    .metasync-dashboard-wrap #phone-numbers li select,
+    .metasync-dashboard-wrap #phone-numbers li input {
+        width: 100%;
+        max-width: 100%;
+        margin: 0;
+        box-sizing: border-box;
+    }
+
+    .metasync-dashboard-wrap #daysTime li button,
+    .metasync-dashboard-wrap #phone-numbers li button {
+        justify-self: start;
+    }
+
+    /* Setup wizard feature cards: an orphaned third card leaves an empty slot. */
+    .metasync-wizard-wrap .wizard-benefits {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ── Mobile polish v3, part 8: Custom Pages table and Settings accordions ── */
+
+@media (max-width: 782px) {
+    /* ── Settings accordions ────────────────────────────────────────── */
+
+    /* Field cards inside an accordion were `box-sizing: content-box` with
+       width 100% plus padding and border, so every card ended up 34px wider
+       than its table and was cut off by the section's overflow: hidden (label
+       help icons sat on the clipped edge). */
+    .metasync-dashboard-wrap .metasync-accordion-content {
+        padding: 12px;
+        box-sizing: border-box;
+    }
+
+    .metasync-dashboard-wrap .metasync-accordion-content .form-table {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .metasync-dashboard-wrap .metasync-accordion-content .form-table th,
+    .metasync-dashboard-wrap .metasync-accordion-content .form-table td {
+        box-sizing: border-box !important;
+        width: 100% !important;
+        max-width: 100%;
+    }
+
+    .metasync-dashboard-wrap .metasync-accordion-content .form-table th {
+        padding: 10px 12px 6px;
+    }
+
+    .metasync-dashboard-wrap .metasync-accordion-content .form-table td {
+        padding: 6px 12px 12px;
+    }
+
+    .metasync-dashboard-wrap .metasync-accordion-text h3 {
+        margin: 0 0 4px;
+        line-height: 1.3;
+    }
+
+    .metasync-dashboard-wrap .metasync-accordion-text .metasync-accordion-description {
+        margin: 0;
+        line-height: 1.4;
+    }
+
+    .metasync-dashboard-wrap .metasync-accordion-content .metasync-field-label-wrapper {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+    }
+
+    /* Usage Data and Product Improvement: copy, switch and status were three
+       flex siblings in one row, which left the text a 70px column. Switch and
+       status on the first line, copy full width below. */
+    .metasync-dashboard-wrap .metasync-analytics-consent-card {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-areas:
+            "switch status"
+            "copy copy";
+        gap: 12px 12px;
+        align-items: center;
+        margin: 0;
+        padding: 16px;
+        border-radius: 12px;
+    }
+
+    .metasync-dashboard-wrap .metasync-analytics-consent-copy {
+        grid-area: copy;
+        min-width: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-consent-switch {
+        grid-area: switch;
+    }
+
+    .metasync-dashboard-wrap .metasync-consent-status {
+        grid-area: status;
+        margin-left: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-analytics-consent-copy h3 {
+        margin: 0 0 6px;
+        line-height: 1.3;
+    }
+
+    /* ── Custom Pages table as cards ────────────────────────────────── */
+
+    .metasync-dashboard-wrap .metasync-pages-table table,
+    .metasync-dashboard-wrap .metasync-pages-table tbody,
+    .metasync-dashboard-wrap .metasync-pages-table tr,
+    .metasync-dashboard-wrap .metasync-pages-table td {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .metasync-dashboard-wrap .metasync-pages-table table {
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-pages-table thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+    }
+
+    .metasync-dashboard-wrap .metasync-pages-table tbody tr {
+        margin: 0 0 12px;
+        padding: 14px;
+        background: var(--dashboard-card-bg);
+        border: 1px solid var(--dashboard-border);
+        border-radius: 10px;
+    }
+
+    .metasync-dashboard-wrap .metasync-pages-table tbody tr:hover {
+        background: var(--dashboard-card-bg);
+    }
+
+    .metasync-dashboard-wrap .metasync-pages-table td,
+    .metasync-dashboard-wrap .metasync-pages-table tbody tr:last-child td {
+        padding: 0;
+        border: 0;
+    }
+
+    /* Title and its badges share one wrapping line. */
+    .metasync-dashboard-wrap .metasync-pages-table td:first-child {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 8px;
+    }
+
+    .metasync-dashboard-wrap .metasync-pages-table td:first-child > strong {
+        flex: 1 1 100%;
+        min-width: 0;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+    }
+
+    .metasync-dashboard-wrap .metasync-pages-table .metasync-html-badge {
+        margin: 0;
+    }
+
+    /* URL on its own line, wrapping at slashes and hyphens rather than every
+       character. */
+    .metasync-dashboard-wrap .metasync-pages-table td:nth-child(2) {
+        margin-top: 8px;
+    }
+
+    .metasync-dashboard-wrap .metasync-pages-table .metasync-page-url {
+        display: inline;
+        font-size: 12px;
+        line-height: 1.5;
+        word-break: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .metasync-dashboard-wrap .metasync-pages-table td:nth-child(3) {
+        margin-top: 8px;
+    }
+
+    /* Actions: two equal, tappable buttons. */
+    .metasync-dashboard-wrap .metasync-pages-table td.metasync-page-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+        white-space: normal;
+    }
+
+    .metasync-dashboard-wrap .metasync-pages-table .metasync-page-actions .button {
+        flex: 1 1 0;
+        min-width: 0;
+        margin: 0;
+        justify-content: center;
+        min-height: 40px;
+    }
+}
+
+@media (max-width: 782px) {
+    /* An earlier rule flattens the field cells inside an accordion (no border,
+       no background, no padding), which left the rows running together with
+       no separation. Give each setting its own light card: one border, one
+       padding, one gap. */
+    .metasync-dashboard-wrap .metasync-accordion-content .form-table tr {
+        display: block;
+        box-sizing: border-box;
+        margin: 0 0 10px;
+        padding: 12px;
+        border: 1px solid var(--dashboard-border);
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--dashboard-text-primary) 3%, transparent);
+    }
+
+    .metasync-dashboard-wrap .metasync-accordion-content .form-table tr:last-child {
+        margin-bottom: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-accordion-content .form-table th {
+        padding: 0 0 8px;
+    }
+
+    .metasync-dashboard-wrap .metasync-accordion-content .form-table td {
+        padding: 0;
+    }
+
+    .metasync-dashboard-wrap .metasync-accordion-content .form-table tr:hover th,
+    .metasync-dashboard-wrap .metasync-accordion-content .form-table tr:hover td {
+        background: transparent;
+    }
+}
+
+@media (max-width: 782px) {
+    /* Inline flex labels (Cache Management host rows) ran a long hint past the
+       card edge at 320px. Single-text rows may wrap their text in place. */
+    .metasync-dashboard-wrap label[style*="display: flex"] > span,
+    .metasync-dashboard-wrap label[style*="display:flex"] > span {
+        min-width: 0;
+        overflow-wrap: break-word;
+    }
+
+    /* Checkbox + name + small grey hint rows (CDN provider credentials): the
+       name sits beside the checkbox and the hint wraps onto its own line
+       below it, instead of squeezing both into narrow columns that break
+       mid-word. Only rows whose hint is a 12px span are affected, so labels
+       that end in a help icon keep their single line. */
+    .metasync-dashboard-wrap label[style*="display: flex"]:has(> input[type="checkbox"] ~ span ~ span[style*="font-size: 12px"]),
+    .metasync-dashboard-wrap label[style*="display:flex"]:has(> input[type="checkbox"] ~ span ~ span[style*="font-size:12px"]) {
+        flex-wrap: wrap;
+        row-gap: 2px;
+    }
+
+    .metasync-dashboard-wrap label:has(> input[type="checkbox"] ~ span ~ span[style*="font-size: 12px"]) > span:first-of-type {
+        flex: 1 1 0;
+    }
+
+    .metasync-dashboard-wrap label:has(> input[type="checkbox"] ~ span ~ span[style*="font-size: 12px"]) > span[style*="font-size: 12px"] {
+        flex: 1 1 100%;
+        padding-left: 30px;
+        box-sizing: border-box;
+    }
+
+    /* Inline green text on a dark card. */
+    .metasync-dashboard-wrap [style*="color: green"],
+    .metasync-dashboard-wrap [style*="color:green"] {
+        color: var(--dashboard-success) !important;
+    }
+
+    [data-theme="light"] .metasync-dashboard-wrap [style*="color: green"],
+    [data-theme="light"] .metasync-dashboard-wrap [style*="color:green"] {
+        color: #047857 !important;
+    }
+
+    /* The consent card sits directly under its accordion header. */
+    .metasync-dashboard-wrap .metasync-accordion-content > .metasync-analytics-consent-card,
+    .metasync-dashboard-wrap .metasync-accordion-content .metasync-analytics-consent-card:first-child {
+        margin-top: 0;
+    }
+}
+
+/* Custom Pages status colours were picked for a light card: "Pending Review"
+   was dark teal on the dark theme. Lighter tones by default, the original
+   tones on the light theme. */
+.metasync-dashboard-wrap .metasync-page-status.metasync-status-publish { color: #4ade80; }
+.metasync-dashboard-wrap .metasync-page-status.metasync-status-draft { color: #fbbf24; }
+.metasync-dashboard-wrap .metasync-page-status.metasync-status-pending { color: #5eead4; }
+
+[data-theme="light"] .metasync-dashboard-wrap .metasync-page-status.metasync-status-publish { color: #1e7e34; }
+[data-theme="light"] .metasync-dashboard-wrap .metasync-page-status.metasync-status-draft { color: #a06800; }
+[data-theme="light"] .metasync-dashboard-wrap .metasync-page-status.metasync-status-pending { color: #0c5460; }
+
+@media (max-width: 900px) {
+    .metasync-dashboard-wrap .metasync-rollback-btn {
+        min-height: 36px;
+    }
+}
+
+@media (max-width: 782px) {
+    /* Icons inside buttons: an accent-blue rule beat `currentColor`, leaving
+       dim blue glyphs on purple, green and red buttons. */
+    .metasync-dashboard-wrap .button .dashicons,
+    .metasync-dashboard-wrap .button-primary .dashicons,
+    .metasync-dashboard-wrap .button-secondary .dashicons,
+    .metasync-dashboard-wrap .metasync-page-actions .dashicons {
+        color: currentColor !important;
+    }
+
+    /* Inline #008000 status text ("Permalink is Okay") on a dark card. */
+    .metasync-dashboard-wrap [style*="color:#008000"],
+    .metasync-dashboard-wrap [style*="color: #008000"] {
+        color: var(--dashboard-success) !important;
+    }
+
+    [data-theme="light"] .metasync-dashboard-wrap [style*="color:#008000"],
+    [data-theme="light"] .metasync-dashboard-wrap [style*="color: #008000"] {
+        color: #047857 !important;
+    }
 }

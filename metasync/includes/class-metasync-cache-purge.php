@@ -281,6 +281,30 @@ class Metasync_Cache_Purge
                 } elseif ($post_id && function_exists('rocket_clean_post')) {
                     rocket_clean_post($post_id);
                     $success = true;
+                } elseif ($url && function_exists('rocket_clean_files')) {
+                    # rocket_clean_url() is not part of current WP Rocket, and
+                    # rocket_clean_post() is unavailable or useless for a URL no
+                    # post owns any more (old slug). rocket_clean_files() deletes
+                    # the cache FOLDER the URL's path maps to, so the home URL
+                    # (also "/?page_id=N", or "/blog/" on a subdirectory
+                    # install) would be the whole site's cache. Home goes
+                    # through rocket_clean_home(), which clears only the home
+                    # page. A query URL is not cached by WP Rocket, so it has
+                    # nothing to purge.
+                    $parsed = wp_parse_url($url);
+                    $path = isset($parsed['path']) ? trim((string) $parsed['path'], '/') : '';
+                    $home_path = trim((string) wp_parse_url(home_url('/'), PHP_URL_PATH), '/');
+                    if (!empty($parsed['query'])) {
+                        $success = true;
+                    } elseif ($path === $home_path) {
+                        if (function_exists('rocket_clean_home')) {
+                            rocket_clean_home();
+                            $success = true;
+                        }
+                    } else {
+                        rocket_clean_files(array($url));
+                        $success = true;
+                    }
                 }
             } catch (\Throwable $e) {
                 error_log('MetaSync: WP Rocket per-URL purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
@@ -293,6 +317,10 @@ class Metasync_Cache_Purge
                 if ($post_id && class_exists('LiteSpeed\\Purge')) {
                     do_action('litespeed_purge_post', $post_id);
                     $success = true;
+                } elseif ($url && class_exists('LiteSpeed\\Purge')) {
+                    # No post owns this URL (an old slug): purge it by URL.
+                    do_action('litespeed_purge_url', $url);
+                    $success = true;
                 }
             } catch (\Throwable $e) {
                 error_log('MetaSync: LiteSpeed per-URL purge failed - ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
@@ -304,6 +332,10 @@ class Metasync_Cache_Purge
             try {
                 if ($post_id && function_exists('w3tc_flush_post')) {
                     w3tc_flush_post($post_id);
+                    $success = true;
+                } elseif ($url && function_exists('w3tc_flush_url')) {
+                    # No post owns this URL (an old slug): purge it by URL.
+                    w3tc_flush_url($url);
                     $success = true;
                 }
             } catch (\Throwable $e) {
@@ -435,6 +467,12 @@ class Metasync_Cache_Purge
             try {
                 if ($post_id && class_exists('Swift_Performance_Cache')) {
                     Swift_Performance_Cache::clear_post_cache($post_id);
+                    $success = true;
+                # The stubs lack this method; real Swift Performance has it.
+                # @phpstan-ignore-next-line function.impossibleType
+                } elseif ($url && class_exists('Swift_Performance_Cache') && method_exists('Swift_Performance_Cache', 'clear_permalink_cache')) {
+                    # No post owns this URL (an old slug): purge it by URL.
+                    Swift_Performance_Cache::clear_permalink_cache($url);
                     $success = true;
                 }
             } catch (\Throwable $e) {

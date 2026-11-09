@@ -561,8 +561,7 @@ class Metasync_MCP_Server {
      * @return bool
      */
     private function verify_plugin_auth_token($provided_token) {
-        $options = get_option('metasync_options', []);
-        $stored_token = isset($options['general']['apikey']) ? $options['general']['apikey'] : null;
+        $stored_token = Metasync::get_plugin_auth_token();
 
         if (empty($stored_token)) {
             return false;
@@ -658,8 +657,8 @@ class Metasync_MCP_Server {
      * @return string|false
      */
     public function get_api_key() {
-        $options = get_option('metasync_options', []);
-        return isset($options['general']['apikey']) ? $options['general']['apikey'] : false;
+        $token = Metasync::get_plugin_auth_token();
+        return $token !== '' ? $token : false;
     }
 
     /**
@@ -983,10 +982,12 @@ class Metasync_MCP_Server {
      * @return string Fingerprint, or an empty string when no API key is set.
      */
     private function get_api_key_fingerprint() {
-        $options = get_option('metasync_options', []);
-        $api_key = isset($options['general']['apikey']) ? $options['general']['apikey'] : '';
+        // Fingerprint the PLAINTEXT token: the stored form is ciphertext with a
+        // random IV, which would change on every re-encryption and invalidate
+        // every issued MCP token.
+        $api_key = Metasync::get_plugin_auth_token();
 
-        if (!is_string($api_key) || $api_key === '') {
+        if ($api_key === '') {
             return '';
         }
 

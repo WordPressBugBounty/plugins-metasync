@@ -86,6 +86,8 @@ function metasync_uninstall_cleanup() {
 		'metasync_heartbeat_error_logs',
 		'metasync_sync_history',
 		'metasync_otto_excluded_urls',
+		'metasync_headless_refresh_history',
+		'metasync_zapier_subscriptions', // Legacy subscriptions table from the removed Zapier integration (never "metasync_zapier").
 		'metasync_robots_txt_backups',
 		'metasync_otto_bot_stats',
 		'metasync_otto_bot_logs',
@@ -151,9 +153,12 @@ if ( is_multisite() ) {
 	$metasync_uninstall_site_ids = get_sites( array( 'fields' => 'ids', 'number' => 0 ) );
 	foreach ( $metasync_uninstall_site_ids as $metasync_uninstall_site_id ) {
 		switch_to_blog( $metasync_uninstall_site_id );
-		metasync_uninstall_cleanup();
+		try {
+			metasync_uninstall_cleanup();
+		} finally {
+			restore_current_blog();
+		}
 	}
-	restore_current_blog();
 	unset( $metasync_uninstall_site_ids, $metasync_uninstall_site_id );
 } else {
 	metasync_uninstall_cleanup();

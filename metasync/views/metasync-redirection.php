@@ -833,17 +833,20 @@ if (!defined('ABSPATH')) {
 </style>
 
 <div class="wrap">
+	<div class="metasync-redirect-actions" role="group" aria-label="Redirect actions">
 	<a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-redirections&action=add')); ?>" class="page-title-action">Add New Redirect</a>
 
 	<!-- Import from SEO Plugins Button -->
-	<a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-import-external&tab=redirections')); ?>" class="page-title-action" style="background: #10b981 !important; border-color: #10b981 !important;">
+	<a href="<?php echo esc_url(admin_url('admin.php?page=' . Metasync_Admin::$page_slug . '-import-external&tab=redirections')); ?>" class="page-title-action metasync-redirect-action-import">
 		<span>📥</span> Import from SEO Plugins
 	</a>
 
 	<!-- Check Health Button -->
-	<button type="button" id="metasync-check-health-btn" class="page-title-action" style="background: #f59e0b !important; border-color: #f59e0b !important; color: #000 !important;">
+	<button type="button" id="metasync-check-health-btn" class="page-title-action metasync-redirect-action-health">
 		Check Health
 	</button>
+
+	</div>
 
 	<!-- Allow External Redirects Setting -->
 	<?php
@@ -947,7 +950,9 @@ if (!defined('ABSPATH')) {
 		</div>
 		
 		<!-- Now we can render the completed list table -->
-		<?php $MetasyncRedirection->display() ?>
+		<div class="metasync-admin-table-scroll">
+			<?php $MetasyncRedirection->display(); ?>
+		</div>
 	</form>
 	
 </div>

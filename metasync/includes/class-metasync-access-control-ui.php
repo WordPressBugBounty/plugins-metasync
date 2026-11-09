@@ -48,7 +48,14 @@ class Metasync_Access_Control_UI {
                             <span class="metasync-slider"></span>
                         </label>
                         <span class="toggle-label">
-                            <?php echo $config['enabled'] ? 'Restricted' : 'Available to All'; ?>
+                            <?php
+                            // "Restricted" only when the stored type is one the
+                            // UI can actually enforce. A stored type of "all"
+                            // (including a legacy enabled=true row) is everyone,
+                            // so the label must not say Restricted.
+                            $is_restricted = !empty($config['enabled']) && in_array($config['type'], array('none', 'role', 'user'), true);
+                            echo esc_html($is_restricted ? 'Restricted' : 'Available to All');
+                            ?>
                         </span>
                     </div>
 

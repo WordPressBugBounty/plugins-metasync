@@ -196,10 +196,19 @@ class Metasync_Error_Logger {
      * @return array Redacted context
      */
     private static function redact_secrets($context) {
+        // Both the stored form (ciphertext, or legacy plaintext) and the decrypted
+        // plaintext must be scrubbed. Decrypt the raw value directly — do NOT call
+        // Metasync::get_plugin_auth_token() here: it can write (legacy migration),
+        // and a failed write logs through this very method (infinite recursion).
         $stored_token = '';
+        $plain_token  = '';
         if (function_exists('get_option')) {
             $options = get_option('metasync_options', []);
-            $stored_token = (string) ($options['general']['apikey'] ?? '');
+            $stored_token = is_array($options) ? (string) ($options['general']['apikey'] ?? '') : '';
+            if ('' !== $stored_token && class_exists('Metasync')) {
+                $decrypted = Metasync::decrypt_secret($stored_token);
+                $plain_token = is_string($decrypted) ? $decrypted : '';
+            }
         }
 
         foreach ($context as $key => $value) {
@@ -213,6 +222,9 @@ class Metasync_Error_Logger {
             );
             if ('' !== $stored_token && false !== strpos($redacted, $stored_token)) {
                 $redacted = str_replace($stored_token, '[REDACTED]', $redacted);
+            }
+            if ('' !== $plain_token && false !== strpos($redacted, $plain_token)) {
+                $redacted = str_replace($plain_token, '[REDACTED]', $redacted);
             }
             $context[$key] = $redacted;
         }

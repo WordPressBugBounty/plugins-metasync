@@ -132,8 +132,17 @@ class Metasync_API_Key_Monitor
     private function detect_api_key_changes($old_value, $new_value)
     {
         // Extract values
-        $old_plugin_auth_token = $old_value['general']['apikey'] ?? '';
-        $new_plugin_auth_token = $new_value['general']['apikey'] ?? '';
+        // The Plugin Auth Token is encrypted at rest with a random IV (like the
+        // Search Atlas API key below), so compare plaintext, never ciphertext.
+        // An unreadable value (salts changed) counts as ''.
+        $old_plugin_auth_token = Metasync::decrypt_secret($old_value['general']['apikey'] ?? '');
+        $new_plugin_auth_token = Metasync::decrypt_secret($new_value['general']['apikey'] ?? '');
+        if ($old_plugin_auth_token === false) {
+            $old_plugin_auth_token = '';
+        }
+        if ($new_plugin_auth_token === false) {
+            $new_plugin_auth_token = '';
+        }
 
         // The Search Atlas API key is encrypted at rest with a random IV, so the
         // stored ciphertext differs on every write even when the plaintext is

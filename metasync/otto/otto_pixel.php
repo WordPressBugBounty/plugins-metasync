@@ -45,6 +45,7 @@ require_once plugin_dir_path( __FILE__ ) . '/Otto_pixel_class.php';
 require_once plugin_dir_path( __FILE__ ) . '/metasync-otto-seo-functions.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-transient-cache.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-job-status.php';
+require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-purge-fingerprint.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-webhook-audit.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-render-strategy.php';
 require_once plugin_dir_path( __FILE__ ) . '/class-metasync-otto-config.php';
@@ -434,14 +435,38 @@ function metasync_handle_otto_crawl_url_job($route = '', $retry_count = 0) {
         # Step 3: meta is current (changed or confirmed unchanged) — clear the
         # per-URL host cache entry and re-warm it so OTTO-modified output is
         # what gets stored.
+        #
+        # A deploy fires this job for every URL in the batch, including pages
+        # whose suggestions did not change. When the meta is unchanged and the
+        # OTTO data hashes the same as the last payload processed for this
+        # URL, there is nothing new to publish: skip the purge, the re-warm
+        # and the edge purge. Never skipped on a retry, which may be the only
+        # edge purge this URL gets.
+        $fingerprint = Metasync_Otto_Purge_Fingerprint::of($prefetched);
+        if ($outcome === Metasync_Otto_Job_Status::OUTCOME_NO_CHANGE
+            && (int) $retry_count === 0
+            && Metasync_Otto_Purge_Fingerprint::is_unchanged($route, $fingerprint)) {
+            Metasync_Otto_Job_Status::record($route, Metasync_Otto_Job_Status::STATE_COMPLETED, 'job', $retry_count, $outcome, array(
+                'purge_skipped' => true,
+            ));
+            return;
+        }
+
         $otto_pixel = new Metasync_otto_pixel(false);
         $otto_pixel->refresh_cache($route);
+
+        # The payload is now processed. The fingerprint tracks OTTO's data,
+        # not any cache provider: record it before the best-effort page and
+        # edge purges, so either cache layer can fail without affecting the
+        # other or what the next deploy does.
+        Metasync_Otto_Purge_Fingerprint::remember($route, $fingerprint);
         Metasync_Cache_Purge::purge_single_url($route);
         Metasync_Cache_Purge::warm_urls(array($route));
 
-        # A URL that completed on a retry missed its batch's edge purge (the
-        # batch only waits so long). Late completers purge the edge themselves.
-        if ($retry_count > 0) {
+        # A URL that completes after its batch's edge purge (a retry, or a
+        # first attempt the batch stopped waiting for) purges the edge itself.
+        $status = Metasync_Otto_Job_Status::get($route);
+        if ($retry_count > 0 || !empty($status['edge_pending'])) {
             Metasync_Edge_Cache_Purge::purge(array($route));
         }
 
@@ -484,8 +509,9 @@ function metasync_handle_otto_crawl_url_job($route = '', $retry_count = 0) {
  *
  * URLs still retrying are stragglers: the batch waits (up to
  * METASYNC_OTTO_BATCH_MAX_WAITS reschedules 60s apart) so their freshly
- * synced content — not stale content — reaches the edge. URLs that complete
- * after the wait budget purge the edge themselves from the retry path.
+ * synced content — not stale content — reaches the edge. URLs still in
+ * flight when the batch stops waiting are marked edge_pending, and their
+ * jobs purge the edge themselves when they complete.
  *
  * @param array $routes     List of fully-qualified URLs in this batch.
  * @param int   $wait_count How many times this batch has already waited.
@@ -511,13 +537,17 @@ function metasync_handle_otto_batch_cache_job($routes = array(), $wait_count = 0
     # — their per-URL job has either finished or never will, and both mean
     # the edge purge should not stall behind them.
     $ready = array();
-    $stragglers = 0;
+    $stragglers = array();
     foreach ($routes as $route) {
         $entry = Metasync_Otto_Job_Status::get($route);
         $state = is_array($entry) && isset($entry['state']) ? $entry['state'] : null;
         if ($state === Metasync_Otto_Job_Status::STATE_RETRYING
             || $state === Metasync_Otto_Job_Status::STATE_ACCEPTED) {
-            $stragglers++;
+            $stragglers[$route] = true;
+        } elseif ($state === Metasync_Otto_Job_Status::STATE_COMPLETED && !empty($entry['purge_skipped'])) {
+            # Unchanged page: its job left the cache alone on purpose, so the
+            # edge copy is still correct too.
+            continue;
         } else {
             # completed / failed / unknown: nothing left to wait for.
             $ready[] = $route;
@@ -525,9 +555,20 @@ function metasync_handle_otto_batch_cache_job($routes = array(), $wait_count = 0
     }
 
     # Still live work in the batch and wait budget left: hold the edge purge.
-    if ($stragglers > 0 && $wait_count < $max_waits) {
-        metasync_otto_schedule_single_event(time() + 60, 'metasync_process_otto_batch_cache_job', array($routes, $wait_count + 1));
+    # If cron refuses the reschedule, purge what is ready now instead.
+    if (!empty($stragglers) && $wait_count < $max_waits
+        && metasync_otto_schedule_single_event(time() + 60, 'metasync_process_otto_batch_cache_job', array($routes, $wait_count + 1))) {
         return;
+    }
+
+    # The batch stops waiting: URLs still in flight miss this edge purge,
+    # so their jobs purge the edge themselves when they complete.
+    foreach (array_keys($stragglers) as $route) {
+        $entry = Metasync_Otto_Job_Status::get($route);
+        if (is_array($entry) && in_array($entry['state'] ?? null, Metasync_Otto_Job_Status::ACTIVE_STATES, true)) {
+            Metasync_Otto_Job_Status::record($route, $entry['state'], $entry['stage'] ?? '', $entry['attempts'] ?? 0, $entry['reason'] ?? '',
+                array('edge_pending' => true));
+        }
     }
 
     if (empty($ready)) {
@@ -637,6 +678,42 @@ function metasync_is_elementor_editor_request() {
     return false;
 }
 
+/**
+ * Detect an Avada Live / Avada Builder editor request that OTTO must never process.
+ *
+ * Avada (ThemeFusion) renders its "Avada Live" editing canvas on the FRONT END
+ * by appending ?fb-edit=1 to the page URL — a logged-in GET request that is NOT
+ * is_admin(), so it slips past the admin/ajax/REST guards in metasync_start_otto()
+ * exactly like the Elementor editor iframe documented above. If OTTO
+ * output-buffers and rewrites that response (SimpleHtmlDom in Otto_html_class),
+ * the multi-megabyte builder document is re-serialized and the editor's
+ * JavaScript breaks — the "OTTO rewrites the Avada Live Builder editor" forum
+ * report. Reproduced locally: a ?fb-edit=1 request entered the BUFFER render
+ * path (X-MetaSync-OTTO-Method: BUFFER) and only the RENDER_NO_OUTPUT fallback
+ * saved the markup. The editor surface is for authoring only; it is never
+ * crawled, so there is nothing for OTTO to optimise there.
+ *
+ * The same applies to the AWB Studio surfaces (cards, forms, layouts), which
+ * load front-end builder documents via awb-studio-* query arguments.
+ *
+ * @return bool True when the current request is an Avada Live editor/studio view.
+ */
+function metasync_is_avada_live_editor_request() {
+    # Avada Live / front-end builder entry point: ?fb-edit=1 on any content URL.
+    if (isset($_GET['fb-edit'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only editor request detection
+        return true;
+    }
+
+    # AWB Studio previews (post cards, forms, layouts) — any awb-studio-* flag.
+    foreach ($_GET as $key => $value) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only editor request detection
+        if (is_string($key) && strpos($key, 'awb-studio-') === 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function metasync_start_otto(){
 
     # PERFORMANCE FIX: Cache is now enabled for speed
@@ -685,6 +762,14 @@ function metasync_start_otto(){
     # front-end GET (not is_admin()), so it slips past the admin guard below;
     # buffering and rewriting it breaks the editor canvas ("fails to load").
     if (metasync_is_elementor_editor_request()) {
+        return;
+    }
+
+    # Never run OTTO on the Avada Live / Avada Builder editor either. Like the
+    # Elementor case above, ?fb-edit=1 (and the awb-studio-* surfaces) are
+    # logged-in front-end GETs that slip past the admin guard below; buffering
+    # and rewriting the builder document breaks the editor. Skip it entirely.
+    if (metasync_is_avada_live_editor_request()) {
         return;
     }
 

@@ -1031,6 +1031,11 @@ class Metasync_Sitemap_Generator
             }
         }
 
+        // Post formats stay out even when a previously saved checkbox lists them.
+        // The picker no longer offers post_format, so a stale selection must not
+        // re-include format archive URLs. See docs/wiki/sitemap-post-format-exclusion.md.
+        $taxonomies = array_diff($taxonomies, ['post_format']);
+
         foreach ($taxonomies as $taxonomy) {
             // Skip taxonomies that are set to noindex
             if ($this->is_taxonomy_noindex($taxonomy, $seo_controls)) {

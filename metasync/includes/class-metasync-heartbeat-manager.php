@@ -749,7 +749,7 @@ class Metasync_Heartbeat_Manager
         if ($searchatlas_api_key === false) {
             $searchatlas_api_key = '';
         }
-        $apikey = $general_settings['apikey'] ?? '';
+        $apikey = Metasync::get_plugin_auth_token();
 
         $start_time = microtime(true);
         $api_key_type = strpos($searchatlas_api_key, 'pub-') === 0 ? 'publisher' : 'regular';
@@ -1417,8 +1417,7 @@ class Metasync_Heartbeat_Manager
         if ($state === 'KEY_PENDING') {
             $_POST['is_heart_beat'] = true;
             $_POST['is_burst'] = true;
-            $general = Metasync::get_option('general') ?? [];
-            $apikey = $general['apikey'] ?? '';
+            $apikey = Metasync::get_plugin_auth_token();
             $sync = new Metasync_Sync_Requests();
             $sync->SyncCustomerParams($apikey);
             $state = $this->get_heartbeat_state();

@@ -3297,9 +3297,9 @@ class Metasync_Schema_Markup
             <div class="schema-field">
                 <label>
                     <input type="checkbox" name="schema_markup[types][<?php echo esc_attr((string) $index); ?>][fields][searchbox_enabled]" value="1" <?php checked($searchbox_enabled, true); ?>>
-                    Enable Sitelinks Searchbox
+                    Add SearchAction
                 </label>
-                <p class="description">Adds SearchAction for Google Sitelinks Searchbox in SERPs.</p>
+                <p class="description">Adds a SearchAction to the WebSite schema.</p>
             </div>
 
             <div class="schema-field">

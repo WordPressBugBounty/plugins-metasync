@@ -390,35 +390,83 @@
 			});
 	}
 
-	function metasyncLGLogin(user, pass) {
-		jQuery.post(ajaxurl, {
-			action: 'metasync_lglogin',
-			username: user, password: pass,
-			nonce: metaSync.lglogin_nonce || ''
-		}, function (response) {
-			if (typeof response.token !== 'undefined') {
-				$('#linkgraph_token').val(response.token);
-				$('#linkgraph_customer_id').val(response.customer_id);
-				$('.input.lguser,#lgerror').addClass('hidden');
-				localStorage.setItem('token', response.token);
-			} else {
-				$('#lgerror').text(response.detail + ' (' + response.kind + ')').removeClass('hidden');
-			}
-		}
-		);
-	}
-
-	function setToken() {
-		if ($('#linkgraph_token') && $('#linkgraph_token').val()) {
-			localStorage.setItem('token', $('#linkgraph_token').val());
-		}
-	}
-
 	// Search Atlas Connect functions
 	// Handles 1-click authentication to retrieve Search Atlas API key and Otto UUID.
 	// Does NOT create WordPress login sessions.
 	var saConnectPollingInterval = null;
 	var saConnectWindow = null;
+	var saConnectNonceToken = null;
+	var saConnectOutcomeSent = false;
+	var saConnectPopupClosed = false;
+
+	function reportConnectOutcome(outcome, reason) {
+		if (saConnectOutcomeSent || !saConnectNonceToken) {
+			return;
+		}
+		saConnectOutcomeSent = true;
+		$.ajax({
+			url: (typeof metaSync !== 'undefined' && metaSync.ajax_url) ? metaSync.ajax_url : ajaxurl,
+			type: 'POST',
+			data: {
+				action: 'metasync_record_connect_outcome',
+				nonce: (typeof metaSync !== 'undefined' && metaSync.sa_connect_nonce) ? metaSync.sa_connect_nonce : '',
+				nonce_token: saConnectNonceToken,
+				outcome: outcome,
+				reason: reason
+			}
+		});
+	}
+
+	// Non-terminal funnel step (popup_opened, popup_blocked, open_in_tab,
+	// poll_started, popup_closed). The server dedupes per connect attempt;
+	// steps never mark the attempt as closed, so the terminal outcome above
+	// is still sent afterwards.
+	function reportConnectStep(step) {
+		if (!saConnectNonceToken) {
+			return;
+		}
+		$.ajax({
+			url: (typeof metaSync !== 'undefined' && metaSync.ajax_url) ? metaSync.ajax_url : ajaxurl,
+			type: 'POST',
+			data: {
+				action: 'metasync_record_connect_outcome',
+				nonce: (typeof metaSync !== 'undefined' && metaSync.sa_connect_nonce) ? metaSync.sa_connect_nonce : '',
+				nonce_token: saConnectNonceToken,
+				outcome: 'step',
+				reason: step
+			}
+		});
+	}
+
+	function reportConnectOutcomeBeacon(outcome, reason) {
+		if (saConnectOutcomeSent || !saConnectNonceToken) {
+			return;
+		}
+		saConnectOutcomeSent = true;
+		var ajaxUrl = (typeof metaSync !== 'undefined' && metaSync.ajax_url) ? metaSync.ajax_url : ajaxurl;
+		var payload = {
+			action: 'metasync_record_connect_outcome',
+			nonce: (typeof metaSync !== 'undefined' && metaSync.sa_connect_nonce) ? metaSync.sa_connect_nonce : '',
+			nonce_token: saConnectNonceToken,
+			outcome: outcome,
+			reason: reason
+		};
+		if (navigator.sendBeacon) {
+			var params = new URLSearchParams();
+			Object.keys(payload).forEach(function (key) {
+				params.append(key, payload[key]);
+			});
+			navigator.sendBeacon(ajaxUrl, params);
+			return;
+		}
+		$.ajax({
+			url: ajaxUrl,
+			type: 'POST',
+			async: false,
+			data: payload
+		});
+	}
+
 
 	function handleSearchAtlasConnect() {
 		var $button = $('#connect-searchatlas-btn');	
@@ -482,7 +530,15 @@
 						
 						if (isMobile) {
 						// On mobile, open in same tab for better experience
-							showConnectInfo('📱 Mobile Authentication', 
+							// Funnel step: mobile same-tab redirect (no popup, no
+							// polling; the SSO push callback closes the attempt).
+							// The token is cleared after the step so the unload
+							// beacon does not mislabel the deliberate redirect
+							// as an abandon.
+							saConnectNonceToken = response.data.nonce_token || null;
+							reportConnectStep('same_tab_redirect');
+							saConnectNonceToken = null;
+							showConnectInfo('📱 Mobile Authentication',
 								'Opening ' + getPluginName() + ' authentication. You\'ll be redirected back after logging in.');
 							window.location.href = response.data.connect_url;
 							return;
@@ -518,21 +574,26 @@
 						// Enhanced popup blocked detection
 						setTimeout(function () {
 							if (!saConnectWindow || saConnectWindow.closed || typeof saConnectWindow.closed === 'undefined') {
-								showConnectError('🚫 Popup Blocked', 
+								// Funnel step: the popup never opened.
+								saConnectNonceToken = response.data.nonce_token || null;
+								reportConnectStep('popup_blocked');
+								showConnectError('🚫 Popup Blocked',
 									'Your browser blocked the authentication popup. Please allow popups for this site and try again.',
 									[{
 										text: '🔄 Try Again',
 										action: function () {
-											handleSearchAtlasConnect(); 
+											handleSearchAtlasConnect();
 										}
 									}, {
 										text: '📝 How to Enable Popups',
-										action: function () { 
+										action: function () {
 											showPopupHelp();
 										}
 									}, {
 										text: '🖥️ Open in New Tab',
 										action: function () {
+											// Funnel step: user fell back to a plain new tab.
+											reportConnectStep('open_in_tab');
 											window.open(response.data.connect_url, '_blank');
 											startSearchAtlasPolling(response.data.nonce_token);
 										}
@@ -541,7 +602,11 @@
 								resetConnectButton();
 								return;
 							}
-							
+
+							// Funnel step: the popup opened and the flow is live.
+							saConnectNonceToken = response.data.nonce_token || null;
+							reportConnectStep('popup_opened');
+
 							// Add focus to popup window
 							try {
 								saConnectWindow.focus();
@@ -638,7 +703,12 @@
 	}
 
 	function startSearchAtlasPolling(nonceToken) {
+		saConnectNonceToken = nonceToken || null;
+		saConnectOutcomeSent = false;
+		saConnectPopupClosed = false;
 		var pollCount = 0;
+		// Funnel step: the client is now polling for the connect result.
+		reportConnectStep('poll_started');
 		// WP-558 (Option A): poll for 2 minutes (24 * 5s). Each poll also drives
 		// the outbound pull-based connect fallback server-side, which needs a
 		// slightly longer window than the legacy push-only 60s to ride out the
@@ -664,7 +734,11 @@
 			
 			// Check if window was closed manually - but continue polling
 			if (saConnectWindow && saConnectWindow.closed) {
-				// Popup closed, but continue polling to check for authentication success
+				// Popup closed, but continue polling to check for authentication success.
+				// Remember it so a later unload can report popup_closed instead of page_left.
+				saConnectPopupClosed = true;
+				// Funnel step: the user closed the popup while the flow is live.
+				reportConnectStep('popup_closed');
 				console.log('🔍 Connect popup closed, continuing to poll for authentication success...');
 				saConnectWindow = null; // Clear reference to closed window
 				
@@ -681,6 +755,8 @@
 				if (saConnectWindow) {
 					saConnectWindow.close();
 				}
+				
+				reportConnectOutcome('timeout', 'authentication_timeout');
 				
 				// ✅ Reset the authentication flow while keeping the timeout component
 				resetConnectButton();
@@ -729,6 +805,10 @@
 						updateProgress(100, maxPolls, maxPolls);
 						
 						var statusCode = response.data.status_code || 200;
+						
+						// Server already emitted searchatlas_connected (200) or
+						// searchatlas_connect_failed (404/500/other). Do not add a second terminal.
+						saConnectOutcomeSent = true;
 						
 						// Handle different status codes with enhanced UX
 						if (statusCode === 200) {
@@ -1022,7 +1102,7 @@
 		
 		showConnectWarning(
 			'⚠️ Website Not Registered',
-			'Your website hasn\'t been registered with ' + getPluginName() + ' yet. Registration is required to enable 1-click connect to retrieve your Search Atlas API key and Otto UUID.',
+			'Your website hasn\'t been registered with ' + getPluginName() + ' yet. The connect check could not find this site on your account. Register the website, then try connecting again.',
 			[{
 				text: '🌐 Register Website',
 				action: function () {
@@ -1104,6 +1184,20 @@
 	}
 
 
+	// Leave the page (or close the tab) while a connect attempt is live (a
+	// nonce token was issued) and no success, failure, or timeout has been
+	// recorded — including the popup-blocked path where polling never started.
+	// Switching tabs (document.hidden) is not an abandon — only unload is.
+	function reportConnectAbandonOnUnload() {
+		if (saConnectOutcomeSent || (!saConnectNonceToken && !saConnectPollingInterval)) {
+			return;
+		}
+		var reason = saConnectPopupClosed ? 'popup_closed' : 'page_left';
+		reportConnectOutcomeBeacon('abandon', reason);
+	}
+	window.addEventListener('beforeunload', reportConnectAbandonOnUnload);
+	window.addEventListener('pagehide', reportConnectAbandonOnUnload);
+
 	// Add enhanced page visibility handling
 	function handlePageVisibilityChange() {
 		if (document.hidden && saConnectWindow && !saConnectWindow.closed) {
@@ -1179,6 +1273,8 @@
 					if (saConnectWindow) {
 						saConnectWindow.close();
 					}
+					// User-initiated cancel is a terminal outcome too.
+					reportConnectOutcome('abandon', 'cancelled');
 					showConnectInfo('⏸️ Authentication Cancelled', 'You cancelled the authentication process.');
 					resetConnectButton();
 				}
@@ -1757,21 +1853,9 @@
 
 	$(function () {
 
-		setToken();
-
 		$('body').on('click', '#wp_metasync_sync', function (e) {
 			e.preventDefault();
 			metasync_syncPostsAndPages();
-		});
-		$('body').on('click', '#lgloginbtn', function () {
-			// Hide any existing error messages first
-			$('#lgerror').addClass('hidden').hide();
-		
-			if ($('#lgusername').val() === '' || $('#lgpassword').val() === '') {
-				$('.input.lguser').toggleClass('hidden');
-			} else {
-				metasyncLGLogin($('#lgusername').val(), $('#lgpassword').val());
-			}
 		});
 
 		// Enhanced SSO Connect button event handler
@@ -3120,9 +3204,6 @@
 
 			console.log('🎨 Initializing settings accordion with ' + $accordionSections.length + ' sections');
 
-			// Restore saved state from localStorage
-			restoreAccordionState();
-
 			// Click handler for accordion headers
 			$('.metasync-accordion-header').on('click', function (e) {
 				toggleAccordionSection($(this));
@@ -3144,6 +3225,7 @@
 		function toggleAccordionSection($header) {
 			var $section = $header.closest('.metasync-accordion-section');
 			var $content = $section.find('.metasync-accordion-content');
+			$section.addClass('metasync-accordion-interacted');
 			var isOpen = $header.attr('aria-expanded') === 'true';
 			var sectionKey = $section.data('section');
 
@@ -3167,7 +3249,19 @@
 	 * Save accordion state to localStorage
 	 */
 		function saveAccordionState() {
-			var state = {};
+			var state = Object.create(null);
+			try {
+				var saved = JSON.parse(localStorage.getItem('metasync_accordion_state'));
+				if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+					Object.keys(saved).forEach(function (key) {
+						if (typeof saved[key] === 'boolean') {
+							state[key] = saved[key];
+						}
+					});
+				}
+			} catch (e) {
+				// Storage is optional; still allow interaction with this page.
+			}
 
 			$('.metasync-accordion-section').each(function () {
 				var sectionKey = $(this).data('section');
@@ -3179,37 +3273,6 @@
 				localStorage.setItem('metasync_accordion_state', JSON.stringify(state));
 			} catch (e) {
 				console.warn('⚠️ Could not save accordion state to localStorage:', e);
-			}
-		}
-
-		/**
-	 * Restore accordion state from localStorage
-	 */
-		function restoreAccordionState() {
-			try {
-				var savedState = localStorage.getItem('metasync_accordion_state');
-				if (!savedState) {
-					return; // No saved state, use defaults
-				}
-
-				var state = JSON.parse(savedState);
-
-				$('.metasync-accordion-section').each(function () {
-					var $section = $(this);
-					var sectionKey = $section.data('section');
-					var $header = $section.find('.metasync-accordion-header');
-					var $content = $section.find('.metasync-accordion-content');
-
-					if (Object.prototype.hasOwnProperty.call(state, sectionKey)) {
-						var shouldBeOpen = state[sectionKey];
-						$header.attr('aria-expanded', shouldBeOpen ? 'true' : 'false');
-						$content.attr('data-state', shouldBeOpen ? 'open' : 'closed');
-					}
-				});
-
-				console.log('💾 Restored accordion state from localStorage');
-			} catch (e) {
-				console.warn('⚠️ Could not restore accordion state:', e);
 			}
 		}
 
@@ -3435,6 +3498,141 @@
 			});
 			$tooltip.removeAttr('data-position');
 		}
+
+		// Shared mobile navigation drawer for the responsive admin shell.
+		(function () {
+			var toggle = document.querySelector('.metasync-mobile-nav-toggle');
+			var drawer = document.getElementById('metasync-mobile-nav-drawer');
+			var backdrop = document.querySelector('.metasync-mobile-nav-backdrop');
+			var closeButton = document.querySelector('.metasync-mobile-nav-close');
+			var mobileNav = toggle ? toggle.closest('.metasync-mobile-nav') : null;
+			var shell = toggle ? toggle.closest('.metasync-dashboard-wrap') : null;
+			var backgroundState = [];
+			var lastFocusedElement = null;
+			var bodyOverflowState = null;
+
+			if (!toggle || !drawer || !backdrop || !closeButton || !mobileNav || !shell) {
+				return;
+			}
+
+			function setBackgroundInert(isInert) {
+				if (isInert) {
+					backgroundState = [];
+					Array.prototype.forEach.call(shell.children, function (element) {
+						if (element === mobileNav) {
+							return;
+						}
+						backgroundState.push({
+							element: element,
+							ariaHidden: element.getAttribute('aria-hidden'),
+							inert: element.hasAttribute('inert')
+						});
+						element.setAttribute('aria-hidden', 'true');
+						if ('inert' in element) {
+							element.inert = true;
+						} else {
+							element.setAttribute('inert', '');
+						}
+					});
+					return;
+				}
+
+				backgroundState.forEach(function (state) {
+					if (state.ariaHidden === null) {
+						state.element.removeAttribute('aria-hidden');
+					} else {
+						state.element.setAttribute('aria-hidden', state.ariaHidden);
+					}
+					if ('inert' in state.element) {
+						state.element.inert = state.inert;
+					} else if (!state.inert) {
+						state.element.removeAttribute('inert');
+					}
+				});
+				backgroundState = [];
+			}
+
+			function documentKeydownHandler(event) {
+				if (event.key === 'Escape' && !drawer.hidden) {
+					event.preventDefault();
+					closeMenu();
+				}
+			}
+
+			function closeMenu(restoreFocus) {
+				var focusTarget = lastFocusedElement;
+				drawer.hidden = true;
+				backdrop.hidden = true;
+				setBackgroundInert(false);
+				toggle.setAttribute('aria-expanded', 'false');
+				document.body.style.overflow = bodyOverflowState;
+				bodyOverflowState = null;
+				document.removeEventListener('keydown', documentKeydownHandler);
+				if (restoreFocus !== false && focusTarget && typeof focusTarget.focus === 'function') {
+					focusTarget.focus();
+				} else if (restoreFocus === false && drawer.contains(document.activeElement)) {
+					document.activeElement.blur();
+				}
+				lastFocusedElement = null;
+			}
+
+			function openMenu() {
+				lastFocusedElement = document.activeElement;
+				drawer.hidden = false;
+				backdrop.hidden = false;
+				setBackgroundInert(true);
+				toggle.setAttribute('aria-expanded', 'true');
+				// Lock the admin page behind the modal so touch-dragging the
+				// backdrop or scroll chaining cannot move the page underneath.
+				bodyOverflowState = document.body.style.overflow;
+				document.body.style.overflow = 'hidden';
+				document.addEventListener('keydown', documentKeydownHandler);
+				closeButton.focus();
+			}
+
+			toggle.addEventListener('click', function () {
+				if (drawer.hidden) {
+					openMenu();
+				} else {
+					closeMenu();
+				}
+			});
+			closeButton.addEventListener('click', closeMenu);
+			backdrop.addEventListener('click', closeMenu);
+
+			drawer.addEventListener('click', function (event) {
+				if (event.target.closest('a')) {
+					closeMenu();
+				}
+			});
+
+			drawer.addEventListener('keydown', function (event) {
+				if (event.key !== 'Tab') {
+					return;
+				}
+
+				var focusable = drawer.querySelectorAll('a[href], button:not([disabled])');
+				if (!focusable.length) {
+					return;
+				}
+				var first = focusable[0];
+				var last = focusable[focusable.length - 1];
+				if (event.shiftKey && document.activeElement === first) {
+					event.preventDefault();
+					last.focus();
+				} else if (!event.shiftKey && document.activeElement === last) {
+					event.preventDefault();
+					first.focus();
+				}
+			});
+
+			// Reset an open mobile state when returning to the desktop layout.
+			window.addEventListener('resize', function () {
+				if (window.innerWidth > 900 && !drawer.hidden) {
+					closeMenu(false);
+				}
+			});
+		})();
 
 		// Initialize tooltip system
 		initTooltipSystem();

@@ -1200,7 +1200,7 @@ Class Metasync_otto_html{
                 $result_html = preg_replace('/(<\/body>)/i', $safe_body_bottom . "\n" . '$1', $result_html, 1);
             }
         }
-        if (!empty($replacement_data['footer_html_insertion'])) {
+        if (!empty($replacement_data['footer_html_insertion']) && strpos($result_html, trim($replacement_data['footer_html_insertion'])) === false) {
             $safe_footer = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['footer_html_insertion']);
             $result_html = preg_replace('/(<\/html>)/i', $safe_footer . "\n" . '$1', $result_html, 1);
         }
@@ -4069,7 +4069,7 @@ Class Metasync_otto_html{
             }
 
             # Apply footer HTML insertion
-            if (!empty($replacement_data['footer_html_insertion'])) {
+            if (!empty($replacement_data['footer_html_insertion']) && strpos($result_html, trim($replacement_data['footer_html_insertion'])) === false) {
                 $footer_html = str_replace(array('\\', '$'), array('\\\\', '\\$'), $replacement_data['footer_html_insertion']);
                 # Insert before </html>
                 $result_html = preg_replace('/(<\/html>)/i', $footer_html . "\n" . '$1', $result_html, 1);

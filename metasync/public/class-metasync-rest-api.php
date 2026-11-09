@@ -144,9 +144,11 @@ class Metasync_Rest_Api
 	 */
 	protected function get_stored_api_key()
 	{
-		$getOptions = Metasync::get_option('general');
+		// Decrypted plaintext; '' (unset or undecryptable) maps to null so the
+		// callers' empty() check denies access.
+		$token = Metasync::get_plugin_auth_token();
 
-		return $getOptions['apikey'] ?? null;
+		return $token !== '' ? $token : null;
 	}
 
 	/**
@@ -576,19 +578,6 @@ class Metasync_Rest_Api
 		);
 
 
-
-		register_rest_route(
-				$this::namespace ,
-			'lglogin',
-			array(
-				array(
-					'methods' => 'POST',
-					'callback' => array($this, 'linkgraph_login'),
-					'permission_callback' => array($this, 'rest_authorization_middleware')
-				),
-				'schema' => array($this, 'get_item_schema'),
-			)
-		);
 
 		register_rest_route(
 				$this::namespace ,
@@ -1036,8 +1025,18 @@ class Metasync_Rest_Api
 		$response = $errorLogClass->getParsedLogFile();
 
 		if (!empty($response)) {
-			// If no limit is specified, return all logs, otherwise, return the last $limit entries.
-			$logsToReturn = ($limit === -1) ? $response : array_slice($response, -$limit);
+			// "all" and -1 mean the whole log. A numeric limit arrives as a
+			// string from the query string; array_slice() would TypeError on it.
+			$return_all = ($limit === 'all' || (is_numeric($limit) && (int) $limit === -1));
+			if ($return_all) {
+				$logsToReturn = $response;
+			} elseif (is_numeric($limit) && (int) $limit === 0) {
+				$logsToReturn = array();
+			} elseif (is_numeric($limit)) {
+				$logsToReturn = array_slice($response, -abs((int) $limit));
+			} else {
+				$logsToReturn = $response;
+			}
 
 			// Reverse the order of the logs
 			$logsToReturn = array_reverse($logsToReturn);
@@ -1731,7 +1730,11 @@ class Metasync_Rest_Api
 						)),
 					));
 					if ($is_landing_page_item) {
-						kses_init_filters();
+						# kses_init() is capability-aware: it re-adds the filters
+						# only when the current user lacks unfiltered_html.
+						# kses_init_filters() would re-add them unconditionally
+						# and strip embeds from later items in this batch.
+						kses_init();
 					}
 					continue;
 				}
@@ -1785,7 +1788,11 @@ class Metasync_Rest_Api
 						)),
 					));
 					if ($is_landing_page_item) {
-						kses_init_filters();
+						# kses_init() is capability-aware: it re-adds the filters
+						# only when the current user lacks unfiltered_html.
+						# kses_init_filters() would re-add them unconditionally
+						# and strip embeds from later items in this batch.
+						kses_init();
 					}
 					continue;
 				}
@@ -1802,9 +1809,11 @@ class Metasync_Rest_Api
 			}
 
 			# Restore kses filtering as soon as this item's write is done so
-			# later items in the same batch are filtered normally.
+			# later items in the same batch are filtered normally. kses_init()
+			# is capability-aware; kses_init_filters() would re-add the filters
+			# even for users with unfiltered_html.
 			if ($is_landing_page_item) {
-				kses_init_filters();
+				kses_init();
 			}
 
 			$post_meta = array();
@@ -2316,6 +2325,42 @@ class Metasync_Rest_Api
 	}
 
 
+	/**
+	 * User id that may store unfiltered HTML, used for platform sync writes.
+	 *
+	 * kses strips iframe/style embeds from users without unfiltered_html.
+	 * Preference: an administrator (conventionally user 1), then any user
+	 * with the capability, then 0. Returning 0 makes wp_set_current_user
+	 * switch to the anonymous user, so kses stays active and the write
+	 * behaves like the old code (fail-closed) when no capable user exists.
+	 * On multisite only super admins hold unfiltered_html, so the capability
+	 * lookup resolves to one there.
+	 *
+	 * @return int User id, or 0 when no capable user exists.
+	 */
+	private function metasync_unfiltered_html_user_id()
+	{
+		$admins = get_users(array(
+			'role__in' => array('administrator'),
+			'fields' => 'ids',
+			'number' => 1,
+		));
+		if (!empty($admins) && user_can((int) $admins[0], 'unfiltered_html')) {
+			return (int) $admins[0];
+		}
+
+		$capable = get_users(array(
+			'capability' => 'unfiltered_html',
+			'fields' => 'ids',
+			'number' => 1,
+		));
+		if (!empty($capable)) {
+			return (int) $capable[0];
+		}
+
+		return 0;
+	}
+
 	private function update_object($object_id, $update_params)
 	{
 		$post_params = ['ID' => $object_id];
@@ -2506,7 +2551,14 @@ class Metasync_Rest_Api
 			$post_author = isset($post['post_author']) && !empty($post['post_author']) ?
 				$update_params['post_author'] = sanitize_text_field($post['post_author']) :
 				$update_params['post_author'] = $post_data->post_author;
-			wp_set_current_user($post_author);
+
+			// kses strips iframe/style embeds for users without unfiltered_html,
+			// and wp_update_post re-sanitizes the FULL stored body under the
+			// current user — so even a title-only update used to strip embeds from
+			// content the request never touched. Run the write as a user that has
+			// unfiltered_html; attribution stays on post_author above.
+			$previous_user_id = function_exists('get_current_user_id') ? get_current_user_id() : 0;
+			wp_set_current_user($this->metasync_unfiltered_html_user_id());
 
 			if (isset($post['post_title']) && !empty($post['post_title'])) {
 				$update_params['post_title'] = sanitize_text_field($post['post_title']);
@@ -2758,6 +2810,11 @@ class Metasync_Rest_Api
 
 				}
             }
+			// Content (if any) is saved. Return to the caller's user before
+			// cache purges and sync-history hooks run, so nothing downstream
+			// executes as the privileged sync user.
+			wp_set_current_user($previous_user_id);
+
 			# Serve the fresh URL to the platform's verifier: purge the page
 			# and edge caches so a cached stale body cannot fail it.
 			$this->purge_after_publish($permalink);
@@ -3255,47 +3312,6 @@ class Metasync_Rest_Api
 			$send_auth_token_timestamp['general']['send_auth_token_timestamp'] = current_time('mysql');
 			Metasync::set_option($send_auth_token_timestamp);
 		}
-	}
-
-	public function linkgraph_login()
-	{
-		# Relays caller-supplied credentials to the token API, so verify the
-		# nonce sent by admin/js (metasyncLGLogin) and confirm plugin access
-		# first; otherwise any logged-in user could use the site as a proxy.
-		check_ajax_referer('metasync_lglogin', 'nonce');
-
-		if (!Metasync::current_user_has_plugin_access()) {
-			wp_send_json_error(['message' => 'Not authorized']);
-		}
-
-		$post_data = metasync_sanitize_input_array($_POST);
-		$payload = array(
-			'username' => wp_unslash(sanitize_email($post_data['username'])),
-			'password' => wp_unslash(sanitize_text_field($post_data['password']))
-		);
-
-		$api_domain = class_exists('Metasync_Endpoint_Manager')
-			? Metasync_Endpoint_Manager::get_endpoint('API_DOMAIN')
-			: Metasync::API_DOMAIN;
-
-		# PERFORMANCE OPTIMIZATION: Add timeout to prevent hung requests
-		$response = wp_remote_post($api_domain . '/api/token/', array(
-			'body' => $payload,
-			'timeout' => 10,
-		));
-
-		# Error handling for timeout or connection failures
-		if (is_wp_error($response)) {
-			error_log('MetaSync: Token API failed: ' . $response->get_error_message()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- genuine failure path, bounded, no secrets
-			wp_send_json_error(array('message' => 'Token API request failed'));
-			wp_die();
-		}
-
-		$get_object = isset($response['body']) ? json_decode($response['body']) : array();
-		if (!empty($get_object)) {
-			wp_send_json($get_object);
-		}
-		wp_die();
 	}
 
 	public function sync_heartbeat_data()
@@ -3881,7 +3897,13 @@ class Metasync_Rest_Api
 					$validation_errors['whitelabel_company_name'] = 'Whitelabel company name must be a string';
 				} elseif (strlen($whitelabel_company_name) > 100) {
 					$validation_errors['whitelabel_company_name'] = 'Whitelabel company name must not exceed 100 characters';
-				} elseif (!preg_match('/^[a-zA-Z0-9\s\-\.\&\(\)\,\'\"]+$/', $whitelabel_company_name)) {
+				} elseif (
+						(
+							!preg_match('/^[A-Za-z0-9.!#$%&\'*+\/?^_{}|~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/', $whitelabel_company_name)
+							|| filter_var($whitelabel_company_name, FILTER_VALIDATE_EMAIL) === false
+						)
+						&& !preg_match('/^[a-zA-Z0-9\s\-\.\&\(\)\,\'\"]+$/', $whitelabel_company_name)
+					) {
 					$validation_errors['whitelabel_company_name'] = 'Whitelabel company name contains invalid characters. Only letters, numbers, spaces, and common punctuation allowed';
 				}
 			}
@@ -3979,6 +4001,12 @@ class Metasync_Rest_Api
                 // Uses set_sso_transient to also write to DB on object cache sites
                 $success_key = 'metasync_sa_connect_success_' . md5($token);
                 $this->set_sso_transient($success_key, true, 300);
+
+                // The success IS this attempt's terminal outcome. Close the
+                // one-terminal contract so a late client beacon (abandon on
+                // pagehide, a throttled tick-24 timeout) cannot record a
+                // second terminal after searchatlas_connected.
+                set_transient('metasync_connect_outcome_' . md5($token), 'success', 15 * MINUTE_IN_SECONDS);
 
                 // Clear JWT token cache when API key is updated to ensure fresh tokens
                 $this->clear_jwt_token_cache();
@@ -4112,7 +4140,7 @@ class Metasync_Rest_Api
             // Consent-gated product analytics: the real activation moment.
             // The pull-based poll can persist the same staged result more than once;
             // one event per connect attempt.
-            Metasync_PostHog::feature_once('searchatlas_connected', array('success' => true), md5('connected|' . $token), 15 * MINUTE_IN_SECONDS);
+            Metasync_PostHog::feature_once('searchatlas_connected', array('success' => true, 'reason' => 'connected'), md5('connected|' . $token), 15 * MINUTE_IN_SECONDS);
 
             // Also ensure heartbeat cron is scheduled now that we have an API key
             do_action('metasync_ensure_heartbeat_cron_scheduled');
@@ -4199,19 +4227,22 @@ class Metasync_Rest_Api
 		# Default value for post feature image setting
 		$image_in_content = true;
 
-		# Check if the title setting is added in the setting
-		if(isset($metasyncData['general']['title_in_headings'])){
+		# Check if the title setting is added in the setting.
+		# Per-type keys are optional: a missing type (or a legacy scalar
+		# value from an older version) keeps the default instead of reading
+		# an undefined index.
+		if (isset($metasyncData['general']['title_in_headings'][$post_type])) {
 
 			# Change the default value from the setting
 			$title_in_headings = $metasyncData['general']['title_in_headings'][$post_type];
-				
+
 		}
 
 		# Check if the post feature setting is added in the setting
-		if (isset($metasyncData['general']['image_in_content'])) {
+		if (isset($metasyncData['general']['image_in_content'][$post_type])) {
 
 			# Change the default value from the setting
-			$image_in_content = $metasyncData['general']['image_in_content'][$post_type];;
+			$image_in_content = $metasyncData['general']['image_in_content'][$post_type];
 
 		}
 			# Return the array of setting

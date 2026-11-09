@@ -24,11 +24,12 @@ if (!function_exists('metasync_get_sitemap_taxonomy_picker_taxonomies')) {
             'wp_pattern_category',
             'template_tag',
             'template_bundle',
+            // Post-format archives are system-generated and low-value. Rank Math
+            // and AIOSEO never emit them; Yoast noindexes them by default.
+            // MetaSync has no opt-in, so exclude them unconditionally. The
+            // metasync_sitemap_taxonomy_picker_taxonomies filter can add them back.
+            'post_format',
         ];
-
-        if (!current_theme_supports('post-formats')) {
-            $excluded_taxonomies[] = 'post_format';
-        }
 
         $filtered_taxonomies = [];
         foreach ((array) $taxonomies as $taxonomy) {
